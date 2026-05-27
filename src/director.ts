@@ -9,6 +9,37 @@ import type {
 } from "@intx/types/runtime";
 import type { DirectorPersistedState } from "./state.js";
 
+export type PlanStep = {
+  file: string;
+  action: string;
+  reason: string;
+};
+
+export const submitPlanDefinition: ToolDefinition = {
+  name: "submitPlan",
+  description:
+    "Call this on your first turn to declare a structured plan for the task.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      steps: {
+        type: "array",
+        description: "Ordered list of planned steps",
+        items: {
+          type: "object",
+          properties: {
+            file: { type: "string", description: "File this step touches" },
+            action: { type: "string", description: "What to do with the file" },
+            reason: { type: "string", description: "Why this step is needed" },
+          },
+          required: ["file", "action", "reason"],
+        },
+      },
+    },
+    required: ["steps"],
+  },
+};
+
 export const submitOutputDefinition: ToolDefinition = {
   name: "submitOutput",
   description:
@@ -34,6 +65,20 @@ export interface CodingDirector extends ReactorDirector {
 const READ_TOOLS = new Set(["read_file", "list_dir", "search_files", "grep"]);
 const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
 
+function isValidPlanArgs(args: unknown): args is { steps: PlanStep[] } {
+  if (typeof args !== "object" || args === null) return false;
+  const a = args as Record<string, unknown>;
+  if (!Array.isArray(a.steps)) return false;
+  for (const step of a.steps) {
+    if (typeof step !== "object" || step === null) return false;
+    const s = step as Record<string, unknown>;
+    if (typeof s.file !== "string") return false;
+    if (typeof s.action !== "string") return false;
+    if (typeof s.reason !== "string") return false;
+  }
+  return true;
+}
+
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
@@ -41,6 +86,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private readonly callIdToName = new Map<string, string>();
   private idleCycles = 0;
   private consecutiveReads = 0;
+  private planSubmitted = false;
+  private plan: PlanStep[] = [];
 
   constructor(
     systemPrompt: string,
@@ -75,6 +122,12 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       for (const block of event.turn.content) {
         if (block.type === "tool_call") {
           this.callIdToName.set(block.id, block.name);
+          if (block.name === "submitPlan") {
+            if (isValidPlanArgs(block.arguments)) {
+              this.plan = block.arguments.steps;
+              this.planSubmitted = true;
+            }
+          }
         }
       }
 
@@ -106,7 +159,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     if (event.type === "tool.done") {
       const name = this.callIdToName.get(event.result.callId);
       if (name === "submitOutput" && !event.result.isError) {
-        this.submitCalled = true;
+        if (this.planSubmitted) {
+          this.submitCalled = true;
+        }
       }
       if (name !== undefined) {
         if (READ_TOOLS.has(name)) {
@@ -145,6 +200,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       callIdToName,
       idleCycles: this.idleCycles,
       consecutiveReads: this.consecutiveReads,
+      planSubmitted: this.planSubmitted,
+      plan: this.plan,
     };
   }
 
@@ -157,6 +214,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     }
     this.idleCycles = state.idleCycles ?? 0;
     this.consecutiveReads = state.consecutiveReads ?? 0;
+    this.planSubmitted = state.planSubmitted ?? false;
+    this.plan = state.plan ?? [];
   }
 }
 
