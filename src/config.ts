@@ -8,6 +8,7 @@ export type Config = {
   cwd: string;
   maxTurns: number;
   task: string;
+  force: boolean;
 };
 
 const DEFAULT_MAX_TURNS = 30;
@@ -25,6 +26,7 @@ export function loadConfig(argv: readonly string[]): Config {
 
   let cwd = process.cwd();
   let maxTurns = DEFAULT_MAX_TURNS;
+  let force = false;
   const positional: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -48,6 +50,10 @@ export function loadConfig(argv: readonly string[]): Config {
         throw new Error(`invalid --max-turns: ${next}`);
       }
       maxTurns = parsed;
+      continue;
+    }
+    if (arg === "--force") {
+      force = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -74,5 +80,6 @@ export function loadConfig(argv: readonly string[]): Config {
     cwd,
     maxTurns,
     task,
+    force,
   };
 }
