@@ -24,9 +24,13 @@ export const submitOutputDefinition: ToolDefinition = {
   },
 };
 
-class CodingDirector extends DefaultDirector implements ReactorDirector {
+export interface CodingDirector extends ReactorDirector {
+  getTurnsUsed(): number;
+}
+
+class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
-  private turnsUsed = 0;
+  private _turnsUsed = 0;
   private readonly maxTurns: number;
   private readonly callIdToName = new Map<string, string>();
 
@@ -45,7 +49,7 @@ class CodingDirector extends DefaultDirector implements ReactorDirector {
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
     if (event.type === "inference.done") {
-      this.turnsUsed++;
+      this._turnsUsed++;
 
       for (const block of event.turn.content) {
         if (block.type === "tool_call") {
@@ -65,7 +69,7 @@ class CodingDirector extends DefaultDirector implements ReactorDirector {
         }
       }
 
-      if (this.turnsUsed >= this.maxTurns) {
+      if (this._turnsUsed >= this.maxTurns) {
         return [
           capabilities.checkpoint("max-turns"),
           capabilities.reply(`Max turns (${this.maxTurns}) reached.`),
@@ -82,12 +86,16 @@ class CodingDirector extends DefaultDirector implements ReactorDirector {
 
     return super.decide(event, state, capabilities);
   }
+
+  getTurnsUsed(): number {
+    return this._turnsUsed;
+  }
 }
 
 export function createCodingDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
   maxTurns: number,
-): ReactorDirector {
-  return new CodingDirector(systemPrompt, toolDefinitions, maxTurns);
+): CodingDirector {
+  return new CodingDirectorImpl(systemPrompt, toolDefinitions, maxTurns);
 }
