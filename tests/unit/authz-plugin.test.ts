@@ -54,4 +54,30 @@ describe("authzPlugin", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/Destructive command blocked/);
   });
+
+  test("blocks mkfs", async () => {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeShellCall("mkfs.ext4 /dev/sda1"),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Destructive command blocked/);
+  });
+
+  test("blocks fork bomb", async () => {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeShellCall(":(){ :|:& };:"),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Destructive command blocked/);
+  });
 });
