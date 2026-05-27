@@ -36,7 +36,7 @@ function looksLikePath(key: string): boolean {
 function sanitizePath(value: string, cwd: string): string {
   const resolved = resolve(cwd, value);
   const rel = relative(cwd, resolved);
-  if (rel.startsWith("..") || rel === "") {
+  if (rel.startsWith("..")) {
     throw new Error(`Path escapes working directory: ${value}`);
   }
   return resolved;
