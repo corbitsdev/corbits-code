@@ -173,8 +173,30 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
   return 0;
 }
 
+function printHelp(): void {
+  console.log("Usage: interchange-code [run] <task description>");
+  console.log("       interchange-code resume [--force]");
+  console.log("");
+  console.log("Options:");
+  console.log("  --cwd <dir>        Working directory (default: current directory)");
+  console.log("  --max-turns <n>    Maximum agent turns (default: 30)");
+  console.log("  --force            Override an existing run state");
+  console.log("  --help             Show this help message");
+  console.log("");
+  console.log("Environment:");
+  console.log("  OPENAI_COMPATIBLE_API_KEY      API key for inference provider");
+  console.log("  OPENAI_COMPATIBLE_BASE_URL     Provider base URL");
+  console.log("  OPENAI_COMPATIBLE_MODEL          Model identifier");
+  console.log("  OPENAI_COMPATIBLE_PROVIDER_NAME  Provider name");
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const args = [...argv];
+
+  if (args.includes("--help") || args.includes("-h")) {
+    printHelp();
+    return 0;
+  }
 
   if (args[0] === "resume") {
     args.shift();
