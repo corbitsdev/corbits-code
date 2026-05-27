@@ -11,10 +11,10 @@ export function verifyPlugin(): ToolPlugin {
         const expected = String(call.arguments.content ?? "");
         try {
           const actual = await readFile(path, "utf8");
-          if (actual.length !== expected.length) {
+          if (actual !== expected) {
             return {
               callId: call.id,
-              content: `Write verification failed: length mismatch (expected ${expected.length}, got ${actual.length})`,
+              content: `Write verification failed: content mismatch`,
               isError: true,
             };
           }
