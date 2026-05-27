@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
@@ -14,6 +14,27 @@ import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState } from "./state.js";
+
+async function loadEnvFile(path: string): Promise<void> {
+  try {
+    const file = Bun.file(path);
+    const text = await file.text();
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("#") || trimmed.length === 0) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const value = trimmed.slice(eq + 1).trim();
+      const unquoted = value.replace(/^["']|["']$/g, "");
+      if (process.env[key] === undefined) {
+        process.env[key] = unquoted;
+      }
+    }
+  } catch {
+    // File missing or unreadable — ignore
+  }
+}
 
 /* eslint-disable no-console */
 
@@ -136,6 +157,9 @@ function traceEvent(event: ReactorEmittedEvent): void {
       break;
   }
 }
+
+const projectRoot = resolve(import.meta.dirname, "..");
+await loadEnvFile(resolve(projectRoot, ".env"));
 
 void main(process.argv.slice(2)).then(
   (code) => process.exit(code),
