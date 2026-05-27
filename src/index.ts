@@ -14,6 +14,7 @@ import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState } from "./state.js";
+import { runCritique } from "./critic.js";
 
 async function loadEnvFile(path: string): Promise<void> {
   try {
@@ -138,6 +139,24 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
     });
     await cleanup();
     throw err;
+  }
+
+  const critique = await runCritique(config.cwd);
+  if (!critique.passed) {
+    await saveState(config.cwd, {
+      status: "failed",
+      turnsUsed: director.getTurnsUsed(),
+      task: config.task,
+      startedAt,
+      finishedAt: Date.now(),
+      error: critique.errors.join("; "),
+    });
+    console.error("Critique failed:");
+    for (const e of critique.errors) {
+      console.error(`  - ${e}`);
+    }
+    await cleanup();
+    return 1;
   }
 
   await saveState(config.cwd, {
