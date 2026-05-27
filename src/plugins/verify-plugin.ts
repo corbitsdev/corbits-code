@@ -5,7 +5,18 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 export function verifyPlugin(): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
+      let before: string | undefined;
+      if (call.name === "edit_file") {
+        const path = String(call.arguments.path ?? "");
+        try {
+          before = await readFile(path, "utf8");
+        } catch {
+          // File may not exist yet; edit will likely fail downstream
+        }
+      }
+
       const result = await next(call, signal);
+
       if (call.name === "write_file" && !result.isError) {
         const path = String(call.arguments.path ?? "");
         const expected = String(call.arguments.content ?? "");
@@ -26,7 +37,47 @@ export function verifyPlugin(): ToolPlugin {
           };
         }
       }
+
+      if (call.name === "edit_file" && !result.isError && before !== undefined) {
+        const path = String(call.arguments.path ?? "");
+        const oldStr = String(call.arguments.old_string ?? "");
+        const newStr = String(call.arguments.new_string ?? "");
+        const replaceAll = Boolean(call.arguments.replace_all);
+        try {
+          const actual = await readFile(path, "utf8");
+          const expected = applyEdit(before, oldStr, newStr, replaceAll);
+          if (actual !== expected) {
+            return {
+              callId: call.id,
+              content: `Edit verification failed: content mismatch after replacement`,
+              isError: true,
+            };
+          }
+        } catch (err) {
+          return {
+            callId: call.id,
+            content: `Edit verification failed: could not re-read file: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+      }
+
       return result;
     },
   };
+}
+
+function applyEdit(
+  content: string,
+  oldStr: string,
+  newStr: string,
+  replaceAll: boolean,
+): string {
+  if (oldStr.length === 0) return content;
+  if (replaceAll) {
+    return content.split(oldStr).join(newStr);
+  }
+  const idx = content.indexOf(oldStr);
+  if (idx === -1) return content;
+  return content.slice(0, idx) + newStr + content.slice(idx + oldStr.length);
 }
