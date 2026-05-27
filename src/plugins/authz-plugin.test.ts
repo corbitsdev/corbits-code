@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 
-import { authzPlugin } from "../../src/plugins/authz-plugin.js";
+import { authzPlugin } from "./authz-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 function makeShellCall(command: string): ToolCall {
