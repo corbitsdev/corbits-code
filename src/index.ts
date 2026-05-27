@@ -175,10 +175,18 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function traceEvent(event: ReactorEmittedEvent): void {
   switch (event.type) {
+    case "inference.tool_call.start": {
+      process.stderr.write(`[tool-start] ${event.data.name}\n`);
+      break;
+    }
     case "inference.tool_call.end": {
       process.stderr.write(
         `[tool] ${event.data.name} (${JSON.stringify(event.data.arguments)})\n`,
       );
+      break;
+    }
+    case "tool.start": {
+      process.stderr.write(`[exec-start] ${event.data.call.name}\n`);
       break;
     }
     case "tool.done": {
@@ -189,6 +197,12 @@ function traceEvent(event: ReactorEmittedEvent): void {
     case "inference.error": {
       process.stderr.write(
         `[inference-error] ${event.data.error.category}: ${event.data.error.message}\n`,
+      );
+      break;
+    }
+    case "reactor.error": {
+      process.stderr.write(
+        `[reactor-error] fatal=${event.data.fatal}: ${event.data.error}\n`,
       );
       break;
     }
