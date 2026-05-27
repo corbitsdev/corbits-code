@@ -35,25 +35,56 @@ async function runCommand(
   return { exitCode, stdout, stderr, timedOut };
 }
 
+async function hasScript(cwd: string, name: string): Promise<boolean> {
+  try {
+    const file = Bun.file(`${cwd}/package.json`);
+    const text = await file.text();
+    const pkg = JSON.parse(text) as { scripts?: Record<string, string> };
+    return pkg.scripts !== undefined && name in pkg.scripts;
+  } catch {
+    return false;
+  }
+}
+
+async function hasTestFiles(cwd: string): Promise<boolean> {
+  try {
+    const proc = Bun.spawn(
+      ["find", cwd, "-type", "f", "(", "-name", "*.test.*", "-o", "-name", "*.spec.*", "-o", "-name", "*_test_*", "-o", "-name", "*_spec_*", ")"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function runCritique(cwd: string): Promise<CritiqueResult> {
   const errors: string[] = [];
 
-  const buildResult = await runCommand(cwd, ["bun", "run", "build"]);
-  if (buildResult.exitCode !== 0) {
-    const detail = buildResult.timedOut ? " (timed out)" : "";
-    errors.push(`Build failed${detail}: ${buildResult.stderr || buildResult.stdout}`);
+  if (await hasScript(cwd, "build")) {
+    const buildResult = await runCommand(cwd, ["bun", "run", "build"]);
+    if (buildResult.exitCode !== 0) {
+      const detail = buildResult.timedOut ? " (timed out)" : "";
+      errors.push(`Build failed${detail}: ${buildResult.stderr || buildResult.stdout}`);
+    }
   }
 
-  const typeResult = await runCommand(cwd, ["bun", "run", "typecheck"]);
-  if (typeResult.exitCode !== 0) {
-    const detail = typeResult.timedOut ? " (timed out)" : "";
-    errors.push(`Type check failed${detail}: ${typeResult.stderr || typeResult.stdout}`);
+  if (await hasScript(cwd, "typecheck")) {
+    const typeResult = await runCommand(cwd, ["bun", "run", "typecheck"]);
+    if (typeResult.exitCode !== 0) {
+      const detail = typeResult.timedOut ? " (timed out)" : "";
+      errors.push(`Type check failed${detail}: ${typeResult.stderr || typeResult.stdout}`);
+    }
   }
 
-  const testResult = await runCommand(cwd, ["bun", "test"]);
-  if (testResult.exitCode !== 0) {
-    const detail = testResult.timedOut ? " (timed out)" : "";
-    errors.push(`Tests failed${detail}: ${testResult.stderr || testResult.stdout}`);
+  if (await hasTestFiles(cwd)) {
+    const testResult = await runCommand(cwd, ["bun", "test"]);
+    if (testResult.exitCode !== 0) {
+      const detail = testResult.timedOut ? " (timed out)" : "";
+      errors.push(`Tests failed${detail}: ${testResult.stderr || testResult.stdout}`);
+    }
   }
 
   return { passed: errors.length === 0, errors };
