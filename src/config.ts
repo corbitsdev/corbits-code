@@ -4,14 +4,21 @@ export type Config = {
   apiKey: string;
   baseURL: string;
   model: string;
+  providerName: string;
   cwd: string;
   maxTurns: number;
   task: string;
 };
 
-const DEFAULT_BASE_URL = "https://api.x.ai/v1";
-const DEFAULT_MODEL = "default-model";
 const DEFAULT_MAX_TURNS = 30;
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.length === 0) {
+    throw new Error(`${name} env var is required`);
+  }
+  return value;
+}
 
 export function loadConfig(argv: readonly string[]): Config {
   const args = [...argv];
@@ -49,13 +56,10 @@ export function loadConfig(argv: readonly string[]): Config {
     positional.push(arg);
   }
 
-  const apiKey = process.env.XAI_API_KEY;
-  if (apiKey === undefined || apiKey.length === 0) {
-    throw new Error("XAI_API_KEY env var is required");
-  }
-
-  const baseURL = process.env.XAI_BASE_URL ?? DEFAULT_BASE_URL;
-  const model = process.env.XAI_MODEL ?? DEFAULT_MODEL;
+  const apiKey = requireEnv("OPENAI_COMPATIBLE_API_KEY");
+  const baseURL = requireEnv("OPENAI_COMPATIBLE_BASE_URL");
+  const model = requireEnv("OPENAI_COMPATIBLE_MODEL");
+  const providerName = requireEnv("OPENAI_COMPATIBLE_PROVIDER_NAME");
 
   const task = positional.join(" ").trim();
   if (task.length === 0) {
@@ -66,6 +70,7 @@ export function loadConfig(argv: readonly string[]): Config {
     apiKey,
     baseURL,
     model,
+    providerName,
     cwd,
     maxTurns,
     task,
