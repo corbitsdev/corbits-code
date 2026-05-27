@@ -61,7 +61,6 @@ class CodingDirector extends DefaultDirector implements ReactorDirector {
           return [
             capabilities.checkpoint("submit-accepted"),
             capabilities.reply("Task completed."),
-            capabilities.done(),
           ];
         }
       }
@@ -70,7 +69,6 @@ class CodingDirector extends DefaultDirector implements ReactorDirector {
         return [
           capabilities.checkpoint("max-turns"),
           capabilities.reply(`Max turns (${this.maxTurns}) reached.`),
-          capabilities.done(),
         ];
       }
     }

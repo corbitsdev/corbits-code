@@ -3,6 +3,7 @@
 import { join, resolve } from "node:path";
 
 import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
+import type { SendResult } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ToolResult } from "@intx/types/runtime";
@@ -105,11 +106,29 @@ async function main(argv: readonly string[]): Promise<number> {
 
   const sendPromise = agent.send(config.task);
 
-  for await (const event of agent.stream()) {
-    traceEvent(event);
-  }
+  const streamPromise = (async () => {
+    for await (const event of agent.stream()) {
+      traceEvent(event);
+    }
+  })();
 
-  const result = await sendPromise;
+  let result: SendResult;
+  try {
+    result = await sendPromise;
+  } catch (err) {
+    await saveState(config.cwd, {
+      status: "failed",
+      turnsUsed: 0,
+      task: config.task,
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await agent.close();
+    await streamPromise;
+    await posixTools.dispose();
+    throw err;
+  }
 
   await saveState(config.cwd, {
     status: "done",
@@ -122,6 +141,7 @@ async function main(argv: readonly string[]): Promise<number> {
   console.log(result.reply);
 
   await agent.close();
+  await streamPromise;
   await posixTools.dispose();
   return 0;
 }
