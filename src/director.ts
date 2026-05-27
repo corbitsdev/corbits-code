@@ -31,11 +31,16 @@ export interface CodingDirector extends ReactorDirector {
   setState(state: DirectorPersistedState): void;
 }
 
+const READ_TOOLS = new Set(["read_file", "list_dir", "search_files", "grep"]);
+const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
+
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
   private readonly maxTurns: number;
   private readonly callIdToName = new Map<string, string>();
+  private idleCycles = 0;
+  private consecutiveReads = 0;
 
   constructor(
     systemPrompt: string,
@@ -58,6 +63,15 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     if (event.type === "inference.done") {
       this._turnsUsed++;
 
+      const hasToolCalls = event.turn.content.some(
+        (b) => b.type === "tool_call",
+      );
+      if (hasToolCalls) {
+        this.idleCycles = 0;
+      } else {
+        this.idleCycles++;
+      }
+
       for (const block of event.turn.content) {
         if (block.type === "tool_call") {
           this.callIdToName.set(block.id, block.name);
@@ -65,15 +79,20 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       }
 
       if (this.submitCalled) {
-        const hasToolCalls = event.turn.content.some(
-          (b) => b.type === "tool_call",
-        );
         if (!hasToolCalls) {
           return [
             capabilities.checkpoint("submit-accepted"),
             capabilities.reply("Task completed."),
           ];
         }
+      }
+
+      if (this.idleCycles >= 3) {
+        return [
+          capabilities.checkpoint("idle-abort"),
+          capabilities.reply("Agent stalled: no tool calls for 3 turns."),
+          capabilities.done(),
+        ];
       }
 
       if (this._turnsUsed >= this.maxTurns) {
@@ -89,9 +108,26 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       if (name === "submitOutput" && !event.result.isError) {
         this.submitCalled = true;
       }
+      if (name !== undefined) {
+        if (READ_TOOLS.has(name)) {
+          this.consecutiveReads++;
+        } else if (WRITE_TOOLS.has(name)) {
+          this.consecutiveReads = 0;
+        }
+      }
     }
 
-    return super.decide(event, state, capabilities);
+    const actions = await super.decide(event, state, capabilities);
+
+    if (this.consecutiveReads >= 7) {
+      return [
+        capabilities.checkpoint("read-abort"),
+        capabilities.reply("Agent stalled: too many reads without writes."),
+        capabilities.done(),
+      ];
+    }
+
+    return actions;
   }
 
   getTurnsUsed(): number {
@@ -107,6 +143,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       turnsUsed: this._turnsUsed,
       submitCalled: this.submitCalled,
       callIdToName,
+      idleCycles: this.idleCycles,
+      consecutiveReads: this.consecutiveReads,
     };
   }
 
@@ -117,6 +155,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     for (const [k, v] of Object.entries(state.callIdToName)) {
       this.callIdToName.set(k, v);
     }
+    this.idleCycles = state.idleCycles ?? 0;
+    this.consecutiveReads = state.consecutiveReads ?? 0;
   }
 }
 
