@@ -1,63 +1,56 @@
-# Client Template
+# interchange-code
 
-This repository is the starting point for new client projects. It gives each
-project a consistent agent workspace so Codex, Claude, and other agent tools can
-share the same instructions, skills, and specialist agent profiles from day one.
+A single-process coding agent CLI using the LLM (OpenAI-compatible) built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
 
-The template does not include an application framework yet. Add the actual app,
-site, or service stack after creating a new client repository from this base.
+## Stack
 
-## How To Use This Template
+- **Runtime:** Bun + TypeScript
+- **Agent loop:** `@intx/agent` with event-driven reactor
+- **Inference:** `@intx/inference` with OpenAI-compatible SSE adapter
+- **Tools:** `@intx/tools-posix` with path-escape, authz, and verify plugins
+- **Persistence:** `@intx/storage-isogit` for git-backed resume
+- **Testing:** `@intx/inference-testing` for deterministic agent loop tests
+- **TUI (Phase 5):** Ink + React
 
-1. Create a new repository from this template.
-2. Add the client project's application code.
-3. Update `AGENTS.md` with any project-specific rules.
-4. Add reusable skills or agent profiles under `.agents/`.
-5. Add runtime-specific adapters only when Claude or Codex needs different
-   behavior.
+## Architecture
 
-## What's Included
+```
+CLI (src/index.ts)
+  → load config, load skills
+  → createPosixTools({ cwd, plugins: [pathEscapePlugin, authzPlugin, verifyPlugin] })
+  → createAgent({
+      contextDir,
+      sources: [xaiSource],
+      defaultSource: "xai",
+      systemPrompt,
+      tools: posixTools,
+      director: createCodingDirector(policy),
+    })
+  → agent.send(task)
+  → for await (event of agent.stream()) { handle }
+  → agent.close()
+```
 
-- Shared startup instructions in `AGENTS.md`
-- Claude-specific workspace notes in `CLAUDE.md`
-- Shared agent profiles in `.agents/agents/`
-- Shared skills in `.agents/skills/`
-- Claude adapters in `.claude/`
-- Codex adapters in `.codex/`
+The custom director adds stall detection on top of the reactor:
+- **Idle cycles:** Conversational turns without tool calls are counted and corrected.
+- **Read budgets:** Re-reading files and excessive searches are blocked.
+- **Plan adherence:** The first turn must submit a structured plan; deviations are flagged.
+- **Missing submit:** The director enforces `submitOutput` as the only terminal action.
 
-## Agent Roster
+## Development
 
-The shared profiles include:
+```bash
+bun install
+bun run typecheck
+bun run build
+bun test
+```
 
-- `bruckheimer` for turning early product ideas into clear briefs
-- `karen` for project orchestration and dispatch planning
-- `greybeard` for senior architecture and planning review
-- `critique` for code review and test-backed quality checks
-- `draper` for Corbits brand review
-- `emil` for UI and design engineering critique
-- `intern` for mechanical execution tasks
-- `linear` for Linear issue work
-- `neckbeard` for intentionally pedantic read-only reviews
+## Agent Workspace
 
-## Shared Skills
+This repository includes a shared agent workspace under `.agents/`, `.claude/`, and `.codex/` so Codex, Claude, and other agent tools share the same instructions, skills, and specialist profiles.
 
-The template includes these shared skills:
-
-- `brand-identity`
-- `design-lab`
-- `dispatch`
-- `interview`
-- `philosophy`
-- `scribe`
-- `style`
-
-Claude and Codex skill folders link back to the shared versions so updates stay
-in one place.
-
-## Conventions
-
-- Keep shared behavior in `.agents/` whenever possible.
-- Keep Claude-specific behavior in `.claude/`.
-- Keep Codex-specific behavior in `.codex/`.
-- Codex agent adapters should be `.toml` files.
-- Commit changes as you go and push after committing.
+- `AGENTS.md` — shared startup instructions and project context
+- `CLAUDE.md` — Claude-specific workspace notes
+- `.agents/skills/` — shared skills (`style`, `philosophy`, `dispatch`, `interview`, `scribe`, `brand-identity`, `design-lab`)
+- `.agents/agents/` — shared agent profiles (`karen`, `greybeard`, `critique`, `intern`, `neckbeard`, etc.)
