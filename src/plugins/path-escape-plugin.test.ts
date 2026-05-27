@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 
-import { pathEscapePlugin } from "../../src/plugins/path-escape-plugin.js";
+import { pathEscapePlugin } from "./path-escape-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 function makeCall(name: string, args: Record<string, unknown>): ToolCall {

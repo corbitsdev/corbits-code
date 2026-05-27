@@ -3,8 +3,8 @@ import { describe, test, expect } from "bun:test";
 import { createCapabilities } from "@intx/inference";
 import { setupHarness } from "@intx/inference-testing";
 
-import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "../../src/director.js";
-import { buildSystemPrompt } from "../../src/prompts.js";
+import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "../src/director.js";
+import { buildSystemPrompt } from "../src/prompts.js";
 
 describe("agent loop", () => {
   test("director aborts after submitOutput", async () => {
