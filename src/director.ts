@@ -7,6 +7,7 @@ import type {
   ReactorAction,
   ToolDefinition,
 } from "@intx/types/runtime";
+import type { DirectorPersistedState } from "./state.js";
 
 export const submitOutputDefinition: ToolDefinition = {
   name: "submitOutput",
@@ -26,6 +27,8 @@ export const submitOutputDefinition: ToolDefinition = {
 
 export interface CodingDirector extends ReactorDirector {
   getTurnsUsed(): number;
+  getState(): DirectorPersistedState;
+  setState(state: DirectorPersistedState): void;
 }
 
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
@@ -38,9 +41,13 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     maxTurns: number,
+    initialState?: DirectorPersistedState,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.maxTurns = maxTurns;
+    if (initialState !== undefined) {
+      this.setState(initialState);
+    }
   }
 
   override async decide(
@@ -90,12 +97,34 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   getTurnsUsed(): number {
     return this._turnsUsed;
   }
+
+  getState(): DirectorPersistedState {
+    const callIdToName: Record<string, string> = {};
+    for (const [k, v] of this.callIdToName) {
+      callIdToName[k] = v;
+    }
+    return {
+      turnsUsed: this._turnsUsed,
+      submitCalled: this.submitCalled,
+      callIdToName,
+    };
+  }
+
+  setState(state: DirectorPersistedState): void {
+    this._turnsUsed = state.turnsUsed;
+    this.submitCalled = state.submitCalled;
+    this.callIdToName.clear();
+    for (const [k, v] of Object.entries(state.callIdToName)) {
+      this.callIdToName.set(k, v);
+    }
+  }
 }
 
 export function createCodingDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
   maxTurns: number,
+  initialState?: DirectorPersistedState,
 ): CodingDirector {
-  return new CodingDirectorImpl(systemPrompt, toolDefinitions, maxTurns);
+  return new CodingDirectorImpl(systemPrompt, toolDefinitions, maxTurns, initialState);
 }
