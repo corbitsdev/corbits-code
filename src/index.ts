@@ -8,7 +8,7 @@ import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { loadConfig, type Config } from "./config.js";
-import { createCodingDirector, submitOutputDefinition } from "./director.js";
+import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
@@ -57,22 +57,42 @@ async function runAgent(config: Config, initialStartedAt?: number, initialDirect
     ],
   });
 
-  const agentTools = [
-    ...fromToolRunner(posixTools),
-    stringTool({
-      definition: submitOutputDefinition,
-      handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
-        return "Submission accepted. The task is now complete.";
-      },
-    }),
+  const posixToolList = fromToolRunner(posixTools);
+  const allDefinitions = [
+    ...posixToolList.map((t) => t.definition),
+    submitPlanDefinition,
+    submitOutputDefinition,
   ];
 
   const director = createCodingDirector(
     buildSystemPrompt(),
-    agentTools.map((t) => t.definition),
+    allDefinitions,
     config.maxTurns,
     initialDirectorState,
   );
+
+  const agentTools = [
+    ...posixToolList,
+    stringTool({
+      definition: submitPlanDefinition,
+      handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        const steps = args.steps;
+        if (!Array.isArray(steps) || steps.length === 0) {
+          return "Error: submitPlan requires a non-empty steps array.";
+        }
+        return "Plan accepted.";
+      },
+    }),
+    stringTool({
+      definition: submitOutputDefinition,
+      handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        if (!director.getState().planSubmitted) {
+          return "Error: You must call submitPlan before submitOutput.";
+        }
+        return "Submission accepted. The task is now complete.";
+      },
+    }),
+  ];
 
   const agent = await createAgent({
     contextDir: join(config.cwd, ".agent-state", "context"),
