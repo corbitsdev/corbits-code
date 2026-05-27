@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -90,6 +90,69 @@ describe("verifyPlugin", () => {
       );
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/content mismatch/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("passes when edit_file matches expected result", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const editHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        const oldStr = String(call.arguments.old_string ?? "");
+        const newStr = String(call.arguments.new_string ?? "");
+        const content = await readFile(path, "utf8");
+        const updated = content.replace(oldStr, newStr);
+        await writeFile(path, updated);
+        return { callId: call.id, content: "edited" };
+      };
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
+
+      const path = join(dir, "test.txt");
+      await writeFile(path, "hello world");
+      const result = await handler(
+        {
+          id: "call-1",
+          name: "edit_file",
+          arguments: { path, old_string: "world", new_string: "universe" },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).not.toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when edit_file produces wrong result", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const badHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        await writeFile(path, "wrong content");
+        return { callId: call.id, content: "edited" };
+      };
+      const handler = plugin.middleware
+        ? plugin.middleware(badHandler)
+        : badHandler;
+
+      const path = join(dir, "test.txt");
+      await writeFile(path, "hello world");
+      const result = await handler(
+        {
+          id: "call-1",
+          name: "edit_file",
+          arguments: { path, old_string: "world", new_string: "universe" },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/content mismatch after replacement/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
