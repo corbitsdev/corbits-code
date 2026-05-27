@@ -54,4 +54,16 @@ describe("pathEscapePlugin", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes working directory/);
   });
+
+  test("allows cwd path itself", async () => {
+    const plugin = pathEscapePlugin("/project");
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeCall("read_file", { path: "." }),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeUndefined();
+  });
 });
