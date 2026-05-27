@@ -6,7 +6,6 @@ import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import type { SendResult } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { ToolResult } from "@intx/types/runtime";
 
 import { loadConfig } from "./config.js";
 import { createCodingDirector, submitOutputDefinition } from "./director.js";
