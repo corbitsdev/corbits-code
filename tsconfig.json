@@ -1,0 +1,10 @@
+{
+  "extends": "../interchange/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "composite": false,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}
