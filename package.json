@@ -1,0 +1,43 @@
+{
+  "name": "interchange-code",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "interchange-code": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "workspaces": [
+    ".",
+    "../interchange/packages/agent",
+    "../interchange/packages/inference",
+    "../interchange/packages/inference-testing",
+    "../interchange/packages/inference-discovery",
+    "../interchange/packages/tools-posix",
+    "../interchange/packages/types",
+    "../interchange/packages/storage-isogit",
+    "../interchange/packages/mime",
+    "../interchange/packages/log",
+    "../interchange/packages/crypto-node"
+  ],
+  "catalog": {
+    "arktype": "^2.1.29"
+  },
+  "dependencies": {
+    "@intx/agent": "workspace:*",
+    "@intx/inference": "workspace:*",
+    "@intx/tools-posix": "workspace:*",
+    "@intx/types": "workspace:*",
+    "@intx/storage-isogit": "workspace:*",
+    "arktype": "catalog:"
+  },
+  "devDependencies": {
+    "@intx/inference-testing": "workspace:*",
+    "@types/bun": "1.3.9",
+    "typescript": "5.9.3"
+  }
+}
