@@ -98,7 +98,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
   await saveState(config.cwd, {
     status: "running",
-    turnsUsed: 0,
+    turnsUsed: director.getTurnsUsed(),
     task: config.task,
     startedAt: Date.now(),
   });
@@ -123,7 +123,7 @@ async function main(argv: readonly string[]): Promise<number> {
   } catch (err) {
     await saveState(config.cwd, {
       status: "failed",
-      turnsUsed: 0,
+      turnsUsed: director.getTurnsUsed(),
       task: config.task,
       startedAt: Date.now(),
       finishedAt: Date.now(),
@@ -137,7 +137,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
   await saveState(config.cwd, {
     status: "done",
-    turnsUsed: 0,
+    turnsUsed: director.getTurnsUsed(),
     task: config.task,
     startedAt: Date.now(),
     finishedAt: Date.now(),
