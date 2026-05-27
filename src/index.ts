@@ -62,14 +62,14 @@ async function main(argv: readonly string[]): Promise<number> {
     contextDir: join(config.cwd, ".agent-state", "context"),
     sources: [
       {
-        id: "xai",
+        id: config.providerName,
         provider: "openai",
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
       },
     ],
-    defaultSource: "xai",
+    defaultSource: config.providerName,
     systemPrompt: buildSystemPrompt(),
     tools: agentTools,
     director,
