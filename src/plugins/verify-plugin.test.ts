@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { verifyPlugin } from "../../src/plugins/verify-plugin.js";
+import { verifyPlugin } from "./verify-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 async function makeNextHandler(call: ToolCall): Promise<ToolResult> {
