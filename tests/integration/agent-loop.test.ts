@@ -106,10 +106,10 @@ describe("agent loop", () => {
         capabilities,
       );
 
-      // Should abort with done because submitOutput was previously called
+      // Should reply because submitOutput was previously called
       expect(Array.isArray(actions3)).toBe(true);
       const arr3 = Array.isArray(actions3) ? actions3 : [actions3];
-      expect(arr3.some((a) => a.type === "done")).toBe(true);
+      expect(arr3.some((a) => a.type === "reply")).toBe(true);
     } finally {
       harness.dispose();
     }
@@ -182,9 +182,9 @@ describe("agent loop", () => {
         capabilities,
       );
 
-      // Should abort because max turns reached
+      // Should reply because max turns reached
       const arr2 = Array.isArray(actions2) ? actions2 : [actions2];
-      expect(arr2.some((a) => a.type === "done")).toBe(true);
+      expect(arr2.some((a) => a.type === "reply")).toBe(true);
     } finally {
       harness.dispose();
     }
