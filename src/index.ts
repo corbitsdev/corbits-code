@@ -7,7 +7,7 @@ import type { SendResult } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
 import { createCodingDirector, submitOutputDefinition } from "./director.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
@@ -38,16 +38,7 @@ async function loadEnvFile(path: string): Promise<void> {
 
 /* eslint-disable no-console */
 
-async function main(argv: readonly string[]): Promise<number> {
-  const args = [...argv];
-
-  // Strip optional "run" verb
-  if (args[0] === "run") {
-    args.shift();
-  }
-
-  const config = loadConfig(args);
-
+async function runAgent(config: Config): Promise<number> {
   const state = await loadState(config.cwd);
   if (state !== null && state.status === "running" && !config.force) {
     console.error("A run is already in progress in this directory. Use --force to override.");
@@ -149,6 +140,37 @@ async function main(argv: readonly string[]): Promise<number> {
   await streamPromise;
   await posixTools.dispose();
   return 0;
+}
+
+async function main(argv: readonly string[]): Promise<number> {
+  const args = [...argv];
+
+  if (args[0] === "resume") {
+    args.shift();
+    const config = loadConfig(args);
+    const previous = await loadState(config.cwd);
+    if (previous === null) {
+      console.error("No previous run found in this directory.");
+      return 1;
+    }
+    if (previous.status === "done") {
+      console.error("Previous run already completed.");
+      return 1;
+    }
+    if (previous.status === "running" && !config.force) {
+      console.error("A run is already in progress in this directory. Use --force to override.");
+      return 1;
+    }
+    return runAgent({ ...config, task: previous.task });
+  }
+
+  // Strip optional "run" verb
+  if (args[0] === "run") {
+    args.shift();
+  }
+
+  const config = loadConfig(args);
+  return runAgent(config);
 }
 
 function traceEvent(event: ReactorEmittedEvent): void {
