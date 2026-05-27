@@ -13,7 +13,7 @@ import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
-import { saveState, loadState } from "./state.js";
+import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
 import { runCritique } from "./critic.js";
 
 async function loadEnvFile(path: string): Promise<void> {
@@ -39,7 +39,7 @@ async function loadEnvFile(path: string): Promise<void> {
 
 /* eslint-disable no-console */
 
-async function runAgent(config: Config, initialStartedAt?: number): Promise<number> {
+async function runAgent(config: Config, initialStartedAt?: number, initialDirectorState?: DirectorPersistedState): Promise<number> {
   const state = await loadState(config.cwd);
   if (state !== null && state.status === "running" && !config.force) {
     console.error("A run is already in progress in this directory. Use --force to override.");
@@ -71,6 +71,7 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
     buildSystemPrompt(),
     agentTools.map((t) => t.definition),
     config.maxTurns,
+    initialDirectorState,
   );
 
   const agent = await createAgent({
@@ -96,6 +97,7 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
     task: config.task,
     startedAt,
   });
+  await saveDirectorState(config.cwd, director.getState());
 
   const sendPromise = agent.send(config.task);
 
@@ -137,6 +139,7 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
       finishedAt: Date.now(),
       error: err instanceof Error ? err.message : String(err),
     });
+    await saveDirectorState(config.cwd, director.getState());
     await cleanup();
     throw err;
   }
@@ -151,6 +154,7 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
       finishedAt: Date.now(),
       error: critique.errors.join("; "),
     });
+    await saveDirectorState(config.cwd, director.getState());
     console.error("Critique failed:");
     for (const e of critique.errors) {
       console.error(`  - ${e}`);
@@ -166,6 +170,7 @@ async function runAgent(config: Config, initialStartedAt?: number): Promise<numb
     startedAt,
     finishedAt: Date.now(),
   });
+  await saveDirectorState(config.cwd, director.getState());
 
   console.log(result.reply);
 
@@ -214,7 +219,8 @@ async function main(argv: readonly string[]): Promise<number> {
       console.error("A run is already in progress in this directory. Use --force to override.");
       return 1;
     }
-    return runAgent({ ...config, task: previous.task }, previous.startedAt);
+    const directorState = await loadDirectorState(config.cwd);
+    return runAgent({ ...config, task: previous.task }, previous.startedAt, directorState ?? undefined);
   }
 
   // Strip optional "run" verb
