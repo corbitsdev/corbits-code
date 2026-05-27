@@ -106,8 +106,14 @@ async function main(argv: readonly string[]): Promise<number> {
   const sendPromise = agent.send(config.task);
 
   const streamPromise = (async () => {
-    for await (const event of agent.stream()) {
-      traceEvent(event);
+    try {
+      for await (const event of agent.stream()) {
+        traceEvent(event);
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[stream-error] ${err instanceof Error ? err.message : String(err)}\n`,
+      );
     }
   })();
 
