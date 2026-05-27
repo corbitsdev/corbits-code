@@ -60,7 +60,7 @@ describe("verifyPlugin", () => {
         new AbortController().signal,
       );
       expect(result.isError).toBe(true);
-      expect(result.content).toMatch(/length mismatch/);
+      expect(result.content).toMatch(/content mismatch/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
