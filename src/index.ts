@@ -49,8 +49,8 @@ async function main(argv: readonly string[]): Promise<number> {
   const config = loadConfig(args);
 
   const state = await loadState(config.cwd);
-  if (state !== null && state.status === "running") {
-    console.error("A run is already in progress in this directory.");
+  if (state !== null && state.status === "running" && !config.force) {
+    console.error("A run is already in progress in this directory. Use --force to override.");
     return 1;
   }
 
