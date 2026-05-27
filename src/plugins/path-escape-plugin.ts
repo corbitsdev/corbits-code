@@ -30,7 +30,20 @@ function escapeArgs(args: Record<string, unknown>, cwd: string): Record<string, 
 }
 
 function looksLikePath(key: string): boolean {
-  return key === "path" || key === "file_path" || key === "target" || key.endsWith("Path");
+  return (
+    key === "path" ||
+    key === "file_path" ||
+    key === "target" ||
+    key === "cwd" ||
+    key === "directory" ||
+    key === "dir" ||
+    key === "dest" ||
+    key === "source" ||
+    key === "from" ||
+    key === "to" ||
+    key === "filename" ||
+    key.endsWith("Path")
+  );
 }
 
 function sanitizePath(value: string, cwd: string): string {

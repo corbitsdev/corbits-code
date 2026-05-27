@@ -26,7 +26,7 @@ describe("pathEscapePlugin", () => {
       makeCall("read_file", { path: "src/index.ts" }),
       new AbortController().signal,
     );
-    expect(result.isError).toBeUndefined();
+    expect(result.isError).not.toBe(true);
   });
 
   test("blocks paths that escape cwd", async () => {
@@ -64,6 +64,58 @@ describe("pathEscapePlugin", () => {
       makeCall("read_file", { path: "." }),
       new AbortController().signal,
     );
-    expect(result.isError).toBeUndefined();
+    expect(result.isError).not.toBe(true);
+  });
+
+  test("blocks escape via cwd key", async () => {
+    const plugin = pathEscapePlugin("/project");
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeCall("run_shell", { cwd: "../secret" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/escapes working directory/);
+  });
+
+  test("blocks escape via directory key", async () => {
+    const plugin = pathEscapePlugin("/project");
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeCall("list_dir", { directory: "/etc" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/escapes working directory/);
+  });
+
+  test("blocks escape via source key", async () => {
+    const plugin = pathEscapePlugin("/project");
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeCall("copy", { source: "/etc/passwd" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/escapes working directory/);
+  });
+
+  test("blocks escape via filename key", async () => {
+    const plugin = pathEscapePlugin("/project");
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
+    const result = await handler(
+      makeCall("write_file", { filename: "../secret.txt" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/escapes working directory/);
   });
 });
