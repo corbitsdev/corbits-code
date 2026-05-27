@@ -23,6 +23,8 @@ export type DirectorPersistedState = {
   callIdToName: Record<string, string>;
   idleCycles: number;
   consecutiveReads: number;
+  planSubmitted: boolean;
+  plan: Array<{ file: string; action: string; reason: string }>;
 };
 
 function isValidDirectorState(data: unknown): data is DirectorPersistedState {
@@ -36,6 +38,15 @@ function isValidDirectorState(data: unknown): data is DirectorPersistedState {
   }
   if (typeof s.idleCycles !== "number") return false;
   if (typeof s.consecutiveReads !== "number") return false;
+  if (typeof s.planSubmitted !== "boolean") return false;
+  if (!Array.isArray(s.plan)) return false;
+  for (const step of s.plan) {
+    if (typeof step !== "object" || step === null) return false;
+    const st = step as Record<string, unknown>;
+    if (typeof st.file !== "string") return false;
+    if (typeof st.action !== "string") return false;
+    if (typeof st.reason !== "string") return false;
+  }
   return true;
 }
 
