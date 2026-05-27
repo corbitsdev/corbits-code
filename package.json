@@ -9,7 +9,7 @@
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./tests/unit ./tests/integration"
+    "test": "bun test ./src ./e2e"
   },
   "workspaces": [
     ".",

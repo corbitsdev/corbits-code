@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 
-import { loadConfig } from "../../src/config.js";
+import { loadConfig } from "./config.js";
 
 const ENV_KEYS = [
   "OPENAI_COMPATIBLE_API_KEY",
