@@ -62,6 +62,7 @@ describe("loadConfig", () => {
       expect(config.providerName).toBe("fireworks");
       expect(config.maxTurns).toBe(30);
       expect(config.cwd).toBe(process.cwd());
+      expect(config.force).toBe(false);
     } finally {
       restoreEnv(stash);
     }
@@ -81,6 +82,19 @@ describe("loadConfig", () => {
       expect(config.cwd).toBe("/tmp/test");
       expect(config.maxTurns).toBe(15);
       expect(config.task).toBe("fix bug");
+      expect(config.force).toBe(false);
+    } finally {
+      restoreEnv(stash);
+    }
+  });
+
+  test("parses --force", () => {
+    const stash = stashEnv();
+    try {
+      setRequiredEnv();
+      const config = loadConfig(["--force", "run task"]);
+      expect(config.force).toBe(true);
+      expect(config.task).toBe("run task");
     } finally {
       restoreEnv(stash);
     }
