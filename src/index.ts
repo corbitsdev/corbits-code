@@ -38,12 +38,14 @@ async function loadEnvFile(path: string): Promise<void> {
 
 /* eslint-disable no-console */
 
-async function runAgent(config: Config): Promise<number> {
+async function runAgent(config: Config, initialStartedAt?: number): Promise<number> {
   const state = await loadState(config.cwd);
   if (state !== null && state.status === "running" && !config.force) {
     console.error("A run is already in progress in this directory. Use --force to override.");
     return 1;
   }
+
+  const startedAt = initialStartedAt ?? Date.now();
 
   const posixTools = createPosixTools({
     cwd: config.cwd,
@@ -91,7 +93,7 @@ async function runAgent(config: Config): Promise<number> {
     status: "running",
     turnsUsed: director.getTurnsUsed(),
     task: config.task,
-    startedAt: Date.now(),
+    startedAt,
   });
 
   const sendPromise = agent.send(config.task);
@@ -108,6 +110,20 @@ async function runAgent(config: Config): Promise<number> {
     }
   })();
 
+  async function cleanup(): Promise<void> {
+    try {
+      await agent.close();
+    } catch {
+      // ignore
+    }
+    try {
+      await streamPromise;
+    } catch {
+      // ignore
+    }
+    await posixTools.dispose();
+  }
+
   let result: SendResult;
   try {
     result = await sendPromise;
@@ -116,13 +132,11 @@ async function runAgent(config: Config): Promise<number> {
       status: "failed",
       turnsUsed: director.getTurnsUsed(),
       task: config.task,
-      startedAt: Date.now(),
+      startedAt,
       finishedAt: Date.now(),
       error: err instanceof Error ? err.message : String(err),
     });
-    await agent.close();
-    await streamPromise;
-    await posixTools.dispose();
+    await cleanup();
     throw err;
   }
 
@@ -130,15 +144,13 @@ async function runAgent(config: Config): Promise<number> {
     status: "done",
     turnsUsed: director.getTurnsUsed(),
     task: config.task,
-    startedAt: Date.now(),
+    startedAt,
     finishedAt: Date.now(),
   });
 
   console.log(result.reply);
 
-  await agent.close();
-  await streamPromise;
-  await posixTools.dispose();
+  await cleanup();
   return 0;
 }
 
@@ -161,7 +173,7 @@ async function main(argv: readonly string[]): Promise<number> {
       console.error("A run is already in progress in this directory. Use --force to override.");
       return 1;
     }
-    return runAgent({ ...config, task: previous.task });
+    return runAgent({ ...config, task: previous.task }, previous.startedAt);
   }
 
   // Strip optional "run" verb
