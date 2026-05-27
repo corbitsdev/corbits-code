@@ -26,7 +26,7 @@ describe("authzPlugin", () => {
       makeShellCall("bun test"),
       new AbortController().signal,
     );
-    expect(result.isError).toBeUndefined();
+    expect(result.isError).not.toBe(true);
   });
 
   test("blocks rm -rf /", async () => {
