@@ -21,6 +21,8 @@ export type DirectorPersistedState = {
   turnsUsed: number;
   submitCalled: boolean;
   callIdToName: Record<string, string>;
+  idleCycles: number;
+  consecutiveReads: number;
 };
 
 function isValidDirectorState(data: unknown): data is DirectorPersistedState {
@@ -32,6 +34,8 @@ function isValidDirectorState(data: unknown): data is DirectorPersistedState {
   for (const v of Object.values(s.callIdToName)) {
     if (typeof v !== "string") return false;
   }
+  if (typeof s.idleCycles !== "number") return false;
+  if (typeof s.consecutiveReads !== "number") return false;
   return true;
 }
 
