@@ -65,4 +65,33 @@ describe("verifyPlugin", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("fails when write has same length but different content", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const badHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        await writeFile(path, "XXXX XXXXXX"); // 11 chars, same length as "hello world"
+        return { callId: call.id, content: "written" };
+      };
+      const handler = plugin.middleware
+        ? plugin.middleware(badHandler)
+        : badHandler;
+
+      const path = join(dir, "test.txt");
+      const result = await handler(
+        {
+          id: "call-1",
+          name: "write_file",
+          arguments: { path, content: "hello world" },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/content mismatch/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
