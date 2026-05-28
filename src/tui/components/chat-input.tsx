@@ -2,16 +2,20 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-export type TaskInputProps = {
-  onSubmit: (task: string) => void;
+export type ChatInputProps = {
+  onSubmit: (message: string) => void;
 };
 
-export function TaskInput({ onSubmit }: TaskInputProps): ReactNode {
+export function ChatInput({ onSubmit }: ChatInputProps): ReactNode {
   const [value, setValue] = useState("");
 
   useInput((input, key) => {
     if (key.return) {
-      onSubmit(value.trim());
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        onSubmit(trimmed);
+        setValue("");
+      }
       return;
     }
     if (key.backspace || key.delete) {
@@ -31,13 +35,10 @@ export function TaskInput({ onSubmit }: TaskInputProps): ReactNode {
   });
 
   return (
-    <Box flexDirection="column" padding={1}>
-      <Text>Enter a task description and press Enter to start:</Text>
-      <Box marginTop={1}>
-        <Text color="green">{"> "}</Text>
-        <Text>{value}</Text>
-        <Text color="gray">_</Text>
-      </Box>
+    <Box flexDirection="row" paddingX={1} paddingY={1}>
+      <Text color="green">{"> "}</Text>
+      <Text>{value}</Text>
+      <Text color="gray">_</Text>
     </Box>
   );
 }

@@ -3,25 +3,30 @@ import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createFaremeter, formatCost } from "../faremeter.js";
 
+export type LogItem =
+  | { type: "user"; content: string; timestamp: number }
+  | { type: "event"; event: ReactorEmittedEvent; timestamp: number };
+
 export type AgentStreamState = {
-  events: ReactorEmittedEvent[];
+  log: LogItem[];
   turnsUsed: number;
   status: "running" | "done" | "failed";
   totalCost: number;
   totalTokens: number;
   formattedCost: string;
   addEvent(event: ReactorEmittedEvent): void;
+  addUserMessage(message: string): void;
 };
 
 export function createAgentStreamState(): AgentStreamState {
-  const events: ReactorEmittedEvent[] = [];
+  const log: LogItem[] = [];
   let turnsUsed = 0;
   let status: "running" | "done" | "failed" = "running";
   const faremeter = createFaremeter();
 
   return {
-    get events() {
-      return [...events];
+    get log() {
+      return [...log];
     },
     get turnsUsed() {
       return turnsUsed;
@@ -39,7 +44,7 @@ export function createAgentStreamState(): AgentStreamState {
       return formatCost(faremeter.getTotalCost());
     },
     addEvent(event: ReactorEmittedEvent): void {
-      events.push(event);
+      log.push({ type: "event", event, timestamp: Date.now() });
 
       if (event.type === "inference.done") {
         turnsUsed++;
@@ -57,6 +62,9 @@ export function createAgentStreamState(): AgentStreamState {
       if (event.type === "reactor.error" || event.type === "inference.error") {
         status = "failed";
       }
+    },
+    addUserMessage(message: string): void {
+      log.push({ type: "user", content: message, timestamp: Date.now() });
     },
   };
 }
