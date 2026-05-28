@@ -4,7 +4,7 @@ import { StatusBar } from "../../../src/tui/components/status-bar.js";
 
 test("StatusBar renders keyboard hints", () => {
   const { lastFrame } = render(<StatusBar />);
-  expect(lastFrame()).toContain("q");
+  expect(lastFrame()).toContain("Ctrl+C");
   expect(lastFrame()).toContain("exit");
 });
 
