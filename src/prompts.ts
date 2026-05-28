@@ -15,3 +15,13 @@ export function buildSystemPrompt(): string {
     "When calling submitOutput, include a brief summary of what was done.",
   ].join("\n");
 }
+
+export function buildChatSystemPrompt(): string {
+  return [
+    "You are a helpful coding assistant. You can answer questions, write code, and use tools when needed.",
+    "",
+    "Available tools: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir.",
+    "",
+    "When the user asks you to do something, use the appropriate tools. When you are done, reply with a summary.",
+  ].join("\n");
+}

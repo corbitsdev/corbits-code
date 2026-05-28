@@ -1,12 +1,13 @@
 import { Box, Text } from "ink";
-import type { ReactorEmittedEvent } from "@intx/inference";
+import type { LogItem } from "../use-stream.js";
 import type { ReactNode } from "react";
 
 export type EventLogProps = {
-  events: ReactorEmittedEvent[];
+  log: LogItem[];
 };
 
-function eventColor(event: ReactorEmittedEvent): string {
+function eventColor(item: LogItem & { type: "event" }): string {
+  const event = item.event;
   switch (event.type) {
     case "inference.tool_call.start":
       return "cyan";
@@ -30,7 +31,8 @@ function eventColor(event: ReactorEmittedEvent): string {
   }
 }
 
-function formatEvent(event: ReactorEmittedEvent): string {
+function formatEvent(item: LogItem & { type: "event" }): string {
+  const event = item.event;
   switch (event.type) {
     case "inference.tool_call.start":
       return `[tool] ${(event.data as { name: string }).name}`;
@@ -60,8 +62,8 @@ function formatEvent(event: ReactorEmittedEvent): string {
   }
 }
 
-export function EventLog({ events }: EventLogProps): ReactNode {
-  if (events.length === 0) {
+export function EventLog({ log }: EventLogProps): ReactNode {
+  if (log.length === 0) {
     return (
       <Box paddingX={1}>
         <Text color="gray">Waiting for events...</Text>
@@ -71,11 +73,17 @@ export function EventLog({ events }: EventLogProps): ReactNode {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {events.map((event, index) => (
-        <Text key={index} color={eventColor(event)}>
-          {formatEvent(event)}
-        </Text>
-      ))}
+      {log.map((item, index) =>
+        item.type === "user" ? (
+          <Text key={`user-${index}`} color="green">
+            {`> ${item.content}`}
+          </Text>
+        ) : (
+          <Text key={`event-${index}`} color={eventColor(item)}>
+            {formatEvent(item)}
+          </Text>
+        )
+      )}
     </Box>
   );
 }
