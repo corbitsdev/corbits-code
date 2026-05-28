@@ -9,7 +9,7 @@ export type Config = {
   maxTurns: number;
   task: string;
   force: boolean;
-  tui: boolean;
+  headless: boolean;
 };
 
 const DEFAULT_MAX_TURNS = 30;
@@ -28,7 +28,7 @@ export function loadConfig(argv: readonly string[]): Config {
   let cwd = process.cwd();
   let maxTurns = DEFAULT_MAX_TURNS;
   let force = false;
-  let tui = false;
+  let headless = false;
   const positional: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -58,8 +58,8 @@ export function loadConfig(argv: readonly string[]): Config {
       force = true;
       continue;
     }
-    if (arg === "--tui") {
-      tui = true;
+    if (arg === "--headless" || arg === "-h") {
+      headless = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -74,9 +74,6 @@ export function loadConfig(argv: readonly string[]): Config {
   const providerName = requireEnv("OPENAI_COMPATIBLE_PROVIDER_NAME");
 
   const task = positional.join(" ").trim();
-  if (task.length === 0) {
-    throw new Error("task description is required");
-  }
 
   return {
     apiKey,
@@ -87,6 +84,6 @@ export function loadConfig(argv: readonly string[]): Config {
     maxTurns,
     task,
     force,
-    tui,
+    headless,
   };
 }

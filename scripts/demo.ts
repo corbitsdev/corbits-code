@@ -18,7 +18,7 @@ async function runCLIMode(): Promise<void> {
     maxTurns: 10,
     task: DEMO_TASK,
     force: true,
-    tui: false,
+    headless: true,
   });
 }
 
@@ -33,7 +33,7 @@ async function runTUIMode(): Promise<void> {
     maxTurns: 10,
     task: DEMO_TASK,
     force: true,
-    tui: true,
+    headless: false,
   });
 }
 
