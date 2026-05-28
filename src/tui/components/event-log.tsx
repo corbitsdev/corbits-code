@@ -1,69 +1,55 @@
 import { Box, Text } from "ink";
-import type { LogItem } from "../use-stream.js";
+import type { ContentBlock } from "../use-stream.js";
 import type { ReactNode } from "react";
 
 export type EventLogProps = {
-  log: LogItem[];
+  contentBlocks: ContentBlock[];
 };
 
-function eventColor(item: LogItem & { type: "event" }): string {
-  const event = item.event;
-  switch (event.type) {
-    case "inference.tool_call.start":
-      return "cyan";
-    case "inference.tool_call.end":
-      return "blue";
-    case "tool.start":
-      return "yellow";
-    case "tool.done":
+function blockColor(block: ContentBlock): string {
+  switch (block.type) {
+    case "user":
       return "green";
-    case "tool.update":
-      return "yellow";
-    case "inference.error":
-    case "reactor.error":
-      return "red";
-    case "inference.done":
-      return "magenta";
-    case "reactor.done":
-      return "green";
-    default:
+    case "thinking":
       return "gray";
-  }
-}
-
-function formatEvent(item: LogItem & { type: "event" }): string {
-  const event = item.event;
-  switch (event.type) {
-    case "inference.tool_call.start":
-      return `[tool] ${(event.data as { name: string }).name}`;
-    case "inference.tool_call.end":
-      return `[tool] ${(event.data as { name: string }).name} done`;
-    case "tool.start":
-      return `[exec] ${(event.data as { call: { name: string } }).call.name}`;
-    case "tool.done": {
-      const result = (event.data as { result: { callId: string; content: string; isError: boolean } }).result;
-      const prefix = result.isError ? "[error]" : "[done]";
-      return `${prefix} ${result.callId} ${result.content.slice(0, 40)}`;
-    }
-    case "inference.error": {
-      const err = (event.data as { error: { category: string; message: string } }).error;
-      return `[error] ${err.category}: ${err.message}`;
-    }
-    case "reactor.error": {
-      const data = event.data as { fatal: boolean; error: string };
-      return `[reactor-error] fatal=${data.fatal}: ${data.error}`;
-    }
-    case "inference.done":
-      return `[turn]`;
-    case "reactor.done":
-      return `[done]`;
+    case "text":
+      return "white";
+    case "tool_call":
+      return "cyan";
+    case "tool_result":
+      return block.isError ? "red" : "yellow";
+    case "reply":
+      return "blue";
+    case "error":
+      return "red";
     default:
-      return `[${event.type}]`;
+      return "white";
   }
 }
 
-export function EventLog({ log }: EventLogProps): ReactNode {
-  if (log.length === 0) {
+function formatBlock(block: ContentBlock): string {
+  switch (block.type) {
+    case "user":
+      return `> ${block.content}`;
+    case "thinking":
+      return block.content;
+    case "text":
+      return block.content;
+    case "tool_call":
+      return `${block.name}(${block.arguments})`;
+    case "tool_result":
+      return block.isError ? `error: ${block.content}` : block.content;
+    case "reply":
+      return block.content;
+    case "error":
+      return block.message;
+    default:
+      return "";
+  }
+}
+
+export function EventLog({ contentBlocks }: EventLogProps): ReactNode {
+  if (contentBlocks.length === 0) {
     return (
       <Box paddingX={1}>
         <Text color="gray">Waiting for events...</Text>
@@ -73,17 +59,11 @@ export function EventLog({ log }: EventLogProps): ReactNode {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {log.map((item, index) =>
-        item.type === "user" ? (
-          <Text key={`user-${index}`} color="green">
-            {`> ${item.content}`}
-          </Text>
-        ) : (
-          <Text key={`event-${index}`} color={eventColor(item)}>
-            {formatEvent(item)}
-          </Text>
-        )
-      )}
+      {contentBlocks.map((block, index) => (
+        <Text key={`${block.type}-${index}`} color={blockColor(block)}>
+          {formatBlock(block)}
+        </Text>
+      ))}
     </Box>
   );
 }
