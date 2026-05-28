@@ -89,8 +89,7 @@ export function createAgentStreamState(): AgentStreamState {
           break;
         }
         case "connector.reply": {
-          const content = (event.data as { content: string }).content;
-          contentBlocks.push({ type: "reply", content });
+          // reply content is already accumulated via inference.text.delta
           break;
         }
         case "tool.done": {
