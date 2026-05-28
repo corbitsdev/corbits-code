@@ -16,17 +16,32 @@ export async function runTUI(config: Config): Promise<number> {
     emitter.emit("event", event);
   };
 
-  // Start agent run in background
-  const agentPromise = runAgent(config, undefined, undefined, sink);
+  let agentPromise: Promise<number> | null = null;
 
-  // Render TUI
-  const { waitUntilExit } = render(<App eventEmitter={emitter} maxTurns={config.maxTurns} />);
+  const startAgent = (task: string) => {
+    agentPromise = runAgent({ ...config, task }, undefined, undefined, sink);
+  };
 
-  // Wait for agent to finish
-  const code = await agentPromise;
+  const needsInput = config.task.length === 0;
+  if (!needsInput) {
+    startAgent(config.task);
+  }
 
-  // Keep TUI alive until user exits
+  const { waitUntilExit } = render(
+    <App
+      eventEmitter={emitter}
+      maxTurns={config.maxTurns}
+      onTaskSubmit={needsInput ? startAgent : undefined}
+    />,
+  );
+
+  if (agentPromise) {
+    const code = await agentPromise;
+    await waitUntilExit();
+    return code;
+  }
+
+  // Wait for user to submit a task and agent to finish
   await waitUntilExit();
-
-  return code;
+  return 0;
 }
