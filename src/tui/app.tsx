@@ -29,7 +29,6 @@ export function App({ eventEmitter, maxTurns, agent }: AppProps): ReactNode {
   });
 
   const handleSend = (message: string) => {
-    state.addUserMessage(message);
     agent.send(message).catch(() => {});
   };
 
