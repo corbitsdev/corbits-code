@@ -42,7 +42,7 @@ export function App({ eventEmitter, maxTurns, agent }: AppProps): ReactNode {
         maxTurns={maxTurns}
       />
       <Box flexGrow={1} flexDirection="column">
-        <EventLog log={state.log} />
+        <EventLog contentBlocks={state.contentBlocks} />
       </Box>
       <ChatInput onSubmit={handleSend} />
       <StatusBar />
