@@ -9,6 +9,7 @@ export type Config = {
   maxTurns: number;
   task: string;
   force: boolean;
+  tui: boolean;
 };
 
 const DEFAULT_MAX_TURNS = 30;
@@ -27,6 +28,7 @@ export function loadConfig(argv: readonly string[]): Config {
   let cwd = process.cwd();
   let maxTurns = DEFAULT_MAX_TURNS;
   let force = false;
+  let tui = false;
   const positional: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -56,6 +58,10 @@ export function loadConfig(argv: readonly string[]): Config {
       force = true;
       continue;
     }
+    if (arg === "--tui") {
+      tui = true;
+      continue;
+    }
     if (arg.startsWith("--")) {
       throw new Error(`unrecognized flag: ${arg}`);
     }
@@ -81,5 +87,6 @@ export function loadConfig(argv: readonly string[]): Config {
     maxTurns,
     task,
     force,
+    tui,
   };
 }
