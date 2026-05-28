@@ -4,7 +4,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 
 test("createAgentStreamState initial state is empty", () => {
   const state = createAgentStreamState();
-  expect(state.events.length).toBe(0);
+  expect(state.log.length).toBe(0);
   expect(state.turnsUsed).toBe(0);
   expect(state.status).toBe("running");
   expect(state.totalCost).toBe(0);
@@ -21,8 +21,8 @@ test("createAgentStreamState accumulates events", () => {
   };
 
   state.addEvent(event);
-  expect(state.events.length).toBe(1);
-  expect(state.events[0].type).toBe("inference.tool_call.start");
+  expect(state.log.length).toBe(1);
+  expect(state.log[0].type).toBe("event");
 });
 
 test("createAgentStreamState counts turns from inference.done", () => {
@@ -85,4 +85,11 @@ test("createAgentStreamState tracks status from inference.error", () => {
 
   state.addEvent(event);
   expect(state.status).toBe("failed");
+});
+
+test("createAgentStreamState accumulates user messages", () => {
+  const state = createAgentStreamState();
+  state.addUserMessage("hello world");
+  expect(state.log.length).toBe(1);
+  expect(state.log[0].type).toBe("user");
 });

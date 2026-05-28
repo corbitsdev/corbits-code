@@ -1,23 +1,22 @@
 import { Box, useInput, useApp } from "ink";
 import type { EventEmitter } from "node:events";
+import type { Agent } from "@intx/agent";
 import type { ReactNode } from "react";
-import { useState } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
-import { TaskInput } from "./components/task-input.js";
+import { ChatInput } from "./components/chat-input.js";
 
 export type AppProps = {
   eventEmitter: EventEmitter;
   maxTurns: number;
-  onTaskSubmit?: ((task: string) => void) | undefined;
+  agent: Agent;
 };
 
-export function App({ eventEmitter, maxTurns, onTaskSubmit }: AppProps): ReactNode {
+export function App({ eventEmitter, maxTurns, agent }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter);
   const { exit } = useApp();
-  const [hasTask, setHasTask] = useState(onTaskSubmit === undefined);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
@@ -29,9 +28,9 @@ export function App({ eventEmitter, maxTurns, onTaskSubmit }: AppProps): ReactNo
     }
   });
 
-  const handleTaskSubmit = (task: string) => {
-    setHasTask(true);
-    onTaskSubmit?.(task);
+  const handleSend = (message: string) => {
+    state.addUserMessage(message);
+    agent.send(message).catch(() => {});
   };
 
   return (
@@ -43,12 +42,9 @@ export function App({ eventEmitter, maxTurns, onTaskSubmit }: AppProps): ReactNo
         maxTurns={maxTurns}
       />
       <Box flexGrow={1} flexDirection="column">
-        {!hasTask ? (
-          <TaskInput onSubmit={handleTaskSubmit} />
-        ) : (
-          <EventLog events={state.events} />
-        )}
+        <EventLog log={state.log} />
       </Box>
+      <ChatInput onSubmit={handleSend} />
       <StatusBar />
     </Box>
   );

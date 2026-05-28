@@ -227,3 +227,10 @@ export function createCodingDirector(
 ): CodingDirector {
   return new CodingDirectorImpl(systemPrompt, toolDefinitions, maxTurns, initialState);
 }
+
+export function createChatDirector(
+  systemPrompt: string,
+  toolDefinitions: ToolDefinition[],
+): ReactorDirector {
+  return new DefaultDirector(systemPrompt, toolDefinitions, {});
+}
