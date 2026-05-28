@@ -7,7 +7,7 @@
     "interchange-code": "./dist/index.js"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./e2e",
     "tui": "bun run build && ./dist/index.js --tui"
