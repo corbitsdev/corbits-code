@@ -15,6 +15,8 @@ import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
 import { runCritique } from "./critic.js";
+import { consumeStream } from "./stream-consumer.js";
+import { runTUI } from "./tui/runner.js";
 
 async function loadEnvFile(path: string): Promise<void> {
   try {
@@ -39,7 +41,12 @@ async function loadEnvFile(path: string): Promise<void> {
 
 /* eslint-disable no-console */
 
-async function runAgent(config: Config, initialStartedAt?: number, initialDirectorState?: DirectorPersistedState): Promise<number> {
+async function runAgent(
+  config: Config,
+  initialStartedAt?: number,
+  initialDirectorState?: DirectorPersistedState,
+  onEvent?: (event: ReactorEmittedEvent) => void,
+): Promise<number> {
   const state = await loadState(config.cwd);
   if (state !== null && state.status === "running" && !config.force) {
     console.error("A run is already in progress in this directory. Use --force to override.");
@@ -121,17 +128,7 @@ async function runAgent(config: Config, initialStartedAt?: number, initialDirect
 
   const sendPromise = agent.send(config.task);
 
-  const streamPromise = (async () => {
-    try {
-      for await (const event of agent.stream()) {
-        traceEvent(event);
-      }
-    } catch (err) {
-      process.stderr.write(
-        `[stream-error] ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-    }
-  })();
+  const streamPromise = consumeStream(agent.stream(), onEvent ?? traceEvent);
 
   async function cleanup(): Promise<void> {
     try {
@@ -249,6 +246,9 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   const config = loadConfig(args);
+  if (config.tui) {
+    return runTUI(config);
+  }
   return runAgent(config);
 }
 
