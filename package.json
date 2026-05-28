@@ -7,10 +7,10 @@
     "interchange-code": "./dist/index.js"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./e2e",
-    "tui": "bun run build && ./dist/index.js --tui"
+    "run": "bun run build && ./dist/index.js"
   },
   "workspaces": [
     ".",
@@ -43,6 +43,8 @@
     "ink": "^7.0.4",
     "ink-testing-library": "^4.0.0",
     "react": "^19.2.6",
-    "typescript": "5.9.3"
+    "react-devtools-core": "^7.0.1",
+    "typescript": "5.9.3",
+    "ws": "^8.21.0"
   }
 }
