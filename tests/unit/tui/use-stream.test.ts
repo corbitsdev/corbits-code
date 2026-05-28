@@ -4,25 +4,26 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 
 test("createAgentStreamState initial state is empty", () => {
   const state = createAgentStreamState();
-  expect(state.log.length).toBe(0);
+  expect(state.contentBlocks.length).toBe(0);
   expect(state.turnsUsed).toBe(0);
   expect(state.status).toBe("running");
   expect(state.totalCost).toBe(0);
   expect(state.totalTokens).toBe(0);
 });
 
-test("createAgentStreamState accumulates events", () => {
+test("createAgentStreamState accumulates tool_call events", () => {
   const state = createAgentStreamState();
 
   const event: ReactorEmittedEvent = {
     type: "inference.tool_call.start",
     seq: 1,
-    data: { name: "read_file" } as unknown as ReactorEmittedEvent["data"],
+    data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"],
   };
 
   state.addEvent(event);
-  expect(state.log.length).toBe(1);
-  expect(state.log[0].type).toBe("event");
+  expect(state.contentBlocks.length).toBe(1);
+  expect(state.contentBlocks[0].type).toBe("tool_call");
+  expect(state.contentBlocks[0].name).toBe("read_file");
 });
 
 test("createAgentStreamState counts turns from inference.done", () => {
@@ -90,6 +91,39 @@ test("createAgentStreamState tracks status from inference.error", () => {
 test("createAgentStreamState accumulates user messages", () => {
   const state = createAgentStreamState();
   state.addUserMessage("hello world");
-  expect(state.log.length).toBe(1);
-  expect(state.log[0].type).toBe("user");
+  expect(state.contentBlocks.length).toBe(1);
+  expect(state.contentBlocks[0].type).toBe("user");
+  expect(state.contentBlocks[0].content).toBe("hello world");
+});
+
+test("createAgentStreamState accumulates thinking delta tokens", () => {
+  const state = createAgentStreamState();
+
+  state.addEvent({ type: "inference.thinking.delta", seq: 1, data: { token: "H" } as unknown as ReactorEmittedEvent["data"] });
+  state.addEvent({ type: "inference.thinking.delta", seq: 2, data: { token: "i" } as unknown as ReactorEmittedEvent["data"] });
+
+  expect(state.contentBlocks.length).toBe(1);
+  expect(state.contentBlocks[0].type).toBe("thinking");
+  expect(state.contentBlocks[0].content).toBe("Hi");
+});
+
+test("createAgentStreamState accumulates text delta tokens", () => {
+  const state = createAgentStreamState();
+
+  state.addEvent({ type: "inference.text.delta", seq: 1, data: { token: "Hello" } as unknown as ReactorEmittedEvent["data"] });
+
+  expect(state.contentBlocks.length).toBe(1);
+  expect(state.contentBlocks[0].type).toBe("text");
+  expect(state.contentBlocks[0].content).toBe("Hello");
+});
+
+test("createAgentStreamState accumulates tool_call delta fragments", () => {
+  const state = createAgentStreamState();
+
+  state.addEvent({ type: "inference.tool_call.start", seq: 1, data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"] });
+  state.addEvent({ type: "inference.tool_call.delta", seq: 2, data: { argumentFragment: '{"path":"a"}' } as unknown as ReactorEmittedEvent["data"] });
+
+  expect(state.contentBlocks.length).toBe(1);
+  expect(state.contentBlocks[0].type).toBe("tool_call");
+  expect(state.contentBlocks[0].arguments).toBe('{"path":"a"}');
 });
