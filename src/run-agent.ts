@@ -5,7 +5,7 @@ import type { SendResult } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { loadConfig, type Config } from "./config.js";
+import type { Config } from "./config.js";
 import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
