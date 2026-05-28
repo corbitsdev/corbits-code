@@ -4,11 +4,17 @@ import { App } from "../../../src/tui/app.js";
 import { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-test("App renders header and status bar", () => {
+test("App renders header and status bar with existing task", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = render(<App eventEmitter={emitter} maxTurns={30} />);
   expect(lastFrame()).toContain("interchange-code");
-  expect(lastFrame()).toContain("q");
+  expect(lastFrame()).toContain("Ctrl+C");
+});
+
+test("App renders task input when onTaskSubmit is provided", () => {
+  const emitter = new EventEmitter();
+  const { lastFrame } = render(<App eventEmitter={emitter} maxTurns={30} onTaskSubmit={() => {}} />);
+  expect(lastFrame()).toContain("Enter a task description");
 });
 
 test("App renders events after they are emitted", async () => {
