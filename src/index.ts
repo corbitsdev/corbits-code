@@ -35,6 +35,7 @@ function printHelp(): void {
   console.log("       interchange-code resume [--force]");
   console.log("");
   console.log("Options:");
+  console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
   console.log("  --cwd <dir>        Working directory (default: current directory)");
   console.log("  --max-turns <n>    Maximum agent turns (default: 30)");
   console.log("  --force            Override an existing run state");
@@ -50,7 +51,7 @@ function printHelp(): void {
 export async function main(argv: readonly string[]): Promise<number> {
   const args = [...argv];
 
-  if (args.includes("--help") || args.includes("-h")) {
+  if (args.includes("--help")) {
     printHelp();
     return 0;
   }
@@ -81,10 +82,14 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   const config = loadConfig(args);
-  if (config.tui) {
-    return runTUI(config);
+  if (config.headless && config.task.length === 0) {
+    console.error("task description is required");
+    return 1;
   }
-  return runAgent(config);
+  if (config.headless) {
+    return runAgent(config);
+  }
+  return runTUI(config);
 }
 
 const projectRoot = resolve(import.meta.dirname, "..");

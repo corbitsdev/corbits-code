@@ -23,24 +23,31 @@ function withEnv(fn: () => void): void {
   }
 }
 
-test("loadConfig parses --tui flag", () => {
+test("loadConfig parses --headless flag", () => {
   withEnv(() => {
-    const config = loadConfig(["--tui", "do something"]);
-    expect(config.tui).toBe(true);
+    const config = loadConfig(["--headless", "do something"]);
+    expect(config.headless).toBe(true);
   });
 });
 
-test("loadConfig defaults tui to false", () => {
+test("loadConfig parses -h flag", () => {
+  withEnv(() => {
+    const config = loadConfig(["-h", "do something"]);
+    expect(config.headless).toBe(true);
+  });
+});
+
+test("loadConfig defaults headless to false", () => {
   withEnv(() => {
     const config = loadConfig(["do something"]);
-    expect(config.tui).toBe(false);
+    expect(config.headless).toBe(false);
   });
 });
 
-test("loadConfig tui flag does not consume positional args", () => {
+test("loadConfig headless flag does not consume positional args", () => {
   withEnv(() => {
-    const config = loadConfig(["--tui", "read", "file"]);
-    expect(config.tui).toBe(true);
+    const config = loadConfig(["--headless", "read", "file"]);
+    expect(config.headless).toBe(true);
     expect(config.task).toBe("read file");
   });
 });
