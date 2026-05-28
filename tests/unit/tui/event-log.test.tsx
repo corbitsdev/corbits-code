@@ -17,11 +17,6 @@ test("EventLog renders user message", () => {
   expect(lastFrame()).toContain("> hello world");
 });
 
-test("EventLog renders thinking block", () => {
-  const { lastFrame } = render(<EventLog contentBlocks={makeBlocks([{ type: "thinking", content: "Hmm..." }])} />);
-  expect(lastFrame()).toContain("Hmm...");
-});
-
 test("EventLog renders text block", () => {
   const { lastFrame } = render(<EventLog contentBlocks={makeBlocks([{ type: "text", content: "Hello!" }])} />);
   expect(lastFrame()).toContain("Hello!");
@@ -63,4 +58,29 @@ test("EventLog renders multiple blocks", () => {
   expect(lastFrame()).toContain("> do it");
   expect(lastFrame()).toContain("read_file");
   expect(lastFrame()).toContain("done");
+});
+
+test("EventLog filters out thinking blocks", () => {
+  const { lastFrame } = render(
+    <EventLog
+      contentBlocks={makeBlocks([
+        { type: "thinking", content: "internal reasoning" },
+        { type: "text", content: "Hello!" },
+      ])}
+    />,
+  );
+  expect(lastFrame()).not.toContain("internal reasoning");
+  expect(lastFrame()).toContain("Hello!");
+});
+
+test("EventLog filters out reply blocks", () => {
+  const { lastFrame } = render(
+    <EventLog
+      contentBlocks={makeBlocks([
+        { type: "text", content: "Hello!" },
+        { type: "reply", content: "Hello!" },
+      ])}
+    />,
+  );
+  expect(lastFrame()).toContain("Hello!");
 });
