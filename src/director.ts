@@ -81,7 +81,6 @@ function isValidPlanArgs(args: unknown): args is { steps: PlanStep[] } {
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
-  private readonly maxTurns: number;
   private readonly callIdToName = new Map<string, string>();
   private readonly callIdToArgs = new Map<string, unknown>();
   private readonly filesReadAtTurn = new Map<string, number>();
@@ -92,11 +91,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
-    maxTurns: number,
     initialState?: DirectorPersistedState,
   ) {
     super(systemPrompt, toolDefinitions, {});
-    this.maxTurns = maxTurns;
     if (initialState !== undefined) {
       this.setState(initialState);
     }
@@ -149,12 +146,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         ];
       }
 
-      if (this._turnsUsed >= this.maxTurns) {
-        return [
-          capabilities.checkpoint("max-turns"),
-          capabilities.reply(`Max turns (${this.maxTurns}) reached.`),
-        ];
-      }
     }
 
     if (event.type === "tool.done") {
@@ -220,10 +211,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 export function createCodingDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
-  maxTurns: number,
   initialState?: DirectorPersistedState,
 ): CodingDirector {
-  return new CodingDirectorImpl(systemPrompt, toolDefinitions, maxTurns, initialState);
+  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState);
 }
 
 export function createChatDirector(

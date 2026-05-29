@@ -57,7 +57,6 @@ export async function runAgent(
   const director = createCodingDirector(
     buildSystemPrompt(),
     allDefinitions,
-    config.maxTurns,
     initialDirectorState,
   );
   directorHolder.instance = director;
@@ -94,6 +93,7 @@ export async function runAgent(
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        defaults: { maxTokens: 16384 },
       },
     ],
     defaultSource: config.providerName,
@@ -110,7 +110,7 @@ export async function runAgent(
   });
   await saveDirectorState(config.cwd, director.getState());
 
-  const renderer = createRenderer(startedAt, config.maxTurns);
+  const renderer = createRenderer(startedAt);
   const sendPromise = agent.send(config.task);
 
   const streamPromise = consumeStream(agent.stream(), onEvent ?? renderer.render.bind(renderer));

@@ -46,6 +46,7 @@ export async function runTUI(config: Config): Promise<number> {
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        defaults: { maxTokens: 16384 },
       },
     ],
     defaultSource: config.providerName,
@@ -66,7 +67,7 @@ export async function runTUI(config: Config): Promise<number> {
   }
 
   const { waitUntilExit } = render(
-    <App eventEmitter={emitter} maxTurns={config.maxTurns} agent={agent} />,
+    <App eventEmitter={emitter} agent={agent} sessionTitle={config.task} />,
   );
 
   await waitUntilExit();

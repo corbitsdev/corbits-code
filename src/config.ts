@@ -6,13 +6,10 @@ export type Config = {
   model: string;
   providerName: string;
   cwd: string;
-  maxTurns: number;
   task: string;
   force: boolean;
   headless: boolean;
 };
-
-const DEFAULT_MAX_TURNS = 30;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -26,7 +23,6 @@ export function loadConfig(argv: readonly string[]): Config {
   const args = [...argv];
 
   let cwd = process.cwd();
-  let maxTurns = DEFAULT_MAX_TURNS;
   let force = false;
   let headless = false;
   const positional: string[] = [];
@@ -40,18 +36,6 @@ export function loadConfig(argv: readonly string[]): Config {
         throw new Error("--cwd requires a directory path");
       }
       cwd = resolve(next);
-      continue;
-    }
-    if (arg === "--max-turns") {
-      const next = args[++i];
-      if (next === undefined) {
-        throw new Error("--max-turns requires a number");
-      }
-      const parsed = Number(next);
-      if (!Number.isFinite(parsed) || parsed < 1) {
-        throw new Error(`invalid --max-turns: ${next}`);
-      }
-      maxTurns = parsed;
       continue;
     }
     if (arg === "--force") {
@@ -81,7 +65,6 @@ export function loadConfig(argv: readonly string[]): Config {
     model,
     providerName,
     cwd,
-    maxTurns,
     task,
     force,
     headless,

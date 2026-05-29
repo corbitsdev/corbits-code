@@ -37,7 +37,6 @@ function printHelp(): void {
   console.log("Options:");
   console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
   console.log("  --cwd <dir>        Working directory (default: current directory)");
-  console.log("  --max-turns <n>    Maximum agent turns (default: 30)");
   console.log("  --force            Override an existing run state");
   console.log("  --help             Show this help message");
   console.log("");
