@@ -5,7 +5,8 @@ export type HeaderProps = {
   turnsUsed: number;
   status: "running" | "done" | "failed";
   totalCost: string;
-  maxTurns: number;
+  sessionTitle: string;
+  latestUserMessage: string;
 };
 
 function statusColor(status: "running" | "done" | "failed"): string {
@@ -21,19 +22,32 @@ function statusColor(status: "running" | "done" | "failed"): string {
   }
 }
 
-export function Header({ turnsUsed, status, totalCost, maxTurns }: HeaderProps): ReactNode {
+const TITLE_MAX = 48;
+const PROMPT_MAX = 80;
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+}
+
+export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage }: HeaderProps): ReactNode {
   return (
-    <Box flexDirection="row" justifyContent="space-between" paddingX={1} paddingY={1}>
-      <Text bold color="cyan">
-        interchange-code
-      </Text>
-      <Box flexDirection="row" gap={2}>
-        <Text color={statusColor(status)}>{status}</Text>
-        <Text>
-          {turnsUsed}/{maxTurns} turns
-        </Text>
-        <Text color="green">{totalCost}</Text>
+    <Box flexDirection="column" paddingX={1} paddingTop={1}>
+      <Box flexDirection="row" justifyContent="space-between">
+        <Box flexDirection="row" gap={1}>
+          <Text bold color="cyan">interchange-code</Text>
+          {sessionTitle.length > 0 && (
+            <Text dimColor>— {truncate(sessionTitle, TITLE_MAX)}</Text>
+          )}
+        </Box>
+        <Box flexDirection="row" gap={2}>
+          <Text color={statusColor(status)}>{status}</Text>
+          <Text dimColor>{turnsUsed} turns</Text>
+          <Text color="green">{totalCost}</Text>
+        </Box>
       </Box>
+      {latestUserMessage.length > 0 && (
+        <Text dimColor>▸ {truncate(latestUserMessage, PROMPT_MAX)}</Text>
+      )}
     </Box>
   );
 }

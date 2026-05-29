@@ -60,7 +60,6 @@ describe("loadConfig", () => {
       expect(config.baseURL).toBe("https://api.fireworks.ai/inference");
       expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
       expect(config.providerName).toBe("fireworks");
-      expect(config.maxTurns).toBe(30);
       expect(config.cwd).toBe(process.cwd());
       expect(config.force).toBe(false);
     } finally {
@@ -68,19 +67,12 @@ describe("loadConfig", () => {
     }
   });
 
-  test("parses --cwd and --max-turns", () => {
+  test("parses --cwd", () => {
     const stash = stashEnv();
     try {
       setRequiredEnv();
-      const config = loadConfig([
-        "--cwd",
-        "/tmp/test",
-        "--max-turns",
-        "15",
-        "fix bug",
-      ]);
+      const config = loadConfig(["--cwd", "/tmp/test", "fix bug"]);
       expect(config.cwd).toBe("/tmp/test");
-      expect(config.maxTurns).toBe(15);
       expect(config.task).toBe("fix bug");
       expect(config.force).toBe(false);
     } finally {
