@@ -68,6 +68,7 @@
         "@intx/inference": "workspace:*",
         "@intx/inference-discovery": "workspace:*",
         "@intx/types": "workspace:*",
+        "arktype": "catalog:",
       },
     },
     "../interchange/packages/log": {
