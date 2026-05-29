@@ -19,9 +19,9 @@ describe("agent loop", () => {
           submitCalled: false,
           callIdToName: {},
           idleCycles: 0,
-          consecutiveReads: 0,
           planSubmitted: true,
           plan: [],
+          filesRead: [],
         },
       );
 
@@ -39,7 +39,7 @@ describe("agent loop", () => {
               {
                 type: "tool_call",
                 id: "call-1",
-                name: "submitOutput",
+                name: "submit_output",
                 arguments: { summary: "Done" },
               },
             ],
@@ -298,7 +298,7 @@ describe("agent loop", () => {
               {
                 type: "tool_call",
                 id: "call-1",
-                name: "submitOutput",
+                name: "submit_output",
                 arguments: { summary: "Done" },
               },
             ],
@@ -315,7 +315,7 @@ describe("agent loop", () => {
       const actions2 = await director.decide(
         {
           type: "tool.done",
-          result: { callId: "call-1", content: "Error: You must call submitPlan before submitOutput." },
+          result: { callId: "call-1", content: "Error: You must call submit_plan before submit_output." },
         },
         emptyState,
         capabilities,
@@ -362,7 +362,7 @@ describe("agent loop", () => {
               {
                 type: "tool_call",
                 id: "plan-1",
-                name: "submitPlan",
+                name: "submit_plan",
                 arguments: {
                   steps: [
                     { file: "src/index.ts", action: "edit", reason: "Add plan tracking" },
@@ -405,7 +405,7 @@ describe("agent loop", () => {
               {
                 type: "tool_call",
                 id: "out-1",
-                name: "submitOutput",
+                name: "submit_output",
                 arguments: { summary: "Done" },
               },
             ],
@@ -454,93 +454,4 @@ describe("agent loop", () => {
     }
   });
 
-  test("director aborts after 7 consecutive reads", async () => {
-    const harness = setupHarness();
-    try {
-      const director = createCodingDirector(
-        buildSystemPrompt(),
-        [submitOutputDefinition],
-        20,
-      );
-
-      const capabilities = createCapabilities();
-      const emptyState = {
-        turns: [],
-        activeForks: [],
-        pendingOperations: [],
-        activeGates: [],
-        tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-        lastCycleUsage: null,
-        lastCycleSource: null,
-        sessionId: "test",
-      };
-
-      // First, issue a read_file tool call
-      const actions1 = await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [
-              { type: "tool_call", id: "r1", name: "read_file", arguments: { path: "x" } },
-            ],
-          },
-          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          source: { id: "xai", model: "test" },
-        },
-        emptyState,
-        capabilities,
-      );
-      expect(Array.isArray(actions1)).toBe(true);
-
-      // 6 read tool results
-      for (let i = 0; i < 6; i++) {
-        const actions = await director.decide(
-          {
-            type: "tool.done",
-            result: { callId: `r${i + 1}`, content: "file content" },
-          },
-          emptyState,
-          capabilities,
-        );
-        const arr = Array.isArray(actions) ? actions : [actions];
-        expect(arr.some((a) => a.type === "done")).toBe(false);
-
-        // Model issues another read
-        await director.decide(
-          {
-            type: "inference.done",
-            turn: {
-              role: "assistant",
-              model: "test",
-              timestamp: 0,
-              content: [
-                { type: "tool_call", id: `r${i + 2}`, name: "read_file", arguments: { path: "y" } },
-              ],
-            },
-            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-            source: { id: "xai", model: "test" },
-          },
-          emptyState,
-          capabilities,
-        );
-      }
-
-      // 7th read result should trigger abort on the next inference
-      const actions = await director.decide(
-        {
-          type: "tool.done",
-          result: { callId: "r7", content: "file content" },
-        },
-        emptyState,
-        capabilities,
-      );
-      const arr = Array.isArray(actions) ? actions : [actions];
-      expect(arr.some((a) => a.type === "done")).toBe(true);
-    } finally {
-      harness.dispose();
-    }
-  });
 });
