@@ -10,11 +10,11 @@ import { ChatInput } from "./components/chat-input.js";
 
 export type AppProps = {
   eventEmitter: EventEmitter;
-  maxTurns: number;
   agent: Agent;
+  sessionTitle: string;
 };
 
-export function App({ eventEmitter, maxTurns, agent }: AppProps): ReactNode {
+export function App({ eventEmitter, agent, sessionTitle }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter);
   const { exit } = useApp();
 
@@ -38,7 +38,8 @@ export function App({ eventEmitter, maxTurns, agent }: AppProps): ReactNode {
         turnsUsed={state.turnsUsed}
         status={state.status}
         totalCost={state.formattedCost}
-        maxTurns={maxTurns}
+        sessionTitle={sessionTitle}
+        latestUserMessage={state.latestUserMessage}
       />
       <Box flexGrow={1} flexDirection="column">
         <EventLog contentBlocks={state.contentBlocks} />

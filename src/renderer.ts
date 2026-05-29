@@ -51,7 +51,7 @@ function formatOp(name: string): string {
   return name;
 }
 
-export function createRenderer(startedAt: number, maxTurns: number): Renderer {
+export function createRenderer(startedAt: number): Renderer {
   let currentOp = "";
   let currentArg = "";
   let turnCount = 0;
@@ -67,7 +67,7 @@ export function createRenderer(startedAt: number, maxTurns: number): Renderer {
     const opText = currentOp.length > 0
       ? `${AMBER}${currentOp}${currentArg ? " " + currentArg : ""}${RESET}`
       : "";
-    const bar = `${DIM}interchange  ·  turn ${turnCount}/${maxTurns}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
+    const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
     process.stderr.write(bar);
   }
 

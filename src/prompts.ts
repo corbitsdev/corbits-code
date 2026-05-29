@@ -8,6 +8,7 @@ export function buildSystemPrompt(): string {
     "4. You MUST call submit_output when the task is fully complete. No other action signals completion.",
     "5. If tests are failing, you MUST NOT submit. Fix the tests first.",
     "6. Do not re-read a file you already read. The tool will return an error if you try.",
+    "7. Never write large files in a single write_file call. If a file exceeds ~200 lines, write it in sections using run_shell (printf or cat heredoc) or break the work into edit_file calls on an existing scaffold.",
     "",
     "Available tools: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, submit_plan, submit_output.",
     "",

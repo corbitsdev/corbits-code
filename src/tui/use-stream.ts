@@ -19,6 +19,7 @@ export type AgentStreamState = {
   totalCost: number;
   totalTokens: number;
   formattedCost: string;
+  latestUserMessage: string;
   addEvent(event: ReactorEmittedEvent): void;
   addUserMessage(message: string): void;
 };
@@ -27,6 +28,7 @@ export function createAgentStreamState(): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
   let turnsUsed = 0;
   let status: "running" | "done" | "failed" = "running";
+  let latestUserMessage = "";
   const faremeter = createFaremeter();
 
   return {
@@ -48,10 +50,14 @@ export function createAgentStreamState(): AgentStreamState {
     get formattedCost() {
       return formatCost(faremeter.getTotalCost());
     },
+    get latestUserMessage() {
+      return latestUserMessage;
+    },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
         case "message.received": {
           const data = event.data as { message: { content: string } };
+          latestUserMessage = data.message.content;
           contentBlocks.push({ type: "user", content: data.message.content });
           break;
         }
@@ -131,6 +137,7 @@ export function createAgentStreamState(): AgentStreamState {
       }
     },
     addUserMessage(message: string): void {
+      latestUserMessage = message;
       contentBlocks.push({ type: "user", content: message });
     },
   };
