@@ -1,0 +1,219 @@
+import type { ReactorEmittedEvent } from "@intx/inference";
+
+export type Renderer = {
+  render(event: ReactorEmittedEvent): void;
+};
+
+const DIM = "\x1b[2m";
+const AMBER = "\x1b[38;5;214m";
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const RESET = "\x1b[0m";
+
+const JOURNAL_TOOLS = new Set(["submit_plan", "write_file", "edit_file", "run_shell", "submit_output"]);
+const SILENT_TOOLS = new Set(["read_file", "list_dir", "search_files", "grep"]);
+
+function verb(label: string): string {
+  return `${DIM}${label.padStart(6)}${RESET}  `;
+}
+
+function miniDiff(oldStr: string, newStr: string): string {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+  const lines: string[] = [];
+
+  // Simple: show removed lines then added lines with 1-line context from old
+  const context = oldLines.length > 0 ? `        ${oldLines[0]}\n` : "";
+  for (const line of oldLines) {
+    lines.push(`        ${RED}-${RESET} ${line}`);
+  }
+  for (const line of newLines) {
+    lines.push(`        ${GREEN}+${RESET} ${line}`);
+  }
+
+  if (lines.length > 10) {
+    const kept = lines.slice(0, 10);
+    kept.push(`        ${DIM}... ${lines.length - 10} more${RESET}`);
+    return kept.join("\n");
+  }
+  return lines.join("\n");
+}
+
+function formatOp(name: string): string {
+  if (SILENT_TOOLS.has(name)) {
+    return name === "read_file" ? "reading" : name === "list_dir" ? "listing" : name === "search_files" ? "searching" : "grepping";
+  }
+  if (name === "run_shell") return "running";
+  if (name === "write_file") return "writing";
+  if (name === "edit_file") return "editing";
+  if (name === "submit_plan") return "planning";
+  if (name === "submit_output") return "submitting";
+  return name;
+}
+
+export function createRenderer(startedAt: number, maxTurns: number): Renderer {
+  let currentOp = "";
+  let currentArg = "";
+  let turnCount = 0;
+  const pendingArgs = new Map<string, Record<string, unknown>>();
+  const pendingNames = new Map<string, string>();
+  let pendingSubmitSummary: string | undefined;
+
+  function elapsedSecs(): number {
+    return Math.floor((Date.now() - startedAt) / 1000);
+  }
+
+  function writeStatusBar(): void {
+    const opText = currentOp.length > 0
+      ? `${AMBER}${currentOp}${currentArg ? " " + currentArg : ""}${RESET}`
+      : "";
+    const bar = `${DIM}interchange  ·  turn ${turnCount}/${maxTurns}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
+    process.stderr.write(bar);
+  }
+
+  function writePlanBlock(steps: Array<{ file: string; action: string }>): void {
+    const lines = [`${verb("plan")}${steps.length} steps`];
+    for (let i = 0; i < steps.length; i++) {
+      lines.push(`        ${i + 1}. ${steps[i]!.file} — ${steps[i]!.action}`);
+    }
+    process.stdout.write(lines.join("\n") + "\n\n");
+  }
+
+  function writeWriteBlock(path: string, content: string): void {
+    const lineCount = content.split("\n").length;
+    const delta = `${GREEN}+${lineCount}${RESET}`;
+    process.stdout.write(`${verb("write")}${path}${DIM}${" ".repeat(Math.max(1, 44 - path.length))}${RESET}${delta}\n\n`);
+  }
+
+  function writeEditBlock(path: string, oldStr: string, newStr: string): void {
+    const removed = oldStr ? oldStr.split("\n").length : 0;
+    const added = newStr ? newStr.split("\n").length : 0;
+    const delta = `${GREEN}+${added}${RESET} ${RED}-${removed}${RESET}`;
+    const diff = miniDiff(oldStr ?? "", newStr ?? "");
+    process.stdout.write(`${verb("edit")}${path}${DIM}${" ".repeat(Math.max(1, 44 - path.length))}${RESET}${delta}\n${diff}\n\n`);
+  }
+
+  function writeShellBlock(command: string, output: string, isError: boolean): void {
+    const status = isError ? `${RED}✗${RESET}` : `${GREEN}✓${RESET}`;
+    if (isError) {
+      process.stdout.write(`${verb("shell")}${command}${DIM}${" ".repeat(Math.max(1, 44 - command.length))}${RESET}${status}\n        ${output}\n\n`);
+    } else {
+      process.stdout.write(`${verb("shell")}${command}${DIM}${" ".repeat(Math.max(1, 44 - command.length))}${RESET}${status}\n\n`);
+    }
+  }
+
+  function writeDoneBlock(summary: string): void {
+    process.stdout.write(`${verb("done")}${GREEN}${summary}${RESET}\n\n`);
+  }
+
+  function writeErrorBlock(message: string): void {
+    process.stdout.write(`${verb("error")}${RED}${message}${RESET}\n\n`);
+  }
+
+  function render(event: ReactorEmittedEvent): void {
+    const e = event as { type: string; seq?: number; data?: Record<string, unknown> };
+
+    switch (e.type) {
+      case "inference.tool_call.start": {
+        const name = String(e.data?.name ?? "");
+        currentOp = formatOp(name);
+        currentArg = name === "read_file" || name === "list_dir" || name === "search_files" || name === "grep"
+          ? String((e.data as Record<string, unknown>).callId ?? "")
+          : "";
+        break;
+      }
+
+      case "inference.tool_call.end": {
+        const callId = String(e.data?.callId ?? "");
+        const name = String(e.data?.name ?? "");
+        const args = (e.data?.arguments ?? {}) as Record<string, unknown>;
+        pendingArgs.set(callId, args);
+        pendingNames.set(callId, name);
+
+        if (name === "submit_output") {
+          pendingSubmitSummary = String(args.summary ?? "");
+        }
+        break;
+      }
+
+      case "inference.done": {
+        turnCount++;
+        currentOp = "";
+        currentArg = "";
+        break;
+      }
+
+      case "tool.start": {
+        const callName = String((e.data?.call as Record<string, unknown>)?.name ?? "");
+        currentOp = formatOp(callName);
+        currentArg = "";
+        break;
+      }
+
+      case "tool.done": {
+        const result = e.data?.result as Record<string, unknown>;
+        const callId = String(result?.callId ?? "");
+        const isError = Boolean(result?.isError);
+        const content = String(result?.content ?? "");
+        const name = pendingNames.get(callId);
+        const args = pendingArgs.get(callId) ?? {};
+
+        currentOp = "";
+        currentArg = "";
+
+        if (name === undefined || SILENT_TOOLS.has(name)) {
+          break;
+        }
+
+        if (name === "submit_plan" && !isError) {
+          const steps = Array.isArray(args.steps)
+            ? (args.steps as Array<{ file: string; action: string }>)
+            : [];
+          writePlanBlock(steps);
+        } else if (name === "write_file" && !isError) {
+          writeWriteBlock(String(args.path ?? ""), String(args.content ?? ""));
+        } else if (name === "edit_file" && !isError) {
+          writeEditBlock(
+            String(args.path ?? ""),
+            String(args.old_string ?? ""),
+            String(args.new_string ?? ""),
+          );
+        } else if (name === "run_shell") {
+          writeShellBlock(String(args.command ?? ""), content, isError);
+        } else if (name === "submit_output" && !isError) {
+          writeDoneBlock(String(args.summary ?? pendingSubmitSummary ?? ""));
+        }
+
+        pendingArgs.delete(callId);
+        pendingNames.delete(callId);
+        break;
+      }
+
+      case "reactor.done": {
+        currentOp = "done";
+        writeDoneBlock("reactor finished");
+        break;
+      }
+
+      case "inference.error": {
+        const err = e.data?.error as Record<string, unknown>;
+        writeErrorBlock(String(err?.message ?? e.data?.error ?? "inference error"));
+        break;
+      }
+
+      case "reactor.error": {
+        writeErrorBlock(String(e.data?.error ?? "reactor error"));
+        break;
+      }
+
+      case "connector.reply": {
+        currentOp = "";
+        break;
+      }
+    }
+
+    writeStatusBar();
+  }
+
+  return { render };
+}
