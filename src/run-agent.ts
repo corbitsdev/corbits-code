@@ -14,6 +14,7 @@ import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
 import { runCritique } from "./critic.js";
+import { createRenderer } from "./renderer.js";
 import { consumeStream } from "./stream-consumer.js";
 
 /* eslint-disable no-console */
@@ -109,9 +110,10 @@ export async function runAgent(
   });
   await saveDirectorState(config.cwd, director.getState());
 
+  const renderer = createRenderer(startedAt, config.maxTurns);
   const sendPromise = agent.send(config.task);
 
-  const streamPromise = consumeStream(agent.stream(), onEvent ?? traceEvent);
+  const streamPromise = consumeStream(agent.stream(), onEvent ?? renderer.render.bind(renderer));
 
   async function cleanup(): Promise<void> {
     try {
