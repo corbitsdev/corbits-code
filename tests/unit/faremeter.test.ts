@@ -16,8 +16,27 @@ test("addUsage accumulates tokens and cost", () => {
 test("addUsage computes cost from input and output tokens", () => {
   const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
   faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
-  // 1000 * 0.00001 + 500 * 0.00002 = 0.01 + 0.01 = 0.02
   expect(faremeter.getTotalCost()).toBe(0.02);
+});
+
+test("createFaremeter uses fetched model rates", () => {
+  const faremeter = createFaremeter({
+    modelId: "provider/model",
+    pricingCache: {
+      timestamp: 1,
+      models: {
+        "provider/model": {
+          inputPricePerToken: 0.00001,
+          outputPricePerToken: 0.00002,
+          cacheReadPricePerToken: 0.000005,
+        },
+      },
+    },
+  });
+
+  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 0, thinking: 0 });
+
+  expect(faremeter.getTotalCost()).toBe(0.021);
 });
 
 test("formatCost formats to 4 decimal places with dollar sign", () => {
