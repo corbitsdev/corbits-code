@@ -1,24 +1,13 @@
-import type { ReactNode } from "react";
 import { Box, Text } from "ink";
-import type { ContentBlock } from "../use-stream.js";
+import type { ContentBlock, PlanStep } from "../use-stream.js";
+import type { ReactNode } from "react";
 
 export type EventLogProps = {
   contentBlocks: ContentBlock[];
+  planCollapsed?: boolean;
 };
 
-type VisibleBlock = Exclude<ContentBlock, { type: "thinking" } | { type: "reply" }>;
-
-const maxContentLength = 900;
-const longArgumentLength = 80;
-
-function eventLabel(type: string): string {
-  return type
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function blockColor(block: VisibleBlock): string {
+function blockColor(block: ContentBlock): string {
   switch (block.type) {
     case "user":
       return "green";
@@ -27,69 +16,72 @@ function blockColor(block: VisibleBlock): string {
     case "tool_call":
       return "cyan";
     case "tool_result":
-      return block.isError ? "red" : "green";
+      return block.isError ? "red" : "yellow";
     case "error":
       return "red";
+    default:
+      return "white";
   }
 }
 
-function blockSymbol(block: VisibleBlock): string {
+function formatBlock(block: ContentBlock): string {
   switch (block.type) {
     case "user":
-      return ">";
+      return `> ${block.content}`;
     case "text":
-      return "•";
+      return block.content;
     case "tool_call":
-      return "→";
+      return `${block.name}(${block.arguments})`;
     case "tool_result":
-      return block.isError ? "✕" : "✓";
+      return block.isError ? `error: ${block.content}` : block.content;
     case "error":
-      return "!";
+      return block.message;
+    default:
+      return "";
   }
 }
 
-function truncateContent(content: string): string {
-  if (content.length <= maxContentLength) {
-    return content;
-  }
-
-  return `${content.slice(0, maxContentLength).trimEnd()} ... [show more]`;
+function formatPlanStep(step: PlanStep, index: number): string {
+  const number = `${index + 1}.`;
+  if (step.file.length === 0) return `${number} ${step.action}`;
+  if (step.action.length === 0) return `${number} ${step.file}`;
+  return `${number} ${step.file} — ${step.action}`;
 }
 
-function formatToolCall(block: Extract<VisibleBlock, { type: "tool_call" }>): string {
-  const name = eventLabel(block.name);
-  const args = truncateContent(block.arguments || "{}");
-
-  if (args.length > longArgumentLength || args.includes("\n")) {
-    return `Tool: ${name}\n  Args:\n    ${args.replaceAll("\n", "\n    ")}`;
-  }
-
-  return `Tool: ${name}\n  Args: ${args}`;
+function PlanBlock({ steps, collapsed }: { steps: PlanStep[]; collapsed: boolean }): ReactNode {
+  const heading = `plan  ${steps.length} ${steps.length === 1 ? "step" : "steps"}`;
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+      <Text color="magenta" bold>
+        {heading}
+        {collapsed ? "  (Ctrl+O to expand)" : ""}
+      </Text>
+      {!collapsed && steps.length === 0 ? (
+        <Text color="gray">(no steps)</Text>
+      ) : null}
+      {!collapsed
+        ? steps.map((step, i) => (
+            <Text key={`plan-step-${i}`} color="white">
+              {formatPlanStep(step, i)}
+            </Text>
+          ))
+        : null}
+    </Box>
+  );
 }
 
-function formatBlock(block: VisibleBlock): string {
-  switch (block.type) {
-    case "user":
-      return truncateContent(block.content);
-    case "text":
-      return truncateContent(block.content);
-    case "tool_call":
-      return formatToolCall(block);
-    case "tool_result": {
-      const status = block.isError ? "Error" : "Success";
-      return `Tool: ${eventLabel(block.name)}\n  ${status}: ${truncateContent(block.content)}`;
-    }
-    case "error":
-      return truncateContent(block.message);
-  }
-}
+export function EventLog({ contentBlocks, planCollapsed = false }: EventLogProps): ReactNode {
+  const firstBlock = contentBlocks[0];
+  const hasPlan = firstBlock?.type === "plan";
+  const planSteps = hasPlan ? (firstBlock as ContentBlock & { type: "plan" }).steps : [];
+  const rest = hasPlan ? contentBlocks.slice(1) : contentBlocks;
 
-export function EventLog({ contentBlocks }: EventLogProps): ReactNode {
-  const visibleBlocks = contentBlocks.filter(
-    (block): block is VisibleBlock => block.type !== "thinking" && block.type !== "reply",
+  const visibleRest = rest.filter(
+    (b): b is Exclude<ContentBlock, { type: "thinking" } | { type: "reply" } | { type: "plan" }> =>
+      b.type !== "thinking" && b.type !== "reply" && b.type !== "plan",
   );
 
-  if (visibleBlocks.length === 0) {
+  if (!hasPlan && visibleRest.length === 0) {
     return (
       <Box paddingX={1}>
         <Text color="gray">Waiting for events...</Text>
@@ -99,16 +91,18 @@ export function EventLog({ contentBlocks }: EventLogProps): ReactNode {
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {visibleBlocks.map((block, index) => (
-        <Box key={`${block.type}-${index}`} flexDirection="column" marginBottom={index === visibleBlocks.length - 1 ? 0 : 1}>
-          {index > 0 ? <Text color="gray">─</Text> : null}
-          <Text color={blockColor(block)} bold>
-            {blockSymbol(block)} {eventLabel(block.type)}
-          </Text>
-          <Box paddingLeft={2}>
-            <Text color={blockColor(block)}>{formatBlock(block)}</Text>
+      {hasPlan ? (
+        <>
+          <PlanBlock steps={planSteps} collapsed={planCollapsed} />
+          <Box paddingY={0}>
+            <Text color="gray">────────────────────────────────</Text>
           </Box>
-        </Box>
+        </>
+      ) : null}
+      {visibleRest.map((block, index) => (
+        <Text key={`${block.type}-${index}`} color={blockColor(block)}>
+          {formatBlock(block)}
+        </Text>
       ))}
     </Box>
   );
