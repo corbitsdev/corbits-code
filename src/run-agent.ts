@@ -9,6 +9,7 @@ import type { Config } from "./config.js";
 import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
+import { reReadBlockPlugin } from "./plugins/re-read-block-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
@@ -31,12 +32,17 @@ export async function runAgent(
 
   const startedAt = initialStartedAt ?? Date.now();
 
+  // directorHolder is populated after director is created; the re-read plugin
+  // only executes during tool calls, which happen after wiring is complete.
+  const directorHolder: { instance?: ReturnType<typeof createCodingDirector> } = {};
+
   const posixTools = createPosixTools({
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
       authzPlugin(),
       verifyPlugin(),
+      reReadBlockPlugin(() => directorHolder.instance),
     ],
   });
 
@@ -53,6 +59,7 @@ export async function runAgent(
     config.maxTurns,
     initialDirectorState,
   );
+  directorHolder.instance = director;
 
   const agentTools = [
     ...posixToolList,
