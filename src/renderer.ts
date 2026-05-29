@@ -1,5 +1,8 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 
+import { createFaremeter, formatCost } from "./faremeter.js";
+import type { PricingCache } from "./pricing-fetcher.js";
+
 export type Renderer = {
   render(event: ReactorEmittedEvent): void;
 };
@@ -51,13 +54,14 @@ function formatOp(name: string): string {
   return name;
 }
 
-export function createRenderer(startedAt: number): Renderer {
+export function createRenderer(startedAt: number, modelId?: string, pricingCache?: PricingCache | null): Renderer {
   let currentOp = "";
   let currentArg = "";
   let turnCount = 0;
   const pendingArgs = new Map<string, Record<string, unknown>>();
   const pendingNames = new Map<string, string>();
   let pendingSubmitSummary: string | undefined;
+  const faremeter = createFaremeter(modelId === undefined ? {} : { modelId, pricingCache: pricingCache ?? null });
 
   function elapsedSecs(): number {
     return Math.floor((Date.now() - startedAt) / 1000);
@@ -67,7 +71,7 @@ export function createRenderer(startedAt: number): Renderer {
     const opText = currentOp.length > 0
       ? `${AMBER}${currentOp}${currentArg ? " " + currentArg : ""}${RESET}`
       : "";
-    const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
+    const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${formatCost(faremeter.getTotalCost())}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
     process.stderr.write(bar);
   }
 
@@ -140,6 +144,12 @@ export function createRenderer(startedAt: number): Renderer {
         turnCount++;
         currentOp = "";
         currentArg = "";
+        break;
+      }
+
+      case "inference.usage": {
+        const usage = (e.data?.usage ?? {}) as { input: number; output: number; cacheRead: number; cacheWrite: number; thinking: number };
+        faremeter.addUsage(usage);
         break;
       }
 
