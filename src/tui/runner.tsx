@@ -11,6 +11,7 @@ import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { consumeStream } from "../stream-consumer.js";
+import { loadPricing, startPricingRefresh } from "../pricing-fetcher.js";
 import { App } from "./app.js";
 
 export function createTUIEventEmitter(): EventEmitter {
@@ -19,6 +20,8 @@ export function createTUIEventEmitter(): EventEmitter {
 
 export async function runTUI(config: Config): Promise<number> {
   const emitter = createTUIEventEmitter();
+  const pricingCache = await loadPricing();
+  const pricingRefresh = startPricingRefresh();
 
   const posixTools = createPosixTools({
     cwd: config.cwd,
@@ -67,7 +70,7 @@ export async function runTUI(config: Config): Promise<number> {
   }
 
   const { waitUntilExit } = render(
-    <App eventEmitter={emitter} agent={agent} sessionTitle={config.task} />,
+    <App eventEmitter={emitter} agent={agent} sessionTitle={config.task} modelId={config.model} pricingCache={pricingCache} />,
   );
 
   await waitUntilExit();
