@@ -127,3 +127,111 @@ test("createAgentStreamState accumulates tool_call delta fragments", () => {
   expect(state.contentBlocks[0].type).toBe("tool_call");
   expect(state.contentBlocks[0].arguments).toBe('{"path":"a"}');
 });
+
+function submitPlanEvents(callId: string, steps: Array<{ file: string; action: string; reason?: string }>): ReactorEmittedEvent[] {
+  return [
+    {
+      type: "inference.tool_call.start",
+      seq: 1,
+      data: { name: "submit_plan", callId } as unknown as ReactorEmittedEvent["data"],
+    },
+    {
+      type: "inference.tool_call.delta",
+      seq: 2,
+      data: { argumentFragment: JSON.stringify({ steps }) } as unknown as ReactorEmittedEvent["data"],
+    },
+    {
+      type: "tool.done",
+      seq: 3,
+      data: { result: { callId, content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"],
+    },
+  ];
+}
+
+test("submit_plan promotes to pinned plan block at index 0", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("plan-1", [
+    { file: "src/a.ts", action: "create", reason: "x" },
+    { file: "src/b.ts", action: "edit", reason: "y" },
+  ])) {
+    state.addEvent(e);
+  }
+
+  expect(state.contentBlocks.length).toBe(1);
+  expect(state.contentBlocks[0].type).toBe("plan");
+  const plan = state.contentBlocks[0] as { type: "plan"; steps: Array<{ file: string; action: string }> };
+  expect(plan.steps).toEqual([
+    { file: "src/a.ts", action: "create" },
+    { file: "src/b.ts", action: "edit" },
+  ]);
+});
+
+test("submit_plan does not leave a tool_call or tool_result behind", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("plan-1", [{ file: "f", action: "a" }])) {
+    state.addEvent(e);
+  }
+  expect(state.contentBlocks.some((b) => b.type === "tool_call")).toBe(false);
+  expect(state.contentBlocks.some((b) => b.type === "tool_result")).toBe(false);
+});
+
+test("plan stays pinned at index 0 as new events arrive", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("plan-1", [{ file: "f", action: "a" }])) {
+    state.addEvent(e);
+  }
+
+  state.addUserMessage("now do it");
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 10,
+    data: { name: "read_file", callId: "c2" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "tool.done",
+    seq: 11,
+    data: { result: { callId: "c2", content: "file body", isError: false } } as unknown as ReactorEmittedEvent["data"],
+  });
+
+  expect(state.contentBlocks[0].type).toBe("plan");
+  expect(state.contentBlocks.filter((b) => b.type === "plan").length).toBe(1);
+  expect(state.contentBlocks.length).toBeGreaterThan(1);
+});
+
+test("submit_plan with invalid arguments yields an empty plan block (no crash)", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "submit_plan", callId: "p1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "inference.tool_call.delta",
+    seq: 2,
+    data: { argumentFragment: "{not-json" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "tool.done",
+    seq: 3,
+    data: { result: { callId: "p1", content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"],
+  });
+
+  expect(state.contentBlocks[0].type).toBe("plan");
+  expect((state.contentBlocks[0] as { steps: unknown[] }).steps).toEqual([]);
+});
+
+test("failed submit_plan does not create a plan block", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "submit_plan", callId: "p1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "tool.done",
+    seq: 2,
+    data: { result: { callId: "p1", content: "bad", isError: true } } as unknown as ReactorEmittedEvent["data"],
+  });
+
+  expect(state.contentBlocks.some((b) => b.type === "plan")).toBe(false);
+});
