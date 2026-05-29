@@ -62,8 +62,6 @@ export interface CodingDirector extends ReactorDirector {
   setState(state: DirectorPersistedState): void;
 }
 
-const READ_TOOLS = new Set(["read_file", "list_dir", "search_files", "grep"]);
-const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
 
 function isValidPlanArgs(args: unknown): args is { steps: PlanStep[] } {
   if (typeof args !== "object" || args === null) return false;
@@ -85,7 +83,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private readonly maxTurns: number;
   private readonly callIdToName = new Map<string, string>();
   private idleCycles = 0;
-  private consecutiveReads = 0;
   private planSubmitted = false;
   private plan: PlanStep[] = [];
 
@@ -163,26 +160,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
           this.submitCalled = true;
         }
       }
-      if (name !== undefined) {
-        if (READ_TOOLS.has(name)) {
-          this.consecutiveReads++;
-        } else if (WRITE_TOOLS.has(name)) {
-          this.consecutiveReads = 0;
-        }
-      }
     }
 
-    const actions = await super.decide(event, state, capabilities);
-
-    if (this.consecutiveReads >= 7) {
-      return [
-        capabilities.checkpoint("read-abort"),
-        capabilities.reply("Agent stalled: too many reads without writes."),
-        capabilities.done(),
-      ];
-    }
-
-    return actions;
+    return super.decide(event, state, capabilities);
   }
 
   getTurnsUsed(): number {
@@ -199,7 +179,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       submitCalled: this.submitCalled,
       callIdToName,
       idleCycles: this.idleCycles,
-      consecutiveReads: this.consecutiveReads,
       planSubmitted: this.planSubmitted,
       plan: this.plan,
     };
@@ -213,7 +192,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       this.callIdToName.set(k, v);
     }
     this.idleCycles = state.idleCycles ?? 0;
-    this.consecutiveReads = state.consecutiveReads ?? 0;
     this.planSubmitted = state.planSubmitted ?? false;
     this.plan = state.plan ?? [];
   }
