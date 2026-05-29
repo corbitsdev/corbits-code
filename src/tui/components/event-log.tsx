@@ -1,12 +1,24 @@
+import type { ReactNode } from "react";
 import { Box, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
-import type { ReactNode } from "react";
 
 export type EventLogProps = {
   contentBlocks: ContentBlock[];
 };
 
-function blockColor(block: ContentBlock): string {
+type VisibleBlock = Exclude<ContentBlock, { type: "thinking" } | { type: "reply" }>;
+
+const maxContentLength = 900;
+const longArgumentLength = 80;
+
+function eventLabel(type: string): string {
+  return type
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function blockColor(block: VisibleBlock): string {
   switch (block.type) {
     case "user":
       return "green";
@@ -15,35 +27,66 @@ function blockColor(block: ContentBlock): string {
     case "tool_call":
       return "cyan";
     case "tool_result":
-      return block.isError ? "red" : "yellow";
+      return block.isError ? "red" : "green";
     case "error":
       return "red";
-    default:
-      return "white";
   }
 }
 
-function formatBlock(block: ContentBlock): string {
+function blockSymbol(block: VisibleBlock): string {
   switch (block.type) {
     case "user":
-      return `> ${block.content}`;
+      return ">";
     case "text":
-      return block.content;
+      return "•";
     case "tool_call":
-      return `${block.name}(${block.arguments})`;
+      return "→";
     case "tool_result":
-      return block.isError ? `error: ${block.content}` : block.content;
+      return block.isError ? "✕" : "✓";
     case "error":
-      return block.message;
-    default:
-      return "";
+      return "!";
+  }
+}
+
+function truncateContent(content: string): string {
+  if (content.length <= maxContentLength) {
+    return content;
+  }
+
+  return `${content.slice(0, maxContentLength).trimEnd()} ... [show more]`;
+}
+
+function formatToolCall(block: Extract<VisibleBlock, { type: "tool_call" }>): string {
+  const name = eventLabel(block.name);
+  const args = truncateContent(block.arguments || "{}");
+
+  if (args.length > longArgumentLength || args.includes("\n")) {
+    return `Tool: ${name}\n  Args:\n    ${args.replaceAll("\n", "\n    ")}`;
+  }
+
+  return `Tool: ${name}\n  Args: ${args}`;
+}
+
+function formatBlock(block: VisibleBlock): string {
+  switch (block.type) {
+    case "user":
+      return truncateContent(block.content);
+    case "text":
+      return truncateContent(block.content);
+    case "tool_call":
+      return formatToolCall(block);
+    case "tool_result": {
+      const status = block.isError ? "Error" : "Success";
+      return `Tool: ${eventLabel(block.name)}\n  ${status}: ${truncateContent(block.content)}`;
+    }
+    case "error":
+      return truncateContent(block.message);
   }
 }
 
 export function EventLog({ contentBlocks }: EventLogProps): ReactNode {
   const visibleBlocks = contentBlocks.filter(
-    (b): b is Exclude<ContentBlock, { type: "thinking" } | { type: "reply" }> =>
-      b.type !== "thinking" && b.type !== "reply",
+    (block): block is VisibleBlock => block.type !== "thinking" && block.type !== "reply",
   );
 
   if (visibleBlocks.length === 0) {
@@ -57,9 +100,15 @@ export function EventLog({ contentBlocks }: EventLogProps): ReactNode {
   return (
     <Box flexDirection="column" paddingX={1}>
       {visibleBlocks.map((block, index) => (
-        <Text key={`${block.type}-${index}`} color={blockColor(block)}>
-          {formatBlock(block)}
-        </Text>
+        <Box key={`${block.type}-${index}`} flexDirection="column" marginBottom={index === visibleBlocks.length - 1 ? 0 : 1}>
+          {index > 0 ? <Text color="gray">─</Text> : null}
+          <Text color={blockColor(block)} bold>
+            {blockSymbol(block)} {eventLabel(block.type)}
+          </Text>
+          <Box paddingLeft={2}>
+            <Text color={blockColor(block)}>{formatBlock(block)}</Text>
+          </Box>
+        </Box>
       ))}
     </Box>
   );
