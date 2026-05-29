@@ -13,7 +13,6 @@ describe("agent loop", () => {
       const director = createCodingDirector(
         buildSystemPrompt(),
         [submitOutputDefinition],
-        10,
         {
           turnsUsed: 0,
           submitCalled: false,
@@ -124,88 +123,12 @@ describe("agent loop", () => {
     }
   });
 
-  test("director aborts at max turns", async () => {
-    const harness = setupHarness();
-    try {
-      const director = createCodingDirector(
-        buildSystemPrompt(),
-        [submitOutputDefinition],
-        2,
-      );
-
-      const capabilities = createCapabilities();
-
-      // Turn 1: empty text (no tools)
-      const actions1 = await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [{ type: "text", text: "Thinking..." }],
-          },
-          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          source: { id: "xai", model: "test" },
-        },
-        {
-          turns: [],
-          activeForks: [],
-          pendingOperations: [],
-          activeGates: [],
-          tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          lastCycleUsage: null,
-          lastCycleSource: null,
-          sessionId: "test",
-        },
-        capabilities,
-      );
-
-      // Default director replies and waits
-      const arr1 = Array.isArray(actions1) ? actions1 : [actions1];
-      expect(arr1.some((a) => a.type === "reply")).toBe(true);
-
-      // Turn 2: empty text again (reaches max turns)
-      const actions2 = await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [{ type: "text", text: "Still thinking..." }],
-          },
-          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          source: { id: "xai", model: "test" },
-        },
-        {
-          turns: [],
-          activeForks: [],
-          pendingOperations: [],
-          activeGates: [],
-          tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          lastCycleUsage: null,
-          lastCycleSource: null,
-          sessionId: "test",
-        },
-        capabilities,
-      );
-
-      // Should reply because max turns reached
-      const arr2 = Array.isArray(actions2) ? actions2 : [actions2];
-      expect(arr2.some((a) => a.type === "reply")).toBe(true);
-    } finally {
-      harness.dispose();
-    }
-  });
-
   test("director aborts after 3 idle cycles", async () => {
     const harness = setupHarness();
     try {
       const director = createCodingDirector(
         buildSystemPrompt(),
         [submitOutputDefinition],
-        10,
       );
 
       const capabilities = createCapabilities();
@@ -271,7 +194,6 @@ describe("agent loop", () => {
       const director = createCodingDirector(
         buildSystemPrompt(),
         [submitPlanDefinition, submitOutputDefinition],
-        10,
       );
 
       const capabilities = createCapabilities();
@@ -335,7 +257,6 @@ describe("agent loop", () => {
       const director = createCodingDirector(
         buildSystemPrompt(),
         [submitPlanDefinition, submitOutputDefinition],
-        10,
       );
 
       const capabilities = createCapabilities();

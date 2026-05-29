@@ -27,7 +27,7 @@ function event(type: string, data: Record<string, unknown> = {}): ReactorEmitted
 describe("renderer — status bar", () => {
   test("every event updates the status bar on stderr", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("reactor.start"));
     cap.restore();
     expect(cap.stderr.join("")).toContain("interchange");
@@ -35,7 +35,7 @@ describe("renderer — status bar", () => {
 
   test("status bar uses \\r not \\n", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("reactor.start"));
     cap.restore();
     const bar = cap.stderr.join("");
@@ -45,7 +45,7 @@ describe("renderer — status bar", () => {
 
   test("status bar shows current op in amber for tool_call.start", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.start", { callId: "c1", name: "read_file" }));
     cap.restore();
     // amber escape before the op text
@@ -56,7 +56,7 @@ describe("renderer — status bar", () => {
 describe("renderer — submit_plan journal block", () => {
   test("submit_plan tool.done writes a plan block to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c1", name: "submit_plan",
       arguments: {
@@ -80,7 +80,7 @@ describe("renderer — submit_plan journal block", () => {
 describe("renderer — write_file journal block", () => {
   test("write_file tool.done writes a write block with line count to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c2", name: "write_file",
       arguments: { path: "src/foo.ts", content: "line1\nline2\nline3" },
@@ -97,7 +97,7 @@ describe("renderer — write_file journal block", () => {
 describe("renderer — edit_file journal block", () => {
   test("edit_file tool.done writes an edit block with +/- counts to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c3", name: "edit_file",
       arguments: {
@@ -119,7 +119,7 @@ describe("renderer — edit_file journal block", () => {
 describe("renderer — run_shell journal block", () => {
   test("run_shell success writes collapsed block with checkmark to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c4", name: "run_shell",
       arguments: { command: "bun test" },
@@ -134,7 +134,7 @@ describe("renderer — run_shell journal block", () => {
 
   test("run_shell failure writes expanded block with cross to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c5", name: "run_shell",
       arguments: { command: "bun test" },
@@ -150,7 +150,7 @@ describe("renderer — run_shell journal block", () => {
 describe("renderer — submit_output / reactor.done journal block", () => {
   test("submit_output tool.done writes done block with summary in green", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c6", name: "submit_output",
       arguments: { summary: "Task complete" },
@@ -165,7 +165,7 @@ describe("renderer — submit_output / reactor.done journal block", () => {
 
   test("reactor.done writes done block to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("reactor.done"));
     cap.restore();
     expect(cap.stdout.join("")).toContain("done");
@@ -175,7 +175,7 @@ describe("renderer — submit_output / reactor.done journal block", () => {
 describe("renderer — error blocks", () => {
   test("inference.error writes error block in red to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.error", {
       error: { category: "timeout", message: "request timed out" },
       partial: {},
@@ -189,7 +189,7 @@ describe("renderer — error blocks", () => {
 
   test("reactor.error writes error block in red to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("reactor.error", { error: "fatal crash", fatal: true }));
     cap.restore();
     const out = cap.stdout.join("");
@@ -201,7 +201,7 @@ describe("renderer — error blocks", () => {
 describe("renderer — read-only tools produce no journal block", () => {
   test("read_file tool.done writes nothing to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c7", name: "read_file",
       arguments: { path: "src/foo.ts" },
@@ -213,7 +213,7 @@ describe("renderer — read-only tools produce no journal block", () => {
 
   test("list_dir tool.done writes nothing to stdout", () => {
     const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), 30);
+    const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
       callId: "c8", name: "list_dir",
       arguments: { path: "src/" },

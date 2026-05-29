@@ -5,6 +5,13 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 export function pathEscapePlugin(cwd: string): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
+      if ("_raw" in call.arguments) {
+        return {
+          callId: call.id,
+          content: "Tool call arguments were malformed JSON (likely truncated). Retry with a smaller payload.",
+          isError: true,
+        };
+      }
       let escaped: Record<string, unknown>;
       try {
         escaped = escapeArgs(call.arguments, cwd);
