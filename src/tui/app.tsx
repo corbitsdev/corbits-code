@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
 import type { ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
+import type { PricingCache } from "../pricing-fetcher.js";
 import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
@@ -12,10 +13,12 @@ export type AppProps = {
   eventEmitter: EventEmitter;
   agent: Agent;
   sessionTitle: string;
+  modelId: string;
+  pricingCache: PricingCache | null;
 };
 
-export function App({ eventEmitter, agent, sessionTitle }: AppProps): ReactNode {
-  const state = useAgentStream(eventEmitter);
+export function App({ eventEmitter, agent, sessionTitle, modelId, pricingCache }: AppProps): ReactNode {
+  const state = useAgentStream(eventEmitter, modelId, pricingCache);
   const { exit } = useApp();
 
   useInput((input, key) => {
