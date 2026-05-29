@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createFaremeter, formatCost } from "../faremeter.js";
-import type { PricingCache } from "../pricing-fetcher.js";
+
+export type PlanStep = { file: string; action: string };
 
 export type ContentBlock =
   | { type: "user"; content: string }
@@ -11,6 +12,7 @@ export type ContentBlock =
   | { type: "tool_call"; name: string; arguments: string }
   | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { type: "reply"; content: string }
+  | { type: "plan"; steps: PlanStep[] }
   | { type: "error"; message: string };
 
 export type AgentStreamState = {
@@ -25,12 +27,36 @@ export type AgentStreamState = {
   addUserMessage(message: string): void;
 };
 
-export function createAgentStreamState(modelId?: string, pricingCache?: PricingCache | null): AgentStreamState {
+function parsePlanSteps(rawArguments: string): PlanStep[] {
+  if (rawArguments.length === 0) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawArguments);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== "object" || parsed === null) return [];
+  const steps = (parsed as { steps?: unknown }).steps;
+  if (!Array.isArray(steps)) return [];
+  const out: PlanStep[] = [];
+  for (const raw of steps) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const s = raw as Record<string, unknown>;
+    const file = typeof s.file === "string" ? s.file : "";
+    const action = typeof s.action === "string" ? s.action : "";
+    if (file.length === 0 && action.length === 0) continue;
+    out.push({ file, action });
+  }
+  return out;
+}
+
+export function createAgentStreamState(): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
+  const callIdToName = new Map<string, string>();
   let turnsUsed = 0;
   let status: "running" | "done" | "failed" = "running";
   let latestUserMessage = "";
-  const faremeter = createFaremeter(modelId === undefined ? {} : { modelId, pricingCache: pricingCache ?? null });
+  const faremeter = createFaremeter();
 
   return {
     get contentBlocks() {
@@ -84,6 +110,7 @@ export function createAgentStreamState(modelId?: string, pricingCache?: PricingC
         }
         case "inference.tool_call.start": {
           const data = event.data as { name: string; callId: string };
+          callIdToName.set(data.callId, data.name);
           contentBlocks.push({ type: "tool_call", name: data.name, arguments: "" });
           break;
         }
@@ -101,8 +128,35 @@ export function createAgentStreamState(modelId?: string, pricingCache?: PricingC
         }
         case "tool.done": {
           const result = (event.data as { result: { callId: string; content: string; isError: boolean } }).result;
+          const trackedName = callIdToName.get(result.callId);
           const callBlock = contentBlocks.findLast((b) => b.type === "tool_call" && b.name === result.callId) ?? contentBlocks.findLast((b) => b.type === "tool_call");
-          const name = callBlock ? (callBlock as ContentBlock & { type: "tool_call" }).name : result.callId;
+          const name = trackedName ?? (callBlock ? (callBlock as ContentBlock & { type: "tool_call" }).name : result.callId);
+
+          if (name === "submit_plan" && !result.isError) {
+            let planCallIndex = -1;
+            for (let i = contentBlocks.length - 1; i >= 0; i--) {
+              const b = contentBlocks[i];
+              if (b.type === "tool_call" && b.name === "submit_plan") {
+                planCallIndex = i;
+                break;
+              }
+            }
+            const planArgs = planCallIndex >= 0
+              ? (contentBlocks[planCallIndex] as ContentBlock & { type: "tool_call" }).arguments
+              : "";
+            const steps = parsePlanSteps(planArgs);
+            if (planCallIndex >= 0) {
+              contentBlocks.splice(planCallIndex, 1);
+            }
+            const existingPlanIndex = contentBlocks.findIndex((b) => b.type === "plan");
+            if (existingPlanIndex >= 0) {
+              contentBlocks[existingPlanIndex] = { type: "plan", steps };
+            } else {
+              contentBlocks.unshift({ type: "plan", steps });
+            }
+            break;
+          }
+
           contentBlocks.push({ type: "tool_result", callId: result.callId, name, content: result.content, isError: result.isError });
           break;
         }
@@ -144,8 +198,8 @@ export function createAgentStreamState(modelId?: string, pricingCache?: PricingC
   };
 }
 
-export function useAgentStream(emitter: EventEmitter, modelId?: string, pricingCache?: PricingCache | null): AgentStreamState {
-  const [state] = useState(() => createAgentStreamState(modelId, pricingCache));
+export function useAgentStream(emitter: EventEmitter): AgentStreamState {
+  const [state] = useState(() => createAgentStreamState());
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
