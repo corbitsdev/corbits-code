@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createFaremeter, formatCost } from "../faremeter.js";
+import type { PricingCache } from "../pricing-fetcher.js";
 
 export type ContentBlock =
   | { type: "user"; content: string }
@@ -24,12 +25,12 @@ export type AgentStreamState = {
   addUserMessage(message: string): void;
 };
 
-export function createAgentStreamState(): AgentStreamState {
+export function createAgentStreamState(modelId?: string, pricingCache?: PricingCache | null): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
   let turnsUsed = 0;
   let status: "running" | "done" | "failed" = "running";
   let latestUserMessage = "";
-  const faremeter = createFaremeter();
+  const faremeter = createFaremeter(modelId === undefined ? {} : { modelId, pricingCache: pricingCache ?? null });
 
   return {
     get contentBlocks() {
@@ -143,8 +144,8 @@ export function createAgentStreamState(): AgentStreamState {
   };
 }
 
-export function useAgentStream(emitter: EventEmitter): AgentStreamState {
-  const [state] = useState(() => createAgentStreamState());
+export function useAgentStream(emitter: EventEmitter, modelId?: string, pricingCache?: PricingCache | null): AgentStreamState {
+  const [state] = useState(() => createAgentStreamState(modelId, pricingCache));
   const [tick, setTick] = useState(0);
 
   useEffect(() => {

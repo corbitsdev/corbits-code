@@ -14,6 +14,7 @@ import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
 import { runCritique } from "./critic.js";
+import { loadPricing, startPricingRefresh } from "./pricing-fetcher.js";
 import { createRenderer } from "./renderer.js";
 import { consumeStream } from "./stream-consumer.js";
 
@@ -32,6 +33,8 @@ export async function runAgent(
   }
 
   const startedAt = initialStartedAt ?? Date.now();
+  const pricingCache = await loadPricing();
+  const pricingRefresh = startPricingRefresh();
 
   // directorHolder is populated after director is created; the re-read plugin
   // only executes during tool calls, which happen after wiring is complete.
@@ -110,7 +113,7 @@ export async function runAgent(
   });
   await saveDirectorState(config.cwd, director.getState());
 
-  const renderer = createRenderer(startedAt);
+  const renderer = createRenderer(startedAt, config.model, pricingCache);
   const sendPromise = agent.send(config.task);
 
   const streamPromise = consumeStream(agent.stream(), onEvent ?? renderer.render.bind(renderer));
@@ -126,6 +129,7 @@ export async function runAgent(
     } catch {
       // ignore
     }
+    clearInterval(pricingRefresh);
     await posixTools.dispose();
   }
 
