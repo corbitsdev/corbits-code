@@ -47,6 +47,56 @@ function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] 
   return Array.isArray(result) ? result : [result];
 }
 
+describe("CL-820: filesRead tracking", () => {
+  test("filesRead starts empty on new director", () => {
+    const director = createCodingDirector("", [], 30);
+    expect(director.getState().filesRead).toEqual([]);
+  });
+
+  test("reading a file adds its path to filesRead", async () => {
+    const director = createCodingDirector("", [], 30);
+    const callId = "call-r1";
+    await director.decide(makeInferenceDoneEvent([{ id: callId, name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolDoneEvent(callId), mockState, mockCapabilities);
+    expect(director.getState().filesRead!.some((e) => e.path === "src/foo.ts")).toBe(true);
+  });
+
+  test("list_dir does not add to filesRead", async () => {
+    const director = createCodingDirector("", [], 30);
+    const callId = "call-ld";
+    await director.decide(makeInferenceDoneEvent([{ id: callId, name: "list_dir", args: { path: "src/" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolDoneEvent(callId), mockState, mockCapabilities);
+    expect(director.getState().filesRead).toEqual([]);
+  });
+
+  test("filesRead is restored on setState (simulates resume)", () => {
+    const director = createCodingDirector("", [], 30);
+    director.setState({
+      turnsUsed: 2,
+      submitCalled: false,
+      callIdToName: {},
+      idleCycles: 0,
+      planSubmitted: false,
+      plan: [],
+      filesRead: [{ path: "src/foo.ts", turn: 1 }],
+    });
+    expect(director.getState().filesRead!.some((e) => e.path === "src/foo.ts")).toBe(true);
+  });
+
+  test("filesRead is empty on fresh director (not restored from prior state)", () => {
+    const director = createCodingDirector("", [], 30);
+    expect(director.getState().filesRead).toEqual([]);
+  });
+
+  test("getFilesReadAtTurn exposes path-to-turn map", async () => {
+    const director = createCodingDirector("", [], 30);
+    const callId = "call-r2";
+    await director.decide(makeInferenceDoneEvent([{ id: callId, name: "read_file", args: { path: "src/bar.ts" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolDoneEvent(callId), mockState, mockCapabilities);
+    expect(director.getFilesReadAtTurn().has("src/bar.ts")).toBe(true);
+  });
+});
+
 describe("CL-822: consecutive-reads cap removed", () => {
   test("consecutiveReads field is absent from persisted state", () => {
     const director = createCodingDirector("", [], 30);
