@@ -60,6 +60,7 @@ export interface CodingDirector extends ReactorDirector {
   getTurnsUsed(): number;
   getState(): DirectorPersistedState;
   setState(state: DirectorPersistedState): void;
+  getFilesReadAtTurn(): ReadonlyMap<string, number>;
 }
 
 
@@ -82,6 +83,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private _turnsUsed = 0;
   private readonly maxTurns: number;
   private readonly callIdToName = new Map<string, string>();
+  private readonly callIdToArgs = new Map<string, unknown>();
+  private readonly filesReadAtTurn = new Map<string, number>();
   private idleCycles = 0;
   private planSubmitted = false;
   private plan: PlanStep[] = [];
@@ -119,6 +122,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       for (const block of event.turn.content) {
         if (block.type === "tool_call") {
           this.callIdToName.set(block.id, block.name);
+          this.callIdToArgs.set(block.id, block.arguments);
           if (block.name === "submit_plan") {
             if (isValidPlanArgs(block.arguments)) {
               this.plan = block.arguments.steps;
@@ -160,6 +164,13 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
           this.submitCalled = true;
         }
       }
+      if (name === "read_file" && !event.result.isError) {
+        const args = this.callIdToArgs.get(event.result.callId);
+        const path = typeof args === "object" && args !== null ? String((args as Record<string, unknown>).path ?? "") : "";
+        if (path.length > 0) {
+          this.filesReadAtTurn.set(path, this._turnsUsed);
+        }
+      }
     }
 
     return super.decide(event, state, capabilities);
@@ -181,6 +192,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       idleCycles: this.idleCycles,
       planSubmitted: this.planSubmitted,
       plan: this.plan,
+      filesRead: [...this.filesReadAtTurn.entries()].map(([path, turn]) => ({ path, turn })),
     };
   }
 
@@ -194,6 +206,14 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     this.idleCycles = state.idleCycles ?? 0;
     this.planSubmitted = state.planSubmitted ?? false;
     this.plan = state.plan ?? [];
+    this.filesReadAtTurn.clear();
+    for (const { path, turn } of state.filesRead ?? []) {
+      this.filesReadAtTurn.set(path, turn);
+    }
+  }
+
+  getFilesReadAtTurn(): ReadonlyMap<string, number> {
+    return this.filesReadAtTurn;
   }
 }
 

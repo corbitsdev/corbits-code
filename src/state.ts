@@ -24,6 +24,7 @@ export type DirectorPersistedState = {
   idleCycles: number;
   planSubmitted: boolean;
   plan: Array<{ file: string; action: string; reason: string }>;
+  filesRead?: Array<{ path: string; turn: number }>;
 };
 
 function isValidDirectorState(data: unknown): data is DirectorPersistedState {
