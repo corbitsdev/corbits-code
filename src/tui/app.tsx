@@ -33,19 +33,25 @@ export function App({ eventEmitter, agent, sessionTitle }: AppProps): ReactNode 
   };
 
   return (
-    <Box flexDirection="column" height="100%">
-      <Header
-        turnsUsed={state.turnsUsed}
-        status={state.status}
-        totalCost={state.formattedCost}
-        sessionTitle={sessionTitle}
-        latestUserMessage={state.latestUserMessage}
-      />
-      <Box flexGrow={1} flexDirection="column">
+    <Box flexDirection="column" height="100%" overflowY="hidden">
+      <Box height="auto" flexShrink={0}>
+        <Header
+          turnsUsed={state.turnsUsed}
+          status={state.status}
+          totalCost={state.formattedCost}
+          sessionTitle={sessionTitle}
+          latestUserMessage={state.latestUserMessage}
+        />
+      </Box>
+      <Box flexGrow={1} flexShrink={1} flexDirection="column" overflowY="hidden">
         <EventLog contentBlocks={state.contentBlocks} />
       </Box>
-      <ChatInput onSubmit={handleSend} />
-      <StatusBar />
+      <Box height="auto" flexShrink={0}>
+        <ChatInput onSubmit={handleSend} />
+      </Box>
+      <Box height="auto" flexShrink={0}>
+        <StatusBar />
+      </Box>
     </Box>
   );
 }
