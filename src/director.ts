@@ -16,7 +16,7 @@ export type PlanStep = {
 };
 
 export const submitPlanDefinition: ToolDefinition = {
-  name: "submitPlan",
+  name: "submit_plan",
   description:
     "Call this on your first turn to declare a structured plan for the task.",
   inputSchema: {
@@ -41,7 +41,7 @@ export const submitPlanDefinition: ToolDefinition = {
 };
 
 export const submitOutputDefinition: ToolDefinition = {
-  name: "submitOutput",
+  name: "submit_output",
   description:
     "Call this when the task is fully complete. Include a brief summary of what was done.",
   inputSchema: {
@@ -122,7 +122,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       for (const block of event.turn.content) {
         if (block.type === "tool_call") {
           this.callIdToName.set(block.id, block.name);
-          if (block.name === "submitPlan") {
+          if (block.name === "submit_plan") {
             if (isValidPlanArgs(block.arguments)) {
               this.plan = block.arguments.steps;
               this.planSubmitted = true;
@@ -158,7 +158,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
     if (event.type === "tool.done") {
       const name = this.callIdToName.get(event.result.callId);
-      if (name === "submitOutput" && !event.result.isError) {
+      if (name === "submit_output" && !event.result.isError) {
         if (this.planSubmitted) {
           this.submitCalled = true;
         }
