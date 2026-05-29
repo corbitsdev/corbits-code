@@ -10,9 +10,9 @@ export function buildSystemPrompt(): string {
     "6. You have a budget of 3 searches and 10 file reads. Use them wisely.",
     "7. Do not re-read a file you already read in this session. Use the result you already have.",
     "",
-    "Available tools: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, submitPlan, submitOutput.",
+    "Available tools: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, submit_plan, submit_output.",
     "",
-    "When calling submitOutput, include a brief summary of what was done.",
+    "When calling submit_output, include a brief summary of what was done.",
   ].join("\n");
 }
 

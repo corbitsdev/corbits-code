@@ -61,7 +61,7 @@ export async function runAgent(
       handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
         const steps = args.steps;
         if (!Array.isArray(steps) || steps.length === 0) {
-          return "Error: submitPlan requires a non-empty steps array.";
+          return "Error: submit_plan requires a non-empty steps array.";
         }
         return "Plan accepted.";
       },
@@ -70,7 +70,7 @@ export async function runAgent(
       definition: submitOutputDefinition,
       handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
         if (!director.getState().planSubmitted) {
-          return "Error: You must call submitPlan before submitOutput.";
+          return "Error: You must call submit_plan before submit_output.";
         }
         return "Submission accepted. The task is now complete.";
       },
