@@ -114,7 +114,12 @@ describe("submit_output without plan", () => {
     expect(hasWarning(result)).toBe(false);
   });
 
-  test("accepted with warning when task ran more than 3 turns without a plan", async () => {
+  test("no warning at exactly 3 turns", async () => {
+    const result = await submitWithoutPlan(3);
+    expect(hasWarning(result)).toBe(false);
+  });
+
+  test("warning when task ran more than 3 turns without a plan", async () => {
     const result = await submitWithoutPlan(4);
     expect(hasWarning(result)).toBe(true);
   });
