@@ -5,6 +5,7 @@ import {
   buildAvailableTools,
   buildBudgetRules,
   buildChatSystemPrompt,
+  buildPlanDecisionRules,
   buildPlanRules,
   buildSubmitRules,
   buildSystemPrompt,
@@ -17,6 +18,7 @@ const sections = [
   buildSubmitRules,
   buildBudgetRules,
   buildPlanRules,
+  buildPlanDecisionRules,
   buildAvailableTools,
 ];
 
@@ -34,6 +36,7 @@ test("system prompt includes every section", () => {
   expect(prompt).toContain(buildSubmitRules());
   expect(prompt).toContain(buildBudgetRules());
   expect(prompt).toContain(buildPlanRules());
+  expect(prompt).toContain(buildPlanDecisionRules());
   expect(prompt).toContain(buildAvailableTools());
 });
 
@@ -49,6 +52,15 @@ test("full system prompt contains provided tool names", () => {
 
   expect(prompt).toContain("first_tool");
   expect(prompt).toContain("second_tool");
+});
+
+test("plan decision rules include execute-direct and plan-first branches", () => {
+  const rules = buildPlanDecisionRules();
+
+  expect(rules).toContain("EXECUTE DIRECTLY");
+  expect(rules).toContain("SUBMIT PLAN FIRST");
+  expect(rules).toContain("3 or fewer files");
+  expect(rules).toContain("4 or more files");
 });
 
 test("system prompt preserves core agent instructions", () => {
