@@ -136,7 +136,7 @@ export function createAgentStreamState(): AgentStreamState {
             let planCallIndex = -1;
             for (let i = contentBlocks.length - 1; i >= 0; i--) {
               const b = contentBlocks[i];
-              if (b.type === "tool_call" && b.name === "submit_plan") {
+              if (b?.type === "tool_call" && b.name === "submit_plan") {
                 planCallIndex = i;
                 break;
               }

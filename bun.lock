@@ -24,7 +24,7 @@
         "ws": "^8.21.0",
       },
     },
-    "../interchange/packages/agent": {
+    "interchange/packages/agent": {
       "name": "@intx/agent",
       "version": "0.0.0",
       "dependencies": {
@@ -35,14 +35,14 @@
         "arktype": "catalog:",
       },
     },
-    "../interchange/packages/crypto-node": {
+    "interchange/packages/crypto-node": {
       "name": "@intx/crypto-node",
       "version": "0.0.0",
       "dependencies": {
         "@intx/types": "workspace:*",
       },
     },
-    "../interchange/packages/inference": {
+    "interchange/packages/inference": {
       "name": "@intx/inference",
       "version": "0.0.0",
       "dependencies": {
@@ -54,24 +54,23 @@
         "@intx/mime": "workspace:*",
       },
     },
-    "../interchange/packages/inference-discovery": {
+    "interchange/packages/inference-discovery": {
       "name": "@intx/inference-discovery",
       "version": "0.0.0",
       "dependencies": {
         "arktype": "catalog:",
       },
     },
-    "../interchange/packages/inference-testing": {
+    "interchange/packages/inference-testing": {
       "name": "@intx/inference-testing",
       "version": "0.0.0",
       "dependencies": {
         "@intx/inference": "workspace:*",
         "@intx/inference-discovery": "workspace:*",
         "@intx/types": "workspace:*",
-        "arktype": "catalog:",
       },
     },
-    "../interchange/packages/log": {
+    "interchange/packages/log": {
       "name": "@intx/log",
       "version": "0.0.0",
       "dependencies": {
@@ -85,7 +84,7 @@
         "hono",
       ],
     },
-    "../interchange/packages/mime": {
+    "interchange/packages/mime": {
       "name": "@intx/mime",
       "version": "0.0.0",
       "dependencies": {
@@ -94,7 +93,7 @@
         "arktype": "catalog:",
       },
     },
-    "../interchange/packages/storage-isogit": {
+    "interchange/packages/storage-isogit": {
       "name": "@intx/storage-isogit",
       "version": "0.0.0",
       "dependencies": {
@@ -104,14 +103,14 @@
         "isomorphic-git": "^1.27.2",
       },
     },
-    "../interchange/packages/tools-posix": {
+    "interchange/packages/tools-posix": {
       "name": "@intx/tools-posix",
       "version": "0.0.0",
       "dependencies": {
         "@intx/types": "workspace:*",
       },
     },
-    "../interchange/packages/types": {
+    "interchange/packages/types": {
       "name": "@intx/types",
       "version": "0.0.0",
       "dependencies": {
@@ -129,25 +128,25 @@
 
     "@ark/util": ["@ark/util@0.56.0", "", {}, "sha512-BghfRC8b9pNs3vBoDJhcta0/c1J1rsoS1+HgVUreMFPdhz/CRAKReAu57YEllNaSy98rWAdY1gE+gFup7OXpgA=="],
 
-    "@intx/agent": ["@intx/agent@workspace:../interchange/packages/agent"],
+    "@intx/agent": ["@intx/agent@workspace:interchange/packages/agent"],
 
-    "@intx/crypto-node": ["@intx/crypto-node@workspace:../interchange/packages/crypto-node"],
+    "@intx/crypto-node": ["@intx/crypto-node@workspace:interchange/packages/crypto-node"],
 
-    "@intx/inference": ["@intx/inference@workspace:../interchange/packages/inference"],
+    "@intx/inference": ["@intx/inference@workspace:interchange/packages/inference"],
 
-    "@intx/inference-discovery": ["@intx/inference-discovery@workspace:../interchange/packages/inference-discovery"],
+    "@intx/inference-discovery": ["@intx/inference-discovery@workspace:interchange/packages/inference-discovery"],
 
-    "@intx/inference-testing": ["@intx/inference-testing@workspace:../interchange/packages/inference-testing"],
+    "@intx/inference-testing": ["@intx/inference-testing@workspace:interchange/packages/inference-testing"],
 
-    "@intx/log": ["@intx/log@workspace:../interchange/packages/log"],
+    "@intx/log": ["@intx/log@workspace:interchange/packages/log"],
 
-    "@intx/mime": ["@intx/mime@workspace:../interchange/packages/mime"],
+    "@intx/mime": ["@intx/mime@workspace:interchange/packages/mime"],
 
-    "@intx/storage-isogit": ["@intx/storage-isogit@workspace:../interchange/packages/storage-isogit"],
+    "@intx/storage-isogit": ["@intx/storage-isogit@workspace:interchange/packages/storage-isogit"],
 
-    "@intx/tools-posix": ["@intx/tools-posix@workspace:../interchange/packages/tools-posix"],
+    "@intx/tools-posix": ["@intx/tools-posix@workspace:interchange/packages/tools-posix"],
 
-    "@intx/types": ["@intx/types@workspace:../interchange/packages/types"],
+    "@intx/types": ["@intx/types@workspace:interchange/packages/types"],
 
     "@logtape/hono": ["@logtape/hono@2.1.1", "", { "peerDependencies": { "@logtape/logtape": "^2.1.1", "hono": "^4.0.0" } }, "sha512-U6bU0MscH3b8DHyrlJhPgnu2XpFwwf0qnd8xPNh9/DXmVG/YF3ITWiB6rqk/2dCOdLdrHq3GtKGrtoRQJg20Qw=="],
 
