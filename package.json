@@ -14,16 +14,16 @@
   },
   "workspaces": [
     ".",
-    "../interchange/packages/agent",
-    "../interchange/packages/inference",
-    "../interchange/packages/inference-testing",
-    "../interchange/packages/inference-discovery",
-    "../interchange/packages/tools-posix",
-    "../interchange/packages/types",
-    "../interchange/packages/storage-isogit",
-    "../interchange/packages/mime",
-    "../interchange/packages/log",
-    "../interchange/packages/crypto-node"
+    "./interchange/packages/agent",
+    "./interchange/packages/inference",
+    "./interchange/packages/inference-testing",
+    "./interchange/packages/inference-discovery",
+    "./interchange/packages/tools-posix",
+    "./interchange/packages/types",
+    "./interchange/packages/storage-isogit",
+    "./interchange/packages/mime",
+    "./interchange/packages/log",
+    "./interchange/packages/crypto-node"
   ],
   "catalog": {
     "arktype": "^2.1.29"
