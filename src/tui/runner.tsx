@@ -64,13 +64,8 @@ export async function runTUI(config: Config): Promise<number> {
 
   const streamPromise = consumeStream(agent.stream(), sink);
 
-  // Send initial task if provided
-  if (config.task.length > 0) {
-    agent.send(config.task).catch(() => {});
-  }
-
   const { waitUntilExit } = render(
-    <App eventEmitter={emitter} agent={agent} sessionTitle={config.task} modelId={config.model} pricingCache={pricingCache} />,
+    <App eventEmitter={emitter} agent={agent} initialTask={config.task} />,
   );
 
   await waitUntilExit();
