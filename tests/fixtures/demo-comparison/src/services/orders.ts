@@ -1,9 +1,15 @@
 import type { Order } from "../types/index.js";
 
-const orders: Order[] = [
+const seedOrders: Order[] = [
   { id: "o1", productId: "p1", quantity: 2, userId: "u1" },
   { id: "o2", productId: "p2", quantity: 1, userId: "u2" },
 ];
+
+let orders: Order[] = [...seedOrders];
+
+export function resetOrders(): void {
+  orders = [...seedOrders];
+}
 
 export function listOrders(): Order[] {
   return orders;

@@ -1,12 +1,17 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { handleRequest } from "../src/index.js";
+import { resetOrders } from "../src/services/orders.js";
 
 describe("order routes", () => {
+  beforeEach(() => {
+    resetOrders();
+  });
+
   test("lists all orders", () => {
     const res = handleRequest("GET", "/orders");
     expect(res.status).toBe(200);
     const body = res.body as { id: string }[];
-    expect(body.length).toBeGreaterThanOrEqual(2);
+    expect(body.length).toBe(2);
   });
 
   test("gets an order by id", () => {

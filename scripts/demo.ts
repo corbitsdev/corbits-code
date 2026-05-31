@@ -4,8 +4,9 @@ import { resolve } from "node:path";
 import { runAgent } from "../src/run-agent.js";
 import { runTUI } from "../src/tui/runner.js";
 
-const DEMO_TASK = "Add a hello world endpoint to the API";
-const DEMO_FIXTURE = resolve(import.meta.dirname, "../tests/fixtures/multi-file-service");
+const DEMO_TASK =
+  "Add JWT authentication middleware to the product and order routes. Unauthenticated requests should receive a 401 response. Authenticated requests carry a Bearer token in the Authorization header; the middleware should verify the token using a shared secret (HMAC-SHA256). The secret is the string 'demo-secret'. Add tests that cover both authenticated and unauthenticated paths.";
+const DEMO_FIXTURE = resolve(import.meta.dirname, "../tests/fixtures/demo-comparison");
 
 async function runCLIMode(): Promise<void> {
   console.log("=== CLI Mode ===");

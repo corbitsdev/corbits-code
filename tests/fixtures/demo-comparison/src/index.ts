@@ -4,7 +4,7 @@ import type { Response } from "./types/index.js";
 
 export function handleRequest(method: string, path: string, body?: unknown): Response {
   if (path.startsWith("/products")) {
-    return handleProducts(method, path);
+    return handleProducts(method, path, body);
   }
   if (path.startsWith("/orders")) {
     return handleOrders(method, path, body);

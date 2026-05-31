@@ -2,7 +2,7 @@ import { listProducts, getProduct } from "../services/products.js";
 import { logRequest } from "../middleware/logger.js";
 import type { Response } from "../types/index.js";
 
-export function handleProducts(method: string, path: string): Response {
+export function handleProducts(method: string, path: string, body?: unknown): Response {
   logRequest(method, path);
 
   if (method === "GET" && path === "/products") {

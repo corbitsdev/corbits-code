@@ -20,4 +20,9 @@ describe("product routes", () => {
     const res = handleRequest("GET", "/products/missing");
     expect(res.status).toBe(404);
   });
+
+  test("returns 404 for unrecognized route", () => {
+    const res = handleRequest("GET", "/nonexistent");
+    expect(res.status).toBe(404);
+  });
 });

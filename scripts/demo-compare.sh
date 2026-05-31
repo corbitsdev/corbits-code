@@ -6,6 +6,11 @@ REPORT_FILE="${TMPDIR:-/tmp}/demo-compare-report.txt"
 TASK="Add JWT authentication middleware to the product and order routes. Unauthenticated requests should receive a 401 response. Authenticated requests carry a Bearer token in the Authorization header; the middleware should verify the token using a shared secret (HMAC-SHA256). The secret is the string 'demo-secret'. Add tests that cover both authenticated and unauthenticated paths."
 
 run_interchange() {
+  if ! command -v interchange > /dev/null 2>&1; then
+    echo "Error: 'interchange' binary not found on PATH" >&2
+    exit 1
+  fi
+
   local work_dir
   work_dir="$(mktemp -d)"
   cp -r "$FIXTURE_DIR/." "$work_dir"
@@ -24,13 +29,18 @@ run_interchange() {
   diff_lines=$(diff -rq "$FIXTURE_DIR" "$work_dir" --exclude="node_modules" 2>/dev/null | wc -l | tr -d ' ')
 
   local test_result="pass"
-  cd "$work_dir" && bun test 2>&1 || test_result="fail"
+  (cd "$work_dir" && bun test 2>&1) || test_result="fail"
 
   echo "INTERCHANGE: elapsed=${elapsed}s diff_lines=${diff_lines} tests=${test_result}" >> "$REPORT_FILE"
   echo "$work_dir"
 }
 
 run_opencode() {
+  if ! command -v opencode > /dev/null 2>&1; then
+    echo "Error: 'opencode' binary not found on PATH" >&2
+    exit 1
+  fi
+
   local work_dir
   work_dir="$(mktemp -d)"
   cp -r "$FIXTURE_DIR/." "$work_dir"
@@ -49,7 +59,7 @@ run_opencode() {
   diff_lines=$(diff -rq "$FIXTURE_DIR" "$work_dir" --exclude="node_modules" 2>/dev/null | wc -l | tr -d ' ')
 
   local test_result="pass"
-  cd "$work_dir" && bun test 2>&1 || test_result="fail"
+  (cd "$work_dir" && bun test 2>&1) || test_result="fail"
 
   echo "OPENCODE: elapsed=${elapsed}s diff_lines=${diff_lines} tests=${test_result}" >> "$REPORT_FILE"
   echo "$work_dir"
