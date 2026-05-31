@@ -54,8 +54,7 @@ export function buildBudgetRules(): string {
 export function buildPlanRules(): string {
   return [
     "Plan requirements:",
-    "1. Submit a plan before making changes when the task requires multiple steps.",
-    "2. Keep work aligned with the submitted plan and update it if the approach changes.",
+    "1. If you submit a plan, keep work aligned with it and update it if the approach changes.",
   ].join("\n");
 }
 

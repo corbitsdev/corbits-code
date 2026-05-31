@@ -153,10 +153,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       if (name === "submit_output" && !event.result.isError) {
         this.submitCalled = true;
         if (!this.planSubmitted && this._turnsUsed > 3) {
-          return [
-            ...await super.decide(event, state, capabilities) as ReactorAction[],
-            capabilities.reply("Warning: task completed without a plan. Consider calling submit_plan on turn 1 for multi-step tasks."),
-          ];
+          const base = await super.decide(event, state, capabilities);
+          const baseActions = Array.isArray(base) ? base : [base];
+          return [...baseActions, capabilities.reply("Warning: task completed without a plan. Consider calling submit_plan on turn 1 for multi-step tasks.")];
         }
       }
       if (name === "read_file" && !event.result.isError) {
