@@ -103,7 +103,12 @@ export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<
 }
 
 export async function writePricingCache(cache: PricingCache, cachePath = DEFAULT_CACHE_PATH): Promise<void> {
-  await mkdir(dirname(cachePath), { recursive: true });
+  try {
+    await mkdir(dirname(cachePath), { recursive: true });
+  } catch (err) {
+    process.stderr.write(`pricing-fetcher: failed to create cache directory: ${err}\n`);
+    return;
+  }
   await Bun.write(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
 }
 
@@ -111,7 +116,7 @@ export async function fetchPricing(options: PricingFetcherOptions = {}): Promise
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
-  const response = await fetchImpl(endpoint);
+  const response = await fetchImpl(endpoint, { signal: AbortSignal.timeout(5000) });
   if (!response.ok) {
     throw new Error(`models.dev pricing request failed: ${response.status}`);
   }
@@ -140,7 +145,9 @@ export function lookupModelPricing(cache: PricingCache | null, modelId: string):
 export function startPricingRefresh(options: PricingFetcherOptions = {}): Timer {
   const refreshIntervalMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
   const timer = setInterval(() => {
-    void loadPricing(options);
+    loadPricing(options).catch((err: unknown) => {
+      process.stderr.write(`pricing-fetcher: refresh error: ${err}\n`);
+    });
   }, refreshIntervalMs);
   return timer;
 }
