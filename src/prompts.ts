@@ -59,6 +59,22 @@ export function buildPlanRules(): string {
   ].join("\n");
 }
 
+export function buildPlanDecisionRules(): string {
+  return [
+    "Planning decision (apply on turn 1):",
+    "EXECUTE DIRECTLY — only if ALL of the following are true:",
+    "- Task touches 3 or fewer files",
+    "- Only modifies existing code (no new modules, types, or files from scratch)",
+    "- Reversible (no deletions, schema changes, or breaking interface changes)",
+    "- Risk is low",
+    "SUBMIT PLAN FIRST — if ANY of the following are true:",
+    "- Task touches 4 or more files",
+    "- Adds new modules, types, or architectural structures",
+    "- Touches migrations, schemas, config files, or breaking interfaces",
+    "- Solution path is non-obvious or requires exploration first",
+  ].join("\n");
+}
+
 export function buildAvailableTools(tools = defaultAgentTools): string {
   return `Available tools: ${tools.join(", ")}.`;
 }
@@ -70,6 +86,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildSubmitRules(),
     buildBudgetRules(),
     buildPlanRules(),
+    buildPlanDecisionRules(),
     buildAvailableTools(tools),
   ]);
 }

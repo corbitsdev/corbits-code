@@ -151,8 +151,12 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     if (event.type === "tool.done") {
       const name = this.callIdToName.get(event.result.callId);
       if (name === "submit_output" && !event.result.isError) {
-        if (this.planSubmitted) {
-          this.submitCalled = true;
+        this.submitCalled = true;
+        if (!this.planSubmitted && this._turnsUsed > 3) {
+          return [
+            ...await super.decide(event, state, capabilities) as ReactorAction[],
+            capabilities.reply("Warning: task completed without a plan. Consider calling submit_plan on turn 1 for multi-step tasks."),
+          ];
         }
       }
       if (name === "read_file" && !event.result.isError) {
