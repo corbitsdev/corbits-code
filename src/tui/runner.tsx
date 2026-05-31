@@ -64,6 +64,12 @@ export async function runTUI(config: Config): Promise<number> {
 
   const streamPromise = consumeStream(agent.stream(), sink);
 
+  if (config.task.length > 0) {
+    agent.send(config.task).catch((err: unknown) => {
+      process.stderr.write(`interchange-code: failed to send task: ${err}\n`);
+    });
+  }
+
   const { waitUntilExit } = render(
     <App eventEmitter={emitter} agent={agent} initialTask={config.task} />,
   );

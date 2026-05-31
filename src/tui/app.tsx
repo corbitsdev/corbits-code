@@ -1,7 +1,7 @@
 import { Box, useInput, useApp } from "ink";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
@@ -15,18 +15,19 @@ export type AppProps = {
   initialTask: string;
 };
 
+async function sendTask(agent: Agent, task: string): Promise<void> {
+  try {
+    await agent.send(task);
+  } catch (err) {
+    process.stderr.write(`interchange-code: failed to send task: ${err}\n`);
+  }
+}
+
 export function App({ eventEmitter, agent, initialTask }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter);
   const { exit } = useApp();
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [task, setTask] = useState(initialTask);
-  const [taskSubmitted, setTaskSubmitted] = useState(initialTask.length > 0);
-
-  useEffect(() => {
-    if (initialTask.length > 0) {
-      agent.send(initialTask).catch(() => {});
-    }
-  }, []);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
@@ -44,15 +45,14 @@ export function App({ eventEmitter, agent, initialTask }: AppProps): ReactNode {
 
   const handleTaskSubmit = (submitted: string) => {
     setTask(submitted);
-    setTaskSubmitted(true);
-    agent.send(submitted).catch(() => {});
+    void sendTask(agent, submitted);
   };
 
   const handleSend = (message: string) => {
-    agent.send(message).catch(() => {});
+    void sendTask(agent, message);
   };
 
-  if (!taskSubmitted) {
+  if (task.length === 0) {
     return (
       <Box flexDirection="column" height="100%">
         <Header

@@ -21,10 +21,6 @@ export function TaskPrompt({ onSubmit }: TaskPromptProps): ReactNode {
       setValue((v) => v.slice(0, -1));
       return;
     }
-    if (key.ctrl && input === "c") {
-      process.exit(0);
-      return;
-    }
     if (key.ctrl || key.meta || key.tab || key.escape) {
       return;
     }
