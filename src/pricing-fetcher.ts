@@ -18,6 +18,7 @@ export type PricingFetcherOptions = {
   cachePath?: string;
   endpoint?: string;
   fetchImpl?: typeof fetch;
+  fetchTimeoutMs?: number;
   now?: () => number;
   refreshIntervalMs?: number;
 };
@@ -25,6 +26,7 @@ export type PricingFetcherOptions = {
 const DEFAULT_CACHE_PATH = ".cache/models-pricing.json";
 const DEFAULT_ENDPOINT = "https://models.dev/api.json";
 const DEFAULT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_FETCH_TIMEOUT_MS = 5000;
 
 const modelPricingValidator = type({
   inputPricePerToken: "number",
@@ -105,18 +107,17 @@ export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<
 export async function writePricingCache(cache: PricingCache, cachePath = DEFAULT_CACHE_PATH): Promise<void> {
   try {
     await mkdir(dirname(cachePath), { recursive: true });
+    await Bun.write(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
   } catch (err) {
-    process.stderr.write(`pricing-fetcher: failed to create cache directory: ${err}\n`);
-    return;
+    process.stderr.write(`pricing-fetcher: failed to write cache: ${err}\n`);
   }
-  await Bun.write(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
 }
 
 export async function fetchPricing(options: PricingFetcherOptions = {}): Promise<PricingCache> {
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
-  const response = await fetchImpl(endpoint, { signal: AbortSignal.timeout(5000) });
+  const response = await fetchImpl(endpoint, { signal: AbortSignal.timeout(options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`models.dev pricing request failed: ${response.status}`);
   }
