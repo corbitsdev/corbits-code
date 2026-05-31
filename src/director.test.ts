@@ -47,7 +47,7 @@ function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] 
   return Array.isArray(result) ? result : [result];
 }
 
-describe("CL-820: filesRead tracking", () => {
+describe("filesRead tracking", () => {
   test("filesRead starts empty on new director", () => {
     const director = createCodingDirector("", []);
     expect(director.getState().filesRead).toEqual([]);
@@ -97,7 +97,35 @@ describe("CL-820: filesRead tracking", () => {
   });
 });
 
-describe("CL-822: consecutive-reads cap removed", () => {
+describe("submit_output without plan", () => {
+  async function submitWithoutPlan(turnsUsed: number) {
+    const director = createCodingDirector("", []);
+    director.setState({ turnsUsed, submitCalled: false, callIdToName: {}, idleCycles: 0, planSubmitted: false, plan: [], filesRead: [] });
+    await director.decide(makeInferenceDoneEvent([{ id: "s", name: "submit_output", args: { summary: "done" } }]), mockState, mockCapabilities);
+    return director.decide(makeToolDoneEvent("s"), mockState, mockCapabilities);
+  }
+
+  function hasWarning(result: ReactorAction | ReactorAction[]): boolean {
+    return actionsArray(result).some((a) => a.type === "reply" && "content" in a && String(a.content).startsWith("Warning"));
+  }
+
+  test("accepted without warning on a short task", async () => {
+    const result = await submitWithoutPlan(2);
+    expect(hasWarning(result)).toBe(false);
+  });
+
+  test("no warning at exactly 3 turns", async () => {
+    const result = await submitWithoutPlan(3);
+    expect(hasWarning(result)).toBe(false);
+  });
+
+  test("warning when task ran more than 3 turns without a plan", async () => {
+    const result = await submitWithoutPlan(4);
+    expect(hasWarning(result)).toBe(true);
+  });
+});
+
+describe("consecutive reads are not capped", () => {
   test("consecutiveReads field is absent from persisted state", () => {
     const director = createCodingDirector("", []);
     const state = director.getState();
