@@ -101,4 +101,47 @@ describe("loadConfig", () => {
       restoreEnv(stash);
     }
   });
+
+  test("defaults mode to teammate", () => {
+    const stash = stashEnv();
+    try {
+      setRequiredEnv();
+      const config = loadConfig(["do something"]);
+      expect(config.mode).toBe("teammate");
+    } finally {
+      restoreEnv(stash);
+    }
+  });
+
+  test("parses --mode manager", () => {
+    const stash = stashEnv();
+    try {
+      setRequiredEnv();
+      const config = loadConfig(["--mode", "manager", "do something"]);
+      expect(config.mode).toBe("manager");
+    } finally {
+      restoreEnv(stash);
+    }
+  });
+
+  test("parses --mode teammate", () => {
+    const stash = stashEnv();
+    try {
+      setRequiredEnv();
+      const config = loadConfig(["--mode", "teammate", "do something"]);
+      expect(config.mode).toBe("teammate");
+    } finally {
+      restoreEnv(stash);
+    }
+  });
+
+  test("rejects invalid --mode value", () => {
+    const stash = stashEnv();
+    try {
+      setRequiredEnv();
+      expect(() => loadConfig(["--mode", "robot"])).toThrow(/manager.*teammate|teammate.*manager/);
+    } finally {
+      restoreEnv(stash);
+    }
+  });
 });
