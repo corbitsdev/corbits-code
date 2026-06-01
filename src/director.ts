@@ -219,9 +219,60 @@ export function createCodingDirector(
   return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState);
 }
 
+export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
+
+class ChatDirectorImpl extends DefaultDirector {
+  private readonly submitPlanArgs = new Map<string, unknown>();
+  private readonly approvalGate: ApprovalGate;
+
+  constructor(
+    systemPrompt: string,
+    toolDefinitions: ToolDefinition[],
+    approvalGate: ApprovalGate,
+  ) {
+    super(systemPrompt, toolDefinitions, {});
+    this.approvalGate = approvalGate;
+  }
+
+  override async decide(
+    event: ReactorInboundEvent,
+    state: ReactorState,
+    capabilities: ReactorCapabilities,
+  ): Promise<ReactorAction | ReactorAction[]> {
+    if (event.type === "inference.done") {
+      for (const block of event.turn.content) {
+        if (block.type === "tool_call" && block.name === "submit_plan") {
+          this.submitPlanArgs.set(block.id, block.arguments);
+        }
+      }
+    }
+
+    if (event.type === "tool.done" && this.submitPlanArgs.has(event.result.callId)) {
+      const args = this.submitPlanArgs.get(event.result.callId);
+      this.submitPlanArgs.delete(event.result.callId);
+      if (!event.result.isError) {
+        const plan = isValidPlanArgs(args) ? args.steps : [];
+        const approved = await this.approvalGate(plan);
+        if (!approved) {
+          return [
+            capabilities.reply("Plan rejected. Please revise the task and try again."),
+            capabilities.done(),
+          ];
+        }
+      }
+    }
+
+    return super.decide(event, state, capabilities);
+  }
+}
+
 export function createChatDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
+  approvalGate?: ApprovalGate,
 ): ReactorDirector {
+  if (approvalGate !== undefined) {
+    return new ChatDirectorImpl(systemPrompt, toolDefinitions, approvalGate);
+  }
   return new DefaultDirector(systemPrompt, toolDefinitions, {});
 }

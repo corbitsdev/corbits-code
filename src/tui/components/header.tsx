@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
+import type { Mode } from "../../config.js";
 
 export type HeaderProps = {
   turnsUsed: number;
@@ -7,6 +8,7 @@ export type HeaderProps = {
   totalCost: string;
   sessionTitle: string;
   latestUserMessage: string;
+  mode: Mode;
 };
 
 function statusColor(status: "running" | "done" | "failed"): string {
@@ -29,7 +31,7 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + "…";
 }
 
-export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage }: HeaderProps): ReactNode {
+export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage, mode }: HeaderProps): ReactNode {
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
       <Box flexDirection="row" justifyContent="space-between">
@@ -40,6 +42,7 @@ export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserM
           )}
         </Box>
         <Box flexDirection="row" gap={2}>
+          <Text color={mode === "manager" ? "magenta" : "blue"}>{mode === "manager" ? "Manager" : "Teammate"}</Text>
           <Text color={statusColor(status)}>{status}</Text>
           <Text dimColor>{turnsUsed} turns</Text>
           <Text color="green">{totalCost}</Text>
