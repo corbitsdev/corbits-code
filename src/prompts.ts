@@ -93,7 +93,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
 export function buildChatSystemPrompt(): string {
   return joinSections([
     "You are a helpful coding assistant.",
-    "Use tools to accomplish work: read files, write files, edit files, run commands, search code. Respond with text for questions and conversation.",
+    "Use tools to accomplish work: read files, write files, edit files, run commands, search code. Respond with plain text for questions and conversation—no markdown formatting.",
     buildBudgetRules(),
     buildPlanRules(),
     buildAvailableTools(defaultChatTools),
