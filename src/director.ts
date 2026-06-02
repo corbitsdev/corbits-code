@@ -40,6 +40,28 @@ export const submitPlanDefinition: ToolDefinition = {
   },
 };
 
+export const askOperatorDefinition: ToolDefinition = {
+  name: "ask_operator",
+  description:
+    "Pause execution and ask the operator a clarifying question. Execution resumes when the operator selects an option.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      question: {
+        type: "string",
+        description: "The question to ask the operator",
+      },
+      options: {
+        type: "array",
+        description: "List of options the operator can choose from",
+        items: { type: "string" },
+        minItems: 1,
+      },
+    },
+    required: ["question", "options"],
+  },
+};
+
 export const submitOutputDefinition: ToolDefinition = {
   name: "submit_output",
   description:

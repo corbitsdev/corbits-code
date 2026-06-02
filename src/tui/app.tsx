@@ -8,6 +8,7 @@ import { EventLog } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ApprovalModal } from "./components/approval-modal.js";
+import { OperatorModal } from "./components/operator-modal.js";
 import type { Mode } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import type { CommandResult } from "./commands/registry.js";
@@ -16,6 +17,12 @@ import "./commands/built-in.js";
 export type PlanGateEvent = {
   plan: PlanStep[];
   resolve: (approved: boolean) => void;
+};
+
+export type OperatorGateEvent = {
+  question: string;
+  options: string[];
+  resolve: (index: number) => void;
 };
 
 export type AppProps = {
@@ -36,6 +43,8 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const pendingResolveRef = useRef<((approved: boolean) => void) | null>(null);
+  const [pendingOperator, setPendingOperator] = useState<{ question: string; options: string[] } | null>(null);
+  const pendingOperatorResolveRef = useRef<((index: number) => void) | null>(null);
   const modeRef = useRef<Mode>(mode);
   modeRef.current = mode;
 
@@ -59,16 +68,29 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
     };
   }, [eventEmitter]);
 
+  useEffect(() => {
+    const handler = ({ question, options, resolve }: OperatorGateEvent) => {
+      pendingOperatorResolveRef.current = resolve;
+      setPendingOperator({ question, options });
+    };
+    eventEmitter.on("operator.gate", handler);
+    return () => {
+      eventEmitter.off("operator.gate", handler);
+    };
+  }, [eventEmitter]);
+
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
-      exit();
+      if (pendingPlan === null && pendingOperator === null) {
+        exit();
+      }
       return;
     }
     if (key.ctrl && input === "o") {
       setPlanCollapsed((c) => !c);
       return;
     }
-    if (key.escape && pendingPlan === null) {
+    if (key.escape && pendingPlan === null && pendingOperator === null) {
       exit();
       return;
     }
@@ -104,6 +126,13 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
     resolve?.(false);
   };
 
+  const handleOperatorSelect = (index: number) => {
+    const resolve = pendingOperatorResolveRef.current;
+    pendingOperatorResolveRef.current = null;
+    setPendingOperator(null);
+    resolve?.(index);
+  };
+
   return (
     <Box flexDirection="column" height="100%">
       <Header
@@ -119,6 +148,13 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
       </Box>
       {pendingPlan !== null && (
         <ApprovalModal plan={pendingPlan} onApprove={handleApprove} onReject={handleReject} />
+      )}
+      {pendingOperator !== null && (
+        <OperatorModal
+          question={pendingOperator.question}
+          options={pendingOperator.options}
+          onSelect={handleOperatorSelect}
+        />
       )}
       {commandMessage !== null && (
         <Box paddingX={1}>
