@@ -100,6 +100,7 @@ export async function runTUI(config: Config): Promise<number> {
       agent={agent}
       sessionTitle={config.task}
       initialMode={config.mode}
+      initialModel={config.model}
       onModeChange={saveMode}
     />,
   );

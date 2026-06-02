@@ -1,7 +1,7 @@
-import { Box, useInput, useApp } from "ink";
+import { Box, Text, useInput, useApp } from "ink";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
@@ -10,6 +10,8 @@ import { ChatInput } from "./components/chat-input.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import type { Mode } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
+import type { CommandResult } from "./commands/registry.js";
+import "./commands/built-in.js";
 
 export type PlanGateEvent = {
   plan: PlanStep[];
@@ -21,18 +23,26 @@ export type AppProps = {
   agent: Agent;
   sessionTitle: string;
   initialMode: Mode;
+  initialModel: string;
   onModeChange: (mode: Mode) => void;
 };
 
-export function App({ eventEmitter, agent, sessionTitle, initialMode, onModeChange }: AppProps): ReactNode {
+export function App({ eventEmitter, agent, sessionTitle, initialMode, initialModel, onModeChange }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter);
   const { exit } = useApp();
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [mode, setMode] = useState<Mode>(initialMode);
+  const [model, setModel] = useState<string>(initialModel);
+  const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const pendingResolveRef = useRef<((approved: boolean) => void) | null>(null);
   const modeRef = useRef<Mode>(mode);
   modeRef.current = mode;
+
+  const commandContext = useMemo(() => ({
+    getModel: () => model,
+    setModel,
+  }), [model]);
 
   useEffect(() => {
     const handler = ({ plan, resolve }: PlanGateEvent) => {
@@ -70,7 +80,14 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, onModeChan
   });
 
   const handleSend = (message: string) => {
+    setCommandMessage(null);
     agent.send(message).catch(() => {});
+  };
+
+  const handleCommand = (result: CommandResult) => {
+    if (result.type === "message") {
+      setCommandMessage(result.text);
+    }
   };
 
   const handleApprove = () => {
@@ -103,7 +120,12 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, onModeChan
       {pendingPlan !== null && (
         <ApprovalModal plan={pendingPlan} onApprove={handleApprove} onReject={handleReject} />
       )}
-      <ChatInput onSubmit={handleSend} />
+      {commandMessage !== null && (
+        <Box paddingX={1}>
+          <Text color="cyan">{commandMessage}</Text>
+        </Box>
+      )}
+      <ChatInput onSubmit={handleSend} onCommand={handleCommand} commandContext={commandContext} />
       <StatusBar />
     </Box>
   );

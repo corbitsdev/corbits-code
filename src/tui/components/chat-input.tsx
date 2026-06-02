@@ -1,19 +1,35 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { getCommand } from "../commands/registry.js";
+import type { CommandContext, CommandResult } from "../commands/registry.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
+  onCommand: (result: CommandResult) => void;
+  commandContext: CommandContext;
 };
 
-export function ChatInput({ onSubmit }: ChatInputProps): ReactNode {
+export function ChatInput({ onSubmit, onCommand, commandContext }: ChatInputProps): ReactNode {
   const [value, setValue] = useState("");
 
   useInput((input, key) => {
     if (key.return) {
       const trimmed = value.trim();
       if (trimmed.length > 0) {
-        onSubmit(trimmed);
+        if (trimmed.startsWith("/")) {
+          const spaceIdx = trimmed.indexOf(" ");
+          const name = spaceIdx === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIdx);
+          const args = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1);
+          const def = getCommand(name);
+          if (def !== undefined) {
+            onCommand(def.handler(args, commandContext));
+          } else {
+            onCommand({ type: "message", text: `Unknown command: /${name}` });
+          }
+        } else {
+          onSubmit(trimmed);
+        }
         setValue("");
       }
       return;
