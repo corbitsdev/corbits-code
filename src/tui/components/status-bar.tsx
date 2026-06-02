@@ -8,7 +8,7 @@ export function StatusBar(): ReactNode {
         Press <Text bold>Ctrl+C</Text> to exit
       </Text>
       <Text color="gray">
-        Use <Text bold>arrow keys</Text> to scroll
+        <Text bold>Ctrl+H</Text> hooks
       </Text>
     </Box>
   );

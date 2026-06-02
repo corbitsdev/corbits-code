@@ -9,6 +9,7 @@ test("createAgentStreamState initial state is empty", () => {
   expect(state.status).toBe("running");
   expect(state.totalCost).toBe(0);
   expect(state.totalTokens).toBe(0);
+  expect(state.hooks).toEqual([]);
 });
 
 test("createAgentStreamState accumulates tool_call events", () => {
@@ -234,4 +235,37 @@ test("failed submit_plan does not create a plan block", () => {
   });
 
   expect(state.contentBlocks.some((b) => b.type === "plan")).toBe(false);
+});
+
+test("createAgentStreamState tracks hook load and update events", () => {
+  const state = createAgentStreamState();
+  state.addHookEvent({
+    type: "hooks.loaded",
+    hooks: [
+      {
+        id: "hook-1",
+        name: "one.ts",
+        type: "typescript",
+        path: "/tmp/one.ts",
+        enabled: true,
+      },
+    ],
+  });
+  expect(state.hooks.length).toBe(1);
+  expect(state.hooks[0]?.enabled).toBe(true);
+
+  state.addHookEvent({
+    type: "hook.updated",
+    hook: {
+      id: "hook-1",
+      name: "one.ts",
+      type: "typescript",
+      path: "/tmp/one.ts",
+      enabled: false,
+      lastExitStatus: { code: 0, signal: null, stderr: "" },
+    },
+  });
+
+  expect(state.hooks[0]?.enabled).toBe(false);
+  expect(state.hooks[0]?.lastExitStatus?.code).toBe(0);
 });

@@ -8,7 +8,7 @@ test("StatusBar renders keyboard hints", () => {
   expect(lastFrame()).toContain("exit");
 });
 
-test("StatusBar renders arrow key hint", () => {
+test("StatusBar renders hook panel hint", () => {
   const { lastFrame } = render(<StatusBar />);
-  expect(lastFrame()).toContain("arrow keys");
+  expect(lastFrame()).toContain("Ctrl+H hooks");
 });

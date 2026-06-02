@@ -9,9 +9,11 @@ import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import { OperatorModal } from "./components/operator-modal.js";
+import { HookPanel } from "./components/hook-panel.js";
 import type { Mode } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import type { CommandResult } from "./commands/registry.js";
+import type { LifecycleHookStatus } from "../hooks.js";
 import "./commands/built-in.js";
 
 export type PlanGateEvent = {
@@ -31,13 +33,27 @@ export type AppProps = {
   sessionTitle: string;
   initialMode: Mode;
   initialModel: string;
+  initialHooks?: LifecycleHookStatus[];
   onModeChange: (mode: Mode) => void;
+  onToggleHook?: (hookId: string, enabled: boolean) => void;
+  onAgentError?: (err: unknown) => void;
 };
 
-export function App({ eventEmitter, agent, sessionTitle, initialMode, initialModel, onModeChange }: AppProps): ReactNode {
-  const state = useAgentStream(eventEmitter);
+export function App({
+  eventEmitter,
+  agent,
+  sessionTitle,
+  initialMode,
+  initialModel,
+  initialHooks = [],
+  onModeChange,
+  onToggleHook,
+  onAgentError,
+}: AppProps): ReactNode {
+  const state = useAgentStream(eventEmitter, initialHooks);
   const { exit } = useApp();
   const [planCollapsed, setPlanCollapsed] = useState(false);
+  const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [model, setModel] = useState<string>(initialModel);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -90,6 +106,17 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
       setPlanCollapsed((c) => !c);
       return;
     }
+    if (key.ctrl && input === "h") {
+      setHookPanelOpen((open) => !open);
+      return;
+    }
+    if (hookPanelOpen && /^[1-9]$/.test(input)) {
+      const hook = state.hooks[Number(input) - 1];
+      if (hook !== undefined) {
+        onToggleHook?.(hook.id, !hook.enabled);
+      }
+      return;
+    }
     if (key.escape && pendingPlan === null && pendingOperator === null) {
       exit();
       return;
@@ -103,7 +130,9 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    agent.send(message).catch(() => {});
+    agent.send(message).catch((err: unknown) => {
+      onAgentError?.(err);
+    });
   };
 
   const handleCommand = (result: CommandResult) => {
@@ -146,6 +175,9 @@ export function App({ eventEmitter, agent, sessionTitle, initialMode, initialMod
       <Box flexGrow={1} flexDirection="column">
         <EventLog contentBlocks={state.contentBlocks} planCollapsed={planCollapsed} />
       </Box>
+      {hookPanelOpen ? (
+        <HookPanel hooks={state.hooks} />
+      ) : null}
       {pendingPlan !== null && (
         <ApprovalModal plan={pendingPlan} onApprove={handleApprove} onReject={handleReject} />
       )}
