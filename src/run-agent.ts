@@ -6,7 +6,7 @@ import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 import type { Config } from "./config.js";
-import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "./director.js";
+import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "./plugins/re-read-block-plugin.js";
@@ -19,6 +19,35 @@ import { createRenderer } from "./renderer.js";
 import { consumeStream } from "./stream-consumer.js";
 
 /* eslint-disable no-console */
+
+function readLineFromStdin(signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const cleanup = (): void => {
+      process.stdin.off("data", onData);
+      process.stdin.pause();
+    };
+    const onAbort = (): void => {
+      cleanup();
+      reject(new Error("aborted"));
+    };
+    const onData = (chunk: Buffer): void => {
+      const str = chunk.toString();
+      const newline = str.indexOf("\n");
+      if (newline !== -1) {
+        chunks.push(Buffer.from(str.slice(0, newline)));
+        signal.removeEventListener("abort", onAbort);
+        cleanup();
+        resolve(Buffer.concat(chunks).toString());
+      } else {
+        chunks.push(chunk);
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
+}
 
 export async function runAgent(
   config: Config,
@@ -55,6 +84,7 @@ export async function runAgent(
     ...posixToolList.map((t) => t.definition),
     submitPlanDefinition,
     submitOutputDefinition,
+    askOperatorDefinition,
   ];
 
   const director = createCodingDirector(
@@ -74,6 +104,27 @@ export async function runAgent(
           return "Error: submit_plan requires a non-empty steps array.";
         }
         return "Plan accepted.";
+      },
+    }),
+    stringTool({
+      definition: askOperatorDefinition,
+      handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
+        const question = typeof args.question === "string" ? args.question : "";
+        const options = Array.isArray(args.options) ? args.options.map(String) : [];
+        if (options.length === 0) {
+          return "Error: ask_operator requires at least one option.";
+        }
+        process.stderr.write(`\n[operator question] ${question}\n`);
+        options.forEach((opt, i) => {
+          process.stderr.write(`  ${i}: ${opt}\n`);
+        });
+        process.stderr.write("Enter option number: ");
+        const selected = await readLineFromStdin(signal);
+        const index = parseInt(selected.trim(), 10);
+        if (isNaN(index) || index < 0 || index >= options.length) {
+          return `Error: invalid selection "${selected.trim()}". Valid range: 0-${options.length - 1}.`;
+        }
+        return options[index] as string;
       },
     }),
     stringTool({
