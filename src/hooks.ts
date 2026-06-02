@@ -90,12 +90,39 @@ const emptyUsage: TokenUsage = {
 };
 
 export function hooksDirectory(): string {
-  return join(homedir(), ".interchange-code", "hooks");
+  return globalHooksDirectory();
+}
+
+export function localHooksDirectory(): string {
+  return join(process.cwd(), ".interchange", "hooks");
+}
+
+export function globalHooksDirectory(): string {
+  return join(homedir(), ".interchange", "hooks");
+}
+
+export function hookDirectories(): string[] {
+  return [localHooksDirectory(), globalHooksDirectory()];
 }
 
 export async function discoverLifecycleHooks(
-  directory = hooksDirectory(),
+  directories: string | string[] = hookDirectories(),
 ): Promise<LifecycleHook[]> {
+  const resolvedDirectories = Array.isArray(directories) ? directories : [directories];
+  const hooksByName = new Map<string, LifecycleHook>();
+
+  for (const directory of resolvedDirectories) {
+    for (const hook of await discoverHooksInDirectory(directory)) {
+      if (!hooksByName.has(hook.name)) {
+        hooksByName.set(hook.name, hook);
+      }
+    }
+  }
+
+  return [...hooksByName.values()];
+}
+
+async function discoverHooksInDirectory(directory: string): Promise<LifecycleHook[]> {
   let entries: string[];
   try {
     entries = await readdir(directory);

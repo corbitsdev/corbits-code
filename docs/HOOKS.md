@@ -3,8 +3,13 @@
 Interchange Code discovers lifecycle hooks from:
 
 ```text
-~/.interchange-code/hooks/
+.interchange/hooks/
+~/.interchange/hooks/
 ```
+
+Local hooks in `.interchange/hooks/` take precedence over global hooks in
+`~/.interchange/hooks/` when both directories contain a hook with the same file
+name.
 
 Supported files:
 
@@ -19,13 +24,11 @@ they do not stop the agent run.
 TypeScript hook files can export either lifecycle function:
 
 ```ts
-import type { RunSummary, TurnContext } from "../src/hooks.js";
-
-export async function postTurn(ctx: TurnContext): Promise<void> {
+export async function postTurn(ctx: unknown): Promise<void> {
   // Runs after one complete assistant turn and its tool results.
 }
 
-export async function postRun(summary: RunSummary): Promise<void> {
+export async function postRun(summary: unknown): Promise<void> {
   // Runs after the session finishes.
 }
 ```

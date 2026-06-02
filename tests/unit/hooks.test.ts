@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -65,6 +65,22 @@ test("discoverLifecycleHooks finds supported hook files in stable order", async 
 test("discoverLifecycleHooks treats a missing directory as no hooks", async () => {
   const hooks = await discoverLifecycleHooks(join(tmpdir(), "missing-interchange-hooks"));
   expect(hooks).toEqual([]);
+});
+
+test("discoverLifecycleHooks gives local hooks precedence over global hooks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "interchange-hooks-"));
+  const local = join(root, "local");
+  const global = join(root, "global");
+  await mkdir(local);
+  await mkdir(global);
+  await writeFile(join(local, "shared.ts"), "export function postTurn() {}");
+  await writeFile(join(global, "shared.ts"), "export function postRun() {}");
+  await writeFile(join(global, "global.sh"), "echo shell");
+
+  const hooks = await discoverLifecycleHooks([local, global]);
+
+  expect(hooks.map((hook) => hook.name)).toEqual(["shared.ts", "global.sh"]);
+  expect(hooks.find((hook) => hook.name === "shared.ts")?.path).toBe(join(local, "shared.ts"));
 });
 
 test("createTurnContextCollector emits a turn after inference without tools", () => {

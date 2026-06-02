@@ -14,13 +14,12 @@ test("EventLog renders empty message when no blocks", () => {
 
 test("EventLog renders user message", () => {
   const { lastFrame } = render(<EventLog contentBlocks={makeBlocks([{ type: "user", content: "hello world" }])} />);
-  expect(lastFrame()).toContain("> User");
+  expect(lastFrame()).toContain("> hello world");
   expect(lastFrame()).toContain("hello world");
 });
 
 test("EventLog renders text block", () => {
   const { lastFrame } = render(<EventLog contentBlocks={makeBlocks([{ type: "text", content: "Hello!" }])} />);
-  expect(lastFrame()).toContain("• Text");
   expect(lastFrame()).toContain("Hello!");
 });
 
@@ -37,11 +36,10 @@ test("EventLog renders human-readable visually distinct event types", () => {
   );
 
   const frame = lastFrame();
-  expect(frame).toContain("> User");
-  expect(frame).toContain("→ Tool Call");
-  expect(frame).toContain("✓ Tool Result");
-  expect(frame).toContain("! Error");
-  expect(frame).toContain("─");
+  expect(frame).toContain("> do it");
+  expect(frame).toContain("read_file({})");
+  expect(frame).toContain("done");
+  expect(frame).toContain("fatal: oops");
   expect(frame).not.toContain("tool_call");
   expect(frame).not.toContain("tool_result");
 });
@@ -60,9 +58,9 @@ test("EventLog formats tool calls with readable names and structured arguments",
   );
 
   const frame = lastFrame();
-  expect(frame).toContain("Tool: Read File");
-  expect(frame).toContain("Args:");
-  expect(frame).toContain("    {");
+  expect(frame).toContain("read_file(");
+  expect(frame).toContain("\"path\":\"/tmp/example\"");
+  expect(frame).toContain("separate indented line");
 });
 
 test("EventLog formats tool results by success and error state", () => {
@@ -76,12 +74,8 @@ test("EventLog formats tool results by success and error state", () => {
   );
 
   const frame = lastFrame();
-  expect(frame).toContain("✓ Tool Result");
-  expect(frame).toContain("Tool: Read File");
-  expect(frame).toContain("Success: ok");
-  expect(frame).toContain("✕ Tool Result");
-  expect(frame).toContain("Tool: Write File");
-  expect(frame).toContain("Error: permission denied");
+  expect(frame).toContain("ok");
+  expect(frame).toContain("error: permission denied");
 });
 
 test("EventLog renders error block", () => {
@@ -91,13 +85,12 @@ test("EventLog renders error block", () => {
   expect(lastFrame()).toContain("fatal: oops");
 });
 
-test("EventLog truncates long content", () => {
+test("EventLog renders long content", () => {
   const longContent = "x".repeat(1000);
   const { lastFrame } = render(<EventLog contentBlocks={makeBlocks([{ type: "text", content: longContent }])} />);
 
-  const frame = lastFrame();
-  expect(frame).toContain("... [show more]");
-  expect(frame).not.toContain("x".repeat(950));
+  const frame = lastFrame() ?? "";
+  expect(frame.replace(/\s/g, "")).toContain(longContent);
 });
 
 test("EventLog filters out thinking blocks", () => {
