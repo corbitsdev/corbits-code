@@ -68,7 +68,8 @@ test("system prompt preserves core agent instructions", () => {
 
   expect(prompt).toContain("autonomous coding agent");
   expect(prompt).toContain("Every turn must produce at least one tool_call");
-  expect(prompt).toContain("Do not re-read a file you already read");
+  expect(prompt).toContain("Runtime limits are enforced by the tool layer");
+  expect(prompt).toContain("File re-read prevention is enforced at the tool layer");
   expect(prompt).toContain("MUST call submit_output");
   expect(prompt).toContain("If tests are failing, you MUST NOT submit");
 });

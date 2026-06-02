@@ -45,9 +45,11 @@ export function buildSubmitRules(): string {
 
 export function buildBudgetRules(): string {
   return [
-    "Budget and read limits:",
-    "1. Do not re-read a file you already read. The tool will return an error if you try.",
-    "2. Never write large files in a single write_file call. If a file exceeds ~200 lines, write it in sections using run_shell (printf or cat heredoc) or break the work into edit_file calls on an existing scaffold.",
+    "Tool layer constraints:",
+    "1. Runtime limits are enforced by the tool layer. If a tool result or error reports a limit, follow that guidance and continue with narrower operations.",
+    "2. For large file inspection, use search_files or grep to target specific sections before reading.",
+    "3. File re-read prevention is enforced at the tool layer. Use the results from your first read rather than re-reading.",
+    "4. When writing files, edit_file on existing code is preferred for clarity; use run_shell (printf or cat heredoc) for bulk generation.",
   ].join("\n");
 }
 
