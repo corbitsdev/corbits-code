@@ -3,18 +3,18 @@ import { homedir } from "node:os";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
-import { createAgent, fromToolRunner } from "@intx/agent";
+import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPosixTools } from "@intx/tools-posix";
 import type { Config, Mode } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
-import { createChatDirector, type ApprovalGate } from "../director.js";
+import { askOperatorDefinition, createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { consumeStream } from "../stream-consumer.js";
-import { App, type PlanGateEvent } from "./app.js";
+import { App, type OperatorGateEvent, type PlanGateEvent } from "./app.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -61,7 +61,10 @@ export async function runTUI(config: Config): Promise<number> {
   });
 
   const posixToolList = fromToolRunner(posixTools);
-  const allDefinitions = [...posixToolList.map((t) => t.definition)];
+  const allDefinitions = [
+    ...posixToolList.map((t) => t.definition),
+    askOperatorDefinition,
+  ];
 
   // Always wire the gate; the App's modeRef auto-approves when in teammate mode.
   // This lets mid-task toggle to manager take effect on subsequent plans.
@@ -70,6 +73,28 @@ export async function runTUI(config: Config): Promise<number> {
     allDefinitions,
     approvalGate,
   );
+
+  const agentTools = [
+    ...posixToolList,
+    stringTool({
+      definition: askOperatorDefinition,
+      handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        const question = typeof args.question === "string" ? args.question : "";
+        const options = Array.isArray(args.options) ? args.options.map(String) : [];
+        if (options.length === 0) {
+          return "Error: ask_operator requires at least one option.";
+        }
+        const index = await new Promise<number>((resolve) => {
+          const event: OperatorGateEvent = { question, options, resolve };
+          emitter.emit("operator.gate", event);
+        });
+        if (index < 0 || index >= options.length) {
+          return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
+        }
+        return options[index] as string;
+      },
+    }),
+  ];
 
   const agent = await createAgent({
     contextDir: join(config.cwd, ".agent-state", "context"),
@@ -85,7 +110,7 @@ export async function runTUI(config: Config): Promise<number> {
     ],
     defaultSource: config.providerName,
     systemPrompt: buildChatSystemPrompt(),
-    tools: posixToolList,
+    tools: agentTools,
     director,
   });
 
@@ -93,7 +118,7 @@ export async function runTUI(config: Config): Promise<number> {
     emitter.emit("event", event);
   };
 
-  // Render first so the App's plan.gate listener is registered before agent.send.
+  // Render first so the App's plan.gate and operator.gate listeners are registered before agent.send.
   const { waitUntilExit } = render(
     <App
       eventEmitter={emitter}
