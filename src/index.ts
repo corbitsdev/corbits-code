@@ -6,6 +6,16 @@ import { loadConfig } from "./config.js";
 import { loadState, loadDirectorState } from "./state.js";
 import { runAgent } from "./run-agent.js";
 import { runTUI } from "./tui/runner.js";
+import type { Config } from "./config.js";
+
+export type MainRunners = {
+  runAgent(
+    config: Config,
+    initialStartedAt?: number,
+    initialDirectorState?: NonNullable<Awaited<ReturnType<typeof loadDirectorState>>>,
+  ): Promise<number>;
+  runTUI(config: Config): Promise<number>;
+};
 
 async function loadEnvFile(path: string): Promise<void> {
   try {
@@ -47,7 +57,10 @@ function printHelp(): void {
   console.log("  OPENAI_COMPATIBLE_PROVIDER_NAME  Provider name");
 }
 
-export async function main(argv: readonly string[]): Promise<number> {
+export async function mainWithRunners(
+  argv: readonly string[],
+  runners: MainRunners,
+): Promise<number> {
   const args = [...argv];
 
   if (args.includes("--help")) {
@@ -72,7 +85,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 1;
     }
     const directorState = await loadDirectorState(config.cwd);
-    return runAgent({ ...config, task: previous.task }, previous.startedAt, directorState ?? undefined);
+    return runners.runAgent({ ...config, task: previous.task }, previous.startedAt, directorState ?? undefined);
   }
 
   // Strip optional "run" verb
@@ -86,20 +99,26 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 1;
   }
   if (config.headless) {
-    return runAgent(config);
+    return runners.runAgent(config);
   }
-  return runTUI(config);
+  return runners.runTUI(config);
+}
+
+export async function main(argv: readonly string[]): Promise<number> {
+  return mainWithRunners(argv, { runAgent, runTUI });
 }
 
 const projectRoot = resolve(import.meta.dirname, "..");
-await loadEnvFile(resolve(projectRoot, ".env"));
+if (import.meta.main) {
+  await loadEnvFile(resolve(projectRoot, ".env"));
 
-void main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
-  (err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`interchange-code: ${message}`);
-    process.exit(1);
-  },
-);
+  void main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`interchange-code: ${message}`);
+      process.exit(1);
+    },
+  );
+}
 /* eslint-enable no-console */
