@@ -15,6 +15,12 @@ import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { consumeStream } from "../stream-consumer.js";
 import { App, type OperatorGateEvent, type PlanGateEvent } from "./app.js";
+import {
+  createLifecycleHookManager,
+  createRunSummary,
+  createTurnContextCollector,
+  discoverLifecycleHooks,
+} from "../hooks.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -43,6 +49,11 @@ function saveMode(mode: Mode): void {
 
 export async function runTUI(config: Config): Promise<number> {
   const emitter = createTUIEventEmitter();
+  const startedAt = Date.now();
+  const hookManager = createLifecycleHookManager({
+    hooks: await discoverLifecycleHooks(),
+    onEvent: (event) => emitter.emit("hook", event),
+  });
 
   const approvalGate: ApprovalGate = (plan: PlanStep[]) => {
     return new Promise<boolean>((resolve) => {
@@ -114,7 +125,12 @@ export async function runTUI(config: Config): Promise<number> {
     director,
   });
 
+  const turnCollector = createTurnContextCollector((ctx) => {
+    hookManager.dispatchPostTurn(ctx);
+  });
+
   const sink = (event: ReactorEmittedEvent): void => {
+    turnCollector.observe(event);
     emitter.emit("event", event);
   };
 
@@ -126,7 +142,9 @@ export async function runTUI(config: Config): Promise<number> {
       sessionTitle={config.task}
       initialMode={config.mode}
       initialModel={config.model}
+      initialHooks={hookManager.getStatuses()}
       onModeChange={saveMode}
+      onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
     />,
   );
 
@@ -138,6 +156,18 @@ export async function runTUI(config: Config): Promise<number> {
   }
 
   await waitUntilExit();
+
+  const finishedAt = Date.now();
+  hookManager.dispatchPostRun(createRunSummary({
+    task: config.task,
+    status: "done",
+    startedAt,
+    finishedAt,
+    turnsUsed: turnCollector.getTurns().length,
+    tokenUsage: turnCollector.getTokenUsage(),
+    turns: turnCollector.getTurns(),
+    toolCallCount: turnCollector.getToolCallCount(),
+  }));
 
   try {
     await agent.close();

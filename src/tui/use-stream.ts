@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createFaremeter, formatCost } from "../faremeter.js";
+import type { LifecycleHookEvent, LifecycleHookStatus } from "../hooks.js";
 
 export type PlanStep = { file: string; action: string };
 
@@ -23,7 +24,9 @@ export type AgentStreamState = {
   totalTokens: number;
   formattedCost: string;
   latestUserMessage: string;
+  hooks: LifecycleHookStatus[];
   addEvent(event: ReactorEmittedEvent): void;
+  addHookEvent(event: LifecycleHookEvent): void;
   addUserMessage(message: string): void;
 };
 
@@ -50,13 +53,17 @@ function parsePlanSteps(rawArguments: string): PlanStep[] {
   return out;
 }
 
-export function createAgentStreamState(): AgentStreamState {
+export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = []): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
   const callIdToName = new Map<string, string>();
+  const hooksById = new Map<string, LifecycleHookStatus>();
   let turnsUsed = 0;
   let status: "running" | "done" | "failed" = "running";
   let latestUserMessage = "";
   const faremeter = createFaremeter();
+  for (const hook of initialHooks) {
+    hooksById.set(hook.id, { ...hook });
+  }
 
   return {
     get contentBlocks() {
@@ -79,6 +86,9 @@ export function createAgentStreamState(): AgentStreamState {
     },
     get latestUserMessage() {
       return latestUserMessage;
+    },
+    get hooks() {
+      return [...hooksById.values()].map((hook) => ({ ...hook }));
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
@@ -191,6 +201,21 @@ export function createAgentStreamState(): AgentStreamState {
         status = "failed";
       }
     },
+    addHookEvent(event: LifecycleHookEvent): void {
+      switch (event.type) {
+        case "hooks.loaded": {
+          hooksById.clear();
+          for (const hook of event.hooks) {
+            hooksById.set(hook.id, { ...hook });
+          }
+          break;
+        }
+        case "hook.updated": {
+          hooksById.set(event.hook.id, { ...event.hook });
+          break;
+        }
+      }
+    },
     addUserMessage(message: string): void {
       latestUserMessage = message;
       contentBlocks.push({ type: "user", content: message });
@@ -198,8 +223,11 @@ export function createAgentStreamState(): AgentStreamState {
   };
 }
 
-export function useAgentStream(emitter: EventEmitter): AgentStreamState {
-  const [state] = useState(() => createAgentStreamState());
+export function useAgentStream(
+  emitter: EventEmitter,
+  initialHooks: LifecycleHookStatus[] = [],
+): AgentStreamState {
+  const [state] = useState(() => createAgentStreamState(initialHooks));
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -207,9 +235,15 @@ export function useAgentStream(emitter: EventEmitter): AgentStreamState {
       state.addEvent(event);
       setTick((t) => t + 1);
     };
+    const hookHandler = (event: LifecycleHookEvent) => {
+      state.addHookEvent(event);
+      setTick((t) => t + 1);
+    };
     emitter.on("event", handler);
+    emitter.on("hook", hookHandler);
     return () => {
       emitter.off("event", handler);
+      emitter.off("hook", hookHandler);
     };
   }, [emitter, state]);
 
