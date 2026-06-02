@@ -40,9 +40,29 @@
 | `react-devtools-core` | ^7.0.1 | React devtools |
 | `ws` | ^8.21.0 | WebSocket support |
 
+## Developer Setup
+
+New contributors must configure git hooks before their first commit:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+To verify the full environment is correctly configured (git hooks, bun install, interchange submodule, and required env vars):
+
+```bash
+./bin/check-env
+```
+
+`check-env` sources `.env` if present before checking env vars, so it works with the standard `.env` workflow.
+
 ## File Structure
 
 ```
+bin/
+  check-env             Environment check script (git hooks, bun, submodule, env vars)
+.githooks/
+  pre-commit            Runs typecheck + build before every commit
 src/
   index.ts              CLI entry, argv parsing, env loading, dispatch
   config.ts             Config resolution (env vars + flags)

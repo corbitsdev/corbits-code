@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-commit: typechecking..."
+bun run typecheck
+
+echo "pre-commit: building..."
+bun run build
+
+echo "pre-commit: ok"

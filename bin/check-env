@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PASS=0
+FAIL=0
+
+ok()   { echo "  ok   $*"; ((PASS++)) || true; }
+fail() { echo "  FAIL $*"; ((FAIL++)) || true; }
+
+echo "interchange-code: environment check"
+echo ""
+
+# Git hooks
+echo "git hooks"
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  hookspath=$(git config core.hooksPath 2>/dev/null || true)
+  if [[ "$hookspath" == ".githooks" ]]; then
+    if [[ -d ".githooks" ]]; then
+      ok "core.hooksPath = .githooks"
+    else
+      fail ".githooks directory missing — run: mkdir .githooks"
+    fi
+  else
+    fail "core.hooksPath not set to .githooks — run: git config core.hooksPath .githooks"
+  fi
+else
+  fail "not inside a git repository"
+fi
+echo ""
+
+# Bun
+echo "bun"
+if command -v bun >/dev/null 2>&1; then
+  BUN_VERSION=$(bun --version)
+  ok "bun $BUN_VERSION"
+else
+  fail "bun not found — install from https://bun.sh"
+fi
+echo ""
+
+# interchange submodule
+echo "interchange submodule"
+if [[ -f "interchange/packages/agent/package.json" ]]; then
+  ok "interchange submodule initialised"
+else
+  fail "interchange submodule missing — run: git submodule update --init --recursive"
+fi
+echo ""
+
+# Required env vars
+echo "environment variables"
+REQUIRED_VARS=(
+  OPENAI_COMPATIBLE_API_KEY
+  OPENAI_COMPATIBLE_BASE_URL
+  OPENAI_COMPATIBLE_MODEL
+)
+
+ENV_FILE=".env"
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  set -o allexport; source "$ENV_FILE"; set +o allexport
+fi
+
+for var in "${REQUIRED_VARS[@]}"; do
+  if [[ -n "${!var:-}" ]]; then
+    ok "$var is set"
+  else
+    fail "$var not set (set in .env or environment)"
+  fi
+done
+echo ""
+
+# Summary
+if [[ $FAIL -eq 0 ]]; then
+  echo "all checks passed"
+  exit 0
+else
+  echo "$FAIL check(s) failed"
+  exit 1
+fi
