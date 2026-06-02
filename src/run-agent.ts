@@ -17,6 +17,13 @@ import { runCritique } from "./critic.js";
 import { loadPricing, startPricingRefresh } from "./pricing-fetcher.js";
 import { createRenderer } from "./renderer.js";
 import { consumeStream } from "./stream-consumer.js";
+import {
+  createLifecycleHookManager,
+  createRunSummary,
+  createTurnContextCollector,
+  discoverLifecycleHooks,
+  hookDirectories,
+} from "./hooks.js";
 
 /* eslint-disable no-console */
 
@@ -64,6 +71,10 @@ export async function runAgent(
   const startedAt = initialStartedAt ?? Date.now();
   const pricingCache = await loadPricing();
   const pricingRefresh = startPricingRefresh();
+  const hookManager = createLifecycleHookManager({
+    hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
+    logError: (message) => console.error(message),
+  });
 
   // directorHolder is populated after director is created; the re-read plugin
   // only executes during tool calls, which happen after wiring is complete.
@@ -165,9 +176,19 @@ export async function runAgent(
   await saveDirectorState(config.cwd, director.getState());
 
   const renderer = createRenderer(startedAt, config.model, pricingCache);
+  const turnCollector = createTurnContextCollector((ctx) => {
+    hookManager.dispatchPostTurn(ctx);
+  });
   const sendPromise = agent.send(config.task);
 
-  const streamPromise = consumeStream(agent.stream(), onEvent ?? renderer.render.bind(renderer));
+  const streamPromise = consumeStream(agent.stream(), (event) => {
+    turnCollector.observe(event);
+    if (onEvent !== undefined) {
+      onEvent(event);
+    } else {
+      renderer.render(event);
+    }
+  });
 
   async function cleanup(): Promise<void> {
     try {
@@ -188,13 +209,26 @@ export async function runAgent(
   try {
     result = await sendPromise;
   } catch (err) {
+    const finishedAt = Date.now();
+    const error = err instanceof Error ? err.message : String(err);
+    await hookManager.dispatchPostRun(createRunSummary({
+      task: config.task,
+      status: "failed",
+      startedAt,
+      finishedAt,
+      turnsUsed: director.getTurnsUsed(),
+      tokenUsage: turnCollector.getTokenUsage(),
+      turns: turnCollector.getTurns(),
+      toolCallCount: turnCollector.getToolCallCount(),
+      error,
+    }));
     await saveState(config.cwd, {
       status: "failed",
       turnsUsed: director.getTurnsUsed(),
       task: config.task,
       startedAt,
-      finishedAt: Date.now(),
-      error: err instanceof Error ? err.message : String(err),
+      finishedAt,
+      error,
     });
     await saveDirectorState(config.cwd, director.getState());
     await cleanup();
@@ -203,13 +237,26 @@ export async function runAgent(
 
   const critique = await runCritique(config.cwd);
   if (!critique.passed) {
+    const finishedAt = Date.now();
+    const error = critique.errors.join("; ");
+    await hookManager.dispatchPostRun(createRunSummary({
+      task: config.task,
+      status: "failed",
+      startedAt,
+      finishedAt,
+      turnsUsed: director.getTurnsUsed(),
+      tokenUsage: turnCollector.getTokenUsage(),
+      turns: turnCollector.getTurns(),
+      toolCallCount: turnCollector.getToolCallCount(),
+      error,
+    }));
     await saveState(config.cwd, {
       status: "failed",
       turnsUsed: director.getTurnsUsed(),
       task: config.task,
       startedAt,
-      finishedAt: Date.now(),
-      error: critique.errors.join("; "),
+      finishedAt,
+      error,
     });
     await saveDirectorState(config.cwd, director.getState());
     console.error("Critique failed:");
@@ -220,12 +267,23 @@ export async function runAgent(
     return 1;
   }
 
+  const finishedAt = Date.now();
+  await hookManager.dispatchPostRun(createRunSummary({
+    task: config.task,
+    status: "done",
+    startedAt,
+    finishedAt,
+    turnsUsed: director.getTurnsUsed(),
+    tokenUsage: turnCollector.getTokenUsage(),
+    turns: turnCollector.getTurns(),
+    toolCallCount: turnCollector.getToolCallCount(),
+  }));
   await saveState(config.cwd, {
     status: "done",
     turnsUsed: director.getTurnsUsed(),
     task: config.task,
     startedAt,
-    finishedAt: Date.now(),
+    finishedAt,
   });
   await saveDirectorState(config.cwd, director.getState());
 

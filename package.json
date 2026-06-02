@@ -1,6 +1,6 @@
 {
   "name": "interchange-code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "bin": {
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src ./e2e",
+    "test": "bun test",
     "run": "bun run build && ./dist/index.js"
   },
   "workspaces": [

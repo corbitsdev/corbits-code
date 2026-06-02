@@ -100,6 +100,11 @@ function isValidPlanArgs(args: unknown): args is { steps: PlanStep[] } {
   return true;
 }
 
+function isSuccessfulToolResult(result: { content: unknown; isError?: boolean }): boolean {
+  if (result.isError === true) return false;
+  return typeof result.content !== "string" || !result.content.startsWith("Error:");
+}
+
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
@@ -172,7 +177,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
     if (event.type === "tool.done") {
       const name = this.callIdToName.get(event.result.callId);
-      if (name === "submit_output" && !event.result.isError) {
+      if (name === "submit_output" && isSuccessfulToolResult(event.result)) {
         this.submitCalled = true;
         if (!this.planSubmitted && this._turnsUsed - 1 > 3) {
           const base = await super.decide(event, state, capabilities);
