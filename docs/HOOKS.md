@@ -16,8 +16,9 @@ Supported files:
 - `*.ts` files run with Bun.
 - `*.sh` files run with `sh`.
 
-Hooks are fire-and-forget. Failures are recorded in hook status and logged, but
-they do not stop the agent run.
+Hook failures are recorded in hook status and logged, but they do not stop the
+agent run. `postTurn` hooks run in the background. `postRun` hooks finish before
+the process exits so they can flush their output and record final status.
 
 ## TypeScript Hooks
 
@@ -71,7 +72,7 @@ type TurnContext = {
 ```ts
 type RunSummary = {
   task: string;
-  status: "done" | "failed";
+  status: "done" | "failed" | "cancelled";
   startedAt: number;
   finishedAt: number;
   durationMs: number;

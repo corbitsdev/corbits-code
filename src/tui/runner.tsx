@@ -20,10 +20,21 @@ import {
   createRunSummary,
   createTurnContextCollector,
   discoverLifecycleHooks,
+  hookDirectories,
+  type RunSummary,
 } from "../hooks.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
+}
+
+export function getTUIRunSummaryStatus(
+  runCompleted: boolean,
+  runError: string | undefined,
+): RunSummary["status"] {
+  if (runError !== undefined) return "failed";
+  if (runCompleted) return "done";
+  return "cancelled";
 }
 
 function saveMode(mode: Mode): void {
@@ -51,9 +62,15 @@ export async function runTUI(config: Config): Promise<number> {
   const emitter = createTUIEventEmitter();
   const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
-    hooks: await discoverLifecycleHooks(),
+    hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
   });
+  let runCompleted = false;
+  let runError: string | undefined;
+
+  const recordRunError = (err: unknown): void => {
+    runError = err instanceof Error ? err.message : String(err);
+  };
 
   const approvalGate: ApprovalGate = (plan: PlanStep[]) => {
     return new Promise<boolean>((resolve) => {
@@ -131,6 +148,17 @@ export async function runTUI(config: Config): Promise<number> {
 
   const sink = (event: ReactorEmittedEvent): void => {
     turnCollector.observe(event);
+    if (event.type === "reactor.done") {
+      runCompleted = true;
+    }
+    if (event.type === "reactor.error") {
+      const data = event.data as { error: string };
+      runError = data.error;
+    }
+    if (event.type === "inference.error") {
+      const data = event.data as { error: { message: string } };
+      runError = data.error.message;
+    }
     emitter.emit("event", event);
   };
 
@@ -145,6 +173,7 @@ export async function runTUI(config: Config): Promise<number> {
       initialHooks={hookManager.getStatuses()}
       onModeChange={saveMode}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
+      onAgentError={recordRunError}
     />,
   );
 
@@ -152,21 +181,23 @@ export async function runTUI(config: Config): Promise<number> {
 
   // Send initial task if provided
   if (config.task.length > 0) {
-    agent.send(config.task).catch(() => {});
+    agent.send(config.task).catch(recordRunError);
   }
 
   await waitUntilExit();
 
   const finishedAt = Date.now();
-  hookManager.dispatchPostRun(createRunSummary({
+  const status = getTUIRunSummaryStatus(runCompleted, runError);
+  await hookManager.dispatchPostRun(createRunSummary({
     task: config.task,
-    status: "done",
+    status,
     startedAt,
     finishedAt,
     turnsUsed: turnCollector.getTurns().length,
     tokenUsage: turnCollector.getTokenUsage(),
     turns: turnCollector.getTurns(),
     toolCallCount: turnCollector.getToolCallCount(),
+    ...(runError !== undefined ? { error: runError } : {}),
   }));
 
   try {

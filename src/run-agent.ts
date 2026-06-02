@@ -22,6 +22,7 @@ import {
   createRunSummary,
   createTurnContextCollector,
   discoverLifecycleHooks,
+  hookDirectories,
 } from "./hooks.js";
 
 /* eslint-disable no-console */
@@ -71,7 +72,7 @@ export async function runAgent(
   const pricingCache = await loadPricing();
   const pricingRefresh = startPricingRefresh();
   const hookManager = createLifecycleHookManager({
-    hooks: await discoverLifecycleHooks(),
+    hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     logError: (message) => console.error(message),
   });
 
@@ -210,7 +211,7 @@ export async function runAgent(
   } catch (err) {
     const finishedAt = Date.now();
     const error = err instanceof Error ? err.message : String(err);
-    hookManager.dispatchPostRun(createRunSummary({
+    await hookManager.dispatchPostRun(createRunSummary({
       task: config.task,
       status: "failed",
       startedAt,
@@ -238,7 +239,7 @@ export async function runAgent(
   if (!critique.passed) {
     const finishedAt = Date.now();
     const error = critique.errors.join("; ");
-    hookManager.dispatchPostRun(createRunSummary({
+    await hookManager.dispatchPostRun(createRunSummary({
       task: config.task,
       status: "failed",
       startedAt,
@@ -267,7 +268,7 @@ export async function runAgent(
   }
 
   const finishedAt = Date.now();
-  hookManager.dispatchPostRun(createRunSummary({
+  await hookManager.dispatchPostRun(createRunSummary({
     task: config.task,
     status: "done",
     startedAt,

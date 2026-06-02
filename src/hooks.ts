@@ -49,7 +49,7 @@ export type TurnContext = {
 
 export type RunSummary = {
   task: string;
-  status: "done" | "failed";
+  status: "done" | "failed" | "cancelled";
   startedAt: number;
   finishedAt: number;
   durationMs: number;
@@ -68,7 +68,7 @@ export type LifecycleHookManager = {
   getStatuses(): LifecycleHookStatus[];
   setEnabled(id: string, enabled: boolean): void;
   dispatchPostTurn(ctx: TurnContext): void;
-  dispatchPostRun(summary: RunSummary): void;
+  dispatchPostRun(summary: RunSummary): Promise<void>;
 };
 
 type PendingTurn = {
@@ -93,16 +93,16 @@ export function hooksDirectory(): string {
   return globalHooksDirectory();
 }
 
-export function localHooksDirectory(): string {
-  return join(process.cwd(), ".interchange", "hooks");
+export function localHooksDirectory(cwd: string = process.cwd()): string {
+  return join(cwd, ".interchange", "hooks");
 }
 
 export function globalHooksDirectory(): string {
   return join(homedir(), ".interchange", "hooks");
 }
 
-export function hookDirectories(): string[] {
-  return [localHooksDirectory(), globalHooksDirectory()];
+export function hookDirectories(cwd: string = process.cwd()): string[] {
+  return [localHooksDirectory(cwd), globalHooksDirectory()];
 }
 
 export async function discoverLifecycleHooks(
@@ -240,7 +240,7 @@ export function createTurnContextCollector(
 
 export function createRunSummary(args: {
   task: string;
-  status: "done" | "failed";
+  status: "done" | "failed" | "cancelled";
   startedAt: number;
   finishedAt: number;
   turnsUsed: number;
@@ -287,21 +287,27 @@ export function createLifecycleHookManager(args: {
     onEvent({ type: "hook.updated", hook: { ...next } });
   }
 
-  function dispatch(kind: HookKind, payload: TurnContext | RunSummary): void {
+  function runHook(status: LifecycleHookStatus, kind: HookKind, payload: TurnContext | RunSummary): Promise<void> {
+    updateStatus(status.id, { lastFiredAt: Date.now(), lastKind: kind });
+    return runLifecycleHook(status, kind, payload).then(
+      (exitStatus) => updateStatus(status.id, { lastExitStatus: exitStatus }),
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logError(`Hook ${status.name} failed: ${message}`);
+        updateStatus(status.id, {
+          lastExitStatus: { code: null, signal: null, stderr: message },
+        });
+      },
+    );
+  }
+
+  function dispatch(kind: HookKind, payload: TurnContext | RunSummary): Promise<void> {
+    const pending: Promise<void>[] = [];
     for (const status of statuses.values()) {
       if (!status.enabled) continue;
-      updateStatus(status.id, { lastFiredAt: Date.now(), lastKind: kind });
-      void runLifecycleHook(status, kind, payload).then(
-        (exitStatus) => updateStatus(status.id, { lastExitStatus: exitStatus }),
-        (err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          logError(`Hook ${status.name} failed: ${message}`);
-          updateStatus(status.id, {
-            lastExitStatus: { code: null, signal: null, stderr: message },
-          });
-        },
-      );
+      pending.push(runHook(status, kind, payload));
     }
+    return Promise.all(pending).then(() => {});
   }
 
   onEvent({ type: "hooks.loaded", hooks: snapshot() });
@@ -312,10 +318,10 @@ export function createLifecycleHookManager(args: {
       updateStatus(id, { enabled });
     },
     dispatchPostTurn(ctx: TurnContext): void {
-      dispatch("postTurn", ctx);
+      void dispatch("postTurn", ctx);
     },
-    dispatchPostRun(summary: RunSummary): void {
-      dispatch("postRun", summary);
+    dispatchPostRun(summary: RunSummary): Promise<void> {
+      return dispatch("postRun", summary);
     },
   };
 }

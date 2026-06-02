@@ -11,6 +11,8 @@ import {
   createRunSummary,
   createTurnContextCollector,
   discoverLifecycleHooks,
+  hookDirectories,
+  localHooksDirectory,
   type LifecycleHookEvent,
 } from "../../src/hooks.js";
 
@@ -83,6 +85,13 @@ test("discoverLifecycleHooks gives local hooks precedence over global hooks", as
   expect(hooks.find((hook) => hook.name === "shared.ts")?.path).toBe(join(local, "shared.ts"));
 });
 
+test("hookDirectories resolves local hooks from the configured cwd", () => {
+  const cwd = join(tmpdir(), "interchange-target-cwd");
+
+  expect(localHooksDirectory(cwd)).toBe(join(cwd, ".interchange", "hooks"));
+  expect(hookDirectories(cwd)[0]).toBe(join(cwd, ".interchange", "hooks"));
+});
+
 test("createTurnContextCollector emits a turn after inference without tools", () => {
   const turns: unknown[] = [];
   const collector = createTurnContextCollector((ctx) => turns.push(ctx), makeClock([0, 0, 50, 50]));
@@ -144,6 +153,21 @@ test("createRunSummary derives duration and carries accumulated turn data", () =
   expect(summary.error).toBeUndefined();
 });
 
+test("createRunSummary supports cancelled runs", () => {
+  const summary = createRunSummary({
+    task: "do work",
+    status: "cancelled",
+    startedAt: 100,
+    finishedAt: 175,
+    turnsUsed: 1,
+    tokenUsage: usage,
+    turns: [],
+    toolCallCount: 3,
+  });
+
+  expect(summary.status).toBe("cancelled");
+});
+
 test("createLifecycleHookManager executes TypeScript hooks and reports status", async () => {
   const dir = await mkdtemp(join(tmpdir(), "interchange-hooks-"));
   const outputPath = join(dir, "output.json");
@@ -190,7 +214,7 @@ test("createLifecycleHookManager can disable hooks per run", async () => {
     hooks: [{ id: hookPath, name: "record.sh", type: "shell", path: hookPath }],
   });
   manager.setEnabled(hookPath, false);
-  manager.dispatchPostRun(
+  await manager.dispatchPostRun(
     createRunSummary({
       task: "x",
       status: "done",
@@ -205,6 +229,34 @@ test("createLifecycleHookManager can disable hooks per run", async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 25));
   expect(manager.getStatuses()[0]?.lastFiredAt).toBeUndefined();
+});
+
+test("createLifecycleHookManager waits for postRun hooks to finish", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "interchange-hooks-"));
+  const outputPath = join(dir, "output.json");
+  const hookPath = join(dir, "record.sh");
+  await writeFile(hookPath, `cat > ${JSON.stringify(outputPath)}\n`);
+
+  const manager = createLifecycleHookManager({
+    hooks: [{ id: hookPath, name: "record.sh", type: "shell", path: hookPath }],
+  });
+
+  await manager.dispatchPostRun(
+    createRunSummary({
+      task: "x",
+      status: "done",
+      startedAt: 0,
+      finishedAt: 1,
+      turnsUsed: 0,
+      tokenUsage: usage,
+      turns: [],
+      toolCallCount: 0,
+    }),
+  );
+
+  const written = JSON.parse(await readFile(outputPath, "utf8")) as { task?: unknown };
+  expect(written.task).toBe("x");
+  expect(manager.getStatuses()[0]?.lastExitStatus?.code).toBe(0);
 });
 
 function makeClock(values: number[]): () => number {

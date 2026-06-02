@@ -36,6 +36,7 @@ export type AppProps = {
   initialHooks?: LifecycleHookStatus[];
   onModeChange: (mode: Mode) => void;
   onToggleHook?: (hookId: string, enabled: boolean) => void;
+  onAgentError?: (err: unknown) => void;
 };
 
 export function App({
@@ -47,6 +48,7 @@ export function App({
   initialHooks = [],
   onModeChange,
   onToggleHook,
+  onAgentError,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const { exit } = useApp();
@@ -128,7 +130,9 @@ export function App({
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    agent.send(message).catch(() => {});
+    agent.send(message).catch((err: unknown) => {
+      onAgentError?.(err);
+    });
   };
 
   const handleCommand = (result: CommandResult) => {
