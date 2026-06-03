@@ -5,7 +5,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+H", description: "Toggle hooks panel" },
   { keys: "Ctrl+T", description: "Toggle thinking output" },
   { keys: "Ctrl+R", description: "Expand last tool result" },
-  { keys: "Ctrl+D", description: "Toggle diff / plan panel" },
+  { keys: "Ctrl+D", description: "Cycle sidebar (plan / diff / off)" },
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
   { keys: "↑ / ↓", description: "Scroll active pane" },
   { keys: "ESC", description: "Back / close overlay" },

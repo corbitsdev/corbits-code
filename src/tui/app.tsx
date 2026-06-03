@@ -53,6 +53,7 @@ export function App({
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("plan");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [diffScroll, setDiffScroll] = useState(0);
   const [model, setModel] = useState<string>(initialModel);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -75,7 +76,9 @@ export function App({
     return block?.type === "plan" ? block.steps : [];
   }, [state.contentBlocks]);
 
-  const leftWidth = Math.floor(columns * 0.65);
+  // The context sidebar is collapsed by default; when closed the event log
+  // reflows to the full width.
+  const leftWidth = sidebarOpen ? Math.floor(columns * 0.65) : columns;
   const rightWidth = columns - leftWidth;
 
   // Reserve rows for the header, status bar, and chat input chrome so the
@@ -98,7 +101,7 @@ export function App({
 
   const scroll = useScroll({ renderableCount, visibleRows });
 
-  const diffActive = contextView === "diff";
+  const diffActive = sidebarOpen && contextView === "diff";
   const diff = useDiff({ cwd: process.cwd(), active: diffActive, refreshKey: renderableCount });
   const diffVisibleRows = Math.max(1, visibleRows - 2);
   const diffLineCount = useMemo(
@@ -150,9 +153,17 @@ export function App({
           });
         }
       },
-      toggleContextView: () => {
+      cycleSidebar: () => {
+        // One key cycles: closed → plan → diff → closed.
         setDiffScroll(0);
-        setContextView((v) => (v === "plan" ? "diff" : "plan"));
+        if (!sidebarOpen) {
+          setContextView("plan");
+          setSidebarOpen(true);
+        } else if (contextView === "plan") {
+          setContextView("diff");
+        } else {
+          setSidebarOpen(false);
+        }
       },
       toggleHelp: () => setHelpOpen((open) => !open),
     },
@@ -173,6 +184,7 @@ export function App({
     if (result.type === "view") {
       setDiffScroll(0);
       setContextView(result.view);
+      setSidebarOpen(true);
       return;
     }
     if (result.type === "overlay") {
@@ -204,18 +216,20 @@ export function App({
             verbose={verbose}
           />
         </Box>
-        <Box width={rightWidth} flexDirection="column" overflow="hidden">
-          <ContextPanel
-            view={contextView}
-            steps={planSteps}
-            currentPlanStep={state.currentPlanStep}
-            planDeviated={state.planDeviated}
-            width={rightWidth}
-            diffResult={diff.result}
-            diffScrollOffset={diffScroll}
-            diffVisibleRows={diffVisibleRows}
-          />
-        </Box>
+        {sidebarOpen && (
+          <Box width={rightWidth} flexDirection="column" overflow="hidden">
+            <ContextPanel
+              view={contextView}
+              steps={planSteps}
+              currentPlanStep={state.currentPlanStep}
+              planDeviated={state.planDeviated}
+              width={rightWidth}
+              diffResult={diff.result}
+              diffScrollOffset={diffScroll}
+              diffVisibleRows={diffVisibleRows}
+            />
+          </Box>
+        )}
       </Box>
       {hookPanelOpen ? (
         <HookPanel hooks={state.hooks} />

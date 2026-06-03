@@ -23,7 +23,7 @@ export type KeymapActions = {
   scrollDown: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
-  toggleContextView: () => void;
+  cycleSidebar: () => void;
   toggleHelp: () => void;
 };
 
@@ -88,7 +88,7 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
       return;
     }
     if (key.ctrl && input === "d") {
-      actions.toggleContextView();
+      actions.cycleSidebar();
       return;
     }
     if (key.ctrl && input === "g") {

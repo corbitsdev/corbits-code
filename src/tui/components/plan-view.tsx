@@ -25,7 +25,7 @@ function truncate(text: string, max: number): string {
 export function PlanView({ steps, currentPlanStep, planDeviated, width }: PlanViewProps): ReactNode {
   const contentWidth = Math.max(8, width - 4);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={color("brand")} paddingX={1} width={width}>
+    <Box flexDirection="column" borderStyle="round" borderColor={color("brand")} paddingX={1} width={width} flexGrow={1}>
       <Text bold color={color("brand")}>
         Plan  {steps.length} {steps.length === 1 ? "step" : "steps"}
       </Text>

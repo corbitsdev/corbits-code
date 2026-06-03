@@ -57,7 +57,7 @@ export function DiffView({ result, scrollOffset, visibleRows, width }: DiffViewP
   }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={color("accent")} paddingX={1} width={width}>
+    <Box flexDirection="column" borderStyle="round" borderColor={color("accent")} paddingX={1} width={width} flexGrow={1}>
       <Text bold color={color("accent")}>Diff</Text>
       {body}
     </Box>
