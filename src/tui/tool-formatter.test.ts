@@ -3,7 +3,38 @@ import {
   summarizeToolArgs,
   summarizeToolResult,
   isUserFacingJSON,
+  describeToolCall,
+  humanizeToolName,
 } from "./tool-formatter.js";
+
+describe("humanizeToolName", () => {
+  test("maps known tools to readable names", () => {
+    expect(humanizeToolName("read_file")).toBe("Read");
+    expect(humanizeToolName("run_shell")).toBe("Shell");
+    expect(humanizeToolName("edit_file")).toBe("Edit");
+  });
+  test("title-cases unknown snake_case tools so identifiers never leak", () => {
+    expect(humanizeToolName("fetch_remote_thing")).toBe("Fetch Remote Thing");
+    expect(humanizeToolName("custom_tool")).not.toContain("_");
+  });
+});
+
+describe("describeToolCall", () => {
+  test("shell calls put the command in the summary and flag isShell", () => {
+    const d = describeToolCall("run_shell", '{"command":"npm test"}');
+    expect(d.isShell).toBe(true);
+    expect(d.display).toBe("Shell");
+    expect(d.summary).toBe("npm test");
+  });
+  test("writes read as success, edits as accent, reads as muted", () => {
+    expect(describeToolCall("write_file", '{"path":"a"}').role).toBe("success");
+    expect(describeToolCall("edit_file", '{"path":"a"}').role).toBe("accent");
+    expect(describeToolCall("read_file", '{"path":"a"}').role).toBe("muted");
+  });
+  test("a destructive shell command reads as danger", () => {
+    expect(describeToolCall("run_shell", '{"command":"rm -rf build"}').role).toBe("danger");
+  });
+});
 
 describe("summarizeToolArgs", () => {
   test("renders key: value pairs, not JSON", () => {

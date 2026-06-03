@@ -48,7 +48,7 @@ test("App renders events after they are emitted", async () => {
 
   emitter.emit("event", event);
   await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(lastFrame()).toContain("read_file");
+  expect(lastFrame()).toContain("Read");
 });
 
 test("App renders running status initially", () => {

@@ -1,7 +1,81 @@
+import type { SemanticRole } from "./theme.js";
+
 export type ToolArgSummary = {
   summary: string;
   full: string;
 };
+
+export type ToolCallDescriptor = {
+  // Human-facing tool name — never the raw snake_case identifier.
+  display: string;
+  // Semantic colour role for the action (writes read as additions, deletions
+  // as danger, and so on).
+  role: SemanticRole;
+  summary: string;
+  full: string;
+  // run_shell is rendered leanly: the command is the headline, not a loud tag.
+  isShell: boolean;
+};
+
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  read_file: "Read",
+  write_file: "Write",
+  edit_file: "Edit",
+  run_shell: "Shell",
+  search_files: "Search",
+  grep: "Grep",
+  list_dir: "List",
+  submit_plan: "Plan",
+  submit_output: "Submit",
+  ask_operator: "Ask operator",
+};
+
+export function humanizeToolName(toolName: string): string {
+  const known = TOOL_DISPLAY_NAMES[toolName];
+  if (known !== undefined) return known;
+  // Unknown / MCP tools must still never leak as snake_case: title-case them.
+  return toolName
+    .split(/[_\s]+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word[0]!.toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function shellRole(command: string): SemanticRole {
+  const first = command.trim().split(/\s+/)[0] ?? "";
+  if (/^rm$|^rmdir$/.test(first)) return "danger";
+  if (first === "git" && /\brm\b/.test(command)) return "danger";
+  return "muted";
+}
+
+function toolRole(toolName: string): SemanticRole {
+  switch (toolName) {
+    case "write_file":
+      return "success";
+    case "edit_file":
+      return "accent";
+    case "read_file":
+    case "search_files":
+    case "grep":
+    case "list_dir":
+      return "muted";
+    default:
+      return "accent";
+  }
+}
+
+// One source of truth for how a tool call presents: its human name, its action
+// colour, and its argument summary. run_shell is special-cased so the command
+// itself is the headline.
+export function describeToolCall(toolName: string, rawArgs: string): ToolCallDescriptor {
+  if (toolName === "run_shell") {
+    const obj = tryParseObject(rawArgs);
+    const command = obj !== null && typeof obj.command === "string" ? obj.command : rawArgs.trim();
+    return { display: "Shell", role: shellRole(command), summary: command, full: command, isShell: true };
+  }
+  const { summary, full } = summarizeToolArgs(toolName, rawArgs);
+  return { display: humanizeToolName(toolName), role: toolRole(toolName), summary, full, isShell: false };
+}
 
 export type ToolResultSummary = {
   preview: string;

@@ -3,7 +3,7 @@ import type { ContentBlock } from "../use-stream.js";
 import type { ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
-import { summarizeToolArgs, summarizeToolResult } from "../tool-formatter.js";
+import { describeToolCall, summarizeToolResult } from "../tool-formatter.js";
 import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
@@ -117,12 +117,24 @@ function renderBlock(
     case "text":
       return <Box key={key}>{renderMarkdownLines(block.content)}</Box>;
     case "tool_call": {
-      const { summary, full } = summarizeToolArgs(block.name, block.arguments);
+      const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
+      if (isShell) {
+        // Lean shell: a dim prompt glyph, then the command as the headline.
+        const command = expanded ? full : truncateLine(summary, columns, false);
+        return (
+          <Box key={key} flexDirection="column">
+            <Box flexDirection="row">
+              <Text color={color("muted")} dimColor>$ </Text>
+              <Text color={color(role)}>{command}</Text>
+            </Box>
+          </Box>
+        );
+      }
       const argsLine = expanded ? full : truncateLine(summary, columns, false);
       return (
         <Box key={key} flexDirection="column">
           <Box flexDirection="row">
-            <Text color={color("accent")}>▶ {block.name}</Text>
+            <Text color={color(role)}>{display}</Text>
             {summary.length > 0 ? <Text> </Text> : null}
             {!expanded && summary.length > 0 ? (
               <Text color={color("muted")} dimColor>

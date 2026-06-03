@@ -46,7 +46,7 @@ test("EventLog renders error block in danger color", () => {
   expect(lastFrame()).toContain("fatal: oops");
 });
 
-test("EventLog renders tool call with arrow prefix and readable arg summary", () => {
+test("EventLog renders tool call with a humanized name and readable arg summary", () => {
   const { lastFrame } = renderLog([
     {
       type: "tool_call",
@@ -55,8 +55,22 @@ test("EventLog renders tool call with arrow prefix and readable arg summary", ()
     },
   ]);
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("▶ read_file");
+  expect(frame).toContain("Read");
+  expect(frame).not.toContain("read_file");
   expect(frame).toContain("path: /tmp/example");
+});
+
+test("EventLog renders a shell call leanly as the command, not run_shell", () => {
+  const { lastFrame } = renderLog([
+    {
+      type: "tool_call",
+      name: "run_shell",
+      arguments: '{"command":"npm test"}',
+    },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("npm test");
+  expect(frame).not.toContain("run_shell");
 });
 
 test("EventLog never shows raw JSON for tool call args in default view", () => {
