@@ -77,16 +77,26 @@ export function tokenize(command: string): string[] {
 
 const MAX_PREFIX_SCOPES = 3;
 
+// Commands that multiplex many subcommands of wildly different risk under one
+// program name. A bare "git *" or "npm *" approval would silently cover
+// `git push`, `git reset --hard`, `npm publish`, etc. — so for these the prefix
+// ladder starts at two tokens (`git push *`), never the program alone.
+const MULTIPLEXERS = new Set([
+  "git", "npm", "pnpm", "yarn", "npx", "bun", "bunx", "docker", "kubectl",
+  "cargo", "go", "make", "gh", "brew", "pip", "pip3", "python", "python3", "node",
+]);
+
 // Build the ladder of approval scopes for a shell command segment, broad to
-// specific: "npm *", "npm exec *", "npm exec --vite *", then the exact command.
-// The caller prepends a "just once" option.
+// specific: "git commit *", "git commit -m *", then the exact command. The
+// caller prepends a "just once" option.
 export function deriveCommandScopes(command: string): ApprovalScope[] {
   const tokens = tokenize(command);
   if (tokens.length === 0) return [];
 
   const scopes: ApprovalScope[] = [];
-  const prefixLimit = Math.min(tokens.length - 1, MAX_PREFIX_SCOPES);
-  for (let n = 1; n <= prefixLimit; n++) {
+  const minPrefix = MULTIPLEXERS.has(tokens[0]!) ? 2 : 1;
+  const prefixLimit = Math.min(tokens.length - 1, minPrefix + MAX_PREFIX_SCOPES - 1);
+  for (let n = minPrefix; n <= prefixLimit; n++) {
     const prefix = tokens.slice(0, n).join(" ");
     const pattern = `${prefix} *`;
     scopes.push({ id: `prefix-${n}`, label: `Always allow ${pattern}`, pattern });

@@ -32,10 +32,16 @@ describe("tokenize", () => {
 });
 
 describe("deriveCommandScopes", () => {
-  test("produces a broad-to-specific ladder plus the exact command", () => {
+  test("a multiplexer command starts the ladder at two tokens, never the bare program", () => {
     const scopes = deriveCommandScopes("npm exec --vite build");
     const patterns = scopes.map((s) => s.pattern);
-    expect(patterns).toEqual(["npm *", "npm exec *", "npm exec --vite *", "npm exec --vite build"]);
+    expect(patterns).toEqual(["npm exec *", "npm exec --vite *", "npm exec --vite build"]);
+    expect(patterns).not.toContain("npm *");
+  });
+
+  test("a non-multiplexer command may be approved at the program level", () => {
+    const patterns = deriveCommandScopes("curl https://a.com/x").map((s) => s.pattern);
+    expect(patterns[0]).toBe("curl *");
   });
 
   test("a one-token command yields just the exact scope", () => {
@@ -91,7 +97,7 @@ describe("buildRequests", () => {
     const reqs = buildRequests({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.subject).toBe("src/a.ts");
-    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["src/a.ts", "src/*", "*"]);
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["src/a.ts", "src/*"]);
   });
 });
 
