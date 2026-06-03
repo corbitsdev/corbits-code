@@ -1,0 +1,11 @@
+{
+  "defaultProvider": "fireworks",
+  "providers": {
+    "fireworks": {
+      "baseURL": "https://api.fireworks.ai/inference/v1",
+      "apiKey": "REPLACE_WITH_YOUR_KEY",
+      "models": ["accounts/fireworks/models/kimi-k2-instruct"],
+      "defaultModel": "accounts/fireworks/models/kimi-k2-instruct"
+    }
+  }
+}

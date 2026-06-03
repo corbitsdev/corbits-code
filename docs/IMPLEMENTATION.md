@@ -221,7 +221,7 @@ Positional arguments are joined into the task description. In headless mode a ta
 ```bash
 bun run build      # bun build ./src/index.ts --outdir ./dist --target bun
 bun run typecheck  # tsc --noEmit
-bun test           # run the full test suite
+bun test ./src ./tests   # run the suite (scoped so eval task fixtures, which contain intentionally-failing starting state, are not collected)
 ```
 
 Run all three before declaring work complete.
@@ -232,6 +232,15 @@ Run all three before declaring work complete.
 - **Integration / e2e** use the `@intx/inference-testing` harness with deterministic SSE responses to assert real tool sequences (`read_file` → `write_file` → `run_shell` → `submit_output`) and that critique passes.
 - **Fixtures** live under `tests/fixtures/` (e.g. `demo-comparison/` for side-by-side comparison runs).
 - **TUI tests** use `ink-testing-library` with mock `EventEmitter`s to simulate real-time event streams; they verify stream-hook accumulation, event-log formatting/filtering, keyboard handling, and cost formatting.
+
+## Eval Harness
+
+An internal measurement tool (`src/eval/`, tasks under `eval/tasks/`, runner `scripts/eval.ts`, entry `bun run eval`). It scores headless agent runs so prompt/model/provider changes are measured rather than guessed — the prerequisite for the system-prompt overhaul.
+
+- **Tasks** are self-contained folders (`repo/`, `prompt.txt`, `verify.sh`). The harness copies the folder to a temp dir, runs the headless `runAgent` (reusing its `onEvent` hook to feed a `createTurnContextCollector`, so no runtime change), then runs `verify.sh` as the objective grader.
+- **Variants** are `{ prompt, provider, model }`; provider/model are injected per run via the CL-927 `--config` flag, so the same harness A/Bs across prompt, model, and provider.
+- **Metrics**: pass/fail, turns, tool calls (count + by type), token usage, cost, wall-clock. `computeCost` returns "pricing unknown" for unpriced models (with an optional per-variant price override) instead of a misleading $0.00. `--runs N` collapses runs by median.
+- **Pure logic** (`src/eval/metrics.ts`, `report.ts`) is unit-tested against synthetic results in `src/eval/eval.test.ts` — no live provider in tests. The eval task fixtures hold intentionally-failing starting state, so the suite is run scoped to `./src ./tests` to avoid collecting them.
 
 ## Deployment
 
