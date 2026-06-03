@@ -131,6 +131,35 @@ describe("resolveProvider", () => {
     ).toThrow(/not found/);
   });
 
+  test("names the offending provider when a local selection is not configured", () => {
+    expect(() =>
+      resolveProvider({ settings: twoProviders, local: { provider: "zzz" }, env: {}, cli: {} }),
+    ).toThrow(/Selected provider "zzz" is not configured/);
+  });
+
+  test("names the offending provider when defaultProvider is a typo", () => {
+    const settings: Settings = {
+      defaultProvider: "typo",
+      providers: { solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] } },
+    };
+    expect(() => resolveProvider({ settings, local: null, env: {}, cli: {} })).toThrow(
+      /Selected provider "typo" is not configured/,
+    );
+  });
+
+  test("env overrides a single field while the rest come from the file", () => {
+    const r = resolveProvider({
+      settings: firepass,
+      local: null,
+      env: { apiKey: "env-key" },
+      cli: {},
+    });
+    expect(r.apiKey).toBe("env-key");
+    expect(r.providerName).toBe("firepass");
+    expect(r.baseURL).toBe("https://firepass.example/v1");
+    expect(r.model).toBe("fp-large");
+  });
+
   test("throws listing every missing field", () => {
     expect(() => resolveProvider({ settings: null, local: null, env: {}, cli: {} })).toThrow(
       /missing: provider, baseURL, apiKey, model/,

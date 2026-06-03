@@ -168,6 +168,12 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const model =
     cli.model ?? env.model ?? local?.model ?? selected?.defaultModel ?? selected?.models[0];
 
+  // A provider name was selected (from local file or defaultProvider) but is not
+  // actually configured — distinguish this from "nothing configured at all" so
+  // the operator gets an actionable message instead of a generic missing-creds one.
+  const selectedMissing =
+    providerName !== undefined && settings !== null && providers[providerName] === undefined;
+
   if (
     providerName === undefined ||
     providerName.length === 0 ||
@@ -183,8 +189,13 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     if (baseURL === undefined || baseURL.length === 0) missing.push("baseURL");
     if (apiKey === undefined || apiKey.length === 0) missing.push("apiKey");
     if (model === undefined || model.length === 0) missing.push("model");
+    const detail = selectedMissing
+      ? ` Selected provider "${providerName}" is not configured in settings (available: ${
+          Object.keys(providers).join(", ") || "none"
+        }).`
+      : "";
     throw new Error(
-      `Could not resolve an inference provider (missing: ${missing.join(", ")}). ` +
+      `Could not resolve an inference provider (missing: ${missing.join(", ")}).${detail} ` +
         `Configure ${globalSettingsPath()} or set the OPENAI_COMPATIBLE_* env vars. ` +
         `See docs/IMPLEMENTATION.md.`,
     );

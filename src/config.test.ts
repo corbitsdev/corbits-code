@@ -210,6 +210,49 @@ describe("loadConfig", () => {
     }
   });
 
+  test("--config pointing at a missing file throws", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      await expect(
+        loadConfig(["--cwd", cwd, "--config", join(cwd, "nope.json"), "task"]),
+      ).rejects.toThrow(/not found or empty/);
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("a single env var overrides while the rest come from the settings file", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "firepass",
+          providers: {
+            firepass: {
+              baseURL: "https://firepass.example/v1",
+              apiKey: "file-key",
+              models: ["fp-large"],
+            },
+          },
+        }),
+      );
+      process.env.OPENAI_COMPATIBLE_API_KEY = "env-key";
+      const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
+      expect(config.apiKey).toBe("env-key");
+      expect(config.providerName).toBe("firepass");
+      expect(config.baseURL).toBe("https://firepass.example/v1");
+      expect(config.model).toBe("fp-large");
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("per-repo local settings select the provider", async () => {
     const stash = stashEnv();
     const cwd = await emptyCwd();

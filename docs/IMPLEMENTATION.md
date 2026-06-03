@@ -146,7 +146,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 - model: `--model` > `OPENAI_COMPATIBLE_MODEL` > local file > provider `defaultModel` > first model
 - baseURL / apiKey: `OPENAI_COMPATIBLE_BASE_URL` / `OPENAI_COMPATIBLE_API_KEY` > selected provider
 
-`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
+`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.interchange/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
 
 ### Environment Variables (override)
 
