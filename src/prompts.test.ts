@@ -6,7 +6,11 @@ import {
   buildAvailableTools,
   buildBudgetRules,
   buildChatSystemPrompt,
+  buildFewShot,
+  buildPlanDecisionRules,
   buildPlanRules,
+  buildSelfVerification,
+  buildStyleRules,
   buildSubmitRules,
   buildSystemPrompt,
   buildToolCallDiscipline,
@@ -67,4 +71,36 @@ test("buildChatSystemPrompt excludes agent-mode sections", () => {
   expect(prompt).not.toContain(buildSubmitRules());
   expect(prompt).not.toContain("submit_plan");
   expect(prompt).not.toContain("submit_output");
+});
+
+test("agent identity is Intercode with a quality bar, not an assistant", () => {
+  const role = buildAgentRole();
+  expect(role).toContain("Intercode");
+  expect(role).toContain("senior engineer");
+  expect(role.toLowerCase()).not.toContain("assistant");
+});
+
+test("system prompt encodes style, self-verification, and a few-shot sequence", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain(buildStyleRules());
+  expect(prompt).toContain(buildSelfVerification());
+  expect(prompt).toContain(buildFewShot());
+  // Core style rules actually present, not just the header.
+  expect(prompt).toContain("Stay in scope");
+  expect(prompt).toContain("delete the old path");
+});
+
+test("plan decision is framed by risk, not a hard file count", () => {
+  const decision = buildPlanDecisionRules();
+  expect(decision.toLowerCase()).toContain("risk and reversibility");
+  // The old rigid thresholds must be gone.
+  expect(decision).not.toContain("3 or fewer");
+  expect(decision).not.toContain("4 or more");
+});
+
+test("chat prompt is Intercode and holds the same code standards", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toContain("Intercode");
+  expect(prompt.toLowerCase()).not.toContain("you are a helpful coding assistant");
+  expect(prompt).toContain(buildStyleRules());
 });

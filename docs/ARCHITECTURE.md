@@ -67,10 +67,12 @@ Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`
 
 ### System Prompt (`src/prompts.ts`)
 
-- `buildSystemPrompt` — Autonomous loop: tool-call discipline, submit rules, tool-layer constraints, authorization/escalation, plan rules, and a risk-based plan-decision rubric.
-- `buildChatSystemPrompt` — TUI chat: more permissive, conversational.
+The agent's identity is **Intercode**, framed as a senior teammate who owns the outcome (not an assistant). The prompt is composed from small, individually-exported sections so they can be tested and reused.
 
-> Planned (CL-1220): full rewrite with an explicit quality bar, few-shot tool sequences, encoded style/philosophy rules, and self-verification guidance, validated by the eval harness (CL-1219).
+- `buildSystemPrompt` — Autonomous loop: identity + quality bar, tool-call discipline, completion rules, encoded code standards (the core `style`/`philosophy` rules — scope discipline, match surrounding code, delete superseded code, comment the why, validate at boundaries), efficiency/tool-layer limits, self-verification, authorization/escalation, plan contract, a risk-and-reversibility plan-decision rubric (not file counts), and a few-shot "locate → understand → change → verify → submit" sequence.
+- `buildChatSystemPrompt` — TUI chat: same Intercode identity and code standards, conversational, without the submit/plan-required loop mechanics.
+
+> The prompt rewrite (CL-1220) is complete; the "measured improvement vs the prior prompt" acceptance is validated by running the eval harness (CL-1219) against a real provider.
 
 ### State Persistence (`src/state.ts`)
 
