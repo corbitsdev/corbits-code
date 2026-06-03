@@ -120,7 +120,7 @@ tool call
 **Rejection behavior:** Any plugin can short-circuit by returning a `ToolResult` with `isError: true`; the error propagates to the agent and downstream plugins/execution are skipped.
 
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
-- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls whose path argument matches a sensitive-file pattern. Path-keyed only; `run_shell` is gated by the permission plugin instead.
+- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls that would expose a sensitive file: path-keyed arguments (`read_file`, `write_file`, …) and `run_shell` command strings, which are tokenized so `cat .env` or `cat ~/.interchange/settings.json` are blocked the same as a direct read. Runs before the permission plugin, so the deny holds even under `--dangerously-skip-permissions`. Shell containment is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly).
 - **Authorization** (`authz-plugin.ts`) — Denies catastrophic shell command patterns by regex.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
 - **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch.
