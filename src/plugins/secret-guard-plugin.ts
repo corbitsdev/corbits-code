@@ -34,8 +34,11 @@ export function isSensitivePath(value: string): boolean {
 
 // Deny any tool call whose path argument points at a secret file. Runs on the
 // resolved path (after the path-escape plugin), so absolute and relative forms
-// are both covered. run_shell is not path-keyed and is gated separately by the
-// permission plugin.
+// are both covered. LIMITATION: this only inspects path-keyed arguments.
+// run_shell's command string is NOT scanned here, so a shell command can still
+// read a secret file (e.g. `cat .env`, `cat ~/.interchange/settings.json`).
+// Closing that hole is tracked separately; run_shell is gated by the permission
+// plugin, which asks the operator but does not understand secret-file content.
 export function secretGuardPlugin(): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
