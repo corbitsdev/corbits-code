@@ -63,6 +63,14 @@ test("plan decision rules include execute-direct and plan-first branches", () =>
   expect(rules).toContain("4 or more files");
 });
 
+test("system prompt tells the agent to escalate blocked commands to the operator", () => {
+  const prompt = buildSystemPrompt();
+
+  expect(prompt).toContain("ask_operator");
+  expect(prompt).toContain("blocked");
+  expect(prompt).toMatch(/do not silently work around the block/i);
+});
+
 test("system prompt preserves core agent instructions", () => {
   const prompt = buildSystemPrompt();
 

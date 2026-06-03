@@ -16,18 +16,27 @@ export type ContentBlock =
   | { type: "plan"; steps: PlanStep[] }
   | { type: "error"; message: string };
 
+export type AgentStatus = "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
+
 export type AgentStreamState = {
   contentBlocks: ContentBlock[];
   turnsUsed: number;
-  status: "running" | "done" | "failed";
+  status: AgentStatus;
   totalCost: number;
   totalTokens: number;
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
+  currentPlanStep: number | null;
+  planTotal: number;
+  planDeviated: boolean;
+  elapsedMs: number;
+  awaitingResponse: boolean;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
-  addUserMessage(message: string): void;
+  setGatePending(pending: boolean): void;
+  requestStop(): void;
+  markRunning(): void;
 };
 
 function parsePlanSteps(rawArguments: string): PlanStep[] {
@@ -53,13 +62,47 @@ function parsePlanSteps(rawArguments: string): PlanStep[] {
   return out;
 }
 
+const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
+
+function nextFileStepIndex(steps: PlanStep[], from: number): number | null {
+  for (let i = from; i < steps.length; i++) {
+    if ((steps[i]?.file ?? "").length > 0) return i;
+  }
+  return null;
+}
+
+function parsePathArgument(rawArguments: string): string | null {
+  if (rawArguments.length === 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawArguments);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const path = (parsed as { path?: unknown }).path;
+  return typeof path === "string" && path.length > 0 ? path : null;
+}
+
 export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = []): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
   const callIdToName = new Map<string, string>();
+  const callIdToArguments = new Map<string, string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
   let turnsUsed = 0;
-  let status: "running" | "done" | "failed" = "running";
+  let status: AgentStatus = "running";
+  let stopRequested = false;
+  // True while the model is working but nothing is streaming yet — the gap
+  // between a send (or a tool result) and the first token of the next reply.
+  // Drives the in-flight indicator; cleared the moment real content arrives.
+  let awaitingResponse = false;
   let latestUserMessage = "";
+  let planSteps: PlanStep[] = [];
+  let currentPlanStep: number | null = null;
+  let planDeviated = false;
+  const startedAt = Date.now();
+  let finishedAt: number | null = null;
+  let openCallId: string | null = null;
   const faremeter = createFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
@@ -90,6 +133,39 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     get hooks() {
       return [...hooksById.values()].map((hook) => ({ ...hook }));
     },
+    get currentPlanStep() {
+      return currentPlanStep;
+    },
+    get planTotal() {
+      return planSteps.length;
+    },
+    get planDeviated() {
+      return planDeviated;
+    },
+    get elapsedMs() {
+      return (finishedAt ?? Date.now()) - startedAt;
+    },
+    get awaitingResponse() {
+      return awaitingResponse;
+    },
+    setGatePending(pending: boolean): void {
+      if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
+      status = pending ? "blocked" : "running";
+    },
+    requestStop(): void {
+      // Only an in-flight run can be stopped. Once stopping, the reactor's
+      // current cycle finishes and reactor.done settles the status to "stopped".
+      if (status !== "running" && status !== "blocked") return;
+      stopRequested = true;
+      status = "stopping";
+    },
+    markRunning(): void {
+      // A fresh send revives the loop after it settled (done/stopped/failed).
+      stopRequested = false;
+      status = "running";
+      finishedAt = null;
+      awaitingResponse = true;
+    },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
         case "message.received": {
@@ -99,6 +175,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "inference.thinking.delta": {
+          awaitingResponse = false;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
@@ -109,6 +186,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "inference.text.delta": {
+          awaitingResponse = false;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
@@ -119,8 +197,11 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "inference.tool_call.start": {
+          awaitingResponse = false;
           const data = event.data as { name: string; callId: string };
           callIdToName.set(data.callId, data.name);
+          callIdToArguments.set(data.callId, "");
+          openCallId = data.callId;
           contentBlocks.push({ type: "tool_call", name: data.name, arguments: "" });
           break;
         }
@@ -130,6 +211,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           if (last && last.type === "tool_call") {
             last.arguments += fragment;
           }
+          if (openCallId !== null) {
+            callIdToArguments.set(openCallId, (callIdToArguments.get(openCallId) ?? "") + fragment);
+          }
           break;
         }
         case "connector.reply": {
@@ -137,10 +221,12 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "tool.done": {
+          // A tool finished; the model is now deciding its next move with nothing
+          // streaming, so re-arm the indicator until the next token arrives.
+          awaitingResponse = true;
           const result = (event.data as { result: { callId: string; content: string; isError: boolean } }).result;
           const trackedName = callIdToName.get(result.callId);
-          const callBlock = contentBlocks.findLast((b) => b.type === "tool_call" && b.name === result.callId) ?? contentBlocks.findLast((b) => b.type === "tool_call");
-          const name = trackedName ?? (callBlock ? (callBlock as ContentBlock & { type: "tool_call" }).name : result.callId);
+          const name = trackedName ?? result.callId;
 
           if (name === "submit_plan" && !result.isError) {
             let planCallIndex = -1;
@@ -164,7 +250,27 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             } else {
               contentBlocks.unshift({ type: "plan", steps });
             }
+            planSteps = steps;
+            planDeviated = false;
+            currentPlanStep = steps.length > 0 ? 0 : null;
             break;
+          }
+
+          if (WRITE_TOOLS.has(name) && !result.isError && currentPlanStep !== null) {
+            const path = parsePathArgument(callIdToArguments.get(result.callId) ?? "");
+            if (path !== null) {
+              // Skip fileless steps (e.g. "investigate the bug") — they carry no
+              // path to match against, so a write during them is not a deviation.
+              const targetIdx = nextFileStepIndex(planSteps, currentPlanStep);
+              if (targetIdx !== null) {
+                if (path === planSteps[targetIdx]?.file) {
+                  currentPlanStep = targetIdx + 1 < planSteps.length ? targetIdx + 1 : null;
+                  planDeviated = false;
+                } else {
+                  planDeviated = true;
+                }
+              }
+            }
           }
 
           contentBlocks.push({ type: "tool_result", callId: result.callId, name, content: result.content, isError: result.isError });
@@ -194,11 +300,15 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       }
 
       if (event.type === "reactor.done") {
-        status = "done";
+        status = stopRequested ? "stopped" : "done";
+        finishedAt = Date.now();
+        awaitingResponse = false;
       }
 
       if (event.type === "reactor.error" || event.type === "inference.error") {
         status = "failed";
+        finishedAt = Date.now();
+        awaitingResponse = false;
       }
     },
     addHookEvent(event: LifecycleHookEvent): void {
@@ -215,10 +325,6 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
       }
-    },
-    addUserMessage(message: string): void {
-      latestUserMessage = message;
-      contentBlocks.push({ type: "user", content: message });
     },
   };
 }
@@ -246,6 +352,16 @@ export function useAgentStream(
       emitter.off("hook", hookHandler);
     };
   }, [emitter, state]);
+
+  useEffect(() => {
+    if (state.status !== "running" && state.status !== "blocked") return;
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [state, state.status]);
 
   // Force re-render by reading tick
   void tick;

@@ -8,6 +8,7 @@ const defaultAgentTools = [
   "list_dir",
   "submit_plan",
   "submit_output",
+  "ask_operator",
 ];
 
 const defaultChatTools = [
@@ -53,6 +54,15 @@ export function buildBudgetRules(): string {
   ].join("\n");
 }
 
+export function buildAuthorizationRules(): string {
+  return [
+    "Authorization and operator escalation:",
+    "1. The tool layer blocks destructive commands by policy. A blocked command returns an error and did not run.",
+    "2. If a command is blocked but you judge it legitimate and necessary, call ask_operator to request approval or guidance — do not silently work around the block.",
+    "3. Do not retry a blocked command unchanged, and do not switch tools or write a script to evade the policy.",
+  ].join("\n");
+}
+
 export function buildPlanRules(): string {
   return [
     "Plan requirements:",
@@ -86,6 +96,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildToolCallDiscipline(),
     buildSubmitRules(),
     buildBudgetRules(),
+    buildAuthorizationRules(),
     buildPlanRules(),
     buildPlanDecisionRules(),
     buildAvailableTools(tools),

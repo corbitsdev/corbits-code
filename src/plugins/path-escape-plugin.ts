@@ -36,7 +36,7 @@ function escapeArgs(args: Record<string, unknown>, cwd: string): Record<string, 
   return out;
 }
 
-function looksLikePath(key: string): boolean {
+export function looksLikePath(key: string): boolean {
   return (
     key === "path" ||
     key === "file_path" ||

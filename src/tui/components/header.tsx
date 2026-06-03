@@ -1,55 +1,42 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
-import type { Mode } from "../../config.js";
+import { color } from "../theme.js";
 
 export type HeaderProps = {
-  turnsUsed: number;
-  status: "running" | "done" | "failed";
-  totalCost: string;
   sessionTitle: string;
   latestUserMessage: string;
-  mode: Mode;
+  width: number;
 };
 
-function statusColor(status: "running" | "done" | "failed"): string {
-  switch (status) {
-    case "running":
-      return "yellow";
-    case "done":
-      return "green";
-    case "failed":
-      return "red";
-    default:
-      return "white";
-  }
-}
-
-const TITLE_MAX = 48;
-const PROMPT_MAX = 80;
+const TITLE = "Intercode";
 
 function truncate(s: string, max: number): string {
-  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+  if (max <= 1) return s.slice(0, Math.max(0, max));
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage, mode }: HeaderProps): ReactNode {
+// The header carries identity and context only — the product name, the session
+// title, the working directory, and the latest request. All live run telemetry
+// (status, turns, cost, tokens, elapsed) lives in the status bar so nothing is
+// shown twice.
+export function Header({ sessionTitle, latestUserMessage, width }: HeaderProps): ReactNode {
+  const showCwd = width >= 80;
+  const cwd = process.cwd();
+  const cwdMax = Math.max(12, Math.floor(width * 0.35));
+
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
-      <Box flexDirection="row" justifyContent="space-between">
-        <Box flexDirection="row" gap={1}>
-          <Text bold color="cyan">interchange-code</Text>
-          {sessionTitle.length > 0 && (
-            <Text dimColor>— {truncate(sessionTitle, TITLE_MAX)}</Text>
-          )}
-        </Box>
-        <Box flexDirection="row" gap={2}>
-          <Text color={mode === "manager" ? "magenta" : "blue"}>{mode === "manager" ? "Manager" : "Teammate"}</Text>
-          <Text color={statusColor(status)}>{status}</Text>
-          <Text dimColor>{turnsUsed} turns</Text>
-          <Text color="green">{totalCost}</Text>
-        </Box>
+      <Box flexDirection="row" gap={1}>
+        <Text bold color={color("brand")}>{TITLE}</Text>
+        {sessionTitle.length > 0 && (
+          <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.5)))}</Text>
+        )}
       </Box>
+      {showCwd && (
+        <Text color={color("muted")}>{truncate(cwd, cwdMax)}</Text>
+      )}
       {latestUserMessage.length > 0 && (
-        <Text dimColor>▸ {truncate(latestUserMessage, PROMPT_MAX)}</Text>
+        <Text color={color("muted")}>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
       )}
     </Box>
   );

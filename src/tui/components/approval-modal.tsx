@@ -28,7 +28,7 @@ export function ApprovalModal({ plan, onApprove, onReject }: ApprovalModalProps)
       marginX={1}
       marginY={1}
     >
-      <Text bold color="yellow">Plan Review — Manager Mode</Text>
+      <Text bold color="yellow">Plan Review</Text>
       <Box marginTop={1} flexDirection="column">
         {plan.map((step, i) => (
           <Box key={i} flexDirection="row" gap={1}>

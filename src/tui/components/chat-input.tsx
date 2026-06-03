@@ -8,6 +8,11 @@ export type ChatInputProps = {
   onSubmit: (message: string) => void;
   onCommand: (result: CommandResult) => void;
   commandContext: CommandContext;
+  value: string;
+  onChange: (value: string) => void;
+  // When false, the input ignores all keystrokes. Set while an overlay or modal
+  // is capturing input so keys do not leak into the prompt underneath it.
+  active?: boolean;
 };
 
 function slashPrefix(value: string): string | null {
@@ -16,8 +21,10 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext }: ChatInputProps): ReactNode {
-  const [value, setValue] = useState("");
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, active = true }: ChatInputProps): ReactNode {
+  const setValue = (next: string | ((v: string) => string)): void => {
+    onChange(typeof next === "function" ? next(value) : next);
+  };
   const [selectedIdx, setSelectedIdx] = useState(0);
 
   const prefix = slashPrefix(value);
@@ -91,10 +98,6 @@ export function ChatInput({ onSubmit, onCommand, commandContext }: ChatInputProp
       setSelectedIdx(0);
       return;
     }
-    if (key.ctrl && input === "c") {
-      process.exit(0);
-      return;
-    }
     if (key.ctrl || key.meta || key.tab || key.escape) {
       return;
     }
@@ -102,7 +105,7 @@ export function ChatInput({ onSubmit, onCommand, commandContext }: ChatInputProp
       setValue((v) => v + input);
       setSelectedIdx(0);
     }
-  });
+  }, { isActive: active });
 
   return (
     <Box flexDirection="column">
