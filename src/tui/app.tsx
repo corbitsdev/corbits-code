@@ -84,7 +84,41 @@ export function App({
   // Reserve rows for the header, status bar, and chat input chrome so the
   // event log only ever paints into the space it actually owns.
   const CHROME_ROWS = 10;
-  const visibleRows = Math.max(1, rows - CHROME_ROWS);
+
+  // Overlays paint below the event log in the same fixed-height column, so the
+  // log must give up rows for whichever one is open. Otherwise their combined
+  // height exceeds the terminal and Ink's redraw desyncs — ghosting the overlay
+  // onto itself (e.g. the permission choices collapsing onto one line). Over-
+  // reserving only shrinks the log slightly while a modal has focus, which is
+  // safe; under-reserving brings the ghosting back, so the estimates round up.
+  const overlayRows = useMemo(() => {
+    const innerWidth = Math.max(8, leftWidth - 8);
+    if (gates.pendingPermission !== null) {
+      const head = `${gates.pendingPermission.action}: ${gates.pendingPermission.subject}`;
+      const subjectLines = Math.max(1, Math.ceil(head.length / innerWidth));
+      const choices = 2 + (gates.pendingPermission.scopes[0]?.pattern ? 1 : 0);
+      // chrome (border+padding+margin, 6) + title + subject + choices + nav,
+      // each block separated by a margin row.
+      return 11 + subjectLines + choices;
+    }
+    if (gates.pendingPlan !== null) return 18;
+    if (gates.pendingOperator !== null) return 10 + gates.pendingOperator.options.length;
+    if (helpOpen) return 16;
+    if (hookPanelOpen) return 4 + state.hooks.length;
+    if (exitConfirmOpen) return 6;
+    return 0;
+  }, [
+    gates.pendingPermission,
+    gates.pendingPlan,
+    gates.pendingOperator,
+    helpOpen,
+    hookPanelOpen,
+    exitConfirmOpen,
+    leftWidth,
+    state.hooks.length,
+  ]);
+
+  const visibleRows = Math.max(1, rows - CHROME_ROWS - overlayRows);
 
   const renderableCount = useMemo(
     () => state.contentBlocks.filter((b) => b.type !== "reply" && b.type !== "plan").length,
