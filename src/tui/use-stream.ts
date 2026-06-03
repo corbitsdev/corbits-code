@@ -16,7 +16,7 @@ export type ContentBlock =
   | { type: "plan"; steps: PlanStep[] }
   | { type: "error"; message: string };
 
-export type AgentStatus = "running" | "done" | "failed" | "blocked";
+export type AgentStatus = "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
 
 export type AgentStreamState = {
   contentBlocks: ContentBlock[];
@@ -34,6 +34,8 @@ export type AgentStreamState = {
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
+  requestStop(): void;
+  markRunning(): void;
 };
 
 function parsePlanSteps(rawArguments: string): PlanStep[] {
@@ -88,6 +90,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   const hooksById = new Map<string, LifecycleHookStatus>();
   let turnsUsed = 0;
   let status: AgentStatus = "running";
+  let stopRequested = false;
   let latestUserMessage = "";
   let planSteps: PlanStep[] = [];
   let currentPlanStep: number | null = null;
@@ -138,8 +141,21 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       return (finishedAt ?? Date.now()) - startedAt;
     },
     setGatePending(pending: boolean): void {
-      if (status === "done" || status === "failed") return;
+      if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
       status = pending ? "blocked" : "running";
+    },
+    requestStop(): void {
+      // Only an in-flight run can be stopped. Once stopping, the reactor's
+      // current cycle finishes and reactor.done settles the status to "stopped".
+      if (status !== "running" && status !== "blocked") return;
+      stopRequested = true;
+      status = "stopping";
+    },
+    markRunning(): void {
+      // A fresh send revives the loop after it settled (done/stopped/failed).
+      stopRequested = false;
+      status = "running";
+      finishedAt = null;
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
@@ -269,7 +285,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       }
 
       if (event.type === "reactor.done") {
-        status = "done";
+        status = stopRequested ? "stopped" : "done";
         finishedAt = Date.now();
       }
 

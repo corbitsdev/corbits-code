@@ -26,6 +26,10 @@ function statusLabel(status: AgentStatus): string {
       return "Blocked";
     case "failed":
       return "Failed";
+    case "stopping":
+      return "Stopping";
+    case "stopped":
+      return "Stopped";
   }
 }
 
@@ -39,6 +43,10 @@ function statusColor(status: AgentStatus): string {
       return color("accent");
     case "failed":
       return color("danger");
+    case "stopping":
+      return color("warning");
+    case "stopped":
+      return color("muted");
   }
 }
 
@@ -73,7 +81,10 @@ export function StatusBar({
   status,
 }: StatusBarProps): ReactNode {
   return (
-    <Box flexDirection="row" paddingX={1}>
+    // flexWrap lets the fields reflow onto extra lines when the terminal is
+    // narrow, so each field wraps as a whole unit instead of breaking a value
+    // like the model name across rows mid-word.
+    <Box flexDirection="row" flexWrap="wrap" paddingX={1}>
       <Text color={color("accent")}>{model}</Text>
       <Divider />
       <Text color={planDeviated ? color("danger") : color("text")}>

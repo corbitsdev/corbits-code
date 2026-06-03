@@ -14,6 +14,7 @@ import { PermissionModal } from "./components/permission-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
@@ -28,6 +29,7 @@ export type AppProps = {
   agent: Agent;
   sessionTitle: string;
   initialModel: string;
+  initialTask?: string;
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
@@ -38,6 +40,7 @@ export function App({
   agent,
   sessionTitle,
   initialModel,
+  initialTask = "",
   initialHooks = [],
   onToggleHook,
   onAgentError,
@@ -81,9 +84,9 @@ export function App({
   const leftWidth = sidebarOpen ? Math.floor(columns * 0.65) : columns;
   const rightWidth = columns - leftWidth;
 
-  // Reserve rows for the header, status bar, and chat input chrome so the
-  // event log only ever paints into the space it actually owns.
-  const CHROME_ROWS = 10;
+  // Reserve rows for the header, status bar, chat input, and the separator
+  // line so the event log only ever paints into the space it actually owns.
+  const CHROME_ROWS = 11;
 
   // Overlays paint below the event log in the same fixed-height column, so the
   // log must give up rows for whichever one is open. Otherwise their combined
@@ -173,6 +176,46 @@ export function App({
   // keystrokes (and Enter) never leak into the prompt underneath.
   const inputActive = !(exitConfirmOpen || helpOpen || gates.gateOpen || hookPanelOpen);
 
+  // One controller per in-flight send so Ctrl+C / double-Esc can abort the
+  // active run. Aborting rejects the send promise; the reactor's current cycle
+  // finishes but no new cycle starts, which is the "Stopping" → "Stopped" path.
+  const sendAbortRef = useRef<AbortController | null>(null);
+  const [, forceRender] = useState(0);
+  const didSendInitial = useRef(false);
+
+  const sendMessage = (message: string) => {
+    state.markRunning();
+    const controller = new AbortController();
+    sendAbortRef.current = controller;
+    agent.send(message, { signal: controller.signal }).catch((err: unknown) => {
+      // A user-initiated stop aborts the send; that is expected, not an error.
+      if (controller.signal.aborted) return;
+      onAgentError?.(err);
+    });
+  };
+
+  const requestStop = () => {
+    sendAbortRef.current?.abort();
+    state.requestStop();
+    // requestStop mutates the stream state in place, so nudge a re-render to
+    // reflect the "Stopping" status immediately rather than on the next event.
+    forceRender((n) => n + 1);
+  };
+
+  // Send the initial task once the App (and its gate listeners) is mounted, so
+  // the run is driven through the same abortable path as interactive sends.
+  useEffect(() => {
+    if (didSendInitial.current) return;
+    didSendInitial.current = true;
+    if (initialTask.length > 0) sendMessage(initialTask);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSend = (message: string) => {
+    setCommandMessage(null);
+    sendMessage(message);
+  };
+
   useKeymap(
     {
       exitConfirmOpen,
@@ -181,10 +224,12 @@ export function App({
       hookPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
+      isRunning: state.status === "running" || state.status === "blocked" || state.status === "stopping",
     },
     {
       clearInput: () => setInputValue(""),
       requestExit: () => setExitConfirmOpen(true),
+      requestStop,
       toggleHookPanel: () => setHookPanelOpen((open) => !open),
       selectHook: (index) => {
         const hook = state.hooks[index];
@@ -228,13 +273,6 @@ export function App({
       toggleHelp: () => setHelpOpen((open) => !open),
     },
   );
-
-  const handleSend = (message: string) => {
-    setCommandMessage(null);
-    agent.send(message).catch((err: unknown) => {
-      onAgentError?.(err);
-    });
-  };
 
   const handleCommand = (result: CommandResult) => {
     if (result.type === "message") {
@@ -314,6 +352,14 @@ export function App({
         </Box>
       )}
       <Box flexShrink={0} flexDirection="column">
+        <Box
+          borderStyle="single"
+          borderColor={color("muted")}
+          borderTop
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+        />
         <ChatInput
           onSubmit={handleSend}
           onCommand={handleCommand}

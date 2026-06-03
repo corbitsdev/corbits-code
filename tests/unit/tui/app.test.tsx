@@ -72,9 +72,24 @@ test("CTRL+C with text in the prompt clears the input and does not open exit con
   expect(frame).not.toContain("hello");
 });
 
-test("CTRL+C with an empty prompt opens the exit confirm overlay", async () => {
+const settleRun = (emitter: EventEmitter) =>
+  emitter.emit("event", { type: "reactor.done", seq: 1, data: {} } as ReactorEmittedEvent);
+
+test("CTRL+C while the agent is running stops the run instead of exiting", async () => {
   const emitter = new EventEmitter();
   const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("\x03");
+  await tick();
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Stopping");
+  expect(frame).not.toContain("Exit Intercode?");
+});
+
+test("CTRL+C with an empty prompt opens the exit confirm overlay once idle", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  settleRun(emitter);
+  await tick();
   stdin.write("\x03");
   await tick();
   expect(lastFrame()).toContain("Exit Intercode?");
@@ -83,6 +98,8 @@ test("CTRL+C with an empty prompt opens the exit confirm overlay", async () => {
 test("exit confirm cancels on N and closes the overlay", async () => {
   const emitter = new EventEmitter();
   const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  settleRun(emitter);
+  await tick();
   stdin.write("\x03");
   await tick();
   expect(lastFrame()).toContain("Exit Intercode?");

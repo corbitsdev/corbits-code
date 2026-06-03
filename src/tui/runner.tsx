@@ -171,25 +171,24 @@ export async function runTUI(config: Config): Promise<number> {
   process.stdout.write("\x1b[?1049h");
   process.once("exit", exitAltScreen);
 
-  // Render first so the App's plan.gate and operator.gate listeners are registered before agent.send.
+  // Render first so the App's gate listeners are registered before it sends the
+  // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
+  // instead of Ink killing the process outright.
   const { waitUntilExit } = render(
     <App
       eventEmitter={emitter}
       agent={agent}
       sessionTitle={config.task}
       initialModel={config.model}
+      initialTask={config.task}
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
     />,
+    { exitOnCtrlC: false },
   );
 
   const streamPromise = consumeStream(agent.stream(), sink);
-
-  // Send initial task if provided
-  if (config.task.length > 0) {
-    agent.send(config.task).catch(recordRunError);
-  }
 
   await waitUntilExit();
   process.removeListener("exit", exitAltScreen);

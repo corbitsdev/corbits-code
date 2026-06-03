@@ -12,11 +12,13 @@ export type KeymapContext = {
   hookPanelOpen: boolean;
   hasInput: boolean;
   inputFocused: boolean;
+  isRunning: boolean;
 };
 
 export type KeymapActions = {
   clearInput: () => void;
   requestExit: () => void;
+  requestStop: () => void;
   toggleHookPanel: () => void;
   selectHook: (index: number) => void;
   closeHookPanel: () => void;
@@ -39,8 +41,14 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
     if (context.gateOpen) return;
 
     if (key.ctrl && input === "c") {
+      // Typing? Clear the prompt. Agent working? Stop the run (not the app).
+      // Idle with an empty prompt? Then Ctrl+C asks to exit.
       if (context.hasInput) {
         actions.clearInput();
+        return;
+      }
+      if (context.isRunning) {
+        actions.requestStop();
         return;
       }
       actions.requestExit();
@@ -62,12 +70,20 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
         lastEscRef.current = 0;
         return;
       }
-      // Nothing active: a double-ESC within the window clears the prompt.
+      // Nothing active: a double-ESC within the window clears the prompt when
+      // typing, or stops the run when the agent is working.
       const now = Date.now();
-      if (context.hasInput && now - lastEscRef.current <= DOUBLE_ESC_MS) {
-        actions.clearInput();
-        lastEscRef.current = 0;
-        return;
+      if (now - lastEscRef.current <= DOUBLE_ESC_MS) {
+        if (context.hasInput) {
+          actions.clearInput();
+          lastEscRef.current = 0;
+          return;
+        }
+        if (context.isRunning) {
+          actions.requestStop();
+          lastEscRef.current = 0;
+          return;
+        }
       }
       lastEscRef.current = now;
       return;
