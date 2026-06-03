@@ -95,10 +95,6 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       setSelectedIdx(0);
       return;
     }
-    if (key.ctrl && input === "c") {
-      process.exit(0);
-      return;
-    }
     if (key.ctrl || key.meta || key.tab || key.escape) {
       return;
     }

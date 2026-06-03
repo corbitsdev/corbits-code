@@ -59,6 +59,61 @@ test("App renders running status initially", () => {
   expect(lastFrame()).toContain("Running");
 });
 
+const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+test("CTRL+C with text in the prompt clears the input and does not open exit confirm", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("hello");
+  await tick();
+  expect(lastFrame()).toContain("hello");
+  stdin.write("\x03");
+  await tick();
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("Exit Intercode?");
+  expect(frame).not.toContain("hello");
+});
+
+test("CTRL+C with an empty prompt opens the exit confirm overlay", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("\x03");
+  await tick();
+  expect(lastFrame()).toContain("Exit Intercode?");
+});
+
+test("exit confirm cancels on N and closes the overlay", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("\x03");
+  await tick();
+  expect(lastFrame()).toContain("Exit Intercode?");
+  stdin.write("n");
+  await tick();
+  expect(lastFrame()).not.toContain("Exit Intercode?");
+});
+
+test("ESC never opens the exit confirm overlay", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("\x1B");
+  await tick();
+  expect(lastFrame()).not.toContain("Exit Intercode?");
+});
+
+test("double ESC within the window clears the prompt", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("draft text");
+  await tick();
+  expect(lastFrame()).toContain("draft text");
+  stdin.write("\x1B");
+  await tick();
+  stdin.write("\x1B");
+  await tick();
+  expect(lastFrame()).not.toContain("draft text");
+});
+
 test("App keeps header and footer visible after many events", async () => {
   const emitter = new EventEmitter();
   const { lastFrame } = render(
