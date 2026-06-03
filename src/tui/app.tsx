@@ -10,6 +10,7 @@ import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import { OperatorModal } from "./components/operator-modal.js";
+import { PermissionModal } from "./components/permission-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { HelpOverlay } from "./components/help-overlay.js";
@@ -232,6 +233,9 @@ export function App({
           options={gates.pendingOperator.options}
           onSelect={gates.selectOperator}
         />
+      )}
+      {gates.pendingPermission !== null && (
+        <PermissionModal request={gates.pendingPermission} onResolve={gates.resolvePermission} />
       )}
       {commandMessage !== null && (
         <Box paddingX={1}>

@@ -12,10 +12,12 @@ function Harness({ emitter, onGate }: { emitter: EventEmitter; onGate: (pending:
     if (input === "a") gates.approve();
     if (input === "r") gates.reject();
     if (input === "0") gates.selectOperator(0);
+    if (input === "p") gates.resolvePermission({ allow: true });
   });
   const plan = gates.pendingPlan === null ? "none" : `plan:${gates.pendingPlan.length}`;
   const op = gates.pendingOperator === null ? "none" : `op:${gates.pendingOperator.question}`;
-  return <Text>{`${plan} ${op} open=${gates.gateOpen ? "1" : "0"}`}</Text>;
+  const perm = gates.pendingPermission === null ? "none" : `perm:${gates.pendingPermission.subject}`;
+  return <Text>{`${plan} ${op} ${perm} open=${gates.gateOpen ? "1" : "0"}`}</Text>;
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -39,7 +41,7 @@ test("the plan gate surfaces for approval and resolves on approve", async () => 
   stdin.write("a");
   await tick();
   expect(resolved).toBe(true);
-  expect(lastFrame()).toContain("none none open=0");
+  expect(lastFrame()).toContain("none none none open=0");
   expect(gateCalls).toEqual([true, false]);
 });
 
@@ -74,5 +76,25 @@ test("operator gate surfaces and resolves the selected index", async () => {
   stdin.write("0");
   await tick();
   expect(chosen).toBe(0);
-  expect(lastFrame()).toContain("none none open=0");
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+test("permission gate surfaces a request and resolves the outcome", async () => {
+  const emitter = new EventEmitter();
+  let outcome: { allow: boolean } | null = null;
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run shell command", subject: "npm test", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcome = o; },
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:npm test");
+  expect(lastFrame()).toContain("open=1");
+
+  stdin.write("p");
+  await tick();
+  expect(outcome).toEqual({ allow: true });
+  expect(lastFrame()).toContain("none none none open=0");
 });

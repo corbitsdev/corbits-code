@@ -11,9 +11,13 @@ import { buildChatSystemPrompt } from "../prompts.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { permissionPlugin } from "../plugins/permission-plugin.js";
+import { createPermissionGate } from "../permission/gate.js";
+import { loadApprovals, saveApprovals } from "../permission/store.js";
+import type { Approval } from "../permission/types.js";
 import { consumeStream } from "../stream-consumer.js";
 import { App } from "./app.js";
-import type { OperatorGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
+import type { OperatorGateEvent, PermissionGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -57,11 +61,27 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
+  const approvals = await loadApprovals(config.cwd);
+  const permissionGate = createPermissionGate({
+    approvals,
+    requestApproval: (request) =>
+      new Promise((resolve) => {
+        const event: PermissionGateEvent = { request, resolve };
+        emitter.emit("permission.gate", event);
+      }),
+    persist: (_approval: Approval) => {
+      void saveApprovals(config.cwd, approvals);
+    },
+    interactive: true,
+    skipPermissions: config.dangerouslySkipPermissions,
+  });
+
   const posixTools = createPosixTools({
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
       authzPlugin(),
+      permissionPlugin(permissionGate),
       verifyPlugin(),
     ],
   });

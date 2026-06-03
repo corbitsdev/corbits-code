@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { EventEmitter } from "node:events";
 import type { PlanStep } from "../use-stream.js";
+import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
 
 export type PlanGateEvent = {
   plan: PlanStep[];
@@ -13,15 +14,22 @@ export type OperatorGateEvent = {
   resolve: (index: number) => void;
 };
 
+export type PermissionGateEvent = {
+  request: PermissionRequest;
+  resolve: (outcome: ApprovalOutcome) => void;
+};
+
 export type PendingOperator = { question: string; options: string[] };
 
 export type GateController = {
   pendingPlan: PlanStep[] | null;
   pendingOperator: PendingOperator | null;
+  pendingPermission: PermissionRequest | null;
   gateOpen: boolean;
   approve: () => void;
   reject: () => void;
   selectOperator: (index: number) => void;
+  resolvePermission: (outcome: ApprovalOutcome) => void;
 };
 
 export type UseGatesArgs = {
@@ -32,8 +40,10 @@ export type UseGatesArgs = {
 export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateController {
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const [pendingOperator, setPendingOperator] = useState<PendingOperator | null>(null);
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
   const planResolveRef = useRef<((approved: boolean) => void) | null>(null);
   const operatorResolveRef = useRef<((index: number) => void) | null>(null);
+  const permissionResolveRef = useRef<((outcome: ApprovalOutcome) => void) | null>(null);
 
   useEffect(() => {
     const handler = ({ plan, resolve }: PlanGateEvent) => {
@@ -59,6 +69,18 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     };
   }, [eventEmitter, setGatePending]);
 
+  useEffect(() => {
+    const handler = ({ request, resolve }: PermissionGateEvent) => {
+      permissionResolveRef.current = resolve;
+      setPendingPermission(request);
+      setGatePending(true);
+    };
+    eventEmitter.on("permission.gate", handler);
+    return () => {
+      eventEmitter.off("permission.gate", handler);
+    };
+  }, [eventEmitter, setGatePending]);
+
   const resolvePlan = (approved: boolean) => {
     const resolve = planResolveRef.current;
     planResolveRef.current = null;
@@ -70,7 +92,8 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
   return {
     pendingPlan,
     pendingOperator,
-    gateOpen: pendingPlan !== null || pendingOperator !== null,
+    pendingPermission,
+    gateOpen: pendingPlan !== null || pendingOperator !== null || pendingPermission !== null,
     approve: () => resolvePlan(true),
     reject: () => resolvePlan(false),
     selectOperator: (index: number) => {
@@ -79,6 +102,13 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       setPendingOperator(null);
       setGatePending(false);
       resolve?.(index);
+    },
+    resolvePermission: (outcome: ApprovalOutcome) => {
+      const resolve = permissionResolveRef.current;
+      permissionResolveRef.current = null;
+      setPendingPermission(null);
+      setGatePending(false);
+      resolve?.(outcome);
     },
   };
 }

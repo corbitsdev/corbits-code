@@ -11,6 +11,9 @@ import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "./plugins/re-read-block-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
+import { permissionPlugin } from "./plugins/permission-plugin.js";
+import { createPermissionGate } from "./permission/gate.js";
+import { loadApprovals } from "./permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
 import { runCritique } from "./critic.js";
@@ -80,11 +83,19 @@ export async function runAgent(
   // only executes during tool calls, which happen after wiring is complete.
   const directorHolder: { instance?: ReturnType<typeof createCodingDirector> } = {};
 
+  const approvals = await loadApprovals(config.cwd);
+  const permissionGate = createPermissionGate({
+    approvals,
+    interactive: false,
+    skipPermissions: config.dangerouslySkipPermissions,
+  });
+
   const posixTools = createPosixTools({
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
       authzPlugin(),
+      permissionPlugin(permissionGate),
       verifyPlugin(),
       reReadBlockPlugin(() => directorHolder.instance),
     ],

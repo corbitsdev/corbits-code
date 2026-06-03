@@ -31,12 +31,13 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
   const lastEscRef = useRef<number>(0);
 
   useInput((input, key) => {
-    // The exit-confirm and help overlays own input entirely while open.
+    // The exit-confirm and help overlays, and any open gate/modal, own input
+    // entirely while shown — the global keymap stays out of their way.
     if (context.exitConfirmOpen) return;
     if (context.helpOpen) return;
+    if (context.gateOpen) return;
 
     if (key.ctrl && input === "c") {
-      if (context.gateOpen) return;
       if (context.hasInput) {
         actions.clearInput();
         return;
@@ -53,7 +54,6 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
       return;
     }
     if (key.escape) {
-      if (context.gateOpen) return;
       // ESC is a back/cancel key. Close the topmost active overlay first.
       // The slash-suggestion list lives in ChatInput and handles its own ESC.
       if (context.hookPanelOpen) {
