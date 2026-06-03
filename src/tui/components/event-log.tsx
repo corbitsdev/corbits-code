@@ -41,6 +41,64 @@ export function windowBlocks<T>(blocks: T[], scrollOffset: number, visibleRows: 
   return blocks.slice(start, start + visibleRows);
 }
 
+// Roughly how many terminal rows a block will paint at this width. Used only to
+// bound the visible window so the log never emits more rows than the viewport —
+// emitting more than the terminal can show makes Ink's redraw desync and ghost
+// stale text. The estimate errs toward overcounting (safer: shows slightly less).
+function estimateRows(
+  block: RenderableBlock,
+  columns: number,
+  thinkingExpanded: boolean,
+  expanded: boolean,
+): number {
+  const width = Math.max(8, columns - LINE_PADDING);
+  const wrap = (text: string): number => Math.max(1, Math.ceil(text.length / width));
+  const sumLines = (content: string): number =>
+    content.split("\n").reduce((n, line) => n + wrap(line), 0);
+
+  switch (block.type) {
+    case "user":
+      return expanded ? sumLines(block.content) : 1;
+    case "thinking":
+      return thinkingExpanded ? 1 + sumLines(block.content) : 1;
+    case "text":
+      return sumLines(block.content);
+    case "tool_call":
+      return expanded ? 1 + sumLines(block.arguments) : 1;
+    case "tool_result":
+      return expanded ? sumLines(block.content) : 1;
+    case "error":
+      return wrap(block.message);
+    default:
+      return 1;
+  }
+}
+
+// Select the slice to render: take the bottom of the current block window, then
+// walk upward accumulating estimated rows until the viewport is full. This keeps
+// the newest content visible and guarantees the painted height never exceeds
+// `visibleRows`, which is what prevents the ghosting on overflow.
+export function visibleWindow(
+  blocks: RenderableBlock[],
+  scrollOffset: number,
+  visibleRows: number,
+  columns: number,
+  thinkingExpanded: boolean,
+  isExpanded: (absoluteIndex: number) => boolean,
+): { start: number; end: number } {
+  const blockStart = clampOffset(scrollOffset, blocks.length, visibleRows);
+  const end = Math.min(blocks.length, blockStart + visibleRows);
+  let rows = 0;
+  let start = end;
+  for (let i = end - 1; i >= 0; i--) {
+    const next = estimateRows(blocks[i]!, columns, thinkingExpanded, isExpanded(i));
+    if (rows + next > visibleRows && start < end) break;
+    rows += next;
+    start = i;
+  }
+  return { start, end };
+}
+
 export function truncateLine(text: string, columns: number, expanded: boolean): string {
   if (expanded) return text;
   const available = Math.max(8, columns - LINE_PADDING);
@@ -212,14 +270,22 @@ export function EventLog({
     );
   }
 
-  const start = clampOffset(scrollOffset, blocks.length, visibleRows);
-  const visible = blocks.slice(start, start + visibleRows);
+  const isExpanded = (absoluteIndex: number): boolean => verbose || expandedTools.has(absoluteIndex);
+  const { start, end } = visibleWindow(
+    blocks,
+    scrollOffset,
+    visibleRows,
+    columns,
+    thinkingExpanded,
+    isExpanded,
+  );
+  const visible = blocks.slice(start, end);
 
   return (
     <Box flexDirection="column" paddingX={1}>
       {visible.map((block, i) => {
         const absoluteIndex = start + i;
-        const expanded = verbose || expandedTools.has(absoluteIndex);
+        const expanded = isExpanded(absoluteIndex);
         const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded);
         // A little breathing room before each conversational turn (a user
         // message or an assistant reply), while tool call/result sequences stay

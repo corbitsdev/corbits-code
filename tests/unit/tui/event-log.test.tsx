@@ -4,9 +4,11 @@ import {
   EventLog,
   clampOffset,
   windowBlocks,
+  visibleWindow,
   renderableBlocks,
   truncateLine,
 } from "../../../src/tui/components/event-log.js";
+import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
 import type { ContentBlock } from "../../../src/tui/use-stream.js";
 
 type Overrides = Partial<Parameters<typeof EventLog>[0]>;
@@ -231,6 +233,25 @@ test("EventLog shows untruncated content when the block is expanded", () => {
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("… [show more]");
   expect(frame.replace(/\s/g, "")).toContain(long);
+});
+
+test("visibleWindow keeps the painted rows within the viewport budget", () => {
+  // A tall block (wraps to ~5 rows at width 18) followed by short ones.
+  const blocks: RenderableBlock[] = [
+    { type: "text", content: "old line that should scroll out of view entirely here" },
+    { type: "text", content: "x".repeat(80) }, // wraps to several rows
+    { type: "text", content: "newest" },
+  ];
+  const { start, end } = visibleWindow(blocks, 100, 4, 20, false, () => false);
+  const shown = blocks.slice(start, end);
+  const rows = shown.reduce((n, b) => {
+    const content = b.type === "text" ? b.content : "";
+    return n + content.split("\n").reduce((m, l) => m + Math.max(1, Math.ceil(l.length / 18)), 0);
+  }, 0);
+  expect(rows).toBeLessThanOrEqual(4);
+  // The newest block is always retained; the oldest is dropped.
+  expect(end).toBe(3);
+  expect(start).toBeGreaterThan(0);
 });
 
 test("EventLog windows visible blocks by scrollOffset", () => {
