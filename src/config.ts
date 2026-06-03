@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 
+import type { InferenceSource } from "@intx/types/runtime";
+
 import {
   globalSettingsPath,
   loadLocalSettings,
@@ -9,6 +11,31 @@ import {
   type ResolvedProvider,
   type Settings,
 } from "./settings.js";
+
+// The per-call token ceiling for the inference source. Lives here so agent
+// creation (runner.tsx, run-agent.ts) and live provider switching (the /agent
+// modal) all build the source the same way and a live switch can never silently
+// revert the ceiling.
+export const SOURCE_MAX_TOKENS = 16384;
+
+// Build the OpenAI-compatible InferenceSource the runtime consumes. `id` is the
+// source's routing key (the provider name); credentials and model come from the
+// resolved provider or a catalog entry.
+export function buildOpenAISource(fields: {
+  id: string;
+  baseURL: string;
+  apiKey: string;
+  model: string;
+}): InferenceSource {
+  return {
+    id: fields.id,
+    provider: "openai",
+    baseURL: fields.baseURL,
+    apiKey: fields.apiKey,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS },
+  };
+}
 
 // One configured provider the /agent modal can switch to. Carries credentials
 // because live switching builds an InferenceSource from it; the modal only ever
@@ -158,7 +185,7 @@ export async function loadConfig(
 // file is present its providers are the catalog. In env-only mode there is no
 // file, so the single resolved provider is the whole catalog (the modal still
 // renders, switching is just a no-op against one entry).
-function buildProviderCatalog(
+export function buildProviderCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
 ): ProviderCatalogEntry[] {

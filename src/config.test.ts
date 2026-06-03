@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig } from "./config.js";
+import { buildProviderCatalog, loadConfig } from "./config.js";
+import type { ResolvedProvider, Settings } from "./settings.js";
 
 const ENV_KEYS = [
   "OPENAI_COMPATIBLE_API_KEY",
@@ -281,5 +282,37 @@ describe("loadConfig", () => {
       restoreEnv(stash);
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildProviderCatalog", () => {
+  const resolved: ResolvedProvider = {
+    providerName: "fp",
+    baseURL: "https://fp/v1",
+    apiKey: "fp-key",
+    model: "fp-large",
+  };
+
+  test("lists every provider from the settings file", () => {
+    const settings: Settings = {
+      defaultProvider: "fp",
+      providers: {
+        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+        oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+      },
+    };
+    const catalog = buildProviderCatalog(settings, resolved);
+    expect(catalog.map((c) => c.name).sort()).toEqual(["fp", "oa"]);
+    const fp = catalog.find((c) => c.name === "fp")!;
+    expect(fp.models).toEqual(["fp-large", "fp-small"]);
+    expect(fp.defaultModel).toBe("fp-large");
+    expect(catalog.find((c) => c.name === "oa")!.defaultModel).toBeUndefined();
+  });
+
+  test("env-only mode yields the single resolved provider", () => {
+    const catalog = buildProviderCatalog(null, resolved);
+    expect(catalog).toEqual([
+      { name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+    ]);
   });
 });

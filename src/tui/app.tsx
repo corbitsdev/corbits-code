@@ -14,9 +14,9 @@ import { PermissionModal } from "./components/permission-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { HelpOverlay } from "./components/help-overlay.js";
-import { AgentModal } from "./components/agent-modal.js";
+import { AgentModal, toAgentProviders } from "./components/agent-modal.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
-import type { ProviderCatalogEntry } from "../config.js";
+import { buildOpenAISource, type ProviderCatalogEntry } from "../config.js";
 import { localSettingsPath, saveLocalSettings } from "../settings.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
@@ -79,15 +79,13 @@ export function App({
   // inference call, so the switch takes effect without recreating the agent.
   const applySelection = (providerName: string, nextModel: string): void => {
     const entry = providers.find((p) => p.name === providerName);
-    if (entry === undefined) return;
-    agent.setSource({
-      id: entry.name,
-      provider: "openai",
-      baseURL: entry.baseURL,
-      apiKey: entry.apiKey,
-      model: nextModel,
-      defaults: { maxTokens: 16384 },
-    });
+    if (entry === undefined) {
+      // The modal only offers names from `providers`, so this means the live
+      // catalog and a selection have drifted. Surface it rather than no-op.
+      setCommandMessage(`Provider "${providerName}" is no longer configured`);
+      return;
+    }
+    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel }));
     setProvider(providerName);
     setModel(nextModel);
     setCommandMessage(`Now using ${providerName} · ${nextModel}`);
@@ -109,15 +107,13 @@ export function App({
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
   const commandContext = useMemo(() => ({
-    getModel: () => model,
-    setModel,
     getVerbose: () => verbose,
     toggleVerbose: () => {
       const next = !verbose;
       setVerbose(next);
       return next;
     },
-  }), [model, verbose]);
+  }), [verbose]);
 
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
@@ -161,7 +157,9 @@ export function App({
       // provider list and the widest provider's model list (the two steps share
       // the same region, so reserve for whichever is taller).
       const widestModels = providers.reduce((n, p) => Math.max(n, p.models.length), 0);
-      return 9 + Math.max(providers.length, widestModels);
+      // +1 over the provider step: the model step renders an extra provider-name
+      // header row above the list. Over-reserving is safe; under-reserving ghosts.
+      return 10 + Math.max(providers.length, widestModels);
     }
     return 0;
   }, [
@@ -409,11 +407,7 @@ export function App({
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
       {agentModalOpen && (
         <AgentModal
-          providers={providers.map((p) => ({
-            name: p.name,
-            models: p.models,
-            ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
-          }))}
+          providers={toAgentProviders(providers)}
           activeProvider={provider}
           activeModel={model}
           onApply={applySelection}

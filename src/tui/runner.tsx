@@ -4,7 +4,7 @@ import { render } from "ink";
 import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPosixTools } from "@intx/tools-posix";
-import type { Config } from "../config.js";
+import { buildOpenAISource, type Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import { askOperatorDefinition, createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
@@ -127,14 +127,12 @@ export async function runTUI(config: Config): Promise<number> {
   const agent = await createAgent({
     contextDir: join(config.cwd, ".agent-state", "context"),
     sources: [
-      {
+      buildOpenAISource({
         id: config.providerName,
-        provider: "openai",
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
-        defaults: { maxTokens: 16384 },
-      },
+      }),
     ],
     defaultSource: config.providerName,
     systemPrompt: buildChatSystemPrompt(),

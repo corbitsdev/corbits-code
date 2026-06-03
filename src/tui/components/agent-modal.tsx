@@ -12,6 +12,19 @@ export type AgentProvider = {
   defaultModel?: string;
 };
 
+// Project provider catalog entries (which carry credentials) down to what the
+// modal is allowed to see: name + models only. This is the boundary that keeps
+// apiKey/baseURL out of the component tree and the event log.
+export function toAgentProviders(
+  entries: ReadonlyArray<{ name: string; models: string[]; defaultModel?: string }>,
+): AgentProvider[] {
+  return entries.map((p) => ({
+    name: p.name,
+    models: p.models,
+    ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+  }));
+}
+
 export type AgentModalProps = {
   providers: AgentProvider[];
   activeProvider: string;

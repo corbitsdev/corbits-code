@@ -1,6 +1,4 @@
 export type CommandContext = {
-  getModel: () => string;
-  setModel: (model: string) => void;
   getVerbose: () => boolean;
   toggleVerbose: () => boolean;
 };
