@@ -85,6 +85,17 @@ test("CTRL+C while the agent is running stops the run instead of exiting", async
   expect(frame).not.toContain("Exit Intercode?");
 });
 
+test("a second CTRL+C while stopping escalates to the exit confirm", async () => {
+  const emitter = new EventEmitter();
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  stdin.write("\x03");
+  await tick();
+  expect(lastFrame()).toContain("Stopping");
+  stdin.write("\x03");
+  await tick();
+  expect(lastFrame()).toContain("Exit Intercode?");
+});
+
 test("CTRL+C with an empty prompt opens the exit confirm overlay once idle", async () => {
   const emitter = new EventEmitter();
   const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });

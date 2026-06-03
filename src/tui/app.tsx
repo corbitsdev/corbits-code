@@ -224,7 +224,10 @@ export function App({
       hookPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
-      isRunning: state.status === "running" || state.status === "blocked" || state.status === "stopping",
+      // "stopping" is deliberately excluded: a stop is already in flight, so the
+      // next Ctrl+C / double-Esc should escalate to the exit path rather than
+      // re-issuing a no-op stop and trapping the user while the run drains.
+      isRunning: state.status === "running" || state.status === "blocked",
     },
     {
       clearInput: () => setInputValue(""),
