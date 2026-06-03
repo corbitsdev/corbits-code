@@ -7,14 +7,16 @@ import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
-import { ContextPanel } from "./components/context-panel.js";
+import { ContextPanel, type ContextView } from "./components/context-panel.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import { OperatorModal } from "./components/operator-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
+import { HelpOverlay } from "./components/help-overlay.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
+import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
 import type { Mode } from "../config.js";
 import type { CommandResult } from "./commands/registry.js";
@@ -53,6 +55,9 @@ export function App({
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<number>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [contextView, setContextView] = useState<ContextView>("plan");
+  const [diffScroll, setDiffScroll] = useState(0);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [model, setModel] = useState<string>(initialModel);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -98,9 +103,23 @@ export function App({
 
   const scroll = useScroll({ renderableCount, visibleRows });
 
+  const diffActive = contextView === "diff";
+  const diff = useDiff({ cwd: process.cwd(), active: diffActive, refreshKey: renderableCount });
+  const diffVisibleRows = Math.max(1, visibleRows - 2);
+  const diffLineCount = useMemo(
+    () => (diff.result?.available ? diff.result.files.reduce((n, f) => n + f.lines.length, 0) : 0),
+    [diff.result],
+  );
+  const diffMaxOffset = Math.max(0, diffLineCount - diffVisibleRows);
+
+  // Input is inert while any overlay, modal, or gate is capturing keys, so
+  // keystrokes (and Enter) never leak into the prompt underneath.
+  const inputActive = !(exitConfirmOpen || helpOpen || gates.gateOpen || hookPanelOpen);
+
   useKeymap(
     {
       exitConfirmOpen,
+      helpOpen,
       gateOpen: gates.gateOpen,
       hookPanelOpen,
       hasInput: inputValue.length > 0,
@@ -116,8 +135,14 @@ export function App({
         }
       },
       closeHookPanel: () => setHookPanelOpen(false),
-      scrollUp: scroll.scrollUp,
-      scrollDown: scroll.scrollDown,
+      scrollUp: () => {
+        if (diffActive) setDiffScroll((o) => Math.max(0, o - 1));
+        else scroll.scrollUp();
+      },
+      scrollDown: () => {
+        if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 1));
+        else scroll.scrollDown();
+      },
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
         if (lastToolIndex !== null) {
@@ -135,6 +160,11 @@ export function App({
         setMode(next);
         onModeChange(next);
       },
+      toggleContextView: () => {
+        setDiffScroll(0);
+        setContextView((v) => (v === "plan" ? "diff" : "plan"));
+      },
+      toggleHelp: () => setHelpOpen((open) => !open),
     },
   );
 
@@ -148,6 +178,15 @@ export function App({
   const handleCommand = (result: CommandResult) => {
     if (result.type === "message") {
       setCommandMessage(result.text);
+      return;
+    }
+    if (result.type === "view") {
+      setDiffScroll(0);
+      setContextView(result.view);
+      return;
+    }
+    if (result.type === "overlay") {
+      setHelpOpen(true);
     }
   };
 
@@ -178,11 +217,14 @@ export function App({
         </Box>
         <Box width={rightWidth} flexDirection="column" overflow="hidden">
           <ContextPanel
-            view="plan"
+            view={contextView}
             steps={planSteps}
             currentPlanStep={state.currentPlanStep}
             planDeviated={state.planDeviated}
             width={rightWidth}
+            diffResult={diff.result}
+            diffScrollOffset={diffScroll}
+            diffVisibleRows={diffVisibleRows}
           />
         </Box>
       </Box>
@@ -192,6 +234,7 @@ export function App({
       {exitConfirmOpen && (
         <ExitConfirm onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
       )}
+      {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
       {gates.pendingPlan !== null && (
         <ApprovalModal plan={gates.pendingPlan} onApprove={gates.approve} onReject={gates.reject} />
       )}
@@ -214,6 +257,7 @@ export function App({
           commandContext={commandContext}
           value={inputValue}
           onChange={setInputValue}
+          active={inputActive}
         />
         <StatusBar
           model={model}

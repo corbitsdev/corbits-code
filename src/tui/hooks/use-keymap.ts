@@ -7,6 +7,7 @@ const DOUBLE_ESC_MS = 500;
 
 export type KeymapContext = {
   exitConfirmOpen: boolean;
+  helpOpen: boolean;
   gateOpen: boolean;
   hookPanelOpen: boolean;
   hasInput: boolean;
@@ -23,14 +24,17 @@ export type KeymapActions = {
   toggleThinking: () => void;
   toggleLastTool: () => void;
   toggleMode: () => void;
+  toggleContextView: () => void;
+  toggleHelp: () => void;
 };
 
 export function useKeymap(context: KeymapContext, actions: KeymapActions): void {
   const lastEscRef = useRef<number>(0);
 
   useInput((input, key) => {
-    // The exit-confirm overlay owns input entirely while it is open.
+    // The exit-confirm and help overlays own input entirely while open.
     if (context.exitConfirmOpen) return;
+    if (context.helpOpen) return;
 
     if (key.ctrl && input === "c") {
       if (context.gateOpen) return;
@@ -82,6 +86,14 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
     }
     if (key.ctrl && input === "r") {
       actions.toggleLastTool();
+      return;
+    }
+    if (key.ctrl && input === "d") {
+      actions.toggleContextView();
+      return;
+    }
+    if (key.ctrl && input === "g") {
+      actions.toggleHelp();
       return;
     }
     if (key.tab && key.shift) {

@@ -1,8 +1,8 @@
-import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { PlanStep } from "../use-stream.js";
+import type { DiffResult } from "../git-diff.js";
 import { PlanView } from "./plan-view.js";
-import { color } from "../theme.js";
+import { DiffView } from "./diff-view.js";
 
 export type ContextView = "plan" | "diff";
 
@@ -12,15 +12,29 @@ export type ContextPanelProps = {
   currentPlanStep: number | null;
   planDeviated: boolean;
   width: number;
+  diffResult: DiffResult | null;
+  diffScrollOffset: number;
+  diffVisibleRows: number;
 };
 
-export function ContextPanel({ view, steps, currentPlanStep, planDeviated, width }: ContextPanelProps): ReactNode {
+export function ContextPanel({
+  view,
+  steps,
+  currentPlanStep,
+  planDeviated,
+  width,
+  diffResult,
+  diffScrollOffset,
+  diffVisibleRows,
+}: ContextPanelProps): ReactNode {
   if (view === "diff") {
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={color("muted")} paddingX={1} width={width}>
-        <Text bold color={color("accent")}>Diff</Text>
-        <Text color={color("muted")}>No changes yet.</Text>
-      </Box>
+      <DiffView
+        result={diffResult}
+        scrollOffset={diffScrollOffset}
+        visibleRows={diffVisibleRows}
+        width={width}
+      />
     );
   }
 

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Mode } from "../../config.js";
 import type { AgentStatus } from "../use-stream.js";
 import { color } from "../theme.js";
+import { STATUS_HINT } from "../keymap-table.js";
 
 export type StatusBarProps = {
   model: string;
@@ -94,7 +95,7 @@ export function StatusBar({
         <Text color={statusColor(status)} bold>{statusLabel(status)}</Text>
       </Box>
       <Box flexDirection="row">
-        <Text color={color("muted")}>Ctrl+C exit · Ctrl+H hooks · Shift+Tab mode</Text>
+        <Text color={color("muted")}>{STATUS_HINT}</Text>
       </Box>
     </Box>
   );

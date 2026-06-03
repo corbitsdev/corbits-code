@@ -7,6 +7,8 @@ export type CommandContext = {
 
 export type CommandResult =
   | { type: "message"; text: string }
+  | { type: "view"; view: "plan" | "diff" }
+  | { type: "overlay"; overlay: "help" }
   | { type: "noop" };
 
 export type CommandDefinition = {
