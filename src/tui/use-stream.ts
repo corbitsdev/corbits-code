@@ -31,6 +31,7 @@ export type AgentStreamState = {
   planTotal: number;
   planDeviated: boolean;
   elapsedMs: number;
+  awaitingResponse: boolean;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -91,6 +92,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   let turnsUsed = 0;
   let status: AgentStatus = "running";
   let stopRequested = false;
+  // True while the model is working but nothing is streaming yet — the gap
+  // between a send (or a tool result) and the first token of the next reply.
+  // Drives the in-flight indicator; cleared the moment real content arrives.
+  let awaitingResponse = false;
   let latestUserMessage = "";
   let planSteps: PlanStep[] = [];
   let currentPlanStep: number | null = null;
@@ -140,6 +145,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     get elapsedMs() {
       return (finishedAt ?? Date.now()) - startedAt;
     },
+    get awaitingResponse() {
+      return awaitingResponse;
+    },
     setGatePending(pending: boolean): void {
       if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
       status = pending ? "blocked" : "running";
@@ -156,6 +164,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       stopRequested = false;
       status = "running";
       finishedAt = null;
+      awaitingResponse = true;
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
@@ -166,6 +175,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "inference.thinking.delta": {
+          awaitingResponse = false;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
@@ -176,6 +186,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "inference.text.delta": {
+          awaitingResponse = false;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
@@ -186,6 +197,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "inference.tool_call.start": {
+          awaitingResponse = false;
           const data = event.data as { name: string; callId: string };
           callIdToName.set(data.callId, data.name);
           callIdToArguments.set(data.callId, "");
@@ -209,6 +221,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "tool.done": {
+          // A tool finished; the model is now deciding its next move with nothing
+          // streaming, so re-arm the indicator until the next token arrives.
+          awaitingResponse = true;
           const result = (event.data as { result: { callId: string; content: string; isError: boolean } }).result;
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
@@ -287,11 +302,13 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       if (event.type === "reactor.done") {
         status = stopRequested ? "stopped" : "done";
         finishedAt = Date.now();
+        awaitingResponse = false;
       }
 
       if (event.type === "reactor.error" || event.type === "inference.error") {
         status = "failed";
         finishedAt = Date.now();
+        awaitingResponse = false;
       }
     },
     addHookEvent(event: LifecycleHookEvent): void {

@@ -14,6 +14,8 @@ import { PermissionModal } from "./components/permission-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import { InFlightIndicator } from "./components/in-flight-indicator.js";
+import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
@@ -84,9 +86,10 @@ export function App({
   const leftWidth = sidebarOpen ? Math.floor(columns * 0.65) : columns;
   const rightWidth = columns - leftWidth;
 
-  // Reserve rows for the header, status bar, chat input, and the separator
-  // line so the event log only ever paints into the space it actually owns.
-  const CHROME_ROWS = 11;
+  // Reserve rows for the header, status bar, chat input, the separator line,
+  // and the in-flight indicator row so the event log only paints into the
+  // space it actually owns.
+  const CHROME_ROWS = 12;
 
   // Overlays paint below the event log in the same fixed-height column, so the
   // log must give up rows for whichever one is open. Otherwise their combined
@@ -215,6 +218,11 @@ export function App({
     setCommandMessage(null);
     sendMessage(message);
   };
+
+  // Spin only while the model is working with nothing streaming yet; the moment
+  // a token lands, awaitingResponse flips false and the indicator clears.
+  const awaitingResponse = state.status === "running" && state.awaitingResponse;
+  const spinner = useSpinner(awaitingResponse);
 
   useKeymap(
     {
@@ -355,6 +363,11 @@ export function App({
         </Box>
       )}
       <Box flexShrink={0} flexDirection="column">
+        <InFlightIndicator
+          active={awaitingResponse}
+          frame={spinner.frame}
+          elapsedMs={spinner.elapsedMs}
+        />
         <Box
           borderStyle="single"
           borderColor={color("muted")}

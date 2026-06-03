@@ -354,6 +354,34 @@ test("setGatePending does not override a terminal done status", () => {
   expect(state.status).toBe("done");
 });
 
+test("awaitingResponse arms on send and clears on the first streamed token", () => {
+  const state = createAgentStreamState();
+  expect(state.awaitingResponse).toBe(false);
+
+  state.markRunning();
+  expect(state.awaitingResponse).toBe(true);
+
+  state.addEvent({ type: "inference.text.delta", seq: 1, data: { token: "H" } as unknown as ReactorEmittedEvent["data"] });
+  expect(state.awaitingResponse).toBe(false);
+});
+
+test("awaitingResponse re-arms after a tool result until the next token", () => {
+  const state = createAgentStreamState();
+  for (const e of toolCallEvents("read_file", "c1", { path: "a.ts" })) state.addEvent(e);
+  // tool.done was the last event — the model is now thinking again.
+  expect(state.awaitingResponse).toBe(true);
+
+  state.addEvent({ type: "inference.text.delta", seq: 9, data: { token: "x" } as unknown as ReactorEmittedEvent["data"] });
+  expect(state.awaitingResponse).toBe(false);
+});
+
+test("awaitingResponse clears when the run completes", () => {
+  const state = createAgentStreamState();
+  state.markRunning();
+  state.addEvent({ type: "reactor.done", seq: 1, data: {} as unknown as ReactorEmittedEvent["data"] });
+  expect(state.awaitingResponse).toBe(false);
+});
+
 test("elapsedMs freezes after the run completes", async () => {
   const state = createAgentStreamState();
   state.addEvent({ type: "reactor.done", seq: 1, data: {} as unknown as ReactorEmittedEvent["data"] });
