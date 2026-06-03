@@ -15,13 +15,16 @@ const request: PermissionRequest = {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-test("PermissionModal shows three clear choices: allow once, allow always, reject", () => {
+test("PermissionModal shows allow once, one choice per scope, and reject", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
   expect(frame).toContain("Approval needed");
   expect(frame).toContain("npm test");
   expect(frame).toContain("Allow Once");
-  expect(frame).toContain("Allow Always");
+  // Each persistable scope is surfaced as its own labelled choice rather than a
+  // single generic "Allow Always" that hides which scope is being granted.
+  expect(frame).toContain("Always allow npm *");
+  expect(frame).toContain("Always allow this exact command");
   expect(frame).toContain("Reject");
 });
 

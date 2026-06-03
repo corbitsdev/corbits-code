@@ -12,13 +12,13 @@ export type PermissionModalProps = {
 type Choice = { label: string; hint: string; outcome: ApprovalOutcome };
 
 function buildChoices(request: PermissionRequest): Choice[] {
-  const always = request.scopes[0];
   const choices: Choice[] = [{ label: "Allow Once", hint: "just this time", outcome: { allow: true } }];
-  if (always !== undefined && always.pattern !== null) {
+  for (const scope of request.scopes) {
+    if (scope.pattern === null) continue;
     choices.push({
-      label: "Allow Always",
-      hint: always.pattern,
-      outcome: { allow: true, persist: always },
+      label: scope.label,
+      hint: scope.pattern,
+      outcome: { allow: true, persist: scope },
     });
   }
   choices.push({ label: "Reject", hint: "do not run", outcome: { allow: false } });

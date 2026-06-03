@@ -18,11 +18,11 @@ export function classifyTool(toolName: string): Tier {
 // file" rung: a persisted "*" would silently authorize all future writes/edits
 // in the directory, which is too blunt to offer as a one-keystroke choice.
 function fileScopes(path: string): ApprovalScope[] {
-  const scopes: ApprovalScope[] = [{ id: "exact", label: `Always allow this file`, pattern: path }];
+  const scopes: ApprovalScope[] = [{ id: "exact", label: `Allow Always (this file)`, pattern: path }];
   const slash = path.lastIndexOf("/");
   if (slash > 0) {
     const dir = path.slice(0, slash);
-    scopes.push({ id: "dir", label: `Always allow files in ${dir}/`, pattern: `${dir}/*` });
+    scopes.push({ id: "dir", label: `Allow Always (this directory)`, pattern: `${dir}/*` });
   }
   return scopes;
 }
