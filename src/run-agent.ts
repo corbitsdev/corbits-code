@@ -12,6 +12,7 @@ import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "./plugins/re-read-block-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { permissionPlugin } from "./plugins/permission-plugin.js";
+import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
 import { createPermissionGate } from "./permission/gate.js";
 import { loadApprovals } from "./permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
@@ -94,6 +95,7 @@ export async function runAgent(
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
+      secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
       verifyPlugin(),

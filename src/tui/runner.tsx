@@ -12,6 +12,7 @@ import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
+import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { loadApprovals, saveApprovals } from "../permission/store.js";
 import type { Approval } from "../permission/types.js";
@@ -80,6 +81,7 @@ export async function runTUI(config: Config): Promise<number> {
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
+      secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
       verifyPlugin(),
