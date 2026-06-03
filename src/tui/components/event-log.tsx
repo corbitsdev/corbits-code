@@ -107,26 +107,45 @@ export function truncateLine(text: string, columns: number, expanded: boolean): 
   return text.slice(0, head) + SHOW_MORE;
 }
 
+type TextProps = {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  color?: string;
+};
+
+function segmentProps(seg: StyledSegment): TextProps {
+  const props: TextProps = {};
+  if (seg.bold) props.bold = true;
+  if (seg.italic) props.italic = true;
+  if (seg.strikethrough) props.strikethrough = true;
+  if (seg.heading !== undefined) {
+    props.bold = true;
+    if (seg.heading === 1) props.color = color("brand");
+    else if (seg.heading === 2) props.color = color("accent");
+    // h3–h6 are bold in the default text colour.
+  }
+  if (seg.link) {
+    props.underline = true;
+    props.color = color("accent");
+  }
+  if (seg.blockquote) {
+    props.italic = true;
+    props.color = color("muted");
+  }
+  if (seg.rule) props.color = color("muted");
+  if (seg.bullet && /^\s*(•|\d+\.)/.test(seg.text)) props.color = color("muted");
+  if (seg.code) props.color = color("muted");
+  return props;
+}
+
 function renderMarkdownSegments(segments: StyledSegment[]): ReactNode[] {
-  return segments.map((seg, i) => {
-    const textProps: { bold?: boolean; italic?: boolean; color?: string } = {};
-    if (seg.bold) textProps.bold = true;
-    if (seg.italic) textProps.italic = true;
-    if (seg.heading === 1) {
-      textProps.bold = true;
-      textProps.color = color("brand");
-    } else if (seg.heading === 2) {
-      textProps.bold = true;
-      textProps.color = color("accent");
-    }
-    if (seg.bullet && /^\s*•/.test(seg.text)) textProps.color = color("muted");
-    if (seg.code) textProps.color = color("muted");
-    return (
-      <Text key={`seg-${i}`} {...textProps}>
-        {seg.text}
-      </Text>
-    );
-  });
+  return segments.map((seg, i) => (
+    <Text key={`seg-${i}`} {...segmentProps(seg)}>
+      {seg.text}
+    </Text>
+  ));
 }
 
 function renderMarkdownLines(content: string): ReactNode {

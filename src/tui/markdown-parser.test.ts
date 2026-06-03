@@ -62,9 +62,54 @@ describe("headings", () => {
     noSyntaxChars(segs);
   });
 
-  test("### is not treated as h1/h2 heading", () => {
-    const segs = firstLine("### Deep");
-    expect(segs.every((s) => s.heading === undefined)).toBe(true);
+  test("h3 through h6 are headings at their level", () => {
+    expect(firstLine("### Deep").every((s) => s.heading === 3)).toBe(true);
+    expect(firstLine("###### Deepest").every((s) => s.heading === 6)).toBe(true);
+    expect(allText(firstLine("### Deep"))).toBe("Deep");
+  });
+});
+
+describe("extended inline tokens", () => {
+  test("strikethrough with ~~", () => {
+    expect(firstLine("~~gone~~")).toEqual([{ text: "gone", strikethrough: true }]);
+  });
+
+  test("link shows text and url, drops the brackets", () => {
+    const segs = firstLine("see [docs](https://x.dev)");
+    expect(allText(segs)).toBe("see docs (https://x.dev)");
+    expect(segs.find((s) => s.link)?.text).toBe("docs");
+    noSyntaxChars(segs);
+  });
+});
+
+describe("block elements", () => {
+  test("ordered list keeps the number and flags content", () => {
+    const segs = firstLine("1. first");
+    expect(segs[0]?.text).toBe("1. ");
+    expect(allText(segs)).toBe("1. first");
+    expect(segs.every((s) => s.bullet === true)).toBe(true);
+  });
+
+  test("blockquote gets a bar marker", () => {
+    const segs = firstLine("> quoted");
+    expect(segs[0]?.text).toBe("│ ");
+    expect(segs.every((s) => s.blockquote === true)).toBe(true);
+    expect(allText(segs)).toBe("│ quoted");
+  });
+
+  test("horizontal rule renders a rule glyph", () => {
+    const segs = firstLine("---");
+    expect(segs).toHaveLength(1);
+    expect(segs[0]?.rule).toBe(true);
+    expect(segs[0]?.text).not.toContain("-");
+  });
+
+  test("fenced code block renders inner lines as code without inline parsing", () => {
+    const lines = parseMarkdown("```\nconst x = **not bold**\n```");
+    // Opening and closing fences become blank separator lines.
+    expect(lines[0]).toEqual([]);
+    expect(lines[2]).toEqual([]);
+    expect(lines[1]).toEqual([{ text: "const x = **not bold**", code: true }]);
   });
 });
 
