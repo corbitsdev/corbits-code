@@ -298,11 +298,8 @@ export function EventLog({
   const blocks = renderableBlocks(contentBlocks);
 
   if (blocks.length === 0) {
-    return (
-      <Box paddingX={1}>
-        <Text color={color("muted")}>Waiting for events...</Text>
-      </Box>
-    );
+    // Nothing to show yet — stay blank rather than announcing an empty state.
+    return <Box paddingX={1} />;
   }
 
   const isExpanded = (absoluteIndex: number): boolean => verbose || expandedTools.has(absoluteIndex);

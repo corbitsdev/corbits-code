@@ -28,9 +28,9 @@ function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
   );
 }
 
-test("EventLog renders empty message when no blocks", () => {
+test("EventLog renders nothing when there are no blocks", () => {
   const { lastFrame } = renderLog([]);
-  expect(lastFrame()).toContain("Waiting for events");
+  expect(lastFrame() ?? "").not.toContain("Waiting for events");
 });
 
 test("EventLog renders user message", () => {
