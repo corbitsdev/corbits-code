@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseDiff, getWorkingTreeDiff } from "../../../src/tui/git-diff.js";
 
 const SAMPLE = `diff --git a/src/a.ts b/src/a.ts
@@ -78,5 +82,19 @@ test("getWorkingTreeDiff returns a structured result inside a repository", async
   expect(result.available).toBe(true);
   if (result.available) {
     expect(Array.isArray(result.files)).toBe(true);
+  }
+});
+
+test("a fresh repo with no commits is available and shows untracked files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "diff-nohead-"));
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+  await mkdir(join(dir, "src"), { recursive: true });
+  await writeFile(join(dir, "src", "new.ts"), "export const answer = 42;\n");
+
+  const result = await getWorkingTreeDiff(dir);
+  expect(result.available).toBe(true);
+  if (result.available) {
+    const text = result.files.flatMap((f) => f.lines).map((l) => l.text).join("\n");
+    expect(text).toContain("answer = 42");
   }
 });
