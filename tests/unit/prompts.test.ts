@@ -54,12 +54,12 @@ test("full system prompt contains provided tool names", () => {
   expect(prompt).toContain("second_tool");
 });
 
-test("plan decision rules cover both branches and are framed by risk", () => {
+test("plan decision always requires a plan, scaled by risk not file count", () => {
   const rules = buildPlanDecisionRules();
 
-  expect(rules.toLowerCase()).toContain("risk and reversibility");
-  expect(rules).toContain("Plan first");
-  expect(rules).toContain("Just do it");
+  expect(rules.toLowerCase()).toContain("submit a plan before you start");
+  expect(rules.toLowerCase()).toContain("scale its depth to risk");
+  expect(rules.toLowerCase()).toContain("blast radius");
   // The old rigid file-count thresholds must be gone.
   expect(rules).not.toContain("3 or fewer");
   expect(rules).not.toContain("4 or more");
@@ -78,7 +78,7 @@ test("system prompt preserves core agent instructions", () => {
 
   expect(prompt).toContain("Intercode");
   expect(prompt).toMatch(/at least one tool call/i);
-  expect(prompt).toContain("re-read a file the tool layer already served you");
-  expect(prompt).toContain("submit_output is the only thing that ends the loop");
+  expect(prompt).toContain("won't re-serve a file you already read");
+  expect(prompt).toContain("submit_output is the only way to signal the task is complete");
   expect(prompt).toMatch(/never finish on a broken build, failing tests/i);
 });

@@ -28,27 +28,28 @@ test("buildChatSystemPrompt wires into createCodingDirector without error", () =
   expect(() => createCodingDirector(prompt, minimalToolDefinitions)).not.toThrow();
 });
 
-test("buildSystemPrompt includes all sections in order", () => {
+test("buildSystemPrompt orders sections: identity, then planning, then work, then finishing", () => {
   const prompt = buildSystemPrompt();
   const role = buildAgentRole();
   const discipline = buildToolCallDiscipline();
-  const submit = buildSubmitRules();
+  const planDecision = buildPlanDecisionRules();
   const budget = buildBudgetRules();
-  const plan = buildPlanRules();
+  const submit = buildSubmitRules();
   const tools = buildAvailableTools();
 
+  // Planning is a turn-1 action, so it precedes the working/finishing rules.
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf(discipline));
-  expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(submit));
-  expect(prompt.indexOf(submit)).toBeLessThan(prompt.indexOf(budget));
-  expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(plan));
-  expect(prompt.indexOf(plan)).toBeLessThan(prompt.indexOf(tools));
+  expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(planDecision));
+  expect(prompt.indexOf(planDecision)).toBeLessThan(prompt.indexOf(budget));
+  expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(submit));
+  expect(prompt.indexOf(submit)).toBeLessThan(prompt.indexOf(tools));
 });
 
 test("buildSystemPrompt separates sections with double newlines", () => {
   const prompt = buildSystemPrompt();
   // Sections are joined with \n\n — verify at least one boundary exists
   expect(prompt).toContain(buildAgentRole() + "\n\n" + buildToolCallDiscipline());
-  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildSubmitRules());
+  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildPlanDecisionRules());
 });
 
 test("buildSystemPrompt includes submit_plan and submit_output in tool list", () => {
@@ -90,9 +91,12 @@ test("system prompt encodes style, self-verification, and a few-shot sequence", 
   expect(prompt).toContain("delete the old path");
 });
 
-test("plan decision is framed by risk, not a hard file count", () => {
+test("planning always submits a plan, scaled by risk not file count", () => {
   const decision = buildPlanDecisionRules();
-  expect(decision.toLowerCase()).toContain("risk and reversibility");
+  // A plan is always required (the runtime gates submit_output on it); the
+  // rubric scales plan depth by risk rather than choosing whether to plan.
+  expect(decision.toLowerCase()).toContain("submit a plan before you start");
+  expect(decision.toLowerCase()).toContain("blast radius");
   // The old rigid thresholds must be gone.
   expect(decision).not.toContain("3 or fewer");
   expect(decision).not.toContain("4 or more");
