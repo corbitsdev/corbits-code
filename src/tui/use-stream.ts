@@ -33,7 +33,6 @@ export type AgentStreamState = {
   elapsedMs: number;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
-  addUserMessage(message: string): void;
   setGatePending(pending: boolean): void;
 };
 
@@ -196,8 +195,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         case "tool.done": {
           const result = (event.data as { result: { callId: string; content: string; isError: boolean } }).result;
           const trackedName = callIdToName.get(result.callId);
-          const callBlock = contentBlocks.findLast((b) => b.type === "tool_call" && b.name === result.callId) ?? contentBlocks.findLast((b) => b.type === "tool_call");
-          const name = trackedName ?? (callBlock ? (callBlock as ContentBlock & { type: "tool_call" }).name : result.callId);
+          const name = trackedName ?? result.callId;
 
           if (name === "submit_plan" && !result.isError) {
             let planCallIndex = -1;
@@ -235,7 +233,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
               const targetIdx = nextFileStepIndex(planSteps, currentPlanStep);
               if (targetIdx !== null) {
                 if (path === planSteps[targetIdx]?.file) {
-                  currentPlanStep = targetIdx + 1 < planSteps.length ? targetIdx + 1 : targetIdx;
+                  currentPlanStep = targetIdx + 1 < planSteps.length ? targetIdx + 1 : null;
                   planDeviated = false;
                 } else {
                   planDeviated = true;
@@ -294,10 +292,6 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
       }
-    },
-    addUserMessage(message: string): void {
-      latestUserMessage = message;
-      contentBlocks.push({ type: "user", content: message });
     },
   };
 }

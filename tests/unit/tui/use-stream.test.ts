@@ -89,9 +89,13 @@ test("createAgentStreamState tracks status from inference.error", () => {
   expect(state.status).toBe("failed");
 });
 
-test("createAgentStreamState accumulates user messages", () => {
+test("a received user message becomes a user block", () => {
   const state = createAgentStreamState();
-  state.addUserMessage("hello world");
+  state.addEvent({
+    type: "message.received",
+    seq: 1,
+    data: { message: { content: "hello world" } } as unknown as ReactorEmittedEvent["data"],
+  });
   expect(state.contentBlocks.length).toBe(1);
   expect(state.contentBlocks[0].type).toBe("user");
   expect(state.contentBlocks[0].content).toBe("hello world");
@@ -182,7 +186,11 @@ test("plan stays pinned at index 0 as new events arrive", () => {
     state.addEvent(e);
   }
 
-  state.addUserMessage("now do it");
+  state.addEvent({
+    type: "message.received",
+    seq: 9,
+    data: { message: { content: "now do it" } } as unknown as ReactorEmittedEvent["data"],
+  });
   state.addEvent({
     type: "inference.tool_call.start",
     seq: 10,

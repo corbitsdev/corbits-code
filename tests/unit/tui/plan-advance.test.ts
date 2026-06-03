@@ -42,7 +42,9 @@ test("a correct write clears a prior deviation", () => {
 
   write(s, "c3", "b.ts");
   expect(s.planDeviated).toBe(false);
-  expect(s.currentPlanStep).toBe(1);
+  // b.ts was the final step; completing it marks the plan done (null), so later
+  // writes are not checked against a stale last step and never spuriously deviate.
+  expect(s.currentPlanStep).toBeNull();
 });
 
 test("fileless steps never trigger a deviation", () => {
@@ -52,7 +54,8 @@ test("fileless steps never trigger a deviation", () => {
 
   write(s, "c1", "a.ts");
   expect(s.planDeviated).toBe(false);
-  expect(s.currentPlanStep).toBe(1);
+  // a.ts is the last (and only file-bearing) step, so completing it finishes the plan.
+  expect(s.currentPlanStep).toBeNull();
 });
 
 test("write with no plan does not advance or deviate", () => {
