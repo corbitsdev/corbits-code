@@ -89,9 +89,13 @@ test("createAgentStreamState tracks status from inference.error", () => {
   expect(state.status).toBe("failed");
 });
 
-test("createAgentStreamState accumulates user messages", () => {
+test("a received user message becomes a user block", () => {
   const state = createAgentStreamState();
-  state.addUserMessage("hello world");
+  state.addEvent({
+    type: "message.received",
+    seq: 1,
+    data: { message: { content: "hello world" } } as unknown as ReactorEmittedEvent["data"],
+  });
   expect(state.contentBlocks.length).toBe(1);
   expect(state.contentBlocks[0].type).toBe("user");
   expect(state.contentBlocks[0].content).toBe("hello world");
@@ -182,7 +186,11 @@ test("plan stays pinned at index 0 as new events arrive", () => {
     state.addEvent(e);
   }
 
-  state.addUserMessage("now do it");
+  state.addEvent({
+    type: "message.received",
+    seq: 9,
+    data: { message: { content: "now do it" } } as unknown as ReactorEmittedEvent["data"],
+  });
   state.addEvent({
     type: "inference.tool_call.start",
     seq: 10,
@@ -268,4 +276,116 @@ test("createAgentStreamState tracks hook load and update events", () => {
 
   expect(state.hooks[0]?.enabled).toBe(false);
   expect(state.hooks[0]?.lastExitStatus?.code).toBe(0);
+});
+
+function toolCallEvents(name: string, callId: string, args: object): ReactorEmittedEvent[] {
+  return [
+    { type: "inference.tool_call.start", seq: 1, data: { name, callId } as unknown as ReactorEmittedEvent["data"] },
+    { type: "inference.tool_call.delta", seq: 2, data: { argumentFragment: JSON.stringify(args) } as unknown as ReactorEmittedEvent["data"] },
+    { type: "tool.done", seq: 3, data: { result: { callId, content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"] },
+  ];
+}
+
+test("submit_plan seeds plan totals and current step", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("p1", [
+    { file: "src/a.ts", action: "create" },
+    { file: "src/b.ts", action: "edit" },
+  ])) {
+    state.addEvent(e);
+  }
+  expect(state.planTotal).toBe(2);
+  expect(state.currentPlanStep).toBe(0);
+  expect(state.planDeviated).toBe(false);
+});
+
+test("write_file on the matching step advances the current plan step", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("p1", [
+    { file: "src/a.ts", action: "create" },
+    { file: "src/b.ts", action: "edit" },
+  ])) {
+    state.addEvent(e);
+  }
+  for (const e of toolCallEvents("write_file", "w1", { path: "src/a.ts" })) {
+    state.addEvent(e);
+  }
+  expect(state.currentPlanStep).toBe(1);
+  expect(state.planDeviated).toBe(false);
+});
+
+test("edit_file on a non-matching file sets planDeviated", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("p1", [{ file: "src/a.ts", action: "create" }])) {
+    state.addEvent(e);
+  }
+  for (const e of toolCallEvents("edit_file", "w1", { path: "src/elsewhere.ts" })) {
+    state.addEvent(e);
+  }
+  expect(state.planDeviated).toBe(true);
+  expect(state.currentPlanStep).toBe(0);
+});
+
+test("a failed write does not advance the plan step", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("p1", [{ file: "src/a.ts", action: "create" }, { file: "src/b.ts", action: "edit" }])) {
+    state.addEvent(e);
+  }
+  state.addEvent({ type: "inference.tool_call.start", seq: 1, data: { name: "write_file", callId: "w1" } as unknown as ReactorEmittedEvent["data"] });
+  state.addEvent({ type: "inference.tool_call.delta", seq: 2, data: { argumentFragment: JSON.stringify({ path: "src/a.ts" }) } as unknown as ReactorEmittedEvent["data"] });
+  state.addEvent({ type: "tool.done", seq: 3, data: { result: { callId: "w1", content: "denied", isError: true } } as unknown as ReactorEmittedEvent["data"] });
+  expect(state.currentPlanStep).toBe(0);
+  expect(state.planDeviated).toBe(false);
+});
+
+test("setGatePending toggles between running and blocked", () => {
+  const state = createAgentStreamState();
+  expect(state.status).toBe("running");
+  state.setGatePending(true);
+  expect(state.status).toBe("blocked");
+  state.setGatePending(false);
+  expect(state.status).toBe("running");
+});
+
+test("setGatePending does not override a terminal done status", () => {
+  const state = createAgentStreamState();
+  state.addEvent({ type: "reactor.done", seq: 1, data: {} as unknown as ReactorEmittedEvent["data"] });
+  state.setGatePending(true);
+  expect(state.status).toBe("done");
+});
+
+test("awaitingResponse arms on send and clears on the first streamed token", () => {
+  const state = createAgentStreamState();
+  expect(state.awaitingResponse).toBe(false);
+
+  state.markRunning();
+  expect(state.awaitingResponse).toBe(true);
+
+  state.addEvent({ type: "inference.text.delta", seq: 1, data: { token: "H" } as unknown as ReactorEmittedEvent["data"] });
+  expect(state.awaitingResponse).toBe(false);
+});
+
+test("awaitingResponse re-arms after a tool result until the next token", () => {
+  const state = createAgentStreamState();
+  for (const e of toolCallEvents("read_file", "c1", { path: "a.ts" })) state.addEvent(e);
+  // tool.done was the last event — the model is now thinking again.
+  expect(state.awaitingResponse).toBe(true);
+
+  state.addEvent({ type: "inference.text.delta", seq: 9, data: { token: "x" } as unknown as ReactorEmittedEvent["data"] });
+  expect(state.awaitingResponse).toBe(false);
+});
+
+test("awaitingResponse clears when the run completes", () => {
+  const state = createAgentStreamState();
+  state.markRunning();
+  state.addEvent({ type: "reactor.done", seq: 1, data: {} as unknown as ReactorEmittedEvent["data"] });
+  expect(state.awaitingResponse).toBe(false);
+});
+
+test("elapsedMs freezes after the run completes", async () => {
+  const state = createAgentStreamState();
+  state.addEvent({ type: "reactor.done", seq: 1, data: {} as unknown as ReactorEmittedEvent["data"] });
+  const first = state.elapsedMs;
+  await new Promise((r) => setTimeout(r, 5));
+  expect(state.elapsedMs).toBe(first);
 });
