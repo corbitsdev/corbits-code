@@ -1,5 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { secretGuardPlugin, isSensitivePath } from "./secret-guard-plugin.js";
+import {
+  secretGuardPlugin,
+  isSensitivePath,
+  commandReferencesSensitivePath,
+} from "./secret-guard-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 const next = async (call: ToolCall): Promise<ToolResult> => ({ callId: call.id, content: "ok" });
@@ -10,6 +14,7 @@ function handler() {
 }
 
 const read = (path: string): ToolCall => ({ id: "c", name: "read_file", arguments: { path } });
+const shell = (command: unknown): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
 
 describe("isSensitivePath", () => {
   const sensitive = [
@@ -53,5 +58,69 @@ describe("secretGuardPlugin", () => {
   test("allows an ordinary source file", async () => {
     const result = await handler()(read("src/index.ts"), new AbortController().signal);
     expect(result.isError).not.toBe(true);
+  });
+});
+
+describe("commandReferencesSensitivePath", () => {
+  const blocked = [
+    "cat .env",
+    "cat ~/.interchange/settings.json",
+    "less /Users/me/.interchange/settings.json",
+    "xxd .ssh/id_rsa",
+    "base64 secrets/server.pem",
+    "grep KEY .env.production",
+    // Quote/escape obfuscation collapses back to the real path.
+    "cat .e''nv",
+    "cat '.env'",
+    "cat \\.env",
+    // Env-assignment and redirection forms expose the path token.
+    "FILE=.env cat $FILE",
+    "dd if=.aws/credentials of=/tmp/x",
+    // Chained after a harmless command.
+    "ls && cat .env",
+    // Relative-dot prefixes resolve to the same anchored match as a raw token.
+    "cat ./.env",
+    "cat ./secrets/.env",
+  ];
+  for (const c of blocked) {
+    test(`flags: ${c}`, () => expect(commandReferencesSensitivePath(c)).toBeDefined());
+  }
+
+  const allowed = [
+    "ls -la",
+    "cat README.md",
+    "grep TODO src/index.ts",
+    "echo environment",
+    "cat .env.example",
+    "bun test",
+  ];
+  for (const c of allowed) {
+    test(`allows: ${c}`, () => expect(commandReferencesSensitivePath(c)).toBeUndefined());
+  }
+});
+
+describe("secretGuardPlugin run_shell", () => {
+  test("denies a shell read of a secret file", async () => {
+    const result = await handler()(shell("cat .env"), new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/sensitive file blocked/);
+  });
+
+  test("denies a shell read of the credential settings file", async () => {
+    const result = await handler()(
+      shell("cat ~/.interchange/settings.json"),
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+  });
+
+  test("allows a harmless shell command", async () => {
+    const result = await handler()(shell("bun test"), new AbortController().signal);
+    expect(result.isError).not.toBe(true);
+  });
+
+  test("does not coerce a non-string command (passes through to tool validation)", async () => {
+    const result = await handler()(shell(undefined), new AbortController().signal);
+    expect(result.content).toBe("ok");
   });
 });
