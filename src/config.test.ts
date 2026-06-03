@@ -102,44 +102,23 @@ describe("loadConfig", () => {
     }
   });
 
-  test("defaults mode to teammate", () => {
+  test("defaults dangerouslySkipPermissions to false", () => {
     const stash = stashEnv();
     try {
       setRequiredEnv();
       const config = loadConfig(["do something"]);
-      expect(config.mode).toBe("teammate");
+      expect(config.dangerouslySkipPermissions).toBe(false);
     } finally {
       restoreEnv(stash);
     }
   });
 
-  test("parses --mode manager", () => {
+  test("parses --dangerously-skip-permissions", () => {
     const stash = stashEnv();
     try {
       setRequiredEnv();
-      const config = loadConfig(["--mode", "manager", "do something"]);
-      expect(config.mode).toBe("manager");
-    } finally {
-      restoreEnv(stash);
-    }
-  });
-
-  test("parses --mode teammate", () => {
-    const stash = stashEnv();
-    try {
-      setRequiredEnv();
-      const config = loadConfig(["--mode", "teammate", "do something"]);
-      expect(config.mode).toBe("teammate");
-    } finally {
-      restoreEnv(stash);
-    }
-  });
-
-  test("rejects invalid --mode value", () => {
-    const stash = stashEnv();
-    try {
-      setRequiredEnv();
-      expect(() => loadConfig(["--mode", "robot"])).toThrow(/manager.*teammate|teammate.*manager/);
+      const config = loadConfig(["--dangerously-skip-permissions", "do something"]);
+      expect(config.dangerouslySkipPermissions).toBe(true);
     } finally {
       restoreEnv(stash);
     }

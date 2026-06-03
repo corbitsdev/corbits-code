@@ -1,8 +1,4 @@
-import { resolve, join } from "node:path";
-import { homedir } from "node:os";
-import { readFileSync } from "node:fs";
-
-export type Mode = "manager" | "teammate";
+import { resolve } from "node:path";
 
 export type Config = {
   apiKey: string;
@@ -13,7 +9,7 @@ export type Config = {
   task: string;
   force: boolean;
   headless: boolean;
-  mode: Mode;
+  dangerouslySkipPermissions: boolean;
 };
 
 function requireEnv(name: string): string {
@@ -24,28 +20,13 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function loadModeFromFile(): Mode | undefined {
-  const configPath = join(homedir(), ".interchange", "config.json");
-  try {
-    const raw = readFileSync(configPath, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) {
-      const m = (parsed as Record<string, unknown>).mode;
-      if (m === "manager" || m === "teammate") return m;
-    }
-  } catch {
-    // file absent or unreadable — use default
-  }
-  return undefined;
-}
-
 export function loadConfig(argv: readonly string[]): Config {
   const args = [...argv];
 
   let cwd = process.cwd();
   let force = false;
   let headless = false;
-  let modeOverride: Mode | undefined;
+  let dangerouslySkipPermissions = false;
   const positional: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -67,12 +48,8 @@ export function loadConfig(argv: readonly string[]): Config {
       headless = true;
       continue;
     }
-    if (arg === "--mode") {
-      const next = args[++i];
-      if (next !== "manager" && next !== "teammate") {
-        throw new Error('--mode requires "manager" or "teammate"');
-      }
-      modeOverride = next;
+    if (arg === "--dangerously-skip-permissions") {
+      dangerouslySkipPermissions = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -87,7 +64,6 @@ export function loadConfig(argv: readonly string[]): Config {
   const providerName = requireEnv("OPENAI_COMPATIBLE_PROVIDER_NAME");
 
   const task = positional.join(" ").trim();
-  const mode = modeOverride ?? loadModeFromFile() ?? "teammate";
 
   return {
     apiKey,
@@ -98,6 +74,6 @@ export function loadConfig(argv: readonly string[]): Config {
     task,
     force,
     headless,
-    mode,
+    dangerouslySkipPermissions,
   };
 }

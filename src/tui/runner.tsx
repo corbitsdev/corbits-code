@@ -1,20 +1,24 @@
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
 import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPosixTools } from "@intx/tools-posix";
-import type { Config, Mode } from "../config.js";
+import type { Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import { askOperatorDefinition, createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { permissionPlugin } from "../plugins/permission-plugin.js";
+import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { createPermissionGate } from "../permission/gate.js";
+import { loadApprovals, saveApprovals } from "../permission/store.js";
+import type { Approval } from "../permission/types.js";
 import { consumeStream } from "../stream-consumer.js";
-import { App, type OperatorGateEvent, type PlanGateEvent } from "./app.js";
+import { App } from "./app.js";
+import type { OperatorGateEvent, PermissionGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -35,27 +39,6 @@ export function getTUIRunSummaryStatus(
   if (runError !== undefined) return "failed";
   if (runCompleted) return "done";
   return "cancelled";
-}
-
-function saveMode(mode: Mode): void {
-  const dir = join(homedir(), ".interchange");
-  const configPath = join(dir, "config.json");
-  let existing: Record<string, unknown> = {};
-  try {
-    const raw = readFileSync(configPath, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) {
-      existing = parsed as Record<string, unknown>;
-    }
-  } catch {
-    // file absent — start fresh
-  }
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(configPath, JSON.stringify({ ...existing, mode }, null, 2));
-  } catch {
-    // best-effort — non-fatal if write fails
-  }
 }
 
 export async function runTUI(config: Config): Promise<number> {
@@ -79,11 +62,28 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
+  const approvals = await loadApprovals(config.cwd);
+  const permissionGate = createPermissionGate({
+    approvals,
+    requestApproval: (request) =>
+      new Promise((resolve) => {
+        const event: PermissionGateEvent = { request, resolve };
+        emitter.emit("permission.gate", event);
+      }),
+    persist: (_approval: Approval) => {
+      void saveApprovals(config.cwd, approvals);
+    },
+    interactive: true,
+    skipPermissions: config.dangerouslySkipPermissions,
+  });
+
   const posixTools = createPosixTools({
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
+      secretGuardPlugin(),
       authzPlugin(),
+      permissionPlugin(permissionGate),
       verifyPlugin(),
     ],
   });
@@ -94,8 +94,8 @@ export async function runTUI(config: Config): Promise<number> {
     askOperatorDefinition,
   ];
 
-  // Always wire the gate; the App's modeRef auto-approves when in teammate mode.
-  // This lets mid-task toggle to manager take effect on subsequent plans.
+  // Wire the gate so every submitted plan is surfaced to the operator for
+  // explicit approval before the agent proceeds.
   const director = createChatDirector(
     buildChatSystemPrompt(),
     allDefinitions,
@@ -162,29 +162,37 @@ export async function runTUI(config: Config): Promise<number> {
     emitter.emit("event", event);
   };
 
-  // Render first so the App's plan.gate and operator.gate listeners are registered before agent.send.
+  // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
+  // screen buffer by hand: enter before render to hide pre-launch scrollback,
+  // and restore it on exit (including abrupt process exit) so history returns.
+  const exitAltScreen = (): void => {
+    process.stdout.write("\x1b[?1049l");
+  };
+  process.stdout.write("\x1b[?1049h");
+  process.once("exit", exitAltScreen);
+
+  // Render first so the App's gate listeners are registered before it sends the
+  // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
+  // instead of Ink killing the process outright.
   const { waitUntilExit } = render(
     <App
       eventEmitter={emitter}
       agent={agent}
       sessionTitle={config.task}
-      initialMode={config.mode}
       initialModel={config.model}
+      initialTask={config.task}
       initialHooks={hookManager.getStatuses()}
-      onModeChange={saveMode}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
     />,
+    { exitOnCtrlC: false },
   );
 
   const streamPromise = consumeStream(agent.stream(), sink);
 
-  // Send initial task if provided
-  if (config.task.length > 0) {
-    agent.send(config.task).catch(recordRunError);
-  }
-
   await waitUntilExit();
+  process.removeListener("exit", exitAltScreen);
+  exitAltScreen();
 
   const finishedAt = Date.now();
   const status = getTUIRunSummaryStatus(runCompleted, runError);
