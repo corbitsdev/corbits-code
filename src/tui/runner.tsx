@@ -180,6 +180,9 @@ export async function runTUI(config: Config): Promise<number> {
       agent={agent}
       sessionTitle={config.task}
       initialModel={config.model}
+      initialProvider={config.providerName}
+      providers={config.providers}
+      cwd={config.cwd}
       initialTask={config.task}
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}

@@ -16,6 +16,6 @@ export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/help", description: "Show the help overlay" },
   { keys: "/diff", description: "Show the working-tree diff" },
   { keys: "/plan", description: "Show the plan panel" },
-  { keys: "/model", description: "Show or set the active model" },
+  { keys: "/agent", description: "Configure provider and model" },
   { keys: "/verbose", description: "Toggle full tool output" },
 ];

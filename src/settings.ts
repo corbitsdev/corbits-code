@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // A configured inference provider. `apiKey` and `baseURL` are credentials and
 // live only in the global settings file. `models` is always an array so single-
@@ -128,6 +128,22 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
     );
   }
   return parsed;
+}
+
+// Persist the per-repo provider/model selection. This is where the /agent modal
+// writes a "default for this project": selection only, never credentials, so
+// the file stays safe to leave gitignored in the repo. Validated before writing
+// so a written file always round-trips back through loadLocalSettings, and
+// written via temp-file + rename so a concurrent reader never sees a torn file.
+export async function saveLocalSettings(path: string, local: LocalSettings): Promise<void> {
+  if (!isLocalSettings(local)) {
+    throw new Error(`Refusing to write invalid local settings: only "provider" and "model" are allowed.`);
+  }
+  const payload = JSON.stringify(local, null, 2);
+  const tmp = `${path}.${process.pid}.tmp`;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(tmp, payload);
+  await rename(tmp, path);
 }
 
 export type ResolveInput = {

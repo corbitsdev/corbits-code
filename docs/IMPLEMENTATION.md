@@ -98,12 +98,12 @@ src/
     theme.ts              Colors
     commands/
       registry.ts         Extensible slash-command registry
-      built-in.ts         /help, /diff, /plan, /verbose, /model
+      built-in.ts         /help, /diff, /plan, /verbose, /agent (/model alias)
     components/
       header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx,
       plan-view.tsx, diff-view.tsx, context-panel.tsx,
       operator-modal.tsx, permission-modal.tsx, approval-modal.tsx,
-      exit-confirm.tsx, help-overlay.tsx, hook-panel.tsx,
+      agent-modal.tsx, exit-confirm.tsx, help-overlay.tsx, hook-panel.tsx,
       in-flight-indicator.tsx
     hooks/
       use-diff.ts, use-gates.ts, use-keymap.ts,

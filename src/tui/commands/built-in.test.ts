@@ -55,27 +55,21 @@ describe("/verbose command", () => {
   });
 });
 
-describe("/model command", () => {
+describe("/agent command", () => {
   it("is registered", () => {
+    expect(getCommand("agent")).toBeDefined();
+  });
+
+  it("opens the agent configuration modal", () => {
+    const ctx = makeCtx();
+    expect(getCommand("agent")!.handler("", ctx)).toEqual({ type: "modal", modal: "agent" });
+  });
+});
+
+describe("/model alias", () => {
+  it("is registered and opens the same /agent modal", () => {
+    const ctx = makeCtx();
     expect(getCommand("model")).toBeDefined();
-  });
-
-  it("returns current model when called with no args", () => {
-    const ctx = makeCtx("my-model");
-    const result = getCommand("model")!.handler("", ctx);
-    expect(result.type).toBe("message");
-    if (result.type === "message") {
-      expect(result.text).toContain("my-model");
-    }
-  });
-
-  it("sets the model when given an argument", () => {
-    const ctx = makeCtx("old-model");
-    const result = getCommand("model")!.handler("new-model", ctx);
-    expect(ctx.getModel()).toBe("new-model");
-    expect(result.type).toBe("message");
-    if (result.type === "message") {
-      expect(result.text).toContain("new-model");
-    }
+    expect(getCommand("model")!.handler("", ctx)).toEqual({ type: "modal", modal: "agent" });
   });
 });

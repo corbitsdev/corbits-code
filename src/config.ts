@@ -7,7 +7,19 @@ import {
   localSettingsPath,
   resolveProvider,
   type ResolvedProvider,
+  type Settings,
 } from "./settings.js";
+
+// One configured provider the /agent modal can switch to. Carries credentials
+// because live switching builds an InferenceSource from it; the modal only ever
+// displays the name and models, never the key.
+export type ProviderCatalogEntry = {
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  models: string[];
+  defaultModel?: string;
+};
 
 export type Config = {
   apiKey: string;
@@ -19,6 +31,9 @@ export type Config = {
   force: boolean;
   headless: boolean;
   dangerouslySkipPermissions: boolean;
+  // Every provider available to switch to at runtime. From the settings file
+  // when present; in env-only mode it is just the single resolved provider.
+  providers: ProviderCatalogEntry[];
 };
 
 export type LoadConfigOptions = {
@@ -135,5 +150,33 @@ export async function loadConfig(
     force,
     headless,
     dangerouslySkipPermissions,
+    providers: buildProviderCatalog(settings, resolved),
   };
+}
+
+// The set of providers the /agent modal can switch between. When a settings
+// file is present its providers are the catalog. In env-only mode there is no
+// file, so the single resolved provider is the whole catalog (the modal still
+// renders, switching is just a no-op against one entry).
+function buildProviderCatalog(
+  settings: Settings | null,
+  resolved: ResolvedProvider,
+): ProviderCatalogEntry[] {
+  if (settings !== null && Object.keys(settings.providers).length > 0) {
+    return Object.entries(settings.providers).map(([name, p]) => ({
+      name,
+      baseURL: p.baseURL,
+      apiKey: p.apiKey,
+      models: p.models,
+      ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+    }));
+  }
+  return [
+    {
+      name: resolved.providerName,
+      baseURL: resolved.baseURL,
+      apiKey: resolved.apiKey,
+      models: [resolved.model],
+    },
+  ];
 }
