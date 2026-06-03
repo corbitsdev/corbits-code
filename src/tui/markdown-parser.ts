@@ -3,6 +3,8 @@ export type StyledSegment = {
   bold?: boolean;
   italic?: boolean;
   code?: boolean;
+  heading?: 1 | 2;
+  bullet?: boolean;
   color?: string;
 };
 
@@ -60,17 +62,34 @@ function parseSegments(text: string): StyledSegment[] {
   return segments;
 }
 
-export function parseMarkdown(text: string): StyledSegment[][] {
-  return text.split("\n").map((line) => {
-    // Handle list items
-    const listMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
-    if (listMatch) {
-      const indent = listMatch[1] || "";
-      const content = listMatch[2] || "";
-      const indentSegment: StyledSegment = { text: indent + "• " };
-      return [indentSegment, ...parseSegments(content)];
-    }
+function applyFlag(segments: StyledSegment[], flag: Partial<StyledSegment>): StyledSegment[] {
+  return segments.map((seg) => ({ ...seg, ...flag }));
+}
 
-    return parseSegments(line);
-  });
+function parseLine(line: string): StyledSegment[] {
+  // Headings: # or ## followed by content. The marker is stripped so it never
+  // appears in output; inline markdown inside the heading still applies.
+  const headingMatch = line.match(/^(#{1,2})\s+(.+)$/);
+  if (headingMatch) {
+    const level = (headingMatch[1]?.length === 2 ? 2 : 1) as 1 | 2;
+    const content = headingMatch[2] || "";
+    return applyFlag(parseSegments(content), { heading: level });
+  }
+
+  // Bullet list items: optional indent, then - or * marker followed by content.
+  // The raw marker is replaced by a "• " glyph; inline markdown in the content
+  // still applies.
+  const listMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
+  if (listMatch) {
+    const indent = listMatch[1] || "";
+    const content = listMatch[2] || "";
+    const marker: StyledSegment = { text: indent + "• ", bullet: true };
+    return [marker, ...applyFlag(parseSegments(content), { bullet: true })];
+  }
+
+  return parseSegments(line);
+}
+
+export function parseMarkdown(text: string): StyledSegment[][] {
+  return text.split("\n").map(parseLine);
 }
