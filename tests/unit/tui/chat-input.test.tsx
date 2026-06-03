@@ -4,6 +4,24 @@ import { ChatInput } from "../../../src/tui/components/chat-input.js";
 
 const noopContext = { getModel: () => "m", setModel: () => {}, getVerbose: () => false, toggleVerbose: () => false };
 
+test("ChatInput ignores keystrokes when inactive", async () => {
+  let submitted: string | null = null;
+  const { stdin } = render(
+    <ChatInput
+      onSubmit={(m) => { submitted = m; }}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value="hello world"
+      onChange={() => {}}
+      active={false}
+    />,
+  );
+  await Promise.resolve();
+  stdin.write("\r");
+  await Promise.resolve();
+  expect(submitted).toBeNull();
+});
+
 test("ChatInput renders prompt", () => {
   const { lastFrame } = render(
     <ChatInput

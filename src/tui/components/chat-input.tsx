@@ -10,6 +10,9 @@ export type ChatInputProps = {
   commandContext: CommandContext;
   value: string;
   onChange: (value: string) => void;
+  // When false, the input ignores all keystrokes. Set while an overlay or modal
+  // is capturing input so keys do not leak into the prompt underneath it.
+  active?: boolean;
 };
 
 function slashPrefix(value: string): string | null {
@@ -18,7 +21,7 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange }: ChatInputProps): ReactNode {
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, active = true }: ChatInputProps): ReactNode {
   const setValue = (next: string | ((v: string) => string)): void => {
     onChange(typeof next === "function" ? next(value) : next);
   };
@@ -102,7 +105,7 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       setValue((v) => v + input);
       setSelectedIdx(0);
     }
-  });
+  }, { isActive: active });
 
   return (
     <Box flexDirection="column">
