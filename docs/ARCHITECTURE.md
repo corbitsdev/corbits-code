@@ -144,9 +144,10 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap and gate/scroll/diff state.
 - `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost.
 - Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
-- Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
+- Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
 - Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts`.
-- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/model`).
+- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/agent`; `/model` aliases `/agent`).
+- `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.interchange/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
 
 ## Data Flow
 

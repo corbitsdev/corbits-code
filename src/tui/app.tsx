@@ -14,7 +14,10 @@ import { PermissionModal } from "./components/permission-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { HelpOverlay } from "./components/help-overlay.js";
+import { AgentModal, toAgentProviders } from "./components/agent-modal.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
+import { buildOpenAISource, type ProviderCatalogEntry } from "../config.js";
+import { localSettingsPath, saveLocalSettings } from "../settings.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -31,6 +34,9 @@ export type AppProps = {
   agent: Agent;
   sessionTitle: string;
   initialModel: string;
+  initialProvider: string;
+  providers: ProviderCatalogEntry[];
+  cwd: string;
   initialTask?: string;
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
@@ -42,6 +48,9 @@ export function App({
   agent,
   sessionTitle,
   initialModel,
+  initialProvider,
+  providers,
+  cwd,
   initialTask = "",
   initialHooks = [],
   onToggleHook,
@@ -61,20 +70,50 @@ export function App({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [diffScroll, setDiffScroll] = useState(0);
   const [model, setModel] = useState<string>(initialModel);
+  const [provider, setProvider] = useState<string>(initialProvider);
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+
+  // Apply a provider/model selection to the running session. setSource mutates
+  // the agent's active source in place; the reactor reads it at the next
+  // inference call, so the switch takes effect without recreating the agent.
+  const applySelection = (providerName: string, nextModel: string): void => {
+    const entry = providers.find((p) => p.name === providerName);
+    if (entry === undefined) {
+      // The modal only offers names from `providers`, so this means the live
+      // catalog and a selection have drifted. Surface it rather than no-op.
+      setCommandMessage(`Provider "${providerName}" is no longer configured`);
+      return;
+    }
+    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel }));
+    setProvider(providerName);
+    setModel(nextModel);
+    setCommandMessage(`Now using ${providerName} · ${nextModel}`);
+  };
+
+  const persistSelection = (providerName: string, nextModel: string): void => {
+    applySelection(providerName, nextModel);
+    // Selection-only, never credentials — safe to leave in the gitignored
+    // per-repo file. Best-effort: a write failure must not crash the session.
+    void saveLocalSettings(localSettingsPath(cwd), { provider: providerName, model: nextModel }).catch(
+      (err: unknown) => {
+        setCommandMessage(
+          `Switched, but saving default failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+  };
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
   const commandContext = useMemo(() => ({
-    getModel: () => model,
-    setModel,
     getVerbose: () => verbose,
     toggleVerbose: () => {
       const next = !verbose;
       setVerbose(next);
       return next;
     },
-  }), [model, verbose]);
+  }), [verbose]);
 
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
@@ -113,6 +152,15 @@ export function App({
     if (helpOpen) return 16;
     if (hookPanelOpen) return 4 + state.hooks.length;
     if (exitConfirmOpen) return 6;
+    if (agentModalOpen) {
+      // chrome (6) + title + section label + nav, plus the longer of the
+      // provider list and the widest provider's model list (the two steps share
+      // the same region, so reserve for whichever is taller).
+      const widestModels = providers.reduce((n, p) => Math.max(n, p.models.length), 0);
+      // +1 over the provider step: the model step renders an extra provider-name
+      // header row above the list. Over-reserving is safe; under-reserving ghosts.
+      return 10 + Math.max(providers.length, widestModels);
+    }
     return 0;
   }, [
     gates.pendingPermission,
@@ -121,6 +169,8 @@ export function App({
     helpOpen,
     hookPanelOpen,
     exitConfirmOpen,
+    agentModalOpen,
+    providers,
     leftWidth,
     state.hooks.length,
   ]);
@@ -177,7 +227,13 @@ export function App({
 
   // Input is inert while any overlay, modal, or gate is capturing keys, so
   // keystrokes (and Enter) never leak into the prompt underneath.
-  const inputActive = !(exitConfirmOpen || helpOpen || gates.gateOpen || hookPanelOpen);
+  const inputActive = !(
+    exitConfirmOpen ||
+    helpOpen ||
+    gates.gateOpen ||
+    hookPanelOpen ||
+    agentModalOpen
+  );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
   // active run. Aborting rejects the send promise; the reactor's current cycle
@@ -229,6 +285,7 @@ export function App({
       exitConfirmOpen,
       helpOpen,
       gateOpen: gates.gateOpen,
+      agentModalOpen,
       hookPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
@@ -298,6 +355,10 @@ export function App({
     }
     if (result.type === "overlay") {
       setHelpOpen(true);
+      return;
+    }
+    if (result.type === "modal" && result.modal === "agent") {
+      setAgentModalOpen(true);
     }
   };
 
@@ -344,6 +405,16 @@ export function App({
         <ExitConfirm onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
       )}
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
+      {agentModalOpen && (
+        <AgentModal
+          providers={toAgentProviders(providers)}
+          activeProvider={provider}
+          activeModel={model}
+          onApply={applySelection}
+          onPersistDefault={persistSelection}
+          onClose={() => setAgentModalOpen(false)}
+        />
+      )}
       {gates.pendingPlan !== null && (
         <ApprovalModal plan={gates.pendingPlan} onApprove={gates.approve} onReject={gates.reject} />
       )}
@@ -385,6 +456,7 @@ export function App({
           active={inputActive}
         />
         <StatusBar
+          provider={provider}
           model={model}
           turnsUsed={state.turnsUsed}
           planStep={state.currentPlanStep}

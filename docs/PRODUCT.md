@@ -61,7 +61,9 @@ Continues from the last saved state in the working directory.
 
 ## Slash Commands (TUI)
 
-The TUI has an extensible slash-command framework. Built-ins: `/help` (shortcut + command overlay), `/diff` (show working-tree diff), `/plan` (show the plan), `/verbose` (toggle full tool argument/result output), `/model` (show or set the active model). Plugins can register additional commands.
+The TUI has an extensible slash-command framework. Built-ins: `/help` (shortcut + command overlay), `/diff` (show working-tree diff), `/plan` (show the plan), `/verbose` (toggle full tool argument/result output), `/agent` (open the agent configuration surface; `/model` is a kept alias). Plugins can register additional commands.
+
+`/agent` opens a dedicated full-screen modal — the single place agent configuration lives. Today it holds a Provider / Model section: it lists configured providers, marks the active one, and lets you switch provider and model. A switch applies to the running session immediately (no restart), and can be saved as this project's default (written to the per-repo selection file). The surface is section-based so future configuration (system-prompt overrides, profiles) lands as additional sections rather than new slash commands.
 
 ## Lifecycle Hooks
 

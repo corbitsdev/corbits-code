@@ -9,6 +9,7 @@ import {
   loadLocalSettings,
   loadSettings,
   resolveProvider,
+  saveLocalSettings,
   type Settings,
 } from "./settings.js";
 
@@ -214,6 +215,42 @@ describe("loaders", () => {
       const path = join(dir, ".interchange", "settings.json");
       await writeFile(path, JSON.stringify({ provider: "a", apiKey: "leak" }));
       await expect(loadLocalSettings(path)).rejects.toThrow(/no credentials/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("saveLocalSettings", () => {
+  test("round-trips a selection through loadLocalSettings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".interchange", "settings.json");
+      await saveLocalSettings(path, { provider: "firepass", model: "fp-small" });
+      expect(await loadLocalSettings(path)).toEqual({ provider: "firepass", model: "fp-small" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("creates the .interchange directory when missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "nested", ".interchange", "settings.json");
+      await saveLocalSettings(path, { provider: "a" });
+      expect(await loadLocalSettings(path)).toEqual({ provider: "a" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses to write credentials", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".interchange", "settings.json");
+      // Force an invalid shape past the type system to prove the guard holds.
+      const leaky = { provider: "a", apiKey: "leak" } as unknown as { provider?: string };
+      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/only "provider" and "model"/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
