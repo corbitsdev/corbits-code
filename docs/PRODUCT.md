@@ -93,9 +93,12 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 **Recovery:** `interchange-code resume` reloads `RunState` + `DirectorPersistedState` and continues.
 
+## Configuration
+
+Providers and models are configured in `~/.interchange/settings.json` (holds providers + credentials), with a selection-only per-repo `.interchange/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. The `OPENAI_COMPATIBLE_*` env vars still override individual fields, so existing `.env` setups keep working. The agent is denied read access to both settings files.
+
 ## Roadmap (planned, not yet shipped)
 
-- **Provider/model configuration** in `~/.interchange/settings.json` with per-repo overrides, replacing `.env` as the primary source; the agent is denied access to its own settings (CL-927).
 - **Fast provider/model switching** in the TUI with a persisted default (CL-1221).
 - **Agent eval harness** to score prompt/tool-use quality across tasks, models, and providers (CL-1219).
 - **System prompt overhaul** for tool-use, efficiency, and output quality, validated by the eval (CL-1220).

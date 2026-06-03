@@ -2,5 +2,6 @@ node_modules/
 dist/
 .env
 .agent-state/
+.interchange/settings.json
 .pi
 .claude/worktrees
