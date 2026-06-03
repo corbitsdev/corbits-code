@@ -47,14 +47,16 @@ function printHelp(): void {
   console.log("Options:");
   console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
   console.log("  --cwd <dir>        Working directory (default: current directory)");
+  console.log("  --config <path>    Settings file to use (default: ~/.interchange/settings.json)");
+  console.log("  --provider <name>  Select a configured provider");
+  console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
   console.log("  --help             Show this help message");
   console.log("");
-  console.log("Environment:");
-  console.log("  OPENAI_COMPATIBLE_API_KEY      API key for inference provider");
-  console.log("  OPENAI_COMPATIBLE_BASE_URL     Provider base URL");
-  console.log("  OPENAI_COMPATIBLE_MODEL          Model identifier");
-  console.log("  OPENAI_COMPATIBLE_PROVIDER_NAME  Provider name");
+  console.log("Configuration:");
+  console.log("  Providers and credentials are read from ~/.interchange/settings.json");
+  console.log("  (selection can be overridden per repo via .interchange/settings.json).");
+  console.log("  The OPENAI_COMPATIBLE_* env vars still override individual fields.");
 }
 
 export async function mainWithRunners(
@@ -70,7 +72,7 @@ export async function mainWithRunners(
 
   if (args[0] === "resume") {
     args.shift();
-    const config = loadConfig(args);
+    const config = await loadConfig(args);
     const previous = await loadState(config.cwd);
     if (previous === null) {
       console.error("No previous run found in this directory.");
@@ -93,7 +95,7 @@ export async function mainWithRunners(
     args.shift();
   }
 
-  const config = loadConfig(args);
+  const config = await loadConfig(args);
   if (config.headless && config.task.length === 0) {
     console.error("task description is required");
     return 1;

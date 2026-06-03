@@ -24,12 +24,14 @@ describe("isSensitivePath", () => {
     "secrets/server.pem",
     "id_ed25519",
     ".aws/credentials",
+    ".interchange/settings.json",
+    "/Users/me/.interchange/settings.json",
   ];
   for (const p of sensitive) {
     test(`flags ${p}`, () => expect(isSensitivePath(p)).toBe(true));
   }
 
-  const ok = ["src/index.ts", "README.md", "env.ts", "environment.json", ".env.example.md", "docs/pem.md"];
+  const ok = ["src/index.ts", "README.md", "env.ts", "environment.json", ".env.example.md", "docs/pem.md", ".interchange/hooks/post-turn.ts"];
   for (const p of ok) {
     test(`allows ${p}`, () => expect(isSensitivePath(p)).toBe(false));
   }
