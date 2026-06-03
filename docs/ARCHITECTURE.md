@@ -2,189 +2,196 @@
 
 ## System Overview
 
-The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, creates an agent, sends a task, and consumes the event stream. A custom director enforces policy on top of the reactor's default behavior.
+The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a policy director, sends a task, and consumes the event stream. A custom director enforces policy on top of the reactor's default behavior. Two front ends consume the same loop: a headless renderer (stderr) and an Ink-based TUI.
 
 ## Components
 
 ### CLI Entry (`src/index.ts`)
 
-- Parses command-line arguments (`run`, `resume`, `--headless`, `--cwd`, `--max-turns`, `--force`, `--help`)
-- Loads environment variables from `.env`
-- Dispatches to either `runAgent` (headless) or `runTUI` (terminal UI)
-- Handles resume flow by loading previous state and director state
+- Parses verbs (`run` (optional), `resume`) and `--help`
+- Auto-loads `.env` from the project root before dispatch (does not overwrite already-set env vars)
+- Dispatches to `runAgent` (headless) or `runTUI` (default)
+- Handles resume by loading previous `RunState` + `DirectorPersistedState` and re-running with the prior task
 
 ### Config Resolution (`src/config.ts`)
 
-- Reads required environment variables: `OPENAI_COMPATIBLE_API_KEY`, `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_PROVIDER_NAME`
-- Parses flags: `--cwd`, `--max-turns`, `--force`, `--headless`
+- Reads required env vars: `OPENAI_COMPATIBLE_API_KEY`, `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_PROVIDER_NAME`
+- Parses flags: `--cwd`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`
 - Collects positional arguments as the task description
+
+> Planned (CL-927): provider/model resolution moves to layered settings files (`--config <path>` / CLI flags > per-repo `.interchange/settings.json` > global `~/.interchange/settings.json`), resolving down to the same provider fields the runtime consumes. Env vars become a demoted override.
 
 ### Agent Runner (`src/run-agent.ts`)
 
-- Loads run state and checks for in-progress runs
-- Creates sandboxed POSIX tools with plugins
-- Builds the agent with `createAgent` from `@intx/agent`
-- Adds custom tools: `submitPlan` and `submitOutput`
-- Creates the custom `CodingDirector`
-- Saves state on every `tool.done` event
-- Runs critique after agent completion
-- Handles cleanup (close agent, dispose tools)
+- Loads run state and refuses to start over an in-progress run (unless `--force`)
+- Loads pricing (models.dev) and starts a background pricing refresh
+- Builds the lifecycle hook manager from discovered hooks
+- Constructs the permission gate (seeded with persisted approvals; non-interactive in headless)
+- Creates sandboxed POSIX tools wrapped in the plugin chain
+- Registers director-layer tools (`submit_plan`, `ask_operator`, `submit_output`)
+- Creates the `CodingDirector` and the agent (`createAgent`), with a git-backed context dir at `.agent-state/context`
+- Streams events through a turn-context collector (feeding `postTurn` hooks) and a renderer
+- Saves run + director state on each turn; runs critique; dispatches the `postRun` summary; cleans up
+
+### TUI Runner (`src/tui/runner.tsx`)
+
+- Builds a chat-mode agent using the `ChatDirector` (with an optional plan-approval gate)
+- Wires `ask_operator` to an operator-gate event resolved by a modal
+- Drives the terminal alternate-screen buffer manually (Ink 7 has no alt-screen option) and renders the Ink app
+- Bridges reactor events to React via an `EventEmitter`
 
 ### Event Stream Consumer (`src/stream-consumer.ts`)
 
-- Consumes the async iterable from `agent.stream()`
-- Calls a sink function for each event
-- Handles stream errors
+- Consumes the async iterable from `agent.stream()`, invoking a sink per event, with stream error handling
 
-### Custom Director (`src/director.ts`)
+### Custom Directors (`src/director.ts`)
 
-The system uses two director modes depending on the execution context:
+Two directors, selected by front end:
 
-- **CodingDirector** — Used in headless mode. Extends `DefaultDirector` with strict stall detection, plan storage, and tool-call discipline.
-- **ChatDirector** — Used in TUI mode. Instantiates `DefaultDirector` directly with no additional policy. Permissive, conversational, designed for interactive use.
+- **CodingDirector** (headless) — Extends `DefaultDirector` with stall detection and plan enforcement.
+- **ChatDirector** (TUI) — `DefaultDirector` plus the plan-approval gate: when a plan is submitted it pauses for approve/reject before continuing. There is a single, opinionated mode — no Manager/Teammate toggle. (`createChatDirector` retains a no-gate fallback to `DefaultDirector` as an implementation detail, but the product runs one mode with the gate present.)
 
-**CodingDirector** adds:
-- Idle cycle detection
-- Read-without-write detection
-- Plan storage (requires `submitPlan` before `submitOutput`)
-- Max turns enforcement
-- Submit validation
+**CodingDirector** behavior:
+- **Idle cycle detection** — Counts consecutive turns without tool calls; after 3, checkpoints and aborts.
+- **Plan storage** — Captures `submit_plan` arguments into durable director state.
+- **Submit gating** — `submit_output` is rejected by its tool handler unless a plan was submitted; if a multi-turn task completes with no plan, the director appends a warning.
+- **Read tracking** — Records the turn at which each file was read (`filesReadAtTurn`), which the re-read-block plugin consults to prevent redundant re-reads.
 
-**ChatDirector** delegates all decisions to the base `DefaultDirector` with no custom hooks.
+Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`, `idleCycles`, `planSubmitted`, `plan` steps, and `filesRead` (path → turn).
 
-#### CodingDirector stall detection:
+### Director-Layer Tools (`src/director.ts`)
 
-- **Idle cycle detection** — Counts consecutive turns without tool calls. After 3 idle cycles, aborts.
-- **Read-without-write detection** — Counts consecutive reads. After 7 reads without a write, aborts.
-- **Plan storage** — Requires `submitPlan` on turn 1. Stores the plan in director state. `submitOutput` is only accepted if `submitPlan` was called first.
-- **Max turns enforcement** — Hard limit at `maxTurns` (default 30).
-- **Submit validation** — `submitOutput` only accepted if `submitPlan` was called first.
-
-#### Planned v2 enhancements:
-
-- **Plan adherence** — Compare subsequent tool calls against the plan. Inject deviation warnings if the agent strays from planned steps.
-- **Re-read blocking** — Track `filesRead: Set<string>` and block re-reading already-read files.
-- **Search budget** — Cap `searchesPerformed` at 3 per run and block further searches.
-
-Director state is persisted and loaded for resume:
-- `turnsUsed`
-- `submitCalled`
-- `callIdToName` mapping
-- `idleCycles`
-- `consecutiveReads`
-- `planSubmitted`
-- `plan` steps
+- `submit_plan` — Ordered steps of `{ file, action, reason }`; declared on turn 1.
+- `ask_operator` — Pauses for a clarifying question with a list of options.
+- `submit_output` — The only clean termination signal; requires a prior plan.
 
 ### System Prompt (`src/prompts.ts`)
 
-- `buildSystemPrompt` — For the autonomous agent loop. Enforces tool-call discipline, submit rules, and budgets.
-- `buildChatSystemPrompt` — For the TUI chat mode. More permissive, conversational.
+- `buildSystemPrompt` — Autonomous loop: tool-call discipline, submit rules, tool-layer constraints, authorization/escalation, plan rules, and a risk-based plan-decision rubric.
+- `buildChatSystemPrompt` — TUI chat: more permissive, conversational.
+
+> Planned (CL-1220): full rewrite with an explicit quality bar, few-shot tool sequences, encoded style/philosophy rules, and self-verification guidance, validated by the eval harness (CL-1219).
 
 ### State Persistence (`src/state.ts`)
 
-- `RunState` — High-level run status (`running` | `done` | `failed`), turns used, task, timestamps, error
-- `DirectorPersistedState` — Director internal state for resume
-- Atomic JSON save/load to `.agent-state/run.json` and `.agent-state/director.json`
-- Validation functions ensure schema integrity on load
+- `RunState` — `running` | `done` | `failed`, turns used, task, timestamps, error
+- `DirectorPersistedState` — director internals for resume
+- Atomic JSON save/load to `.agent-state/run.json` and `.agent-state/director.json`, with schema validation on load
+- Conversation context is persisted separately by the git-backed store under `.agent-state/context`
 
 ### Post-Submit Critique (`src/critic.ts`)
 
-- Runs after the agent completes (before accepting)
-- Checks `build`, `typecheck`, and `test` scripts if present in target `package.json`
-- 5-minute timeout per command
-- Only accepts the submission if all checks pass
-- Failures are surfaced as errors
+- Runs after the agent completes, before acceptance
+- Runs `build`, `typecheck`, and `test` scripts when present in the target `package.json`
+- 5-minute timeout per command; accepts only if all pass; surfaces failures as errors
+
+### Lifecycle Hooks (`src/hooks.ts`)
+
+- Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.interchange/hooks` (local) and `~/.interchange/hooks` (global)
+- `TurnContext` aggregates per-turn data (assistant turn, tool calls/results, token usage, source, duration); a turn-context collector builds it from the event stream
+- `RunSummary` aggregates the whole run for `postRun`
+- The manager exposes enable/disable and emits `hooks.loaded` / `hook.updated` events for the TUI hook panel
+- See `docs/HOOKS.md`
+
+### Pricing (`src/pricing-fetcher.ts`, `src/faremeter.ts`)
+
+- `pricing-fetcher` loads model pricing from models.dev, caches it, and refreshes in the background
+- `faremeter` converts `inference.usage` token counts into a formatted cost using that pricing
+
+### Renderer (`src/renderer.ts`)
+
+- Headless event rendering: formats the event stream to stderr with live cost, seeded by start time, model, and pricing cache
 
 ### Plugins
 
-Plugins are applied as middleware over `createPosixTools` in a fixed chain:
+Tool middleware applied over `createPosixTools`, in this order:
 
 ```
 tool call
-  → pathEscapePlugin
-    → authzPlugin
-      → verifyPlugin
-        → actual tool execution
+  → pathEscapePlugin      (resolve + sandbox paths)
+    → secretGuardPlugin   (hard-deny secret files)
+      → authzPlugin       (deny catastrophic commands)
+        → permissionPlugin (tiered operator approval)
+          → verifyPlugin   (post-write/edit verification)
+            → reReadBlockPlugin (block redundant re-reads)
+              → actual tool execution
 ```
 
-**Rejection behavior:** Any plugin can short-circuit the chain by returning a `ToolResult` with `isError: true`. The error propagates directly to the agent as a tool error, bypassing downstream plugins and the actual tool execution.
+**Rejection behavior:** Any plugin can short-circuit by returning a `ToolResult` with `isError: true`; the error propagates to the agent and downstream plugins/execution are skipped.
 
-#### Path Escape (`src/plugins/path-escape-plugin.ts`)
+- **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
+- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls whose path argument matches a sensitive-file pattern. Path-keyed only; `run_shell` is gated by the permission plugin instead.
+- **Authorization** (`authz-plugin.ts`) — Denies catastrophic shell command patterns by regex.
+- **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
+- **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch.
+- **Re-read Block** (`re-read-block-plugin.ts`) — Consults the director's read tracking to block re-reading an already-read file.
 
-- Sanitizes path-like arguments in tool calls
-- Resolves paths relative to `cwd`
-- Blocks paths that escape the working directory (`..`)
-- Covers arguments named `path`, `file_path`, `target`, `cwd`, `directory`, `dir`, `dest`, `source`, `from`, `to`, `filename`, and any key ending in `Path`
-- **Position in chain:** First. Must run before authz so that paths are canonicalized before authorization checks.
+### Permission System (`src/permission/`)
 
-#### Authorization (`src/plugins/authz-plugin.ts`)
+- **classify** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) are tier `allow`; everything else is tier `ask`. Builds discrete approval requests: chained shell commands split into one request per segment; file tools keyed on the target path; other tools keyed on tool name.
+- **command** — Splits chained commands and derives command-shape approval scopes.
+- **gate** — Evaluates a call: `skipPermissions` allows everything; `allow`-tier passes; for `ask`-tier, checks persisted approvals, otherwise requests operator approval. In a non-interactive run an unresolved `ask` becomes a denial. Newly granted scopes are appended in memory and persisted.
+- **matcher** — Glob matching of an approval pattern against a request subject.
+- **store** — Loads/persists approvals scoped to the working directory.
+- **types** — `Approval`, `ApprovalScope`, `PermissionRequest`, `ApprovalOutcome`.
 
-- Blocks destructive shell commands via regex patterns
-- Covers: `rm -rf`, redirects to system directories, `mkfs`, `dd`, `chmod`/`chown` on system paths, `sudo`, `eval`, `exec`, `shutdown`, `reboot`, fork bombs, `curl | bash`, etc.
-- Returns a tool error: "Destructive command blocked by policy"
-- **Position in chain:** Second. Runs after path escape so paths are resolved before authorization checks.
-
-#### Verify (`src/plugins/verify-plugin.ts`)
-
-- Re-reads files after `write_file` to verify content matches
-- Re-reads files after `edit_file` to verify the replacement was applied correctly
-- Returns a tool error on mismatch
-- **Position in chain:** Third. Runs after the tool executes so it can inspect the actual result.
-
-### Faremeter (`src/faremeter.ts`)
-
-- Tracks token usage across turns
-- Configurable input/output price per token
-- Default: $0.000002 per input token, $0.00001 per output token
-- Formats cost as `$X.XXXX`
+Approval scopes offered: Allow Once (persist nothing), Allow Always for a file or its directory (file tools), or a command shape (shell). There is intentionally no "all files" rung.
 
 ### TUI (`src/tui/`)
 
-- `runner.tsx` — Creates a chat-mode agent, wires event emitter, renders Ink app
-- `app.tsx` — Root Ink component with layout: header, event log, chat input, status bar
-- `use-stream.ts` — React hook that consumes `agent.stream()` events and accumulates them into typed content blocks
-- `components/header.tsx` — Shows agent name, status, turns used, cost
-- `components/event-log.tsx` — Scrollable colored log of events (filters out thinking/reply blocks)
-- `components/chat-input.tsx` — Text input with submit handling
-- `components/status-bar.tsx` — Shows exit and scroll hints
+Ink 7 + React 19, full-screen via the alternate-screen buffer.
+
+- `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap and gate/scroll/diff state.
+- `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost.
+- Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
+- Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
+- Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts`.
+- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/model`).
 
 ## Data Flow
 
 ```
 CLI argv
   → Config
-    → RunAgent
-      → LoadState
-      → CreatePosixTools (plugins)
-      → CreateCodingDirector
-      → CreateAgent
+    → RunAgent / RunTUI
+      → LoadState, LoadPricing, discover hooks
+      → CreatePermissionGate
+      → CreatePosixTools (plugin chain)
+      → Create director (Coding | Chat)
+      → CreateAgent (git-backed contextDir)
       → SaveState (running)
       → agent.send(task)
-      → consumeStream(agent.stream(), traceEvent)
-        → On tool.done: saveState, saveDirectorState
+      → consumeStream(agent.stream(), sink)
+          → turnCollector.observe → postTurn hooks
+          → render (headless) | emit to React (TUI)
+          → on tool.done: saveState, saveDirectorState
       → RunCritique
-      → SaveState (done | failed)
-      → Cleanup
+      → dispatch postRun summary
+      → SaveState (done | failed) → Cleanup
 ```
 
 ## State Transitions
 
 ```
-[running] → tool.done → save → ... → submitOutput → critique → [done]
+[running] → tool.done → save → ... → submit_output → critique → [done]
                                           ↓
-                                    [failed] (critique fails or error)
+                                    [failed] (stall, critique failure, or error)
 ```
 
 ## Design Decisions
 
 ### Event loop vs. chat interface
 
-The reactor processes one event at a time and produces a deterministic next action. The model cannot stall because every `inference.done` event must produce a decision. The director adds policy on top of this to detect and recover from model-level stalling.
+The reactor processes one event at a time and produces a deterministic next action; every `inference.done` must yield a decision. The director adds policy to detect and recover from model-level stalling.
 
 ### Plan as contract
 
-The plan is stored in director state, not just conversation history. This makes it durable across context window shifts and enforceable by the director.
+The plan lives in durable director state, not just conversation history, so it survives context shifts and is enforceable.
+
+### Constraint ownership at the tool layer
+
+Safety and budget constraints (secrets, catastrophic commands, permission, re-read prevention, write verification) are enforced as tool-layer middleware, not as advisory prompt text — one layer owns each constraint and the agent cannot evade it by rewording.
 
 ### Resume via git-backed storage
 
-`@intx/storage-isogit` persists context to a git-backed store. Combined with JSON director state, this enables resuming from any interrupted point.
+`@intx/storage-isogit` persists conversation context to a git-backed store; combined with JSON director state, runs resume from any interrupted point.

@@ -2,51 +2,46 @@
 
 ## What It Is
 
-A single-process coding agent CLI that autonomously implements features in a codebase. It reads files, writes code, runs tests, and submits work — all without human intervention during the loop. The agent is backed by the LLM (OpenAI-compatible) and built on Interchange primitives.
+A single-process coding agent CLI that autonomously implements features in a codebase. It reads files, writes code, runs tests, and submits work — driven by a deterministic event loop rather than a chat transcript. The agent is backed by an OpenAI-compatible LLM and built on Interchange primitives. It runs as a full-screen terminal UI by default, or headless for scripts and CI.
 
 ## Why It Exists
 
-Existing coding agents (like other coding agents) stall. They get stuck in thinking loops, read files endlessly without writing, drift from their own plans, or forget to signal completion. The user watches a "Thinking..." spinner and hopes. This tool replaces the chat interface with a deterministic event loop that enforces progress.
+Existing coding agents stall. They get stuck in thinking loops, read files endlessly without writing, drift from their own plans, or forget to signal completion. The user watches a "Thinking..." spinner and hopes. This tool replaces the chat interface with a deterministic event loop that enforces progress and makes every action — and its cost — visible.
 
 ## Target Users
 
 - Developers who want to delegate discrete feature implementations to an agent
 - Teams who need reproducible, autonomous coding tasks with verifiable output
-- Users who want visibility into agent progress and cost, not a black box
+- Users who want visibility into agent progress, cost, and safety — not a black box
 
 ## Key Value Propositions
 
-1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking.
-2. **Plan as contract** — The agent declares a structured plan on turn 1 and the system enforces adherence.
-3. **Stall detection** — The director detects idle cycles, read-only loops, and unbounded exploration, then intervenes.
-4. **Resume capability** — Interrupted runs can be resumed from the last persisted state.
-5. **Post-submit critique** — Build, type-check, and tests run before the result is accepted.
-6. **Live cost tracking** — A faremeter shows token cost per turn in real time.
-7. **TUI mode** — Visual terminal interface showing progress, events, and cost (not just stderr logs).
-8. **Interactive pause** *(Planned for v2)* — The agent can call `askOperator` to pause execution and ask the user a clarifying question. If the user does not respond within 60 seconds, the agent auto-selects the default option and continues. Not yet implemented in the current release.
+1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
+2. **Plan as contract** — The agent declares a structured plan on turn 1 and the system enforces that `submit_output` cannot fire without one.
+3. **Stall detection** — The director detects idle cycles and intervenes.
+4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
+5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.
+6. **Post-submit critique** — Build, type-check, and tests run before a result is accepted.
+7. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
+8. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
 
 ## User Experience
+
+### TUI Mode (default)
+
+```bash
+$ interchange-code "Add JWT auth to the API"
+```
+
+A full-screen terminal interface: a pinned header (status, turns, live cost), a scrollable event log, a context panel that toggles between the working-tree diff and the plan, modals for permission prompts and operator questions, and a chat input for follow-up turns.
 
 ### Headless Mode
 
 ```bash
-$ interchange-code "Add JWT auth to the API"
-[tool-start] read_file
-[tool] read_file ("src/middleware/auth.ts")
-[tool-done] call-1
-[tool-start] write_file
-[tool] write_file ("src/lib/jwt.ts")
-...
-[done]
+$ interchange-code --headless "Add JWT auth to the API"
 ```
 
-### TUI Mode
-
-```bash
-$ interchange-code --tui "Add JWT auth to the API"
-```
-
-Shows a live header with status, turns used, and cost; a scrollable event log; and a chat input for interactive tasks.
+Streams the event log to stderr for scripts and CI. Non-interactive: any action that would need operator approval is denied unless `--dangerously-skip-permissions` is set.
 
 ### Resume
 
@@ -54,43 +49,61 @@ Shows a live header with status, turns used, and cost; a scrollable event log; a
 $ interchange-code resume
 ```
 
-Continues from the last saved state.
+Continues from the last saved state in the working directory.
+
+## Safety Model
+
+- **Tiered permission gate** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) run freely. Every consequential tool (`write_file`, `edit_file`, `run_shell`, …) is gated. The operator can Allow Once or Allow Always (scoped to a file, a directory, or a command shape); "Allow Always" choices persist per working directory so repeat actions don't interrupt flow.
+- **Secret guard (hard deny)** — Sensitive files (`.env`, `id_rsa`, `*.pem`, `.aws/credentials`, `.ssh/*`, `.git-credentials`, and similar) can never be read or written by the agent, even with approval. Template files like `.env.example` are exempt.
+- **Catastrophic-command deny** — Destructive shell patterns (`rm -rf`, `mkfs`, `dd`, `sudo`, fork bombs, `curl | bash`, force-push, …) are blocked before they run.
+- **Path sandboxing** — Tool path arguments are resolved against the working directory; paths that escape it are blocked.
+- **Write verification** — After every write/edit the file is re-read and compared to confirm the change actually landed.
+
+## Slash Commands (TUI)
+
+The TUI has an extensible slash-command framework. Built-ins: `/help` (shortcut + command overlay), `/diff` (show working-tree diff), `/plan` (show the plan), `/verbose` (toggle full tool argument/result output), `/model` (show or set the active model). Plugins can register additional commands.
+
+## Lifecycle Hooks
+
+Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatically, discovered from `.interchange/hooks` (per-repo) and `~/.interchange/hooks` (global). `postTurn` receives aggregated turn context (tool calls, results, token usage, duration); `postRun` receives a run summary. The TUI hook panel lists discovered hooks and lets the user enable/disable them. See `docs/HOOKS.md`.
 
 ## Failure Modes and Recovery
 
 ### Stall (idle cycles)
 
-**What the user sees:** The agent stops producing tool calls. After 3 idle turns, the run aborts with status `failed` and error `Agent stalled: no tool calls for 3 turns.`
+**What the user sees:** The agent stops producing tool calls. After 3 idle turns the run aborts with `Agent stalled: no tool calls for 3 turns.`
 
-**Recovery:** The run is saved in `failed` state. The user can inspect `.agent-state/run.json` for the turn count and error, adjust the task or prompt, and start a new run.
+**Recovery:** State is saved; inspect `.agent-state/run.json`, adjust the task or prompt, and start a new run.
 
-### Read-only loop
+### Permission denied (headless)
 
-**What the user sees:** The agent reads files repeatedly without writing. After 7 consecutive reads without a write, the run aborts with status `failed` and error `Agent stalled: too many reads without writes.`
+**What the user sees:** In a non-interactive run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
 
-**Recovery:** Same as stall — inspect the state, consider a more specific task, and retry.
-
-### Max turns reached
-
-**What the user sees:** The agent uses all 30 turns (or the configured `--max-turns`) without calling `submitOutput`. The run ends with status `failed` and error `Max turns (30) reached.`
-
-**Recovery:** Increase `--max-turns`, break the task into smaller sub-tasks, or provide more specific instructions.
+**Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, or re-run with `--dangerously-skip-permissions`.
 
 ### Critique failure
 
-**What the user sees:** The agent calls `submitOutput` but the post-submit critique fails (build error, type error, or test failure). The run ends with status `failed` and the critique error message.
+**What the user sees:** The agent calls `submit_output` but the post-submit critique fails (build, type, or test error). The run ends `failed` with the critique error.
 
-**Recovery:** The agent's state is preserved. The user can inspect the error, fix the underlying issue manually, or start a new run with a more specific task. The previous run's state is in `.agent-state/run.json`.
+**Recovery:** State is preserved; inspect the error, fix the issue, or start a new, more specific run.
 
 ### Resume after interruption
 
-**What the user sees:** `Ctrl+C` mid-run, network error, or process crash. The last state is persisted.
+**What the user sees:** `Ctrl+C` mid-run, network error, or crash. The last state is persisted.
 
-**Recovery:** `interchange-code resume` loads the last `RunState` and `DirectorPersistedState` and continues from the last persisted turn.
+**Recovery:** `interchange-code resume` reloads `RunState` + `DirectorPersistedState` and continues.
+
+## Roadmap (planned, not yet shipped)
+
+- **Provider/model configuration** in `~/.interchange/settings.json` with per-repo overrides, replacing `.env` as the primary source; the agent is denied access to its own settings (CL-927).
+- **Fast provider/model switching** in the TUI with a persisted default (CL-1221).
+- **Agent eval harness** to score prompt/tool-use quality across tasks, models, and providers (CL-1219).
+- **System prompt overhaul** for tool-use, efficiency, and output quality, validated by the eval (CL-1220).
+- **Perpetual-session context management** — compaction/curation so a long-running session's context window stays bounded (CL-930).
 
 ## Business Justification
 
-- Raw feature throughput: the agent completes tasks without human babysitting
-- Cost transparency: every turn's token usage is tracked and visible
-- Safety: destructive commands are blocked, file writes are verified, path escapes are sandboxed
-- Verifiable output: only builds that pass type-check and tests are accepted
+- Raw feature throughput: the agent completes tasks without human babysitting.
+- Cost transparency: every turn's token usage is tracked and visible live.
+- Trust: secrets and catastrophic actions are unreachable; consequential actions are gated and auditable.
+- Verifiable output: only builds that pass type-check and tests are accepted.
