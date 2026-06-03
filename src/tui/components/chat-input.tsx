@@ -8,6 +8,8 @@ export type ChatInputProps = {
   onSubmit: (message: string) => void;
   onCommand: (result: CommandResult) => void;
   commandContext: CommandContext;
+  value: string;
+  onChange: (value: string) => void;
 };
 
 function slashPrefix(value: string): string | null {
@@ -16,8 +18,10 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext }: ChatInputProps): ReactNode {
-  const [value, setValue] = useState("");
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange }: ChatInputProps): ReactNode {
+  const setValue = (next: string | ((v: string) => string)): void => {
+    onChange(typeof next === "function" ? next(value) : next);
+  };
   const [selectedIdx, setSelectedIdx] = useState(0);
 
   const prefix = slashPrefix(value);

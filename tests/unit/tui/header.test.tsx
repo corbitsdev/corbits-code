@@ -12,33 +12,44 @@ function renderHeader(props: Partial<HeaderProps> = {}) {
       sessionTitle={props.sessionTitle ?? ""}
       latestUserMessage={props.latestUserMessage ?? ""}
       mode={props.mode ?? "teammate"}
+      width={props.width ?? 160}
     />,
   );
 }
 
-test("Header renders project name", () => {
+test("Header renders product name", () => {
   const { lastFrame } = renderHeader();
-  expect(lastFrame()).toContain("interchange-code");
+  expect(lastFrame()).toContain("Intercode");
 });
 
-test("Header renders running status", () => {
+test("Header renders running status label", () => {
   const { lastFrame } = renderHeader();
-  expect(lastFrame()).toContain("running");
+  expect(lastFrame()).toContain("Running");
 });
 
-test("Header renders done status", () => {
+test("Header renders done status label", () => {
   const { lastFrame } = renderHeader({ turnsUsed: 5, status: "done", totalCost: "$0.0123" });
-  expect(lastFrame()).toContain("done");
+  expect(lastFrame()).toContain("Done");
 });
 
-test("Header renders failed status", () => {
+test("Header renders failed status label", () => {
   const { lastFrame } = renderHeader({ turnsUsed: 3, status: "failed" });
-  expect(lastFrame()).toContain("failed");
+  expect(lastFrame()).toContain("Failed");
 });
 
-test("Header renders turn count", () => {
-  const { lastFrame } = renderHeader({ turnsUsed: 7 });
+test("Header renders blocked status label", () => {
+  const { lastFrame } = renderHeader({ status: "blocked" });
+  expect(lastFrame()).toContain("Blocked");
+});
+
+test("Header renders turn count at wide widths", () => {
+  const { lastFrame } = renderHeader({ turnsUsed: 7, width: 160 });
   expect(lastFrame()).toContain("7 turns");
+});
+
+test("Header drops turn label below 120 columns", () => {
+  const { lastFrame } = renderHeader({ turnsUsed: 7, width: 100 });
+  expect(lastFrame()).not.toContain("7 turns");
 });
 
 test("Header renders cost", () => {

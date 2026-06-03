@@ -118,60 +118,16 @@ test("EventLog filters out reply blocks", () => {
   expect(lastFrame()).toContain("Hello!");
 });
 
-test("EventLog renders plan block at top with all steps formatted", () => {
+test("EventLog no longer renders the plan block inline", () => {
   const { lastFrame } = render(
     <EventLog
       contentBlocks={makeBlocks([
-        {
-          type: "plan",
-          steps: [
-            { file: "src/a.ts", action: "create" },
-            { file: "src/b.ts", action: "edit" },
-            { file: "src/c.ts", action: "delete" },
-          ],
-        },
-      ])}
-    />,
-  );
-  const frame = lastFrame() ?? "";
-  expect(frame).toContain("plan");
-  expect(frame).toContain("3 steps");
-  expect(frame).toContain("1. src/a.ts — create");
-  expect(frame).toContain("2. src/b.ts — edit");
-  expect(frame).toContain("3. src/c.ts — delete");
-});
-
-test("EventLog renders plan above subsequent events with a separator", () => {
-  const { lastFrame } = render(
-    <EventLog
-      contentBlocks={makeBlocks([
-        { type: "plan", steps: [{ file: "f.ts", action: "edit" }] },
+        { type: "plan", steps: [{ file: "src/a.ts", action: "create" }] },
         { type: "user", content: "go" },
-        { type: "tool_call", name: "read_file", arguments: "{}" },
       ])}
     />,
   );
   const frame = lastFrame() ?? "";
-  const planIdx = frame.indexOf("plan");
-  const userIdx = frame.indexOf("> go");
-  const toolIdx = frame.indexOf("read_file");
-  expect(planIdx).toBeGreaterThanOrEqual(0);
-  expect(userIdx).toBeGreaterThan(planIdx);
-  expect(toolIdx).toBeGreaterThan(userIdx);
-  expect(frame).toContain("────");
-});
-
-test("EventLog collapses plan when planCollapsed is true", () => {
-  const { lastFrame } = render(
-    <EventLog
-      planCollapsed
-      contentBlocks={makeBlocks([
-        { type: "plan", steps: [{ file: "a.ts", action: "create" }, { file: "b.ts", action: "edit" }] },
-      ])}
-    />,
-  );
-  const frame = lastFrame() ?? "";
-  expect(frame).toContain("plan");
-  expect(frame).not.toContain("1. a.ts — create");
-  expect(frame).not.toContain("2. b.ts — edit");
+  expect(frame).toContain("> go");
+  expect(frame).not.toContain("src/a.ts");
 });

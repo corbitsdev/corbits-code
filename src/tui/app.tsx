@@ -7,9 +7,11 @@ import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
+import { ContextPanel } from "./components/context-panel.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import { OperatorModal } from "./components/operator-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
+import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import type { Mode } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import type { CommandResult } from "./commands/registry.js";
@@ -52,7 +54,8 @@ export function App({
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const { exit } = useApp();
-  const [planCollapsed, setPlanCollapsed] = useState(false);
+  const { columns, rows } = useTerminalSize();
+  const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [model, setModel] = useState<string>(initialModel);
@@ -77,33 +80,31 @@ export function App({
       }
       pendingResolveRef.current = resolve;
       setPendingPlan(plan);
+      state.setGatePending(true);
     };
     eventEmitter.on("plan.gate", handler);
     return () => {
       eventEmitter.off("plan.gate", handler);
     };
-  }, [eventEmitter]);
+  }, [eventEmitter, state]);
 
   useEffect(() => {
     const handler = ({ question, options, resolve }: OperatorGateEvent) => {
       pendingOperatorResolveRef.current = resolve;
       setPendingOperator({ question, options });
+      state.setGatePending(true);
     };
     eventEmitter.on("operator.gate", handler);
     return () => {
       eventEmitter.off("operator.gate", handler);
     };
-  }, [eventEmitter]);
+  }, [eventEmitter, state]);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
       if (pendingPlan === null && pendingOperator === null) {
         exit();
       }
-      return;
-    }
-    if (key.ctrl && input === "o") {
-      setPlanCollapsed((c) => !c);
       return;
     }
     if (key.ctrl && input === "h") {
@@ -145,6 +146,7 @@ export function App({
     const resolve = pendingResolveRef.current;
     pendingResolveRef.current = null;
     setPendingPlan(null);
+    state.setGatePending(false);
     resolve?.(true);
   };
 
@@ -152,6 +154,7 @@ export function App({
     const resolve = pendingResolveRef.current;
     pendingResolveRef.current = null;
     setPendingPlan(null);
+    state.setGatePending(false);
     resolve?.(false);
   };
 
@@ -159,21 +162,44 @@ export function App({
     const resolve = pendingOperatorResolveRef.current;
     pendingOperatorResolveRef.current = null;
     setPendingOperator(null);
+    state.setGatePending(false);
     resolve?.(index);
   };
 
+  const planSteps = useMemo(() => {
+    const block = state.contentBlocks.find((b) => b.type === "plan");
+    return block?.type === "plan" ? block.steps : [];
+  }, [state.contentBlocks]);
+
+  const leftWidth = Math.floor(columns * 0.65);
+  const rightWidth = columns - leftWidth;
+
   return (
-    <Box flexDirection="column" height="100%">
-      <Header
-        turnsUsed={state.turnsUsed}
-        status={state.status}
-        totalCost={state.formattedCost}
-        sessionTitle={sessionTitle}
-        latestUserMessage={state.latestUserMessage}
-        mode={mode}
-      />
-      <Box flexGrow={1} flexDirection="column">
-        <EventLog contentBlocks={state.contentBlocks} planCollapsed={planCollapsed} />
+    <Box flexDirection="column" height={rows}>
+      <Box flexShrink={0} flexDirection="column">
+        <Header
+          turnsUsed={state.turnsUsed}
+          status={state.status}
+          totalCost={state.formattedCost}
+          sessionTitle={sessionTitle}
+          latestUserMessage={state.latestUserMessage}
+          mode={mode}
+          width={columns}
+        />
+      </Box>
+      <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
+        <Box width={leftWidth} flexDirection="column" overflow="hidden">
+          <EventLog contentBlocks={state.contentBlocks} />
+        </Box>
+        <Box width={rightWidth} flexDirection="column" overflow="hidden">
+          <ContextPanel
+            view="plan"
+            steps={planSteps}
+            currentPlanStep={state.currentPlanStep}
+            planDeviated={state.planDeviated}
+            width={rightWidth}
+          />
+        </Box>
       </Box>
       {hookPanelOpen ? (
         <HookPanel hooks={state.hooks} />
@@ -193,8 +219,27 @@ export function App({
           <Text color="cyan">{commandMessage}</Text>
         </Box>
       )}
-      <ChatInput onSubmit={handleSend} onCommand={handleCommand} commandContext={commandContext} />
-      <StatusBar />
+      <Box flexShrink={0} flexDirection="column">
+        <ChatInput
+          onSubmit={handleSend}
+          onCommand={handleCommand}
+          commandContext={commandContext}
+          value={inputValue}
+          onChange={setInputValue}
+        />
+        <StatusBar
+          model={model}
+          mode={mode}
+          planStep={state.currentPlanStep}
+          planTotal={state.planTotal}
+          planPending={pendingPlan !== null}
+          planDeviated={state.planDeviated}
+          cost={state.formattedCost}
+          tokens={state.totalTokens}
+          elapsedMs={state.elapsedMs}
+          status={state.status}
+        />
+      </Box>
     </Box>
   );
 }

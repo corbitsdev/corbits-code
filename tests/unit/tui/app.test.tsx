@@ -28,7 +28,7 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
 test("App renders header and status bar", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = renderApp(emitter);
-  expect(lastFrame()).toContain("interchange-code");
+  expect(lastFrame()).toContain("Intercode");
   expect(lastFrame()).toContain("Ctrl+C");
 });
 
@@ -40,23 +40,23 @@ test("App renders chat input", () => {
 
 test("App renders events after they are emitted", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = renderApp(emitter);
+  const { lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
 
   const event: ReactorEmittedEvent = {
     type: "inference.tool_call.start",
     seq: 1,
-    data: { name: "read_file" } as unknown as ReactorEmittedEvent["data"],
+    data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"],
   };
 
   emitter.emit("event", event);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await new Promise((resolve) => setTimeout(resolve, 50));
   expect(lastFrame()).toContain("read_file");
 });
 
 test("App renders running status initially", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = renderApp(emitter);
-  expect(lastFrame()).toContain("running");
+  expect(lastFrame()).toContain("Running");
 });
 
 test("App keeps header and footer visible after many events", async () => {
@@ -82,7 +82,7 @@ test("App keeps header and footer visible after many events", async () => {
   }
 
   await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(lastFrame()).toContain("interchange-code");
+  expect(lastFrame()).toContain("Intercode");
   expect(lastFrame()).toContain("scroll test");
   expect(lastFrame()).toContain("> ");
   expect(lastFrame()).toContain("Ctrl+C");

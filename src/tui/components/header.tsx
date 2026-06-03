@@ -1,55 +1,86 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { Mode } from "../../config.js";
+import type { AgentStatus } from "../use-stream.js";
+import { color } from "../theme.js";
 
 export type HeaderProps = {
   turnsUsed: number;
-  status: "running" | "done" | "failed";
+  status: AgentStatus;
   totalCost: string;
   sessionTitle: string;
   latestUserMessage: string;
   mode: Mode;
+  width: number;
 };
 
-function statusColor(status: "running" | "done" | "failed"): string {
+const TITLE = "Intercode";
+const STATUS_CELL = 8;
+const COST_CELL = 10;
+
+function statusLabel(status: AgentStatus): string {
   switch (status) {
     case "running":
-      return "yellow";
+      return "Running";
     case "done":
-      return "green";
+      return "Done";
+    case "blocked":
+      return "Blocked";
     case "failed":
-      return "red";
-    default:
-      return "white";
+      return "Failed";
   }
 }
 
-const TITLE_MAX = 48;
-const PROMPT_MAX = 80;
-
-function truncate(s: string, max: number): string {
-  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+function statusColor(status: AgentStatus): string {
+  switch (status) {
+    case "running":
+      return color("warning");
+    case "done":
+      return color("success");
+    case "blocked":
+      return color("accent");
+    case "failed":
+      return color("danger");
+  }
 }
 
-export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage, mode }: HeaderProps): ReactNode {
+function truncate(s: string, max: number): string {
+  if (max <= 1) return s.slice(0, Math.max(0, max));
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+function pad(s: string, cell: number): string {
+  return s.length >= cell ? s : s + " ".repeat(cell - s.length);
+}
+
+export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage, mode, width }: HeaderProps): ReactNode {
+  const showCwd = width >= 80;
+  const showTurns = width >= 120;
+  const modeLabel = mode === "manager" ? "Manager" : "Teammate";
+  const cwd = process.cwd();
+  const cwdMax = Math.max(12, Math.floor(width * 0.35));
+
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
       <Box flexDirection="row" justifyContent="space-between">
         <Box flexDirection="row" gap={1}>
-          <Text bold color="cyan">interchange-code</Text>
+          <Text bold color={color("brand")}>{TITLE}</Text>
           {sessionTitle.length > 0 && (
-            <Text dimColor>— {truncate(sessionTitle, TITLE_MAX)}</Text>
+            <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>
           )}
         </Box>
         <Box flexDirection="row" gap={2}>
-          <Text color={mode === "manager" ? "magenta" : "blue"}>{mode === "manager" ? "Manager" : "Teammate"}</Text>
-          <Text color={statusColor(status)}>{status}</Text>
-          <Text dimColor>{turnsUsed} turns</Text>
-          <Text color="green">{totalCost}</Text>
+          <Text color={mode === "manager" ? color("brand") : color("accent")}>{modeLabel}</Text>
+          <Text color={statusColor(status)}>{pad(statusLabel(status), STATUS_CELL)}</Text>
+          {showTurns && <Text color={color("muted")}>{turnsUsed} turns</Text>}
+          <Text color={color("success")}>{pad(totalCost, COST_CELL)}</Text>
         </Box>
       </Box>
+      {showCwd && (
+        <Text color={color("muted")}>{truncate(cwd, cwdMax)}</Text>
+      )}
       {latestUserMessage.length > 0 && (
-        <Text dimColor>▸ {truncate(latestUserMessage, PROMPT_MAX)}</Text>
+        <Text color={color("muted")}>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
       )}
     </Box>
   );
