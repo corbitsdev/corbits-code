@@ -9,14 +9,19 @@ export type PermissionModalProps = {
   onResolve: (outcome: ApprovalOutcome) => void;
 };
 
-type Choice = { label: string; outcome: ApprovalOutcome };
+type Choice = { label: string; hint: string; outcome: ApprovalOutcome };
 
 function buildChoices(request: PermissionRequest): Choice[] {
-  const choices: Choice[] = [{ label: "Allow once", outcome: { allow: true } }];
-  for (const scope of request.scopes) {
-    choices.push({ label: scope.label, outcome: { allow: true, persist: scope } });
+  const always = request.scopes[0];
+  const choices: Choice[] = [{ label: "Allow Once", hint: "just this time", outcome: { allow: true } }];
+  if (always !== undefined && always.pattern !== null) {
+    choices.push({
+      label: "Allow Always",
+      hint: always.pattern,
+      outcome: { allow: true, persist: always },
+    });
   }
-  choices.push({ label: "Reject", outcome: { allow: false } });
+  choices.push({ label: "Reject", hint: "do not run", outcome: { allow: false } });
   return choices;
 }
 
@@ -61,18 +66,22 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
         {choices.map((choice, i) => {
           const isReject = choice.outcome.allow === false;
           const tone = isReject ? color("danger") : color("success");
+          const active = i === selected;
           return (
-            <Box key={i} flexDirection="row" gap={1}>
-              <Text color={i === selected ? color("brand") : color("muted")} bold={i === selected}>
-                {i === selected ? "›" : " "}
+            <Text key={i}>
+              <Text color={active ? color("brand") : color("muted")} bold={active}>
+                {active ? "› " : "  "}
               </Text>
-              <Text color={i === selected ? tone : color("muted")}>{choice.label}</Text>
-            </Box>
+              <Text color={active ? tone : color("text")} bold={active}>
+                {choice.label}
+              </Text>
+              <Text color={color("muted")}>  ({choice.hint})</Text>
+            </Text>
           );
         })}
       </Box>
       <Box marginTop={1}>
-        <Text color={color("muted")}>↑↓ to navigate, Enter to choose, Esc to reject</Text>
+        <Text color={color("muted")}>↑↓ navigate · Enter choose · Esc reject</Text>
       </Box>
     </Box>
   );

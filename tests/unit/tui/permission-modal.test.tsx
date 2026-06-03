@@ -15,13 +15,13 @@ const request: PermissionRequest = {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-test("PermissionModal shows the action, subject and scope ladder", () => {
+test("PermissionModal shows three clear choices: allow once, allow always, reject", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
   expect(frame).toContain("Approval needed");
   expect(frame).toContain("npm test");
-  expect(frame).toContain("Allow once");
-  expect(frame).toContain("Always allow npm *");
+  expect(frame).toContain("Allow Once");
+  expect(frame).toContain("Allow Always");
   expect(frame).toContain("Reject");
 });
 
