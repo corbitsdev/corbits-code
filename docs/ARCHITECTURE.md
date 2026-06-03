@@ -13,13 +13,13 @@ The system is an event-driven agent loop with a custom reactor director. The CLI
 - Dispatches to `runAgent` (headless) or `runTUI` (default)
 - Handles resume by loading previous `RunState` + `DirectorPersistedState` and re-running with the prior task
 
-### Config Resolution (`src/config.ts`)
+### Config Resolution (`src/config.ts`, `src/settings.ts`)
 
-- Reads required env vars: `OPENAI_COMPATIBLE_API_KEY`, `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_MODEL`, `OPENAI_COMPATIBLE_PROVIDER_NAME`
-- Parses flags: `--cwd`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`
-- Collects positional arguments as the task description
-
-> Planned (CL-927): provider/model resolution moves to layered settings files (`--config <path>` / CLI flags > per-repo `.interchange/settings.json` > global `~/.interchange/settings.json`), resolving down to the same provider fields the runtime consumes. Env vars become a demoted override.
+- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > `OPENAI_COMPATIBLE_*` env > per-repo `.interchange/settings.json` (selection only) > global `~/.interchange/settings.json`.
+- `--config <path>` replaces the global settings file as the provider source (the eval harness's per-run injection seam). With no settings file, credentials come entirely from env, preserving the original `.env` workflow.
+- `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
+- `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.
+- Both settings files are on the secret-guard denylist, so the agent cannot read its own credentials.
 
 ### Agent Runner (`src/run-agent.ts`)
 

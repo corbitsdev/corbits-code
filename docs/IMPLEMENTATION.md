@@ -114,18 +114,50 @@ docs/
 
 ## Configuration
 
-### Environment Variables
+### Settings Files (`src/settings.ts`)
 
-| Variable | Required | Description |
-|---|---|---|
-| `OPENAI_COMPATIBLE_API_KEY` | Yes | API key for inference provider |
-| `OPENAI_COMPATIBLE_BASE_URL` | Yes | Provider base URL (e.g. `https://api.x.ai/v1`) |
-| `OPENAI_COMPATIBLE_MODEL` | Yes | Model identifier |
-| `OPENAI_COMPATIBLE_PROVIDER_NAME` | Yes | Provider name (e.g. `xai`) |
+Provider and model configuration lives in JSON settings files. The global file holds providers and credentials; the per-repo file selects among them and must not contain credentials.
 
-`.env` in the project root is auto-loaded by `index.ts` (existing env vars are not overwritten).
+- Global: `~/.interchange/settings.json`
 
-> Planned (CL-927): these move into `~/.interchange/settings.json` (global, holds providers + credentials) and a selection-only per-repo `.interchange/settings.json`, overridable by `--config <path>` / `--provider` / `--model`. Both settings files will be added to the secret-guard denylist so the agent cannot read its own credentials.
+  ```json
+  {
+    "defaultProvider": "firepass",
+    "providers": {
+      "firepass": {
+        "baseURL": "https://firepass.example/v1",
+        "apiKey": "sk-...",
+        "models": ["fp-large", "fp-small"],
+        "defaultModel": "fp-large"
+      }
+    }
+  }
+  ```
+
+  `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
+
+- Per-repo: `.interchange/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+
+### Resolution Precedence
+
+`loadConfig` resolves the active provider down to `{ apiKey, baseURL, model, providerName }` (the same struct the runtime consumes). Per field, highest wins:
+
+- providerName: `--provider` > `OPENAI_COMPATIBLE_PROVIDER_NAME` > local file > `defaultProvider` > sole provider
+- model: `--model` > `OPENAI_COMPATIBLE_MODEL` > local file > provider `defaultModel` > first model
+- baseURL / apiKey: `OPENAI_COMPATIBLE_BASE_URL` / `OPENAI_COMPATIBLE_API_KEY` > selected provider
+
+`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
+
+### Environment Variables (override)
+
+| Variable | Description |
+|---|---|
+| `OPENAI_COMPATIBLE_API_KEY` | Overrides the resolved API key |
+| `OPENAI_COMPATIBLE_BASE_URL` | Overrides the resolved base URL |
+| `OPENAI_COMPATIBLE_MODEL` | Overrides the resolved model |
+| `OPENAI_COMPATIBLE_PROVIDER_NAME` | Overrides the resolved provider name |
+
+`.env` in the project root is auto-loaded by `index.ts` (existing env vars are not overwritten). Env vars are no longer required when a settings file is present.
 
 ### CLI Verbs and Flags
 
@@ -134,6 +166,9 @@ docs/
 | `run` (optional) | — | Run a task (default verb) |
 | `resume` | — | Resume the last run in the working directory |
 | `--cwd <dir>` | `process.cwd()` | Working directory |
+| `--config <path>` | `~/.interchange/settings.json` | Settings file to use |
+| `--provider <name>` | from settings | Select a configured provider |
+| `--model <id>` | provider default | Select a model for the active provider |
 | `--headless`, `-h` | false | Headless CLI mode (default is the TUI) |
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
