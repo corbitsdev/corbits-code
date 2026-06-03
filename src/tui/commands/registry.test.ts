@@ -8,6 +8,8 @@ import type { CommandContext } from "./registry.js";
 const ctx: CommandContext = {
   getModel: () => "test-model",
   setModel: () => {},
+  getVerbose: () => false,
+  toggleVerbose: () => false,
 };
 
 describe("command registry", () => {

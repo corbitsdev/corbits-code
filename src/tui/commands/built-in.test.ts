@@ -3,12 +3,15 @@ import "./built-in.js";
 import { getCommand, listCommands } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
-const makeCtx = (model = "gpt-4o"): CommandContext & { current: string } => {
-  const state = { current: model };
+const makeCtx = (model = "gpt-4o"): CommandContext & { current: string; verbose: boolean } => {
+  const state = { current: model, verbose: false };
   return {
     current: state.current,
+    verbose: state.verbose,
     getModel: () => state.current,
     setModel: (m) => { state.current = m; },
+    getVerbose: () => state.verbose,
+    toggleVerbose: () => { state.verbose = !state.verbose; return state.verbose; },
   };
 };
 
@@ -36,6 +39,22 @@ describe("/help command", () => {
         expect(result.text).toContain(`/${cmd.name}`);
       }
     }
+  });
+});
+
+describe("/verbose command", () => {
+  it("is registered", () => {
+    expect(getCommand("verbose")).toBeDefined();
+  });
+
+  it("toggles verbose state and reports it", () => {
+    const ctx = makeCtx();
+    const on = getCommand("verbose")!.handler("", ctx);
+    expect(ctx.getVerbose()).toBe(true);
+    if (on.type === "message") expect(on.text).toContain("on");
+    const off = getCommand("verbose")!.handler("", ctx);
+    expect(ctx.getVerbose()).toBe(false);
+    if (off.type === "message") expect(off.text).toContain("off");
   });
 });
 

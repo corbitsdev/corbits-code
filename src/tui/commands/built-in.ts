@@ -11,6 +11,15 @@ registerCommand({
 });
 
 registerCommand({
+  name: "verbose",
+  description: "Toggle full tool argument and result output",
+  handler: (_args, ctx) => {
+    const enabled = ctx.toggleVerbose();
+    return { type: "message", text: `Verbose mode ${enabled ? "on" : "off"}` };
+  },
+});
+
+registerCommand({
   name: "model",
   description: "Show or set the active model (e.g. /model gpt-4o)",
   handler: (args, ctx) => {
