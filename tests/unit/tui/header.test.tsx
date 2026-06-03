@@ -11,7 +11,6 @@ function renderHeader(props: Partial<HeaderProps> = {}) {
       totalCost={props.totalCost ?? "$0.0000"}
       sessionTitle={props.sessionTitle ?? ""}
       latestUserMessage={props.latestUserMessage ?? ""}
-      mode={props.mode ?? "teammate"}
       width={props.width ?? 160}
     />,
   );

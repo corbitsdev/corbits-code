@@ -8,7 +8,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+D", description: "Toggle diff / plan panel" },
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
   { keys: "↑ / ↓", description: "Scroll active pane" },
-  { keys: "Shift+Tab", description: "Switch mode" },
   { keys: "ESC", description: "Back / close overlay" },
   { keys: "ESC ESC", description: "Clear prompt" },
 ];
@@ -21,4 +20,4 @@ export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/verbose", description: "Toggle full tool output" },
 ];
 
-export const STATUS_HINT = "Ctrl+C exit · Ctrl+H hooks · Ctrl+D diff · Ctrl+G help · Shift+Tab mode";
+export const STATUS_HINT = "Ctrl+C exit · Ctrl+H hooks · Ctrl+D diff · Ctrl+G help";

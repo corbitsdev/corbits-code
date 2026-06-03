@@ -5,10 +5,9 @@ import { useInput } from "ink";
 import { EventEmitter } from "node:events";
 import type { ReactNode } from "react";
 import { useGates, type PlanGateEvent, type OperatorGateEvent } from "../../../src/tui/hooks/use-gates.js";
-import type { Mode } from "../../../src/config.js";
 
-function Harness({ emitter, mode, onGate }: { emitter: EventEmitter; mode: Mode; onGate: (pending: boolean) => void }): ReactNode {
-  const gates = useGates({ eventEmitter: emitter, mode, setGatePending: onGate });
+function Harness({ emitter, onGate }: { emitter: EventEmitter; onGate: (pending: boolean) => void }): ReactNode {
+  const gates = useGates({ eventEmitter: emitter, setGatePending: onGate });
   useInput((input) => {
     if (input === "a") gates.approve();
     if (input === "r") gates.reject();
@@ -21,26 +20,12 @@ function Harness({ emitter, mode, onGate }: { emitter: EventEmitter; mode: Mode;
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-test("teammate mode auto-approves the plan gate without surfacing it", async () => {
-  const emitter = new EventEmitter();
-  let resolved: boolean | null = null;
-  const { lastFrame } = render(<Harness emitter={emitter} mode="teammate" onGate={() => {}} />);
-  await tick();
-
-  const event: PlanGateEvent = { plan: [{ file: "a.ts", action: "x" }], resolve: (v) => { resolved = v; } };
-  emitter.emit("plan.gate", event);
-  await tick();
-
-  expect(resolved).toBe(true);
-  expect(lastFrame()).toContain("none none open=0");
-});
-
-test("manager mode surfaces the plan gate and resolves on approve", async () => {
+test("the plan gate surfaces for approval and resolves on approve", async () => {
   const emitter = new EventEmitter();
   let resolved: boolean | null = null;
   const gateCalls: boolean[] = [];
   const { lastFrame, stdin } = render(
-    <Harness emitter={emitter} mode="manager" onGate={(p) => gateCalls.push(p)} />,
+    <Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />,
   );
   await tick();
 
@@ -58,10 +43,10 @@ test("manager mode surfaces the plan gate and resolves on approve", async () => 
   expect(gateCalls).toEqual([true, false]);
 });
 
-test("manager mode resolves false on reject", async () => {
+test("the plan gate resolves false on reject", async () => {
   const emitter = new EventEmitter();
   let resolved: boolean | null = null;
-  const { stdin } = render(<Harness emitter={emitter} mode="manager" onGate={() => {}} />);
+  const { stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
   await tick();
   emitter.emit("plan.gate", { plan: [], resolve: (v: boolean) => { resolved = v; } } satisfies PlanGateEvent);
   await tick();
@@ -73,7 +58,7 @@ test("manager mode resolves false on reject", async () => {
 test("operator gate surfaces and resolves the selected index", async () => {
   const emitter = new EventEmitter();
   let chosen: number | null = null;
-  const { lastFrame, stdin } = render(<Harness emitter={emitter} mode="teammate" onGate={() => {}} />);
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
   await tick();
 
   const event: OperatorGateEvent = {

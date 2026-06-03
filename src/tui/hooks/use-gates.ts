@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { EventEmitter } from "node:events";
-import type { Mode } from "../../config.js";
 import type { PlanStep } from "../use-stream.js";
 
 export type PlanGateEvent = {
@@ -27,24 +26,17 @@ export type GateController = {
 
 export type UseGatesArgs = {
   eventEmitter: EventEmitter;
-  mode: Mode;
   setGatePending: (pending: boolean) => void;
 };
 
-export function useGates({ eventEmitter, mode, setGatePending }: UseGatesArgs): GateController {
+export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateController {
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const [pendingOperator, setPendingOperator] = useState<PendingOperator | null>(null);
   const planResolveRef = useRef<((approved: boolean) => void) | null>(null);
   const operatorResolveRef = useRef<((index: number) => void) | null>(null);
-  const modeRef = useRef<Mode>(mode);
-  modeRef.current = mode;
 
   useEffect(() => {
     const handler = ({ plan, resolve }: PlanGateEvent) => {
-      if (modeRef.current === "teammate") {
-        resolve(true);
-        return;
-      }
       planResolveRef.current = resolve;
       setPendingPlan(plan);
       setGatePending(true);

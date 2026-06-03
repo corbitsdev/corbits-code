@@ -23,7 +23,6 @@ export type KeymapActions = {
   scrollDown: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
-  toggleMode: () => void;
   toggleContextView: () => void;
   toggleHelp: () => void;
 };
@@ -95,9 +94,6 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
     if (key.ctrl && input === "g") {
       actions.toggleHelp();
       return;
-    }
-    if (key.tab && key.shift) {
-      actions.toggleMode();
     }
   });
 }

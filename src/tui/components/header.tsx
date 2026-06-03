@@ -1,6 +1,5 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
-import type { Mode } from "../../config.js";
 import type { AgentStatus } from "../use-stream.js";
 import { color } from "../theme.js";
 
@@ -10,7 +9,6 @@ export type HeaderProps = {
   totalCost: string;
   sessionTitle: string;
   latestUserMessage: string;
-  mode: Mode;
   width: number;
 };
 
@@ -53,10 +51,9 @@ function pad(s: string, cell: number): string {
   return s.length >= cell ? s : s + " ".repeat(cell - s.length);
 }
 
-export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage, mode, width }: HeaderProps): ReactNode {
+export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserMessage, width }: HeaderProps): ReactNode {
   const showCwd = width >= 80;
   const showTurns = width >= 120;
-  const modeLabel = mode === "manager" ? "Manager" : "Teammate";
   const cwd = process.cwd();
   const cwdMax = Math.max(12, Math.floor(width * 0.35));
 
@@ -70,7 +67,6 @@ export function Header({ turnsUsed, status, totalCost, sessionTitle, latestUserM
           )}
         </Box>
         <Box flexDirection="row" gap={2}>
-          <Text color={mode === "manager" ? color("brand") : color("accent")}>{modeLabel}</Text>
           <Text color={statusColor(status)}>{pad(statusLabel(status), STATUS_CELL)}</Text>
           {showTurns && <Text color={color("muted")}>{turnsUsed} turns</Text>}
           <Text color={color("success")}>{pad(totalCost, COST_CELL)}</Text>

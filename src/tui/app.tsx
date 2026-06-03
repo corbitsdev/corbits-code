@@ -18,7 +18,6 @@ import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
 import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
-import type { Mode } from "../config.js";
 import type { CommandResult } from "./commands/registry.js";
 import type { LifecycleHookStatus } from "../hooks.js";
 import "./commands/built-in.js";
@@ -27,10 +26,8 @@ export type AppProps = {
   eventEmitter: EventEmitter;
   agent: Agent;
   sessionTitle: string;
-  initialMode: Mode;
   initialModel: string;
   initialHooks?: LifecycleHookStatus[];
-  onModeChange: (mode: Mode) => void;
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
 };
@@ -39,10 +36,8 @@ export function App({
   eventEmitter,
   agent,
   sessionTitle,
-  initialMode,
   initialModel,
   initialHooks = [],
-  onModeChange,
   onToggleHook,
   onAgentError,
 }: AppProps): ReactNode {
@@ -58,11 +53,10 @@ export function App({
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("plan");
   const [diffScroll, setDiffScroll] = useState(0);
-  const [mode, setMode] = useState<Mode>(initialMode);
   const [model, setModel] = useState<string>(initialModel);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
 
-  const gates = useGates({ eventEmitter, mode, setGatePending: state.setGatePending });
+  const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
   const commandContext = useMemo(() => ({
     getModel: () => model,
@@ -155,11 +149,6 @@ export function App({
           });
         }
       },
-      toggleMode: () => {
-        const next: Mode = mode === "manager" ? "teammate" : "manager";
-        setMode(next);
-        onModeChange(next);
-      },
       toggleContextView: () => {
         setDiffScroll(0);
         setContextView((v) => (v === "plan" ? "diff" : "plan"));
@@ -199,7 +188,6 @@ export function App({
           totalCost={state.formattedCost}
           sessionTitle={sessionTitle}
           latestUserMessage={state.latestUserMessage}
-          mode={mode}
           width={columns}
         />
       </Box>
@@ -261,7 +249,6 @@ export function App({
         />
         <StatusBar
           model={model}
-          mode={mode}
           planStep={state.currentPlanStep}
           planTotal={state.planTotal}
           planPending={gates.pendingPlan !== null}

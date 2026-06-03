@@ -1,12 +1,10 @@
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
 import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPosixTools } from "@intx/tools-posix";
-import type { Config, Mode } from "../config.js";
+import type { Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import { askOperatorDefinition, createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
@@ -36,27 +34,6 @@ export function getTUIRunSummaryStatus(
   if (runError !== undefined) return "failed";
   if (runCompleted) return "done";
   return "cancelled";
-}
-
-function saveMode(mode: Mode): void {
-  const dir = join(homedir(), ".interchange");
-  const configPath = join(dir, "config.json");
-  let existing: Record<string, unknown> = {};
-  try {
-    const raw = readFileSync(configPath, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) {
-      existing = parsed as Record<string, unknown>;
-    }
-  } catch {
-    // file absent — start fresh
-  }
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(configPath, JSON.stringify({ ...existing, mode }, null, 2));
-  } catch {
-    // best-effort — non-fatal if write fails
-  }
 }
 
 export async function runTUI(config: Config): Promise<number> {
@@ -95,8 +72,8 @@ export async function runTUI(config: Config): Promise<number> {
     askOperatorDefinition,
   ];
 
-  // Always wire the gate; the App's modeRef auto-approves when in teammate mode.
-  // This lets mid-task toggle to manager take effect on subsequent plans.
+  // Wire the gate so every submitted plan is surfaced to the operator for
+  // explicit approval before the agent proceeds.
   const director = createChatDirector(
     buildChatSystemPrompt(),
     allDefinitions,
@@ -169,10 +146,8 @@ export async function runTUI(config: Config): Promise<number> {
       eventEmitter={emitter}
       agent={agent}
       sessionTitle={config.task}
-      initialMode={config.mode}
       initialModel={config.model}
       initialHooks={hookManager.getStatuses()}
-      onModeChange={saveMode}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
     />,

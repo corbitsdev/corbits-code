@@ -1,13 +1,11 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
-import type { Mode } from "../../config.js";
 import type { AgentStatus } from "../use-stream.js";
 import { color } from "../theme.js";
 import { STATUS_HINT } from "../keymap-table.js";
 
 export type StatusBarProps = {
   model: string;
-  mode: Mode;
   planStep: number | null;
   planTotal: number;
   planPending: boolean;
@@ -64,7 +62,6 @@ function Divider(): ReactNode {
 
 export function StatusBar({
   model,
-  mode,
   planStep,
   planTotal,
   planPending,
@@ -74,13 +71,10 @@ export function StatusBar({
   elapsedMs,
   status,
 }: StatusBarProps): ReactNode {
-  const modeLabel = mode === "manager" ? "Manager" : "Teammate";
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
         <Text color={color("accent")}>{model}</Text>
-        <Divider />
-        <Text color={color("muted")}>{modeLabel}</Text>
         <Divider />
         <Text color={planDeviated ? color("danger") : color("text")}>
           {formatPlan(planStep, planTotal, planPending, planDeviated)}

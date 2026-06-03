@@ -17,9 +17,7 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
       eventEmitter={emitter}
       agent={mockAgent as unknown as Agent}
       sessionTitle=""
-      initialMode="teammate"
       initialModel="test-model"
-      onModeChange={() => {}}
     />,
     options,
   );
@@ -121,9 +119,7 @@ test("App keeps header and footer visible after many events", async () => {
       eventEmitter={emitter}
       agent={mockAgent as unknown as Agent}
       sessionTitle="scroll test"
-      initialMode="teammate"
       initialModel="test-model"
-      onModeChange={() => {}}
     />,
     { stdout: { columns: 100, rows: 12 } },
   );

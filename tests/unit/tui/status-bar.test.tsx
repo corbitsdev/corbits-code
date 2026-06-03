@@ -7,7 +7,6 @@ function renderBar(props: Partial<StatusBarProps> = {}) {
   return render(
     <StatusBar
       model={props.model ?? "test-model"}
-      mode={props.mode ?? "teammate"}
       planStep={props.planStep ?? null}
       planTotal={props.planTotal ?? 0}
       planPending={props.planPending ?? false}
