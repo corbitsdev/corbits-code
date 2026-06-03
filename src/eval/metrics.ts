@@ -46,30 +46,32 @@ function median(values: number[]): number {
 }
 
 // Collapse N runs of the same (task, variant) into one representative result so
-// LLM run-to-run variance does not swamp the comparison. Numeric fields take the
-// median; `passed` takes the majority; cost stays "unknown" if any run was
-// unknown (so an unpriced model never looks priced).
+// LLM run-to-run variance does not swamp the comparison.
+//
+// To keep the reported fields internally consistent (so the token breakdown
+// can't disagree with the headline token total), we pick a single representative
+// run — the one whose turn count is the median — and report its per-run fields
+// (turns, tool calls + histogram, tokens, wall-clock). Only the cross-run
+// verdicts are recomputed: `passed`/`completedCleanly` by majority, and cost
+// stays "unknown" if ANY run was unpriced so an unpriced model never looks
+// priced.
 export function medianMetrics(runs: RunMetrics[]): RunMetrics {
   if (runs.length === 0) throw new Error("medianMetrics requires at least one run");
-  const first = runs[0]!;
-  const passes = runs.filter((r) => r.passed).length;
-  const anyUnknownCost = runs.some((r) => !r.cost.known);
-  const knownCosts = runs.filter((r) => r.cost.usd !== null).map((r) => r.cost.usd!);
+  const medianTurns = median(runs.map((r) => r.turns));
+  // The run closest to the median turn count is the representative.
+  const representative = [...runs].sort(
+    (a, b) => Math.abs(a.turns - medianTurns) - Math.abs(b.turns - medianTurns),
+  )[0]!;
+
+  const majority = (predicate: (r: RunMetrics) => boolean): boolean =>
+    runs.filter(predicate).length * 2 >= runs.length;
 
   return {
-    task: first.task,
-    variant: first.variant,
-    turns: median(runs.map((r) => r.turns)),
-    toolCalls: median(runs.map((r) => r.toolCalls)),
-    // Tool-type histogram is taken from the median-turns run for readability
-    // rather than averaging fractional counts across runs.
-    toolCallsByType: first.toolCallsByType,
-    tokens: first.tokens,
-    totalTokens: median(runs.map((r) => r.totalTokens)),
-    cost: anyUnknownCost
+    ...representative,
+    cost: runs.some((r) => !r.cost.known)
       ? { known: false, usd: null }
-      : { known: true, usd: median(knownCosts) },
-    wallClockMs: median(runs.map((r) => r.wallClockMs)),
-    passed: passes * 2 >= runs.length,
+      : representative.cost,
+    passed: majority((r) => r.passed),
+    completedCleanly: majority((r) => r.completedCleanly),
   };
 }

@@ -47,6 +47,7 @@ export function formatReport(
       continue;
     }
     row(ma.task, "pass", ma.passed ? "yes" : "no", mb.passed ? "yes" : "no");
+    row("", "clean run", ma.completedCleanly ? "yes" : "no", mb.completedCleanly ? "yes" : "no");
     row("", "turns", String(ma.turns), String(mb.turns));
     row("", "tool calls", String(ma.toolCalls), String(mb.toolCalls));
     row("", "tokens", String(ma.totalTokens), String(mb.totalTokens));

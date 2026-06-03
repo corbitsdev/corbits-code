@@ -16,13 +16,17 @@ const VERIFY_TIMEOUT_MS = 300_000;
 // which cd's into its sibling repo/ — grades the modified copy, not the pristine
 // original.
 async function runVerify(taskCopyDir: string): Promise<boolean> {
+  // stdout/stderr are "ignore": the harness does not read them, and leaving them
+  // as unread pipes risks the child deadlocking once the OS pipe buffer fills on
+  // a verbose grader.
   const proc = Bun.spawn(["bash", "verify.sh"], {
     cwd: taskCopyDir,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdout: "ignore",
+    stderr: "ignore",
   });
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<number>((resolve) => {
-    setTimeout(() => {
+    timer = setTimeout(() => {
       try {
         proc.kill();
       } catch {
@@ -31,8 +35,12 @@ async function runVerify(taskCopyDir: string): Promise<boolean> {
       resolve(-1);
     }, VERIFY_TIMEOUT_MS);
   });
-  const exitCode = await Promise.race([proc.exited, timeout]);
-  return exitCode === 0;
+  try {
+    const exitCode = await Promise.race([proc.exited, timeout]);
+    return exitCode === 0;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 // Run one task under one variant, once, in an isolated temp copy. Captures the
@@ -61,16 +69,25 @@ export async function runTaskOnce(
     const config = await loadConfig(argv);
     const collector = createTurnContextCollector(() => {});
 
+    // Wall-clock spans the whole headless run INCLUDING runAgent's post-run
+    // critique gate (build/typecheck/test), not just agent inference. For these
+    // small task repos that is mostly the test run; treat wall-clock as
+    // end-to-end run latency, not pure model latency.
     const startedAt = Date.now();
     let crashed = false;
+    let exitCode = 1;
     try {
-      await runAgent(config, startedAt, undefined, (event) => collector.observe(event));
+      exitCode = await runAgent(config, startedAt, undefined, (event) => collector.observe(event));
     } catch {
       // A thrown run (e.g. inference error) still counts — it simply fails
       // verify. Metrics gathered so far remain meaningful.
       crashed = true;
     }
     const wallClockMs = Date.now() - startedAt;
+    // The runtime's own verdict on the run (0 = clean: agent finished and its
+    // critique passed). Distinct from `passed`, which is verify.sh's objective
+    // grade — a run can finish cleanly yet still fail the task's own tests.
+    const completedCleanly = !crashed && exitCode === 0;
 
     const passed = crashed ? false : await runVerify(workDir);
 
@@ -90,6 +107,7 @@ export async function runTaskOnce(
       cost: computeCost(tokens, config.model, pricingCache, variant.priceOverride),
       wallClockMs,
       passed,
+      completedCleanly,
     };
   } finally {
     await rm(workDir, { recursive: true, force: true });

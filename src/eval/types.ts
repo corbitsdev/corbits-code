@@ -53,5 +53,9 @@ export type RunMetrics = {
   totalTokens: number;
   cost: Cost;
   wallClockMs: number;
+  // verify.sh's objective grade.
   passed: boolean;
+  // The runtime's own verdict: agent finished and its post-run critique passed.
+  // Distinct from `passed` — a clean run can still fail the task's tests.
+  completedCleanly: boolean;
 };

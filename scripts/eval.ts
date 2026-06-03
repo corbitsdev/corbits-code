@@ -22,11 +22,10 @@ function flag(args: string[], name: string): string | undefined {
   return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
 }
 
-async function discoverTasks(filter?: string[]): Promise<EvalTask[]> {
+async function discoverTasks(): Promise<EvalTask[]> {
   const entries = await readdir(TASKS_DIR);
   const tasks: EvalTask[] = [];
   for (const name of entries.sort()) {
-    if (filter !== undefined && !filter.includes(name)) continue;
     const dir = join(TASKS_DIR, name);
     if ((await stat(dir)).isDirectory()) tasks.push({ name, dir });
   }
@@ -45,11 +44,28 @@ async function main(): Promise<number> {
   }
 
   const runs = Number(flag(args, "--runs") ?? "1");
-  const taskFilter = flag(args, "--tasks")?.split(",").map((s) => s.trim());
-  const tasks = await discoverTasks(taskFilter);
-  if (tasks.length === 0) {
-    console.error("No eval tasks found.");
+  if (!Number.isInteger(runs) || runs < 1) {
+    console.error(`--runs must be a positive integer (got "${flag(args, "--runs")}")`);
     return 1;
+  }
+
+  const all = await discoverTasks();
+  if (all.length === 0) {
+    console.error(`No eval tasks found under ${TASKS_DIR}.`);
+    return 1;
+  }
+  const taskFilter = flag(args, "--tasks")?.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  let tasks = all;
+  if (taskFilter !== undefined) {
+    const known = new Set(all.map((t) => t.name));
+    const unknown = taskFilter.filter((name) => !known.has(name));
+    if (unknown.length > 0) {
+      console.error(
+        `Unknown task(s): ${unknown.join(", ")}. Available: ${all.map((t) => t.name).join(", ")}`,
+      );
+      return 1;
+    }
+    tasks = all.filter((t) => taskFilter.includes(t.name));
   }
 
   const variantA: Variant = { name: "A", configPath: resolve(aPath) };

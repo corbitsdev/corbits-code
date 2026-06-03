@@ -24,6 +24,7 @@ const metric = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   cost: { known: true, usd: 0.01 },
   wallClockMs: 4200,
   passed: true,
+  completedCleanly: true,
   ...over,
 });
 
