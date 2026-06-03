@@ -5,7 +5,7 @@ import type { SendResult } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import type { Config } from "./config.js";
+import { buildOpenAISource, type Config } from "./config.js";
 import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
@@ -165,14 +165,12 @@ export async function runAgent(
   const agent = await createAgent({
     contextDir: join(config.cwd, ".agent-state", "context"),
     sources: [
-      {
+      buildOpenAISource({
         id: config.providerName,
-        provider: "openai",
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
-        defaults: { maxTokens: 16384 },
-      },
+      }),
     ],
     defaultSource: config.providerName,
     systemPrompt: buildSystemPrompt(),

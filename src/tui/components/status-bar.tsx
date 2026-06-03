@@ -4,6 +4,7 @@ import type { AgentStatus } from "../use-stream.js";
 import { color } from "../theme.js";
 
 export type StatusBarProps = {
+  provider: string;
   model: string;
   turnsUsed: number;
   planStep: number | null;
@@ -69,6 +70,7 @@ function Divider(): ReactNode {
 }
 
 export function StatusBar({
+  provider,
   model,
   turnsUsed,
   planStep,
@@ -85,7 +87,7 @@ export function StatusBar({
     // narrow, so each field wraps as a whole unit instead of breaking a value
     // like the model name across rows mid-word.
     <Box flexDirection="row" flexWrap="wrap" paddingX={1}>
-      <Text color={color("accent")}>{model}</Text>
+      <Text color={color("accent")}>{provider} · {model}</Text>
       <Divider />
       <Text color={planDeviated ? color("danger") : color("text")}>
         {formatPlan(planStep, planTotal, planPending, planDeviated)}

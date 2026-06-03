@@ -28,14 +28,15 @@ registerCommand({
 });
 
 registerCommand({
+  name: "agent",
+  description: "Open the agent configuration surface (provider, model)",
+  handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
+});
+
+// /model is retained as an alias so existing muscle memory still lands somewhere
+// sensible: it opens the same /agent surface where provider and model now live.
+registerCommand({
   name: "model",
-  description: "Show or set the active model (e.g. /model gpt-4o)",
-  handler: (args, ctx) => {
-    const trimmed = args.trim();
-    if (trimmed.length === 0) {
-      return { type: "message", text: `Current model: ${ctx.getModel()}` };
-    }
-    ctx.setModel(trimmed);
-    return { type: "message", text: `Model set to: ${trimmed}` };
-  },
+  description: "Alias for /agent (provider and model configuration)",
+  handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });

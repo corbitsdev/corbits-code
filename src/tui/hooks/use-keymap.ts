@@ -9,6 +9,7 @@ export type KeymapContext = {
   exitConfirmOpen: boolean;
   helpOpen: boolean;
   gateOpen: boolean;
+  agentModalOpen: boolean;
   hookPanelOpen: boolean;
   hasInput: boolean;
   inputFocused: boolean;
@@ -39,6 +40,7 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
     if (context.exitConfirmOpen) return;
     if (context.helpOpen) return;
     if (context.gateOpen) return;
+    if (context.agentModalOpen) return;
 
     if (key.ctrl && input === "c") {
       // Typing? Clear the prompt. Agent working? Stop the run (not the app).
