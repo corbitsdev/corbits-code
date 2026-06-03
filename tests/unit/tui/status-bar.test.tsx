@@ -7,6 +7,7 @@ function renderBar(props: Partial<StatusBarProps> = {}) {
   return render(
     <StatusBar
       model={props.model ?? "test-model"}
+      turnsUsed={props.turnsUsed ?? 0}
       planStep={props.planStep ?? null}
       planTotal={props.planTotal ?? 0}
       planPending={props.planPending ?? false}
@@ -19,11 +20,15 @@ function renderBar(props: Partial<StatusBarProps> = {}) {
   );
 }
 
-test("StatusBar renders model and keyboard hints", () => {
-  const { lastFrame } = renderBar();
+test("StatusBar renders model and run telemetry", () => {
+  const { lastFrame } = renderBar({ turnsUsed: 4 });
   expect(lastFrame()).toContain("test-model");
-  expect(lastFrame()).toContain("Ctrl+C exit");
-  expect(lastFrame()).toContain("Ctrl+H hooks");
+  expect(lastFrame()).toContain("4 turns");
+});
+
+test("StatusBar does not render the keyboard hint row", () => {
+  const { lastFrame } = renderBar();
+  expect(lastFrame()).not.toContain("Ctrl+C");
 });
 
 test("StatusBar renders the running status label", () => {

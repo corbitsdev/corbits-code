@@ -27,7 +27,7 @@ test("App renders header and status bar", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = renderApp(emitter);
   expect(lastFrame()).toContain("Intercode");
-  expect(lastFrame()).toContain("Ctrl+C");
+  expect(lastFrame()).toContain("test-model");
 });
 
 test("App renders chat input", () => {
@@ -136,5 +136,5 @@ test("App keeps header and footer visible after many events", async () => {
   expect(lastFrame()).toContain("Intercode");
   expect(lastFrame()).toContain("scroll test");
   expect(lastFrame()).toContain("> ");
-  expect(lastFrame()).toContain("Ctrl+C");
+  expect(lastFrame()).toContain("test-model");
 });

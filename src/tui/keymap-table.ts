@@ -19,5 +19,3 @@ export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/model", description: "Show or set the active model" },
   { keys: "/verbose", description: "Toggle full tool output" },
 ];
-
-export const STATUS_HINT = "Ctrl+C exit · Ctrl+H hooks · Ctrl+D diff · Ctrl+G help";

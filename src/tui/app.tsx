@@ -196,9 +196,6 @@ export function App({
     <Box flexDirection="column" height={rows}>
       <Box flexShrink={0} flexDirection="column">
         <Header
-          turnsUsed={state.turnsUsed}
-          status={state.status}
-          totalCost={state.formattedCost}
           sessionTitle={sessionTitle}
           latestUserMessage={state.latestUserMessage}
           width={columns}
@@ -267,6 +264,7 @@ export function App({
         />
         <StatusBar
           model={model}
+          turnsUsed={state.turnsUsed}
           planStep={state.currentPlanStep}
           planTotal={state.planTotal}
           planPending={gates.pendingPlan !== null}

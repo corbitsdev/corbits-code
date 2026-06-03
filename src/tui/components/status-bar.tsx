@@ -2,10 +2,10 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { AgentStatus } from "../use-stream.js";
 import { color } from "../theme.js";
-import { STATUS_HINT } from "../keymap-table.js";
 
 export type StatusBarProps = {
   model: string;
+  turnsUsed: number;
   planStep: number | null;
   planTotal: number;
   planPending: boolean;
@@ -62,6 +62,7 @@ function Divider(): ReactNode {
 
 export function StatusBar({
   model,
+  turnsUsed,
   planStep,
   planTotal,
   planPending,
@@ -72,25 +73,22 @@ export function StatusBar({
   status,
 }: StatusBarProps): ReactNode {
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box flexDirection="row">
-        <Text color={color("accent")}>{model}</Text>
-        <Divider />
-        <Text color={planDeviated ? color("danger") : color("text")}>
-          {formatPlan(planStep, planTotal, planPending, planDeviated)}
-        </Text>
-        <Divider />
-        <Text color={color("success")}>{cost}</Text>
-        <Divider />
-        <Text color={color("muted")}>{tokens} tok</Text>
-        <Divider />
-        <Text color={color("muted")}>{formatElapsed(elapsedMs)}</Text>
-        <Divider />
-        <Text color={statusColor(status)} bold>{statusLabel(status)}</Text>
-      </Box>
-      <Box flexDirection="row">
-        <Text color={color("muted")}>{STATUS_HINT}</Text>
-      </Box>
+    <Box flexDirection="row" paddingX={1}>
+      <Text color={color("accent")}>{model}</Text>
+      <Divider />
+      <Text color={planDeviated ? color("danger") : color("text")}>
+        {formatPlan(planStep, planTotal, planPending, planDeviated)}
+      </Text>
+      <Divider />
+      <Text color={color("muted")}>{turnsUsed} turns</Text>
+      <Divider />
+      <Text color={color("success")}>{cost}</Text>
+      <Divider />
+      <Text color={color("muted")}>{tokens} tok</Text>
+      <Divider />
+      <Text color={color("muted")}>{formatElapsed(elapsedMs)}</Text>
+      <Divider />
+      <Text color={statusColor(status)} bold>{statusLabel(status)}</Text>
     </Box>
   );
 }

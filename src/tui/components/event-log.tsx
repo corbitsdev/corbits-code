@@ -220,7 +220,16 @@ export function EventLog({
       {visible.map((block, i) => {
         const absoluteIndex = start + i;
         const expanded = verbose || expandedTools.has(absoluteIndex);
-        return renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded);
+        const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded);
+        // A little breathing room before each conversational turn (a user
+        // message or an assistant reply), while tool call/result sequences stay
+        // tight together.
+        const spaced = i > 0 && (block.type === "user" || block.type === "text");
+        return (
+          <Box key={`row-${absoluteIndex}`} marginTop={spaced ? 1 : 0}>
+            {node}
+          </Box>
+        );
       })}
     </Box>
   );

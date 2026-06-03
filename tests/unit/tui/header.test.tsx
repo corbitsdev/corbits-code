@@ -6,9 +6,6 @@ import type { HeaderProps } from "../../../src/tui/components/header.js";
 function renderHeader(props: Partial<HeaderProps> = {}) {
   return render(
     <Header
-      turnsUsed={props.turnsUsed ?? 0}
-      status={props.status ?? "running"}
-      totalCost={props.totalCost ?? "$0.0000"}
       sessionTitle={props.sessionTitle ?? ""}
       latestUserMessage={props.latestUserMessage ?? ""}
       width={props.width ?? 160}
@@ -21,37 +18,25 @@ test("Header renders product name", () => {
   expect(lastFrame()).toContain("Intercode");
 });
 
-test("Header renders running status label", () => {
-  const { lastFrame } = renderHeader();
-  expect(lastFrame()).toContain("Running");
+test("Header renders the session title", () => {
+  const { lastFrame } = renderHeader({ sessionTitle: "build a plan" });
+  expect(lastFrame()).toContain("build a plan");
 });
 
-test("Header renders done status label", () => {
-  const { lastFrame } = renderHeader({ turnsUsed: 5, status: "done", totalCost: "$0.0123" });
-  expect(lastFrame()).toContain("Done");
+test("Header renders the latest user message", () => {
+  const { lastFrame } = renderHeader({ latestUserMessage: "do the thing" });
+  expect(lastFrame()).toContain("do the thing");
 });
 
-test("Header renders failed status label", () => {
-  const { lastFrame } = renderHeader({ turnsUsed: 3, status: "failed" });
-  expect(lastFrame()).toContain("Failed");
+test("Header shows the working directory at wide widths", () => {
+  const { lastFrame } = renderHeader({ width: 160 });
+  expect(lastFrame()).toContain("/");
 });
 
-test("Header renders blocked status label", () => {
-  const { lastFrame } = renderHeader({ status: "blocked" });
-  expect(lastFrame()).toContain("Blocked");
-});
-
-test("Header renders turn count at wide widths", () => {
-  const { lastFrame } = renderHeader({ turnsUsed: 7, width: 160 });
-  expect(lastFrame()).toContain("7 turns");
-});
-
-test("Header drops turn label below 120 columns", () => {
-  const { lastFrame } = renderHeader({ turnsUsed: 7, width: 100 });
-  expect(lastFrame()).not.toContain("7 turns");
-});
-
-test("Header renders cost", () => {
-  const { lastFrame } = renderHeader({ totalCost: "$0.0456" });
-  expect(lastFrame()).toContain("$0.0456");
+test("Header does not render run telemetry", () => {
+  const { lastFrame } = renderHeader({ sessionTitle: "x" });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("Running");
+  expect(frame).not.toContain("turns");
+  expect(frame).not.toContain("$");
 });
