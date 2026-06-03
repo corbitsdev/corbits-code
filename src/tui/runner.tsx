@@ -162,6 +162,15 @@ export async function runTUI(config: Config): Promise<number> {
     emitter.emit("event", event);
   };
 
+  // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
+  // screen buffer by hand: enter before render to hide pre-launch scrollback,
+  // and restore it on exit (including abrupt process exit) so history returns.
+  const exitAltScreen = (): void => {
+    process.stdout.write("\x1b[?1049l");
+  };
+  process.stdout.write("\x1b[?1049h");
+  process.once("exit", exitAltScreen);
+
   // Render first so the App's plan.gate and operator.gate listeners are registered before agent.send.
   const { waitUntilExit } = render(
     <App
@@ -183,6 +192,8 @@ export async function runTUI(config: Config): Promise<number> {
   }
 
   await waitUntilExit();
+  process.removeListener("exit", exitAltScreen);
+  exitAltScreen();
 
   const finishedAt = Date.now();
   const status = getTUIRunSummaryStatus(runCompleted, runError);
