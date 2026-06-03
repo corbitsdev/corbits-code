@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import "./built-in.js";
-import { getCommand, listCommands } from "./registry.js";
+import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
 const makeCtx = (model = "gpt-4o"): CommandContext & { current: string; verbose: boolean } => {
@@ -20,25 +20,22 @@ describe("/help command", () => {
     expect(getCommand("help")).toBeDefined();
   });
 
-  it("returns a message listing all commands", () => {
+  it("requests the help overlay", () => {
     const ctx = makeCtx();
     const result = getCommand("help")!.handler("", ctx);
-    expect(result.type).toBe("message");
-    if (result.type === "message") {
-      expect(result.text).toContain("/help");
-      expect(result.text).toContain("/model");
-    }
+    expect(result).toEqual({ type: "overlay", overlay: "help" });
+  });
+});
+
+describe("context view commands", () => {
+  it("/diff switches the context panel to the diff view", () => {
+    const ctx = makeCtx();
+    expect(getCommand("diff")!.handler("", ctx)).toEqual({ type: "view", view: "diff" });
   });
 
-  it("lists every registered command", () => {
+  it("/plan switches the context panel to the plan view", () => {
     const ctx = makeCtx();
-    const result = getCommand("help")!.handler("", ctx);
-    const commands = listCommands();
-    if (result.type === "message") {
-      for (const cmd of commands) {
-        expect(result.text).toContain(`/${cmd.name}`);
-      }
-    }
+    expect(getCommand("plan")!.handler("", ctx)).toEqual({ type: "view", view: "plan" });
   });
 });
 
