@@ -11,6 +11,7 @@ export type KeymapContext = {
   gateOpen: boolean;
   hookPanelOpen: boolean;
   hasInput: boolean;
+  inputFocused: boolean;
 };
 
 export type KeymapActions = {
@@ -71,11 +72,15 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
       lastEscRef.current = now;
       return;
     }
-    if (key.upArrow) {
+    // Up/down scroll the event log, but only when the chat input isn't holding
+    // keyboard focus. While the user is typing, the input owns those arrows (it
+    // uses them for command-suggestion navigation), so the global keymap must
+    // not also consume them — otherwise the log scrolls out from under typing.
+    if (key.upArrow && !context.inputFocused) {
       actions.scrollUp();
       return;
     }
-    if (key.downArrow) {
+    if (key.downArrow && !context.inputFocused) {
       actions.scrollDown();
       return;
     }

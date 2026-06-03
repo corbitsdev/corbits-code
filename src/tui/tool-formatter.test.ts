@@ -37,21 +37,25 @@ describe("describeToolCall", () => {
 });
 
 describe("summarizeToolArgs", () => {
-  test("renders key: value pairs, not JSON", () => {
-    const { summary } = summarizeToolArgs("read_file", JSON.stringify({ path: "src/foo.ts", limit: 100 }));
+  test("renders key: value pairs, not JSON, for tools without a path headline", () => {
+    const { summary } = summarizeToolArgs("list_dir", JSON.stringify({ path: "src/foo.ts", limit: 100 }));
     expect(summary).toBe("path: src/foo.ts, limit: 100");
     expect(summary).not.toContain("{");
     expect(summary).not.toContain('"');
   });
 
-  test("bare path shown without quotes or braces", () => {
-    const { summary } = summarizeToolArgs("write_file", JSON.stringify({ path: "a/b.ts", content: "x" }));
-    expect(summary).toContain("path: a/b.ts");
+  test("file tools collapse to a bare path, never key: value or content", () => {
+    const long = "#!/usr/bin/env python3\n" + "y".repeat(200);
+    const { summary, full } = summarizeToolArgs("write_file", JSON.stringify({ path: "a/b.ts", content: long }));
+    expect(summary).toBe("a/b.ts");
+    expect(full).toBe("a/b.ts");
+    expect(summary).not.toContain("content");
+    expect(summary).not.toContain("y".repeat(10));
   });
 
   test("long values abbreviated in summary, full in full", () => {
     const long = "y".repeat(200);
-    const { summary, full } = summarizeToolArgs("write_file", JSON.stringify({ path: "a.ts", content: long }));
+    const { summary, full } = summarizeToolArgs("notify", JSON.stringify({ message: long }));
     expect(summary.length).toBeLessThan(full.length);
     expect(summary).toContain("…");
     expect(full).toContain(long);

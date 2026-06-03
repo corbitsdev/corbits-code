@@ -1,7 +1,7 @@
 import { Box, Text, useApp } from "ink";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
-import { useState, useMemo, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog } from "./components/event-log.js";
@@ -96,7 +96,8 @@ export function App({
     if (gates.pendingPermission !== null) {
       const head = `${gates.pendingPermission.action}: ${gates.pendingPermission.subject}`;
       const subjectLines = Math.max(1, Math.ceil(head.length / innerWidth));
-      const choices = 2 + (gates.pendingPermission.scopes[0]?.pattern ? 1 : 0);
+      const persistable = gates.pendingPermission.scopes.filter((s) => s.pattern !== null).length;
+      const choices = 2 + persistable;
       // chrome (border+padding+margin, 6) + title + subject + choices + nav,
       // each block separated by a margin row.
       return 11 + subjectLines + choices;
@@ -118,7 +119,31 @@ export function App({
     state.hooks.length,
   ]);
 
-  const visibleRows = Math.max(1, rows - CHROME_ROWS - overlayRows);
+  // When a modal closes, overlayRows drops to 0 in the same render the modal
+  // unmounts. If the event log reclaimed those rows immediately it would expand
+  // into the region the modal still physically occupies until Ink clears it on
+  // the next frame — a one-frame overlap that ghosts the closing modal (most
+  // visible right after a permission approval). Hold the previous non-zero
+  // reservation for one extra render so the log only reclaims the rows once the
+  // modal region has been cleared.
+  const prevOverlayRowsRef = useRef(0);
+  const [deferredOverlayRows, setDeferredOverlayRows] = useState(0);
+  useEffect(() => {
+    const prev = prevOverlayRowsRef.current;
+    prevOverlayRowsRef.current = overlayRows;
+    if (overlayRows === 0 && prev > 0) {
+      // Reserve the closing modal's rows for this frame, then release them on
+      // the next tick once Ink has cleared the modal region.
+      setDeferredOverlayRows(prev);
+      const handle = setTimeout(() => setDeferredOverlayRows(0), 0);
+      return () => clearTimeout(handle);
+    }
+    setDeferredOverlayRows(0);
+    return undefined;
+  }, [overlayRows]);
+
+  const effectiveOverlayRows = Math.max(overlayRows, deferredOverlayRows);
+  const visibleRows = Math.max(1, rows - CHROME_ROWS - effectiveOverlayRows);
 
   const renderableCount = useMemo(
     () => state.contentBlocks.filter((b) => b.type !== "reply" && b.type !== "plan").length,
@@ -155,6 +180,7 @@ export function App({
       gateOpen: gates.gateOpen,
       hookPanelOpen,
       hasInput: inputValue.length > 0,
+      inputFocused: inputActive,
     },
     {
       clearInput: () => setInputValue(""),

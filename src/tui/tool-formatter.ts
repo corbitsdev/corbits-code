@@ -116,6 +116,20 @@ function abbreviate(value: string, max: number): string {
  */
 export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSummary {
   const obj = tryParseObject(rawArgs);
+
+  // Known file tools read cleanly as just their path, mirroring the result row
+  // (call "Write donut_anim.py" alongside result "Wrote donut_anim.py").
+  switch (toolName) {
+    case "write_file":
+    case "edit_file":
+    case "read_file": {
+      if (obj !== null && typeof obj.path === "string") {
+        return { summary: obj.path, full: obj.path };
+      }
+      break;
+    }
+  }
+
   if (obj === null) {
     // Not a JSON object: show whatever we got, abbreviated, never as a blob.
     const fallback = rawArgs.trim();

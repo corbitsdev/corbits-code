@@ -59,7 +59,7 @@ test("EventLog renders tool call with a humanized name and readable arg summary"
   const frame = lastFrame() ?? "";
   expect(frame).toContain("Read");
   expect(frame).not.toContain("read_file");
-  expect(frame).toContain("path: /tmp/example");
+  expect(frame).toContain("/tmp/example");
 });
 
 test("EventLog wraps a long line with inline bold instead of overflowing", () => {
@@ -147,7 +147,7 @@ test("EventLog verbose reveals full tool args", () => {
     [{ type: "tool_call", name: "read_file", arguments: '{"path":"/tmp/example"}' }],
     { verbose: true },
   );
-  expect(lastFrame()).toContain("path: /tmp/example");
+  expect(lastFrame()).toContain("/tmp/example");
 });
 
 test("EventLog per-block expansion reveals full tool result", () => {
@@ -261,7 +261,10 @@ test("EventLog windows visible blocks by scrollOffset", () => {
   }));
   const { lastFrame } = renderLog(blocks, { scrollOffset: 0, visibleRows: 3 });
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("line-0");
+  // visibleRows is a physical-row budget; each text turn carries a marginTop
+  // row, so a 3-row budget surfaces the bottom of the offset-0 window rather
+  // than three whole blocks. The window is bounded — distant lines stay hidden.
   expect(frame).toContain("line-2");
   expect(frame).not.toContain("line-5");
+  expect(frame).not.toContain("line-9");
 });

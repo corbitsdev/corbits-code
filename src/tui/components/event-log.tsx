@@ -65,8 +65,15 @@ function estimateRows(
       return sumLines(block.content);
     case "tool_call":
       return expanded ? 1 + sumLines(block.arguments) : 1;
-    case "tool_result":
-      return expanded ? sumLines(block.content) : 1;
+    case "tool_result": {
+      if (block.isError) return wrap(block.content);
+      const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
+      // A JSON document paints its full multi-line content even when collapsed
+      // (renderBlock renders renderMarkdownLines(full) regardless of `expanded`),
+      // so the estimate must follow suit or the painted height overflows.
+      if (isJSONDocument) return sumLines(full);
+      return expanded ? sumLines(full) : 1;
+    }
     case "error":
       return wrap(block.message);
     default:
@@ -91,7 +98,16 @@ export function visibleWindow(
   let rows = 0;
   let start = end;
   for (let i = end - 1; i >= 0; i--) {
-    const next = estimateRows(blocks[i]!, columns, thinkingExpanded, isExpanded(i));
+    const block = blocks[i]!;
+    // renderBlock wraps every block except the topmost rendered one in
+    // marginTop:1 when it's a user/text turn, so each such block paints one
+    // extra physical row. The topmost rendered block (i === start after this
+    // iteration) gets no margin, but since we don't yet know the final start we
+    // count the margin for every spaced block — overcounting by at most one row
+    // is safe (the log shows slightly less); undercounting brings back ghosting.
+    const spaced = block.type === "user" || block.type === "text";
+    const next =
+      estimateRows(block, columns, thinkingExpanded, isExpanded(i)) + (spaced ? 1 : 0);
     if (rows + next > visibleRows && start < end) break;
     rows += next;
     start = i;
