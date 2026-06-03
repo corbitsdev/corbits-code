@@ -14,7 +14,8 @@ import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { consumeStream } from "../stream-consumer.js";
-import { App, type OperatorGateEvent, type PlanGateEvent } from "./app.js";
+import { App } from "./app.js";
+import type { OperatorGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
