@@ -75,9 +75,17 @@ function renderMarkdownLines(content: string): ReactNode {
   const lines = parseMarkdown(content);
   return (
     <Box flexDirection="column">
-      {lines.map((lineSegments, i) => (
-        <Box key={`line-${i}`}>{renderMarkdownSegments(lineSegments)}</Box>
-      ))}
+      {lines.map((lineSegments, i) =>
+        // Each line is ONE Text with nested Text children for inline styles. Ink
+        // only wraps within a single Text node, never across sibling nodes in a
+        // row Box — so mounting segments as a row makes every styled word an
+        // unwrappable atom. Nesting them lets the line flow and wrap normally.
+        lineSegments.length === 0 ? (
+          <Text key={`line-${i}`}> </Text>
+        ) : (
+          <Text key={`line-${i}`}>{renderMarkdownSegments(lineSegments)}</Text>
+        ),
+      )}
     </Box>
   );
 }
