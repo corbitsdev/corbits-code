@@ -59,6 +59,7 @@ export type Config = {
   force: boolean;
   headless: boolean;
   dangerouslySkipPermissions: boolean;
+  globalSettingsPath: string;
   // Every provider available to switch to at runtime. From the settings file
   // when present; in env-only mode it is just the single resolved provider.
   providers: ProviderCatalogEntry[];
@@ -226,6 +227,7 @@ export async function loadConfig(
     force,
     headless,
     dangerouslySkipPermissions,
+    globalSettingsPath: effectiveSettingsPath,
     providers: buildProviderCatalog(settings, resolved),
   };
 }
@@ -255,4 +257,24 @@ export function buildProviderCatalog(
       models: [resolved.model],
     },
   ];
+}
+
+export function providerCatalogToSettings(
+  catalog: readonly ProviderCatalogEntry[],
+  defaultProvider: string,
+): Settings {
+  return {
+    defaultProvider,
+    providers: Object.fromEntries(
+      catalog.map((p) => [
+        p.name,
+        {
+          baseURL: p.baseURL,
+          apiKey: p.apiKey,
+          models: p.models,
+          ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+        },
+      ]),
+    ),
+  };
 }

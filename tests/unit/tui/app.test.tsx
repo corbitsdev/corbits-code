@@ -18,6 +18,10 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
       agent={mockAgent as unknown as Agent}
       sessionTitle=""
       initialModel="test-model"
+      initialProvider="test-provider"
+      providers={[{ name: "test-provider", baseURL: "https://test/v1", apiKey: "test-key", models: ["test-model"] }]}
+      globalSettingsPath="/tmp/interchange-code-test-settings.json"
+      cwd="/tmp"
     />,
     options,
   );
@@ -148,6 +152,10 @@ test("App keeps header and footer visible after many events", async () => {
       agent={mockAgent as unknown as Agent}
       sessionTitle="scroll test"
       initialModel="test-model"
+      initialProvider="test-provider"
+      providers={[{ name: "test-provider", baseURL: "https://test/v1", apiKey: "test-key", models: ["test-model"] }]}
+      globalSettingsPath="/tmp/interchange-code-test-settings.json"
+      cwd="/tmp"
     />,
     { stdout: { columns: 100, rows: 12 } },
   );
