@@ -54,13 +54,15 @@ test("full system prompt contains provided tool names", () => {
   expect(prompt).toContain("second_tool");
 });
 
-test("plan decision rules include execute-direct and plan-first branches", () => {
+test("plan decision always requires a plan, scaled by risk not file count", () => {
   const rules = buildPlanDecisionRules();
 
-  expect(rules).toContain("EXECUTE DIRECTLY");
-  expect(rules).toContain("SUBMIT PLAN FIRST");
-  expect(rules).toContain("3 or fewer files");
-  expect(rules).toContain("4 or more files");
+  expect(rules.toLowerCase()).toContain("submit a plan before you start");
+  expect(rules.toLowerCase()).toContain("scale its depth to risk");
+  expect(rules.toLowerCase()).toContain("blast radius");
+  // The old rigid file-count thresholds must be gone.
+  expect(rules).not.toContain("3 or fewer");
+  expect(rules).not.toContain("4 or more");
 });
 
 test("system prompt tells the agent to escalate blocked commands to the operator", () => {
@@ -68,16 +70,15 @@ test("system prompt tells the agent to escalate blocked commands to the operator
 
   expect(prompt).toContain("ask_operator");
   expect(prompt).toContain("blocked");
-  expect(prompt).toMatch(/do not silently work around the block/i);
+  expect(prompt).toMatch(/don't work around the block/i);
 });
 
 test("system prompt preserves core agent instructions", () => {
   const prompt = buildSystemPrompt();
 
-  expect(prompt).toContain("autonomous coding agent");
-  expect(prompt).toContain("Every turn must produce at least one tool_call");
-  expect(prompt).toContain("Runtime limits are enforced by the tool layer");
-  expect(prompt).toContain("File re-read prevention is enforced at the tool layer");
-  expect(prompt).toContain("MUST call submit_output");
-  expect(prompt).toContain("If tests are failing, you MUST NOT submit");
+  expect(prompt).toContain("Intercode");
+  expect(prompt).toMatch(/at least one tool call/i);
+  expect(prompt).toContain("won't re-serve a file you already read");
+  expect(prompt).toContain("submit_output is the only way to signal the task is complete");
+  expect(prompt).toMatch(/never finish on a broken build, failing tests/i);
 });
