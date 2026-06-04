@@ -292,6 +292,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
 
       if (event.type === "inference.done") {
         turnsUsed++;
+        awaitingResponse = false;
       }
 
       if (event.type === "inference.usage") {
