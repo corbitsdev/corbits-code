@@ -2,10 +2,11 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-// A configured inference provider. `apiKey` and `baseURL` are credentials and
-// live only in the global settings file. `models` is always an array so single-
-// model and multi-model providers are handled uniformly; `defaultModel` (or the
-// first entry) is used when no model is selected.
+// A configured inference provider. `apiKey` is secret and lives only in the
+// global settings file; `baseURL` is editable provider metadata that lives with
+// it. `models` is always an array so single-model and multi-model providers are
+// handled uniformly; `defaultModel` (or the first entry) is used when no model
+// is selected.
 export type ProviderSettings = {
   name?: string;
   baseURL: string;

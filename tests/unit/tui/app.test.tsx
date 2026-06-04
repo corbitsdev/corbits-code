@@ -2,13 +2,26 @@ import { test, expect, mock } from "bun:test";
 import { render } from "ink-testing-library";
 import { App } from "../../../src/tui/app.js";
 import { EventEmitter } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { Agent } from "@intx/agent";
+import { loadSettings } from "../../../src/settings.js";
+import type { ProviderCatalogEntry } from "../../../src/config.js";
 
 const mockAgent = {
   send: mock(() => Promise.resolve({ reply: "ok", turn: {} as unknown as ReactorEmittedEvent["data"] })),
   stream: mock(() => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }) })),
   close: mock(() => Promise.resolve()),
+  setSource: mock(() => undefined),
+};
+
+const testProvider: ProviderCatalogEntry = {
+  name: "test-provider",
+  baseURL: "https://test/v1",
+  apiKey: "test-key",
+  models: ["test-model"],
 };
 
 function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]) {
@@ -18,6 +31,11 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
       agent={mockAgent as unknown as Agent}
       sessionTitle=""
       initialModel="test-model"
+      initialProvider="test-provider"
+      providers={[testProvider]}
+      globalSettingsPath="/tmp/interchange-code-test-settings.json"
+      globalDefaultProvider="test-provider"
+      cwd="/tmp"
     />,
     options,
   );
@@ -58,6 +76,13 @@ test("App renders running status initially", () => {
 });
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+async function writeKeys(stdin: { write: (input: string) => void }, keys: readonly string[]): Promise<void> {
+  for (const key of keys) {
+    stdin.write(key);
+    await tick();
+  }
+}
 
 test("CTRL+C with text in the prompt clears the input and does not open exit confirm", async () => {
   const emitter = new EventEmitter();
@@ -148,6 +173,11 @@ test("App keeps header and footer visible after many events", async () => {
       agent={mockAgent as unknown as Agent}
       sessionTitle="scroll test"
       initialModel="test-model"
+      initialProvider="test-provider"
+      providers={[testProvider]}
+      globalSettingsPath="/tmp/interchange-code-test-settings.json"
+      globalDefaultProvider="test-provider"
+      cwd="/tmp"
     />,
     { stdout: { columns: 100, rows: 12 } },
   );
@@ -165,4 +195,72 @@ test("App keeps header and footer visible after many events", async () => {
   expect(lastFrame()).toContain("scroll test");
   expect(lastFrame()).toContain("> ");
   expect(lastFrame()).toContain("test-model");
+});
+
+test("/agent editing a non-default provider preserves the global default", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ic-agent-settings-"));
+  try {
+    const emitter = new EventEmitter();
+    const globalSettingsPath = join(dir, "settings.json");
+    const { stdin } = render(
+      <App
+        eventEmitter={emitter}
+        agent={mockAgent as unknown as Agent}
+        sessionTitle=""
+        initialModel="b-model"
+        initialProvider="b"
+        providers={[
+          { name: "a", baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
+          { name: "b", baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
+        ]}
+        globalSettingsPath={globalSettingsPath}
+        globalDefaultProvider="a"
+        cwd={dir}
+      />,
+      { stdout: { columns: 120, rows: 30 } },
+    );
+
+    settleRun(emitter);
+    await tick();
+    await writeKeys(stdin, ["/agent", "\r", "e", "\r", "\r", "\r", "\r", "\r"]);
+
+    expect((await loadSettings(globalSettingsPath))?.defaultProvider).toBe("a");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("/agent deleting a non-default provider preserves the global default", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ic-agent-settings-"));
+  try {
+    const emitter = new EventEmitter();
+    const globalSettingsPath = join(dir, "settings.json");
+    const { stdin } = render(
+      <App
+        eventEmitter={emitter}
+        agent={mockAgent as unknown as Agent}
+        sessionTitle=""
+        initialModel="b-model"
+        initialProvider="b"
+        providers={[
+          { name: "a", baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
+          { name: "b", baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
+        ]}
+        globalSettingsPath={globalSettingsPath}
+        globalDefaultProvider="a"
+        cwd={dir}
+      />,
+      { stdout: { columns: 120, rows: 30 } },
+    );
+
+    settleRun(emitter);
+    await tick();
+    await writeKeys(stdin, ["/agent", "\r", "x", "y"]);
+
+    const settings = await loadSettings(globalSettingsPath);
+    expect(settings?.defaultProvider).toBe("a");
+    expect(settings?.providers.b).toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
