@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildProviderCatalog, loadConfig } from "./config.js";
+import type { Config, UnconfiguredConfig } from "./config.js";
 import type { ResolvedProvider, Settings } from "./settings.js";
+
+function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
+  if (config.configured === false) {
+    throw new Error(`Expected configured Config but got UnconfiguredConfig: ${config.providerError}`);
+  }
+}
 
 const ENV_KEYS = [
   "OPENAI_COMPATIBLE_API_KEY",
@@ -59,6 +66,7 @@ describe("loadConfig", () => {
       const config = await loadConfig(["--cwd", cwd, "add", "hello", "world"], {
         globalSettingsPath: NO_SETTINGS,
       });
+      assertConfigured(config);
       expect(config.task).toBe("add hello world");
       expect(config.apiKey).toBe("test-key");
       expect(config.baseURL).toBe("https://api.fireworks.ai/inference");
@@ -71,7 +79,7 @@ describe("loadConfig", () => {
     }
   });
 
-  test("throws when no provider can be resolved", async () => {
+  test("throws when no provider can be resolved (allowUnconfigured false)", async () => {
     const stash = stashEnv();
     const cwd = await emptyCwd();
     try {
@@ -80,6 +88,46 @@ describe("loadConfig", () => {
       await expect(
         loadConfig(["--cwd", cwd, "do it"], { globalSettingsPath: NO_SETTINGS }),
       ).rejects.toThrow(/apiKey/);
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("returns UnconfiguredConfig when allowUnconfigured is true and provider is missing", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      const result = await loadConfig(["--cwd", cwd, "do it"], {
+        globalSettingsPath: NO_SETTINGS,
+        allowUnconfigured: true,
+      });
+      expect(result.configured).toBe(false);
+      if (result.configured === false) {
+        expect(result.cwd).toBe(cwd);
+        expect(result.task).toBe("do it");
+        expect(result.providerError).toMatch(/missing/);
+        expect(result.globalSettingsPath).toBe(NO_SETTINGS);
+      }
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("UnconfiguredConfig.globalSettingsPath reflects --config path, not the global default", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      const configPath = join(cwd, "custom.json");
+      await writeFile(configPath, JSON.stringify({ providers: {} }));
+      const result = await loadConfig(["--cwd", cwd, "--config", configPath, "task"], {
+        allowUnconfigured: true,
+      });
+      expect(result.configured).toBe(false);
+      if (result.configured === false) {
+        expect(result.globalSettingsPath).toBe(configPath);
+      }
     } finally {
       restoreEnv(stash);
       await rm(cwd, { recursive: true, force: true });
@@ -166,6 +214,7 @@ describe("loadConfig", () => {
         }),
       );
       const config = await loadConfig(["--cwd", cwd, "--config", settingsPath, "task"]);
+      assertConfigured(config);
       expect(config.providerName).toBe("firepass");
       expect(config.baseURL).toBe("https://firepass.example/v1");
       expect(config.apiKey).toBe("fp-key");
@@ -204,6 +253,7 @@ describe("loadConfig", () => {
         "fp-small",
         "task",
       ]);
+      assertConfigured(config);
       expect(config.model).toBe("fp-small");
     } finally {
       restoreEnv(stash);
@@ -244,6 +294,7 @@ describe("loadConfig", () => {
       );
       process.env.OPENAI_COMPATIBLE_API_KEY = "env-key";
       const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
+      assertConfigured(config);
       expect(config.apiKey).toBe("env-key");
       expect(config.providerName).toBe("firepass");
       expect(config.baseURL).toBe("https://firepass.example/v1");
@@ -275,6 +326,7 @@ describe("loadConfig", () => {
         }),
       );
       const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
+      assertConfigured(config);
       expect(config.providerName).toBe("b");
       expect(config.model).toBe("b-model");
       expect(config.apiKey).toBe("b-key");

@@ -6,7 +6,8 @@ import { loadConfig } from "./config.js";
 import { loadState, loadDirectorState } from "./state.js";
 import { runAgent } from "./run-agent.js";
 import { runTUI } from "./tui/runner.js";
-import type { Config } from "./config.js";
+import { runOnboarding } from "./tui/onboarding.js";
+import type { Config, UnconfiguredConfig } from "./config.js";
 
 export type MainRunners = {
   runAgent(
@@ -15,6 +16,7 @@ export type MainRunners = {
     initialDirectorState?: NonNullable<Awaited<ReturnType<typeof loadDirectorState>>>,
   ): Promise<number>;
   runTUI(config: Config): Promise<number>;
+  runOnboarding(config: UnconfiguredConfig): Promise<number>;
 };
 
 async function loadEnvFile(path: string): Promise<void> {
@@ -95,7 +97,16 @@ export async function mainWithRunners(
     args.shift();
   }
 
-  const config = await loadConfig(args);
+  const config = await loadConfig(args, { allowUnconfigured: true });
+
+  if (config.configured === false) {
+    if (config.headless) {
+      console.error(`interchange-code: ${config.providerError}`);
+      return 1;
+    }
+    return runners.runOnboarding(config);
+  }
+
   if (config.headless && config.task.length === 0) {
     console.error("task description is required");
     return 1;
@@ -107,7 +118,7 @@ export async function mainWithRunners(
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  return mainWithRunners(argv, { runAgent, runTUI });
+  return mainWithRunners(argv, { runAgent, runTUI, runOnboarding });
 }
 
 const projectRoot = resolve(import.meta.dirname, "..");
