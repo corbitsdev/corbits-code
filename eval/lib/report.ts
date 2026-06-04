@@ -70,11 +70,13 @@ export function formatReport(
     lines.push("");
   }
 
-  // Totals: pass rate and aggregate cost (only when every counted run is priced,
-  // else "unknown" so an unpriced model never inflates a $0 total).
+  // Totals: pass rate and aggregate cost. Flat-fee providers report "flat-fee"
+  // (per-token cost is N/A); otherwise only sum when every run is priced, else
+  // "unknown" so an unpriced model never inflates a $0 total.
   const passRate = (runs: RunMetrics[]): string =>
     `${runs.filter((r) => r.passed).length}/${runs.length}`;
   const totalCost = (runs: RunMetrics[]): string => {
+    if (runs.length > 0 && runs.every((r) => r.cost.flatFee === true)) return "flat-fee";
     if (runs.some((r) => !r.cost.known)) return "unknown";
     return `$${runs.reduce((sum, r) => sum + (r.cost.usd ?? 0), 0).toFixed(4)}`;
   };

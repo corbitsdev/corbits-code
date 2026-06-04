@@ -27,13 +27,21 @@ export async function resolveJudge(
 }
 
 const JUDGE_SYSTEM = [
-  "You are a senior engineer reviewing a teammate's change. Score it 1-5 (5 = best) on four dimensions:",
+  "You are a senior engineer reviewing a teammate's code change. Score the change 1-5 (5 = best) on four dimensions:",
   "- correctness: solves the task including edge cases, not just what the tests check.",
   "- scope: changed only what was needed — no over-engineering, no drive-by edits.",
   "- quality: matches conventions, no dead code, comments explain why, readable.",
   "- overall: would you merge this without rework.",
-  'Reply with ONLY a JSON object: {"correctness":n,"scope":n,"quality":n,"overall":n,"rationale":"one or two sentences"}.',
+  "",
+  "Respond with a single JSON object and nothing else, in exactly this shape:",
+  '{"correctness": 4, "scope": 5, "quality": 4, "overall": 4, "rationale": "one or two sentences explaining the scores"}',
+  "All four scores are integers 1-5. Keep the rationale to one or two sentences.",
 ].join("\n");
+
+// Reasoning models (e.g. kimi) spend tokens thinking before the answer, and that
+// thinking shares this budget — so it must be generous enough to leave room for
+// the JSON after the reasoning, or the response truncates mid-object.
+const JUDGE_MAX_TOKENS = 4096;
 
 // Parse the judge's reply into scores. Tolerant of surrounding prose or code
 // fences (extracts the first JSON object); returns null if it can't get four
@@ -112,7 +120,11 @@ export async function judgeRun(
           { role: "user", content: user },
         ],
         temperature: 0,
-        max_tokens: 512,
+        max_tokens: JUDGE_MAX_TOKENS,
+        // OpenAI-compatible JSON mode: force a valid JSON object instead of
+        // hoping the model emits clean JSON. The tolerant parser stays as a
+        // fallback for endpoints that ignore this field.
+        response_format: { type: "json_object" },
       }),
     });
   } catch (err) {
