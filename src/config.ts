@@ -39,7 +39,7 @@ export function buildOpenAISource(fields: {
 
 // One configured provider the /agent modal can switch to. Carries credentials
 // because live switching builds an InferenceSource from it; the modal only ever
-// displays the name and models, never the key.
+// receives fields needed for provider management, never the key.
 export type ProviderCatalogEntry = {
   name: string;
   baseURL: string;
@@ -60,6 +60,7 @@ export type Config = {
   headless: boolean;
   dangerouslySkipPermissions: boolean;
   globalSettingsPath: string;
+  globalDefaultProvider?: string;
   // Every provider available to switch to at runtime. From the settings file
   // when present; in env-only mode it is just the single resolved provider.
   providers: ProviderCatalogEntry[];
@@ -228,6 +229,7 @@ export async function loadConfig(
     headless,
     dangerouslySkipPermissions,
     globalSettingsPath: effectiveSettingsPath,
+    ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
     providers: buildProviderCatalog(settings, resolved),
   };
 }
@@ -261,10 +263,10 @@ export function buildProviderCatalog(
 
 export function providerCatalogToSettings(
   catalog: readonly ProviderCatalogEntry[],
-  defaultProvider: string,
+  defaultProvider: string | undefined,
 ): Settings {
   return {
-    defaultProvider,
+    ...(defaultProvider !== undefined ? { defaultProvider } : {}),
     providers: Object.fromEntries(
       catalog.map((p) => [
         p.name,

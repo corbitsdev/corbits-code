@@ -61,7 +61,7 @@ export type AgentModalProps = {
   activeModel: string;
   onApply: (provider: string, model: string) => void;
   onPersistDefault: (provider: string, model: string) => void;
-  onSaveProvider: (provider: ProviderFormSubmission) => void;
+  onSaveProvider: (provider: ProviderFormSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
 };
@@ -179,7 +179,11 @@ export function AgentModal({
       setFormError(result.error);
       return;
     }
-    onSaveProvider(result.submission);
+    const saved = onSaveProvider(result.submission);
+    if (!saved.ok) {
+      setFormError(saved.error);
+      return;
+    }
     setStep("provider");
   };
 

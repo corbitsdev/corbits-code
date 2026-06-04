@@ -37,6 +37,7 @@ export type AppProps = {
   initialProvider: string;
   providers: ProviderCatalogEntry[];
   globalSettingsPath: string;
+  globalDefaultProvider?: string;
   cwd: string;
   initialTask?: string;
   initialHooks?: LifecycleHookStatus[];
@@ -52,6 +53,7 @@ export function App({
   initialProvider,
   providers,
   globalSettingsPath,
+  globalDefaultProvider: initialGlobalDefaultProvider,
   cwd,
   initialTask = "",
   initialHooks = [],
@@ -74,6 +76,7 @@ export function App({
   const [model, setModel] = useState<string>(initialModel);
   const [provider, setProvider] = useState<string>(initialProvider);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(providers);
+  const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
 
@@ -129,10 +132,11 @@ export function App({
 
   const persistProviderCatalog = (
     catalog: ProviderCatalogEntry[],
-    defaultProvider: string,
+    defaultProvider: string | undefined,
     successMessage: string,
   ): void => {
     setProviderCatalog(catalog);
+    setGlobalDefaultProvider(defaultProvider);
     void saveGlobalSettings(globalSettingsPath, providerCatalogToSettings(catalog, defaultProvider)).then(
       () => setCommandMessage(successMessage),
       (err: unknown) => {
@@ -143,13 +147,33 @@ export function App({
     );
   };
 
-  const upsertProvider = (submission: ProviderFormSubmission): void => {
+  const defaultAfterProviderSave = (submission: ProviderFormSubmission, catalog: readonly ProviderCatalogEntry[]): string | undefined => {
+    if (globalDefaultProvider === submission.originalName) return submission.name;
+    if (globalDefaultProvider !== undefined && catalog.some((p) => p.name === globalDefaultProvider)) {
+      return globalDefaultProvider;
+    }
+    return catalog.length === 1 ? catalog[0]?.name : submission.name;
+  };
+
+  const defaultAfterProviderDelete = (
+    deletedProvider: string,
+    fallbackProvider: string,
+    catalog: readonly ProviderCatalogEntry[],
+  ): string | undefined => {
+    if (globalDefaultProvider === deletedProvider) return fallbackProvider;
+    if (globalDefaultProvider !== undefined && catalog.some((p) => p.name === globalDefaultProvider)) {
+      return globalDefaultProvider;
+    }
+    return catalog.length === 1 ? catalog[0]?.name : undefined;
+  };
+
+  const upsertProvider = (submission: ProviderFormSubmission): { ok: true } | { ok: false; error: string } => {
     const conflict = providerCatalog.find(
       (p) => p.name === submission.name && p.name !== submission.originalName,
     );
     if (conflict !== undefined) {
       setCommandMessage(`Provider "${submission.name}" already exists`);
-      return;
+      return { ok: false, error: `Provider "${submission.name}" already exists` };
     }
     const existing =
       submission.originalName !== undefined
@@ -158,7 +182,7 @@ export function App({
     const apiKey = submission.apiKey ?? existing?.apiKey;
     if (apiKey === undefined || apiKey.length === 0) {
       setCommandMessage("Provider API key is required");
-      return;
+      return { ok: false, error: "Provider API key is required" };
     }
     const entry: ProviderCatalogEntry = {
       name: submission.name,
@@ -173,11 +197,13 @@ export function App({
     const selectedModel = entry.defaultModel ?? entry.models[0];
     if (selectedModel === undefined) {
       setCommandMessage("Provider must include at least one model");
-      return;
+      return { ok: false, error: "Provider must include at least one model" };
     }
+    const nextDefaultProvider = defaultAfterProviderSave(submission, catalog);
     applyCatalogSelection(catalog, entry.name, selectedModel);
     persistLocalSelection(entry.name, selectedModel);
-    persistProviderCatalog(catalog, entry.name, `Saved provider ${entry.name}`);
+    persistProviderCatalog(catalog, nextDefaultProvider, `Saved provider ${entry.name}`);
+    return { ok: true };
   };
 
   const deleteProvider = (providerName: string): void => {
@@ -196,7 +222,11 @@ export function App({
       applyCatalogSelection(catalog, fallback.name, fallbackModel);
       persistLocalSelection(fallback.name, fallbackModel);
     }
-    persistProviderCatalog(catalog, fallback.name, `Removed provider ${providerName}`);
+    persistProviderCatalog(
+      catalog,
+      defaultAfterProviderDelete(providerName, fallback.name, catalog),
+      `Removed provider ${providerName}`,
+    );
   };
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });

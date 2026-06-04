@@ -73,6 +73,7 @@ describe("loadConfig", () => {
       expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
       expect(config.providerName).toBe("fireworks");
       expect(config.globalSettingsPath).toBe(NO_SETTINGS);
+      expect(config.globalDefaultProvider).toBeUndefined();
       expect(config.force).toBe(false);
     } finally {
       restoreEnv(stash);
@@ -220,6 +221,7 @@ describe("loadConfig", () => {
       expect(config.baseURL).toBe("https://firepass.example/v1");
       expect(config.apiKey).toBe("fp-key");
       expect(config.model).toBe("fp-large");
+      expect(config.globalDefaultProvider).toBe("firepass");
     } finally {
       restoreEnv(stash);
       await rm(cwd, { recursive: true, force: true });
@@ -393,6 +395,18 @@ describe("buildProviderCatalog", () => {
           defaultModel: "fp-large",
         },
         oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+      },
+    });
+  });
+
+  test("omits defaultProvider when no global default is known", () => {
+    const settings = providerCatalogToSettings(
+      [{ name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] }],
+      undefined,
+    );
+    expect(settings).toEqual({
+      providers: {
+        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
       },
     });
   });
