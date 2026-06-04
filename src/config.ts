@@ -17,8 +17,6 @@ import {
 // modal) all build the source the same way and a live switch can never silently
 // revert the ceiling.
 export const SOURCE_MAX_TOKENS = 16384;
-export const SOURCE_INACTIVITY_TIMEOUT_MS = 60_000;
-export const SOURCE_TOTAL_TIMEOUT_MS = 300_000;
 
 // Build the OpenAI-compatible InferenceSource the runtime consumes. `id` is the
 // source's routing key (the provider name); credentials and model come from the
@@ -35,11 +33,7 @@ export function buildOpenAISource(fields: {
     baseURL: fields.baseURL,
     apiKey: fields.apiKey,
     model: fields.model,
-    defaults: {
-      maxTokens: SOURCE_MAX_TOKENS,
-      inactivityTimeoutMs: SOURCE_INACTIVITY_TIMEOUT_MS,
-      totalTimeoutMs: SOURCE_TOTAL_TIMEOUT_MS,
-    },
+    defaults: { maxTokens: SOURCE_MAX_TOKENS },
   };
 }
 
