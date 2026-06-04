@@ -49,6 +49,7 @@ export type ProviderCatalogEntry = {
 };
 
 export type Config = {
+  configured: true;
   apiKey: string;
   baseURL: string;
   model: string;
@@ -63,9 +64,29 @@ export type Config = {
   providers: ProviderCatalogEntry[];
 };
 
+// Returned by loadConfig when no provider is configured and allowUnconfigured is
+// true. Carries enough context for the TUI to launch the onboarding flow instead
+// of exiting. Headless callers must treat this as a fatal error.
+export type UnconfiguredConfig = {
+  configured: false;
+  cwd: string;
+  task: string;
+  force: boolean;
+  headless: boolean;
+  dangerouslySkipPermissions: boolean;
+  // Path where the onboarding flow should write the new settings.
+  globalSettingsPath: string;
+  // The original error message, used for headless error output.
+  providerError: string;
+};
+
 export type LoadConfigOptions = {
   // Override the global settings file location (for tests / non-standard homes).
   globalSettingsPath?: string;
+  // When true, a missing/unresolvable provider returns an UnconfiguredConfig
+  // instead of throwing. The TUI uses this to open the onboarding flow rather
+  // than exiting. Headless callers should leave this false (the default).
+  allowUnconfigured?: boolean;
 };
 
 function envProvider(): Partial<ResolvedProvider> {
@@ -87,8 +108,16 @@ function envProvider(): Partial<ResolvedProvider> {
 
 export async function loadConfig(
   argv: readonly string[],
+  options?: LoadConfigOptions & { allowUnconfigured?: false },
+): Promise<Config>;
+export async function loadConfig(
+  argv: readonly string[],
+  options: LoadConfigOptions & { allowUnconfigured: true },
+): Promise<Config | UnconfiguredConfig>;
+export async function loadConfig(
+  argv: readonly string[],
   options: LoadConfigOptions = {},
-): Promise<Config> {
+): Promise<Config | UnconfiguredConfig> {
   const args = [...argv];
 
   let cwd = process.cwd();
@@ -161,16 +190,36 @@ export async function loadConfig(
   if (provider !== undefined) cli.provider = provider;
   if (model !== undefined) cli.model = model;
 
-  const resolved = resolveProvider({
-    settings,
-    local,
-    env: envProvider(),
-    cli,
-  });
-
+  // When --config is given, onboarding must write to and reload from that
+  // same file, not the global default. Prefer configPath, then the caller
+  // override, then the real global default.
+  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
   const task = positional.join(" ").trim();
 
+  let resolved: ResolvedProvider;
+  try {
+    resolved = resolveProvider({
+      settings,
+      local,
+      env: envProvider(),
+      cli,
+    });
+  } catch (err) {
+    if (!options.allowUnconfigured) throw err;
+    return {
+      configured: false,
+      cwd,
+      task,
+      force,
+      headless,
+      dangerouslySkipPermissions,
+      globalSettingsPath: effectiveSettingsPath,
+      providerError: err instanceof Error ? err.message : String(err),
+    };
+  }
+
   return {
+    configured: true,
     ...resolved,
     cwd,
     task,
