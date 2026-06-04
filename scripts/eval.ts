@@ -9,9 +9,10 @@ import { readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
-import { runSuite } from "../src/eval/harness.js";
-import { formatReport } from "../src/eval/report.js";
-import type { EvalTask, Variant } from "../src/eval/types.js";
+import { runSuite } from "../eval/lib/harness.js";
+import { formatReport } from "../eval/lib/report.js";
+import { resolveJudge, type JudgeConfig } from "../eval/lib/judge.js";
+import type { EvalTask, Variant } from "../eval/lib/types.js";
 
 /* eslint-disable no-console */
 
@@ -20,6 +21,10 @@ const TASKS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "eval", "t
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+
+function hasFlag(args: string[], name: string): boolean {
+  return args.includes(name);
 }
 
 async function discoverTasks(): Promise<EvalTask[]> {
@@ -38,7 +43,8 @@ async function main(): Promise<number> {
   const bPath = flag(args, "--b");
   if (aPath === undefined || bPath === undefined) {
     console.error(
-      "Usage: bun run eval --a <settingsA.json> --b <settingsB.json> [--tasks t1,t2] [--runs N]",
+      "Usage: bun run eval --a <settingsA.json> --b <settingsB.json> [--tasks t1,t2] [--runs N]\n" +
+        "       [--judge <settings.json> [--judge-provider <name>] [--judge-model <id>]] [--flat-fee]",
     );
     return 1;
   }
@@ -68,6 +74,7 @@ async function main(): Promise<number> {
     tasks = all.filter((t) => taskFilter.includes(t.name));
   }
 
+  const flatFee = hasFlag(args, "--flat-fee");
   const variantA: Variant = { name: "A", configPath: resolve(aPath) };
   const variantB: Variant = { name: "B", configPath: resolve(bPath) };
   const providerA = flag(args, "--provider-a");
@@ -78,11 +85,27 @@ async function main(): Promise<number> {
   if (modelA !== undefined) variantA.model = modelA;
   if (providerB !== undefined) variantB.provider = providerB;
   if (modelB !== undefined) variantB.model = modelB;
+  if (flatFee) {
+    variantA.flatFee = true;
+    variantB.flatFee = true;
+  }
+
+  // Optional LLM judge: resolved from its own settings file (credentials stay in
+  // the file, same secure mechanism as the variants).
+  let judgeCfg: JudgeConfig | null = null;
+  const judgePath = flag(args, "--judge");
+  if (judgePath !== undefined) {
+    judgeCfg = await resolveJudge(
+      resolve(judgePath),
+      flag(args, "--judge-provider"),
+      flag(args, "--judge-model"),
+    );
+  }
 
   console.error(
-    `Running ${tasks.length} task(s) x 2 variants x ${runs} run(s): ${tasks.map((t) => t.name).join(", ")}`,
+    `Running ${tasks.length} task(s) x 2 variants x ${runs} run(s)${judgeCfg ? " with LLM judge" : ""}: ${tasks.map((t) => t.name).join(", ")}`,
   );
-  const { a, b } = await runSuite(tasks, variantA, variantB, runs);
+  const { a, b } = await runSuite(tasks, variantA, variantB, runs, judgeCfg);
   console.log(formatReport(a, b, variantA.name, variantB.name));
   return 0;
 }

@@ -3,6 +3,7 @@ import type { TokenUsage } from "@intx/types/runtime";
 
 import { computeCost, medianMetrics, tallyToolCalls } from "./metrics.js";
 import { formatReport } from "./report.js";
+import { parseJudgeResponse } from "./judge.js";
 import type { RunMetrics } from "./types.js";
 
 const usage = (input: number, output: number): TokenUsage => ({
@@ -25,6 +26,7 @@ const metric = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   wallClockMs: 4200,
   passed: true,
   completedCleanly: true,
+  judge: null,
   ...over,
 });
 
@@ -73,6 +75,15 @@ describe("medianMetrics", () => {
       metric({ cost: { known: false, usd: null } }),
     ]);
     expect(m.cost.known).toBe(false);
+    expect(m.cost.flatFee).toBeUndefined();
+  });
+
+  test("preserves the flat-fee flag through the collapse", () => {
+    const m = medianMetrics([
+      metric({ cost: { known: false, usd: null, flatFee: true } }),
+      metric({ cost: { known: false, usd: null, flatFee: true } }),
+    ]);
+    expect(m.cost.flatFee).toBe(true);
   });
 });
 
@@ -91,5 +102,48 @@ describe("formatReport", () => {
   test("flags a task present in A but missing from B", () => {
     const report = formatReport([metric({ task: "solo" })], []);
     expect(report).toContain("(no pairing)");
+  });
+
+  test("shows judge scores and flat-fee cost when present", () => {
+    const judge = { correctness: 4, scope: 5, quality: 4, overall: 4, rationale: "ok" };
+    const a = [metric({ task: "t", judge, cost: { known: false, usd: null, flatFee: true } })];
+    const b = [metric({ task: "t", judge: { ...judge, overall: 2 } })];
+    const report = formatReport(a, b);
+    expect(report).toContain("4/5/4/4");
+    expect(report).toContain("flat-fee");
+    expect(report).toContain("judge ovr");
+  });
+
+  test("judge row shows a dash for an unjudged side", () => {
+    const a = [metric({ task: "t", judge: { correctness: 3, scope: 3, quality: 3, overall: 3, rationale: "" } })];
+    const b = [metric({ task: "t", judge: null })];
+    const report = formatReport(a, b);
+    const line = report.split("\n").find((l) => l.trimStart().startsWith("judge") && l.includes("3/3/3/3"));
+    expect(line).toBeDefined();
+    expect(line!.trimEnd().endsWith("-")).toBe(true);
+  });
+});
+
+describe("parseJudgeResponse", () => {
+  test("parses a clean JSON object", () => {
+    const r = parseJudgeResponse('{"correctness":4,"scope":5,"quality":3,"overall":4,"rationale":"solid"}');
+    expect(r).toEqual({ correctness: 4, scope: 5, quality: 3, overall: 4, rationale: "solid" });
+  });
+
+  test("tolerates code fences and surrounding prose", () => {
+    const r = parseJudgeResponse('Here is my review:\n```json\n{"correctness":5,"scope":4,"quality":5,"overall":5,"rationale":"clean"}\n```');
+    expect(r?.overall).toBe(5);
+  });
+
+  test("clamps out-of-range scores to 1-5", () => {
+    const r = parseJudgeResponse('{"correctness":9,"scope":0,"quality":3,"overall":4,"rationale":""}');
+    expect(r?.correctness).toBe(5);
+    expect(r?.scope).toBe(1);
+  });
+
+  test("returns null when a score is missing or non-numeric (no fabrication)", () => {
+    expect(parseJudgeResponse('{"correctness":4,"scope":5,"quality":3}')).toBeNull();
+    expect(parseJudgeResponse('{"correctness":"good","scope":5,"quality":3,"overall":4}')).toBeNull();
+    expect(parseJudgeResponse("not json at all")).toBeNull();
   });
 });

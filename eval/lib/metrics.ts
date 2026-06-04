@@ -1,6 +1,6 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
-import { lookupModelPricing, type PricingCache } from "../pricing-fetcher.js";
+import { lookupModelPricing, type PricingCache } from "../../src/pricing-fetcher.js";
 import type { Cost, PriceOverride, RunMetrics } from "./types.js";
 
 // Cost from token usage. Returns { known: false, usd: null } when the model is
@@ -66,11 +66,17 @@ export function medianMetrics(runs: RunMetrics[]): RunMetrics {
   const majority = (predicate: (r: RunMetrics) => boolean): boolean =>
     runs.filter(predicate).length * 2 >= runs.length;
 
+  // Flat-fee is a property of the provider, not the run, so it survives the
+  // collapse; otherwise cost stays "unknown" if any run was unpriced.
+  const cost = runs.some((r) => r.cost.flatFee === true)
+    ? { known: false, usd: null, flatFee: true }
+    : runs.some((r) => !r.cost.known)
+      ? { known: false, usd: null }
+      : representative.cost;
+
   return {
     ...representative,
-    cost: runs.some((r) => !r.cost.known)
-      ? { known: false, usd: null }
-      : representative.cost,
+    cost,
     passed: majority((r) => r.passed),
     completedCleanly: majority((r) => r.completedCleanly),
   };
