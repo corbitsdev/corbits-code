@@ -122,6 +122,16 @@ describe("formatReport", () => {
     expect(report).toContain("TOTAL");
   });
 
+  test("TOTAL cost reads flat-fee when every run is flat-fee", () => {
+    const flat = { known: false, usd: null, flatFee: true };
+    const report = formatReport(
+      [metric({ task: "t1", cost: flat }), metric({ task: "t2", cost: flat })],
+      [metric({ task: "t1", cost: flat }), metric({ task: "t2", cost: flat })],
+    );
+    expect(report).toMatch(/TOTAL[\s\S]*flat-fee/);
+    expect(report).not.toMatch(/cost\s+unknown/);
+  });
+
   test("flags a task present in A but missing from B", () => {
     const report = formatReport([metric({ task: "solo" })], []);
     expect(report).toContain("(no pairing)");
