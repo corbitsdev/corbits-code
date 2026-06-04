@@ -180,6 +180,8 @@ export async function runTUI(config: Config): Promise<number> {
       initialModel={config.model}
       initialProvider={config.providerName}
       providers={config.providers}
+      globalSettingsPath={config.globalSettingsPath}
+      {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
       initialHooks={hookManager.getStatuses()}

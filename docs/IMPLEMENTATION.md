@@ -116,7 +116,7 @@ docs/
 
 ### Settings Files (`src/settings.ts`)
 
-Provider and model configuration lives in JSON settings files. The global file holds providers and credentials; the per-repo file selects among them and must not contain credentials.
+Provider and model configuration lives in JSON settings files. The global file holds provider definitions and API keys; the per-repo file selects among them and must not contain credentials.
 
 - Global: `~/.interchange/settings.json`
 
@@ -136,7 +136,9 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
 
-- Per-repo: `.interchange/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+- Per-repo: `.interchange/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+
+  `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 
 ### Resolution Precedence
 
