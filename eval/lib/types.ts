@@ -27,6 +27,9 @@ export type Variant = {
   promptVariant?: string;
   // Per-1000-token price override for models the pricing source lacks.
   priceOverride?: PriceOverride;
+  // The provider bills a flat fee (e.g. Firepass: $50/mo, effectively infinite
+  // tokens), so per-token cost is not meaningful — reported as N/A, not "unknown".
+  flatFee?: boolean;
 };
 
 export type PriceOverride = {
@@ -36,10 +39,24 @@ export type PriceOverride = {
 };
 
 // Cost is nullable on purpose: a model unknown to the pricing source reports
-// `known: false` rather than a misleading $0.00.
+// `known: false` rather than a misleading $0.00. `flatFee` distinguishes "the
+// provider doesn't bill per token" (N/A) from "we don't know the price"
+// (unknown).
 export type Cost = {
   known: boolean;
   usd: number | null;
+  flatFee?: boolean;
+};
+
+// An LLM judge's quality scores for one run's diff, 1-5 per dimension plus a
+// short rationale. Null on a run means it was not judged (no judge configured,
+// or the judge call failed) — never fabricated scores.
+export type JudgeScores = {
+  correctness: number;
+  scope: number;
+  quality: number;
+  overall: number;
+  rationale: string;
 };
 
 // The metrics one task run produces under one variant.
@@ -58,4 +75,6 @@ export type RunMetrics = {
   // The runtime's own verdict: agent finished and its post-run critique passed.
   // Distinct from `passed` — a clean run can still fail the task's tests.
   completedCleanly: boolean;
+  // The LLM judge's quality scores for this run's diff, or null if not judged.
+  judge: JudgeScores | null;
 };

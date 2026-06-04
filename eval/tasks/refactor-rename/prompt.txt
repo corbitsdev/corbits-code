@@ -1,0 +1,2 @@
+Rename the fmt function in format.ts to formatMoney, and update every caller
+(cart.ts uses it) so the test suite passes. Do not modify the test file.

@@ -2,14 +2,55 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig } from "../config.js";
-import { runAgent } from "../run-agent.js";
-import { createTurnContextCollector } from "../hooks.js";
-import { loadPricing, type PricingCache } from "../pricing-fetcher.js";
+import { loadConfig } from "../../src/config.js";
+import { runAgent } from "../../src/run-agent.js";
+import { createTurnContextCollector } from "../../src/hooks.js";
+import { loadPricing, type PricingCache } from "../../src/pricing-fetcher.js";
 import { computeCost, medianMetrics, tallyToolCalls } from "./metrics.js";
-import type { EvalTask, RunMetrics, Variant } from "./types.js";
+import { judgeRun, type JudgeConfig } from "./judge.js";
+import type { Cost, EvalTask, JudgeScores, RunMetrics, Variant } from "./types.js";
 
 const VERIFY_TIMEOUT_MS = 300_000;
+
+// Commit the pristine task state so the agent's changes can be diffed out
+// afterwards for the judge. The repo copies are not git repos, so we make one.
+// .agent-state is gitignored up front (the runtime writes there) so it never
+// pollutes the diff. git identity/signing are forced off so this works on any
+// machine without touching the user's git config.
+async function gitBaseline(repoDir: string): Promise<void> {
+  // Append (don't clobber) so a task that ships its own .gitignore keeps it.
+  const gitignorePath = join(repoDir, ".gitignore");
+  let existing = "";
+  try {
+    existing = await readFile(gitignorePath, "utf8");
+  } catch {
+    // no .gitignore in the task — start fresh
+  }
+  if (!existing.split(/\r?\n/).includes(".agent-state/")) {
+    const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    await Bun.write(gitignorePath, `${existing}${sep}.agent-state/\n`);
+  }
+  const git = (args: string[]) =>
+    Bun.spawn(
+      ["git", "-c", "user.email=eval@local", "-c", "user.name=eval", "-c", "commit.gpgsign=false", ...args],
+      { cwd: repoDir, stdout: "ignore", stderr: "ignore" },
+    ).exited;
+  await git(["init", "-q"]);
+  await git(["add", "-A"]);
+  await git(["commit", "-q", "-m", "baseline", "--no-verify"]);
+}
+
+async function captureDiff(repoDir: string): Promise<string> {
+  await Bun.spawn(["git", "add", "-A"], { cwd: repoDir, stdout: "ignore", stderr: "ignore" }).exited;
+  const proc = Bun.spawn(["git", "diff", "--cached", "HEAD"], {
+    cwd: repoDir,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return out;
+}
 
 // Run the task's verify.sh against the (now agent-modified) copy. Exit 0 = the
 // objective grader passed. The whole task dir is copied to temp so verify.sh —
@@ -51,12 +92,17 @@ export async function runTaskOnce(
   task: EvalTask,
   variant: Variant,
   pricingCache: PricingCache | null,
+  judgeCfg: JudgeConfig | null = null,
 ): Promise<RunMetrics> {
   const workDir = await mkdtemp(join(tmpdir(), `eval-${task.name}-`));
   try {
     await cp(task.dir, workDir, { recursive: true });
     const repoDir = join(workDir, "repo");
     const prompt = (await readFile(join(workDir, "prompt.txt"), "utf8")).trim();
+
+    // Only set up git baselining when a judge will consume the diff — it adds a
+    // few process spawns we can skip otherwise.
+    if (judgeCfg !== null) await gitBaseline(repoDir);
 
     const argv = ["--cwd", repoDir, "--config", variant.configPath];
     if (variant.provider !== undefined) argv.push("--provider", variant.provider);
@@ -91,10 +137,25 @@ export async function runTaskOnce(
 
     const passed = crashed ? false : await runVerify(workDir);
 
+    // Quality grading: judge the agent's actual diff against the task. Skipped
+    // (null) when no judge is configured or the run crashed before producing one.
+    let judge: JudgeScores | null = null;
+    if (judgeCfg !== null && !crashed) {
+      const diff = await captureDiff(repoDir);
+      judge = await judgeRun({ task: prompt, diff, passed }, judgeCfg);
+    }
+
     const turns = collector.getTurns();
     const tokens = collector.getTokenUsage();
     const totalTokens =
       tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite + tokens.thinking;
+
+    // Flat-fee providers (e.g. Firepass) don't bill per token, so per-token cost
+    // is N/A rather than "unknown".
+    const cost: Cost =
+      variant.flatFee === true
+        ? { known: false, usd: null, flatFee: true }
+        : computeCost(tokens, config.model, pricingCache, variant.priceOverride);
 
     return {
       task: task.name,
@@ -104,10 +165,11 @@ export async function runTaskOnce(
       toolCallsByType: tallyToolCalls(turns),
       tokens,
       totalTokens,
-      cost: computeCost(tokens, config.model, pricingCache, variant.priceOverride),
+      cost,
       wallClockMs,
       passed,
       completedCleanly,
+      judge,
     };
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -120,28 +182,31 @@ export async function runTask(
   variant: Variant,
   pricingCache: PricingCache | null,
   runs = 1,
+  judgeCfg: JudgeConfig | null = null,
 ): Promise<RunMetrics> {
   const results: RunMetrics[] = [];
   for (let i = 0; i < runs; i++) {
-    results.push(await runTaskOnce(task, variant, pricingCache));
+    results.push(await runTaskOnce(task, variant, pricingCache, judgeCfg));
   }
   return medianMetrics(results);
 }
 
 // Run the full task list under two variants for an A/B comparison. Pricing is
-// loaded once and shared across runs.
+// loaded once and shared across runs. When a judge is configured, each run's
+// diff is graded for quality.
 export async function runSuite(
   tasks: EvalTask[],
   variantA: Variant,
   variantB: Variant,
   runs = 1,
+  judgeCfg: JudgeConfig | null = null,
 ): Promise<{ a: RunMetrics[]; b: RunMetrics[] }> {
   const pricingCache = await loadPricing();
   const a: RunMetrics[] = [];
   const b: RunMetrics[] = [];
   for (const task of tasks) {
-    a.push(await runTask(task, variantA, pricingCache, runs));
-    b.push(await runTask(task, variantB, pricingCache, runs));
+    a.push(await runTask(task, variantA, pricingCache, runs, judgeCfg));
+    b.push(await runTask(task, variantB, pricingCache, runs, judgeCfg));
   }
   return { a, b };
 }
