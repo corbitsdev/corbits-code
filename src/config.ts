@@ -190,7 +190,10 @@ export async function loadConfig(
   if (provider !== undefined) cli.provider = provider;
   if (model !== undefined) cli.model = model;
 
-  const settingsFilePath = options.globalSettingsPath ?? globalSettingsPath();
+  // When --config is given, onboarding must write to and reload from that
+  // same file, not the global default. Prefer configPath, then the caller
+  // override, then the real global default.
+  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
   const task = positional.join(" ").trim();
 
   let resolved: ResolvedProvider;
@@ -210,7 +213,7 @@ export async function loadConfig(
       force,
       headless,
       dangerouslySkipPermissions,
-      globalSettingsPath: settingsFilePath,
+      globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
     };
   }

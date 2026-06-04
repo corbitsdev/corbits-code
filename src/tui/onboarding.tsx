@@ -30,11 +30,15 @@ const FIELD_HINTS: Record<Field, string> = {
 type FormValues = Record<Field, string>;
 
 type ProviderSetupPanelProps = {
-  onComplete: (settings: Settings, values: FormValues) => void;
+  // Called when the user completes all fields. The panel shows a spinner until
+  // the promise resolves, then calls exit(). If it rejects, the error is shown
+  // inline and the user can retry or correct their input.
+  onSubmit: (values: FormValues) => Promise<void>;
 };
 
-function ProviderSetupPanel({ onComplete }: ProviderSetupPanelProps): ReactNode {
+function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): ReactNode {
   const { rows } = useTerminalSize();
+  const { exit } = useApp();
   const [fieldIndex, setFieldIndex] = useState(0);
   const [values, setValues] = useState<FormValues>({
     name: "",
@@ -48,34 +52,31 @@ function ProviderSetupPanel({ onComplete }: ProviderSetupPanelProps): ReactNode 
   const currentField = FIELDS[fieldIndex] as Field;
   const val = values[currentField];
 
-  const submit = (): void => {
+  const advance = (): void => {
     if (val.trim().length === 0) return;
+
     if (fieldIndex < FIELDS.length - 1) {
       setFieldIndex((i) => i + 1);
       setSubmitError(null);
       return;
     }
+
     setSubmitting(true);
-    const { name, baseURL, apiKey, model } = values;
-    const settings: Settings = {
-      defaultProvider: name.trim(),
-      providers: {
-        [name.trim()]: {
-          baseURL: baseURL.trim(),
-          apiKey: apiKey.trim(),
-          models: [model.trim()],
-          defaultModel: model.trim(),
-        },
+    setSubmitError(null);
+    onSubmit(values).then(
+      () => exit(),
+      (err: unknown) => {
+        setSubmitting(false);
+        setSubmitError(err instanceof Error ? err.message : String(err));
       },
-    };
-    onComplete(settings, values);
+    );
   };
 
   useInput((input, key) => {
     if (submitting) return;
 
     if (key.return) {
-      submit();
+      advance();
       return;
     }
     if (key.backspace || key.delete) {
@@ -144,9 +145,7 @@ function ProviderSetupPanel({ onComplete }: ProviderSetupPanelProps): ReactNode 
               <Box flexDirection="row" gap={2}>
                 <Box width={16} flexShrink={0}>
                   <Text
-                    color={
-                      isCurrent ? color("accent") : isDone ? color("muted") : color("muted")
-                    }
+                    color={isCurrent ? color("accent") : color("muted")}
                     bold={isCurrent}
                     dimColor={!isCurrent && !isDone}
                   >
@@ -157,7 +156,7 @@ function ProviderSetupPanel({ onComplete }: ProviderSetupPanelProps): ReactNode 
                   <Text color={color("text")}>{maskValue(field, fieldVal)}</Text>
                 ) : isCurrent ? (
                   <Box flexDirection="row">
-                    <Text dimColor>{FIELD_HINTS[field]}  </Text>
+                    <Text dimColor>{FIELD_HINTS[field]}{"  "}</Text>
                     <Text color={color("text")}>{maskValue(field, fieldVal)}</Text>
                     <Text color={color("accent")}>▌</Text>
                   </Box>
@@ -199,36 +198,6 @@ function ProviderSetupPanel({ onComplete }: ProviderSetupPanelProps): ReactNode 
   );
 }
 
-type OnboardingAppProps = {
-  // Settings that existed before onboarding (may be null). The new provider
-  // will be merged into these before writing, so existing providers are not lost.
-  existing: Settings | null;
-  onComplete: (merged: Settings, values: FormValues) => void;
-};
-
-function OnboardingApp({ existing, onComplete }: OnboardingAppProps): ReactNode {
-  const { exit } = useApp();
-
-  return (
-    <ProviderSetupPanel
-      onComplete={(newSettings, values) => {
-        // Merge new provider with any pre-existing ones. One write total.
-        const merged: Settings = {
-          ...(newSettings.defaultProvider !== undefined
-            ? { defaultProvider: newSettings.defaultProvider }
-            : {}),
-          providers:
-            existing !== null && Object.keys(existing.providers).length > 0
-              ? { ...existing.providers, ...newSettings.providers }
-              : newSettings.providers,
-        };
-        onComplete(merged, values);
-        exit();
-      }}
-    />
-  );
-}
-
 export async function runOnboarding(config: UnconfiguredConfig): Promise<number> {
   const settingsPath = config.globalSettingsPath;
   const existing = await loadSettings(settingsPath);
@@ -239,13 +208,31 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   process.stdout.write("\x1b[?1049h");
   process.once("exit", exitAltScreen);
 
-  const result: { merged: Settings | null } = { merged: null };
+  let submitted = false;
 
   const { waitUntilExit } = render(
-    <OnboardingApp
-      existing={existing}
-      onComplete={(merged) => {
-        result.merged = merged;
+    <ProviderSetupPanel
+      onSubmit={async (values) => {
+        const { name, baseURL, apiKey, model } = values;
+        const providerName = name.trim();
+        const newProvider = {
+          baseURL: baseURL.trim(),
+          apiKey: apiKey.trim(),
+          models: [model.trim()],
+          defaultModel: model.trim(),
+        };
+        // Merge new provider with any pre-existing ones. Single write — the TUI
+        // stays open (spinner) until saveGlobalSettings resolves, so the user
+        // sees confirmation before the screen is cleared.
+        const merged: Settings = {
+          defaultProvider: providerName,
+          providers:
+            existing !== null && Object.keys(existing.providers).length > 0
+              ? { ...existing.providers, [providerName]: newProvider }
+              : { [providerName]: newProvider },
+        };
+        await saveGlobalSettings(settingsPath, merged);
+        submitted = true;
       }}
     />,
     { exitOnCtrlC: true },
@@ -255,13 +242,11 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   process.removeListener("exit", exitAltScreen);
   exitAltScreen();
 
-  const merged = result.merged;
-  if (merged === null) {
+  // If the user cancelled (Ctrl+C) onSubmit was never called and settings were
+  // never written. Skip launching the TUI.
+  if (!submitted) {
     return 1;
   }
-
-  // Single write: merged settings (new provider + any pre-existing ones).
-  await saveGlobalSettings(settingsPath, merged);
 
   const argv: string[] = ["--cwd", config.cwd];
   if (config.dangerouslySkipPermissions) argv.push("--dangerously-skip-permissions");

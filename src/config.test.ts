@@ -115,6 +115,25 @@ describe("loadConfig", () => {
     }
   });
 
+  test("UnconfiguredConfig.globalSettingsPath reflects --config path, not the global default", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      const configPath = join(cwd, "custom.json");
+      await writeFile(configPath, JSON.stringify({ providers: {} }));
+      const result = await loadConfig(["--cwd", cwd, "--config", configPath, "task"], {
+        allowUnconfigured: true,
+      });
+      expect(result.configured).toBe(false);
+      if (result.configured === false) {
+        expect(result.globalSettingsPath).toBe(configPath);
+      }
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("parses --force", async () => {
     const stash = stashEnv();
     const cwd = await emptyCwd();
