@@ -3,7 +3,15 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config.js";
+import {
+  buildOpenAISource,
+  buildProviderCatalog,
+  loadConfig,
+  providerCatalogToSettings,
+  SOURCE_INACTIVITY_TIMEOUT_MS,
+  SOURCE_MAX_TOKENS,
+  SOURCE_TOTAL_TIMEOUT_MS,
+} from "./config.js";
 import type { Config, UnconfiguredConfig } from "./config.js";
 import type { ResolvedProvider, Settings } from "./settings.js";
 
@@ -56,6 +64,21 @@ function setRequiredEnv(): void {
 async function emptyCwd(): Promise<string> {
   return mkdtemp(join(tmpdir(), "ic-config-"));
 }
+
+test("buildOpenAISource binds interactive inference timeouts", () => {
+  expect(
+    buildOpenAISource({
+      id: "fireworks",
+      baseURL: "https://api.fireworks.ai/inference",
+      apiKey: "test-key",
+      model: "accounts/fireworks/routers/kimi-k2p6-turbo",
+    }).defaults,
+  ).toEqual({
+    maxTokens: SOURCE_MAX_TOKENS,
+    inactivityTimeoutMs: SOURCE_INACTIVITY_TIMEOUT_MS,
+    totalTimeoutMs: SOURCE_TOTAL_TIMEOUT_MS,
+  });
+});
 
 describe("loadConfig", () => {
   test("resolves provider from env when no settings file exists", async () => {
