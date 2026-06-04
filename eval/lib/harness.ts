@@ -112,7 +112,11 @@ export async function runTaskOnce(
     // authz hard-denies still hold). --force overrides any stale run state.
     argv.push("--dangerously-skip-permissions", "--force", prompt);
 
-    const config = await loadConfig(argv);
+    const rawConfig = await loadConfig(argv);
+    if (rawConfig.configured === false) {
+      throw new Error(`Eval run has no provider configured: ${rawConfig.providerError}`);
+    }
+    const config = rawConfig;
     const collector = createTurnContextCollector(() => {});
 
     // Wall-clock spans the whole headless run INCLUDING runAgent's post-run

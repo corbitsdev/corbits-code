@@ -130,6 +130,20 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   return parsed;
 }
 
+// Persist the global settings file. Validates before writing so a written file
+// always round-trips back through loadSettings, and written via temp-file +
+// rename so a concurrent reader never sees a torn file.
+export async function saveGlobalSettings(path: string, settings: Settings): Promise<void> {
+  if (!isSettings(settings)) {
+    throw new Error(`Refusing to write invalid global settings.`);
+  }
+  const payload = JSON.stringify(settings, null, 2);
+  const tmp = `${path}.${process.pid}.tmp`;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(tmp, payload);
+  await rename(tmp, path);
+}
+
 // Persist the per-repo provider/model selection. This is where the /agent modal
 // writes a "default for this project": selection only, never credentials, so
 // the file stays safe to leave gitignored in the repo. Validated before writing
