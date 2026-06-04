@@ -9,6 +9,7 @@ import {
   loadLocalSettings,
   loadSettings,
   resolveProvider,
+  saveGlobalSettings,
   saveLocalSettings,
   type Settings,
 } from "./settings.js";
@@ -215,6 +216,42 @@ describe("loaders", () => {
       const path = join(dir, ".interchange", "settings.json");
       await writeFile(path, JSON.stringify({ provider: "a", apiKey: "leak" }));
       await expect(loadLocalSettings(path)).rejects.toThrow(/no credentials/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("saveGlobalSettings", () => {
+  test("round-trips a settings object through loadSettings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".interchange", "settings.json");
+      await saveGlobalSettings(path, firepass);
+      expect(await loadSettings(path)).toEqual(firepass);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("creates the .interchange directory when missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "nested", ".interchange", "settings.json");
+      await saveGlobalSettings(path, firepass);
+      const loaded = await loadSettings(path);
+      expect(loaded?.defaultProvider).toBe("firepass");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses to write invalid settings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".interchange", "settings.json");
+      const invalid = { providers: { x: { models: [] } } } as unknown as Settings;
+      await expect(saveGlobalSettings(path, invalid)).rejects.toThrow(/invalid global settings/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
