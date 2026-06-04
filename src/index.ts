@@ -74,12 +74,7 @@ export async function mainWithRunners(
 
   if (args[0] === "resume") {
     args.shift();
-    const rawConfig = await loadConfig(args, { allowUnconfigured: true });
-    if (rawConfig.configured === false) {
-      console.error(`interchange-code: ${rawConfig.providerError}`);
-      return 1;
-    }
-    const config = rawConfig;
+    const config = await loadConfig(args);
     const previous = await loadState(config.cwd);
     if (previous === null) {
       console.error("No previous run found in this directory.");

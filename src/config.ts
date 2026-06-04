@@ -108,6 +108,14 @@ function envProvider(): Partial<ResolvedProvider> {
 
 export async function loadConfig(
   argv: readonly string[],
+  options?: LoadConfigOptions & { allowUnconfigured?: false },
+): Promise<Config>;
+export async function loadConfig(
+  argv: readonly string[],
+  options: LoadConfigOptions & { allowUnconfigured: true },
+): Promise<Config | UnconfiguredConfig>;
+export async function loadConfig(
+  argv: readonly string[],
   options: LoadConfigOptions = {},
 ): Promise<Config | UnconfiguredConfig> {
   const args = [...argv];
