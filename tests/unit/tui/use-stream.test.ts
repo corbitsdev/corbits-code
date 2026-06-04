@@ -375,6 +375,24 @@ test("awaitingResponse re-arms after a tool result until the next token", () => 
   expect(state.awaitingResponse).toBe(false);
 });
 
+test("awaitingResponse clears when inference completes without streamed tokens", () => {
+  const state = createAgentStreamState();
+  for (const e of toolCallEvents("read_file", "c1", { path: "a.ts" })) state.addEvent(e);
+  expect(state.awaitingResponse).toBe(true);
+
+  state.addEvent({
+    type: "inference.done",
+    seq: 9,
+    data: {
+      turn: { role: "assistant", model: "test", timestamp: 0, content: [] },
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { id: "test", model: "test" },
+    } as unknown as ReactorEmittedEvent["data"],
+  });
+
+  expect(state.awaitingResponse).toBe(false);
+});
+
 test("awaitingResponse clears when the run completes", () => {
   const state = createAgentStreamState();
   state.markRunning();
