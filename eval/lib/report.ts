@@ -78,11 +78,14 @@ export function formatReport(
     if (runs.some((r) => !r.cost.known)) return "unknown";
     return `$${runs.reduce((sum, r) => sum + (r.cost.usd ?? 0), 0).toFixed(4)}`;
   };
-  // Mean overall judge score across judged runs ("-" if none were judged).
+  // Mean overall judge score across judged tasks, with the judged-count so a
+  // mean over 1-of-5 isn't mistaken for one over 5-of-5 (nulls are dropped, so
+  // the count guards against parse-survivorship bias).
   const avgOverall = (runs: RunMetrics[]): string => {
     const judged = runs.map((r) => r.judge).filter((j): j is JudgeScores => j !== null);
     if (judged.length === 0) return "-";
-    return (judged.reduce((sum, j) => sum + j.overall, 0) / judged.length).toFixed(1);
+    const mean = judged.reduce((sum, j) => sum + j.overall, 0) / judged.length;
+    return `${mean.toFixed(1)} (${judged.length}/${runs.length})`;
   };
   lines.push("-".repeat(header.length));
   row("TOTAL", "pass", passRate(a), passRate(b));

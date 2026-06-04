@@ -97,6 +97,9 @@ export async function judgeRun(
     "Score it now as JSON only.",
   ].join("\n\n");
 
+  // A failed judge returns null (the run is "not judged", never fabricated), but
+  // log the reason — status code only, never the body or auth header — so an
+  // all-"-" judge column is debuggable rather than silently broken.
   let res: Response;
   try {
     res = await fetch(`${cfg.baseURL.replace(/\/$/, "")}/chat/completions`, {
@@ -112,16 +115,32 @@ export async function judgeRun(
         max_tokens: 512,
       }),
     });
-  } catch {
+  } catch (err) {
+    warn(`judge request failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
-  if (!res.ok) return null;
+  if (!res.ok) {
+    warn(`judge returned HTTP ${res.status}`);
+    return null;
+  }
   let data: unknown;
   try {
     data = await res.json();
   } catch {
+    warn("judge response was not valid JSON");
     return null;
   }
   const content = extractMessageContent(data);
-  return content === null ? null : parseJudgeResponse(content);
+  if (content === null) {
+    warn("judge response had no message content");
+    return null;
+  }
+  const scores = parseJudgeResponse(content);
+  if (scores === null) warn("judge response could not be parsed into scores");
+  return scores;
+}
+
+function warn(message: string): void {
+  // eslint-disable-next-line no-console
+  console.error(`[eval judge] ${message}`);
 }

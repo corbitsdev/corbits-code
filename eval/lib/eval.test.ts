@@ -85,6 +85,29 @@ describe("medianMetrics", () => {
     ]);
     expect(m.cost.flatFee).toBe(true);
   });
+
+  test("medians the judge across runs instead of inheriting one sample", () => {
+    const j = (overall: number) => ({ correctness: overall, scope: overall, quality: overall, overall, rationale: "" });
+    // turns differ so the turn-representative (turns:6) would otherwise dictate
+    // the judge; aggregation should median across all judged runs instead.
+    const m = medianMetrics([
+      metric({ turns: 3, judge: j(2) }),
+      metric({ turns: 9, judge: j(5) }),
+      metric({ turns: 6, judge: j(4) }),
+    ]);
+    expect(m.judge?.overall).toBe(4);
+  });
+
+  test("judge is null when no run was judged", () => {
+    const m = medianMetrics([metric({ judge: null }), metric({ judge: null })]);
+    expect(m.judge).toBeNull();
+  });
+
+  test("aggregate judge ignores unjudged runs", () => {
+    const j = { correctness: 3, scope: 3, quality: 3, overall: 3, rationale: "" };
+    const m = medianMetrics([metric({ judge: j }), metric({ judge: null })]);
+    expect(m.judge?.overall).toBe(3);
+  });
 });
 
 describe("formatReport", () => {

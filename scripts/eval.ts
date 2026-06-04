@@ -100,6 +100,16 @@ async function main(): Promise<number> {
       flag(args, "--judge-provider"),
       flag(args, "--judge-model"),
     );
+    // A model judging its own (or its peers') output is biased toward its own
+    // style — warn if the judge resolves to the same model as a variant.
+    for (const v of [variantA, variantB]) {
+      const r = await resolveJudge(v.configPath, v.provider, v.model);
+      if (r.model === judgeCfg.model && r.baseURL === judgeCfg.baseURL) {
+        console.error(
+          `Warning: judge model (${judgeCfg.model}) matches variant ${v.name} — self-preference bias is likely. Prefer a different, stronger judge model.`,
+        );
+      }
+    }
   }
 
   console.error(

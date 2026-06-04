@@ -77,4 +77,25 @@ scores.
   can pass tests while writing low-quality code. With `--judge`, the agent's diff
   is scored 1–5 on correctness (beyond the tests), scope/minimalism, code
   quality/style, and an overall "would a senior approve". A failed or absent
-  judge reports `-`, never invented scores.
+  judge reports `-`, never invented scores; failures log a status code to stderr.
+  Under `--runs N` the judge is medianed per dimension across runs (like the
+  other metrics). The TOTAL `judge ovr` shows the judged-count, e.g. `4.0 (3/5)`.
+
+### Judge validity caveats (v1)
+
+The judge is a useful signal, not ground truth. Known limitations to keep in mind
+when reading scores:
+
+- **Diff-blind to the surrounding repo.** The judge sees only the unified diff +
+  task + pass/fail — not the rest of each file or untouched files. So "matches
+  conventions" is judged without the surrounding style, and an *incomplete*
+  refactor (a caller left un-updated that tests didn't catch) is invisible.
+- **Single sample per run.** `temperature: 0` is repeatable, not an error bar;
+  treat 1-point differences as noise. Use `--runs N` to median it.
+- **Unanchored 1–5 scale.** No rubric examples, so a "4" on a one-line edit is
+  not the same achievement as a "4" on a refactor — compare within a task, and
+  read the cross-task `judge ovr` mean as rough.
+- **Pass/fail is shown to the judge**, which anchors the correctness score.
+- **Self-preference bias.** A model judging its own/peer output rates it higher;
+  the runner warns when the judge model matches a variant. Prefer a stronger,
+  different judge model.

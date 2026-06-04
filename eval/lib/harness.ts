@@ -18,7 +18,18 @@ const VERIFY_TIMEOUT_MS = 300_000;
 // pollutes the diff. git identity/signing are forced off so this works on any
 // machine without touching the user's git config.
 async function gitBaseline(repoDir: string): Promise<void> {
-  await Bun.write(join(repoDir, ".gitignore"), ".agent-state/\n");
+  // Append (don't clobber) so a task that ships its own .gitignore keeps it.
+  const gitignorePath = join(repoDir, ".gitignore");
+  let existing = "";
+  try {
+    existing = await readFile(gitignorePath, "utf8");
+  } catch {
+    // no .gitignore in the task — start fresh
+  }
+  if (!existing.split(/\r?\n/).includes(".agent-state/")) {
+    const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    await Bun.write(gitignorePath, `${existing}${sep}.agent-state/\n`);
+  }
   const git = (args: string[]) =>
     Bun.spawn(
       ["git", "-c", "user.email=eval@local", "-c", "user.name=eval", "-c", "commit.gpgsign=false", ...args],
