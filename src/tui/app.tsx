@@ -14,10 +14,10 @@ import { PermissionModal } from "./components/permission-modal.js";
 import { HookPanel } from "./components/hook-panel.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { HelpOverlay } from "./components/help-overlay.js";
-import { AgentModal, toAgentProviders } from "./components/agent-modal.js";
+import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
-import { buildOpenAISource, type ProviderCatalogEntry } from "../config.js";
-import { localSettingsPath, saveLocalSettings } from "../settings.js";
+import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../config.js";
+import { localSettingsPath, saveGlobalSettings, saveLocalSettings } from "../settings.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -36,6 +36,8 @@ export type AppProps = {
   initialModel: string;
   initialProvider: string;
   providers: ProviderCatalogEntry[];
+  globalSettingsPath: string;
+  globalDefaultProvider?: string;
   cwd: string;
   initialTask?: string;
   initialHooks?: LifecycleHookStatus[];
@@ -50,6 +52,8 @@ export function App({
   initialModel,
   initialProvider,
   providers,
+  globalSettingsPath,
+  globalDefaultProvider: initialGlobalDefaultProvider,
   cwd,
   initialTask = "",
   initialHooks = [],
@@ -71,24 +75,34 @@ export function App({
   const [diffScroll, setDiffScroll] = useState(0);
   const [model, setModel] = useState<string>(initialModel);
   const [provider, setProvider] = useState<string>(initialProvider);
+  const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(providers);
+  const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+
+  const applyCatalogSelection = (
+    catalog: readonly ProviderCatalogEntry[],
+    providerName: string,
+    nextModel: string,
+  ): boolean => {
+    const entry = catalog.find((p) => p.name === providerName);
+    if (entry === undefined) {
+      setCommandMessage(`Provider "${providerName}" is no longer configured`);
+      return false;
+    }
+    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel }));
+    setProvider(providerName);
+    setModel(nextModel);
+    return true;
+  };
 
   // Apply a provider/model selection to the running session. setSource mutates
   // the agent's active source in place; the reactor reads it at the next
   // inference call, so the switch takes effect without recreating the agent.
   const applySelection = (providerName: string, nextModel: string): void => {
-    const entry = providers.find((p) => p.name === providerName);
-    if (entry === undefined) {
-      // The modal only offers names from `providers`, so this means the live
-      // catalog and a selection have drifted. Surface it rather than no-op.
-      setCommandMessage(`Provider "${providerName}" is no longer configured`);
-      return;
+    if (applyCatalogSelection(providerCatalog, providerName, nextModel)) {
+      setCommandMessage(`Now using ${providerName} · ${nextModel}`);
     }
-    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel }));
-    setProvider(providerName);
-    setModel(nextModel);
-    setCommandMessage(`Now using ${providerName} · ${nextModel}`);
   };
 
   const persistSelection = (providerName: string, nextModel: string): void => {
@@ -101,6 +115,117 @@ export function App({
           `Switched, but saving default failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       },
+    );
+  };
+
+  const persistLocalSelection = (providerName: string, nextModel: string): void => {
+    void saveLocalSettings(localSettingsPath(cwd), { provider: providerName, model: nextModel }).catch(
+      (err: unknown) => {
+        setCommandMessage(
+          `Provider saved, but saving project selection failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      },
+    );
+  };
+
+  const persistProviderCatalog = (
+    catalog: ProviderCatalogEntry[],
+    defaultProvider: string | undefined,
+    successMessage: string,
+  ): void => {
+    setProviderCatalog(catalog);
+    setGlobalDefaultProvider(defaultProvider);
+    void saveGlobalSettings(globalSettingsPath, providerCatalogToSettings(catalog, defaultProvider)).then(
+      () => setCommandMessage(successMessage),
+      (err: unknown) => {
+        setCommandMessage(
+          `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+  };
+
+  const defaultAfterProviderSave = (submission: ProviderFormSubmission, catalog: readonly ProviderCatalogEntry[]): string | undefined => {
+    if (globalDefaultProvider === submission.originalName) return submission.name;
+    if (globalDefaultProvider !== undefined && catalog.some((p) => p.name === globalDefaultProvider)) {
+      return globalDefaultProvider;
+    }
+    return catalog.length === 1 ? catalog[0]?.name : submission.name;
+  };
+
+  const defaultAfterProviderDelete = (
+    deletedProvider: string,
+    fallbackProvider: string,
+    catalog: readonly ProviderCatalogEntry[],
+  ): string | undefined => {
+    if (globalDefaultProvider === deletedProvider) return fallbackProvider;
+    if (globalDefaultProvider !== undefined && catalog.some((p) => p.name === globalDefaultProvider)) {
+      return globalDefaultProvider;
+    }
+    return catalog.length === 1 ? catalog[0]?.name : undefined;
+  };
+
+  const upsertProvider = (submission: ProviderFormSubmission): { ok: true } | { ok: false; error: string } => {
+    const conflict = providerCatalog.find(
+      (p) => p.name === submission.name && p.name !== submission.originalName,
+    );
+    if (conflict !== undefined) {
+      setCommandMessage(`Provider "${submission.name}" already exists`);
+      return { ok: false, error: `Provider "${submission.name}" already exists` };
+    }
+    const existing =
+      submission.originalName !== undefined
+        ? providerCatalog.find((p) => p.name === submission.originalName)
+        : undefined;
+    const apiKey = submission.apiKey ?? existing?.apiKey;
+    if (apiKey === undefined || apiKey.length === 0) {
+      setCommandMessage("Provider API key is required");
+      return { ok: false, error: "Provider API key is required" };
+    }
+    const entry: ProviderCatalogEntry = {
+      name: submission.name,
+      baseURL: submission.baseURL,
+      apiKey,
+      models: submission.models,
+      ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
+    };
+    const catalog = providerCatalog
+      .filter((p) => p.name !== submission.name && p.name !== submission.originalName)
+      .concat(entry);
+    const selectedModel = entry.defaultModel ?? entry.models[0];
+    if (selectedModel === undefined) {
+      setCommandMessage("Provider must include at least one model");
+      return { ok: false, error: "Provider must include at least one model" };
+    }
+    const nextDefaultProvider = defaultAfterProviderSave(submission, catalog);
+    applyCatalogSelection(catalog, entry.name, selectedModel);
+    persistLocalSelection(entry.name, selectedModel);
+    persistProviderCatalog(catalog, nextDefaultProvider, `Saved provider ${entry.name}`);
+    return { ok: true };
+  };
+
+  const deleteProvider = (providerName: string): void => {
+    if (providerCatalog.length <= 1) {
+      setCommandMessage("Cannot remove the last provider");
+      return;
+    }
+    const catalog = providerCatalog.filter((p) => p.name !== providerName);
+    const fallback = catalog.find((p) => p.name === provider) ?? catalog[0];
+    const fallbackModel = fallback?.defaultModel ?? fallback?.models[0];
+    if (fallback === undefined || fallbackModel === undefined) {
+      setCommandMessage("Cannot remove provider because no fallback provider is configured");
+      return;
+    }
+    if (providerName === provider) {
+      applyCatalogSelection(catalog, fallback.name, fallbackModel);
+      persistLocalSelection(fallback.name, fallbackModel);
+    }
+    persistProviderCatalog(
+      catalog,
+      defaultAfterProviderDelete(providerName, fallback.name, catalog),
+      `Removed provider ${providerName}`,
     );
   };
 
@@ -156,10 +281,10 @@ export function App({
       // chrome (6) + title + section label + nav, plus the longer of the
       // provider list and the widest provider's model list (the two steps share
       // the same region, so reserve for whichever is taller).
-      const widestModels = providers.reduce((n, p) => Math.max(n, p.models.length), 0);
+      const widestModels = providerCatalog.reduce((n, p) => Math.max(n, p.models.length), 0);
       // +1 over the provider step: the model step renders an extra provider-name
       // header row above the list. Over-reserving is safe; under-reserving ghosts.
-      return 10 + Math.max(providers.length, widestModels);
+      return 16 + Math.max(providerCatalog.length, widestModels);
     }
     return 0;
   }, [
@@ -170,7 +295,7 @@ export function App({
     hookPanelOpen,
     exitConfirmOpen,
     agentModalOpen,
-    providers,
+    providerCatalog,
     leftWidth,
     state.hooks.length,
   ]);
@@ -407,11 +532,13 @@ export function App({
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
       {agentModalOpen && (
         <AgentModal
-          providers={toAgentProviders(providers)}
+          providers={toAgentProviders(providerCatalog)}
           activeProvider={provider}
           activeModel={model}
           onApply={applySelection}
           onPersistDefault={persistSelection}
+          onSaveProvider={upsertProvider}
+          onDeleteProvider={deleteProvider}
           onClose={() => setAgentModalOpen(false)}
         />
       )}

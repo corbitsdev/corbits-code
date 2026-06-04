@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildProviderCatalog, loadConfig } from "./config.js";
+import { buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config.js";
 import type { Config, UnconfiguredConfig } from "./config.js";
 import type { ResolvedProvider, Settings } from "./settings.js";
 
@@ -72,6 +72,8 @@ describe("loadConfig", () => {
       expect(config.baseURL).toBe("https://api.fireworks.ai/inference");
       expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
       expect(config.providerName).toBe("fireworks");
+      expect(config.globalSettingsPath).toBe(NO_SETTINGS);
+      expect(config.globalDefaultProvider).toBeUndefined();
       expect(config.force).toBe(false);
     } finally {
       restoreEnv(stash);
@@ -219,6 +221,7 @@ describe("loadConfig", () => {
       expect(config.baseURL).toBe("https://firepass.example/v1");
       expect(config.apiKey).toBe("fp-key");
       expect(config.model).toBe("fp-large");
+      expect(config.globalDefaultProvider).toBe("firepass");
     } finally {
       restoreEnv(stash);
       await rm(cwd, { recursive: true, force: true });
@@ -366,5 +369,45 @@ describe("buildProviderCatalog", () => {
     expect(catalog).toEqual([
       { name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
     ]);
+  });
+
+  test("converts a provider catalog back to global settings", () => {
+    const settings = providerCatalogToSettings(
+      [
+        {
+          name: "fp",
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large", "fp-small"],
+          defaultModel: "fp-large",
+        },
+        { name: "oa", baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+      ],
+      "oa",
+    );
+    expect(settings).toEqual({
+      defaultProvider: "oa",
+      providers: {
+        fp: {
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large", "fp-small"],
+          defaultModel: "fp-large",
+        },
+        oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+      },
+    });
+  });
+
+  test("omits defaultProvider when no global default is known", () => {
+    const settings = providerCatalogToSettings(
+      [{ name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] }],
+      undefined,
+    );
+    expect(settings).toEqual({
+      providers: {
+        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+      },
+    });
   });
 });
