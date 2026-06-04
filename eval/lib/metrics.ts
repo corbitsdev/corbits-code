@@ -1,7 +1,7 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
-import { lookupModelPricing, type PricingCache } from "../pricing-fetcher.js";
-import type { Cost, PriceOverride, RunMetrics } from "./types.js";
+import { lookupModelPricing, type PricingCache } from "../../src/pricing-fetcher.js";
+import type { Cost, JudgeScores, PriceOverride, RunMetrics } from "./types.js";
 
 // Cost from token usage. Returns { known: false, usd: null } when the model is
 // unknown to the pricing source and no override is supplied — surfacing "pricing
@@ -66,12 +66,36 @@ export function medianMetrics(runs: RunMetrics[]): RunMetrics {
   const majority = (predicate: (r: RunMetrics) => boolean): boolean =>
     runs.filter(predicate).length * 2 >= runs.length;
 
+  // Flat-fee is a property of the provider, not the run, so it survives the
+  // collapse; otherwise cost stays "unknown" if any run was unpriced.
+  const cost = runs.some((r) => r.cost.flatFee === true)
+    ? { known: false, usd: null, flatFee: true }
+    : runs.some((r) => !r.cost.known)
+      ? { known: false, usd: null }
+      : representative.cost;
+
   return {
     ...representative,
-    cost: runs.some((r) => !r.cost.known)
-      ? { known: false, usd: null }
-      : representative.cost,
+    cost,
+    judge: aggregateJudge(runs),
     passed: majority((r) => r.passed),
     completedCleanly: majority((r) => r.completedCleanly),
+  };
+}
+
+// The judge is a high-variance LLM signal, so collapse it across runs the same
+// way the rest of the metrics are — per-dimension median over the runs that were
+// actually judged — rather than inheriting whichever run happened to be the
+// turn-count representative. Null if no run produced a score.
+function aggregateJudge(runs: RunMetrics[]): JudgeScores | null {
+  const judged = runs.map((r) => r.judge).filter((j): j is JudgeScores => j !== null);
+  if (judged.length === 0) return null;
+  return {
+    correctness: median(judged.map((j) => j.correctness)),
+    scope: median(judged.map((j) => j.scope)),
+    quality: median(judged.map((j) => j.quality)),
+    overall: median(judged.map((j) => j.overall)),
+    // The representative rationale (first judged run); rationales don't merge.
+    rationale: judged[0]!.rationale,
   };
 }
