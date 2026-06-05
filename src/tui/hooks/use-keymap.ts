@@ -108,6 +108,10 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
       actions.toggleLastTool();
       return;
     }
+    if (key.ctrl && input === "o") {
+      actions.toggleLastTool();
+      return;
+    }
     if (key.ctrl && input === "d") {
       actions.cycleSidebar();
       return;
