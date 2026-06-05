@@ -25,6 +25,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   search_files: "Search",
   grep: "Grep",
   list_dir: "List",
+  web_search: "Web Search",
+  web_fetch: "Web Fetch",
   submit_plan: "Plan",
   submit_output: "Submit",
   ask_operator: "Ask operator",
@@ -59,6 +61,9 @@ function toolRole(toolName: string): SemanticRole {
     case "grep":
     case "list_dir":
       return "muted";
+    case "web_search":
+    case "web_fetch":
+      return "accent";
     default:
       return "accent";
   }
@@ -170,6 +175,45 @@ function pathFromResult(toolName: string, content: string): string | null {
   return null;
 }
 
+function webSearchSummary(raw: string): ToolResultSummary | null {
+  const obj = tryParseObject(raw);
+  const results = obj?.results;
+  if (!Array.isArray(results)) return null;
+  if (results.length === 0) {
+    return { preview: "No web results", full: "No web results", isJSONDocument: false };
+  }
+  const lines = results.flatMap((item, index) => {
+    if (typeof item !== "object" || item === null) {
+      return [`${index + 1}. ${scalarToString(item)}`];
+    }
+    const record = item as Record<string, unknown>;
+    const title = typeof record.title === "string" ? record.title : "Untitled";
+    const url = typeof record.url === "string" ? record.url : "";
+    const snippet = typeof record.snippet === "string" ? record.snippet : "";
+    return [
+      `${index + 1}. ${title}`,
+      ...(url.length > 0 ? [`   ${url}`] : []),
+      ...(snippet.length > 0 ? [`   ${snippet}`] : []),
+    ];
+  });
+  const noun = results.length === 1 ? "result" : "results";
+  return {
+    preview: `Found ${results.length} web ${noun}`,
+    full: lines.join("\n"),
+    isJSONDocument: false,
+  };
+}
+
+function webFetchSummary(raw: string): ToolResultSummary | null {
+  const obj = tryParseObject(raw);
+  if (obj === null || typeof obj.content !== "string") return null;
+  return {
+    preview: `Fetched ${countLines(obj.content)} lines`,
+    full: obj.content,
+    isJSONDocument: false,
+  };
+}
+
 /**
  * Collapse a tool result to a single human-readable preview line. The raw
  * content is preserved in `full` for the /verbose reveal. `isJSONDocument` is
@@ -179,6 +223,16 @@ function pathFromResult(toolName: string, content: string): string | null {
 export function summarizeToolResult(toolName: string, rawResult: string): ToolResultSummary {
   const content = rawResult;
   const full = content;
+
+  if (toolName === "web_search") {
+    const webSummary = webSearchSummary(content);
+    if (webSummary !== null) return webSummary;
+  }
+  if (toolName === "web_fetch") {
+    const fetchSummary = webFetchSummary(content);
+    if (fetchSummary !== null) return fetchSummary;
+  }
+
   // read_file line-numbers its output ("     1\t<line>"), so strip those prefixes
   // before testing for a JSON document — otherwise a real .json file never matches.
   const contentForDetection = toolName === "read_file" ? stripLineNumbers(content) : content;
