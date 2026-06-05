@@ -27,10 +27,11 @@ export function buildOpenAISource(fields: {
   baseURL: string;
   apiKey: string;
   model: string;
+  displayName?: string;
 }): InferenceSource {
   return {
     id: fields.id,
-    provider: "openai",
+    provider: fields.displayName ?? "openai",
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey: fields.apiKey,
     model: fields.model,
