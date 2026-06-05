@@ -73,10 +73,16 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       marginY={1}
     >
       <Text bold color={toolColor}>Approval needed</Text>
-      <Box marginTop={1} flexDirection="row" gap={1}>
-        <Text color={color("muted")}>{request.action}:</Text>
-        <Text color={toolColor}>{descriptor.display}</Text>
-        {descriptor.summary.length > 0 ? <Text color={color("text")}>{descriptor.summary}</Text> : null}
+      <Box marginTop={1} flexDirection="column" gap={0}>
+        <Text color={color("muted")}>
+          {request.action}:{" "}
+          <Text color={toolColor}>{descriptor.display}</Text>
+        </Text>
+        {descriptor.summary.length > 0 && (
+          <Box marginLeft={2}>
+            <Text color={color("text")} wrap="wrap">{descriptor.summary}</Text>
+          </Box>
+        )}
       </Box>
       <Box marginTop={1} flexDirection="column">
         {choices.map((choice, i) => {
