@@ -93,24 +93,34 @@ export function visibleWindow(
   thinkingExpanded: boolean,
   isExpanded: (absoluteIndex: number) => boolean,
 ): { start: number; end: number } {
-  const blockStart = clampOffset(scrollOffset, blocks.length, visibleRows);
-  const end = Math.min(blocks.length, blockStart + visibleRows);
+  if (blocks.length === 0) return { start: 0, end: 0 };
+  if (scrollOffset >= blocks.length - 1) {
+    const end = blocks.length;
+    let rows = 0;
+    let start = end;
+    for (let i = end - 1; i >= 0; i--) {
+      const block = blocks[i]!;
+      const spaced = block.type === "user" || block.type === "text";
+      const next =
+        estimateRows(block, columns, thinkingExpanded, isExpanded(i)) + (spaced ? 1 : 0);
+      if (rows + next > visibleRows && start < end) break;
+      rows += next;
+      start = i;
+    }
+    return { start, end };
+  }
+
+  const start = Math.max(0, Math.min(scrollOffset, blocks.length - 1));
   let rows = 0;
-  let start = end;
-  for (let i = end - 1; i >= 0; i--) {
+  let end = start;
+  for (let i = start; i < blocks.length; i++) {
     const block = blocks[i]!;
-    // renderBlock wraps every block except the topmost rendered one in
-    // marginTop:1 when it's a user/text turn, so each such block paints one
-    // extra physical row. The topmost rendered block (i === start after this
-    // iteration) gets no margin, but since we don't yet know the final start we
-    // count the margin for every spaced block — overcounting by at most one row
-    // is safe (the log shows slightly less); undercounting brings back ghosting.
-    const spaced = block.type === "user" || block.type === "text";
+    const spaced = i > start && (block.type === "user" || block.type === "text");
     const next =
       estimateRows(block, columns, thinkingExpanded, isExpanded(i)) + (spaced ? 1 : 0);
-    if (rows + next > visibleRows && start < end) break;
+    if (rows + next > visibleRows && end > start) break;
     rows += next;
-    start = i;
+    end = i + 1;
   }
   return { start, end };
 }
@@ -121,6 +131,31 @@ export function truncateLine(text: string, columns: number, expanded: boolean): 
   if (text.length <= available) return text;
   const head = Math.max(0, available - SHOW_MORE.length);
   return text.slice(0, head) + SHOW_MORE;
+}
+
+function truncateContentRows(content: string, columns: number, maxRows: number): string {
+  const width = Math.max(8, columns - LINE_PADDING);
+  const rows: string[] = [];
+  let clipped = false;
+
+  for (const sourceLine of content.split("\n")) {
+    const line = sourceLine.length === 0 ? " " : sourceLine;
+    for (let start = 0; start < line.length; start += width) {
+      if (rows.length >= maxRows) {
+        clipped = true;
+        break;
+      }
+      rows.push(line.slice(start, start + width));
+    }
+    if (clipped) break;
+  }
+
+  if (!clipped) return content;
+  if (rows.length === 0) return SHOW_MORE;
+  const last = rows[rows.length - 1] ?? "";
+  const head = Math.max(0, width - SHOW_MORE.length);
+  rows[rows.length - 1] = last.slice(0, head) + SHOW_MORE;
+  return rows.join("\n");
 }
 
 type TextProps = {
@@ -189,6 +224,7 @@ function renderBlock(
   columns: number,
   expanded: boolean,
   thinkingExpanded: boolean,
+  rowLimit: number,
 ): ReactNode {
   const key = `${block.type}-${index}`;
   switch (block.type) {
@@ -216,7 +252,7 @@ function renderBlock(
         </Text>
       );
     case "text":
-      return <Box key={key}>{renderMarkdownLines(block.content)}</Box>;
+      return <Box key={key}>{renderMarkdownLines(truncateContentRows(block.content, columns, rowLimit))}</Box>;
     case "tool_call": {
       const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
       if (isShell) {
@@ -322,7 +358,7 @@ export function EventLog({
     <Box flexDirection="column" paddingX={1}>
       {visible.map(({ block, index: absoluteIndex }, i) => {
         const expanded = isExpanded(absoluteIndex);
-        const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded);
+        const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded, visibleRows);
         // A little breathing room before each conversational turn (a user
         // message or an assistant reply), while tool call/result sequences stay
         // tight together.

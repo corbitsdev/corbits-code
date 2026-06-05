@@ -213,6 +213,33 @@ test("App keeps header and footer visible after many events", async () => {
   expect(lastFrame()).toContain("test-model");
 });
 
+test("App scrolls the event log with arrow keys when the prompt is empty", async () => {
+  const emitter = new EventEmitter();
+  const { lastFrame, stdin } = renderApp(emitter, { stdout: { columns: 100, rows: 12 } });
+
+  for (let i = 0; i < 20; i++) {
+    emitter.emit("event", {
+      type: "message.received",
+      seq: i + 1,
+      data: { message: { content: `prompt-${i}` } } as unknown as ReactorEmittedEvent["data"],
+    } satisfies ReactorEmittedEvent);
+  }
+  await tick();
+  expect(lastFrame()).toContain("prompt-19");
+
+  for (let i = 0; i < 20; i++) {
+    stdin.write("\x1B[A");
+    await tick();
+  }
+  expect(lastFrame()).toContain("prompt-0");
+
+  for (let i = 0; i < 20; i++) {
+    stdin.write("\x1B[B");
+    await tick();
+  }
+  expect(lastFrame()).toContain("prompt-19");
+});
+
 test("/agent editing a non-default provider preserves the global default", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ic-agent-settings-"));
   try {
