@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config.js";
+import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config.js";
 import type { Config, UnconfiguredConfig } from "./config.js";
 import type { ResolvedProvider, Settings } from "./settings.js";
 
@@ -340,6 +340,18 @@ describe("loadConfig", () => {
   });
 });
 
+describe("buildOpenAISource", () => {
+  test("normalizes the runtime source baseURL", () => {
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1/chat/completions",
+      apiKey: "fp-key",
+      model: "fp-large",
+    });
+    expect(source.baseURL).toBe("https://fp/v1");
+  });
+});
+
 describe("buildProviderCatalog", () => {
   const resolved: ResolvedProvider = {
     providerName: "fp",
@@ -362,6 +374,20 @@ describe("buildProviderCatalog", () => {
     expect(fp.models).toEqual(["fp-large", "fp-small"]);
     expect(fp.defaultModel).toBe("fp-large");
     expect(catalog.find((c) => c.name === "oa")!.defaultModel).toBeUndefined();
+  });
+
+  test("normalizes provider base URLs from the settings file", () => {
+    const settings: Settings = {
+      providers: {
+        fp: {
+          baseURL: "https://fp/v1/chat/completions/",
+          apiKey: "fp-key",
+          models: ["fp-large"],
+        },
+      },
+    };
+    const catalog = buildProviderCatalog(settings, resolved);
+    expect(catalog[0]?.baseURL).toBe("https://fp/v1");
   });
 
   test("env-only mode yields the single resolved provider", () => {
@@ -397,6 +423,23 @@ describe("buildProviderCatalog", () => {
         oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
       },
     });
+  });
+
+  test("normalizes provider catalog URLs when converting back to settings", () => {
+    const settings = providerCatalogToSettings(
+      [{ name: "fp", baseURL: "https://fp/v1/chat/completions", apiKey: "fp-key", models: ["fp-large"] }],
+      undefined,
+    );
+    expect(settings.providers.fp?.baseURL).toBe("https://fp/v1");
+  });
+
+  test("rejects invalid provider catalog URLs when converting back to settings", () => {
+    expect(() =>
+      providerCatalogToSettings(
+        [{ name: "fp", baseURL: "fp/v1", apiKey: "fp-key", models: ["fp-large"] }],
+        undefined,
+      ),
+    ).toThrow(/Invalid OpenAI-compatible baseURL/);
   });
 
   test("omits defaultProvider when no global default is known", () => {

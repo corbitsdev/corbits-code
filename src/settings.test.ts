@@ -8,6 +8,7 @@ import {
   isSettings,
   loadLocalSettings,
   loadSettings,
+  normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   saveGlobalSettings,
   saveLocalSettings,
@@ -34,6 +35,62 @@ const twoProviders: Settings = {
   },
 };
 
+describe("normalizeOpenAICompatibleBaseURL", () => {
+  test("preserves a plain base URL", () => {
+    expect(normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1")).toBe(
+      "https://provider.example.com/v1",
+    );
+  });
+
+  test("removes a trailing slash from a base URL", () => {
+    expect(normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/")).toBe(
+      "https://provider.example.com/v1",
+    );
+  });
+
+  test("normalizes a full chat completions endpoint to its base URL", () => {
+    expect(
+      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/chat/completions"),
+    ).toBe("https://provider.example.com/v1");
+  });
+
+  test("normalizes a full chat completions endpoint with trailing slash", () => {
+    expect(
+      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/chat/completions/"),
+    ).toBe("https://provider.example.com/v1");
+  });
+
+  test("trims whitespace around pasted URLs", () => {
+    expect(normalizeOpenAICompatibleBaseURL("  https://provider.example.com/v1  ")).toBe(
+      "https://provider.example.com/v1",
+    );
+  });
+
+  test("accepts localhost http URLs", () => {
+    expect(normalizeOpenAICompatibleBaseURL("http://localhost:11434/v1/")).toBe(
+      "http://localhost:11434/v1",
+    );
+  });
+
+  test("strips query and hash from pasted endpoint URLs", () => {
+    expect(
+      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/chat/completions?x=1#frag"),
+    ).toBe("https://provider.example.com/v1");
+  });
+
+  test("rejects malformed URL input with an actionable error", () => {
+    expect(() => normalizeOpenAICompatibleBaseURL("provider.example.com/v1")).toThrow(
+      /expected an absolute URL/,
+    );
+  });
+
+  test("rejects non-http URL schemes", () => {
+    expect(() => normalizeOpenAICompatibleBaseURL("file:///tmp/provider")).toThrow(
+      /expected http or https/,
+    );
+  });
+});
+
 describe("resolveProvider", () => {
   test("env-only mode resolves entirely from env", () => {
     const r = resolveProvider({
@@ -45,6 +102,21 @@ describe("resolveProvider", () => {
     expect(r).toEqual({ apiKey: "k", baseURL: "https://u/v1", model: "m", providerName: "p" });
   });
 
+  test("env-only mode normalizes full chat completions endpoint", () => {
+    const r = resolveProvider({
+      settings: null,
+      local: null,
+      env: {
+        apiKey: "k",
+        baseURL: "https://u/v1/chat/completions",
+        model: "m",
+        providerName: "p",
+      },
+      cli: {},
+    });
+    expect(r.baseURL).toBe("https://u/v1");
+  });
+
   test("file mode uses defaultProvider and defaultModel", () => {
     const r = resolveProvider({ settings: firepass, local: null, env: {}, cli: {} });
     expect(r).toEqual({
@@ -53,6 +125,20 @@ describe("resolveProvider", () => {
       apiKey: "fp-key",
       model: "fp-large",
     });
+  });
+
+  test("file mode normalizes configured provider baseURL", () => {
+    const settings: Settings = {
+      providers: {
+        only: {
+          baseURL: "https://o/v1/chat/completions/",
+          apiKey: "o-key",
+          models: ["m"],
+        },
+      },
+    };
+    const r = resolveProvider({ settings, local: null, env: {}, cli: {} });
+    expect(r.baseURL).toBe("https://o/v1");
   });
 
   test("falls back to the first model when no defaultModel", () => {
