@@ -61,6 +61,27 @@ describe("web_search", () => {
     expect(content.results).toEqual([]);
   });
 
+  test("normalizes DuckDuckGo redirect links into absolute result URLs", async () => {
+    const plugin = webToolsPlugin({
+      localOptions: {
+        fetchImpl: (async () =>
+          mockResponse(
+            `<html><body>` +
+            `<a href="/l/?uddg=https%3A%2F%2Fexample.com%2Fresult1">Result One</a>` +
+            `<p>Snippet one.</p>` +
+            `</body></html>`,
+            "text/html",
+          )) as unknown as typeof fetch,
+      },
+    });
+    const handler = plugin.tools?.find((t) => t.definition.name === "web_search")?.handler;
+    const result = await handler!(makeCall("web_search", { query: "test" }), new AbortController().signal);
+
+    expect(result.isError).not.toBe(true);
+    const content = result.content as { results: Array<{ url: string }> };
+    expect(content.results[0]?.url).toBe("https://example.com/result1");
+  });
+
   test("returns error for empty query", async () => {
     const plugin = webToolsPlugin();
     const handler = plugin.tools?.find((t) => t.definition.name === "web_search")?.handler;

@@ -130,8 +130,11 @@ function parseLine(line: string): StyledSegment[] {
 export function parseMarkdown(text: string): StyledSegment[][] {
   const lines: StyledSegment[][] = [];
   let inFence = false;
+  const input = text.split("\n");
 
-  for (const line of text.split("\n")) {
+  for (let i = 0; i < input.length; i++) {
+    const line = input[i]!;
+
     // Fenced code block delimiters (``` or ~~~). The delimiter line itself is
     // rendered as a blank separator; lines inside are shown verbatim as code
     // with no inline parsing.
@@ -144,8 +147,71 @@ export function parseMarkdown(text: string): StyledSegment[][] {
       lines.push(line.length === 0 ? [] : [{ text: line, code: true }]);
       continue;
     }
+
+    const table = parseTableBlock(input, i);
+    if (table !== null) {
+      lines.push(...table.lines);
+      i += table.consumed - 1;
+      continue;
+    }
+
     lines.push(parseLine(line));
   }
 
   return lines;
+}
+
+type ParsedTable = {
+  lines: StyledSegment[][];
+  consumed: number;
+};
+
+function parseTableBlock(lines: string[], startIndex: number): ParsedTable | null {
+  const header = lines[startIndex];
+  const separator = lines[startIndex + 1];
+  if (header === undefined || separator === undefined) return null;
+  if (!isTableRow(header) || !isTableSeparator(separator)) return null;
+
+  const rows: string[][] = [extractTableCells(header)];
+  let consumed = 2;
+
+  for (let i = startIndex + 2; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || !isTableRow(line)) break;
+    rows.push(extractTableCells(line));
+    consumed++;
+  }
+
+  const width = Math.max(...rows.map((row) => row.length));
+  const padded = rows.map((row) => row.concat(Array(width - row.length).fill("")));
+  const colWidths = Array.from({ length: width }, (_, col) =>
+    Math.max(...padded.map((row) => row[col]?.length ?? 0)),
+  );
+
+  const rendered = padded.map((row) => [
+    {
+      text: row
+        .map((cell, col) => cell.padEnd(colWidths[col] ?? 0, " "))
+        .join(" | "),
+    },
+  ]);
+
+  return { lines: rendered, consumed };
+}
+
+function isTableRow(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+function isTableSeparator(line: string): boolean {
+  return /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
+}
+
+function extractTableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
 }
