@@ -127,6 +127,24 @@ describe("web_fetch", () => {
     expect(result.content).toContain("blocked by policy");
   });
 
+  test("returns error when a redirect targets a blocked URL", async () => {
+    const plugin = webToolsPlugin({
+      localOptions: {
+        fetchImpl: (async () =>
+          new Response("", {
+            status: 302,
+            headers: { location: "http://169.254.169.254/latest/meta-data/" },
+          })) as unknown as typeof fetch,
+      },
+    });
+    const handler = plugin.tools?.find((t) => t.definition.name === "web_fetch")?.handler;
+
+    const result = await handler!(makeCall("web_fetch", { url: "https://example.com/start" }), new AbortController().signal);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("redirect blocked by policy");
+  });
+
   test("returns error for 5xx response", async () => {
     const plugin = webToolsPlugin({
       localOptions: {
@@ -163,5 +181,22 @@ describe("web_fetch", () => {
     expect(result.isError).toBe(true);
     expect(result.content).not.toContain("secret123");
     expect(result.content).not.toContain("api_key=secret123");
+  });
+
+  test("no secrets leak from provider error content", async () => {
+    const plugin = webToolsPlugin({
+      localOptions: {
+        fetchImpl: (async () => {
+          throw new Error("upstream failed for https://example.com/?api_key=secret123");
+        }) as unknown as typeof fetch,
+      },
+    });
+    const handler = plugin.tools?.find((t) => t.definition.name === "web_fetch")?.handler;
+
+    const result = await handler!(makeCall("web_fetch", { url: "https://example.com/doc" }), new AbortController().signal);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toContain("secret123");
+    expect(result.content).toContain("api_key=[REDACTED]");
   });
 });

@@ -3,6 +3,7 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import type { ProviderResolutionOptions } from "./providers/index.js";
 import { getWebProvider, withRetry, resetWebProvider } from "./providers/index.js";
+import { scrubSecrets } from "./secret-scrub.js";
 import type { WebResult } from "./types.js";
 import { isBlockedURL } from "./url-policy.js";
 
@@ -48,7 +49,7 @@ const WEB_FETCH_DEFINITION = {
 };
 
 function makeErrorResult(callId: string, message: string): ToolResult {
-  return { callId, content: `Error: ${message}`, isError: true };
+  return { callId, content: `Error: ${scrubSecrets(message)}`, isError: true };
 }
 
 function makeSuccessResult(callId: string, content: Record<string, unknown>): ToolResult {
