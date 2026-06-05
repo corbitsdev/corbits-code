@@ -58,6 +58,12 @@ test("buildSystemPrompt includes submit_plan and submit_output in tool list", ()
   expect(prompt).toContain("submit_output");
 });
 
+test("buildSystemPrompt includes web_search and web_fetch in tool list", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain("web_search");
+  expect(prompt).toContain("web_fetch");
+});
+
 test("buildSystemPrompt with custom tools lists only those tools", () => {
   const custom = ["read_file", "write_file"];
   const prompt = buildSystemPrompt(custom);
