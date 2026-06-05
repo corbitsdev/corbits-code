@@ -32,6 +32,8 @@ export type AgentStreamState = {
   planDeviated: boolean;
   elapsedMs: number;
   awaitingResponse: boolean;
+  currentToolName: string | null;
+  streamingType: "text" | "thinking" | "tool" | null;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -110,6 +112,8 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   let planSteps: PlanStep[] = [];
   let currentPlanStep: number | null = null;
   let planDeviated = false;
+  let currentToolName: string | null = null;
+  let streamingType: "text" | "thinking" | "tool" | null = null;
   const startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
@@ -158,6 +162,12 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     get awaitingResponse() {
       return awaitingResponse;
     },
+    get currentToolName() {
+      return currentToolName;
+    },
+    get streamingType() {
+      return streamingType;
+    },
     setGatePending(pending: boolean): void {
       if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
       status = pending ? "blocked" : "running";
@@ -186,6 +196,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         }
         case "inference.thinking.delta": {
           awaitingResponse = false;
+          streamingType = "thinking";
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
@@ -197,6 +208,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         }
         case "inference.text.delta": {
           awaitingResponse = false;
+          streamingType = "text";
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
@@ -208,7 +220,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         }
         case "inference.tool_call.start": {
           awaitingResponse = false;
+          streamingType = "tool";
           const data = event.data as { name: string; callId: string };
+          currentToolName = data.name;
           callIdToName.set(data.callId, data.name);
           callIdToArguments.set(data.callId, "");
           openCallId = data.callId;
@@ -313,6 +327,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       if (event.type === "inference.done") {
         turnsUsed++;
         awaitingResponse = false;
+        streamingType = null;
       }
 
       if (event.type === "inference.usage") {

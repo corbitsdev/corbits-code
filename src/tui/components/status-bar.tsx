@@ -15,23 +15,22 @@ export type StatusBarProps = {
   tokens: number;
   elapsedMs: number;
   status: AgentStatus;
+  currentToolName: string | null;
+  streamingType: "text" | "thinking" | "tool" | null;
+  awaitingResponse: boolean;
 };
 
-function statusLabel(status: AgentStatus): string {
-  switch (status) {
-    case "running":
-      return "Running";
-    case "done":
-      return "Done";
-    case "blocked":
-      return "Blocked";
-    case "failed":
-      return "Failed";
-    case "stopping":
-      return "Stopping";
-    case "stopped":
-      return "Stopped";
-  }
+function statusLabel(status: AgentStatus, currentToolName: string | null, streamingType: string | null, awaitingResponse: boolean): string {
+  if (status === "done") return "Done";
+  if (status === "failed") return "Failed";
+  if (status === "blocked") return "Blocked";
+  if (status === "stopping") return "Stopping";
+  if (status === "stopped") return "Stopped";
+  if (currentToolName) return `Running tool: ${currentToolName}`;
+  if (streamingType === "thinking") return "Thinking...";
+  if (streamingType === "text") return "Streaming response";
+  if (awaitingResponse) return "Waiting for model";
+  return "Running";
 }
 
 function statusColor(status: AgentStatus): string {
@@ -81,6 +80,9 @@ export function StatusBar({
   tokens,
   elapsedMs,
   status,
+  currentToolName,
+  streamingType,
+  awaitingResponse,
 }: StatusBarProps): ReactNode {
   return (
     // flexWrap lets the fields reflow onto extra lines when the terminal is
@@ -101,7 +103,7 @@ export function StatusBar({
       <Divider />
       <Text color={color("muted")}>{formatElapsed(elapsedMs)}</Text>
       <Divider />
-      <Text color={statusColor(status)} bold>{statusLabel(status)}</Text>
+      <Text color={statusColor(status)} bold>{statusLabel(status, currentToolName, streamingType, awaitingResponse)}</Text>
     </Box>
   );
 }
