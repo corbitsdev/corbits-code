@@ -297,7 +297,10 @@ export function EventLog({
   expandedTools,
   verbose,
 }: EventLogProps): ReactNode {
-  const blocks = renderableBlocks(contentBlocks);
+  const entries = renderableBlocks(contentBlocks)
+    .map((block, index) => ({ block, index }))
+    .filter((entry) => thinkingExpanded || entry.block.type !== "thinking");
+  const blocks = entries.map((entry) => entry.block);
 
   if (blocks.length === 0) {
     // Nothing to show yet — stay blank rather than announcing an empty state.
@@ -311,14 +314,13 @@ export function EventLog({
     visibleRows,
     columns,
     thinkingExpanded,
-    isExpanded,
+    (filteredIndex) => isExpanded(entries[filteredIndex]?.index ?? filteredIndex),
   );
-  const visible = blocks.slice(start, end);
+  const visible = entries.slice(start, end);
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {visible.map((block, i) => {
-        const absoluteIndex = start + i;
+      {visible.map(({ block, index: absoluteIndex }, i) => {
         const expanded = isExpanded(absoluteIndex);
         const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded);
         // A little breathing room before each conversational turn (a user

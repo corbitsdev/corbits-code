@@ -327,8 +327,12 @@ export function App({
   const visibleRows = Math.max(1, rows - CHROME_ROWS - effectiveOverlayRows);
 
   const renderableCount = useMemo(
-    () => state.contentBlocks.filter((b) => b.type !== "reply" && b.type !== "plan").length,
-    [state.contentBlocks],
+    () => state.contentBlocks.filter((b) =>
+      b.type !== "reply" &&
+      b.type !== "plan" &&
+      (thinkingExpanded || b.type !== "thinking")
+    ).length,
+    [state.contentBlocks, thinkingExpanded],
   );
 
   const lastToolIndex = useMemo(() => {
@@ -340,6 +344,11 @@ export function App({
   }, [state.contentBlocks]);
 
   const scroll = useScroll({ renderableCount, visibleRows });
+
+  const latestUserMessageInLog = state.contentBlocks.some((block) =>
+    block.type === "user" && block.content === state.latestUserMessage
+  );
+  const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
   const diffActive = sidebarOpen && contextView === "diff";
   const diff = useDiff({ cwd: process.cwd(), active: diffActive, refreshKey: renderableCount });
@@ -492,7 +501,7 @@ export function App({
       <Box flexShrink={0} flexDirection="column">
         <Header
           sessionTitle={sessionTitle}
-          latestUserMessage={state.latestUserMessage}
+          latestUserMessage={headerLatestUserMessage}
           width={columns}
         />
       </Box>
