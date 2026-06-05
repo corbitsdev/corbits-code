@@ -75,7 +75,7 @@ function estimateRows(
       return expanded ? sumLines(full) : 1;
     }
     case "error":
-      return wrap(block.message);
+      return sumLines(block.message);
     default:
       return 1;
   }
