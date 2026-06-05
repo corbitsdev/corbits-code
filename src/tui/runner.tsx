@@ -134,6 +134,7 @@ export async function runTUI(config: Config): Promise<number> {
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        displayName: config.providerName,
       }),
     ],
     defaultSource: config.providerName,
