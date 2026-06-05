@@ -13,6 +13,7 @@ import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { webToolsPlugin } from "../web/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { loadApprovals, saveApprovals } from "../permission/store.js";
 import type { Approval } from "../permission/types.js";
@@ -85,6 +86,7 @@ export async function runTUI(config: Config): Promise<number> {
       authzPlugin(),
       permissionPlugin(permissionGate),
       verifyPlugin(),
+      webToolsPlugin(),
     ],
   });
 

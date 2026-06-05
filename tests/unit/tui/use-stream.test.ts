@@ -286,6 +286,34 @@ function toolCallEvents(name: string, callId: string, args: object): ReactorEmit
   ];
 }
 
+test("structured tool result content is normalized to a string", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "web_search", callId: "web-1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "tool.done",
+    seq: 2,
+    data: {
+      result: {
+        callId: "web-1",
+        content: {
+          results: [{ title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" }],
+        },
+        isError: false,
+      },
+    } as unknown as ReactorEmittedEvent["data"],
+  });
+
+  const result = state.contentBlocks.at(-1);
+  expect(result?.type).toBe("tool_result");
+  if (result?.type !== "tool_result") return;
+  expect(result.content).toContain('"results"');
+  expect(result.content).toContain("https://hono.dev");
+});
+
 test("submit_plan seeds plan totals and current step", () => {
   const state = createAgentStreamState();
   for (const e of submitPlanEvents("p1", [

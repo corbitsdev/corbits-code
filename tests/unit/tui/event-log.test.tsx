@@ -111,6 +111,20 @@ test("EventLog renders tool result preview, never raw content, for non-JSON resu
   expect(frame).not.toContain("line one");
 });
 
+test("EventLog renders web_search result envelopes as readable output", () => {
+  const content = JSON.stringify({
+    results: [
+      { title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" },
+    ],
+  });
+  const { lastFrame } = renderLog([
+    { type: "tool_result", callId: "web-1", name: "web_search", content, isError: false },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Found 1 web result");
+  expect(frame).not.toContain('"results"');
+});
+
 test("EventLog renders a real JSON document result verbatim", () => {
   const json = '{"name":"intercode","version":"1.0.0"}';
   const { lastFrame } = renderLog([

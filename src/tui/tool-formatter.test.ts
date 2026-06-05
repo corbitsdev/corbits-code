@@ -31,6 +31,12 @@ describe("describeToolCall", () => {
     expect(describeToolCall("edit_file", '{"path":"a"}').role).toBe("accent");
     expect(describeToolCall("read_file", '{"path":"a"}').role).toBe("muted");
   });
+  test("web tools read as accent actions with readable names", () => {
+    expect(describeToolCall("web_search", '{"query":"hono.dev"}').display).toBe("Web Search");
+    expect(describeToolCall("web_search", '{"query":"hono.dev"}').role).toBe("accent");
+    expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').display).toBe("Web Fetch");
+    expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').role).toBe("accent");
+  });
   test("a destructive shell command reads as danger", () => {
     expect(describeToolCall("run_shell", '{"command":"rm -rf build"}').role).toBe("danger");
   });
@@ -114,6 +120,34 @@ describe("summarizeToolResult", () => {
 
   test("grep counts matches", () => {
     expect(summarizeToolResult("grep", "a.ts:1:foo\nb.ts:2:bar").preview).toBe("Found 2 matches");
+  });
+
+  test("web_search counts and formats structured results", () => {
+    const raw = JSON.stringify({
+      results: [
+        { title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" },
+      ],
+    });
+    const result = summarizeToolResult("web_search", raw);
+    expect(result.preview).toBe("Found 1 web result");
+    expect(result.full).toContain("Hono");
+    expect(result.full).toContain("https://hono.dev");
+    expect(result.full).toContain("Fast web framework");
+    expect(result.isJSONDocument).toBe(false);
+  });
+
+  test("web_search handles empty structured results", () => {
+    const result = summarizeToolResult("web_search", JSON.stringify({ results: [] }));
+    expect(result.preview).toBe("No web results");
+    expect(result.full).toBe("No web results");
+    expect(result.isJSONDocument).toBe(false);
+  });
+
+  test("web_fetch unwraps structured markdown content", () => {
+    const result = summarizeToolResult("web_fetch", JSON.stringify({ content: "# Hono\n\nFast framework" }));
+    expect(result.preview).toBe("Fetched 3 lines");
+    expect(result.full).toContain("# Hono");
+    expect(result.isJSONDocument).toBe(false);
   });
 
   test("unknown tool gets generic abbreviated preview", () => {
