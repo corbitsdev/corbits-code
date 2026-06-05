@@ -3,11 +3,13 @@ import type { ApprovalScope } from "./types.js";
 // Split a shell command into the individual commands it chains together, so each
 // is classified and approved on its own. Operators recognised: && || | ; and a
 // newline. Splitting is quote-aware — operators inside '...', "..." or `...` are
-// part of an argument, not a separator.
+// part of an argument, not a separator. Heredoc bodies (<< 'MARKER' ... MARKER)
+// are treated as atomic — newlines inside them are not chain boundaries.
 export function splitChainedCommand(command: string): string[] {
   const segments: string[] = [];
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
+  let heredocMarker: string | null = null;
 
   const push = (): void => {
     const trimmed = current.trim();
@@ -17,6 +19,21 @@ export function splitChainedCommand(command: string): string[] {
 
   for (let i = 0; i < command.length; i++) {
     const ch = command[i] as string;
+
+    // Inside a heredoc body: scan for the terminating marker on its own line.
+    if (heredocMarker !== null) {
+      current += ch;
+      if (ch === "\n") {
+        // Check whether the line just completed is the marker.
+        const lines = current.split("\n");
+        const lastLine = lines[lines.length - 2] ?? "";
+        if (lastLine.trim() === heredocMarker) {
+          heredocMarker = null;
+        }
+      }
+      continue;
+    }
+
     if (quote !== null) {
       current += ch;
       if (ch === quote) quote = null;
@@ -27,6 +44,36 @@ export function splitChainedCommand(command: string): string[] {
       current += ch;
       continue;
     }
+
+    // Detect heredoc redirect: << or <<-
+    if (ch === "<" && command[i + 1] === "<") {
+      let j = i + 2;
+      if (command[j] === "-") j++; // <<- strips leading tabs
+      // Skip whitespace between << and the marker word.
+      while (j < command.length && (command[j] === " " || command[j] === "\t")) j++;
+      // The marker may be quoted ('EOF', "EOF", or bare EOF).
+      let markerQuote: string | null = null;
+      if (command[j] === "'" || command[j] === '"') {
+        markerQuote = command[j] as string;
+        j++;
+      }
+      let marker = "";
+      while (j < command.length && command[j] !== "\n" && command[j] !== markerQuote) {
+        marker += command[j++];
+      }
+      if (markerQuote !== null && command[j] === markerQuote) j++;
+      // Consume the rest of the line that opened the heredoc.
+      while (j < command.length && command[j] !== "\n") {
+        current += command[i];
+        i++;
+      }
+      // Include everything up to j in current and set heredoc mode.
+      current += command.slice(i, j);
+      i = j - 1;
+      heredocMarker = marker;
+      continue;
+    }
+
     const next = command[i + 1];
     if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
       push();
