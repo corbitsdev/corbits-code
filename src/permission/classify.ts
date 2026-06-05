@@ -42,13 +42,14 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
       tool: "run_shell",
       action: "Run shell command",
       subject: segment,
+      arguments: { command: segment },
       scopes: deriveCommandScopes(segment),
     }));
   }
   if (call.name === "write_file" || call.name === "edit_file") {
     const path = stringArg(call, "path");
     const action = call.name === "write_file" ? "Write file" : "Edit file";
-    return [{ tool: call.name, action, subject: path, scopes: fileScopes(path) }];
+    return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
   // Any other consequential tool: approve as a whole, remember by tool name.
   return [
@@ -56,6 +57,7 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
       tool: call.name,
       action: `Run ${call.name}`,
       subject: call.name,
+      arguments: call.arguments,
       scopes: [{ id: "tool", label: `Always allow ${call.name}`, pattern: call.name }],
     },
   ];

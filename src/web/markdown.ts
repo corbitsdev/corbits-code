@@ -68,6 +68,9 @@ export function htmlToMarkdown(html: string): string {
   text = text.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_m, g1) => convertListItems(g1, "- "));
   text = text.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_m, g1) => convertListItems(g1, "1. "));
 
+  // Tables
+  text = text.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_m, g1) => convertTable(g1));
+
   // Code blocks
   text = text.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_m, g1) => `\n\`\`\`\n${stripInlineTags(g1)}\n\`\`\`\n`);
 
@@ -112,4 +115,41 @@ function convertListItems(html: string, prefix: string): string {
     items.push(`${prefix}${stripInlineTags(match[1] ?? "").trim()}`);
   }
   return items.length > 0 ? `\n${items.join("\n")}\n` : "";
+}
+
+function convertTable(html: string): string {
+  const rows: string[][] = [];
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch: RegExpExecArray | null;
+
+  while ((rowMatch = rowRegex.exec(html)) !== null) {
+    const cells: string[] = [];
+    const cellRegex = /<(td|th)[^>]*>([\s\S]*?)<\/\1>/gi;
+    let cellMatch: RegExpExecArray | null;
+
+    while ((cellMatch = cellRegex.exec(rowMatch[1] ?? "")) !== null) {
+      cells.push(stripInlineTags(cellMatch[2] ?? "").replace(/\s+/g, " ").trim());
+    }
+
+    if (cells.length > 0) {
+      rows.push(cells);
+    }
+  }
+
+  if (rows.length === 0) return "";
+
+  const width = Math.max(...rows.map((row) => row.length));
+  const normalized = rows.map((row) => row.concat(Array(width - row.length).fill("")));
+  const header = normalized[0] ?? [];
+  const body = normalized.slice(1);
+  const separator = header.map(() => "---");
+
+  const lines = [
+    `\n| ${header.join(" | ")} |`,
+    `| ${separator.join(" | ")} |`,
+    ...body.map((row) => `| ${row.join(" | ")} |`),
+    "",
+  ];
+
+  return lines.join("\n");
 }

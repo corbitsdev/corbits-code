@@ -164,4 +164,14 @@ describe("multi-line", () => {
     expect(lines[1]?.[0]?.bullet).toBe(true);
     expect(lines[2]).toEqual([{ text: "plain" }]);
   });
+
+  test("markdown tables render as aligned rows", () => {
+    const lines = parseMarkdown(
+      "| Game | Date | Location |\n| --- | --- | --- |\n| Game 3 | June 7 | Vegas |\n| Game 4 | June 9 | Vegas |",
+    );
+    expect(lines).toHaveLength(3);
+    expect(allText(lines[0] ?? [])).toBe("Game   | Date   | Location");
+    expect(allText(lines[1] ?? [])).toBe("Game 3 | June 7 | Vegas   ");
+    expect(allText(lines[2] ?? [])).toBe("Game 4 | June 9 | Vegas   ");
+  });
 });
