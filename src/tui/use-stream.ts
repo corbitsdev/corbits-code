@@ -84,6 +84,16 @@ function parsePathArgument(rawArguments: string): string | null {
   return typeof path === "string" && path.length > 0 ? path : null;
 }
 
+function stringifyToolContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content === undefined) return "";
+  try {
+    return JSON.stringify(content, null, 2);
+  } catch {
+    return String(content);
+  }
+}
+
 export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = []): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
   const callIdToName = new Map<string, string>();
@@ -224,9 +234,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           // A tool finished; the model is now deciding its next move with nothing
           // streaming, so re-arm the indicator until the next token arrives.
           awaitingResponse = true;
-          const result = (event.data as { result: { callId: string; content: string; isError: boolean } }).result;
+          const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
+          const content = stringifyToolContent(result.content);
 
           if (name === "submit_plan" && !result.isError) {
             let planCallIndex = -1;
@@ -273,7 +284,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             }
           }
 
-          contentBlocks.push({ type: "tool_result", callId: result.callId, name, content: result.content, isError: result.isError });
+          contentBlocks.push({ type: "tool_result", callId: result.callId, name, content, isError: result.isError });
           break;
         }
         case "reactor.error": {
