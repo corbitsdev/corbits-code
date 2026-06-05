@@ -69,6 +69,22 @@ test("App renders events after they are emitted", async () => {
   expect(lastFrame()).toContain("Read");
 });
 
+test("App renders a submitted prompt once, not in both header and log", async () => {
+  const emitter = new EventEmitter();
+  const { lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+
+  emitter.emit("event", {
+    type: "message.received",
+    seq: 1,
+    data: { message: { content: "hello world" } } as unknown as ReactorEmittedEvent["data"],
+  } satisfies ReactorEmittedEvent);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const frame = lastFrame() ?? "";
+  expect(frame.match(/hello world/g)?.length ?? 0).toBe(1);
+  expect(frame).toContain("> hello world");
+});
+
 test("App renders running status initially", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = renderApp(emitter);

@@ -363,6 +363,7 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
       return [
         capabilities.checkpoint("operator-declined"),
+        capabilities.reply("Tool call rejected by operator."),
         capabilities.done(),
       ];
     }

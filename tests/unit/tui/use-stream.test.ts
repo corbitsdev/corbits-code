@@ -89,13 +89,14 @@ test("createAgentStreamState tracks status from inference.error", () => {
   expect(state.status).toBe("failed");
 });
 
-test("a received user message becomes a user block", () => {
+test("a received user message updates latest user message and adds a log block", () => {
   const state = createAgentStreamState();
   state.addEvent({
     type: "message.received",
     seq: 1,
     data: { message: { content: "hello world" } } as unknown as ReactorEmittedEvent["data"],
   });
+  expect(state.latestUserMessage).toBe("hello world");
   expect(state.contentBlocks.length).toBe(1);
   expect(state.contentBlocks[0].type).toBe("user");
   expect(state.contentBlocks[0].content).toBe("hello world");
