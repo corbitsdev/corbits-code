@@ -612,6 +612,9 @@ export function App({
           tokens={state.totalTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
+          currentToolName={state.currentToolName}
+          streamingType={state.streamingType}
+          awaitingResponse={state.awaitingResponse}
         />
       </Box>
     </Box>
