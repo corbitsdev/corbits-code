@@ -220,9 +220,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         }
         case "inference.tool_call.start": {
           awaitingResponse = false;
-          streamingType = "tool";
           const data = event.data as { name: string; callId: string };
           currentToolName = data.name;
+          streamingType = "tool";
           callIdToName.set(data.callId, data.name);
           callIdToArguments.set(data.callId, "");
           openCallId = data.callId;
@@ -248,6 +248,8 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           // A tool finished; the model is now deciding its next move with nothing
           // streaming, so re-arm the indicator until the next token arrives.
           awaitingResponse = true;
+          currentToolName = null;
+          streamingType = null;
           const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
