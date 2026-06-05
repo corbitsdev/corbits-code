@@ -15,20 +15,6 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-function truncatePath(path: string, maxWidth: number): string {
-  if (path.length <= maxWidth) return path;
-  const segments = path.split("/");
-  if (segments.length <= 1) return truncate(path, maxWidth);
-  const last = segments[segments.length - 1]!;
-  if (last.length + 3 > maxWidth) return truncate(path, maxWidth);
-  const availableForMiddle = maxWidth - last.length - 4;
-  if (availableForMiddle <= 0) return `…/${last}`;
-  const first = segments[0]!;
-  const middle = segments.slice(1, -1).join("/");
-  const truncatedMiddle = middle.length > availableForMiddle ? `${middle.slice(0, availableForMiddle - 1)}…` : middle;
-  return `${first}/${truncatedMiddle}/${last}`;
-}
-
 // The header carries identity and context only — the product name, the session
 // title, the working directory, and the latest request. All live run telemetry
 // (status, turns, cost, tokens, elapsed) lives in the status bar so nothing is
@@ -36,7 +22,6 @@ function truncatePath(path: string, maxWidth: number): string {
 export function Header({ sessionTitle, latestUserMessage, width }: HeaderProps): ReactNode {
   const showCwd = width >= 80;
   const cwd = process.cwd();
-  const cwdMax = Math.max(12, Math.floor(width * 0.35));
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
@@ -47,7 +32,7 @@ export function Header({ sessionTitle, latestUserMessage, width }: HeaderProps):
         )}
       </Box>
       {showCwd && (
-        <Text color={color("muted")}>{truncatePath(cwd, cwdMax)}</Text>
+        <Text color={color("muted")}>{cwd}</Text>
       )}
       {latestUserMessage.length > 0 && (
         <Text color={color("muted")}>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
