@@ -135,9 +135,18 @@ export function App({
     defaultProvider: string | undefined,
     successMessage: string,
   ): void => {
+    let settings: ReturnType<typeof providerCatalogToSettings>;
+    try {
+      settings = providerCatalogToSettings(catalog, defaultProvider);
+    } catch (err) {
+      setCommandMessage(
+        `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
     setProviderCatalog(catalog);
     setGlobalDefaultProvider(defaultProvider);
-    void saveGlobalSettings(globalSettingsPath, providerCatalogToSettings(catalog, defaultProvider)).then(
+    void saveGlobalSettings(globalSettingsPath, settings).then(
       () => setCommandMessage(successMessage),
       (err: unknown) => {
         setCommandMessage(

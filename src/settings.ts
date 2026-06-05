@@ -37,6 +37,32 @@ export type ResolvedProvider = {
   providerName: string;
 };
 
+const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
+
+export function normalizeOpenAICompatibleBaseURL(raw: string): string {
+  const trimmed = raw.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid OpenAI-compatible baseURL "${raw}": expected an absolute URL.`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Invalid OpenAI-compatible baseURL "${raw}": expected http or https.`);
+  }
+
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname.endsWith(CHAT_COMPLETIONS_SUFFIX)) {
+    parsed.pathname = pathname.slice(0, -CHAT_COMPLETIONS_SUFFIX.length) || "/";
+  } else {
+    parsed.pathname = pathname || "/";
+  }
+  parsed.search = "";
+  parsed.hash = "";
+
+  return parsed.toString().replace(/\/$/, "");
+}
+
 export function globalSettingsPath(home: string = homedir()): string {
   return join(home, ".interchange", "settings.json");
 }
@@ -232,5 +258,5 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     );
   }
 
-  return { providerName, baseURL, apiKey, model };
+  return { providerName, baseURL: normalizeOpenAICompatibleBaseURL(baseURL), apiKey, model };
 }
