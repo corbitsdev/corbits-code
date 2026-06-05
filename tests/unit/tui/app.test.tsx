@@ -215,7 +215,7 @@ test("App keeps header and footer visible after many events", async () => {
 
 test("App scrolls the event log with arrow keys when the prompt is empty", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame, stdin } = renderApp(emitter, { stdout: { columns: 100, rows: 12 } });
+  const { lastFrame, stdin } = renderApp(emitter, { stdout: { columns: 100, rows: 20 } });
 
   for (let i = 0; i < 20; i++) {
     emitter.emit("event", {
