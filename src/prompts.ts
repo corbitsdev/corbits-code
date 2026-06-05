@@ -21,6 +21,8 @@ const defaultChatTools = [
   "search_files",
   "grep",
   "list_dir",
+  "web_search",
+  "web_fetch",
 ];
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
@@ -135,6 +137,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
 export function buildChatSystemPrompt(): string {
   return joinSections([
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
+    buildToolCallDiscipline(),
     buildStyleRules(),
     buildBudgetRules(),
     buildSelfVerification(),

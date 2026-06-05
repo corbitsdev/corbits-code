@@ -86,6 +86,13 @@ test("buildChatSystemPrompt excludes agent-mode sections", () => {
   expect(prompt).not.toContain("submit_output");
 });
 
+test("buildChatSystemPrompt includes web tools and web access discipline", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toContain("web_search");
+  expect(prompt).toContain("web_fetch");
+  expect(prompt).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
+});
+
 test("agent identity is Intercode with a quality bar, not an assistant", () => {
   const role = buildAgentRole();
   expect(role).toContain("Intercode");
