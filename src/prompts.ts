@@ -6,6 +6,8 @@ const defaultAgentTools = [
   "search_files",
   "grep",
   "list_dir",
+  "web_search",
+  "web_fetch",
   "submit_plan",
   "submit_output",
   "ask_operator",

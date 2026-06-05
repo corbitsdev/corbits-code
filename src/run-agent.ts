@@ -13,6 +13,7 @@ import { reReadBlockPlugin } from "./plugins/re-read-block-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { permissionPlugin } from "./plugins/permission-plugin.js";
 import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
+import { webToolsPlugin } from "./web/plugin.js";
 import { createPermissionGate } from "./permission/gate.js";
 import { loadApprovals } from "./permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
@@ -100,6 +101,7 @@ export async function runAgent(
       permissionPlugin(permissionGate),
       verifyPlugin(),
       reReadBlockPlugin(() => directorHolder.instance),
+      webToolsPlugin(),
     ],
   });
 
