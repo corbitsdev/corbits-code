@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createCodingDirector } from "./director.js";
+import { createChatDirector, createCodingDirector } from "./director.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
@@ -40,6 +40,13 @@ function makeToolDoneEvent(callId: string) {
   return {
     type: "tool.done",
     result: { callId, content: "ok" },
+  } as unknown as ReactorInboundEvent;
+}
+
+function makeToolErrorEvent(callId: string, content: string) {
+  return {
+    type: "tool.done",
+    result: { callId, content, isError: true },
   } as unknown as ReactorInboundEvent;
 }
 
@@ -122,6 +129,32 @@ describe("submit_output without plan", () => {
   test("warning when task ran more than 3 turns without a plan", async () => {
     const result = await submitWithoutPlan(4);
     expect(hasWarning(result)).toBe(true);
+  });
+});
+
+describe("operator declined tool calls", () => {
+  const declined = "Blocked by permission policy: Operator declined: Run shell command (npm view hono version)";
+
+  function stopsAfterDecline(result: ReactorAction | ReactorAction[]): boolean {
+    const actions = actionsArray(result);
+    return (
+      actions.some((a) => a.type === "checkpoint" && "message" in a && a.message === "operator-declined") &&
+      actions.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.") &&
+      actions.some((a) => a.type === "done") &&
+      !actions.some((a) => a.type === "infer")
+    );
+  }
+
+  test("coding director ends the run instead of re-inferring", async () => {
+    const director = createCodingDirector("", []);
+    const result = await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities);
+    expect(stopsAfterDecline(result)).toBe(true);
+  });
+
+  test("chat director ends the run instead of re-inferring", async () => {
+    const director = createChatDirector("", [], async () => true);
+    const result = await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities);
+    expect(stopsAfterDecline(result)).toBe(true);
   });
 });
 

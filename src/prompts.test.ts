@@ -7,6 +7,7 @@ import {
   buildBudgetRules,
   buildChatSystemPrompt,
   buildFewShot,
+  buildGroundingRules,
   buildPlanDecisionRules,
   buildPlanRules,
   buildSelfVerification,
@@ -34,6 +35,7 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   const discipline = buildToolCallDiscipline();
   const planDecision = buildPlanDecisionRules();
   const budget = buildBudgetRules();
+  const grounding = buildGroundingRules();
   const submit = buildSubmitRules();
   const tools = buildAvailableTools();
 
@@ -41,7 +43,8 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf(discipline));
   expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(planDecision));
   expect(prompt.indexOf(planDecision)).toBeLessThan(prompt.indexOf(budget));
-  expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(submit));
+  expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(grounding));
+  expect(prompt.indexOf(grounding)).toBeLessThan(prompt.indexOf(submit));
   expect(prompt.indexOf(submit)).toBeLessThan(prompt.indexOf(tools));
 });
 
@@ -70,6 +73,13 @@ test("tool discipline prefers web tools over shell for web access", () => {
   expect(discipline).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
 });
 
+test("system prompt requires web grounding for current or unclear external facts", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain(buildGroundingRules());
+  expect(prompt).toContain("facts that may have changed");
+  expect(prompt).toContain("use web_search or web_fetch before trying shell-based package or documentation lookups");
+});
+
 test("buildSystemPrompt with custom tools lists only those tools", () => {
   const custom = ["read_file", "write_file"];
   const prompt = buildSystemPrompt(custom);
@@ -91,6 +101,7 @@ test("buildChatSystemPrompt includes web tools and web access discipline", () =>
   expect(prompt).toContain("web_search");
   expect(prompt).toContain("web_fetch");
   expect(prompt).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
+  expect(prompt).toContain(buildGroundingRules());
 });
 
 test("agent identity is Intercode with a quality bar, not an assistant", () => {
@@ -126,4 +137,5 @@ test("chat prompt is Intercode and holds the same code standards", () => {
   expect(prompt).toContain("Intercode");
   expect(prompt.toLowerCase()).not.toContain("you are a helpful coding assistant");
   expect(prompt).toContain(buildStyleRules());
+  expect(prompt).toContain(buildGroundingRules());
 });

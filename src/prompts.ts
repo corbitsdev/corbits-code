@@ -79,6 +79,14 @@ export function buildBudgetRules(): string {
   ].join("\n");
 }
 
+export function buildGroundingRules(): string {
+  return [
+    "Grounding current facts:",
+    "- If the answer depends on external documentation, current package versions, product behavior, or facts that may have changed, ground it with web_search or web_fetch before answering.",
+    "- If local evidence and memory disagree, or the local repo is missing enough context, use web_search or web_fetch before trying shell-based package or documentation lookups.",
+  ].join("\n");
+}
+
 export function buildSelfVerification(): string {
   return [
     "Verify before you finish:",
@@ -126,6 +134,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildPlanRules(),
     buildStyleRules(),
     buildBudgetRules(),
+    buildGroundingRules(),
     buildSelfVerification(),
     buildAuthorizationRules(),
     buildSubmitRules(),
@@ -140,6 +149,7 @@ export function buildChatSystemPrompt(): string {
     buildToolCallDiscipline(),
     buildStyleRules(),
     buildBudgetRules(),
+    buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
     buildAvailableTools(defaultChatTools),
