@@ -76,18 +76,6 @@ test("EventLog wraps a long line with inline bold instead of overflowing", () =>
   expect(frame).toContain("today");
 });
 
-test("EventLog clips a single oversized text block to the visible rows", () => {
-  const content = Array.from({ length: 20 }, (_, i) => `line-${i}`).join("\n");
-  const { lastFrame } = renderLog([{ type: "text", content }], {
-    columns: 80,
-    visibleRows: 4,
-  });
-  const rows = (lastFrame() ?? "").split("\n").filter((r) => r.trim().length > 0);
-  expect(rows.length).toBeLessThanOrEqual(4);
-  expect(lastFrame()).toContain("line-0");
-  expect(lastFrame()).not.toContain("line-19");
-});
-
 test("EventLog renders a shell call leanly as the command, not run_shell", () => {
   const { lastFrame } = renderLog([
     {

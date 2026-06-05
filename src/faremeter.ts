@@ -47,6 +47,8 @@ export function createFaremeter(config: CreateFaremeterConfig = {}): Faremeter {
       return totalCost;
     },
     getTotalTokens(): number {
+      // Session total including all token types: input, output, cache read/write, and thinking.
+      // This is accumulated across all turns in the session.
       return totalTokens;
     },
   };
