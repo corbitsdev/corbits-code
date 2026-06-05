@@ -99,6 +99,13 @@ describe("buildRequests", () => {
     expect(reqs[0]?.subject).toBe("src/a.ts");
     expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["src/a.ts", "src/*"]);
   });
+
+  test("unknown ask-tier tools preserve arguments for approval display", () => {
+    const reqs = buildRequests({ id: "c", name: "web_search", arguments: { query: "hono.dev web framework" } });
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe("web_search");
+    expect(reqs[0]?.arguments).toEqual({ query: "hono.dev web framework" });
+  });
 });
 
 describe("createPermissionGate", () => {

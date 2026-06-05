@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
 import { color } from "../theme.js";
+import { describeToolCall } from "../tool-formatter.js";
 
 export type PermissionModalProps = {
   request: PermissionRequest;
@@ -25,9 +26,23 @@ function buildChoices(request: PermissionRequest): Choice[] {
   return choices;
 }
 
+function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
+  if (request.arguments !== undefined) return request.arguments;
+  if (request.tool === "run_shell") return { command: request.subject };
+  if (request.tool === "write_file" || request.tool === "edit_file" || request.tool === "read_file") {
+    return { path: request.subject };
+  }
+  return {};
+}
+
 export function PermissionModal({ request, onResolve }: PermissionModalProps): ReactNode {
   const choices = buildChoices(request);
   const [selected, setSelected] = useState(0);
+  const descriptor = describeToolCall(
+    request.tool,
+    JSON.stringify(descriptorArgs(request)),
+  );
+  const toolColor = color(descriptor.role);
 
   useInput((_input, key) => {
     if (key.upArrow) {
@@ -51,16 +66,17 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor={color("brand")}
+      borderColor={toolColor}
       paddingX={2}
       paddingY={1}
       marginX={1}
       marginY={1}
     >
-      <Text bold color={color("brand")}>Approval needed</Text>
+      <Text bold color={toolColor}>Approval needed</Text>
       <Box marginTop={1} flexDirection="row" gap={1}>
         <Text color={color("muted")}>{request.action}:</Text>
-        <Text color={color("text")}>{request.subject}</Text>
+        <Text color={toolColor}>{descriptor.display}</Text>
+        {descriptor.summary.length > 0 ? <Text color={color("text")}>{descriptor.summary}</Text> : null}
       </Box>
       <Box marginTop={1} flexDirection="column">
         {choices.map((choice, i) => {

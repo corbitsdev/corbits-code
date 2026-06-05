@@ -15,6 +15,7 @@ export type PermissionRequest = {
   tool: string;
   action: string;
   subject: string;
+  arguments?: Record<string, unknown>;
   scopes: ApprovalScope[];
 };
 
