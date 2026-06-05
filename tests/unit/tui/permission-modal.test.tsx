@@ -28,6 +28,23 @@ test("PermissionModal shows allow once, one choice per scope, and reject", () =>
   expect(frame).toContain("Reject");
 });
 
+test("PermissionModal shows web tool argument details", () => {
+  const webRequest: PermissionRequest = {
+    tool: "web_search",
+    action: "Run web_search",
+    subject: "web_search",
+    arguments: { query: "hono.dev web framework" },
+    scopes: [{ id: "tool", label: "Always allow web_search", pattern: "web_search" }],
+  };
+
+  const { lastFrame } = render(<PermissionModal request={webRequest} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+
+  expect(frame).toContain("Web Search");
+  expect(frame).toContain("query: hono.dev web framework");
+  expect(frame).not.toContain("Run web_search: web_search");
+});
+
 test("Enter on the first choice allows once without persisting", async () => {
   let outcome: ApprovalOutcome | null = null;
   const { stdin } = render(<PermissionModal request={request} onResolve={(o) => { outcome = o; }} />);

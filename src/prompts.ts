@@ -6,6 +6,8 @@ const defaultAgentTools = [
   "search_files",
   "grep",
   "list_dir",
+  "web_search",
+  "web_fetch",
   "submit_plan",
   "submit_output",
   "ask_operator",
@@ -19,9 +21,18 @@ const defaultChatTools = [
   "search_files",
   "grep",
   "list_dir",
+  "web_search",
+  "web_fetch",
 ];
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
+
+function formatDateDDMMYYYY(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  return `${day}/${month}/${year}`;
+}
 
 export function buildAgentRole(): string {
   return [
@@ -36,6 +47,7 @@ export function buildToolCallDiscipline(): string {
     "How you work:",
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
+    "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
     "- Understand before you change: read enough to be sure, then act. Not more.",
   ].join("\n");
 }
@@ -71,6 +83,14 @@ export function buildBudgetRules(): string {
     "- The tool layer won't re-serve a file you already read — keep what you saw, and use grep or search to re-locate things rather than re-opening.",
     "- edit_file for surgical changes; run_shell heredoc only for bulk generation.",
     "- If a tool reports a limit, narrow the operation instead of repeating it.",
+  ].join("\n");
+}
+
+export function buildGroundingRules(): string {
+  return [
+    "Grounding current facts:",
+    "- If the answer depends on external documentation, current package versions, product behavior, or facts that may have changed, ground it with web_search or web_fetch before answering.",
+    "- If local evidence and memory disagree, or the local repo is missing enough context, use web_search or web_fetch before trying shell-based package or documentation lookups.",
   ].join("\n");
 }
 
@@ -113,6 +133,16 @@ export function buildAvailableTools(tools = defaultAgentTools): string {
   return `Available tools: ${tools.join(", ")}.`;
 }
 
+export function buildActiveContext(date = new Date()): string {
+  return [
+    "Active context:",
+    `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
+    "User Name: Optional",
+    "Company Name: Optional",
+    "Other User Info: Optional",
+  ].join("\n");
+}
+
 export function buildSystemPrompt(tools = defaultAgentTools): string {
   return joinSections([
     buildAgentRole(),
@@ -121,21 +151,26 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildPlanRules(),
     buildStyleRules(),
     buildBudgetRules(),
+    buildGroundingRules(),
     buildSelfVerification(),
     buildAuthorizationRules(),
     buildSubmitRules(),
     buildFewShot(),
     buildAvailableTools(tools),
+    buildActiveContext(),
   ]);
 }
 
 export function buildChatSystemPrompt(): string {
   return joinSections([
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
+    buildToolCallDiscipline(),
     buildStyleRules(),
     buildBudgetRules(),
+    buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
     buildAvailableTools(defaultChatTools),
+    buildActiveContext(),
   ]);
 }

@@ -105,6 +105,14 @@ function isSuccessfulToolResult(result: { content: unknown; isError?: boolean })
   return typeof result.content !== "string" || !result.content.startsWith("Error:");
 }
 
+function isOperatorDeclinedToolResult(result: { content: unknown; isError?: boolean }): boolean {
+  return (
+    result.isError === true &&
+    typeof result.content === "string" &&
+    result.content.includes("Blocked by permission policy: Operator declined:")
+  );
+}
+
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
@@ -176,6 +184,13 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     }
 
     if (event.type === "tool.done") {
+      if (isOperatorDeclinedToolResult(event.result)) {
+        return [
+          capabilities.checkpoint("operator-declined"),
+          capabilities.reply("Tool call rejected by operator."),
+          capabilities.done(),
+        ];
+      }
       const name = this.callIdToName.get(event.result.callId);
       if (name === "submit_output" && isSuccessfulToolResult(event.result)) {
         this.submitCalled = true;
@@ -287,6 +302,14 @@ class ChatDirectorImpl extends DefaultDirector {
           ];
         }
       }
+    }
+
+    if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
+      return [
+        capabilities.checkpoint("operator-declined"),
+        capabilities.reply("Tool call rejected by operator."),
+        capabilities.done(),
+      ];
     }
 
     return super.decide(event, state, capabilities);
