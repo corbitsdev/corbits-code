@@ -1,4 +1,5 @@
 import type { WebProvider } from "../types.js";
+import { scrubSecrets } from "../secret-scrub.js";
 import { createLocalProvider, type LocalProviderOptions } from "./local.js";
 
 export type ProviderResolutionOptions = {
@@ -54,12 +55,12 @@ export async function withRetry<T>(
       lastErr = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxAttempts) {
         const delayMs = 500 * 2 ** (attempt - 1);
-        process.stderr.write(`web-retry: ${label} attempt ${attempt} failed, retrying in ${delayMs}ms: ${lastErr.message}\n`);
+        process.stderr.write(`web-retry: ${label} attempt ${attempt} failed, retrying in ${delayMs}ms: ${scrubSecrets(lastErr.message)}\n`);
         await sleep(delayMs);
       }
     }
   }
-  process.stderr.write(`web-retry: ${label} failed after ${maxAttempts} attempts: ${lastErr?.message}\n`);
+  process.stderr.write(`web-retry: ${label} failed after ${maxAttempts} attempts: ${scrubSecrets(lastErr?.message ?? "")}\n`);
   throw lastErr ?? new Error(`${label} failed after ${maxAttempts} attempts`);
 }
 

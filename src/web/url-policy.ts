@@ -34,13 +34,37 @@ function isPrivateIPv4(host: string): boolean {
   return false;
 }
 
+function parseIPv4MappedIPv6(host: string): string | undefined {
+  const match = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host);
+  if (match === null) return undefined;
+
+  const high = parseInt(match[1]!, 16);
+  const low = parseInt(match[2]!, 16);
+  return [
+    (high >> 8) & 255,
+    high & 255,
+    (low >> 8) & 255,
+    low & 255,
+  ].join(".");
+}
+
 function isBlockedHost(host: string): boolean {
   const lower = host.toLowerCase();
   if (BLOCKED_HOSTS.has(lower)) return true;
   if (lower === "localhost" || lower === "localhost.localdomain") return true;
   if (isPrivateIPv4(lower)) return true;
+  const mappedIPv4 = parseIPv4MappedIPv6(lower);
+  if (mappedIPv4 !== undefined && isPrivateIPv4(mappedIPv4)) return true;
   // IPv6 loopback and link-local
-  if (lower === "::1" || lower === "::" || lower.startsWith("fe80:")) return true;
+  if (
+    lower === "::1" ||
+    lower === "::" ||
+    lower.startsWith("fe80:") ||
+    lower.startsWith("fc") ||
+    lower.startsWith("fd")
+  ) {
+    return true;
+  }
   return false;
 }
 
