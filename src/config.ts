@@ -7,6 +7,7 @@ import {
   loadLocalSettings,
   loadSettings,
   localSettingsPath,
+  normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type ResolvedProvider,
   type Settings,
@@ -30,7 +31,7 @@ export function buildOpenAISource(fields: {
   return {
     id: fields.id,
     provider: "openai",
-    baseURL: fields.baseURL,
+    baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey: fields.apiKey,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS },
@@ -245,7 +246,7 @@ export function buildProviderCatalog(
   if (settings !== null && Object.keys(settings.providers).length > 0) {
     return Object.entries(settings.providers).map(([name, p]) => ({
       name,
-      baseURL: p.baseURL,
+      baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
       apiKey: p.apiKey,
       models: p.models,
       ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
@@ -271,7 +272,7 @@ export function providerCatalogToSettings(
       catalog.map((p) => [
         p.name,
         {
-          baseURL: p.baseURL,
+          baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
           apiKey: p.apiKey,
           models: p.models,
           ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
