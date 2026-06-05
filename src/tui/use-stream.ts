@@ -289,12 +289,23 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         }
         case "reactor.error": {
           const data = event.data as { fatal: boolean; error: string };
-          contentBlocks.push({ type: "error", message: `${data.fatal ? "fatal" : "error"}: ${data.error}` });
+          contentBlocks.push({ type: "error", message: data.error });
           break;
         }
         case "inference.error": {
           const err = (event.data as { error: { category: string; message: string } }).error;
-          contentBlocks.push({ type: "error", message: `${err.category}: ${err.message}` });
+          const friendly: Record<string, string> = {
+            credential_failure: "Authentication failed — check your API key.",
+            quota_exhausted: "Quota exhausted — usage limit reached.",
+            context_overflow: "Context window full — start a new session.",
+            retryable: "Request failed — will retry.",
+            fatal: "Fatal inference error.",
+            aborted: "Request aborted.",
+            timeout: "Request timed out.",
+            protocol_mismatch: "Unexpected response from inference API.",
+          };
+          const msg = friendly[err.category] ?? err.message;
+          contentBlocks.push({ type: "error", message: msg });
           break;
         }
         default:
