@@ -9,7 +9,6 @@ import type {
 } from "@intx/types/runtime";
 import type { DirectorPersistedState } from "./state.js";
 import {
-  classifyTaskBoundary,
   type SessionMetadata,
   type TaskBoundary,
 } from "./context-compactor.js";
