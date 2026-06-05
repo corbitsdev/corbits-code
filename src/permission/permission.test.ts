@@ -23,6 +23,21 @@ describe("splitChainedCommand", () => {
   test("drops empty segments", () => {
     expect(splitChainedCommand("  ;  ; ls ")).toEqual(["ls"]);
   });
+
+  test("treats heredoc body as atomic — does not split on internal newlines", () => {
+    const cmd = "cat > /tmp/out.md << 'EOF'\nline one\nline two\nEOF";
+    expect(splitChainedCommand(cmd)).toHaveLength(1);
+  });
+
+  test("treats unquoted heredoc body as atomic", () => {
+    const cmd = "cat > /tmp/out.md << EOF\nline one\nline two\nEOF";
+    expect(splitChainedCommand(cmd)).toHaveLength(1);
+  });
+
+  test("still splits chained commands before heredoc", () => {
+    const cmd = "mkdir -p /tmp && cat > /tmp/out.md << 'EOF'\nhello\nEOF";
+    expect(splitChainedCommand(cmd)).toHaveLength(2);
+  });
 });
 
 describe("tokenize", () => {
