@@ -64,6 +64,12 @@ test("buildSystemPrompt includes web_search and web_fetch in tool list", () => {
   expect(prompt).toContain("web_fetch");
 });
 
+test("tool discipline prefers web tools over shell for web access", () => {
+  const discipline = buildToolCallDiscipline();
+  expect(discipline).toContain("use web_search and web_fetch");
+  expect(discipline).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
+});
+
 test("buildSystemPrompt with custom tools lists only those tools", () => {
   const custom = ["read_file", "write_file"];
   const prompt = buildSystemPrompt(custom);

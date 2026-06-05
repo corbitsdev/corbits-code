@@ -38,6 +38,7 @@ export function buildToolCallDiscipline(): string {
     "How you work:",
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
+    "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
     "- Understand before you change: read enough to be sure, then act. Not more.",
   ].join("\n");
 }
