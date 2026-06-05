@@ -16,13 +16,19 @@ export function useScroll({ renderableCount, visibleRows }: UseScrollArgs): Scro
   const [scrollOffset, setScrollOffset] = useState(0);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
-  const maxOffset = Math.max(0, renderableCount - visibleRows);
+  const maxOffset = Math.max(0, renderableCount - 1);
 
   useEffect(() => {
     if (isPinnedToBottom) {
       setScrollOffset(maxOffset);
     }
   }, [maxOffset, isPinnedToBottom]);
+
+  useEffect(() => {
+    if (scrollOffset <= maxOffset) return;
+    setScrollOffset(maxOffset);
+    setIsPinnedToBottom(true);
+  }, [maxOffset, scrollOffset]);
 
   return {
     scrollOffset,

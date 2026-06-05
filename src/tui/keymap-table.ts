@@ -7,7 +7,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+R", description: "Expand last tool result" },
   { keys: "Ctrl+D", description: "Cycle sidebar (plan / diff / off)" },
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
-  { keys: "↑ / ↓", description: "Scroll active pane" },
+  { keys: "↑ / ↓", description: "Scroll active pane when prompt is empty" },
   { keys: "ESC", description: "Back / close overlay" },
   { keys: "ESC ESC", description: "Clear prompt" },
 ];

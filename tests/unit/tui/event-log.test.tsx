@@ -76,6 +76,18 @@ test("EventLog wraps a long line with inline bold instead of overflowing", () =>
   expect(frame).toContain("today");
 });
 
+test("EventLog clips a single oversized text block to the visible rows", () => {
+  const content = Array.from({ length: 20 }, (_, i) => `line-${i}`).join("\n");
+  const { lastFrame } = renderLog([{ type: "text", content }], {
+    columns: 80,
+    visibleRows: 4,
+  });
+  const rows = (lastFrame() ?? "").split("\n").filter((r) => r.trim().length > 0);
+  expect(rows.length).toBeLessThanOrEqual(4);
+  expect(lastFrame()).toContain("line-0");
+  expect(lastFrame()).not.toContain("line-19");
+});
+
 test("EventLog renders a shell call leanly as the command, not run_shell", () => {
   const { lastFrame } = renderLog([
     {
@@ -290,10 +302,9 @@ test("EventLog windows visible blocks by scrollOffset", () => {
   }));
   const { lastFrame } = renderLog(blocks, { scrollOffset: 0, visibleRows: 3 });
   const frame = lastFrame() ?? "";
-  // visibleRows is a physical-row budget; each text turn carries a marginTop
-  // row, so a 3-row budget surfaces the bottom of the offset-0 window rather
-  // than three whole blocks. The window is bounded — distant lines stay hidden.
-  expect(frame).toContain("line-2");
+  // Offset zero starts at the oldest block and paints forward within the row
+  // budget. The window is bounded — distant lines stay hidden.
+  expect(frame).toContain("line-0");
   expect(frame).not.toContain("line-5");
   expect(frame).not.toContain("line-9");
 });
