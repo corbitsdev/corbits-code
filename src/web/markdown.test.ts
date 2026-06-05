@@ -43,6 +43,11 @@ test("converts ordered lists", () => {
   expect(md).toContain("1. Second");
 });
 
+test("converts tables", () => {
+  const html = "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>";
+  expect(htmlToMarkdown(html)).toBe("| A | B |\n| --- | --- |\n| 1 | 2 |");
+});
+
 test("converts paragraphs", () => {
   const html = "<p>First paragraph.</p><p>Second paragraph.</p>";
   const md = htmlToMarkdown(html);

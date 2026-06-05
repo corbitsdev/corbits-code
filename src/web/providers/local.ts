@@ -141,11 +141,11 @@ function parseDuckDuckGoResults(html: string): WebResult[] {
 
   let match: RegExpExecArray | null;
   while ((match = linkRegex.exec(html)) !== null) {
-    const href = match[1]?.trim() ?? "";
+    const href = normalizeSearchHref(match[1]?.trim() ?? "");
     const rawLabel = match[2] ?? "";
     const label = stripTags(rawLabel).trim();
 
-    if (!href || href.startsWith("/") || seenUrls.has(href)) continue;
+    if (!href || seenUrls.has(href)) continue;
     if (label.length === 0) continue;
 
     // Try to find a snippet in the text after this link.
@@ -159,6 +159,23 @@ function parseDuckDuckGoResults(html: string): WebResult[] {
   }
 
   return results;
+}
+
+function normalizeSearchHref(rawHref: string): string {
+  if (rawHref.length === 0) return "";
+  try {
+    const resolved = new URL(rawHref, SEARCH_URL);
+    const uddg = resolved.searchParams.get("uddg");
+    if (uddg !== null && uddg.length > 0) {
+      return decodeURIComponent(uddg);
+    }
+    if (resolved.protocol === "http:" || resolved.protocol === "https:") {
+      return resolved.toString();
+    }
+    return "";
+  } catch {
+    return "";
+  }
 }
 
 function stripTags(html: string): string {
