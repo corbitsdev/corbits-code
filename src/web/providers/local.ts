@@ -5,6 +5,7 @@ import type { WebProvider, WebResult } from "../types.js";
 
 const SEARCH_URL = "https://lite.duckduckgo.com/lite/";
 const FETCH_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 5;
 
 const ACCEPT_HEADER = "text/markdown; q=1.0, text/html; q=0.9, text/plain; q=0.8, */*; q=0.7";
 
@@ -18,6 +19,44 @@ function createFetchError(message: string, cause?: unknown): Error {
     (err as { cause?: unknown }).cause = cause;
   }
   return err;
+}
+
+async function fetchWithPolicy(fetchImpl: typeof fetch, url: string, signal: AbortSignal): Promise<Response> {
+  let currentUrl = url;
+
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+    const policy = isBlockedURL(currentUrl);
+    if (policy.blocked) {
+      throw createFetchError(`fetch blocked by policy: ${policy.reason}`);
+    }
+
+    const response = await fetchImpl(currentUrl, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]),
+      redirect: "manual",
+      headers: {
+        Accept: ACCEPT_HEADER,
+        "User-Agent": "Mozilla/5.0 (compatible; Intercode/1.0)",
+      },
+    });
+
+    if (response.status < 300 || response.status >= 400) {
+      return response;
+    }
+
+    const location = response.headers.get("location");
+    if (location === null) {
+      throw createFetchError(`fetch redirect missing Location for ${scrubSecrets(currentUrl)}`);
+    }
+
+    const nextUrl = new URL(location, currentUrl).toString();
+    const redirectPolicy = isBlockedURL(nextUrl);
+    if (redirectPolicy.blocked) {
+      throw createFetchError(`redirect blocked by policy: ${redirectPolicy.reason}`);
+    }
+    currentUrl = nextUrl;
+  }
+
+  throw createFetchError(`fetch exceeded ${MAX_REDIRECTS} redirects`);
 }
 
 export function createLocalProvider(options: LocalProviderOptions = {}): WebProvider {
@@ -60,13 +99,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): WebProv
 
       let response: Response;
       try {
-        response = await fetchImpl(url, {
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          headers: {
-            Accept: ACCEPT_HEADER,
-            "User-Agent": "Mozilla/5.0 (compatible; Intercode/1.0)",
-          },
-        });
+        response = await fetchWithPolicy(fetchImpl, url, signal);
       } catch (err) {
         throw createFetchError(`fetch request failed: ${err instanceof Error ? err.message : String(err)}`, err);
       }
