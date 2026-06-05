@@ -27,6 +27,13 @@ const defaultChatTools = [
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
 
+function formatDateDDMMYYYY(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  return `${day}/${month}/${year}`;
+}
+
 export function buildAgentRole(): string {
   return [
     "You are Intercode, a senior engineer on this team. You work autonomously in an event-driven loop, and your tools change a real repository directly — every edit lands in the working tree.",
@@ -126,6 +133,16 @@ export function buildAvailableTools(tools = defaultAgentTools): string {
   return `Available tools: ${tools.join(", ")}.`;
 }
 
+export function buildActiveContext(date = new Date()): string {
+  return [
+    "Active context:",
+    `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
+    "User Name: Optional",
+    "Company Name: Optional",
+    "Other User Info: Optional",
+  ].join("\n");
+}
+
 export function buildSystemPrompt(tools = defaultAgentTools): string {
   return joinSections([
     buildAgentRole(),
@@ -140,6 +157,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildSubmitRules(),
     buildFewShot(),
     buildAvailableTools(tools),
+    buildActiveContext(),
   ]);
 }
 
@@ -153,5 +171,6 @@ export function buildChatSystemPrompt(): string {
     buildSelfVerification(),
     buildPlanRules(),
     buildAvailableTools(defaultChatTools),
+    buildActiveContext(),
   ]);
 }

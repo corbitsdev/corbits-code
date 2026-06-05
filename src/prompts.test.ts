@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { createCodingDirector, submitPlanDefinition, submitOutputDefinition } from "./director.js";
 import {
+  buildActiveContext,
   buildAgentRole,
   buildAvailableTools,
   buildBudgetRules,
@@ -38,6 +39,7 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   const grounding = buildGroundingRules();
   const submit = buildSubmitRules();
   const tools = buildAvailableTools();
+  const activeContext = "Active context:";
 
   // Planning is a turn-1 action, so it precedes the working/finishing rules.
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf(discipline));
@@ -46,6 +48,7 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(grounding));
   expect(prompt.indexOf(grounding)).toBeLessThan(prompt.indexOf(submit));
   expect(prompt.indexOf(submit)).toBeLessThan(prompt.indexOf(tools));
+  expect(prompt.indexOf(tools)).toBeLessThan(prompt.indexOf(activeContext));
 });
 
 test("buildSystemPrompt separates sections with double newlines", () => {
@@ -65,6 +68,24 @@ test("buildSystemPrompt includes web_search and web_fetch in tool list", () => {
   const prompt = buildSystemPrompt();
   expect(prompt).toContain("web_search");
   expect(prompt).toContain("web_fetch");
+});
+
+test("buildActiveContext includes current date and optional identity fields", () => {
+  const context = buildActiveContext(new Date(2026, 5, 5));
+  expect(context).toContain("Active context:");
+  expect(context).toContain("Current Date: 05/06/2026 (prompt cache survives for <=24hr)");
+  expect(context).toContain("User Name: Optional");
+  expect(context).toContain("Company Name: Optional");
+  expect(context).toContain("Other User Info: Optional");
+});
+
+test("system and chat prompts end with active context", () => {
+  const systemPrompt = buildSystemPrompt();
+  const chatPrompt = buildChatSystemPrompt();
+  expect(systemPrompt.trim()).toMatch(/Other User Info: Optional$/);
+  expect(chatPrompt.trim()).toMatch(/Other User Info: Optional$/);
+  expect(systemPrompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
+  expect(chatPrompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
 });
 
 test("tool discipline prefers web tools over shell for web access", () => {
