@@ -68,10 +68,10 @@ function estimateRows(
     case "tool_result": {
       if (block.isError) return wrap(block.content);
       const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
-      // A JSON document paints its full multi-line content even when collapsed
-      // (renderBlock renders renderMarkdownLines(full) regardless of `expanded`),
-      // so the estimate must follow suit or the painted height overflows.
-      if (isJSONDocument) return sumLines(full);
+      // JSON documents render via parseMarkdown which transforms tables (drops
+      // the separator row, pads cells) so the rendered line count differs from
+      // the raw newline count. Count parsed lines directly to stay accurate.
+      if (isJSONDocument) return parseMarkdown(full).length;
       return expanded ? sumLines(full) : 1;
     }
     case "error":
@@ -277,9 +277,11 @@ function renderBlock(
     }
     case "error":
       return (
-        <Text key={key} color={color("danger")}>
-          {block.message}
-        </Text>
+        <Box key={key} flexDirection="column">
+          {block.message.split("\n").map((line, i) => (
+            <Text key={i} color={color("danger")}>{line}</Text>
+          ))}
+        </Box>
       );
     default:
       return null;
