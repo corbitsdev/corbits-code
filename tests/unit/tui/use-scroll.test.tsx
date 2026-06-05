@@ -19,17 +19,17 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 test("auto-pins to the bottom as content grows", async () => {
   const { lastFrame, rerender } = render(<Harness renderableCount={3} visibleRows={5} />);
   await tick();
-  expect(lastFrame()).toContain("offset=0 bottom=1");
+  expect(lastFrame()).toContain("offset=2 bottom=1");
 
   rerender(<Harness renderableCount={20} visibleRows={5} />);
   await tick();
-  expect(lastFrame()).toContain("offset=15 bottom=1");
+  expect(lastFrame()).toContain("offset=19 bottom=1");
 });
 
 test("scrollUp unpins and clamps at zero", async () => {
   const { lastFrame, stdin } = render(<Harness renderableCount={20} visibleRows={5} />);
   await tick();
-  expect(lastFrame()).toContain("offset=15 bottom=1");
+  expect(lastFrame()).toContain("offset=19 bottom=1");
 
   for (let i = 0; i < 20; i++) {
     stdin.write("u");
@@ -51,5 +51,19 @@ test("scrollDown clamps at maxOffset and re-pins at the bottom", async () => {
     stdin.write("d");
     await tick();
   }
-  expect(lastFrame()).toContain("offset=15 bottom=1");
+  expect(lastFrame()).toContain("offset=19 bottom=1");
+});
+
+test("clamps an unpinned offset when content shrinks", async () => {
+  const { lastFrame, rerender, stdin } = render(<Harness renderableCount={20} visibleRows={5} />);
+  await tick();
+  stdin.write("u");
+  await tick();
+  stdin.write("u");
+  await tick();
+  expect(lastFrame()).toContain("offset=17 bottom=0");
+
+  rerender(<Harness renderableCount={3} visibleRows={5} />);
+  await tick();
+  expect(lastFrame()).toContain("offset=2 bottom=1");
 });

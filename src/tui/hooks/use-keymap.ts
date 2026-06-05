@@ -90,15 +90,13 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
       lastEscRef.current = now;
       return;
     }
-    // Up/down scroll the event log, but only when the chat input isn't holding
-    // keyboard focus. While the user is typing, the input owns those arrows (it
-    // uses them for command-suggestion navigation), so the global keymap must
-    // not also consume them — otherwise the log scrolls out from under typing.
-    if (key.upArrow && !context.inputFocused) {
+    // Up/down scroll the event log when the prompt is empty. While the user is
+    // typing, the input owns those arrows for command-suggestion navigation.
+    if (key.upArrow && !context.hasInput) {
       actions.scrollUp();
       return;
     }
-    if (key.downArrow && !context.inputFocused) {
+    if (key.downArrow && !context.hasInput) {
       actions.scrollDown();
       return;
     }
