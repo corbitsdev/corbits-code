@@ -274,6 +274,8 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly taskClassifier:
     | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
     | undefined;
+  private readonly _systemPrompt: string;
+  private readonly _toolDefinitions: ToolDefinition[];
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -286,6 +288,8 @@ class ChatDirectorImpl extends DefaultDirector {
     taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
   ) {
     super(systemPrompt, toolDefinitions, {});
+    this._systemPrompt = systemPrompt;
+    this._toolDefinitions = toolDefinitions;
     this.approvalGate = approvalGate;
     this.taskClassifier = taskClassifier;
   }
@@ -326,8 +330,8 @@ class ChatDirectorImpl extends DefaultDirector {
           return [
             capabilities.checkpoint(`new-task: ${boundary.reason}`),
             capabilities.infer({
-              systemPrompt: this.systemPrompt + envelope,
-              tools: this.toolDefinitions,
+              systemPrompt: this._systemPrompt + envelope,
+              tools: this._toolDefinitions,
             }),
           ];
         }
