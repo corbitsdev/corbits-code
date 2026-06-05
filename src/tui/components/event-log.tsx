@@ -133,31 +133,6 @@ export function truncateLine(text: string, columns: number, expanded: boolean): 
   return text.slice(0, head) + SHOW_MORE;
 }
 
-function truncateContentRows(content: string, columns: number, maxRows: number): string {
-  const width = Math.max(8, columns - LINE_PADDING);
-  const rows: string[] = [];
-  let clipped = false;
-
-  for (const sourceLine of content.split("\n")) {
-    const line = sourceLine.length === 0 ? " " : sourceLine;
-    for (let start = 0; start < line.length; start += width) {
-      if (rows.length >= maxRows) {
-        clipped = true;
-        break;
-      }
-      rows.push(line.slice(start, start + width));
-    }
-    if (clipped) break;
-  }
-
-  if (!clipped) return content;
-  if (rows.length === 0) return SHOW_MORE;
-  const last = rows[rows.length - 1] ?? "";
-  const head = Math.max(0, width - SHOW_MORE.length);
-  rows[rows.length - 1] = last.slice(0, head) + SHOW_MORE;
-  return rows.join("\n");
-}
-
 type TextProps = {
   bold?: boolean;
   italic?: boolean;

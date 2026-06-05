@@ -90,7 +90,7 @@ export function App({
       setCommandMessage(`Provider "${providerName}" is no longer configured`);
       return false;
     }
-    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel }));
+    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel, displayName: entry.name }));
     setProvider(providerName);
     setModel(nextModel);
     return true;
