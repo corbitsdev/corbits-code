@@ -8,6 +8,11 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 import type { DirectorPersistedState } from "./state.js";
+import {
+  classifyTaskBoundary,
+  type SessionMetadata,
+  type TaskBoundary,
+} from "./context-compactor.js";
 
 export type PlanStep = {
   file: string;
@@ -266,14 +271,23 @@ export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
 class ChatDirectorImpl extends DefaultDirector {
   private readonly submitPlanArgs = new Map<string, unknown>();
   private readonly approvalGate: ApprovalGate;
+  private readonly taskClassifier:
+    | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
+    | undefined;
+  private turnCount = 0;
+  private currentTaskLabel: string | undefined;
+  private lastTaskSummary: string | undefined;
+  private startedAt = Date.now();
 
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     approvalGate: ApprovalGate,
+    taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.approvalGate = approvalGate;
+    this.taskClassifier = taskClassifier;
   }
 
   override async decide(
@@ -281,7 +295,49 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    // Intercept message.received for task boundary detection.
+    // When a new task is detected, build a context envelope with a compacted
+    // summary of prior work and pass it as part of the system prompt. This
+    // avoids pairing compact + infer (which the action validator forbids)
+    // while still curating what the model sees.
+    if (event.type === "message.received" && this.taskClassifier !== undefined) {
+      const message = event.message;
+      const content = typeof message.content === "string" ? message.content : "";
+      const metadata: SessionMetadata = {
+        turnCount: this.turnCount,
+        currentTaskLabel: this.currentTaskLabel,
+        lastTaskSummary: this.lastTaskSummary,
+        minutesElapsed: Math.floor((Date.now() - this.startedAt) / 60000),
+        toolCallCount: 0,
+      };
+
+      try {
+        const boundary = await this.taskClassifier(content, metadata);
+        if (boundary.kind === "new_task") {
+          this.currentTaskLabel = undefined;
+
+          // Build a compacted context envelope. For v1 this uses a simple
+          // deterministic summary; future iterations can add LLM summarization.
+          const envelope = this.lastTaskSummary !== undefined
+            ? `\n--- Compacted prior context ---\n${this.lastTaskSummary}\n---` +
+              `\n\nNew task starting now. Prior context summarized above.\n`
+            : "\n--- Context cleared for new task ---\n";
+
+          return [
+            capabilities.checkpoint(`new-task: ${boundary.reason}`),
+            capabilities.infer({
+              systemPrompt: this.systemPrompt + envelope,
+              tools: this.toolDefinitions,
+            }),
+          ];
+        }
+      } catch {
+        // Classifier failure should not break the session. Fall through to infer.
+      }
+    }
+
     if (event.type === "inference.done") {
+      this.turnCount++;
       for (const block of event.turn.content) {
         if (block.type === "tool_call" && block.name === "submit_plan") {
           this.submitPlanArgs.set(block.id, block.arguments);
@@ -296,10 +352,7 @@ class ChatDirectorImpl extends DefaultDirector {
         const plan = isValidPlanArgs(args) ? args.steps : [];
         const approved = await this.approvalGate(plan);
         if (!approved) {
-          return [
-            capabilities.reply("Plan rejected. Please revise the task and try again."),
-            capabilities.done(),
-          ];
+          return capabilities.done();
         }
       }
     }
@@ -307,12 +360,17 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
       return [
         capabilities.checkpoint("operator-declined"),
-        capabilities.reply("Tool call rejected by operator."),
         capabilities.done(),
       ];
     }
 
     return super.decide(event, state, capabilities);
+  }
+
+  /** Called by the TUI to signal a task boundary (/clear or /new command). */
+  signalNewTask(summary?: string): void {
+    this.currentTaskLabel = undefined;
+    this.lastTaskSummary = summary;
   }
 }
 
@@ -320,9 +378,14 @@ export function createChatDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
   approvalGate?: ApprovalGate,
-): ReactorDirector {
+  taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
+): ChatDirectorWithClear {
   if (approvalGate !== undefined) {
-    return new ChatDirectorImpl(systemPrompt, toolDefinitions, approvalGate);
+    return new ChatDirectorImpl(systemPrompt, toolDefinitions, approvalGate, taskClassifier);
   }
-  return new DefaultDirector(systemPrompt, toolDefinitions, {});
+  return new ChatDirectorImpl(systemPrompt, toolDefinitions, async () => true, taskClassifier);
+}
+
+export interface ChatDirectorWithClear extends ReactorDirector {
+  signalNewTask(summary?: string): void;
 }
