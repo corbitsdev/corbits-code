@@ -97,7 +97,7 @@ export function StatusBar({
       <Divider />
       <Text color={color("success")}>{cost}</Text>
       <Divider />
-      <Text color={color("muted")}>{tokens} tok</Text>
+      <Text color={color("muted")}>Session: {tokens} tokens</Text>
       <Divider />
       <Text color={color("muted")}>{formatElapsed(elapsedMs)}</Text>
       <Divider />

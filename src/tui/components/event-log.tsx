@@ -252,7 +252,7 @@ function renderBlock(
         </Text>
       );
     case "text":
-      return <Box key={key}>{renderMarkdownLines(truncateContentRows(block.content, columns, rowLimit))}</Box>;
+      return <Box key={key}>{renderMarkdownLines(block.content)}</Box>;
     case "tool_call": {
       const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
       if (isShell) {

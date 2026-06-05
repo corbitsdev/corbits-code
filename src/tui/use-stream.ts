@@ -248,9 +248,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
                 break;
               }
             }
-            const planArgs = planCallIndex >= 0
-              ? (contentBlocks[planCallIndex] as ContentBlock & { type: "tool_call" }).arguments
-              : "";
+            const planArgs = callIdToArguments.get(result.callId) ?? "";
             const steps = parsePlanSteps(planArgs);
             if (planCallIndex >= 0) {
               contentBlocks.splice(planCallIndex, 1);
