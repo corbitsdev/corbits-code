@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createRunSink, getTUIRunSummaryStatus } from "../../../src/tui/run-sink.js";
+import { createRunSink, getTUIRunSummaryStatus } from "../../../src/run-sink.js";
 
 function makeArgs() {
   const emitter = new EventEmitter();

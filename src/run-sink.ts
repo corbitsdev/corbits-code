@@ -4,7 +4,7 @@ import {
   createTurnContextCollector,
   type LifecycleHookManager,
   type RunSummary,
-} from "../hooks.js";
+} from "./hooks.js";
 
 type TurnCollector = ReturnType<typeof createTurnContextCollector>;
 

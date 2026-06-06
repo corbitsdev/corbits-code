@@ -3,7 +3,7 @@ import { render } from "ink";
 import { useState, type ReactNode } from "react";
 
 import { runTUI } from "./runner.js";
-import { enterAltScreen } from "./alt-screen.js";
+import { enterAltScreen } from "../alt-screen.js";
 import { loadConfig, type UnconfiguredConfig } from "../config.js";
 import { loadSettings, saveGlobalSettings } from "../settings.js";
 import type { Settings } from "../settings.js";
