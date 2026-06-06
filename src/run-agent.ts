@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
 import type { SendResult } from "@intx/agent";
 import { createPosixTools } from "@intx/tools-posix";
+import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { buildOpenAISource, type Config } from "./config.js";
@@ -102,6 +103,7 @@ export async function runAgent(
       verifyPlugin(),
       reReadBlockPlugin(() => directorHolder.instance),
       webToolsPlugin(),
+      createLSPPlugin({ cwd: config.cwd, minSeverity: 1 }),
     ],
   });
 

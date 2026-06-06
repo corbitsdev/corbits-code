@@ -5,6 +5,7 @@ import {
   buildAvailableTools,
   buildBudgetRules,
   buildChatSystemPrompt,
+  buildLSPGuidance,
   buildPlanDecisionRules,
   buildPlanRules,
   buildSubmitRules,
@@ -71,6 +72,17 @@ test("system prompt tells the agent to escalate blocked commands to the operator
   expect(prompt).toContain("ask_operator");
   expect(prompt).toContain("blocked");
   expect(prompt).toMatch(/don't work around the block/i);
+});
+
+test("system prompt includes LSP guidance", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain(buildLSPGuidance());
+  expect(prompt).toContain("lsp");
+});
+
+test("chat system prompt includes LSP guidance", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toContain(buildLSPGuidance());
 });
 
 test("system prompt preserves core agent instructions", () => {

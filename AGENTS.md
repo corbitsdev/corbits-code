@@ -86,8 +86,11 @@ Key Interchange packages (all workspace-local under `interchange/packages/`):
 | `@intx/agent` | `agent.stream()` — drives the reactor loop, emits typed events |
 | `@intx/inference` | `DefaultDirector`, SSE runner, OpenAI-compatible provider client |
 | `@intx/tools-posix` | `createPosixTools` — sandboxed shell/file tools |
+| `@intx/tools-lsp` | `createLSPPlugin` — LSP tool (goToDefinition, findReferences, hover) + diagnostics middleware |
 | `@intx/types` | Shared runtime types (`ReactorDirector`, `ReactorAction`, `ToolDefinition`, etc.) |
 | `@intx/storage-isogit` | Git-backed state storage for resume |
+
+LSP features require `typescript-language-server` to be installed and on `PATH` (`npm install -g typescript-language-server typescript`). Without it, the `lsp` tool returns "no LSP server available for this file type" and degrades gracefully.
 
 ## Reference Material
 

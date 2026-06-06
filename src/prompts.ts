@@ -6,6 +6,7 @@ const defaultAgentTools = [
   "search_files",
   "grep",
   "list_dir",
+  "lsp",
   "web_search",
   "web_fetch",
   "submit_plan",
@@ -21,6 +22,7 @@ const defaultChatTools = [
   "search_files",
   "grep",
   "list_dir",
+  "lsp",
   "web_search",
   "web_fetch",
 ];
@@ -121,6 +123,15 @@ export function buildSubmitRules(): string {
   ].join("\n");
 }
 
+export function buildLSPGuidance(): string {
+  return [
+    "Language server (lsp tool):",
+    "- Prefer lsp over grep for symbol resolution: use goToDefinition to jump to a declaration, findReferences to find all call sites, and hover to inspect a type without opening the file.",
+    "- After editing a file the LSP middleware appends diagnostics automatically — read them before moving on.",
+    "- Fall back to grep only when lsp reports no server available for a file type.",
+  ].join("\n");
+}
+
 export function buildFewShot(): string {
   return [
     "A good sequence, fixing a bug:",
@@ -151,6 +162,7 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildPlanRules(),
     buildStyleRules(),
     buildBudgetRules(),
+    buildLSPGuidance(),
     buildGroundingRules(),
     buildSelfVerification(),
     buildAuthorizationRules(),
@@ -167,6 +179,7 @@ export function buildChatSystemPrompt(): string {
     buildToolCallDiscipline(),
     buildStyleRules(),
     buildBudgetRules(),
+    buildLSPGuidance(),
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
