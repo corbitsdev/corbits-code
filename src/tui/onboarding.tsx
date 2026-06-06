@@ -29,14 +29,14 @@ const FIELD_HINTS: Record<Field, string> = {
 
 type FormValues = Record<Field, string>;
 
-type ProviderSetupPanelProps = {
+export type ProviderSetupPanelProps = {
   // Called when the user completes all fields. The panel shows a spinner until
   // the promise resolves, then calls exit(). If it rejects, the error is shown
   // inline and the user can retry or correct their input.
   onSubmit: (values: FormValues) => Promise<void>;
 };
 
-function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): ReactNode {
+export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): ReactNode {
   const { rows } = useTerminalSize();
   const { exit } = useApp();
   const [fieldIndex, setFieldIndex] = useState(0);
