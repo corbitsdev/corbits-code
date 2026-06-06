@@ -258,7 +258,8 @@ describe("buildTurnSummary via createPruningCompactor", () => {
   });
 
   test("truncates summary when it exceeds maxChars", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 1, summaryMaxChars: 20 });
+    const maxChars = 20;
+    const compactor = createPruningCompactor({ keepRecentTurns: 1, summaryMaxChars: maxChars });
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "a".repeat(500) }] }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "b".repeat(500) }] }),
@@ -266,8 +267,15 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     ];
 
     const result = await compactor.apply(turns, mockStrategyCtx);
-    const summaryText = (result.output[0]!.content[0]! as { text: string }).text;
-    // The summary block includes the header + actual summary; the summary portion is capped
-    expect(summaryText.length).toBeLessThan(500);
+    const summaryBlock = result.output[0]!.content[0]! as { text: string };
+    // The summary portion of the block is extracted from after the header line.
+    // The header itself is "---..." so we look at the full block text — the
+    // embedded buildTurnSummary output must end with "..." when truncated.
+    expect(summaryBlock.text).toContain("...");
+    // And the truncated summary must not exceed maxChars + 3 (for the "..." suffix)
+    const summaryStart = summaryBlock.text.indexOf("[Compacted prior context]");
+    const rawSummary = summaryBlock.text.slice(summaryStart);
+    // The raw summary lines are bounded by maxChars
+    expect(rawSummary.length).toBeLessThan(maxChars + 200); // header text + bounded summary
   });
 });

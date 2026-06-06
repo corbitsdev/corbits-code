@@ -240,16 +240,16 @@ describe("renderer — inference.done clears op", () => {
   });
 });
 
-describe("renderer — inference.usage updates cost", () => {
-  test("inference.usage event does not throw", () => {
+describe("renderer — inference.usage updates cost display", () => {
+  test("inference.usage causes the status bar to update", () => {
     const cap = captureOutput();
     const renderer = createRenderer(Date.now());
-    expect(() => {
-      renderer.render(event("inference.usage", {
-        usage: { input: 100, output: 200, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      }));
-    }).not.toThrow();
+    const stderrBefore = cap.stderr.length;
+    renderer.render(event("inference.usage", {
+      usage: { input: 100, output: 200, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    }));
     cap.restore();
+    expect(cap.stderr.length).toBeGreaterThan(stderrBefore);
   });
 });
 
