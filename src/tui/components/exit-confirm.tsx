@@ -22,7 +22,6 @@ export function ExitConfirm({ onConfirm, onCancel, inline = false }: ExitConfirm
   if (inline) {
     return (
       <Box flexDirection="row" paddingX={1} paddingY={1} gap={1}>
-        <Text color="green">{"> "}</Text>
         <Text bold color={color("danger")}>Exit Intercode?</Text>
         <Text color={color("muted")}>(y/n)</Text>
       </Box>
