@@ -218,4 +218,56 @@ describe("classifyTaskBoundary", () => {
     );
     expect(boundary.kind).toBe("unclear");
   });
+
+  test("LLM classifier returning unclear is respected", async () => {
+    const boundary = await classifyTaskBoundary(
+      "I need to completely pivot to a different project now. Let's build something entirely new.",
+      metadata,
+      async (_prompt) => {
+        return { decision: "unclear", reason: "cannot determine intent" };
+      },
+    );
+    expect(boundary.kind).toBe("unclear");
+    expect(boundary.reason).toBe("cannot determine intent");
+  });
+});
+
+describe("buildTurnSummary via createPruningCompactor", () => {
+  test("summarizes tool_call and tool_result blocks in compacted turns", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 1, summaryMaxChars: 2000 });
+    const turns: ConversationTurn[] = [
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "c1", name: "read_file", arguments: { path: "src/foo.ts" } },
+        ],
+      }),
+      makeTurn({
+        role: "tool",
+        content: [
+          { type: "tool_result", toolCallId: "c1", content: "file contents here" },
+        ],
+      } as unknown as ConversationTurn),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
+    ];
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    const summaryText = (result.output[0]!.content[0]! as { text: string }).text;
+    expect(summaryText).toContain("read_file");
+    expect(summaryText).toContain("Total tool calls: 1");
+  });
+
+  test("truncates summary when it exceeds maxChars", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 1, summaryMaxChars: 20 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "a".repeat(500) }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "b".repeat(500) }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
+    ];
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    const summaryText = (result.output[0]!.content[0]! as { text: string }).text;
+    // The summary block includes the header + actual summary; the summary portion is capped
+    expect(summaryText.length).toBeLessThan(500);
+  });
 });

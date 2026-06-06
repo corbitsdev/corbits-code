@@ -82,3 +82,63 @@ test("returns empty string for empty input", () => {
 test("returns plain text when no tags present", () => {
   expect(htmlToMarkdown("Just plain text")).toBe("Just plain text");
 });
+
+test("strips blocked tag with no closing tag", () => {
+  // When there is no closing </script> tag the open tag itself is stripped
+  const html = `<p>Before</p><script src="evil.js"><p>After</p>`;
+  const md = htmlToMarkdown(html);
+  expect(md).toContain("Before");
+  expect(md).toContain("After");
+  expect(md).not.toContain("evil.js");
+});
+
+test("decodes numeric hex entities", () => {
+  // &#x41; = 'A', &#x42; = 'B'
+  expect(htmlToMarkdown("&#x41;&#x42;")).toBe("AB");
+});
+
+test("decodes decimal numeric entities", () => {
+  // &#65; = 'A'
+  expect(htmlToMarkdown("&#65;")).toBe("A");
+});
+
+test("decodes &nbsp;", () => {
+  expect(htmlToMarkdown("hello&nbsp;world")).toBe("hello world");
+});
+
+test("converts h4, h5, h6 headings", () => {
+  const html = "<h4>H4</h4><h5>H5</h5><h6>H6</h6>";
+  const md = htmlToMarkdown(html);
+  expect(md).toContain("#### H4");
+  expect(md).toContain("##### H5");
+  expect(md).toContain("###### H6");
+});
+
+test("converts images", () => {
+  const html = `<img src="https://example.com/pic.png" alt="pic">`;
+  expect(htmlToMarkdown(html)).toContain("![image](https://example.com/pic.png)");
+});
+
+test("converts pre/code blocks", () => {
+  const html = "<pre>const x = 1;</pre>";
+  const md = htmlToMarkdown(html);
+  expect(md).toContain("```");
+  expect(md).toContain("const x = 1;");
+});
+
+test("converts <b> and <i> tags", () => {
+  const html = "<b>bold</b> and <i>italic</i>";
+  expect(htmlToMarkdown(html)).toBe("**bold** and *italic*");
+});
+
+test("converts table with unequal row widths", () => {
+  // Body row with fewer cells than header — should be padded
+  const html = "<table><tr><th>A</th><th>B</th><th>C</th></tr><tr><td>1</td><td>2</td></tr></table>";
+  const md = htmlToMarkdown(html);
+  expect(md).toContain("| A | B | C |");
+  expect(md).toContain("| 1 | 2 | |");
+});
+
+test("returns empty string for table with no rows", () => {
+  expect(htmlToMarkdown("<table></table>")).toBe("");
+});

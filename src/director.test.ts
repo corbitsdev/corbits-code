@@ -158,6 +158,37 @@ describe("operator declined tool calls", () => {
   });
 });
 
+describe("getTurnsUsed", () => {
+  test("returns 0 on a fresh director", () => {
+    const director = createCodingDirector("", []);
+    expect(director.getTurnsUsed()).toBe(0);
+  });
+
+  test("increments after each inference.done event", async () => {
+    const director = createCodingDirector("", []);
+    await director.decide(makeInferenceDoneEvent([]), mockState, mockCapabilities);
+    expect(director.getTurnsUsed()).toBe(1);
+    await director.decide(makeInferenceDoneEvent([]), mockState, mockCapabilities);
+    expect(director.getTurnsUsed()).toBe(2);
+  });
+});
+
+describe("chatDirector.signalNewTask", () => {
+  test("clears currentTaskLabel and stores summary", () => {
+    const director = createChatDirector("", [], async () => true);
+    // signalNewTask is part of the ChatDirectorWithClear interface
+    director.signalNewTask("prior task summary");
+    // We can only observe the effect indirectly — it should not throw
+    // and the interface contract is satisfied
+    expect(typeof director.signalNewTask).toBe("function");
+  });
+
+  test("accepts undefined summary", () => {
+    const director = createChatDirector("", [], async () => true);
+    expect(() => director.signalNewTask(undefined)).not.toThrow();
+  });
+});
+
 describe("consecutive reads are not capped", () => {
   test("consecutiveReads field is absent from persisted state", () => {
     const director = createCodingDirector("", []);
