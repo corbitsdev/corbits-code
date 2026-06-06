@@ -9,6 +9,7 @@ import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
 import { DiffView } from "./components/diff-view.js";
+import { PlanView } from "./components/plan-view.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import { OperatorModal } from "./components/operator-modal.js";
 import { PermissionModal } from "./components/permission-modal.js";
@@ -74,7 +75,9 @@ export function App({
   const [contextView, setContextView] = useState<ContextView>("plan");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [diffScroll, setDiffScroll] = useState(0);
+  const [planScroll, setPlanScroll] = useState(0);
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
+  const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
   const [model, setModel] = useState<string>(initialModel);
   const [provider, setProvider] = useState<string>(initialProvider);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(providers);
@@ -433,6 +436,7 @@ export function App({
       agentModalOpen,
       hookPanelOpen,
       diffFullScreenOpen,
+      planFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       // "stopping" is deliberately excluded: a stop is already in flight, so the
@@ -472,18 +476,17 @@ export function App({
           });
         }
       },
-      openPlanSidebar: () => {
-        setDiffFullScreenOpen(false);
-        setDiffScroll(0);
-        setContextView("plan");
-        setSidebarOpen(true);
+      togglePlanSidebar: () => {
+        setPlanFullScreenOpen((open) => !open);
+        if (planFullScreenOpen) {
+          setPlanScroll(0);
+        }
       },
-      openDiffFullScreen: () => {
-        setDiffScroll(0);
-        setDiffFullScreenOpen(true);
-      },
-      closeDiffFullScreen: () => {
-        setDiffFullScreenOpen(false);
+      toggleDiffFullScreen: () => {
+        setDiffFullScreenOpen((open) => !open);
+        if (diffFullScreenOpen) {
+          setDiffScroll(0);
+        }
       },
       toggleHelp: () => setHelpOpen((open) => !open),
     },
@@ -519,7 +522,14 @@ export function App({
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
-        {diffFullScreenOpen ? (
+        {planFullScreenOpen ? (
+          <PlanView
+            steps={planSteps}
+            currentPlanStep={state.currentPlanStep}
+            planDeviated={state.planDeviated}
+            width={columns}
+          />
+        ) : diffFullScreenOpen ? (
           <DiffView
             result={diff.result}
             scrollOffset={diffScroll}
@@ -590,32 +600,33 @@ export function App({
           <Text color="cyan">{commandMessage}</Text>
         </Box>
       )}
-      <Box flexShrink={0} flexDirection="column">
-        <InFlightIndicator
-          active={awaitingResponse}
-          frame={spinner.frame}
-          elapsedMs={spinner.elapsedMs}
-        />
-        <Box
-          borderStyle="single"
-          borderColor={color("muted")}
-          borderTop
-          borderBottom={false}
-          borderLeft={false}
-          borderRight={false}
-        />
-        {exitConfirmOpen ? (
-          <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
-        ) : (
-          <ChatInput
-            onSubmit={handleSend}
-            onCommand={handleCommand}
-            commandContext={commandContext}
-            value={inputValue}
-            onChange={setInputValue}
-            active={inputActive}
+      {!planFullScreenOpen && !diffFullScreenOpen && (
+        <Box flexShrink={0} flexDirection="column">
+          <InFlightIndicator
+            active={awaitingResponse}
+            frame={spinner.frame}
+            elapsedMs={spinner.elapsedMs}
           />
-        )}
+          <Box
+            borderStyle="single"
+            borderColor={color("muted")}
+            borderTop
+            borderBottom={false}
+            borderLeft={false}
+            borderRight={false}
+          />
+          {exitConfirmOpen ? (
+            <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
+          ) : (
+            <ChatInput
+              onSubmit={handleSend}
+              onCommand={handleCommand}
+              commandContext={commandContext}
+              value={inputValue}
+              onChange={setInputValue}
+              active={inputActive}
+            />
+          )}
         <StatusBar
           provider={provider}
           model={model}
@@ -632,7 +643,8 @@ export function App({
           streamingType={state.streamingType}
           awaitingResponse={state.awaitingResponse}
         />
-      </Box>
+        </Box>
+      )}
     </Box>
   );
 }
