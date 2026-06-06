@@ -544,9 +544,6 @@ export function App({
       {hookPanelOpen ? (
         <HookPanel hooks={state.hooks} />
       ) : null}
-      {exitConfirmOpen && (
-        <ExitConfirm onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
-      )}
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
       {agentModalOpen && (
         <AgentModal
@@ -592,14 +589,18 @@ export function App({
           borderLeft={false}
           borderRight={false}
         />
-        <ChatInput
-          onSubmit={handleSend}
-          onCommand={handleCommand}
-          commandContext={commandContext}
-          value={inputValue}
-          onChange={setInputValue}
-          active={inputActive}
-        />
+        {exitConfirmOpen ? (
+          <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
+        ) : (
+          <ChatInput
+            onSubmit={handleSend}
+            onCommand={handleCommand}
+            commandContext={commandContext}
+            value={inputValue}
+            onChange={setInputValue}
+            active={inputActive}
+          />
+        )}
         <StatusBar
           provider={provider}
           model={model}
