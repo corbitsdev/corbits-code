@@ -1,46 +1,32 @@
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
-import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
-import type { ReactorEmittedEvent } from "@intx/inference";
-import { createPosixTools } from "@intx/tools-posix";
+import { createAgent } from "@intx/agent";
 import { buildOpenAISource, type Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
-import { askOperatorDefinition, createChatDirector, type ApprovalGate } from "../director.js";
+import { createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
-import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
-import { authzPlugin } from "../plugins/authz-plugin.js";
-import { verifyPlugin } from "../plugins/verify-plugin.js";
-import { permissionPlugin } from "../plugins/permission-plugin.js";
-import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
-import { webToolsPlugin } from "../web/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createAgentToolset } from "./agent-tools.js";
 import { loadApprovals, saveApprovals } from "../permission/store.js";
 import type { Approval } from "../permission/types.js";
 import { consumeStream } from "../stream-consumer.js";
+import { enterAltScreen } from "./alt-screen.js";
 import { App } from "./app.js";
 import type { OperatorGateEvent, PermissionGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
-  createTurnContextCollector,
   discoverLifecycleHooks,
   hookDirectories,
-  type RunSummary,
 } from "../hooks.js";
+import { createRunSink } from "./run-sink.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
 }
 
-export function getTUIRunSummaryStatus(
-  runCompleted: boolean,
-  runError: string | undefined,
-): RunSummary["status"] {
-  if (runError !== undefined) return "failed";
-  if (runCompleted) return "done";
-  return "cancelled";
-}
+export { getTUIRunSummaryStatus } from "./run-sink.js";
 
 export async function runTUI(config: Config): Promise<number> {
   const emitter = createTUIEventEmitter();
@@ -49,7 +35,6 @@ export async function runTUI(config: Config): Promise<number> {
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
   });
-  let runCompleted = false;
   let runError: string | undefined;
 
   const recordRunError = (err: unknown): void => {
@@ -78,53 +63,21 @@ export async function runTUI(config: Config): Promise<number> {
     skipPermissions: config.dangerouslySkipPermissions,
   });
 
-  const posixTools = createPosixTools({
+  const toolset = await createAgentToolset({
     cwd: config.cwd,
-    plugins: [
-      pathEscapePlugin(config.cwd),
-      secretGuardPlugin(),
-      authzPlugin(),
-      permissionPlugin(permissionGate),
-      verifyPlugin(),
-      webToolsPlugin(),
-    ],
+    permissionGate,
+    onOperatorGate: (question, options) =>
+      new Promise<number>((resolve) => {
+        const event: OperatorGateEvent = { question, options, resolve };
+        emitter.emit("operator.gate", event);
+      }),
   });
 
-  const posixToolList = fromToolRunner(posixTools);
-  const allDefinitions = [
-    ...posixToolList.map((t) => t.definition),
-    askOperatorDefinition,
-  ];
-
-  // Wire the gate so every submitted plan is surfaced to the operator for
-  // explicit approval before the agent proceeds.
   const director = createChatDirector(
     buildChatSystemPrompt(),
-    allDefinitions,
+    toolset.allDefinitions,
     approvalGate,
   );
-
-  const agentTools = [
-    ...posixToolList,
-    stringTool({
-      definition: askOperatorDefinition,
-      handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
-        const question = typeof args.question === "string" ? args.question : "";
-        const options = Array.isArray(args.options) ? args.options.map(String) : [];
-        if (options.length === 0) {
-          return "Error: ask_operator requires at least one option.";
-        }
-        const index = await new Promise<number>((resolve) => {
-          const event: OperatorGateEvent = { question, options, resolve };
-          emitter.emit("operator.gate", event);
-        });
-        if (index < 0 || index >= options.length) {
-          return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
-        }
-        return options[index] as string;
-      },
-    }),
-  ];
 
   const agent = await createAgent({
     contextDir: join(config.cwd, ".agent-state", "context"),
@@ -139,38 +92,16 @@ export async function runTUI(config: Config): Promise<number> {
     ],
     defaultSource: config.providerName,
     systemPrompt: buildChatSystemPrompt(),
-    tools: agentTools,
+    tools: toolset.tools,
     director,
   });
 
-  const turnCollector = createTurnContextCollector((ctx) => {
-    hookManager.dispatchPostTurn(ctx);
-  });
-
-  const sink = (event: ReactorEmittedEvent): void => {
-    turnCollector.observe(event);
-    if (event.type === "reactor.done") {
-      runCompleted = true;
-    }
-    if (event.type === "reactor.error") {
-      const data = event.data as { error: string };
-      runError = data.error;
-    }
-    if (event.type === "inference.error") {
-      const data = event.data as { error: { message: string } };
-      runError = data.error.message;
-    }
-    emitter.emit("event", event);
-  };
+  const runSink = createRunSink({ emitter, hookManager });
 
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
   // and restore it on exit (including abrupt process exit) so history returns.
-  const exitAltScreen = (): void => {
-    process.stdout.write("\x1b[?1049l");
-  };
-  process.stdout.write("\x1b[?1049h");
-  process.once("exit", exitAltScreen);
+  const exitAltScreen = enterAltScreen();
 
   // Render first so the App's gate listeners are registered before it sends the
   // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
@@ -194,24 +125,24 @@ export async function runTUI(config: Config): Promise<number> {
     { exitOnCtrlC: false },
   );
 
-  const streamPromise = consumeStream(agent.stream(), sink);
+  const streamPromise = consumeStream(agent.stream(), runSink.sink);
 
   await waitUntilExit();
-  process.removeListener("exit", exitAltScreen);
   exitAltScreen();
 
   const finishedAt = Date.now();
-  const status = getTUIRunSummaryStatus(runCompleted, runError);
+  const turnCollector = runSink.getTurnCollector();
+  const sinkError = runSink.getRunError();
   await hookManager.dispatchPostRun(createRunSummary({
     task: config.task,
-    status,
+    status: runSink.getStatus(),
     startedAt,
     finishedAt,
     turnsUsed: turnCollector.getTurns().length,
     tokenUsage: turnCollector.getTokenUsage(),
     turns: turnCollector.getTurns(),
     toolCallCount: turnCollector.getToolCallCount(),
-    ...(runError !== undefined ? { error: runError } : {}),
+    ...(sinkError !== undefined ? { error: sinkError } : {}),
   }));
 
   try {
@@ -224,7 +155,7 @@ export async function runTUI(config: Config): Promise<number> {
   } catch {
     // ignore
   }
-  await posixTools.dispose();
+  await toolset.dispose();
 
   return 0;
 }

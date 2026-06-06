@@ -3,6 +3,7 @@ import { render } from "ink";
 import { useState, type ReactNode } from "react";
 
 import { runTUI } from "./runner.js";
+import { enterAltScreen } from "./alt-screen.js";
 import { loadConfig, type UnconfiguredConfig } from "../config.js";
 import { loadSettings, saveGlobalSettings } from "../settings.js";
 import type { Settings } from "../settings.js";
@@ -202,11 +203,7 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   const settingsPath = config.globalSettingsPath;
   const existing = await loadSettings(settingsPath);
 
-  const exitAltScreen = (): void => {
-    process.stdout.write("\x1b[?1049l");
-  };
-  process.stdout.write("\x1b[?1049h");
-  process.once("exit", exitAltScreen);
+  const exitAltScreen = enterAltScreen();
 
   let submitted = false;
 
@@ -239,7 +236,6 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   );
 
   await waitUntilExit();
-  process.removeListener("exit", exitAltScreen);
   exitAltScreen();
 
   // If the user cancelled (Ctrl+C) onSubmit was never called and settings were
