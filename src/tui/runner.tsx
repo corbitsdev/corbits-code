@@ -73,8 +73,10 @@ export async function runTUI(config: Config): Promise<number> {
       }),
   });
 
+  const systemPrompt = buildChatSystemPrompt(config.systemPromptExtensions);
+
   const director = createChatDirector(
-    buildChatSystemPrompt(),
+    systemPrompt,
     toolset.allDefinitions,
     approvalGate,
   );
@@ -91,7 +93,7 @@ export async function runTUI(config: Config): Promise<number> {
       }),
     ],
     defaultSource: config.providerName,
-    systemPrompt: buildChatSystemPrompt(),
+    systemPrompt,
     tools: toolset.tools,
     director,
   });
@@ -121,6 +123,7 @@ export async function runTUI(config: Config): Promise<number> {
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
+      {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
     { exitOnCtrlC: false },
   );

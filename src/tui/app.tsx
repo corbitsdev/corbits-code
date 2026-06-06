@@ -42,6 +42,7 @@ export type AppProps = {
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
+  profile?: string;
 };
 
 export function App({
@@ -58,6 +59,7 @@ export function App({
   initialHooks = [],
   onToggleHook,
   onAgentError,
+  profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const { exit } = useApp();
@@ -299,6 +301,7 @@ export function App({
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
+          profile={profile}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
