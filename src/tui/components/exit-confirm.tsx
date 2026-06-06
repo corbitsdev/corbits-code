@@ -22,15 +22,15 @@ export function ExitConfirm({ onConfirm, onCancel }: ExitConfirmProps): ReactNod
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor={color("danger")}
+      borderColor={color("accent")}
       paddingX={2}
       paddingY={1}
       marginX={1}
       marginY={1}
     >
-      <Text bold color={color("danger")}>Exit Intercode?</Text>
-      <Box marginTop={1} flexDirection="row" gap={1}>
-        <Text color={color("text")}>[Y/n]</Text>
+      <Text bold color={color("accent")}>Exit Intercode?</Text>
+      <Box marginTop={1}>
+        <Text color={color("muted")}>y/N</Text>
       </Box>
     </Box>
   );
