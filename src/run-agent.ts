@@ -114,9 +114,10 @@ export async function runAgent(
   ];
 
   const director = createCodingDirector(
-    buildSystemPrompt(),
+    buildSystemPrompt(undefined, config.systemPromptExtensions),
     allDefinitions,
     initialDirectorState,
+    config.maxTurns,
   );
   directorHolder.instance = director;
 
@@ -176,7 +177,7 @@ export async function runAgent(
       }),
     ],
     defaultSource: config.providerName,
-    systemPrompt: buildSystemPrompt(),
+    systemPrompt: buildSystemPrompt(undefined, config.systemPromptExtensions),
     tools: agentTools,
     director,
   });

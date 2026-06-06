@@ -126,13 +126,16 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private idleCycles = 0;
   private planSubmitted = false;
   private plan: PlanStep[] = [];
+  private readonly maxTurns: number | undefined;
 
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     initialState?: DirectorPersistedState,
+    maxTurns?: number,
   ) {
     super(systemPrompt, toolDefinitions, {});
+    this.maxTurns = maxTurns;
     if (initialState !== undefined) {
       this.setState(initialState);
     }
@@ -145,6 +148,14 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   ): Promise<ReactorAction | ReactorAction[]> {
     if (event.type === "inference.done") {
       this._turnsUsed++;
+
+      if (this.maxTurns !== undefined && this._turnsUsed >= this.maxTurns) {
+        return [
+          capabilities.checkpoint("max-turns-reached"),
+          capabilities.reply(`Agent stopped: reached the configured limit of ${this.maxTurns} turns.`),
+          capabilities.done(),
+        ];
+      }
 
       const hasToolCalls = event.turn.content.some(
         (b) => b.type === "tool_call",
@@ -261,8 +272,9 @@ export function createCodingDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
   initialState?: DirectorPersistedState,
+  maxTurns?: number,
 ): CodingDirector {
-  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState);
+  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState, maxTurns);
 }
 
 export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
