@@ -2,6 +2,7 @@ import { fromToolRunner, stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
+import { createLSPPlugin } from "@intx/tools-lsp";
 import { askOperatorDefinition } from "./director.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
@@ -35,6 +36,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       permissionPlugin(permissionGate),
       verifyPlugin(),
       webToolsPlugin(),
+      createLSPPlugin({ cwd, minSeverity: 1 }),
     ],
   });
 
