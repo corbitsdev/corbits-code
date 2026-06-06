@@ -1,7 +1,17 @@
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
-import { createAgent } from "@intx/agent";
+import {
+  createAgent,
+  defineAgent,
+  defineTool,
+  createToolRunner,
+  createDirectorRegistry,
+  defineDirector,
+} from "@intx/agent";
+import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { createIsogitStore } from "@intx/storage-isogit";
+import { type } from "arktype";
 import { buildOpenAISource, type Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../director.js";
@@ -75,27 +85,55 @@ export async function runTUI(config: Config): Promise<number> {
 
   const systemPrompt = buildChatSystemPrompt(config.systemPromptExtensions);
 
-  const director = createChatDirector(
-    systemPrompt,
-    toolset.allDefinitions,
-    approvalGate,
-  );
+  const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
-  const agent = await createAgent({
-    contextDir: join(config.cwd, ".agent-state", "context"),
-    sources: [
-      buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        displayName: config.providerName,
-      }),
-    ],
-    defaultSource: config.providerName,
+  const chatDirectorDef = defineDirector({
+    id: "interchange-code/chat",
+    configSchema: type({}),
+    factory: (_config, _env, agentCtx) => {
+      const d = createChatDirector(
+        agentCtx.systemPrompt,
+        [...agentCtx.toolDefinitions],
+        approvalGate,
+      );
+      directorHolder.instance = d;
+      return d;
+    },
+  });
+
+  const toolsFactory = defineTool({
+    id: "interchange-code/tui-tools",
+    factory: () => createToolRunner(toolset.tools),
+  });
+
+  const workdir = join(config.cwd, ".agent-state", "context");
+
+  const def = defineAgent({
+    id: "interchange-code/tui-agent",
     systemPrompt,
-    tools: toolset.tools,
-    director,
+    tools: [toolsFactory],
+    capabilities: [],
+    director: chatDirectorDef.build({}),
+    inference: {
+      sources: [{ provider: config.providerName, model: config.model }],
+    },
+  });
+
+  const storage = await createIsogitStore(workdir);
+
+  const agent = await createAgent(def, {
+    source: buildOpenAISource({
+      id: config.providerName,
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+      displayName: config.providerName,
+    }),
+    storage,
+    workdir,
+    audit: noopAuditStore(),
+    authorize: permissiveAuthorize(),
+    directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "interchange-code/chat" }),
   });
 
   const runSink = createRunSink({ emitter, hookManager });
