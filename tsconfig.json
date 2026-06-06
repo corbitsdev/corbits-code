@@ -6,7 +6,10 @@
     "outDir": "dist",
     "rootDir": "src",
     "jsx": "react-jsx",
-    "jsxImportSource": "react"
+    "jsxImportSource": "react",
+    "paths": {
+      "@intx/log": ["./interchange/packages/log/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

@@ -1,7 +1,19 @@
 import { join } from "node:path";
 
-import { createAgent, fromToolRunner, stringTool } from "@intx/agent";
+import {
+  createAgent,
+  defineAgent,
+  defineTool,
+  createToolRunner,
+  createDirectorRegistry,
+  defineDirector,
+  fromToolRunner,
+  stringTool,
+} from "@intx/agent";
+import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import type { SendResult } from "@intx/agent";
+import { createIsogitStore } from "@intx/storage-isogit";
+import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -108,20 +120,6 @@ export async function runAgent(
   });
 
   const posixToolList = fromToolRunner(posixTools);
-  const allDefinitions = [
-    ...posixToolList.map((t) => t.definition),
-    submitPlanDefinition,
-    submitOutputDefinition,
-    askOperatorDefinition,
-  ];
-
-  const director = createCodingDirector(
-    buildSystemPrompt(undefined, config.systemPromptExtensions),
-    allDefinitions,
-    initialDirectorState,
-    config.maxTurns,
-  );
-  directorHolder.instance = director;
 
   const agentTools = [
     ...posixToolList,
@@ -159,7 +157,7 @@ export async function runAgent(
     stringTool({
       definition: submitOutputDefinition,
       handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
-        if (!director.getState().planSubmitted) {
+        if (!directorHolder.instance?.getState().planSubmitted) {
           return "Error: You must call submit_plan before submit_output.";
         }
         return "Submission accepted. The task is now complete.";
@@ -167,22 +165,59 @@ export async function runAgent(
     }),
   ];
 
-  const agent = await createAgent({
-    contextDir: join(config.cwd, ".agent-state", "context"),
-    sources: [
-      buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        displayName: config.providerName,
-      }),
-    ],
-    defaultSource: config.providerName,
-    systemPrompt: buildSystemPrompt(undefined, config.systemPromptExtensions),
-    tools: agentTools,
-    director,
+  const codingDirectorDef = defineDirector({
+    id: "interchange-code/coding",
+    configSchema: type({}),
+    factory: (_config, _env, agentCtx) => {
+      const d = createCodingDirector(
+        agentCtx.systemPrompt,
+        [...agentCtx.toolDefinitions],
+        initialDirectorState,
+        config.maxTurns,
+      );
+      directorHolder.instance = d;
+      return d;
+    },
   });
+
+  const toolsFactory = defineTool({
+    id: "interchange-code/tools",
+    factory: () => createToolRunner(agentTools),
+  });
+
+  const systemPrompt = buildSystemPrompt(undefined, config.systemPromptExtensions);
+  const workdir = join(config.cwd, ".agent-state", "context");
+
+  const def = defineAgent({
+    id: "interchange-code/agent",
+    systemPrompt,
+    tools: [toolsFactory],
+    capabilities: [],
+    director: codingDirectorDef.build({}),
+    inference: {
+      sources: [{ provider: config.providerName, model: config.model }],
+    },
+  });
+
+  const storage = await createIsogitStore(workdir);
+
+  const agent = await createAgent(def, {
+    source: buildOpenAISource({
+      id: config.providerName,
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+      displayName: config.providerName,
+    }),
+    storage,
+    workdir,
+    audit: noopAuditStore(),
+    authorize: permissiveAuthorize(),
+    directors: createDirectorRegistry({ factories: [codingDirectorDef.factory], defaultId: "interchange-code/coding" }),
+  });
+
+  // directorHolder is populated synchronously by the factory during createAgent.
+  const director = directorHolder.instance!;
 
   await saveState(config.cwd, {
     status: "running",

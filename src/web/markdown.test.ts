@@ -142,3 +142,17 @@ test("converts table with unequal row widths", () => {
 test("returns empty string for table with no rows", () => {
   expect(htmlToMarkdown("<table></table>")).toBe("");
 });
+
+test("strips all blocked tags", () => {
+  const tags = [
+    "header", "footer", "aside", "iframe", "canvas",
+    "svg", "noscript", "form", "input", "button",
+    "select", "textarea", "label",
+  ];
+  for (const tag of tags) {
+    const html = `<${tag}>content</${tag}><p>visible</p>`;
+    const md = htmlToMarkdown(html);
+    expect(md).toContain("visible");
+    expect(md).not.toContain("content");
+  }
+});

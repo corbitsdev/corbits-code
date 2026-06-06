@@ -118,7 +118,7 @@ describe("lookupModelPricing", () => {
   };
 
   test("returns pricing for a known model", () => {
-    expect(lookupModelPricing(cache, "gpt-4")).toEqual(cache.models["gpt-4"]);
+    expect(lookupModelPricing(cache, "gpt-4")).toEqual(cache.models["gpt-4"]!);
   });
 
   test("returns null for an unknown model", () => {
@@ -141,29 +141,23 @@ describe("fetchPricing", () => {
         { id: "test-model", input_cost_per_million: 10, output_cost_per_million: 20 },
       ],
     };
-    const mockFetch = async () => ({
-      ok: true,
-      json: async () => mockPayload,
-    } as Response);
+    const mockFetch = async () => ({ ok: true, json: async () => mockPayload });
 
     const fixedNow = 1_700_000_000_000;
-    const result = await fetchPricing({ fetchImpl: mockFetch, now: () => fixedNow });
+    const result = await fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch, now: () => fixedNow });
 
     expect(result.timestamp).toBe(fixedNow);
     expect(result.models["test-model"]).toBeDefined();
   });
 
   test("throws when response is not ok", async () => {
-    const mockFetch = async () => ({ ok: false, status: 503 } as Response);
-    await expect(fetchPricing({ fetchImpl: mockFetch })).rejects.toThrow("503");
+    const mockFetch = async () => ({ ok: false, status: 503 });
+    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow("503");
   });
 
   test("throws when response contains no model prices", async () => {
-    const mockFetch = async () => ({
-      ok: true,
-      json: async () => ({}),
-    } as Response);
-    await expect(fetchPricing({ fetchImpl: mockFetch })).rejects.toThrow("did not include model prices");
+    const mockFetch = async () => ({ ok: true, json: async () => ({}) });
+    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow("did not include model prices");
   });
 });
 
@@ -178,13 +172,10 @@ describe("loadPricing", () => {
         { id: "m1", input_cost_per_million: 5, output_cost_per_million: 10 },
       ],
     };
-    const mockFetch = async () => ({
-      ok: true,
-      json: async () => mockPayload,
-    } as Response);
+    const mockFetch = async () => ({ ok: true, json: async () => mockPayload });
 
     const result = await loadPricing({
-      fetchImpl: mockFetch,
+      fetchImpl: mockFetch as unknown as typeof fetch,
       now: () => 0,
       cachePath: `/tmp/test-pricing-cache-${Date.now()}.json`,
     });
@@ -194,7 +185,7 @@ describe("loadPricing", () => {
   });
 
   test("falls back to disk cache when fetch fails", async () => {
-    const failingFetch = async (): Promise<Response> => { throw new Error("network error"); };
+    const failingFetch = (async (): Promise<Response> => { throw new Error("network error"); }) as unknown as typeof fetch;
 
     // Point at a non-existent cache path — should return null (no fallback available)
     const result = await loadPricing({
@@ -236,7 +227,7 @@ describe("startPricingRefresh", () => {
   test("returns a timer and can be cleared without throwing", () => {
     const timer = startPricingRefresh({
       refreshIntervalMs: 999_999,
-      fetchImpl: async () => ({ ok: false, status: 500 } as Response),
+      fetchImpl: (async () => ({ ok: false, status: 500 } as Response)) as unknown as typeof fetch,
       cachePath: "/tmp/nonexistent-refresh-cache.json",
     });
     expect(timer).toBeDefined();
