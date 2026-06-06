@@ -15,25 +15,34 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
+function formatPath(cwd: string): string {
+  const parts = cwd.split("/");
+  if (parts.length <= 2) return cwd;
+  const repoName = parts[parts.length - 1];
+  const parent = parts[parts.length - 2];
+  return `${parent}/${repoName}`;
+}
+
 // The header carries identity and context only — the product name, the session
 // title, the working directory, and the latest request. All live run telemetry
 // (status, turns, cost, tokens, elapsed) lives in the status bar so nothing is
 // shown twice.
 export function Header({ sessionTitle, latestUserMessage, width }: HeaderProps): ReactNode {
-  const showCwd = width >= 80;
   const cwd = process.cwd();
+  const pathDisplay = formatPath(cwd);
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
-      <Box flexDirection="row" gap={1}>
+      <Box flexDirection="row" gap={1} flexWrap="wrap">
         <Text bold color={color("brand")}>{TITLE}</Text>
+        <Text color={color("muted")}>·</Text>
+        <Text color={color("muted")}>{pathDisplay}</Text>
         {sessionTitle.length > 0 && (
-          <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.5)))}</Text>
+          <Box>
+            <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>
+          </Box>
         )}
       </Box>
-      {showCwd && (
-        <Text color={color("muted")}>{cwd}</Text>
-      )}
       {latestUserMessage.length > 0 && (
         <Text color={color("muted")}>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
       )}
