@@ -301,7 +301,7 @@ export function App({
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
-          profile={profile}
+          {...(profile !== undefined ? { profile } : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
