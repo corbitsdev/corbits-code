@@ -308,6 +308,48 @@ describe("loadConfig", () => {
     }
   });
 
+  test("--profile flag surfaces profile name and model from project profile.json", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      setRequiredEnv();
+      await mkdir(join(cwd, ".interchange"), { recursive: true });
+      await writeFile(
+        join(cwd, ".interchange", "profile.json"),
+        JSON.stringify({ model: "profile-model", maxTurns: 25, systemPromptExtensions: ["ext1"] }),
+      );
+      const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: NO_SETTINGS });
+      assertConfigured(config);
+      expect(config.model).toBe("profile-model");
+      expect(config.maxTurns).toBe(25);
+      expect(config.systemPromptExtensions).toEqual(["ext1"]);
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("--model flag overrides profile model", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      setRequiredEnv();
+      await mkdir(join(cwd, ".interchange"), { recursive: true });
+      await writeFile(
+        join(cwd, ".interchange", "profile.json"),
+        JSON.stringify({ model: "profile-model" }),
+      );
+      const config = await loadConfig(["--cwd", cwd, "--model", "accounts/fireworks/routers/kimi-k2p6-turbo", "task"], {
+        globalSettingsPath: NO_SETTINGS,
+      });
+      assertConfigured(config);
+      expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("per-repo local settings select the provider", async () => {
     const stash = stashEnv();
     const cwd = await emptyCwd();

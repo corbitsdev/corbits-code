@@ -12,6 +12,7 @@ import {
   type ResolvedProvider,
   type Settings,
 } from "./settings.js";
+import { resolveProfile } from "./profiles.js";
 
 // The per-call token ceiling for the inference source. Lives here so agent
 // creation (runner.tsx, run-agent.ts) and live provider switching (the /agent
@@ -66,6 +67,9 @@ export type Config = {
   // Every provider available to switch to at runtime. From the settings file
   // when present; in env-only mode it is just the single resolved provider.
   providers: ProviderCatalogEntry[];
+  profile?: string;
+  systemPromptExtensions?: string[];
+  maxTurns?: number;
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -131,6 +135,7 @@ export async function loadConfig(
   let configPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
+  let profileFlag: string | undefined;
   const positional: string[] = [];
 
   const requireValue = (flag: string, value: string | undefined): string => {
@@ -157,6 +162,10 @@ export async function loadConfig(
     }
     if (arg === "--model") {
       model = requireValue("--model", args[++i]);
+      continue;
+    }
+    if (arg === "--profile") {
+      profileFlag = requireValue("--profile", args[++i]);
       continue;
     }
     if (arg === "--force") {
@@ -190,6 +199,20 @@ export async function loadConfig(
   // the provider/model selection. CLI --provider/--model override both.
   const local = await loadLocalSettings(localSettingsPath(cwd));
 
+  const profile = await resolveProfile(cwd, profileFlag);
+
+  // Apply profile as a fallback layer: profile.model fills in when neither CLI
+  // nor local settings specify a model. This sits below local in precedence.
+  const effectiveLocal = local !== null
+    ? local
+    : profile.model !== undefined
+      ? { model: profile.model }
+      : null;
+  const profileLocal =
+    local !== null && local.model === undefined && profile.model !== undefined
+      ? { ...local, model: profile.model }
+      : effectiveLocal;
+
   const cli: { provider?: string; model?: string } = {};
   if (provider !== undefined) cli.provider = provider;
   if (model !== undefined) cli.model = model;
@@ -204,7 +227,7 @@ export async function loadConfig(
   try {
     resolved = resolveProvider({
       settings,
-      local,
+      local: profileLocal,
       env: envProvider(),
       cli,
     });
@@ -233,6 +256,11 @@ export async function loadConfig(
     globalSettingsPath: effectiveSettingsPath,
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
     providers: buildProviderCatalog(settings, resolved),
+    ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
+    ...(profile.systemPromptExtensions !== undefined
+      ? { systemPromptExtensions: profile.systemPromptExtensions }
+      : {}),
+    ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
   };
 }
 

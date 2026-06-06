@@ -154,8 +154,8 @@ export function buildActiveContext(date = new Date()): string {
   ].join("\n");
 }
 
-export function buildSystemPrompt(tools = defaultAgentTools): string {
-  return joinSections([
+export function buildSystemPrompt(tools = defaultAgentTools, extensions?: string[]): string {
+  const sections = [
     buildAgentRole(),
     buildToolCallDiscipline(),
     buildPlanDecisionRules(),
@@ -170,11 +170,15 @@ export function buildSystemPrompt(tools = defaultAgentTools): string {
     buildFewShot(),
     buildAvailableTools(tools),
     buildActiveContext(),
-  ]);
+  ];
+  if (extensions !== undefined && extensions.length > 0) {
+    sections.push(...extensions);
+  }
+  return joinSections(sections);
 }
 
-export function buildChatSystemPrompt(): string {
-  return joinSections([
+export function buildChatSystemPrompt(extensions?: string[]): string {
+  const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
     buildToolCallDiscipline(),
     buildStyleRules(),
@@ -185,5 +189,9 @@ export function buildChatSystemPrompt(): string {
     buildPlanRules(),
     buildAvailableTools(defaultChatTools),
     buildActiveContext(),
-  ]);
+  ];
+  if (extensions !== undefined && extensions.length > 0) {
+    sections.push(...extensions);
+  }
+  return joinSections(sections);
 }
