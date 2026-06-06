@@ -12,6 +12,7 @@ export type KeymapContext = {
   agentModalOpen: boolean;
   hookPanelOpen: boolean;
   diffFullScreenOpen: boolean;
+  planFullScreenOpen: boolean;
   hasInput: boolean;
   inputFocused: boolean;
   isRunning: boolean;
@@ -28,9 +29,8 @@ export type KeymapActions = {
   scrollDown: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
-  openPlanSidebar: () => void;
-  openDiffFullScreen: () => void;
-  closeDiffFullScreen: () => void;
+  togglePlanSidebar: () => void;
+  toggleDiffFullScreen: () => void;
   toggleHelp: () => void;
 };
 
@@ -70,8 +70,13 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
     if (key.escape) {
       // ESC is a back/cancel key. Close the topmost active overlay first.
       // The slash-suggestion list lives in ChatInput and handles its own ESC.
+      if (context.planFullScreenOpen) {
+        actions.togglePlanSidebar();
+        lastEscRef.current = 0;
+        return;
+      }
       if (context.diffFullScreenOpen) {
-        actions.closeDiffFullScreen();
+        actions.toggleDiffFullScreen();
         lastEscRef.current = 0;
         return;
       }
@@ -121,11 +126,11 @@ export function useKeymap(context: KeymapContext, actions: KeymapActions): void 
       return;
     }
     if (key.ctrl && input === "p") {
-      actions.openPlanSidebar();
+      actions.togglePlanSidebar();
       return;
     }
     if (key.ctrl && input === "d") {
-      actions.openDiffFullScreen();
+      actions.toggleDiffFullScreen();
       return;
     }
     if (key.ctrl && input === "g") {
