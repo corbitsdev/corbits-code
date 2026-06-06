@@ -313,6 +313,8 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       setRequiredEnv();
+      // Unset model env so the profile model (layer below env) can apply.
+      delete process.env.OPENAI_COMPATIBLE_MODEL;
       await mkdir(join(cwd, ".interchange"), { recursive: true });
       await writeFile(
         join(cwd, ".interchange", "profile.json"),
