@@ -2,14 +2,14 @@ import { fromToolRunner, stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
-import { askOperatorDefinition } from "../director.js";
-import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
-import { authzPlugin } from "../plugins/authz-plugin.js";
-import { verifyPlugin } from "../plugins/verify-plugin.js";
-import { permissionPlugin } from "../plugins/permission-plugin.js";
-import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
-import { webToolsPlugin } from "../web/plugin.js";
-import type { PermissionGate } from "../permission/gate.js";
+import { askOperatorDefinition } from "./director.js";
+import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
+import { authzPlugin } from "./plugins/authz-plugin.js";
+import { verifyPlugin } from "./plugins/verify-plugin.js";
+import { permissionPlugin } from "./plugins/permission-plugin.js";
+import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
+import { webToolsPlugin } from "./web/plugin.js";
+import type { PermissionGate } from "./permission/gate.js";
 
 export type AgentToolsetArgs = {
   cwd: string;
