@@ -8,6 +8,7 @@ import { EventLog } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
+import { DiffView } from "./components/diff-view.js";
 import { ApprovalModal } from "./components/approval-modal.js";
 import { OperatorModal } from "./components/operator-modal.js";
 import { PermissionModal } from "./components/permission-modal.js";
@@ -73,6 +74,7 @@ export function App({
   const [contextView, setContextView] = useState<ContextView>("plan");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [diffScroll, setDiffScroll] = useState(0);
+  const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [model, setModel] = useState<string>(initialModel);
   const [provider, setProvider] = useState<string>(initialProvider);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(providers);
@@ -359,7 +361,7 @@ export function App({
   );
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
-  const diffActive = sidebarOpen && contextView === "diff";
+  const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
   const diff = useDiff({ cwd: process.cwd(), active: diffActive, refreshKey: renderableCount });
   const diffVisibleRows = Math.max(1, visibleRows - 2);
   const diffLineCount = useMemo(
@@ -430,6 +432,7 @@ export function App({
       gateOpen: gates.gateOpen,
       agentModalOpen,
       hookPanelOpen,
+      diffFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       // "stopping" is deliberately excluded: a stop is already in flight, so the
@@ -469,17 +472,18 @@ export function App({
           });
         }
       },
-      cycleSidebar: () => {
-        // One key cycles: closed → plan → diff → closed.
+      openPlanSidebar: () => {
+        setDiffFullScreenOpen(false);
         setDiffScroll(0);
-        if (!sidebarOpen) {
-          setContextView("plan");
-          setSidebarOpen(true);
-        } else if (contextView === "plan") {
-          setContextView("diff");
-        } else {
-          setSidebarOpen(false);
-        }
+        setContextView("plan");
+        setSidebarOpen(true);
+      },
+      openDiffFullScreen: () => {
+        setDiffScroll(0);
+        setDiffFullScreenOpen(true);
+      },
+      closeDiffFullScreen: () => {
+        setDiffFullScreenOpen(false);
       },
       toggleHelp: () => setHelpOpen((open) => !open),
     },
@@ -515,30 +519,41 @@ export function App({
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
-        <Box width={leftWidth} flexDirection="column" overflow="hidden">
-          <EventLog
-            contentBlocks={state.contentBlocks}
-            scrollOffset={scroll.scrollOffset}
+        {diffFullScreenOpen ? (
+          <DiffView
+            result={diff.result}
+            scrollOffset={diffScroll}
             visibleRows={visibleRows}
-            columns={leftWidth}
-            thinkingExpanded={thinkingExpanded}
-            expandedTools={expandedTools}
-            verbose={verbose}
+            width={columns}
           />
-        </Box>
-        {sidebarOpen && (
-          <Box width={rightWidth} flexDirection="column" overflow="hidden">
-            <ContextPanel
-              view={contextView}
-              steps={planSteps}
-              currentPlanStep={state.currentPlanStep}
-              planDeviated={state.planDeviated}
-              width={rightWidth}
-              diffResult={diff.result}
-              diffScrollOffset={diffScroll}
-              diffVisibleRows={diffVisibleRows}
-            />
-          </Box>
+        ) : (
+          <>
+            <Box width={leftWidth} flexDirection="column" overflow="hidden">
+              <EventLog
+                contentBlocks={state.contentBlocks}
+                scrollOffset={scroll.scrollOffset}
+                visibleRows={visibleRows}
+                columns={leftWidth}
+                thinkingExpanded={thinkingExpanded}
+                expandedTools={expandedTools}
+                verbose={verbose}
+              />
+            </Box>
+            {sidebarOpen && (
+              <Box width={rightWidth} flexDirection="column" overflow="hidden">
+                <ContextPanel
+                  view={contextView}
+                  steps={planSteps}
+                  currentPlanStep={state.currentPlanStep}
+                  planDeviated={state.planDeviated}
+                  width={rightWidth}
+                  diffResult={diff.result}
+                  diffScrollOffset={diffScroll}
+                  diffVisibleRows={diffVisibleRows}
+                />
+              </Box>
+            )}
+          </>
         )}
       </Box>
       {hookPanelOpen ? (
