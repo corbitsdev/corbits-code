@@ -8,7 +8,7 @@ test("ExitConfirm renders the title and prompt", () => {
   const { lastFrame } = render(<ExitConfirm onConfirm={() => {}} onCancel={() => {}} />);
   const frame = lastFrame() ?? "";
   expect(frame).toContain("Exit Intercode?");
-  expect(frame).toContain("y/N");
+  expect(frame).toContain("(y/n)");
 });
 
 test("ExitConfirm confirms on Y", async () => {

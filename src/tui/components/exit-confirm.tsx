@@ -19,19 +19,9 @@ export function ExitConfirm({ onConfirm, onCancel }: ExitConfirmProps): ReactNod
   });
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={color("accent")}
-      paddingX={2}
-      paddingY={1}
-      marginX={1}
-      marginY={1}
-    >
-      <Text bold color={color("accent")}>Exit Intercode?</Text>
-      <Box marginTop={1}>
-        <Text color={color("muted")}>y/N</Text>
-      </Box>
+    <Box flexDirection="row" gap={2} marginX={1} marginY={1}>
+      <Text bold color={color("danger")}>Exit Intercode?</Text>
+      <Text color={color("muted")}>(y/n)</Text>
     </Box>
   );
 }
