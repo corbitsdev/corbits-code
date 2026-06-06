@@ -186,7 +186,7 @@ describe("loadPricing", () => {
     const result = await loadPricing({
       fetchImpl: mockFetch,
       now: () => 0,
-      cachePath: "/tmp/test-pricing-cache.json",
+      cachePath: `/tmp/test-pricing-cache-${Date.now()}.json`,
     });
 
     expect(result).not.toBeNull();
@@ -218,10 +218,12 @@ describe("writePricingCache error handling", () => {
 
     // Write to a path where mkdir will fail (file exists as a file, not dir)
     const badPath = `/tmp/not-a-dir-${Date.now()}`;
-    await Bun.write(badPath, "I am a file");
-    await writePricingCache({ timestamp: 0, models: {} }, `${badPath}/nested/cache.json`);
-
-    process.stderr.write = orig;
+    try {
+      await Bun.write(badPath, "I am a file");
+      await writePricingCache({ timestamp: 0, models: {} }, `${badPath}/nested/cache.json`);
+    } finally {
+      process.stderr.write = orig;
+    }
     expect(stderrLines.some((l) => l.includes("failed to write cache"))).toBe(true);
   });
 });
