@@ -10,10 +10,10 @@ test("createAgentToolset calls createLSPPlugin with correct args", async () => {
 
   // createPosixTools needs to be a no-op for this test
   spyOn(posixModule, "createPosixTools").mockReturnValue({
-    tools: [],
-    middleware: [],
+    definitions: [],
+    run: async () => ({ output: "" }),
     dispose: async () => {},
-  } as ReturnType<typeof posixModule.createPosixTools>);
+  } as unknown as ReturnType<typeof posixModule.createPosixTools>);
 
   const { createAgentToolset } = await import("../../src/agent-tools.js");
   const permissionGate = { check: async () => ({ allowed: true }) } as never;
