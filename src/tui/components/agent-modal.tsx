@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { color } from "../theme.js";
+import { type ProviderSubmission } from "../../provider-catalog.js";
 
 export type AgentProvider = {
   name: string;
@@ -10,14 +11,7 @@ export type AgentProvider = {
   defaultModel?: string;
 };
 
-export type ProviderFormSubmission = {
-  originalName?: string;
-  name: string;
-  baseURL: string;
-  apiKey?: string;
-  models: string[];
-  defaultModel?: string;
-};
+export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
 
 export type ProviderFormField = "name" | "baseURL" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
@@ -61,7 +55,7 @@ export type AgentModalProps = {
   activeModel: string;
   onApply: (provider: string, model: string) => void;
   onPersistDefault: (provider: string, model: string) => void;
-  onSaveProvider: (provider: ProviderFormSubmission) => { ok: true } | { ok: false; error: string };
+  onSaveProvider: (provider: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
 };
@@ -86,7 +80,7 @@ function parseModels(raw: string): string[] {
 export function validateProviderForm(
   values: ProviderFormValues,
   originalName: string | undefined,
-): { ok: true; submission: ProviderFormSubmission } | { ok: false; error: string } {
+): { ok: true; submission: ProviderSubmission } | { ok: false; error: string } {
   const name = values.name.trim();
   const baseURL = values.baseURL.trim();
   const apiKey = values.apiKey.trim();
