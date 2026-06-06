@@ -198,6 +198,107 @@ describe("renderer — error blocks", () => {
   });
 });
 
+describe("renderer — miniDiff truncation", () => {
+  test("edit_file with more than 10 lines shows truncation marker", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    const longContent = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+    renderer.render(event("inference.tool_call.end", {
+      callId: "c-trunc", name: "edit_file",
+      arguments: { path: "src/big.ts", old_string: longContent, new_string: longContent },
+    }));
+    renderer.render(event("tool.done", { result: { callId: "c-trunc", content: "ok" } }));
+    cap.restore();
+    expect(cap.stdout.join("")).toContain("more");
+  });
+});
+
+describe("renderer — formatOp fallback", () => {
+  test("unknown tool name is used as-is for op display", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("inference.tool_call.start", { name: "custom_tool", callId: "c-custom" }));
+    cap.restore();
+    expect(cap.stderr.join("")).toContain("custom_tool");
+  });
+});
+
+describe("renderer — inference.done clears op", () => {
+  test("inference.done resets currentOp in status bar", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("inference.tool_call.start", { name: "run_shell", callId: "c-x" }));
+    renderer.render(event("inference.done", {
+      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    }));
+    cap.restore();
+    // After inference.done the status bar should no longer contain the op name
+    const lastStderr = cap.stderr[cap.stderr.length - 1] ?? "";
+    expect(lastStderr).not.toContain("running");
+  });
+});
+
+describe("renderer — inference.usage updates cost", () => {
+  test("inference.usage event does not throw", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    expect(() => {
+      renderer.render(event("inference.usage", {
+        usage: { input: 100, output: 200, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      }));
+    }).not.toThrow();
+    cap.restore();
+  });
+});
+
+describe("renderer — tool.start updates op", () => {
+  test("tool.start sets op to the tool name", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("tool.start", { call: { name: "run_shell", id: "c-ts" } }));
+    cap.restore();
+    expect(cap.stderr.join("")).toContain("running");
+  });
+});
+
+describe("renderer — connector.reply clears op", () => {
+  test("connector.reply does not write to stdout", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("connector.reply", { messageId: "msg-1" }));
+    cap.restore();
+    expect(cap.stdout.join("")).toBe("");
+  });
+});
+
+describe("renderer — search_files and grep produce no journal block", () => {
+  test("search_files tool.done writes nothing to stdout", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("inference.tool_call.end", {
+      callId: "c-sf", name: "search_files",
+      arguments: { pattern: "foo" },
+    }));
+    renderer.render(event("tool.done", { result: { callId: "c-sf", content: "results" } }));
+    cap.restore();
+    expect(cap.stdout.join("")).toBe("");
+  });
+
+  test("grep tool.done writes nothing to stdout", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("inference.tool_call.end", {
+      callId: "c-grep", name: "grep",
+      arguments: { pattern: "bar" },
+    }));
+    renderer.render(event("tool.done", { result: { callId: "c-grep", content: "matches" } }));
+    cap.restore();
+    expect(cap.stdout.join("")).toBe("");
+  });
+});
+
 describe("renderer — read-only tools produce no journal block", () => {
   test("read_file tool.done writes nothing to stdout", () => {
     const cap = captureOutput();
