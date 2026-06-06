@@ -24,7 +24,8 @@
     "./interchange/packages/storage-isogit",
     "./interchange/packages/mime",
     "./interchange/packages/log",
-    "./interchange/packages/crypto-node"
+    "./interchange/packages/crypto-node",
+    "./interchange/packages/tools-lsp"
   ],
   "catalog": {
     "arktype": "^2.1.29"
@@ -35,6 +36,7 @@
     "@intx/tools-posix": "workspace:*",
     "@intx/types": "workspace:*",
     "@intx/storage-isogit": "workspace:*",
+    "@intx/tools-lsp": "workspace:*",
     "arktype": "catalog:"
   },
   "devDependencies": {
