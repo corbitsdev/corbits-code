@@ -1,4 +1,5 @@
 import { useInput } from "ink";
+import type { Key } from "ink";
 import { useRef } from "react";
 
 // Double-ESC window: a second ESC press within this many ms (with nothing
@@ -34,108 +35,108 @@ export type KeymapActions = {
   toggleHelp: () => void;
 };
 
+// Pure dispatch function — separated from the hook so it can be unit tested
+// without mounting a React component or relying on stdin byte simulation.
+// `lastEscMs` is the timestamp of the previous ESC press (0 if none); returns
+// the new value that the caller should store for the next invocation.
+export function handleKey(
+  input: string,
+  key: Key,
+  context: KeymapContext,
+  actions: KeymapActions,
+  lastEscMs: number,
+  now: number,
+): number {
+  // Exit-confirm, help, and any open gate/modal own input entirely while shown.
+  if (context.exitConfirmOpen) return lastEscMs;
+  if (context.helpOpen) return lastEscMs;
+  if (context.gateOpen) return lastEscMs;
+  if (context.agentModalOpen) return lastEscMs;
+
+  if (key.ctrl && input === "c") {
+    if (context.hasInput) {
+      actions.clearInput();
+      return lastEscMs;
+    }
+    if (context.isRunning) {
+      actions.requestStop();
+      return lastEscMs;
+    }
+    actions.requestExit();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "h") {
+    actions.toggleHookPanel();
+    return lastEscMs;
+  }
+  if (context.hookPanelOpen && /^[1-9]$/.test(input)) {
+    actions.selectHook(Number(input) - 1);
+    return lastEscMs;
+  }
+  if (key.escape) {
+    if (context.planFullScreenOpen) {
+      actions.togglePlanSidebar();
+      return 0;
+    }
+    if (context.diffFullScreenOpen) {
+      actions.toggleDiffFullScreen();
+      return 0;
+    }
+    if (context.hookPanelOpen) {
+      actions.closeHookPanel();
+      return 0;
+    }
+    if (now - lastEscMs <= DOUBLE_ESC_MS) {
+      if (context.hasInput) {
+        actions.clearInput();
+        return 0;
+      }
+      if (context.isRunning) {
+        actions.requestStop();
+        return 0;
+      }
+    }
+    return now;
+  }
+  if (key.upArrow && !context.hasInput) {
+    actions.scrollUp();
+    return lastEscMs;
+  }
+  if (key.downArrow && !context.hasInput) {
+    actions.scrollDown();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "t") {
+    actions.toggleThinking();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "r") {
+    actions.toggleLastTool();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "o") {
+    actions.toggleLastTool();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "p") {
+    actions.togglePlanSidebar();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "d") {
+    actions.toggleDiffFullScreen();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "g") {
+    actions.toggleHelp();
+    return lastEscMs;
+  }
+  return lastEscMs;
+}
+
 export function useKeymap(context: KeymapContext, actions: KeymapActions): void {
   const lastEscRef = useRef<number>(0);
 
   useInput((input, key) => {
-    // The exit-confirm and help overlays, and any open gate/modal, own input
-    // entirely while shown — the global keymap stays out of their way.
-    if (context.exitConfirmOpen) return;
-    if (context.helpOpen) return;
-    if (context.gateOpen) return;
-    if (context.agentModalOpen) return;
-
-    if (key.ctrl && input === "c") {
-      // Typing? Clear the prompt. Agent working? Stop the run (not the app).
-      // Idle with an empty prompt? Then Ctrl+C asks to exit.
-      if (context.hasInput) {
-        actions.clearInput();
-        return;
-      }
-      if (context.isRunning) {
-        actions.requestStop();
-        return;
-      }
-      actions.requestExit();
-      return;
-    }
-    if (key.ctrl && input === "h") {
-      actions.toggleHookPanel();
-      return;
-    }
-    if (context.hookPanelOpen && /^[1-9]$/.test(input)) {
-      actions.selectHook(Number(input) - 1);
-      return;
-    }
-    if (key.escape) {
-      // ESC is a back/cancel key. Close the topmost active overlay first.
-      // The slash-suggestion list lives in ChatInput and handles its own ESC.
-      if (context.planFullScreenOpen) {
-        actions.togglePlanSidebar();
-        lastEscRef.current = 0;
-        return;
-      }
-      if (context.diffFullScreenOpen) {
-        actions.toggleDiffFullScreen();
-        lastEscRef.current = 0;
-        return;
-      }
-      if (context.hookPanelOpen) {
-        actions.closeHookPanel();
-        lastEscRef.current = 0;
-        return;
-      }
-      // Nothing active: a double-ESC within the window clears the prompt when
-      // typing, or stops the run when the agent is working.
-      const now = Date.now();
-      if (now - lastEscRef.current <= DOUBLE_ESC_MS) {
-        if (context.hasInput) {
-          actions.clearInput();
-          lastEscRef.current = 0;
-          return;
-        }
-        if (context.isRunning) {
-          actions.requestStop();
-          lastEscRef.current = 0;
-          return;
-        }
-      }
-      lastEscRef.current = now;
-      return;
-    }
-    // Up/down scroll the event log when the prompt is empty. While the user is
-    // typing, the input owns those arrows for command-suggestion navigation.
-    if (key.upArrow && !context.hasInput) {
-      actions.scrollUp();
-      return;
-    }
-    if (key.downArrow && !context.hasInput) {
-      actions.scrollDown();
-      return;
-    }
-    if (key.ctrl && input === "t") {
-      actions.toggleThinking();
-      return;
-    }
-    if (key.ctrl && input === "r") {
-      actions.toggleLastTool();
-      return;
-    }
-    if (key.ctrl && input === "o") {
-      actions.toggleLastTool();
-      return;
-    }
-    if (key.ctrl && input === "p") {
-      actions.togglePlanSidebar();
-      return;
-    }
-    if (key.ctrl && input === "d") {
-      actions.toggleDiffFullScreen();
-      return;
-    }
-    if (key.ctrl && input === "g") {
-      actions.toggleHelp();
-      return;
-    }
+    lastEscRef.current = handleKey(input, key, context, actions, lastEscRef.current, Date.now());
   });
 }
