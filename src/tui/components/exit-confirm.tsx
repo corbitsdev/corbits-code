@@ -5,9 +5,10 @@ import { color } from "../theme.js";
 export type ExitConfirmProps = {
   onConfirm: () => void;
   onCancel: () => void;
+  inline?: boolean;
 };
 
-export function ExitConfirm({ onConfirm, onCancel }: ExitConfirmProps): ReactNode {
+export function ExitConfirm({ onConfirm, onCancel, inline = false }: ExitConfirmProps): ReactNode {
   useInput((input, key) => {
     if (key.return || input === "y" || input === "Y") {
       onConfirm();
@@ -17,6 +18,16 @@ export function ExitConfirm({ onConfirm, onCancel }: ExitConfirmProps): ReactNod
       onCancel();
     }
   });
+
+  if (inline) {
+    return (
+      <Box flexDirection="row" paddingX={1} paddingY={1} gap={1}>
+        <Text color="green">{"> "}</Text>
+        <Text bold color={color("danger")}>Exit Intercode?</Text>
+        <Text color={color("muted")}>(y/n)</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="row" gap={2} marginX={1} marginY={1}>
