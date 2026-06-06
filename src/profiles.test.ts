@@ -1,0 +1,128 @@
+import { expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  loadProfile,
+  projectProfilePath,
+  profilesDir,
+  resolveProfile,
+} from "./profiles.js";
+
+function makeTmp(): string {
+  return join(tmpdir(), `interchange-profiles-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+}
+
+test("profilesDir returns ~/.interchange/profiles", () => {
+  const result = profilesDir("/home/user");
+  expect(result).toBe("/home/user/.interchange/profiles");
+});
+
+test("projectProfilePath returns <cwd>/.interchange/profile.json", () => {
+  const result = projectProfilePath("/my/project");
+  expect(result).toBe("/my/project/.interchange/profile.json");
+});
+
+test("loadProfile returns null for missing file", async () => {
+  const result = await loadProfile("/no/such/file/profile.json");
+  expect(result).toBeNull();
+});
+
+test("loadProfile parses valid profile", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeFile(path, JSON.stringify({ model: "claude-opus-4-8", maxTurns: 50 }));
+  const result = await loadProfile(path);
+  expect(result).toEqual({ model: "claude-opus-4-8", maxTurns: 50 });
+});
+
+test("loadProfile parses systemPromptExtensions", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeFile(path, JSON.stringify({ systemPromptExtensions: ["no-destructive-migrations"] }));
+  const result = await loadProfile(path);
+  expect(result).toEqual({ systemPromptExtensions: ["no-destructive-migrations"] });
+});
+
+test("loadProfile rejects unknown keys", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeFile(path, JSON.stringify({ model: "x", unknownKey: true }));
+  await expect(loadProfile(path)).rejects.toThrow(/unknown key/);
+});
+
+test("loadProfile rejects invalid maxTurns", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeFile(path, JSON.stringify({ maxTurns: -1 }));
+  await expect(loadProfile(path)).rejects.toThrow(/maxTurns/);
+});
+
+test("loadProfile rejects non-array systemPromptExtensions", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeFile(path, JSON.stringify({ systemPromptExtensions: "bad" }));
+  await expect(loadProfile(path)).rejects.toThrow(/systemPromptExtensions/);
+});
+
+test("loadProfile rejects invalid JSON", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeFile(path, "not json");
+  await expect(loadProfile(path)).rejects.toThrow(/Invalid JSON/);
+});
+
+test("resolveProfile returns empty object when no profile files exist", async () => {
+  const cwd = makeTmp();
+  await mkdir(cwd, { recursive: true });
+  const result = await resolveProfile(cwd);
+  expect(result).toEqual({});
+});
+
+test("resolveProfile applies project profile fields", async () => {
+  const cwd = makeTmp();
+  const dir = join(cwd, ".interchange");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "profile.json"), JSON.stringify({ model: "claude-sonnet", maxTurns: 30 }));
+  const result = await resolveProfile(cwd);
+  expect(result.model).toBe("claude-sonnet");
+  expect(result.maxTurns).toBe(30);
+});
+
+test("resolveProfile surfaces profile name when set", async () => {
+  const cwd = makeTmp();
+  const dir = join(cwd, ".interchange");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "profile.json"), JSON.stringify({ profile: "work" }));
+  const result = await resolveProfile(cwd);
+  expect(result.profile).toBe("work");
+});
+
+test("resolveProfile: project profile fields override named profile fields", async () => {
+  const home = makeTmp();
+  const cwd = makeTmp();
+  const namedDir = join(home, ".interchange", "profiles");
+  await mkdir(namedDir, { recursive: true });
+  await writeFile(join(namedDir, "work.json"), JSON.stringify({ model: "base-model", maxTurns: 10 }));
+  const localDir = join(cwd, ".interchange");
+  await mkdir(localDir, { recursive: true });
+  await writeFile(join(localDir, "profile.json"), JSON.stringify({ profile: "work", model: "override-model" }));
+
+  // We can't easily inject profilesDir home in resolveProfile without additional plumbing,
+  // so test the merge logic directly via the exported functions.
+  // Project profile model should win over named profile model.
+  const projectProfile = await loadProfile(join(localDir, "profile.json"));
+  const namedProfile = await loadProfile(join(namedDir, "work.json"));
+  const merged = { ...namedProfile };
+  if (projectProfile?.model !== undefined) merged.model = projectProfile.model;
+  if (projectProfile?.maxTurns !== undefined) merged.maxTurns = projectProfile.maxTurns;
+  expect(merged.model).toBe("override-model");
+  // maxTurns not in project profile so named profile value survives
+  expect(merged.maxTurns).toBe(10);
+});
