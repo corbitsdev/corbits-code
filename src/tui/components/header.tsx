@@ -6,6 +6,7 @@ export type HeaderProps = {
   sessionTitle: string;
   latestUserMessage: string;
   width: number;
+  profile?: string;
 };
 
 const TITLE = "Intercode";
@@ -27,7 +28,7 @@ function formatPath(cwd: string): string {
 // title, the working directory, and the latest request. All live run telemetry
 // (status, turns, cost, tokens, elapsed) lives in the status bar so nothing is
 // shown twice.
-export function Header({ sessionTitle, latestUserMessage, width }: HeaderProps): ReactNode {
+export function Header({ sessionTitle, latestUserMessage, width, profile }: HeaderProps): ReactNode {
   const cwd = process.cwd();
   const pathDisplay = formatPath(cwd);
 
@@ -37,6 +38,9 @@ export function Header({ sessionTitle, latestUserMessage, width }: HeaderProps):
         <Text bold color={color("brand")}>{TITLE}</Text>
         <Text color={color("muted")}>·</Text>
         <Text color={color("muted")}>{pathDisplay}</Text>
+        {profile !== undefined && (
+          <Text color={color("muted")}>[{profile}]</Text>
+        )}
         {sessionTitle.length > 0 && (
           <Box>
             <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>

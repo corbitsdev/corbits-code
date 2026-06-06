@@ -89,6 +89,48 @@ Key Interchange packages (all workspace-local under `interchange/packages/`):
 | `@intx/types` | Shared runtime types (`ReactorDirector`, `ReactorAction`, `ToolDefinition`, etc.) |
 | `@intx/storage-isogit` | Git-backed state storage for resume |
 
+## Profile System
+
+Profiles let users configure per-project or named-profile overrides for model, maxTurns, and systemPromptExtensions.
+
+**Profile file locations:**
+
+- Project profile: `.interchange/profile.json` in the repo root — committed to the repo, safe (no credentials).
+- Named profiles: `~/.interchange/profiles/<name>.json` — user-level, machine-specific overrides.
+
+**Profile file format:**
+
+```json
+{
+  "profile": "work",
+  "model": "claude-opus-4-8",
+  "maxTurns": 50,
+  "systemPromptExtensions": ["no-destructive-migrations"]
+}
+```
+
+**Supported keys:**
+
+| Key | Type | Description |
+|---|---|---|
+| `profile` | string | Named profile to inherit from (`~/.interchange/profiles/<name>.json`). |
+| `model` | string | Model override for the active provider. |
+| `maxTurns` | number | Hard turn cap for the headless runner director. |
+| `systemPromptExtensions` | string[] | Freeform strings appended to the system prompt. |
+
+**Layer order (highest priority first):**
+
+1. CLI flags (`--model`, `--profile`)
+2. Environment variables (`OPENAI_COMPATIBLE_*`)
+3. Per-repo local settings (`.interchange/settings.json`)
+4. Project profile (`.interchange/profile.json`)
+5. Named profile (`~/.interchange/profiles/<name>.json`)
+6. Global settings (`~/.interchange/settings.json`)
+
+When both a project profile and a named profile apply, the project profile's field values take precedence over the named profile's.
+
+The active profile name is shown in the TUI header after the path: `Intercode · parent/repo [profile]`.
+
 ## Reference Material
 
 - `PLAN.md` — full architecture, design decisions, and phase breakdown. Read before any architectural work.
