@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { enterAltScreen } from "../../../src/tui/alt-screen.js";
+import { enterAltScreen } from "../../../src/alt-screen.js";
 
 describe("enterAltScreen", () => {
   let writes: string[];

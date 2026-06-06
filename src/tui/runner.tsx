@@ -7,11 +7,11 @@ import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { createAgentToolset } from "./agent-tools.js";
+import { createAgentToolset } from "../agent-tools.js";
 import { loadApprovals, saveApprovals } from "../permission/store.js";
 import type { Approval } from "../permission/types.js";
 import { consumeStream } from "../stream-consumer.js";
-import { enterAltScreen } from "./alt-screen.js";
+import { enterAltScreen } from "../alt-screen.js";
 import { App } from "./app.js";
 import type { OperatorGateEvent, PermissionGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
 import {
@@ -20,13 +20,13 @@ import {
   discoverLifecycleHooks,
   hookDirectories,
 } from "../hooks.js";
-import { createRunSink } from "./run-sink.js";
+import { createRunSink } from "../run-sink.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
 }
 
-export { getTUIRunSummaryStatus } from "./run-sink.js";
+export { getTUIRunSummaryStatus } from "../run-sink.js";
 
 export async function runTUI(config: Config): Promise<number> {
   const emitter = createTUIEventEmitter();
