@@ -122,8 +122,9 @@ test("converts images", () => {
 test("converts pre/code blocks", () => {
   const html = "<pre>const x = 1;</pre>";
   const md = htmlToMarkdown(html);
-  expect(md).toContain("```");
-  expect(md).toContain("const x = 1;");
+  const fences = md.split("```");
+  expect(fences.length).toBe(3); // before, content, after
+  expect(fences[1]).toContain("const x = 1;");
 });
 
 test("converts <b> and <i> tags", () => {
