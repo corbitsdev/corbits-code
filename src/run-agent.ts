@@ -219,18 +219,6 @@ export async function runAgent(
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
-  const extensions: string[] = [];
-  try {
-    const agentsMd = await Bun.file(join(config.cwd, "AGENTS.md")).text();
-    if (agentsMd.trim().length > 0) {
-      extensions.push(`## AGENTS.md\n\n${agentsMd}`);
-    }
-  } catch {
-    // AGENTS.md is absent or unreadable — skip silently
-  }
-  if (config.systemPromptExtensions) {
-    extensions.push(...config.systemPromptExtensions);
-  }
   const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined);
   const workdir = join(config.cwd, ".agent-state", "context");
 
