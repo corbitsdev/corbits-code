@@ -42,7 +42,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
       const outcome = await requestApproval(request);
       if (!outcome.allow) {
-        return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})` };
+        const suffix = outcome.message !== undefined && outcome.message.length > 0
+          ? ` — ${outcome.message}`
+          : "";
+        return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})${suffix}` };
       }
       if (outcome.persist && outcome.persist.pattern !== null) {
         const approval: Approval = { tool: request.tool, pattern: outcome.persist.pattern };

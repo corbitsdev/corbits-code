@@ -117,6 +117,10 @@ function isOperatorDeclinedToolResult(result: { content: unknown; isError?: bool
   );
 }
 
+function operatorDeclinedHasMessage(result: { content: unknown }): boolean {
+  return typeof result.content === "string" && / — .+/.test(result.content);
+}
+
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
@@ -202,7 +206,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       if (isOperatorDeclinedToolResult(event.result)) {
         return [
           capabilities.checkpoint("operator-declined"),
-          capabilities.reply("Tool call rejected by operator."),
           capabilities.done(),
         ];
       }
@@ -373,10 +376,16 @@ class ChatDirectorImpl extends DefaultDirector {
     }
 
     if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
+      if (operatorDeclinedHasMessage(event.result)) {
+        // Operator provided a reason — let the model see the rejection and continue.
+        return super.decide(event, state, capabilities);
+      }
+      // Reject without message: end this turn but keep the reactor alive so
+      // the user can send another message. reply() resolves the send cycle;
+      // done() would permanently kill the reactor, breaking further sends.
       return [
         capabilities.checkpoint("operator-declined"),
         capabilities.reply("Tool call rejected by operator."),
-        capabilities.done(),
       ];
     }
 

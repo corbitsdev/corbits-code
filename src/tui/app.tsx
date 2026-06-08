@@ -174,6 +174,9 @@ export function App({
 
   const sendMessage = (message: string) => {
     state.markRunning();
+    // Nudge a re-render so the in-flight indicator and interval timer activate
+    // immediately rather than waiting for the first event from the new run.
+    forceRender((n) => n + 1);
     const controller = new AbortController();
     sendAbortRef.current = controller;
     agent.send(message, { signal: controller.signal }).catch((err: unknown) => {
