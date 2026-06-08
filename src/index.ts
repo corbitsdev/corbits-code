@@ -8,6 +8,7 @@ import { runAgent } from "./run-agent.js";
 import { runTUI } from "./tui/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import type { Config, UnconfiguredConfig } from "./config.js";
+import { resolveLatestSession } from "./session.js";
 
 export type MainRunners = {
   runAgent(
@@ -53,6 +54,7 @@ function printHelp(): void {
   console.log("  --provider <name>  Select a configured provider");
   console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
+  console.log("  --auto             Auto-approve non-destructive permissions (safe shell commands, repeat writes)");
   console.log("  --help             Show this help message");
   console.log("");
   console.log("Configuration:");
@@ -75,7 +77,12 @@ export async function mainWithRunners(
   if (args[0] === "resume") {
     args.shift();
     const config = await loadConfig(args);
-    const previous = await loadState(config.cwd);
+    const session = await resolveLatestSession(config.cwd);
+    if (session === null) {
+      console.error("No previous run found in this directory.");
+      return 1;
+    }
+    const previous = await loadState(config.cwd, session.sessionId);
     if (previous === null) {
       console.error("No previous run found in this directory.");
       return 1;
@@ -88,8 +95,12 @@ export async function mainWithRunners(
       console.error("A run is already in progress in this directory. Use --force to override.");
       return 1;
     }
-    const directorState = await loadDirectorState(config.cwd);
-    return runners.runAgent({ ...config, task: previous.task }, previous.startedAt, directorState ?? undefined);
+    const directorState = await loadDirectorState(config.cwd, session.sessionId);
+    return runners.runAgent(
+      { ...config, task: previous.task, sessionId: session.sessionId },
+      previous.startedAt,
+      directorState ?? undefined,
+    );
   }
 
   // Strip optional "run" verb

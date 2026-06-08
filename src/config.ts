@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
+import { generateSessionId } from "./session.js";
 
 import {
   globalSettingsPath,
@@ -62,6 +63,7 @@ export type Config = {
   force: boolean;
   headless: boolean;
   dangerouslySkipPermissions: boolean;
+  auto: boolean;
   globalSettingsPath: string;
   globalDefaultProvider?: string;
   // Every provider available to switch to at runtime. From the settings file
@@ -71,6 +73,7 @@ export type Config = {
   systemPromptExtensions?: string[];
   maxTurns?: number;
   mcpServers?: MCPServerConfig[];
+  sessionId: string;
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -83,6 +86,7 @@ export type UnconfiguredConfig = {
   force: boolean;
   headless: boolean;
   dangerouslySkipPermissions: boolean;
+  auto: boolean;
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
   // The original error message, used for headless error output.
@@ -133,6 +137,7 @@ export async function loadConfig(
   let force = false;
   let headless = false;
   let dangerouslySkipPermissions = false;
+  let auto = false;
   let configPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
@@ -179,6 +184,10 @@ export async function loadConfig(
     }
     if (arg === "--dangerously-skip-permissions") {
       dangerouslySkipPermissions = true;
+      continue;
+    }
+    if (arg === "--auto") {
+      auto = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -241,6 +250,7 @@ export async function loadConfig(
       force,
       headless,
       dangerouslySkipPermissions,
+      auto,
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
     };
@@ -254,7 +264,9 @@ export async function loadConfig(
     force,
     headless,
     dangerouslySkipPermissions,
+    auto,
     globalSettingsPath: effectiveSettingsPath,
+    sessionId: generateSessionId(),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
     providers: buildProviderCatalog(settings, resolved),
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),

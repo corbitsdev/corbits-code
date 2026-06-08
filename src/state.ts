@@ -1,6 +1,8 @@
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { sessionDir } from "./session.js";
+
 export type RunState = {
   status: "running" | "done" | "failed";
   turnsUsed: number;
@@ -9,13 +11,6 @@ export type RunState = {
   finishedAt?: number;
   error?: string;
 };
-
-const STATE_FILE = ".agent-state/run.json";
-const DIRECTOR_STATE_FILE = ".agent-state/director.json";
-
-export function statePath(cwd: string): string {
-  return join(cwd, STATE_FILE);
-}
 
 export type DirectorPersistedState = {
   turnsUsed: number;
@@ -49,15 +44,30 @@ function isValidDirectorState(data: unknown): data is DirectorPersistedState {
   return true;
 }
 
-export async function saveDirectorState(cwd: string, state: DirectorPersistedState): Promise<void> {
-  const path = join(cwd, DIRECTOR_STATE_FILE);
+function statePath(cwd: string, sessionId: string): string {
+  return join(sessionDir(cwd, sessionId), "run.json");
+}
+
+function directorStatePath(cwd: string, sessionId: string): string {
+  return join(sessionDir(cwd, sessionId), "director.json");
+}
+
+export async function saveDirectorState(
+  cwd: string,
+  sessionId: string,
+  state: DirectorPersistedState,
+): Promise<void> {
+  const path = directorStatePath(cwd, sessionId);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(state, null, 2));
 }
 
-export async function loadDirectorState(cwd: string): Promise<DirectorPersistedState | null> {
+export async function loadDirectorState(
+  cwd: string,
+  sessionId: string,
+): Promise<DirectorPersistedState | null> {
   try {
-    const raw = await readFile(join(cwd, DIRECTOR_STATE_FILE), "utf8");
+    const raw = await readFile(directorStatePath(cwd, sessionId), "utf8");
     const parsed = JSON.parse(raw);
     if (!isValidDirectorState(parsed)) {
       return null;
@@ -76,8 +86,8 @@ export async function loadDirectorState(cwd: string): Promise<DirectorPersistedS
   }
 }
 
-export async function saveState(cwd: string, state: RunState): Promise<void> {
-  const path = statePath(cwd);
+export async function saveState(cwd: string, sessionId: string, state: RunState): Promise<void> {
+  const path = statePath(cwd, sessionId);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(state, null, 2));
 }
@@ -95,9 +105,9 @@ function isValidRunState(data: unknown): data is RunState {
   return true;
 }
 
-export async function loadState(cwd: string): Promise<RunState | null> {
+export async function loadState(cwd: string, sessionId: string): Promise<RunState | null> {
   try {
-    const raw = await readFile(statePath(cwd), "utf8");
+    const raw = await readFile(statePath(cwd, sessionId), "utf8");
     const parsed = JSON.parse(raw);
     if (!isValidRunState(parsed)) {
       return null;
