@@ -16,6 +16,7 @@ import { buildOpenAISource, type Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
+import { loadAgentContextExtensions } from "../run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createAgentToolset } from "../agent-tools.js";
 import { loadApprovals, saveApprovals } from "../permission/store.js";
@@ -85,7 +86,9 @@ export async function runTUI(config: Config): Promise<number> {
     onMCPWarning: (msg) => emitter.emit("mcp.warning", msg),
   });
 
-  const systemPrompt = buildChatSystemPrompt(config.systemPromptExtensions);
+  const agentExtensions = await loadAgentContextExtensions(config.cwd);
+  const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
+  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined);
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
