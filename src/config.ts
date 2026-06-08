@@ -9,6 +9,7 @@ import {
   localSettingsPath,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
+  type MCPServerConfig,
   type ResolvedProvider,
   type Settings,
 } from "./settings.js";
@@ -69,6 +70,7 @@ export type Config = {
   profile?: string;
   systemPromptExtensions?: string[];
   maxTurns?: number;
+  mcpServers?: MCPServerConfig[];
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -260,6 +262,7 @@ export async function loadConfig(
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
     ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
+    ...(local?.mcpServers !== undefined ? { mcpServers: local.mcpServers } : {}),
   };
 }
 

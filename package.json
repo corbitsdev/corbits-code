@@ -34,10 +34,11 @@
     "@intx/agent": "workspace:*",
     "@intx/inference": "workspace:*",
     "@intx/log": "workspace:*",
-    "@intx/tools-posix": "workspace:*",
-    "@intx/types": "workspace:*",
     "@intx/storage-isogit": "workspace:*",
     "@intx/tools-lsp": "workspace:*",
+    "@intx/tools-posix": "workspace:*",
+    "@intx/types": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "arktype": "catalog:"
   },
   "devDependencies": {

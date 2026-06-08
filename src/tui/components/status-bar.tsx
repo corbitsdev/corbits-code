@@ -18,6 +18,7 @@ export type StatusBarProps = {
   currentToolName: string | null;
   streamingType: "text" | "thinking" | "tool" | null;
   awaitingResponse: boolean;
+  connectedMCPServers?: string[];
 };
 
 function statusLabel(status: AgentStatus, currentToolName: string | null, streamingType: string | null, awaitingResponse: boolean): string {
@@ -83,6 +84,7 @@ export function StatusBar({
   currentToolName,
   streamingType,
   awaitingResponse,
+  connectedMCPServers = [],
 }: StatusBarProps): ReactNode {
   return (
     // flexWrap lets the fields reflow onto extra lines when the terminal is
@@ -102,6 +104,12 @@ export function StatusBar({
       <Text color={color("muted")}>Session: {tokens} tokens</Text>
       <Divider />
       <Text color={color("muted")}>{formatElapsed(elapsedMs)}</Text>
+      {connectedMCPServers.length > 0 && (
+        <>
+          <Divider />
+          <Text color={color("muted")}>MCP: {connectedMCPServers.join(", ")}</Text>
+        </>
+      )}
       <Divider />
       <Text color={statusColor(status)} bold>{statusLabel(status, currentToolName, streamingType, awaitingResponse)}</Text>
     </Box>

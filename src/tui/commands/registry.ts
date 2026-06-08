@@ -2,6 +2,7 @@ export type CommandContext = {
   getVerbose: () => boolean;
   toggleVerbose: () => boolean;
   signalClear: () => void;
+  getMCPServers?: () => Array<{ name: string; tools: string[] }>;
 };
 
 export type CommandResult =

@@ -62,3 +62,19 @@ registerCommand({
   description: "Alias for /agent (provider and model configuration)",
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
+
+registerCommand({
+  name: "mcp",
+  description: "List connected MCP servers and their available tools",
+  handler: (_args, ctx) => {
+    const servers = ctx.getMCPServers?.() ?? [];
+    if (servers.length === 0) {
+      return { type: "message", text: "No MCP servers connected. Add mcpServers to .interchange/settings.json." };
+    }
+    const lines = servers.map((s) => {
+      const toolList = s.tools.length > 0 ? s.tools.join(", ") : "(no tools)";
+      return `${s.name}: ${toolList}`;
+    });
+    return { type: "message", text: lines.join("\n") };
+  },
+});
