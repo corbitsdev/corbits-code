@@ -27,6 +27,8 @@ import { verifyPlugin } from "./plugins/verify-plugin.js";
 import { permissionPlugin } from "./plugins/permission-plugin.js";
 import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
 import { webToolsPlugin } from "./web/plugin.js";
+import { connectMCPServers } from "./mcp/client.js";
+import { createMCPPlugin } from "./mcp/plugin.js";
 import { createPermissionGate } from "./permission/gate.js";
 import { loadApprovals } from "./permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
@@ -128,6 +130,12 @@ export async function runAgent(
     skipPermissions: config.dangerouslySkipPermissions,
   });
 
+  const mcpClients = await connectMCPServers(
+    config.mcpServers ?? [],
+    (msg) => process.stderr.write(`${msg}\n`),
+  );
+  const { plugin: mcpPlugin } = createMCPPlugin(mcpClients);
+
   const posixTools = createPosixTools({
     cwd: config.cwd,
     plugins: [
@@ -139,6 +147,7 @@ export async function runAgent(
       reReadBlockPlugin(() => directorHolder.instance),
       webToolsPlugin(),
       createLSPPlugin({ cwd: config.cwd, minSeverity: 1 }),
+      mcpPlugin,
     ],
   });
 

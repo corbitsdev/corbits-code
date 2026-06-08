@@ -21,11 +21,19 @@ export type Settings = {
   providers: Record<string, ProviderSettings>;
 };
 
-// Per-repo override. Selection only — it picks a provider/model but must never
-// carry credentials, so the validator rejects any other key.
+export type MCPServerConfig = {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+
+// Per-repo override. Selection only for provider/model, but may also declare
+// MCP servers to connect at session start.
 export type LocalSettings = {
   provider?: string;
   model?: string;
+  mcpServers?: MCPServerConfig[];
 };
 
 // The provider fields the runtime consumes, identical to what the env vars used
@@ -99,17 +107,33 @@ export function isSettings(value: unknown): value is Settings {
   return Object.values(s.providers).every(isProviderSettings);
 }
 
-// Local settings are selection-only: only "provider" and "model" are allowed.
-// Any other key (notably apiKey) is rejected so credentials can never live in a
-// repo-local, potentially committed file.
+function isMCPServerConfig(value: unknown): value is MCPServerConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  if (typeof s.name !== "string") return false;
+  if (typeof s.command !== "string") return false;
+  if (s.args !== undefined && (!Array.isArray(s.args) || !s.args.every((a) => typeof a === "string"))) return false;
+  if (s.env !== undefined) {
+    if (typeof s.env !== "object" || s.env === null) return false;
+    if (!Object.values(s.env).every((v) => typeof v === "string")) return false;
+  }
+  return true;
+}
+
+// Local settings are selection-only for provider/model (no credentials
+// allowed). The mcpServers key is permitted because MCP server configs are
+// expected to live in the repo.
 export function isLocalSettings(value: unknown): value is LocalSettings {
   if (typeof value !== "object" || value === null) return false;
   const s = value as Record<string, unknown>;
   for (const key of Object.keys(s)) {
-    if (key !== "provider" && key !== "model") return false;
+    if (key !== "provider" && key !== "model" && key !== "mcpServers") return false;
   }
   if (s.provider !== undefined && typeof s.provider !== "string") return false;
   if (s.model !== undefined && typeof s.model !== "string") return false;
+  if (s.mcpServers !== undefined) {
+    if (!Array.isArray(s.mcpServers) || !s.mcpServers.every(isMCPServerConfig)) return false;
+  }
   return true;
 }
 
