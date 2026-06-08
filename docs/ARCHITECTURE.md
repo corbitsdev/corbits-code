@@ -151,13 +151,13 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/agent`; `/model` aliases `/agent`).
 - `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.interchange/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
 
-### Plugin System (`src/plugins/skill-loader.ts`, `src/plugins/slash-registry.ts`)
+### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
 
-interchange-code supports a plugin system that sources slash commands and context skills from external plugin directories. The contract is compatible with the `marketplace.json` + `plugins/<name>/skills/<skill-name>/SKILL.md` layout used by Claude Code and Codex plugin ecosystems, so existing plugins work without modification.
+interchange-code supports an extension system that sources slash commands and context skills from external skill directories. The contract is compatible with the `marketplace.json` + `plugins/<name>/skills/<skill-name>/SKILL.md` layout used by Claude Code and Codex plugin ecosystems.
 
 #### Discovery
 
-Plugin discovery runs at session start and produces a slash command registry injected into the system prompt.
+Extension discovery runs at session start and produces a slash command registry injected into the system prompt.
 
 **Primary path — manifest-driven:**
 
@@ -182,7 +182,7 @@ When no manifest is present, the loader scans three well-known local directories
 | `.claude/skills/<skill-name>/SKILL.md` | Claude Code workspace skills |
 | `.codex/skills/<skill-name>/SKILL.md` | Codex workspace skills |
 
-Skills discovered via fallback scan are treated as if they belong to an anonymous plugin with no namespace prefix.
+Skills discovered via fallback scan are treated as if they belong to an anonymous plugin with no namespace prefix. When two fallback-scanned skills share the same name, the discovery order is `.agents/skills/` > `.claude/skills/` > `.codex/skills/`, and later entries are silently skipped.
 
 #### SKILL.md Frontmatter
 
@@ -202,7 +202,7 @@ Every skill file begins with a YAML frontmatter block:
 
 The SKILL.md body is injected verbatim into the system prompt (or as a synthetic tool result) when the skill is invoked. Used for style guides, conventions, and any reference material the agent should internalize.
 
-**`workflow`**
+**`workflow`** *(not yet implemented — planned for a future iteration)*
 
 The SKILL.md body describes a multi-step plan. When invoked, the workflow executor parses the steps and drives the agent through them sequentially, enforcing gates, dispatching sub-agents for parallel steps, and waiting on approval gates before continuing. Workflow skills are the mechanism behind commands like `/linear-issue-workflow`.
 
@@ -214,15 +214,19 @@ For manifest-sourced plugins, commands are namespaced as `plugin:skill-name` (e.
 
 For fallback-scanned skills, the command name is the bare skill name with no prefix.
 
+> **Note:** This registry is agent-visible only — skills are injected into the system prompt and intercepted by the director. These commands are distinct from the TUI slash command registry (`src/tui/commands/`), which handles client-side dispatch for built-in TUI commands (`/help`, `/diff`, `/plan`, etc.) and populates TUI autocomplete. Extension-sourced slash commands do not appear in the TUI autocomplete registry.
+
 #### Compatibility Matrix
+
+All skill files must begin with a YAML frontmatter block. Files without frontmatter are skipped during discovery.
 
 | Source | Discovery method | Modification required |
 |---|---|---|
-| Manifest-based plugin directory | `marketplace.json` | None |
-| Claude Code workspace skills (`.claude/skills/`) | Fallback scan | None |
-| Codex workspace skills (`.codex/skills/`) | Fallback scan | None |
-| Shared workspace skills (`.agents/skills/`) | Fallback scan | None |
-| Custom plugin path (explicit config) | `marketplace.json` | None |
+| Manifest-based plugin directory | `marketplace.json` | Requires SKILL.md frontmatter |
+| Claude Code workspace skills (`.claude/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
+| Codex workspace skills (`.codex/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
+| Shared workspace skills (`.agents/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
+| Custom plugin path (explicit config) | `marketplace.json` | Requires SKILL.md frontmatter |
 
 #### Plugin Path Configuration
 
