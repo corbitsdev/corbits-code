@@ -43,6 +43,8 @@ export type AppProps = {
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
   profile?: string;
+  connectedMCPServers?: string[];
+  mcpServerStatuses?: Array<{ name: string; tools: string[] }>;
 };
 
 export function App({
@@ -60,6 +62,8 @@ export function App({
   onToggleHook,
   onAgentError,
   profile,
+  connectedMCPServers = [],
+  mcpServerStatuses = [],
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const { exit } = useApp();
@@ -102,7 +106,8 @@ export function App({
       return next;
     },
     signalClear: () => {},
-  }), [verbose]);
+    getMCPServers: () => mcpServerStatuses,
+  }), [verbose, mcpServerStatuses]);
 
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
@@ -426,6 +431,7 @@ export function App({
           currentToolName={state.currentToolName}
           streamingType={state.streamingType}
           awaitingResponse={state.awaitingResponse}
+          connectedMCPServers={connectedMCPServers}
         />
         </Box>
       )}

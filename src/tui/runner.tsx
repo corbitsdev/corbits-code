@@ -81,6 +81,8 @@ export async function runTUI(config: Config): Promise<number> {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
+    ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
+    onMCPWarning: (msg) => emitter.emit("mcp.warning", msg),
   });
 
   const systemPrompt = buildChatSystemPrompt(config.systemPromptExtensions);
@@ -161,6 +163,8 @@ export async function runTUI(config: Config): Promise<number> {
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
+      connectedMCPServers={toolset.connectedMCPServers}
+      mcpServerStatuses={toolset.mcpServerStatuses}
     />,
     { exitOnCtrlC: false },
   );
