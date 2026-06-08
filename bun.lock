@@ -7,6 +7,7 @@
       "dependencies": {
         "@intx/agent": "workspace:*",
         "@intx/inference": "workspace:*",
+        "@intx/log": "workspace:*",
         "@intx/storage-isogit": "workspace:*",
         "@intx/tools-lsp": "workspace:*",
         "@intx/tools-posix": "workspace:*",
@@ -30,7 +31,6 @@
       "version": "0.1.2",
       "dependencies": {
         "@intx/inference": "workspace:*",
-        "@intx/log": "workspace:*",
         "@intx/mime": "workspace:*",
         "@intx/types": "workspace:*",
         "arktype": "catalog:",

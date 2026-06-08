@@ -104,6 +104,11 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   let turnsUsed = 0;
   let status: AgentStatus = "running";
   let stopRequested = false;
+  // True when at least one inference.text.delta fired since the last connector.reply.
+  // Used to distinguish model-generated replies (already accumulated via deltas —
+  // connector.reply would double the content) from director-generated replies
+  // (no deltas — connector.reply is the only carrier).
+  let hadTextDeltaSinceLastReply = false;
   // True while the model is working but nothing is streaming yet — the gap
   // between a send (or a tool result) and the first token of the next reply.
   // Drives the in-flight indicator; cleared the moment real content arrives.
@@ -209,6 +214,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         case "inference.text.delta": {
           awaitingResponse = false;
           streamingType = "text";
+          hadTextDeltaSinceLastReply = true;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
@@ -241,7 +247,18 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           break;
         }
         case "connector.reply": {
-          // reply content is already accumulated via inference.text.delta
+          const replyData = event.data as { content: string };
+          if (!hadTextDeltaSinceLastReply && replyData.content.length > 0) {
+            // Director-generated reply (no inference deltas this cycle) — render it.
+            const last = contentBlocks[contentBlocks.length - 1];
+            if (last && last.type === "text") {
+              last.content += replyData.content;
+            } else {
+              contentBlocks.push({ type: "text", content: replyData.content });
+            }
+          }
+          hadTextDeltaSinceLastReply = false;
+          awaitingResponse = false;
           break;
         }
         case "tool.done": {
