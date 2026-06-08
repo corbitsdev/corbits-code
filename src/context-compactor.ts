@@ -367,14 +367,13 @@ function buildTurnSummary(turns: ConversationTurn[], maxChars: number): string {
 /**
  * Build an LLM-generated structured summary of a sequence of turns.
  *
- * Calls `classify` with a condensed representation of the turns and returns
- * the `reason` field from the response, which is expected to contain the
- * structured summary text. Falls back to `buildTurnSummary` if the classify
- * call fails.
+ * Calls `summarize` with a condensed representation of the turns and returns
+ * the result string directly. Falls back to `buildTurnSummary` if the
+ * summarize call fails.
  */
 export async function buildLLMTurnSummary(
   turns: ConversationTurn[],
-  classify: (prompt: string) => Promise<{ decision: string; reason: string }>,
+  summarize: (prompt: string) => Promise<string>,
   maxChars = 3000,
 ): Promise<string> {
   // Build a condensed input representation for the LLM
@@ -430,9 +429,8 @@ export async function buildLLMTurnSummary(
   ].join("\n");
 
   try {
-    const result = await classify(prompt);
-    const text = result.reason.slice(0, maxChars);
-    return text;
+    const text = await summarize(prompt);
+    return text.slice(0, maxChars);
   } catch {
     return buildTurnSummary(turns, maxChars);
   }
