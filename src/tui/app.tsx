@@ -101,6 +101,7 @@ export function App({
       setVerbose(next);
       return next;
     },
+    signalClear: () => {},
   }), [verbose]);
 
   const planSteps = useMemo(() => {
@@ -278,6 +279,10 @@ export function App({
   );
 
   const handleCommand = (result: CommandResult) => {
+    if (result.type === "send") {
+      handleSend(result.text);
+      return;
+    }
     if (result.type === "message") {
       setCommandMessage(result.text);
       return;

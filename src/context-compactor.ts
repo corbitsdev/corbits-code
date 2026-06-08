@@ -210,6 +210,11 @@ export type CompactorConfig = {
    * Older turns beyond `keepRecentTurns` are replaced with this summary.
    */
   summaryMaxChars: number;
+  /**
+   * Optional async summarizer. When provided, called instead of the
+   * deterministic `buildTurnSummary` to produce the compacted summary.
+   */
+  summarize?: (turns: ConversationTurn[]) => Promise<string>;
 };
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
@@ -259,7 +264,9 @@ export function createPruningCompactor(
 
       // Build a summary of the older turns (everything before keepFrom)
       const olderTurns = turns.slice(0, keepFrom);
-      const summary = buildTurnSummary(olderTurns, cfg.summaryMaxChars);
+      const summary = cfg.summarize !== undefined
+        ? await cfg.summarize(olderTurns)
+        : buildTurnSummary(olderTurns, cfg.summaryMaxChars);
 
       // Recent turns are preserved in full
       const recentTurns = turns.slice(keepFrom);
@@ -355,6 +362,78 @@ function buildTurnSummary(turns: ConversationTurn[], maxChars: number): string {
   }
 
   return summary;
+}
+
+/**
+ * Build an LLM-generated structured summary of a sequence of turns.
+ *
+ * Calls `summarize` with a condensed representation of the turns and returns
+ * the result string directly. Falls back to `buildTurnSummary` if the
+ * summarize call fails.
+ */
+export async function buildLLMTurnSummary(
+  turns: ConversationTurn[],
+  summarize: (prompt: string) => Promise<string>,
+  maxChars = 3000,
+): Promise<string> {
+  // Build a condensed input representation for the LLM
+  const toolNames = new Set<string>();
+  let lastUserMessage = "";
+  const assistantSnippets: string[] = [];
+
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type === "tool_call") {
+        toolNames.add(block.name);
+      }
+    }
+    if (turn.role === "user") {
+      const textBlock = turn.content.find((b) => b.type === "text");
+      if (textBlock !== undefined && textBlock.type === "text") {
+        lastUserMessage = textBlock.text.slice(0, 300);
+      }
+    }
+    if (turn.role === "assistant") {
+      const textBlock = turn.content.find((b) => b.type === "text");
+      if (textBlock !== undefined && textBlock.type === "text" && textBlock.text.length > 0) {
+        assistantSnippets.push(textBlock.text.slice(0, 200));
+      }
+    }
+  }
+
+  const condensed = [
+    `Turns: ${turns.length}`,
+    `Tools called: ${[...toolNames].sort().join(", ")}`,
+    lastUserMessage.length > 0 ? `Last user message: "${lastUserMessage}"` : null,
+    assistantSnippets.length > 0
+      ? `Assistant messages (excerpts):\n${assistantSnippets.slice(-3).join("\n---\n")}`
+      : null,
+  ]
+    .filter((l) => l !== null)
+    .join("\n")
+    .slice(0, 2000);
+
+  const prompt = [
+    "You are summarizing a completed coding session for context compaction.",
+    "Based on the session excerpt below, produce a structured summary in exactly this format:",
+    "",
+    "Goal: <what the user was trying to accomplish>",
+    "Constraints: <any constraints or requirements mentioned>",
+    "Progress: <what was done and what worked>",
+    "Key Decisions: <important decisions made>",
+    "Next Steps: <what was left or planned next>",
+    "Critical Context: <anything the next task needs to know>",
+    "",
+    "Session excerpt:",
+    condensed,
+  ].join("\n");
+
+  try {
+    const text = await summarize(prompt);
+    return text.slice(0, maxChars);
+  } catch {
+    return buildTurnSummary(turns, maxChars);
+  }
 }
 
 /**
