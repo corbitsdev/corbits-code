@@ -207,7 +207,6 @@ export async function runAgent(
       baseURL: config.baseURL,
       apiKey: config.apiKey,
       model: config.model,
-      displayName: config.providerName,
     }),
     storage,
     workdir,
