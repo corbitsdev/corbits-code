@@ -217,7 +217,10 @@ export async function runAgent(
   });
 
   // directorHolder is populated synchronously by the factory during createAgent.
-  const director = directorHolder.instance!;
+  if (directorHolder.instance === undefined) {
+    throw new Error("createAgent completed without populating the director; codingDirectorDef.factory was not invoked");
+  }
+  const director = directorHolder.instance;
 
   await saveState(config.cwd, {
     status: "running",
