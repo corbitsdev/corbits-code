@@ -21,18 +21,17 @@ import { resolveProfile } from "./profiles.js";
 export const SOURCE_MAX_TOKENS = 16384;
 
 // Build the OpenAI-compatible InferenceSource the runtime consumes. `id` is the
-// source's routing key (the provider name); credentials and model come from the
-// resolved provider or a catalog entry.
+// user-facing name for this source (e.g. "zen"); `provider` is always
+// "openai-compatible" so the inference registry routes it to the right adapter.
 export function buildOpenAISource(fields: {
   id: string;
   baseURL: string;
   apiKey: string;
   model: string;
-  displayName?: string;
 }): InferenceSource {
   return {
     id: fields.id,
-    provider: fields.displayName ?? "openai",
+    provider: "openai-compatible",
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey: fields.apiKey,
     model: fields.model,

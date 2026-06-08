@@ -313,7 +313,6 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             quota_exhausted: "Quota exhausted — usage limit reached.",
             context_overflow: "Context window full — start a new session.",
             retryable: "Request failed — will retry.",
-            fatal: "Fatal inference error.",
             aborted: "Request aborted.",
             timeout: "Request timed out.",
             protocol_mismatch: "Unexpected response from inference API.",
