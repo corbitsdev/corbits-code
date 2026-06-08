@@ -45,6 +45,29 @@ import {
 
 /* eslint-disable no-console */
 
+export async function loadAgentContextExtensions(cwd: string): Promise<string[]> {
+  const extensions: string[] = [];
+  const agentsMdPath = join(cwd, "AGENTS.md");
+  try {
+    const content = await Bun.file(agentsMdPath).text();
+    if (content.trim().length > 0) {
+      const MAX_AGENTS_MD_BYTES = 32_000;
+      if (content.length > MAX_AGENTS_MD_BYTES) {
+        process.stderr.write(
+          `[interchange] Warning: AGENTS.md exceeds ${MAX_AGENTS_MD_BYTES} bytes and will be truncated.\n`
+        );
+      }
+      extensions.push(`## AGENTS.md\n\n${content.slice(0, MAX_AGENTS_MD_BYTES)}`);
+    }
+  } catch (err: unknown) {
+    // File not found is expected and silent. Other errors are logged.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      process.stderr.write(`[interchange] Warning: could not read AGENTS.md: ${String(err)}\n`);
+    }
+  }
+  return extensions;
+}
+
 function readLineFromStdin(signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -185,7 +208,9 @@ export async function runAgent(
     factory: () => createToolRunner(agentTools),
   });
 
-  const systemPrompt = buildSystemPrompt(undefined, config.systemPromptExtensions);
+  const agentExtensions = await loadAgentContextExtensions(config.cwd);
+  const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
+  const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined);
   const workdir = join(config.cwd, ".agent-state", "context");
 
   const def = defineAgent({
