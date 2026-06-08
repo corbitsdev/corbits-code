@@ -7,9 +7,7 @@
     "rootDir": "src",
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "paths": {
-      "@intx/log": ["./interchange/packages/log/src/index.ts"]
-    }
+    "paths": {}
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
