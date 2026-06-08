@@ -9,6 +9,7 @@ const makeCtx = (): CommandContext & { verbose: boolean } => {
     verbose: state.verbose,
     getVerbose: () => state.verbose,
     toggleVerbose: () => { state.verbose = !state.verbose; return state.verbose; },
+    signalClear: () => {},
   };
 };
 
@@ -68,5 +69,37 @@ describe("/model alias", () => {
     const ctx = makeCtx();
     expect(getCommand("model")).toBeDefined();
     expect(getCommand("model")!.handler("", ctx)).toEqual({ type: "modal", modal: "agent" });
+  });
+});
+
+describe("/clear command", () => {
+  it("returns a send action with text /clear", () => {
+    const ctx = makeCtx();
+    const result = getCommand("clear")!.handler("", ctx);
+    expect(result).toEqual({ type: "send", text: "/clear" });
+  });
+
+  it("calls signalClear", () => {
+    let called = false;
+    const ctx = makeCtx();
+    ctx.signalClear = () => { called = true; };
+    getCommand("clear")!.handler("", ctx);
+    expect(called).toBe(true);
+  });
+});
+
+describe("/new command", () => {
+  it("returns a send action with text /new", () => {
+    const ctx = makeCtx();
+    const result = getCommand("new")!.handler("", ctx);
+    expect(result).toEqual({ type: "send", text: "/new" });
+  });
+
+  it("calls signalClear", () => {
+    let called = false;
+    const ctx = makeCtx();
+    ctx.signalClear = () => { called = true; };
+    getCommand("new")!.handler("", ctx);
+    expect(called).toBe(true);
   });
 });

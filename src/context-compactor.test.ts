@@ -4,6 +4,7 @@ import {
   buildContextEnvelope,
   formatPlan,
   classifyTaskBoundary,
+  buildLLMTurnSummary,
   type SessionMetadata,
 } from "./context-compactor.js";
 import type { ConversationTurn, StrategyContext } from "@intx/types/runtime";
@@ -229,6 +230,31 @@ describe("classifyTaskBoundary", () => {
     );
     expect(boundary.kind).toBe("unclear");
     expect(boundary.reason).toBe("cannot determine intent");
+  });
+});
+
+describe("buildLLMTurnSummary", () => {
+  const turns: ConversationTurn[] = [
+    makeTurn({ role: "user", content: [{ type: "text", text: "Fix the login bug" }] }),
+    makeTurn({ role: "assistant", content: [{ type: "text", text: "I will fix it" }] }),
+  ];
+
+  test("happy path: summarize is called with the prompt and its return value is used", async () => {
+    let capturedPrompt = "";
+    const summary = await buildLLMTurnSummary(turns, async (prompt) => {
+      capturedPrompt = prompt;
+      return "Goal: Fix login bug\nProgress: Applied patch";
+    });
+    expect(capturedPrompt.length).toBeGreaterThan(0);
+    expect(summary).toBe("Goal: Fix login bug\nProgress: Applied patch");
+  });
+
+  test("failure path: summarize throws and falls back to deterministic summary", async () => {
+    const summary = await buildLLMTurnSummary(turns, async () => {
+      throw new Error("LLM unavailable");
+    });
+    // Deterministic fallback always includes turn count and tool info
+    expect(summary).toContain("Turns compacted:");
   });
 });
 
