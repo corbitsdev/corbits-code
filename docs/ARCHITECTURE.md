@@ -151,6 +151,87 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/agent`; `/model` aliases `/agent`).
 - `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.interchange/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
 
+### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
+
+interchange-code supports an extension system that sources slash commands and context skills from external skill directories. The contract is compatible with the `marketplace.json` + `plugins/<name>/skills/<skill-name>/SKILL.md` layout used by Claude Code and Codex plugin ecosystems.
+
+#### Discovery
+
+Extension discovery runs at session start and produces a slash command registry injected into the system prompt.
+
+**Primary path — manifest-driven:**
+
+A `marketplace.json` (or `.claude-plugin/marketplace.json`) file at the root of a plugin directory declares the available plugins. The loader reads each plugin entry's `source` path and enumerates skills under `<source>/skills/<skill-name>/SKILL.md`.
+
+Required manifest fields per plugin entry:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Plugin identifier, used for namespacing slash commands |
+| `description` | string | Human-readable summary of the plugin |
+| `source` | string | Relative path to the plugin directory |
+| `version` | string | Semantic version |
+
+**Fallback path — manifest-free scan:**
+
+When no manifest is present, the loader scans three well-known local directories for `SKILL.md` files directly:
+
+| Directory | Convention |
+|---|---|
+| `.agents/skills/<skill-name>/SKILL.md` | Shared across runtimes |
+| `.claude/skills/<skill-name>/SKILL.md` | Claude Code workspace skills |
+| `.codex/skills/<skill-name>/SKILL.md` | Codex workspace skills |
+
+Skills discovered via fallback scan are treated as if they belong to an anonymous plugin with no namespace prefix. When two fallback-scanned skills share the same name, the discovery order is `.agents/skills/` > `.claude/skills/` > `.codex/skills/`, and later entries are silently skipped.
+
+#### SKILL.md Frontmatter
+
+Every skill file begins with a YAML frontmatter block:
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | yes | Skill identifier; becomes the slash command name (e.g. `name: style` → `/style`) |
+| `description` | yes | One-line summary shown in the slash command registry and system prompt |
+| `type` | no | `context` (default) or `workflow` — controls how the skill is expanded |
+| `argument-hint` | no | Usage hint displayed alongside the command name |
+| `disable-model-invocation` | no | When `true`, injects the skill body directly without triggering a new inference turn |
+
+#### Skill Types
+
+**`context` (default)**
+
+The SKILL.md body is injected verbatim into the system prompt (or as a synthetic tool result) when the skill is invoked. Used for style guides, conventions, and any reference material the agent should internalize.
+
+**`workflow`** *(not yet implemented — planned for a future iteration)*
+
+The SKILL.md body describes a multi-step plan. When invoked, the workflow executor parses the steps and drives the agent through them sequentially, enforcing gates, dispatching sub-agents for parallel steps, and waiting on approval gates before continuing. Workflow skills are the mechanism behind commands like `/linear-issue-workflow`.
+
+#### Slash Command Registry
+
+At session start, all discovered skills are registered in a slash command map keyed by command name. The registry is injected into the system prompt so the agent knows which commands are available. When the agent invokes `/command-name [args]`, the director intercepts it, looks up the definition, and expands it.
+
+For manifest-sourced plugins, commands are namespaced as `plugin:skill-name` (e.g. `gaas:style`) to avoid collisions. The short form `style` is also registered as an alias if no other skill uses that name.
+
+For fallback-scanned skills, the command name is the bare skill name with no prefix.
+
+> **Note:** This registry is agent-visible only — skills are injected into the system prompt and intercepted by the director. These commands are distinct from the TUI slash command registry (`src/tui/commands/`), which handles client-side dispatch for built-in TUI commands (`/help`, `/diff`, `/plan`, etc.) and populates TUI autocomplete. Extension-sourced slash commands do not appear in the TUI autocomplete registry.
+
+#### Compatibility Matrix
+
+All skill files must begin with a YAML frontmatter block. Files without frontmatter are skipped during discovery.
+
+| Source | Discovery method | Modification required |
+|---|---|---|
+| Manifest-based plugin directory | `marketplace.json` | Requires SKILL.md frontmatter |
+| Claude Code workspace skills (`.claude/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
+| Codex workspace skills (`.codex/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
+| Shared workspace skills (`.agents/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
+| Custom plugin path (explicit config) | `marketplace.json` | Requires SKILL.md frontmatter |
+
+#### Plugin Path Configuration
+
+The set of directories searched for manifests is configurable via `.interchange/settings.json` under `pluginPaths`. Each entry is a path (absolute or relative to the repository root) that the loader checks for a manifest file. The three fallback scan directories (`.agents/`, `.claude/`, `.codex/`) are always included and cannot be disabled.
+
 ## Data Flow
 
 ```
