@@ -20,7 +20,8 @@ export type PermissionRequest = {
 };
 
 // The operator's answer. `allow` gates the action; `persist`, when present, is
-// the scope to remember for this directory.
-export type ApprovalOutcome = { allow: boolean; persist?: ApprovalScope };
+// the scope to remember for this directory; `message`, when present, is an
+// operator-supplied explanation surfaced in the tool result.
+export type ApprovalOutcome = { allow: boolean; persist?: ApprovalScope; message?: string };
 
 export type RequestApproval = (request: PermissionRequest) => Promise<ApprovalOutcome>;
