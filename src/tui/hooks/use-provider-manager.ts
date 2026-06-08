@@ -56,7 +56,7 @@ export function useProviderManager({
       onMessage(`Provider "${providerName}" is no longer configured`);
       return false;
     }
-    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel, displayName: entry.name }));
+    agent.setSource(buildOpenAISource({ id: entry.name, baseURL: entry.baseURL, apiKey: entry.apiKey, model: nextModel }));
     setProvider(providerName);
     setModel(nextModel);
     return true;
