@@ -1,10 +1,12 @@
 export type CommandContext = {
   getVerbose: () => boolean;
   toggleVerbose: () => boolean;
+  signalClear: () => void;
 };
 
 export type CommandResult =
   | { type: "message"; text: string }
+  | { type: "send"; text: string }
   | { type: "view"; view: "plan" | "diff" }
   | { type: "overlay"; overlay: "help" }
   | { type: "modal"; modal: "agent" }

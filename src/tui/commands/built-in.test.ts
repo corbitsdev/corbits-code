@@ -9,6 +9,7 @@ const makeCtx = (): CommandContext & { verbose: boolean } => {
     verbose: state.verbose,
     getVerbose: () => state.verbose,
     toggleVerbose: () => { state.verbose = !state.verbose; return state.verbose; },
+    signalClear: () => {},
   };
 };
 

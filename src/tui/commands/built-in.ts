@@ -33,6 +33,24 @@ registerCommand({
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
+registerCommand({
+  name: "clear",
+  description: "Compact context and start a new task",
+  handler: (_args, ctx) => {
+    ctx.signalClear();
+    return { type: "send", text: "/clear" };
+  },
+});
+
+registerCommand({
+  name: "new",
+  description: "Alias for /clear",
+  handler: (_args, ctx) => {
+    ctx.signalClear();
+    return { type: "send", text: "/new" };
+  },
+});
+
 // /model is retained as an alias so existing muscle memory still lands somewhere
 // sensible: it opens the same /agent surface where provider and model now live.
 registerCommand({
