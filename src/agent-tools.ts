@@ -11,21 +11,36 @@ import { permissionPlugin } from "./plugins/permission-plugin.js";
 import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
 import { webToolsPlugin } from "./web/plugin.js";
 import type { PermissionGate } from "./permission/gate.js";
+import { connectMCPServers } from "./mcp/client.js";
+import { createMCPPlugin } from "./mcp/plugin.js";
+import type { MCPServerConfig } from "./settings.js";
 
 export type AgentToolsetArgs = {
   cwd: string;
   permissionGate: PermissionGate;
   onOperatorGate: (question: string, options: string[]) => Promise<number>;
+  mcpServers?: MCPServerConfig[];
+  onMCPWarning?: (message: string) => void;
+};
+
+export type MCPServerStatus = {
+  name: string;
+  tools: string[];
 };
 
 export type AgentToolset = {
   tools: AgentTool[];
   allDefinitions: ToolDefinition[];
+  connectedMCPServers: string[];
+  mcpServerStatuses: MCPServerStatus[];
   dispose: () => Promise<void>;
 };
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
-  const { cwd, permissionGate, onOperatorGate } = args;
+  const { cwd, permissionGate, onOperatorGate, mcpServers = [], onMCPWarning } = args;
+
+  const mcpClients = await connectMCPServers(mcpServers, onMCPWarning ?? ((msg) => process.stderr.write(`${msg}\n`)));
+  const { plugin: mcpPlugin, connectedServers } = createMCPPlugin(mcpClients);
 
   const posixTools = createPosixTools({
     cwd,
@@ -37,6 +52,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       verifyPlugin(),
       webToolsPlugin(),
       createLSPPlugin({ cwd, minSeverity: 1 }),
+      mcpPlugin,
     ],
   });
 
@@ -65,9 +81,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   ];
 
+  const mcpServerStatuses: MCPServerStatus[] = mcpClients.map((c) => ({
+    name: c.serverName,
+    tools: c.tools.map((t) => t.name),
+  }));
+
   return {
     tools: agentTools,
     allDefinitions,
+    connectedMCPServers: connectedServers,
+    mcpServerStatuses,
     dispose: () => posixTools.dispose(),
   };
 }
