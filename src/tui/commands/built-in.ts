@@ -33,6 +33,28 @@ registerCommand({
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
+// signalClear is a hook for future use — for example, persisting a pre-computed
+// summary to the director before the boundary message is sent. It is currently
+// a no-op because the director generates the context envelope from internal
+// state when it processes the /clear message.
+registerCommand({
+  name: "clear",
+  description: "Compact context and start a new task",
+  handler: (_args, ctx) => {
+    ctx.signalClear();
+    return { type: "send", text: "/clear" };
+  },
+});
+
+registerCommand({
+  name: "new",
+  description: "Alias for /clear",
+  handler: (_args, ctx) => {
+    ctx.signalClear();
+    return { type: "send", text: "/new" };
+  },
+});
+
 // /model is retained as an alias so existing muscle memory still lands somewhere
 // sensible: it opens the same /agent surface where provider and model now live.
 registerCommand({
