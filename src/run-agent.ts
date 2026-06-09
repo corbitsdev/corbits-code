@@ -136,6 +136,7 @@ export async function runAgent(
   const mcpClients = await connectMCPServers(
     config.mcpServers ?? [],
     (msg) => process.stderr.write(`${msg}\n`),
+    { stderr: "inherit" },
   );
   const { plugin: mcpPlugin } = createMCPPlugin(mcpClients);
 

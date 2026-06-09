@@ -87,6 +87,7 @@ export async function runTUI(config: Config): Promise<number> {
       }),
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     onMCPWarning: (msg) => emitter.emit("mcp.warning", msg),
+    mcpStderr: "ignore",
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);

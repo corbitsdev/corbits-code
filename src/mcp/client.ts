@@ -19,12 +19,16 @@ export type MCPConnectResult =
   | { ok: true; client: MCPClient }
   | { ok: false; serverName: string; error: string };
 
-export async function connectMCPServer(config: MCPServerConfig): Promise<MCPConnectResult> {
-  const transportOptions: { command: string; args?: string[]; env?: Record<string, string> } = {
+export async function connectMCPServer(
+  config: MCPServerConfig,
+  options?: { stderr?: "inherit" | "ignore" | "pipe" },
+): Promise<MCPConnectResult> {
+  const transportOptions: { command: string; args?: string[]; env?: Record<string, string>; stderr?: "inherit" | "ignore" | "pipe" } = {
     command: config.command,
+    env: { ...process.env, ...(config.env ?? {}) } as Record<string, string>,
   };
   if (config.args !== undefined) transportOptions.args = config.args;
-  if (config.env !== undefined) transportOptions.env = { ...process.env, ...config.env } as Record<string, string>;
+  if (options?.stderr !== undefined) transportOptions.stderr = options.stderr;
   const transport = new StdioClientTransport(transportOptions);
 
   const client = new Client({ name: "interchange-code", version: "1.0.0" });
@@ -90,8 +94,9 @@ export async function connectMCPServer(config: MCPServerConfig): Promise<MCPConn
 export async function connectMCPServers(
   configs: MCPServerConfig[],
   onWarning: (message: string) => void,
+  options?: { stderr?: "inherit" | "ignore" | "pipe" },
 ): Promise<MCPClient[]> {
-  const results = await Promise.all(configs.map(connectMCPServer));
+  const results = await Promise.all(configs.map((c) => connectMCPServer(c, options)));
   const clients: MCPClient[] = [];
   for (const result of results) {
     if (result.ok) {

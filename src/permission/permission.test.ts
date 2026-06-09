@@ -201,4 +201,32 @@ describe("createPermissionGate", () => {
     expect(verdict.allowed).toBe(false);
     expect(seen).toEqual(["npm i", "curl evil"]);
   });
+
+  test("auto mode auto-allows non-shell ask-tier tools", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const writeVerdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(writeVerdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode still asks for shell commands", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("npm test"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
 });

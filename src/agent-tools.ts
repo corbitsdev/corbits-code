@@ -21,6 +21,7 @@ export type AgentToolsetArgs = {
   onOperatorGate: (question: string, options: string[]) => Promise<number>;
   mcpServers?: MCPServerConfig[];
   onMCPWarning?: (message: string) => void;
+  mcpStderr?: "inherit" | "ignore" | "pipe";
 };
 
 export type MCPServerStatus = {
@@ -39,7 +40,11 @@ export type AgentToolset = {
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
   const { cwd, permissionGate, onOperatorGate, mcpServers = [], onMCPWarning } = args;
 
-  const mcpClients = await connectMCPServers(mcpServers, onMCPWarning ?? ((msg) => process.stderr.write(`${msg}\n`)));
+  const mcpClients = await connectMCPServers(
+    mcpServers,
+    onMCPWarning ?? ((msg) => process.stderr.write(`${msg}\n`)),
+    args.mcpStderr !== undefined ? { stderr: args.mcpStderr } : undefined,
+  );
   const { plugin: mcpPlugin, connectedServers } = createMCPPlugin(mcpClients);
 
   const posixTools = createPosixTools({

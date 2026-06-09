@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { isLocalSettings } from "../../src/settings.js";
+import { isLocalSettings, normalizeMcpServers } from "../../src/settings.js";
 import { createMCPPlugin } from "../../src/mcp/plugin.js";
 import type { MCPClient } from "../../src/mcp/client.js";
 
@@ -66,6 +66,36 @@ describe("isLocalSettings with mcpServers", () => {
 
   test("still rejects unknown non-mcp keys", () => {
     expect(isLocalSettings({ apiKey: "secret" })).toBe(false);
+  });
+
+  test("accepts valid mcpServers object format", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: {
+          linear: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"] },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts mcpServers object format with env", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: {
+          srv: { command: "node", args: ["server.js"], env: { TOKEN: "abc" } },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts mcpServers object format missing command", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: {
+          srv: { args: ["--flag"] },
+        },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -157,5 +187,53 @@ describe("createMCPPlugin", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toBe("server error");
+  });
+});
+
+describe("normalizeMcpServers", () => {
+  test("returns undefined for undefined input", () => {
+    expect(normalizeMcpServers(undefined)).toBeUndefined();
+  });
+
+  test("passes through array format unchanged", () => {
+    const input = [{ name: "linear", command: "npx", args: ["-y", "mcp-remote"] }];
+    expect(normalizeMcpServers(input)).toEqual(input);
+  });
+
+  test("converts object format to array format", () => {
+    const input = {
+      linear: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"] },
+    };
+    expect(normalizeMcpServers(input)).toEqual([
+      { name: "linear", command: "npx", args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"] },
+    ]);
+  });
+
+  test("converts object format with env", () => {
+    const input = {
+      srv: { command: "node", env: { TOKEN: "abc" } },
+    };
+    expect(normalizeMcpServers(input)).toEqual([
+      { name: "srv", command: "node", env: { TOKEN: "abc" } },
+    ]);
+  });
+
+  test("converts multi-key object format", () => {
+    const input = {
+      a: { command: "cmd-a" },
+      b: { command: "cmd-b", args: ["--x"] },
+    };
+    const result = normalizeMcpServers(input);
+    expect(result).toHaveLength(2);
+    expect(result).toContainEqual({ name: "a", command: "cmd-a" });
+    expect(result).toContainEqual({ name: "b", command: "cmd-b", args: ["--x"] });
+  });
+
+  test("returns undefined for invalid array entry", () => {
+    expect(normalizeMcpServers([{ command: "bin" }])).toBeUndefined();
+  });
+
+  test("returns undefined for invalid object entry", () => {
+    expect(normalizeMcpServers({ srv: { args: ["--flag"] } })).toBeUndefined();
   });
 });

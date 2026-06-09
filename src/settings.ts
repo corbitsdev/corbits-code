@@ -19,6 +19,7 @@ export type ProviderSettings = {
 export type Settings = {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
+  mcpServers?: MCPServerConfig[];
 };
 
 export type MCPServerConfig = {
@@ -104,13 +105,17 @@ export function isSettings(value: unknown): value is Settings {
   const s = value as Record<string, unknown>;
   if (s.defaultProvider !== undefined && typeof s.defaultProvider !== "string") return false;
   if (typeof s.providers !== "object" || s.providers === null) return false;
-  return Object.values(s.providers).every(isProviderSettings);
+  if (!Object.values(s.providers).every(isProviderSettings)) return false;
+  // mcpServers is also allowed in global settings.
+  if (s.mcpServers !== undefined) {
+    if (normalizeMcpServers(s.mcpServers) === undefined) return false;
+  }
+  return true;
 }
 
-function isMCPServerConfig(value: unknown): value is MCPServerConfig {
+function isMCPServerConfigEntry(value: unknown): value is Omit<MCPServerConfig, "name"> {
   if (typeof value !== "object" || value === null) return false;
   const s = value as Record<string, unknown>;
-  if (typeof s.name !== "string") return false;
   if (typeof s.command !== "string") return false;
   if (s.args !== undefined && (!Array.isArray(s.args) || !s.args.every((a) => typeof a === "string"))) return false;
   if (s.env !== undefined) {
@@ -118,6 +123,45 @@ function isMCPServerConfig(value: unknown): value is MCPServerConfig {
     if (!Object.values(s.env).every((v) => typeof v === "string")) return false;
   }
   return true;
+}
+
+function isMCPServerConfigWithKey(value: unknown): value is MCPServerConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  if (typeof s.name !== "string") return false;
+  return isMCPServerConfigEntry(value);
+}
+
+// Accepts both array format [{ name, command, ... }] and object format
+// { "name": { command, ... } }. Returns the normalized array.
+export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    if (!value.every(isMCPServerConfigWithKey)) return undefined;
+    return value.map((v) => ({
+      name: (v as Record<string, unknown>).name as string,
+      command: (v as Record<string, unknown>).command as string,
+      ...(((v as Record<string, unknown>).args !== undefined) ? { args: (v as Record<string, unknown>).args as string[] } : {}),
+      ...(((v as Record<string, unknown>).env !== undefined) ? { env: (v as Record<string, unknown>).env as Record<string, string> } : {}),
+    }));
+  }
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const entries: MCPServerConfig[] = [];
+    for (const [key, val] of Object.entries(obj)) {
+      if (typeof key !== "string") return undefined;
+      if (!isMCPServerConfigEntry(val)) return undefined;
+      const entry = val as Record<string, unknown>;
+      entries.push({
+        name: key,
+        command: entry.command as string,
+        ...(entry.args !== undefined ? { args: entry.args as string[] } : {}),
+        ...(entry.env !== undefined ? { env: entry.env as Record<string, string> } : {}),
+      });
+    }
+    return entries;
+  }
+  return undefined;
 }
 
 // Local settings are selection-only for provider/model (no credentials
@@ -132,7 +176,7 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   if (s.provider !== undefined && typeof s.provider !== "string") return false;
   if (s.model !== undefined && typeof s.model !== "string") return false;
   if (s.mcpServers !== undefined) {
-    if (!Array.isArray(s.mcpServers) || !s.mcpServers.every(isMCPServerConfig)) return false;
+    if (normalizeMcpServers(s.mcpServers) === undefined) return false;
   }
   return true;
 }
@@ -156,7 +200,12 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
     );
   }
-  return parsed;
+  const s = parsed as Record<string, unknown>;
+  return {
+    providers: s.providers as Settings["providers"],
+    ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
+    ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
+  } as Settings;
 }
 
 export async function loadLocalSettings(path: string): Promise<LocalSettings | null> {
@@ -178,7 +227,12 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
       `Invalid local settings in ${path}: only "provider" and "model" are allowed (no credentials).`,
     );
   }
-  return parsed;
+  const s = parsed as Record<string, unknown>;
+  return {
+    ...(s.provider !== undefined ? { provider: s.provider as string } : {}),
+    ...(s.model !== undefined ? { model: s.model as string } : {}),
+    ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
+  } as LocalSettings;
 }
 
 // Persist the global settings file. Validates before writing so a written file
