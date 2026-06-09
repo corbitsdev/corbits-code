@@ -44,6 +44,7 @@ import {
   discoverLifecycleHooks,
   hookDirectories,
 } from "./hooks.js";
+import { initSessionDir, sessionContextDir } from "./session.js";
 
 /* eslint-disable no-console */
 
@@ -105,7 +106,8 @@ export async function runAgent(
   initialDirectorState?: DirectorPersistedState,
   onEvent?: (event: ReactorEmittedEvent) => void,
 ): Promise<number> {
-  const state = await loadState(config.cwd);
+  await initSessionDir(config.cwd, config.sessionId);
+  const state = await loadState(config.cwd, config.sessionId);
   if (state !== null && state.status === "running" && !config.force) {
     console.error("A run is already in progress in this directory. Use --force to override.");
     return 1;
@@ -123,11 +125,12 @@ export async function runAgent(
   // only executes during tool calls, which happen after wiring is complete.
   const directorHolder: { instance?: ReturnType<typeof createCodingDirector> } = {};
 
-  const approvals = await loadApprovals(config.cwd);
+  const approvals = await loadApprovals(config.cwd, config.sessionId);
   const permissionGate = createPermissionGate({
     approvals,
     interactive: false,
     skipPermissions: config.dangerouslySkipPermissions,
+    auto: config.auto,
   });
 
   const mcpClients = await connectMCPServers(
@@ -220,7 +223,7 @@ export async function runAgent(
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
   const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined);
-  const workdir = join(config.cwd, ".agent-state", "context");
+  const workdir = sessionContextDir(config.cwd, config.sessionId);
 
   const def = defineAgent({
     id: "interchange-code/agent",
@@ -255,13 +258,13 @@ export async function runAgent(
   }
   const director = directorHolder.instance;
 
-  await saveState(config.cwd, {
+  await saveState(config.cwd, config.sessionId, {
     status: "running",
     turnsUsed: director.getTurnsUsed(),
     task: config.task,
     startedAt,
   });
-  await saveDirectorState(config.cwd, director.getState());
+  await saveDirectorState(config.cwd, config.sessionId, director.getState());
 
   const renderer = createRenderer(startedAt, config.model, pricingCache);
   const turnCollector = createTurnContextCollector((ctx) => {
@@ -310,7 +313,7 @@ export async function runAgent(
       toolCallCount: turnCollector.getToolCallCount(),
       error,
     }));
-    await saveState(config.cwd, {
+    await saveState(config.cwd, config.sessionId, {
       status: "failed",
       turnsUsed: director.getTurnsUsed(),
       task: config.task,
@@ -318,7 +321,7 @@ export async function runAgent(
       finishedAt,
       error,
     });
-    await saveDirectorState(config.cwd, director.getState());
+    await saveDirectorState(config.cwd, config.sessionId, director.getState());
     await cleanup();
     throw err;
   }
@@ -338,7 +341,7 @@ export async function runAgent(
       toolCallCount: turnCollector.getToolCallCount(),
       error,
     }));
-    await saveState(config.cwd, {
+    await saveState(config.cwd, config.sessionId, {
       status: "failed",
       turnsUsed: director.getTurnsUsed(),
       task: config.task,
@@ -346,7 +349,7 @@ export async function runAgent(
       finishedAt,
       error,
     });
-    await saveDirectorState(config.cwd, director.getState());
+    await saveDirectorState(config.cwd, config.sessionId, director.getState());
     console.error("Critique failed:");
     for (const e of critique.errors) {
       console.error(`  - ${e}`);
@@ -366,14 +369,14 @@ export async function runAgent(
     turns: turnCollector.getTurns(),
     toolCallCount: turnCollector.getToolCallCount(),
   }));
-  await saveState(config.cwd, {
+  await saveState(config.cwd, config.sessionId, {
     status: "done",
     turnsUsed: director.getTurnsUsed(),
     task: config.task,
     startedAt,
     finishedAt,
   });
-  await saveDirectorState(config.cwd, director.getState());
+  await saveDirectorState(config.cwd, config.sessionId, director.getState());
 
   console.log(result.reply);
 

@@ -16,6 +16,7 @@ import { buildOpenAISource, type Config } from "../config.js";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
+import { loadAgentContextExtensions } from "../run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createAgentToolset } from "../agent-tools.js";
 import { loadApprovals, saveApprovals } from "../permission/store.js";
@@ -31,6 +32,7 @@ import {
   hookDirectories,
 } from "../hooks.js";
 import { createRunSink } from "../run-sink.js";
+import { initSessionDir, sessionContextDir } from "../session.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -39,6 +41,7 @@ export function createTUIEventEmitter(): EventEmitter {
 export { getTUIRunSummaryStatus } from "../run-sink.js";
 
 export async function runTUI(config: Config): Promise<number> {
+  await initSessionDir(config.cwd, config.sessionId);
   const emitter = createTUIEventEmitter();
   const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
@@ -58,7 +61,7 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
-  const approvals = await loadApprovals(config.cwd);
+  const approvals = await loadApprovals(config.cwd, config.sessionId);
   const permissionGate = createPermissionGate({
     approvals,
     requestApproval: (request) =>
@@ -67,10 +70,11 @@ export async function runTUI(config: Config): Promise<number> {
         emitter.emit("permission.gate", event);
       }),
     persist: (_approval: Approval) => {
-      void saveApprovals(config.cwd, approvals);
+      void saveApprovals(config.cwd, config.sessionId, approvals);
     },
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
+    auto: config.auto,
   });
 
   const toolset = await createAgentToolset({
@@ -85,7 +89,9 @@ export async function runTUI(config: Config): Promise<number> {
     onMCPWarning: (msg) => emitter.emit("mcp.warning", msg),
   });
 
-  const systemPrompt = buildChatSystemPrompt(config.systemPromptExtensions);
+  const agentExtensions = await loadAgentContextExtensions(config.cwd);
+  const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
+  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined);
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
@@ -108,7 +114,7 @@ export async function runTUI(config: Config): Promise<number> {
     factory: () => createToolRunner(toolset.tools),
   });
 
-  const workdir = join(config.cwd, ".agent-state", "context");
+  const workdir = sessionContextDir(config.cwd, config.sessionId);
 
   const def = defineAgent({
     id: "interchange-code/tui-agent",
