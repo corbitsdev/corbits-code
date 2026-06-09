@@ -1,10 +1,11 @@
 import { join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import type { Approval } from "./types.js";
+import { sessionDir } from "../session.js";
 
-// Approvals are remembered per working directory, alongside the run state.
-function storePath(cwd: string): string {
-  return join(cwd, ".agent-state", "permissions.json");
+// Approvals are remembered per session, alongside the run state.
+function storePath(cwd: string, sessionId: string): string {
+  return join(sessionDir(cwd, sessionId), "permissions.json");
 }
 
 // Tool calls dispatch concurrently, so two approvals can resolve at nearly the
@@ -21,9 +22,9 @@ function isApproval(value: unknown): value is Approval {
   );
 }
 
-export async function loadApprovals(cwd: string): Promise<Approval[]> {
+export async function loadApprovals(cwd: string, sessionId: string): Promise<Approval[]> {
   try {
-    const raw = await readFile(storePath(cwd), "utf-8");
+    const raw = await readFile(storePath(cwd, sessionId), "utf-8");
     const parsed: unknown = JSON.parse(raw);
     const list = (parsed as Record<string, unknown>)?.approvals;
     if (!Array.isArray(list)) return [];
@@ -33,14 +34,18 @@ export async function loadApprovals(cwd: string): Promise<Approval[]> {
   }
 }
 
-export async function saveApprovals(cwd: string, approvals: readonly Approval[]): Promise<void> {
+export async function saveApprovals(
+  cwd: string,
+  sessionId: string,
+  approvals: readonly Approval[],
+): Promise<void> {
   // Snapshot now so the serialized payload reflects the array at call time.
   const payload = JSON.stringify({ approvals: [...approvals] }, null, 2);
-  const path = storePath(cwd);
+  const path = storePath(cwd, sessionId);
   const tmp = `${path}.${process.pid}.tmp`;
 
   const run = async (): Promise<void> => {
-    await mkdir(join(cwd, ".agent-state"), { recursive: true });
+    await mkdir(sessionDir(cwd, sessionId), { recursive: true });
     await writeFile(tmp, payload);
     await rename(tmp, path);
   };
