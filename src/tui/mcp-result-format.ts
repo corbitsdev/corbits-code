@@ -23,6 +23,36 @@ function asString(value: unknown): string | null {
   return null;
 }
 
+export type McpRecords = { items: Record<string, unknown>[]; label: string };
+
+// Pull out the array-of-records an MCP result is "about", if any: a bare array of
+// objects, or the single array-valued key of a list wrapper. Returns null when
+// the result is not a record list (a single record, a scalar, or plain text),
+// in which case callers fall back to the text summary.
+export function extractMcpRecords(content: string): McpRecords | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content.trim());
+  } catch {
+    return null;
+  }
+  const isRecordArray = (v: unknown): v is Record<string, unknown>[] =>
+    Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "object" && x !== null && !Array.isArray(x));
+
+  if (isRecordArray(parsed)) return { items: parsed, label: "items" };
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    const primary = primaryArray(obj);
+    if (primary !== null && isRecordArray(primary.items)) return { items: primary.items, label: primary.key };
+  }
+  return null;
+}
+
+// Read a field that may be a scalar or a `{ name }` wrapper (Linear's shape).
+export function recordScalar(record: Record<string, unknown>, key: string): string | null {
+  return scalarField(record, key);
+}
+
 // Some MCP servers nest the human-readable value one level down (e.g. Linear
 // returns status as `{ name: "In Progress" }`). Pull a scalar out of either.
 function scalarField(record: Record<string, unknown>, key: string): string | null {

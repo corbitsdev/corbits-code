@@ -4,6 +4,9 @@ import type { ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, summarizeToolResult } from "../tool-formatter.js";
+import { extractMcpRecords } from "../mcp-result-format.js";
+import { isMcpToolName } from "../../mcp/tool-name.js";
+import { McpTable, mcpTableRowCount } from "./mcp-table.js";
 import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
@@ -67,6 +70,10 @@ function estimateRows(
       return expanded ? 1 + sumLines(block.arguments) : 1;
     case "tool_result": {
       if (block.isError) return wrap(block.content);
+      if (isMcpToolName(block.name) && !block.isError) {
+        const records = extractMcpRecords(block.content);
+        if (records !== null) return mcpTableRowCount(records.items.length, expanded);
+      }
       const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
       // JSON documents render via parseMarkdown which transforms tables (drops
       // the separator row, pads cells) so the rendered line count differs from
@@ -267,6 +274,12 @@ function renderBlock(
             error: {truncateLine(block.content, columns, expanded)}
           </Text>
         );
+      }
+      if (isMcpToolName(block.name)) {
+        const records = extractMcpRecords(block.content);
+        if (records !== null) {
+          return <McpTable key={key} records={records} width={columns} expanded={expanded} />;
+        }
       }
       const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
       if (isJSONDocument) {
