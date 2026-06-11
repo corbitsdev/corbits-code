@@ -66,6 +66,31 @@ export const askOperatorDefinition: ToolDefinition = {
   },
 };
 
+export const presentDefinition: ToolDefinition = {
+  name: "present",
+  description:
+    "Render a rich UI for the user from a JSON view spec built from a fixed set of building blocks. " +
+    "Use this to show structured data (lists, records, comparisons, status) instead of writing a Markdown table or pasting raw output. " +
+    "The `view` is a node tree. Node types: " +
+    "stack{children:[node],gap?:0|1} (vertical container); " +
+    "heading{value,level?:1|2|3}; text{value,tone?,bold?,dim?}; divider; badge{label,tone?}; progress{value,max?,label?}; " +
+    "list{items:[string],ordered?}; keyValue{pairs:[{label,value,tone?}]}; " +
+    "table{columns:[{header,field,align?,colorRole?}],rows:[{<field>:string}]}; " +
+    "card{title?,subtitle?,fields:[{label,value,tone?}],badges?:[{label,tone?}]}. " +
+    "tone is one of default|muted|success|warning|danger|accent. colorRole may be a tone or \"status\"/\"priority\" to auto-color a cell by its value. " +
+    "Keep it compact; the UI handles width and scrolling.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      view: {
+        type: "object",
+        description: "The root view node (typically a stack of building-block nodes).",
+      },
+    },
+    required: ["view"],
+  },
+};
+
 export const submitOutputDefinition: ToolDefinition = {
   name: "submit_output",
   description:
@@ -289,7 +314,7 @@ class ChatDirectorImpl extends DefaultDirector {
     | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
     | undefined;
   private readonly _systemPrompt: string;
-  private readonly _toolDefinitions: ToolDefinition[];
+  private _toolDefinitions: ToolDefinition[];
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -308,7 +333,34 @@ class ChatDirectorImpl extends DefaultDirector {
     this.taskClassifier = taskClassifier;
   }
 
+  // Replace the live tool set the model is advertised. MCP servers connect after
+  // the session is already running, so any inference issued before they finish
+  // must learn about their tools on the next turn. The base director advertises
+  // its own (construction-time) tool list, so we override the tools on every
+  // infer action this director emits with the current set.
+  updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
+    this._toolDefinitions = toolDefinitions;
+  }
+
+  private withCurrentTools(
+    result: ReactorAction | ReactorAction[],
+  ): ReactorAction | ReactorAction[] {
+    const rewrite = (action: ReactorAction): ReactorAction =>
+      action.type === "infer"
+        ? { type: "infer", options: { ...action.options, tools: this._toolDefinitions } }
+        : action;
+    return Array.isArray(result) ? result.map(rewrite) : rewrite(result);
+  }
+
   override async decide(
+    event: ReactorInboundEvent,
+    state: ReactorState,
+    capabilities: ReactorCapabilities,
+  ): Promise<ReactorAction | ReactorAction[]> {
+    return this.withCurrentTools(await this.decideInner(event, state, capabilities));
+  }
+
+  private async decideInner(
     event: ReactorInboundEvent,
     state: ReactorState,
     capabilities: ReactorCapabilities,
@@ -413,4 +465,5 @@ export function createChatDirector(
 
 export interface ChatDirectorWithClear extends ReactorDirector {
   signalNewTask(summary?: string): void;
+  updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
 }

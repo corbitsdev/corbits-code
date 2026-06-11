@@ -19,13 +19,20 @@ export type ProviderSettings = {
 export type Settings = {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
+  mcpServers?: MCPServerConfig[];
 };
 
+// An MCP server is reached one of two ways. A stdio server is launched as a
+// subprocess (`command` + `args`). An http server is a remote Streamable-HTTP
+// endpoint (`url`) that intercode connects to directly and authorizes via OAuth.
+// `type` defaults to "stdio" when `command` is set and "http" when only `url` is.
 export type MCPServerConfig = {
   name: string;
-  command: string;
+  type?: "stdio" | "http";
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  url?: string;
 };
 
 // Per-repo override. Selection only for provider/model, but may also declare
@@ -104,20 +111,75 @@ export function isSettings(value: unknown): value is Settings {
   const s = value as Record<string, unknown>;
   if (s.defaultProvider !== undefined && typeof s.defaultProvider !== "string") return false;
   if (typeof s.providers !== "object" || s.providers === null) return false;
-  return Object.values(s.providers).every(isProviderSettings);
+  if (!Object.values(s.providers).every(isProviderSettings)) return false;
+  // mcpServers is also allowed in global settings.
+  if (s.mcpServers !== undefined) {
+    if (normalizeMcpServers(s.mcpServers) === undefined) return false;
+  }
+  return true;
 }
 
-function isMCPServerConfig(value: unknown): value is MCPServerConfig {
+function isMCPServerConfigEntry(value: unknown): value is Omit<MCPServerConfig, "name"> {
   if (typeof value !== "object" || value === null) return false;
   const s = value as Record<string, unknown>;
-  if (typeof s.name !== "string") return false;
-  if (typeof s.command !== "string") return false;
+  if (s.type !== undefined && s.type !== "stdio" && s.type !== "http") return false;
+  if (s.command !== undefined && typeof s.command !== "string") return false;
+  if (s.url !== undefined && typeof s.url !== "string") return false;
+  // Exactly one transport must be specified.
+  const isHttp = s.type === "http" || (s.type === undefined && typeof s.url === "string");
+  if (isHttp) {
+    if (typeof s.url !== "string") return false;
+  } else if (typeof s.command !== "string") {
+    return false;
+  }
   if (s.args !== undefined && (!Array.isArray(s.args) || !s.args.every((a) => typeof a === "string"))) return false;
   if (s.env !== undefined) {
     if (typeof s.env !== "object" || s.env === null) return false;
     if (!Object.values(s.env).every((v) => typeof v === "string")) return false;
   }
   return true;
+}
+
+function isMCPServerConfigWithKey(value: unknown): value is MCPServerConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  if (typeof s.name !== "string") return false;
+  return isMCPServerConfigEntry(value);
+}
+
+function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPServerConfig {
+  return {
+    name,
+    ...(entry.type !== undefined ? { type: entry.type as "stdio" | "http" } : {}),
+    ...(entry.command !== undefined ? { command: entry.command as string } : {}),
+    ...(entry.url !== undefined ? { url: entry.url as string } : {}),
+    ...(entry.args !== undefined ? { args: entry.args as string[] } : {}),
+    ...(entry.env !== undefined ? { env: entry.env as Record<string, string> } : {}),
+  };
+}
+
+// Accepts both array format [{ name, command, ... }] and object format
+// { "name": { command, ... } }. Returns the normalized array.
+export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    if (!value.every(isMCPServerConfigWithKey)) return undefined;
+    return value.map((v) => {
+      const entry = v as Record<string, unknown>;
+      return normalizeMcpEntry(entry.name as string, entry);
+    });
+  }
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const entries: MCPServerConfig[] = [];
+    for (const [key, val] of Object.entries(obj)) {
+      if (typeof key !== "string") return undefined;
+      if (!isMCPServerConfigEntry(val)) return undefined;
+      entries.push(normalizeMcpEntry(key, val as Record<string, unknown>));
+    }
+    return entries;
+  }
+  return undefined;
 }
 
 // Local settings are selection-only for provider/model (no credentials
@@ -132,7 +194,7 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   if (s.provider !== undefined && typeof s.provider !== "string") return false;
   if (s.model !== undefined && typeof s.model !== "string") return false;
   if (s.mcpServers !== undefined) {
-    if (!Array.isArray(s.mcpServers) || !s.mcpServers.every(isMCPServerConfig)) return false;
+    if (normalizeMcpServers(s.mcpServers) === undefined) return false;
   }
   return true;
 }
@@ -156,7 +218,12 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
     );
   }
-  return parsed;
+  const s = parsed as Record<string, unknown>;
+  return {
+    providers: s.providers as Settings["providers"],
+    ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
+    ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
+  } as Settings;
 }
 
 export async function loadLocalSettings(path: string): Promise<LocalSettings | null> {
@@ -178,7 +245,12 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
       `Invalid local settings in ${path}: only "provider" and "model" are allowed (no credentials).`,
     );
   }
-  return parsed;
+  const s = parsed as Record<string, unknown>;
+  return {
+    ...(s.provider !== undefined ? { provider: s.provider as string } : {}),
+    ...(s.model !== undefined ? { model: s.model as string } : {}),
+    ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
+  } as LocalSettings;
 }
 
 // Persist the global settings file. Validates before writing so a written file

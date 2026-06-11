@@ -60,14 +60,47 @@ const fakePermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
 };
 
-test("allDefinitions contains posix tool names plus ask_operator", async () => {
+const callOperator = async (
+  toolset: Awaited<ReturnType<typeof createAgentToolset>>,
+  args: Record<string, unknown>,
+): Promise<string> => {
+  const result = await toolset.dynamicRunner.run(
+    { id: "op", name: "ask_operator", arguments: args },
+    new AbortController().signal,
+  );
+  return String(result.content);
+};
+
+const callPresent = async (
+  toolset: Awaited<ReturnType<typeof createAgentToolset>>,
+  view: unknown,
+): Promise<string> => {
+  const result = await toolset.dynamicRunner.run(
+    { id: "p", name: "present", arguments: { view } },
+    new AbortController().signal,
+  );
+  return String(result.content);
+};
+
+test("present validates the view spec and gives self-correcting errors", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => 0,
+  });
+  expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain("present");
+  expect(await callPresent(toolset, { type: "heading", value: "Hi" })).toBe("Rendered.");
+  expect(await callPresent(toolset, { type: "chart" })).toMatch(/Invalid view spec/);
+});
+
+test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
     onOperatorGate: async () => 0,
   });
 
-  const names = toolset.allDefinitions.map((d) => d.name);
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).toContain("read_file");
   expect(names).toContain("write_file");
   expect(names).toContain("ask_operator");
@@ -87,13 +120,7 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
     },
   });
 
-  const operatorTool = toolset.tools.find((t) => t.definition.name === "ask_operator");
-  expect(operatorTool).toBeDefined();
-
-  const result = await (operatorTool as { definition: ToolDefinition; handler: (args: Record<string, unknown>, signal: AbortSignal) => Promise<string> }).handler(
-    { question: "Which approach?", options: ["A", "B", "C"] },
-    new AbortController().signal,
-  );
+  const result = await callOperator(toolset, { question: "Which approach?", options: ["A", "B", "C"] });
 
   expect(capturedQuestion).toBe("Which approach?");
   expect(capturedOptions).toEqual(["A", "B", "C"]);
@@ -107,15 +134,7 @@ test("operator tool returns error when no options are provided", async () => {
     onOperatorGate: async () => 0,
   });
 
-  const operatorTool = toolset.tools.find((t) => t.definition.name === "ask_operator");
-  expect(operatorTool).toBeDefined();
-
-  const result = await (operatorTool as { definition: ToolDefinition; handler: (args: Record<string, unknown>, signal: AbortSignal) => Promise<string> }).handler(
-    { question: "Empty?", options: [] },
-    new AbortController().signal,
-  );
-
-  expect(result).toMatch(/requires at least one option/);
+  expect(await callOperator(toolset, { question: "Empty?", options: [] })).toMatch(/requires at least one option/);
 });
 
 test("operator tool returns error for out-of-range index", async () => {
@@ -125,15 +144,7 @@ test("operator tool returns error for out-of-range index", async () => {
     onOperatorGate: async () => 99,
   });
 
-  const operatorTool = toolset.tools.find((t) => t.definition.name === "ask_operator");
-  expect(operatorTool).toBeDefined();
-
-  const result = await (operatorTool as { definition: ToolDefinition; handler: (args: Record<string, unknown>, signal: AbortSignal) => Promise<string> }).handler(
-    { question: "Pick one", options: ["X"] },
-    new AbortController().signal,
-  );
-
-  expect(result).toMatch(/invalid selection/);
+  expect(await callOperator(toolset, { question: "Pick one", options: ["X"] })).toMatch(/invalid selection/);
 });
 
 test("dispose calls posixTools.dispose", async () => {

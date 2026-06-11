@@ -1,6 +1,7 @@
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes } from "./command.js";
+import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 
 // Read-only tools never need approval; they cannot change the workspace. Every
 // other posix tool is consequential and defaults to the "ask" tier. Catastrophic
@@ -52,13 +53,19 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
   // Any other consequential tool: approve as a whole, remember by tool name.
+  // MCP tools are presented by their human label; the raw mcp__ identifier stays
+  // as the (hidden) subject and persisted pattern so matching is unaffected.
+  const mcp = isMcpToolName(call.name);
+  const label = mcp ? humanizeMcpTool(call.name) : call.name;
   return [
     {
       tool: call.name,
-      action: `Run ${call.name}`,
+      action: mcp ? "Run MCP tool" : `Run ${call.name}`,
       subject: call.name,
       arguments: call.arguments,
-      scopes: [{ id: "tool", label: `Always allow ${call.name}`, pattern: call.name }],
+      scopes: [
+        { id: "tool", label: `Always allow ${label}`, pattern: call.name, ...(mcp ? { hint: label } : {}) },
+      ],
     },
   ];
 }

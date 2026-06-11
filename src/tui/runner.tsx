@@ -5,9 +5,9 @@ import {
   createAgent,
   defineAgent,
   defineTool,
-  createToolRunner,
   createDirectorRegistry,
   defineDirector,
+  type Agent,
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
@@ -86,7 +86,6 @@ export async function runTUI(config: Config): Promise<number> {
         emitter.emit("operator.gate", event);
       }),
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
-    onMCPWarning: (msg) => emitter.emit("mcp.warning", msg),
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
@@ -111,7 +110,7 @@ export async function runTUI(config: Config): Promise<number> {
 
   const toolsFactory = defineTool({
     id: "interchange-code/tui-tools",
-    factory: () => createToolRunner(toolset.tools),
+    factory: () => toolset.dynamicRunner,
   });
 
   const workdir = sessionContextDir(config.cwd, config.sessionId);
@@ -127,23 +126,88 @@ export async function runTUI(config: Config): Promise<number> {
     },
   });
 
-  const storage = await createIsogitStore(workdir);
-
-  const agent = await createAgent(def, {
-    source: buildOpenAISource({
-      id: config.providerName,
-      baseURL: config.baseURL,
-      apiKey: config.apiKey,
-      model: config.model,
-    }),
-    storage,
-    workdir,
-    audit: noopAuditStore(),
-    authorize: permissiveAuthorize(),
-    directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "interchange-code/chat" }),
-  });
+  // The agent freezes its tool-dispatch map at construction, so MCP servers that
+  // connect after startup are not callable until the agent is rebuilt. buildAgent
+  // re-runs tool resolution against the (now-populated) dynamic runner and resumes
+  // conversation from the same git-backed store, so a reload is transparent.
+  const buildAgent = async (): Promise<Agent> => {
+    const storage = await createIsogitStore(workdir);
+    return createAgent(def, {
+      source: buildOpenAISource({
+        id: config.providerName,
+        baseURL: config.baseURL,
+        apiKey: config.apiKey,
+        model: config.model,
+      }),
+      storage,
+      workdir,
+      audit: noopAuditStore(),
+      authorize: permissiveAuthorize(),
+      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "interchange-code/chat" }),
+    });
+  };
 
   const runSink = createRunSink({ emitter, hookManager });
+
+  // Tool count before any MCP server connects; a reload is only worthwhile if
+  // connecting actually added tools.
+  const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
+
+  let currentAgent = await buildAgent();
+  let streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+
+  // Reload coordination. A reload must close the old agent (releasing the
+  // per-workdir lock) before opening the new one, so `send` is held behind
+  // `reloadBarrier` during the swap, and a reload defers until no send is in
+  // flight (so it never interrupts an active turn).
+  let inFlight = 0;
+  let pendingReload = false;
+  let reloading = false;
+  let reloadBarrier: Promise<void> | null = null;
+
+  const reloadIfIdle = async (): Promise<void> => {
+    if (!pendingReload || reloading || inFlight > 0) return;
+    pendingReload = false;
+    reloading = true;
+    let release!: () => void;
+    reloadBarrier = new Promise<void>((r) => (release = r));
+    try {
+      const old = currentAgent;
+      await old.close().catch(() => undefined);
+      await streamPromise.catch(() => undefined);
+      currentAgent = await buildAgent();
+      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+    } finally {
+      reloading = false;
+      reloadBarrier = null;
+      release();
+    }
+  };
+
+  // Stable handle handed to the App so the underlying agent can be swapped out
+  // from under it without a remount; method calls always target the live agent.
+  const agentProxy: Agent = {
+    send: async (content, opts) => {
+      if (reloadBarrier !== null) await reloadBarrier;
+      inFlight++;
+      try {
+        return await currentAgent.send(content, opts);
+      } finally {
+        inFlight--;
+        void reloadIfIdle();
+      }
+    },
+    stream: () => currentAgent.stream(),
+    deliver: (message) => currentAgent.deliver(message),
+    close: () => currentAgent.close(),
+    setSource: (source) => currentAgent.setSource(source),
+    history: () => currentAgent.history(),
+    checkpoints: (limit) => currentAgent.checkpoints(limit),
+    readAt: (hash) => currentAgent.readAt(hash),
+    get blobReader() {
+      return currentAgent.blobReader;
+    },
+  };
 
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
@@ -156,7 +220,7 @@ export async function runTUI(config: Config): Promise<number> {
   const { waitUntilExit } = render(
     <App
       eventEmitter={emitter}
-      agent={agent}
+      agent={agentProxy}
       sessionTitle={config.task}
       initialModel={config.model}
       initialProvider={config.providerName}
@@ -169,15 +233,34 @@ export async function runTUI(config: Config): Promise<number> {
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
-      connectedMCPServers={toolset.connectedMCPServers}
-      mcpServerStatuses={toolset.mcpServerStatuses}
     />,
     { exitOnCtrlC: false },
   );
 
-  const streamPromise = consumeStream(agent.stream(), runSink.sink);
+  // Connect MCP servers after the TUI is up so the UI is usable immediately and
+  // any OAuth authorization is surfaced as a copyable link rather than a browser
+  // pop. Newly discovered tools are advertised to the live director right away;
+  // once connection resolves, the agent is reloaded (when idle) so the tools are
+  // also dispatchable. Aborted on exit so an unfinished auth wait does not keep
+  // the process alive.
+  const mcpConnectController = new AbortController();
+  void toolset
+    .connectMCP(
+      {
+        onStatus: (status) => emitter.emit("mcp.status", status),
+        onToolsChanged: (definitions) => directorHolder.instance?.updateToolDefinitions(definitions),
+      },
+      mcpConnectController.signal,
+    )
+    .then(() => {
+      if (toolset.dynamicRunner.currentDefinitions().length > baseToolCount) {
+        pendingReload = true;
+        void reloadIfIdle();
+      }
+    });
 
   await waitUntilExit();
+  mcpConnectController.abort();
   exitAltScreen();
 
   const finishedAt = Date.now();
@@ -195,8 +278,9 @@ export async function runTUI(config: Config): Promise<number> {
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   }));
 
+  if (reloadBarrier !== null) await reloadBarrier;
   try {
-    await agent.close();
+    await currentAgent.close();
   } catch {
     // ignore
   }
