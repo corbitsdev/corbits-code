@@ -1,4 +1,6 @@
 import type { SemanticRole } from "./theme.js";
+import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
+import { formatMcpResult } from "./mcp-result-format.js";
 
 export type ToolArgSummary = {
   summary: string;
@@ -35,7 +37,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
 export function humanizeToolName(toolName: string): string {
   const known = TOOL_DISPLAY_NAMES[toolName];
   if (known !== undefined) return known;
-  // Unknown / MCP tools must still never leak as snake_case: title-case them.
+  // MCP tools read as "Server: tool name" rather than the raw mcp__ identifier.
+  if (isMcpToolName(toolName)) return humanizeMcpTool(toolName);
+  // Other unknown tools must still never leak as snake_case: title-case them.
   return toolName
     .split(/[_\s]+/)
     .filter((word) => word.length > 0)
@@ -223,6 +227,14 @@ function webFetchSummary(raw: string): ToolResultSummary | null {
 export function summarizeToolResult(toolName: string, rawResult: string): ToolResultSummary {
   const content = rawResult;
   const full = content;
+
+  // MCP results are arbitrary, often enormous JSON. Render a compact, bounded
+  // summary instead of the raw document — dumping it verbatim freezes the TUI
+  // and is unreadable. Never flagged as a JSON document for that reason.
+  if (isMcpToolName(toolName)) {
+    const summary = formatMcpResult(content);
+    return { preview: summary.preview, full: summary.full, isJSONDocument: false };
+  }
 
   if (toolName === "web_search") {
     const webSummary = webSearchSummary(content);
