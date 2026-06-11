@@ -32,6 +32,7 @@ import { createMCPPlugin } from "./mcp/plugin.js";
 import { createPermissionGate } from "./permission/gate.js";
 import { loadApprovals } from "./permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
+import { createTaskTool } from "./subagent.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
 import { runCritique } from "./critic.js";
 import { loadPricing, startPricingRefresh } from "./pricing-fetcher.js";
@@ -167,9 +168,20 @@ export async function runAgent(
   });
 
   const posixToolList = fromToolRunner(posixTools);
+  const workdir = sessionContextDir(config.cwd, config.sessionId);
 
   const agentTools = [
     ...posixToolList,
+    createTaskTool({
+      cwd: config.cwd,
+      workdirBase: workdir,
+      provider: {
+        providerName: config.providerName,
+        baseURL: config.baseURL,
+        apiKey: config.apiKey,
+        model: config.model,
+      },
+    }),
     stringTool({
       definition: submitPlanDefinition,
       handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
@@ -235,7 +247,6 @@ export async function runAgent(
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
   const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined);
-  const workdir = sessionContextDir(config.cwd, config.sessionId);
 
   const def = defineAgent({
     id: "interchange-code/agent",
