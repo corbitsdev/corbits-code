@@ -77,6 +77,11 @@ function toolRole(toolName: string): SemanticRole {
 // colour, and its argument summary. run_shell is special-cased so the command
 // itself is the headline.
 export function describeToolCall(toolName: string, rawArgs: string): ToolCallDescriptor {
+  // `present` carries a large view spec as its arguments; never dump that JSON.
+  // The rendered view block stands in for the result.
+  if (toolName === "present") {
+    return { display: "Render view", role: "accent", summary: "", full: "", isShell: false };
+  }
   if (toolName === "run_shell") {
     const obj = tryParseObject(rawArgs);
     const command = obj !== null && typeof obj.command === "string" ? obj.command : rawArgs.trim();

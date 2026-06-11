@@ -66,6 +66,31 @@ export const askOperatorDefinition: ToolDefinition = {
   },
 };
 
+export const presentDefinition: ToolDefinition = {
+  name: "present",
+  description:
+    "Render a rich UI for the user from a JSON view spec built from a fixed set of building blocks. " +
+    "Use this to show structured data (lists, records, comparisons, status) instead of writing a Markdown table or pasting raw output. " +
+    "The `view` is a node tree. Node types: " +
+    "stack{children:[node],gap?:0|1} (vertical container); " +
+    "heading{value,level?:1|2|3}; text{value,tone?,bold?,dim?}; divider; badge{label,tone?}; progress{value,max?,label?}; " +
+    "list{items:[string],ordered?}; keyValue{pairs:[{label,value,tone?}]}; " +
+    "table{columns:[{header,field,align?,colorRole?}],rows:[{<field>:string}]}; " +
+    "card{title?,subtitle?,fields:[{label,value,tone?}],badges?:[{label,tone?}]}. " +
+    "tone is one of default|muted|success|warning|danger|accent. colorRole may be a tone or \"status\"/\"priority\" to auto-color a cell by its value. " +
+    "Keep it compact; the UI handles width and scrolling.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      view: {
+        type: "object",
+        description: "The root view node (typically a stack of building-block nodes).",
+      },
+    },
+    required: ["view"],
+  },
+};
+
 export const submitOutputDefinition: ToolDefinition = {
   name: "submit_output",
   description:

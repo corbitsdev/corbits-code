@@ -182,6 +182,7 @@ export function buildOutputRenderingRules(): string {
     "Output rendering:",
     "- Tool results are already shown to the user in a rich, formatted view (tables, status colors, syntax). Do not reproduce or reformat tool output in your reply.",
     "- Never redraw a tool's data as a Markdown table or a numbered list of its rows — it duplicates the rendered view and wraps badly in the terminal.",
+    "- To show the user structured data (lists, records, comparisons, status), call the `present` tool with a view spec built from the building blocks, instead of writing a Markdown table. Keep specs compact; the UI handles width and scrolling.",
     "- After a tool runs, give only a brief takeaway: the direct answer, the one or two notable items, or the next step. Refer to the rendered result rather than restating it.",
   ].join("\n");
 }

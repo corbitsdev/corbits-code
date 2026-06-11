@@ -3,7 +3,8 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
-import { askOperatorDefinition } from "./director.js";
+import { askOperatorDefinition, presentDefinition } from "./director.js";
+import { validateView } from "./tui/view/index.js";
 import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
 import { authzPlugin } from "./plugins/authz-plugin.js";
 import { verifyPlugin } from "./plugins/verify-plugin.js";
@@ -79,6 +80,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
         return options[index] as string;
+      },
+    }),
+    stringTool({
+      definition: presentDefinition,
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        // The TUI renders the spec from the tool-call arguments; this handler only
+        // validates so an invalid spec gives the model an actionable error to fix.
+        const result = validateView(rawArgs.view);
+        if (result.ok) return "Rendered.";
+        return `Invalid view spec at ${result.error}. Fix the spec and call present again.`;
       },
     }),
   ];

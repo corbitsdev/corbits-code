@@ -71,6 +71,28 @@ const callOperator = async (
   return String(result.content);
 };
 
+const callPresent = async (
+  toolset: Awaited<ReturnType<typeof createAgentToolset>>,
+  view: unknown,
+): Promise<string> => {
+  const result = await toolset.dynamicRunner.run(
+    { id: "p", name: "present", arguments: { view } },
+    new AbortController().signal,
+  );
+  return String(result.content);
+};
+
+test("present validates the view spec and gives self-correcting errors", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => 0,
+  });
+  expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain("present");
+  expect(await callPresent(toolset, { type: "heading", value: "Hi" })).toBe("Rendered.");
+  expect(await callPresent(toolset, { type: "chart" })).toMatch(/Invalid view spec/);
+});
+
 test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",

@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createFaremeter, formatCost } from "../faremeter.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../hooks.js";
+import { validateView, type ViewNode } from "./view/index.js";
 
 export type PlanStep = { file: string; action: string };
 
@@ -14,6 +15,7 @@ export type ContentBlock =
   | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { type: "reply"; content: string }
   | { type: "plan"; steps: PlanStep[] }
+  | { type: "view"; node: ViewNode }
   | { type: "error"; message: string };
 
 export type AgentStatus = "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
@@ -312,6 +314,24 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
                   planDeviated = true;
                 }
               }
+            }
+          }
+
+          // `present` renders a view spec. On success, swap the tool result for the
+          // rendered view block; on an invalid spec, fall through so the validation
+          // error surfaces and the model can self-correct.
+          if (name === "present" && !result.isError) {
+            const rawArgs = callIdToArguments.get(result.callId) ?? "";
+            let view: unknown;
+            try {
+              view = (JSON.parse(rawArgs) as { view?: unknown }).view;
+            } catch {
+              view = undefined;
+            }
+            const validated = validateView(view);
+            if (validated.ok) {
+              contentBlocks.push({ type: "view", node: validated.node });
+              break;
             }
           }
 
