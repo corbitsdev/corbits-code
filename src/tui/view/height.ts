@@ -7,9 +7,39 @@ import { type ViewNode, VIEW_TABLE_MAX_ROWS } from "./spec.js";
 
 const LINE_PADDING = 2;
 
+// Count the rows a line occupies under word wrapping, matching Ink's <Text
+// wrap="wrap">. A naive ceil(len/width) UNDERCOUNTS space-heavy text (words don't
+// split across the boundary), and undercounting is the dangerous direction for the
+// scroll model — it lets the log paint more rows than the viewport. Simulate the
+// greedy wrap instead: words go on the current line until they don't fit; a word
+// longer than the width breaks across lines by character.
+function wrapLineCount(line: string, width: number): number {
+  const words = line.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return 1;
+  let lines = 1;
+  let col = 0;
+  const placeLongWord = (len: number): void => {
+    lines += Math.floor(len / width);
+    col = len % width;
+  };
+  for (const word of words) {
+    if (col === 0) {
+      if (word.length <= width) col = word.length;
+      else placeLongWord(word.length);
+    } else if (col + 1 + word.length <= width) {
+      col += 1 + word.length;
+    } else {
+      lines += 1;
+      if (word.length <= width) col = word.length;
+      else placeLongWord(word.length);
+    }
+  }
+  return Math.max(1, lines);
+}
+
 function wrapCount(text: string, width: number): number {
   const w = Math.max(1, width);
-  return text.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / w)), 0);
+  return text.split("\n").reduce((n, line) => n + wrapLineCount(line, w), 0);
 }
 
 export function viewHeight(node: ViewNode, columns: number): number {

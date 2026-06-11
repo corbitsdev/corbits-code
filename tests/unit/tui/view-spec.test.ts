@@ -70,6 +70,13 @@ describe("viewHeight", () => {
     expect(at({ type: "text", value: "short" }, 80)).toBe(1);
   });
 
+  test("word wrapping is counted, not undercounted by ceil(len/width)", () => {
+    // Five 11-char words at width ~18 cannot pack two-per-line, so they take 5
+    // rows; a naive ceil(59/18)=4 would undercount (the dangerous direction).
+    const value = "wordwordwo wordwordwo wordwordwo wordwordwo wordwordwo";
+    expect(at({ type: "text", value }, 20)).toBe(5);
+  });
+
   test("keyValue and list are one row per item", () => {
     expect(at({ type: "keyValue", pairs: [{ label: "a", value: "1" }, { label: "b", value: "2" }] })).toBe(2);
     expect(at({ type: "list", items: ["a", "b", "c"] })).toBe(3);

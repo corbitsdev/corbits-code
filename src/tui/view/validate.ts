@@ -77,7 +77,7 @@ function validateNode(value: unknown, path: string, depth: number, counter: Coun
     case "heading": {
       const v = str("value");
       if (typeof v !== "string") return v;
-      const level = value.level === undefined ? undefined : value.level;
+      const level = value.level;
       if (level !== undefined && level !== 1 && level !== 2 && level !== 3) return fail(`${path}.level`, "expected 1, 2, or 3");
       return { ok: true, node: { type, value: v, ...(level !== undefined ? { level: level as 1 | 2 | 3 } : {}) } };
     }
@@ -120,7 +120,11 @@ function validateNode(value: unknown, path: string, depth: number, counter: Coun
         if (typeof c.field !== "string") return fail(`${at}.field`, "expected a string");
         const col: ViewColumn = { header: c.header, field: c.field };
         if (c.align === "right") col.align = "right";
-        if (typeof c.colorRole === "string") col.colorRole = c.colorRole as NonNullable<ViewColumn["colorRole"]>;
+        if (c.colorRole !== undefined) {
+          const ok = typeof c.colorRole === "string" && (TONES.has(c.colorRole as Tone) || c.colorRole === "status" || c.colorRole === "priority");
+          if (!ok) return fail(`${at}.colorRole`, `invalid colorRole "${String(c.colorRole)}"`);
+          col.colorRole = c.colorRole as NonNullable<ViewColumn["colorRole"]>;
+        }
         columns.push(col);
       }
       if (!Array.isArray(value.rows)) return fail(`${path}.rows`, "expected an array");
