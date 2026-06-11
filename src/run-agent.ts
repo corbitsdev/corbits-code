@@ -60,7 +60,18 @@ export async function loadAgentContextExtensions(cwd: string): Promise<string[]>
           `[interchange] Warning: AGENTS.md exceeds ${MAX_AGENTS_MD_BYTES} bytes and will be truncated.\n`
         );
       }
-      extensions.push(`## AGENTS.md\n\n${content.slice(0, MAX_AGENTS_MD_BYTES)}`);
+      // AGENTS.md is reference context, not a script. Its onboarding /
+      // session-initialization steps (e.g. "load the style skill") are written
+      // for external agents and reference files that may not exist here; running
+      // them on startup just produces file-not-found errors. Frame it as
+      // background and tell the model not to execute those steps.
+      extensions.push(
+        `## Project guidance (AGENTS.md, reference)\n\n` +
+          `The following is the repository's AGENTS.md, provided as background about the project. ` +
+          `Do not execute its agent-onboarding or session-initialization steps (loading skills, reading skill files) — ` +
+          `they target other tools and those files may not exist in this repo. Use it as reference when it helps the task.\n\n` +
+          content.slice(0, MAX_AGENTS_MD_BYTES),
+      );
     }
   } catch (err: unknown) {
     // File not found is expected and silent. Other errors are logged.

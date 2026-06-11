@@ -93,6 +93,7 @@ export function buildGroundingRules(): string {
     "Grounding current facts:",
     "- If the answer depends on external documentation, current package versions, product behavior, or facts that may have changed, ground it with web_search or web_fetch before answering.",
     "- If local evidence and memory disagree, or the local repo is missing enough context, use web_search or web_fetch before trying shell-based package or documentation lookups.",
+    "- Prefer a connected integration's own tools over web_search for that service's data: a question about Linear, GitHub, or another connected MCP server should call that server's tools (e.g. the Linear tools), never a web search. Use web_search only for general or public information, not to look up data a connected tool can return directly. If the needed integration is not yet connected, say so rather than guessing via web_search.",
   ].join("\n");
 }
 
