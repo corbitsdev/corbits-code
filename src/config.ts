@@ -274,7 +274,11 @@ export async function loadConfig(
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
     ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
-    ...(local?.mcpServers !== undefined ? { mcpServers: local.mcpServers } : {}),
+    ...(local?.mcpServers !== undefined
+      ? { mcpServers: local.mcpServers }
+      : settings?.mcpServers !== undefined
+        ? { mcpServers: settings.mcpServers }
+        : {}),
   };
 }
 

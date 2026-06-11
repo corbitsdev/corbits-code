@@ -121,6 +121,18 @@ describe("buildRequests", () => {
     expect(reqs[0]?.subject).toBe("web_search");
     expect(reqs[0]?.arguments).toEqual({ query: "hono.dev web framework" });
   });
+
+  test("MCP tools are presented by a human label, not the raw identifier", () => {
+    const reqs = buildRequests({ id: "c", name: "mcp__acme__list_projects", arguments: {} });
+    expect(reqs).toHaveLength(1);
+    const req = reqs[0]!;
+    expect(req.action).not.toContain("mcp__");
+    expect(req.scopes[0]?.label).toBe("Always allow Acme: list projects");
+    expect(req.scopes[0]?.hint).toBe("Acme: list projects");
+    // The raw identifier stays as the subject/pattern so approval matching is unaffected.
+    expect(req.subject).toBe("mcp__acme__list_projects");
+    expect(req.scopes[0]?.pattern).toBe("mcp__acme__list_projects");
+  });
 });
 
 describe("createPermissionGate", () => {
@@ -200,5 +212,33 @@ describe("createPermissionGate", () => {
     const verdict = await gate.evaluate(shellCall("npm i && curl evil"));
     expect(verdict.allowed).toBe(false);
     expect(seen).toEqual(["npm i", "curl evil"]);
+  });
+
+  test("auto mode auto-allows non-shell ask-tier tools", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const writeVerdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(writeVerdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode still asks for shell commands", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("npm test"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
   });
 });

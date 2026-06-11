@@ -63,7 +63,7 @@ test("EventLog renders tool call with a humanized name and readable arg summary"
 });
 
 test("EventLog wraps a long line with inline bold instead of overflowing", () => {
-  const content = "Before your last message you asked about **Faremeter Interchange** which is the platform we build the agentic business runtime around the world today.";
+  const content = "Before your last message you asked about **Acme Interchange** which is the platform we build the agentic business runtime around the world today.";
   const { lastFrame } = renderLog([{ type: "text", content }], { columns: 80 });
   const frame = lastFrame() ?? "";
   const rows = frame.split("\n").filter((r) => r.trim().length > 0);
@@ -72,7 +72,7 @@ test("EventLog wraps a long line with inline bold instead of overflowing", () =>
   expect(rows.length).toBeGreaterThan(1);
   expect(rows.length).toBeLessThan(8);
   // The bolded words and the trailing word all survive the wrap.
-  expect(frame).toContain("Faremeter");
+  expect(frame).toContain("Acme");
   expect(frame).toContain("today");
 });
 

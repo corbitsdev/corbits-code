@@ -93,6 +93,7 @@ export function buildGroundingRules(): string {
     "Grounding current facts:",
     "- If the answer depends on external documentation, current package versions, product behavior, or facts that may have changed, ground it with web_search or web_fetch before answering.",
     "- If local evidence and memory disagree, or the local repo is missing enough context, use web_search or web_fetch before trying shell-based package or documentation lookups.",
+    "- Prefer a connected integration's own tools over web_search for that service's data: a question about Linear, GitHub, or another connected MCP server should call that server's tools (e.g. the Linear tools), never a web search. Use web_search only for general or public information, not to look up data a connected tool can return directly. If the needed integration is not yet connected, say so rather than guessing via web_search.",
   ].join("\n");
 }
 
@@ -177,10 +178,21 @@ export function buildSystemPrompt(tools = defaultAgentTools, extensions?: string
   return joinSections(sections);
 }
 
+export function buildOutputRenderingRules(): string {
+  return [
+    "Output rendering:",
+    "- Tool results are already shown to the user in a rich, formatted view (tables, status colors, syntax). Do not reproduce or reformat tool output in your reply.",
+    "- Never redraw a tool's data as a Markdown table or a numbered list of its rows — it duplicates the rendered view and wraps badly in the terminal.",
+    "- To show the user structured data (lists, records, comparisons, status), call the `present` tool with a view spec built from the building blocks, instead of writing a Markdown table. Keep specs compact; the UI handles width and scrolling.",
+    "- After a tool runs, give only a brief takeaway: the direct answer, the one or two notable items, or the next step. Refer to the rendered result rather than restating it.",
+  ].join("\n");
+}
+
 export function buildChatSystemPrompt(extensions?: string[]): string {
   const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
     buildToolCallDiscipline(),
+    buildOutputRenderingRules(),
     buildStyleRules(),
     buildBudgetRules(),
     buildLSPGuidance(),

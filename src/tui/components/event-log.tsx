@@ -4,6 +4,10 @@ import type { ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, summarizeToolResult } from "../tool-formatter.js";
+import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
+import { isMcpToolName } from "../../mcp/tool-name.js";
+import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
+import { View, viewHeight } from "../view/index.js";
 import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
@@ -67,6 +71,12 @@ function estimateRows(
       return expanded ? 1 + sumLines(block.arguments) : 1;
     case "tool_result": {
       if (block.isError) return wrap(block.content);
+      if (isMcpToolName(block.name) && !block.isError) {
+        const records = extractMcpRecords(block.content);
+        if (records !== null) return viewHeight(mcpRecordsToView(records), columns);
+        const record = extractMcpRecord(block.content);
+        if (record !== null) return viewHeight(mcpRecordToView(record), columns);
+      }
       const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
       // JSON documents render via parseMarkdown which transforms tables (drops
       // the separator row, pads cells) so the rendered line count differs from
@@ -74,6 +84,8 @@ function estimateRows(
       if (isJSONDocument) return parseMarkdown(full).length;
       return expanded ? sumLines(full) : 1;
     }
+    case "view":
+      return viewHeight(block.node, columns);
     case "error":
       return sumLines(block.message);
     default:
@@ -268,6 +280,16 @@ function renderBlock(
           </Text>
         );
       }
+      if (isMcpToolName(block.name)) {
+        const records = extractMcpRecords(block.content);
+        if (records !== null) {
+          return <View key={key} node={mcpRecordsToView(records)} columns={columns} />;
+        }
+        const record = extractMcpRecord(block.content);
+        if (record !== null) {
+          return <View key={key} node={mcpRecordToView(record)} columns={columns} />;
+        }
+      }
       const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
       if (isJSONDocument) {
         return <Box key={key}>{renderMarkdownLines(full)}</Box>;
@@ -286,6 +308,8 @@ function renderBlock(
         </Text>
       );
     }
+    case "view":
+      return <View key={key} node={block.node} columns={columns} />;
     case "error":
       return (
         <Box key={key} flexDirection="column">

@@ -22,6 +22,9 @@ import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
 import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
+import { useMCPStatus } from "./hooks/use-mcp-status.js";
+import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
+import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
@@ -43,8 +46,6 @@ export type AppProps = {
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
   profile?: string;
-  connectedMCPServers?: string[];
-  mcpServerStatuses?: Array<{ name: string; tools: string[] }>;
 };
 
 export function App({
@@ -62,10 +63,9 @@ export function App({
   onToggleHook,
   onAgentError,
   profile,
-  connectedMCPServers = [],
-  mcpServerStatuses = [],
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
+  const mcpStatus = useMCPStatus(eventEmitter);
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
   const [inputValue, setInputValue] = useState("");
@@ -106,8 +106,8 @@ export function App({
       return next;
     },
     signalClear: () => {},
-    getMCPServers: () => mcpServerStatuses,
-  }), [verbose, mcpServerStatuses]);
+    getMCPServers: () => mcpStatus.servers,
+  }), [verbose, mcpStatus.servers]);
 
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
@@ -280,6 +280,13 @@ export function App({
         }
       },
       toggleHelp: () => setHelpOpen((open) => !open),
+      copyMcpUrl: () => {
+        const first = mcpStatus.needsAuth[0];
+        if (first !== undefined) {
+          writeClipboard(first.url);
+          setCommandMessage(`Copied authorization URL for ${first.name}`);
+        }
+      },
     },
   );
 
@@ -384,6 +391,7 @@ export function App({
         pendingPermission={gates.pendingPermission}
         onResolvePermission={gates.resolvePermission}
       />
+      {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
         <Box paddingX={1}>
           <Text color="cyan">{commandMessage}</Text>
@@ -431,7 +439,7 @@ export function App({
           currentToolName={state.currentToolName}
           streamingType={state.streamingType}
           awaitingResponse={state.awaitingResponse}
-          connectedMCPServers={connectedMCPServers}
+          connectedMCPServers={mcpStatus.connected}
         />
         </Box>
       )}

@@ -6,7 +6,9 @@ export type Approval = { tool: string; pattern: string };
 // One option offered to the operator at approval time. `pattern` is the glob
 // that gets persisted if the operator picks this scope; `null` means "just this
 // once" — allow now, remember nothing.
-export type ApprovalScope = { id: string; label: string; pattern: string | null };
+// `hint`, when set, is shown to the operator in place of the raw `pattern`
+// (e.g. an MCP tool's human label instead of its mcp__ identifier).
+export type ApprovalScope = { id: string; label: string; pattern: string | null; hint?: string };
 
 // A request surfaced to the operator for one consequential action. For a shell
 // command this is a single segment of a chained command; for a file tool it is
