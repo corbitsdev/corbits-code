@@ -28,6 +28,10 @@ export type KeymapActions = {
   closeHookPanel: () => void;
   scrollUp: () => void;
   scrollDown: () => void;
+  pageUp: () => void;
+  pageDown: () => void;
+  scrollToTop: () => void;
+  scrollToBottom: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
   togglePlanSidebar: () => void;
@@ -105,6 +109,22 @@ export function handleKey(
   }
   if (key.downArrow && !context.hasInput) {
     actions.scrollDown();
+    return lastEscMs;
+  }
+  if (key.pageUp) {
+    actions.pageUp();
+    return lastEscMs;
+  }
+  if (key.pageDown) {
+    actions.pageDown();
+    return lastEscMs;
+  }
+  if (key.home && !context.hasInput) {
+    actions.scrollToTop();
+    return lastEscMs;
+  }
+  if (key.end && !context.hasInput) {
+    actions.scrollToBottom();
     return lastEscMs;
   }
   if (key.ctrl && input === "t") {

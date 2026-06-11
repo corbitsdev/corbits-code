@@ -255,6 +255,22 @@ export function App({
         if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 1));
         else scroll.scrollDown();
       },
+      pageUp: () => {
+        if (diffActive) setDiffScroll((o) => Math.max(0, o - Math.max(1, visibleRows - 1)));
+        else scroll.pageUp();
+      },
+      pageDown: () => {
+        if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + Math.max(1, visibleRows - 1)));
+        else scroll.pageDown();
+      },
+      scrollToTop: () => {
+        if (diffActive) setDiffScroll(0);
+        else scroll.scrollToTop();
+      },
+      scrollToBottom: () => {
+        if (diffActive) setDiffScroll(diffMaxOffset);
+        else scroll.scrollToBottom();
+      },
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
         if (lastToolIndex !== null) {

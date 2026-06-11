@@ -56,6 +56,10 @@ function makeActions(): KeymapActions {
     closeHookPanel: mock(() => {}),
     scrollUp: mock(() => {}),
     scrollDown: mock(() => {}),
+    pageUp: mock(() => {}),
+    pageDown: mock(() => {}),
+    scrollToTop: mock(() => {}),
+    scrollToBottom: mock(() => {}),
     toggleThinking: mock(() => {}),
     toggleLastTool: mock(() => {}),
     togglePlanSidebar: mock(() => {}),
@@ -203,6 +207,38 @@ test("up arrow with hasInput is no-op", () => {
 test("down arrow with hasInput is no-op", () => {
   const { actions } = dispatch("", DOWN_KEY, { hasInput: true });
   expect(actions.scrollDown).not.toHaveBeenCalled();
+});
+
+// --- Page and jump keys ---
+
+const PGUP_KEY: Key = { ...NO_KEY, pageUp: true };
+const PGDN_KEY: Key = { ...NO_KEY, pageDown: true };
+const HOME_KEY: Key = { ...NO_KEY, home: true };
+const END_KEY: Key = { ...NO_KEY, end: true };
+
+test("PageUp calls pageUp even while typing", () => {
+  const { actions } = dispatch("", PGUP_KEY, { hasInput: true });
+  expect(actions.pageUp).toHaveBeenCalledTimes(1);
+});
+
+test("PageDown calls pageDown even while typing", () => {
+  const { actions } = dispatch("", PGDN_KEY, { hasInput: true });
+  expect(actions.pageDown).toHaveBeenCalledTimes(1);
+});
+
+test("Home with empty input jumps to top", () => {
+  const { actions } = dispatch("", HOME_KEY, { hasInput: false });
+  expect(actions.scrollToTop).toHaveBeenCalledTimes(1);
+});
+
+test("End with empty input jumps to bottom", () => {
+  const { actions } = dispatch("", END_KEY, { hasInput: false });
+  expect(actions.scrollToBottom).toHaveBeenCalledTimes(1);
+});
+
+test("Home with hasInput is left to the input field", () => {
+  const { actions } = dispatch("", HOME_KEY, { hasInput: true });
+  expect(actions.scrollToTop).not.toHaveBeenCalled();
 });
 
 // --- Other Ctrl shortcuts ---
