@@ -35,7 +35,7 @@ function buildChoices(request: PermissionRequest): Choice[] {
     if (scope.pattern === null) continue;
     choices.push({
       label: scope.label,
-      hint: scope.pattern,
+      hint: scope.hint ?? scope.pattern,
       hintStyle: "command",
       messageable: false,
       outcome: { allow: true, persist: scope },

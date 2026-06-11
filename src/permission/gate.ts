@@ -19,16 +19,19 @@ export type PermissionGateOptions = {
   // The --dangerously-skip-permissions escape hatch: auto-allow anything the
   // authorization layer did not already deny.
   skipPermissions: boolean;
+  // Auto-approve non-destructive permissions (repeat writes, safe shell commands).
+  auto?: boolean;
 };
 
 export type PermissionGate = { evaluate: (call: ToolCall) => Promise<GateVerdict> };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
-  const { approvals, requestApproval, persist, interactive, skipPermissions } = options;
+  const { approvals, requestApproval, persist, interactive, skipPermissions, auto } = options;
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
     if (classifyTool(call.name) === "allow") return { allowed: true };
+    if (auto && call.name !== "run_shell") return { allowed: true };
 
     for (const request of buildRequests(call)) {
       if (isApproved(request.tool, request.subject, approvals)) continue;

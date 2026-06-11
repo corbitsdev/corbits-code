@@ -33,6 +33,7 @@ export type KeymapActions = {
   togglePlanSidebar: () => void;
   toggleDiffFullScreen: () => void;
   toggleHelp: () => void;
+  copyMcpUrl: () => void;
 };
 
 // Pure dispatch function — separated from the hook so it can be unit tested
@@ -128,6 +129,10 @@ export function handleKey(
   }
   if (key.ctrl && input === "g") {
     actions.toggleHelp();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "y") {
+    actions.copyMcpUrl();
     return lastEscMs;
   }
   return lastEscMs;
