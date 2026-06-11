@@ -22,11 +22,17 @@ export type Settings = {
   mcpServers?: MCPServerConfig[];
 };
 
+// An MCP server is reached one of two ways. A stdio server is launched as a
+// subprocess (`command` + `args`). An http server is a remote Streamable-HTTP
+// endpoint (`url`) that intercode connects to directly and authorizes via OAuth.
+// `type` defaults to "stdio" when `command` is set and "http" when only `url` is.
 export type MCPServerConfig = {
   name: string;
-  command: string;
+  type?: "stdio" | "http";
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  url?: string;
 };
 
 // Per-repo override. Selection only for provider/model, but may also declare
@@ -116,7 +122,16 @@ export function isSettings(value: unknown): value is Settings {
 function isMCPServerConfigEntry(value: unknown): value is Omit<MCPServerConfig, "name"> {
   if (typeof value !== "object" || value === null) return false;
   const s = value as Record<string, unknown>;
-  if (typeof s.command !== "string") return false;
+  if (s.type !== undefined && s.type !== "stdio" && s.type !== "http") return false;
+  if (s.command !== undefined && typeof s.command !== "string") return false;
+  if (s.url !== undefined && typeof s.url !== "string") return false;
+  // Exactly one transport must be specified.
+  const isHttp = s.type === "http" || (s.type === undefined && typeof s.url === "string");
+  if (isHttp) {
+    if (typeof s.url !== "string") return false;
+  } else if (typeof s.command !== "string") {
+    return false;
+  }
   if (s.args !== undefined && (!Array.isArray(s.args) || !s.args.every((a) => typeof a === "string"))) return false;
   if (s.env !== undefined) {
     if (typeof s.env !== "object" || s.env === null) return false;
@@ -132,18 +147,27 @@ function isMCPServerConfigWithKey(value: unknown): value is MCPServerConfig {
   return isMCPServerConfigEntry(value);
 }
 
+function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPServerConfig {
+  return {
+    name,
+    ...(entry.type !== undefined ? { type: entry.type as "stdio" | "http" } : {}),
+    ...(entry.command !== undefined ? { command: entry.command as string } : {}),
+    ...(entry.url !== undefined ? { url: entry.url as string } : {}),
+    ...(entry.args !== undefined ? { args: entry.args as string[] } : {}),
+    ...(entry.env !== undefined ? { env: entry.env as Record<string, string> } : {}),
+  };
+}
+
 // Accepts both array format [{ name, command, ... }] and object format
 // { "name": { command, ... } }. Returns the normalized array.
 export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefined {
   if (value === undefined) return undefined;
   if (Array.isArray(value)) {
     if (!value.every(isMCPServerConfigWithKey)) return undefined;
-    return value.map((v) => ({
-      name: (v as Record<string, unknown>).name as string,
-      command: (v as Record<string, unknown>).command as string,
-      ...(((v as Record<string, unknown>).args !== undefined) ? { args: (v as Record<string, unknown>).args as string[] } : {}),
-      ...(((v as Record<string, unknown>).env !== undefined) ? { env: (v as Record<string, unknown>).env as Record<string, string> } : {}),
-    }));
+    return value.map((v) => {
+      const entry = v as Record<string, unknown>;
+      return normalizeMcpEntry(entry.name as string, entry);
+    });
   }
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
@@ -151,13 +175,7 @@ export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefin
     for (const [key, val] of Object.entries(obj)) {
       if (typeof key !== "string") return undefined;
       if (!isMCPServerConfigEntry(val)) return undefined;
-      const entry = val as Record<string, unknown>;
-      entries.push({
-        name: key,
-        command: entry.command as string,
-        ...(entry.args !== undefined ? { args: entry.args as string[] } : {}),
-        ...(entry.env !== undefined ? { env: entry.env as Record<string, string> } : {}),
-      });
+      entries.push(normalizeMcpEntry(key, val as Record<string, unknown>));
     }
     return entries;
   }

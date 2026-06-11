@@ -181,11 +181,15 @@ describe("chatDirector.signalNewTask", () => {
     } as unknown as ReactorInboundEvent;
   }
 
-  // Capabilities that preserve the systemPrompt from infer() so we can assert on it.
+  // Capabilities that preserve the infer options so we can assert on them. Mirrors
+  // the real ReactorAction infer shape, which nests options under `options`.
   const capabilitiesWithInferArgs: ReactorCapabilities = {
     ...mockCapabilities,
-    infer: (opts) => ({ type: "infer", ...(opts ?? {}) } as unknown as ReactorAction),
+    infer: (opts) => ({ type: "infer", options: opts } as unknown as ReactorAction),
   };
+
+  const inferSystemPrompt = (action: Record<string, unknown> | undefined): string =>
+    String((action?.options as Record<string, unknown> | undefined)?.systemPrompt);
 
   test("summary is included in system prompt when next task boundary is detected", async () => {
     const classifier = async (_msg: string, _meta: unknown) => ({ kind: "new_task" as const, reason: "pivot" });
@@ -197,7 +201,7 @@ describe("chatDirector.signalNewTask", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
-    expect(String(inferAction!.systemPrompt)).toContain("prior task: fixed the auth bug");
+    expect(inferSystemPrompt(inferAction)).toContain("prior task: fixed the auth bug");
   });
 
   test("no summary means context-cleared envelope is used", async () => {
@@ -210,7 +214,42 @@ describe("chatDirector.signalNewTask", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
-    expect(String(inferAction!.systemPrompt)).toContain("--- Context cleared for new task ---");
+    expect(inferSystemPrompt(inferAction)).toContain("--- Context cleared for new task ---");
+  });
+});
+
+describe("updateToolDefinitions rewrites infer tools", () => {
+  const makeMessageReceivedEvent = (content: string) =>
+    ({ type: "message.received", message: { role: "user", content } }) as unknown as ReactorInboundEvent;
+  const capabilitiesWithInferArgs: ReactorCapabilities = {
+    ...mockCapabilities,
+    infer: (opts) => ({ type: "infer", options: opts } as unknown as ReactorAction),
+  };
+  const lateTool = { name: "mcp__linear__list_issues", description: "list", inputSchema: { type: "object" } };
+  const inferTools = (action: Record<string, unknown> | undefined): unknown =>
+    (action?.options as Record<string, unknown> | undefined)?.tools;
+
+  test("a tool registered after construction is advertised on the next inference", async () => {
+    const director = createChatDirector("base-prompt", [], async () => true);
+    director.updateToolDefinitions([lateTool]);
+
+    const result = await director.decide(makeMessageReceivedEvent("hello"), mockState, capabilitiesWithInferArgs);
+    const actions = Array.isArray(result) ? result : [result];
+    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    expect(inferAction).toBeDefined();
+    expect(inferTools(inferAction)).toEqual([lateTool]);
+  });
+
+  test("the new-task path also carries the current tools", async () => {
+    const classifier = async (_msg: string, _meta: unknown) => ({ kind: "new_task" as const, reason: "pivot" });
+    const director = createChatDirector("base-prompt", [], async () => true, classifier);
+    director.updateToolDefinitions([lateTool]);
+
+    const result = await director.decide(makeMessageReceivedEvent("new thing"), mockState, capabilitiesWithInferArgs);
+    const actions = Array.isArray(result) ? result : [result];
+    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    expect(inferAction).toBeDefined();
+    expect(inferTools(inferAction)).toEqual([lateTool]);
   });
 });
 
