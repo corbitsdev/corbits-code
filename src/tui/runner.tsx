@@ -86,6 +86,15 @@ export async function runTUI(config: Config): Promise<number> {
         emitter.emit("operator.gate", event);
       }),
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
+    subAgent: {
+      provider: {
+        providerName: config.providerName,
+        baseURL: config.baseURL,
+        apiKey: config.apiKey,
+        model: config.model,
+      },
+      workdirBase: sessionContextDir(config.cwd, config.sessionId),
+    },
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);

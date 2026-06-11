@@ -9,6 +9,7 @@ const defaultAgentTools = [
   "lsp",
   "web_search",
   "web_fetch",
+  "task",
   "submit_plan",
   "submit_output",
   "ask_operator",
@@ -26,6 +27,8 @@ const defaultChatTools = [
   "web_search",
   "web_fetch",
 ];
+
+const defaultChatToolsWithTask = [...defaultChatTools, "task"];
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
 
@@ -188,6 +191,27 @@ export function buildOutputRenderingRules(): string {
   ].join("\n");
 }
 
+export function buildSubAgentSystemPrompt(extensions?: string[]): string {
+  const sections = [
+    "You are a sub-agent dispatched by Intercode to carry out one self-contained task autonomously. You have the full file, search, and shell toolset and you act without asking for approval — finish the task and report back.",
+    buildToolCallDiscipline(),
+    buildStyleRules(),
+    buildBudgetRules(),
+    buildLSPGuidance(),
+    buildGroundingRules(),
+    buildSelfVerification(),
+    "Reporting back:",
+    "- When the task is done, stop calling tools and reply with a concise result: what you found or changed, the key file paths, and anything the dispatcher must know. This final message is the only thing returned to the dispatcher — make it self-contained.",
+    "- Do not ask the dispatcher questions; you cannot receive answers. Make the best-judgment call, act, and note any assumption in your result.",
+    buildAvailableTools(defaultChatTools),
+    buildActiveContext(),
+  ];
+  if (extensions !== undefined && extensions.length > 0) {
+    sections.push(...extensions);
+  }
+  return joinSections(sections);
+}
+
 export function buildChatSystemPrompt(extensions?: string[]): string {
   const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
@@ -199,7 +223,7 @@ export function buildChatSystemPrompt(extensions?: string[]): string {
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
-    buildAvailableTools(defaultChatTools),
+    buildAvailableTools(defaultChatToolsWithTask),
     buildActiveContext(),
   ];
   if (extensions !== undefined && extensions.length > 0) {
