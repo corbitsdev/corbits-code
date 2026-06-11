@@ -16,12 +16,21 @@ import { connectMCPServer } from "./mcp/client.js";
 import { mcpClientToAgentTools } from "./mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "./tui/dynamic-tool-runner.js";
 import type { MCPServerConfig } from "./settings.js";
+import { createTaskTool, type SubAgentProvider } from "./subagent.js";
+import type { ReactorEmittedEvent } from "@intx/inference";
 
 export type AgentToolsetArgs = {
   cwd: string;
   permissionGate: PermissionGate;
   onOperatorGate: (question: string, options: string[]) => Promise<number>;
   mcpServers?: MCPServerConfig[];
+  // When provided, the agent gets a `task` tool that delegates to autonomous
+  // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
+  subAgent?: {
+    provider: SubAgentProvider;
+    workdirBase: string;
+    onEvent?: (event: ReactorEmittedEvent) => void;
+  };
 };
 
 // Per-server connection state surfaced to the TUI.
@@ -67,6 +76,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools),
+    ...(args.subAgent !== undefined
+      ? [
+          createTaskTool({
+            cwd,
+            workdirBase: args.subAgent.workdirBase,
+            provider: args.subAgent.provider,
+            ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
+          }),
+        ]
+      : []),
     stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
