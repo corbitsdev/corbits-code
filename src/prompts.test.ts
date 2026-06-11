@@ -94,6 +94,25 @@ test("tool discipline prefers web tools over shell for web access", () => {
   expect(discipline).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
 });
 
+test("tool discipline encourages parallel fan-out and delegation", () => {
+  const discipline = buildToolCallDiscipline();
+  expect(discipline).toContain("Fan out");
+  expect(discipline).toContain("Parallel calls run concurrently");
+  expect(discipline).toContain("`task` sub-agent");
+});
+
+test("tool discipline biases to action over routine confirmation", () => {
+  const discipline = buildToolCallDiscipline();
+  expect(discipline).toContain("Bias to action");
+  expect(discipline).toContain("Reserve ask_operator for genuine ambiguity");
+});
+
+test("few-shot demonstrates a parallel fan-out and delegation sequence", () => {
+  const fewShot = buildFewShot();
+  expect(fewShot).toContain("fan out");
+  expect(fewShot).toContain("task sub-agent");
+});
+
 test("system prompt requires web grounding for current or unclear external facts", () => {
   const prompt = buildSystemPrompt();
   expect(prompt).toContain(buildGroundingRules());

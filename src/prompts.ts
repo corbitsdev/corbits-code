@@ -51,9 +51,12 @@ export function buildToolCallDiscipline(): string {
   return [
     "How you work:",
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
+    "- Fan out: when calls don't depend on each other — multiple reads, greps, or list_dir at once — emit them together in one turn instead of one per turn. Parallel calls run concurrently and cut latency sharply.",
+    "- Delegate to go faster: for self-contained work that would bloat your context (mapping callers, summarizing a module, a well-scoped implementation), spawn a `task` sub-agent. Fire several task calls in one turn to run them in parallel, then act on the digests they return.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
     "- Understand before you change: read enough to be sure, then act. Not more.",
+    "- Bias to action. You own the outcome and your tools are reversible through git — make the best-judgment call and proceed rather than stopping to ask. Reserve ask_operator for genuine ambiguity where a wrong guess wastes real work, not for routine confirmation.",
   ].join("\n");
 }
 
@@ -141,6 +144,7 @@ export function buildFewShot(): string {
     "A good sequence, fixing a bug:",
     "submit_plan -> grep the failing symbol -> read just that region -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
     "Locate, understand, change, verify, finish. Don't read everything first; don't finish before verifying.",
+    "A good sequence, a wider change: submit_plan -> in one turn, fan out (read the three files you already know you need, and a task sub-agent to map every caller of the symbol you're changing) -> act on the results -> edit -> verify -> submit_output.",
   ].join("\n");
 }
 
