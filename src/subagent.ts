@@ -17,6 +17,7 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import { DefaultDirector } from "@intx/inference";
+import type { ReactorEmittedEvent } from "@intx/inference";
 import type {
   ReactorInboundEvent,
   ReactorState,
@@ -89,6 +90,31 @@ class SubAgentDirector extends DefaultDirector {
   }
 }
 
+// Pull the tool name out of a sub-agent stream event, if it carries one. The
+// model's committed tool calls arrive as `inference.tool_call.end`; that is the
+// signal we count, so retries mid-stream don't inflate the tally.
+export function subAgentToolName(event: ReactorEmittedEvent): string | undefined {
+  if (event.type !== "inference.tool_call.end") return undefined;
+  const name = (event.data as { name?: unknown }).name;
+  return typeof name === "string" && name.length > 0 ? name : undefined;
+}
+
+// Render an ordered tool tally into a one-line trace, e.g.
+// "ran 4 tools: grep, read_file x2, list_dir". Returns "" for no activity so
+// callers can omit the line entirely.
+export function summarizeToolActivity(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  const counts: Array<{ name: string; count: number }> = [];
+  for (const name of names) {
+    const existing = counts.find((c) => c.name === name);
+    if (existing) existing.count++;
+    else counts.push({ name, count: 1 });
+  }
+  const parts = counts.map((c) => (c.count > 1 ? `${c.name} x${c.count}` : c.name));
+  const noun = names.length === 1 ? "tool" : "tools";
+  return `ran ${names.length} ${noun}: ${parts.join(", ")}`;
+}
+
 export type SubAgentProvider = {
   providerName: string;
   baseURL: string;
@@ -104,7 +130,7 @@ export type RunSubAgentParams = {
   prompt: string;
   maxTurns?: number;
   signal?: AbortSignal;
-  onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
+  onEvent?: (event: ReactorEmittedEvent) => void;
 };
 
 // Spin up an isolated, autonomous agent loop against the same working tree,
@@ -173,31 +199,35 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     }),
   });
 
-  const streamPromise =
-    params.onEvent !== undefined
-      ? consumeStream(agent.stream(), params.onEvent)
-      : Promise.resolve();
+  // Always observe the sub-agent's own stream so we can report what it did back
+  // to the dispatcher; forward to the caller's onEvent too when one is supplied.
+  const toolNames: string[] = [];
+  const streamPromise = consumeStream(agent.stream(), (event) => {
+    const name = subAgentToolName(event);
+    if (name !== undefined) toolNames.push(name);
+    params.onEvent?.(event);
+  });
 
   try {
     const result = await agent.send(
       `${params.description}\n\n${params.prompt}`,
       params.signal !== undefined ? { signal: params.signal } : undefined,
     );
-    return result.reply.trim().length > 0
+    const reply = result.reply.trim().length > 0
       ? result.reply.trim()
       : "Sub-agent finished without a textual result.";
+    const activity = summarizeToolActivity(toolNames);
+    return activity.length > 0 ? `[${activity}]\n\n${reply}` : reply;
   } finally {
     try {
       await agent.close();
     } catch {
       // ignore
     }
-    if (params.onEvent !== undefined) {
-      try {
-        await streamPromise;
-      } catch {
-        // ignore
-      }
+    try {
+      await streamPromise;
+    } catch {
+      // ignore
     }
     await posixTools.dispose();
   }
@@ -231,7 +261,7 @@ export type TaskToolDeps = {
   maxTurns?: number;
   // Injectable for tests; defaults to the real runSubAgent.
   run?: (params: RunSubAgentParams) => Promise<string>;
-  onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
+  onEvent?: (event: ReactorEmittedEvent) => void;
 };
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {

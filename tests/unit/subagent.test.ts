@@ -2,10 +2,13 @@ import { test, expect } from "bun:test";
 import {
   createTaskTool,
   taskToolDefinition,
+  subAgentToolName,
+  summarizeToolActivity,
   type RunSubAgentParams,
   type SubAgentProvider,
 } from "../../src/subagent.js";
 import { buildSubAgentSystemPrompt } from "../../src/prompts.js";
+import type { ReactorEmittedEvent } from "@intx/inference";
 
 const provider: SubAgentProvider = {
   providerName: "test",
@@ -80,4 +83,28 @@ test("sub-agent prompt is autonomous and does not advertise the task tool", () =
   expect(prompt).toContain("without asking for approval");
   // A sub-agent must never be told it can delegate further (no recursion).
   expect(prompt).not.toContain("task,");
+});
+
+test("subAgentToolName extracts the name from a committed tool call", () => {
+  const event = { type: "inference.tool_call.end", data: { name: "read_file" } } as unknown as ReactorEmittedEvent;
+  expect(subAgentToolName(event)).toBe("read_file");
+});
+
+test("subAgentToolName ignores unrelated events", () => {
+  const event = { type: "inference.done", data: {} } as unknown as ReactorEmittedEvent;
+  expect(subAgentToolName(event)).toBeUndefined();
+});
+
+test("summarizeToolActivity tallies repeated tools in order", () => {
+  expect(summarizeToolActivity(["grep", "read_file", "read_file", "list_dir"])).toBe(
+    "ran 4 tools: grep, read_file x2, list_dir",
+  );
+});
+
+test("summarizeToolActivity uses the singular noun for one tool", () => {
+  expect(summarizeToolActivity(["grep"])).toBe("ran 1 tool: grep");
+});
+
+test("summarizeToolActivity returns empty string for no activity", () => {
+  expect(summarizeToolActivity([])).toBe("");
 });
