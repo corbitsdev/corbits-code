@@ -5,14 +5,14 @@ describe("formatMcpResult", () => {
   test("summarizes a wrapped list by its key", () => {
     const raw = JSON.stringify({
       projects: [
-        { name: "Notion Agent", status: { name: "Planned" } },
-        { name: "Dispatch", status: { name: "Backlog" } },
+        { name: "Alpha", status: { name: "Planned" } },
+        { name: "Beta", status: { name: "Backlog" } },
       ],
     });
     const r = formatMcpResult(raw);
     expect(r.preview).toBe("2 projects");
-    expect(r.full).toContain("1. Notion Agent — Planned");
-    expect(r.full).toContain("2. Dispatch — Backlog");
+    expect(r.full).toContain("1. Alpha — Planned");
+    expect(r.full).toContain("2. Beta — Backlog");
   });
 
   test("summarizes a bare array", () => {
@@ -26,8 +26,8 @@ describe("formatMcpResult", () => {
   });
 
   test("renders a single record's scalar fields", () => {
-    const r = formatMcpResult(JSON.stringify({ name: "Notion Agent", priority: { name: "Medium" }, items: [1, 2] }));
-    expect(r.full).toContain("name: Notion Agent");
+    const r = formatMcpResult(JSON.stringify({ name: "Alpha", priority: { name: "Medium" }, items: [1, 2] }));
+    expect(r.full).toContain("name: Alpha");
     expect(r.full).toContain("priority: Medium");
     expect(r.full).toContain("items: [2 items]");
   });

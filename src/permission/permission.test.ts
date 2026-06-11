@@ -123,15 +123,15 @@ describe("buildRequests", () => {
   });
 
   test("MCP tools are presented by a human label, not the raw identifier", () => {
-    const reqs = buildRequests({ id: "c", name: "mcp__linear__list_projects", arguments: {} });
+    const reqs = buildRequests({ id: "c", name: "mcp__acme__list_projects", arguments: {} });
     expect(reqs).toHaveLength(1);
     const req = reqs[0]!;
     expect(req.action).not.toContain("mcp__");
-    expect(req.scopes[0]?.label).toBe("Always allow Linear: list projects");
-    expect(req.scopes[0]?.hint).toBe("Linear: list projects");
+    expect(req.scopes[0]?.label).toBe("Always allow Acme: list projects");
+    expect(req.scopes[0]?.hint).toBe("Acme: list projects");
     // The raw identifier stays as the subject/pattern so approval matching is unaffected.
-    expect(req.subject).toBe("mcp__linear__list_projects");
-    expect(req.scopes[0]?.pattern).toBe("mcp__linear__list_projects");
+    expect(req.subject).toBe("mcp__acme__list_projects");
+    expect(req.scopes[0]?.pattern).toBe("mcp__acme__list_projects");
   });
 });
 

@@ -18,21 +18,21 @@ describe("humanizeToolName", () => {
     expect(humanizeToolName("custom_tool")).not.toContain("_");
   });
   test("renders MCP tools as 'Server: tool name'", () => {
-    expect(humanizeToolName("mcp__linear__list_projects")).toBe("Linear: list projects");
-    expect(humanizeToolName("mcp__linear__list_projects")).not.toContain("mcp__");
+    expect(humanizeToolName("mcp__acme__list_projects")).toBe("Acme: list projects");
+    expect(humanizeToolName("mcp__acme__list_projects")).not.toContain("mcp__");
   });
 });
 
 describe("summarizeToolResult for MCP tools", () => {
   test("summarizes JSON instead of flagging it as a document", () => {
     const raw = JSON.stringify({ projects: [{ name: "A" }, { name: "B" }] });
-    const r = summarizeToolResult("mcp__linear__list_projects", raw);
+    const r = summarizeToolResult("mcp__acme__list_projects", raw);
     expect(r.isJSONDocument).toBe(false);
     expect(r.preview).toBe("2 projects");
   });
   test("bounds an enormous payload so it cannot freeze the renderer", () => {
     const raw = JSON.stringify({ results: Array.from({ length: 1000 }, (_, i) => ({ name: `n${i}` })) });
-    const r = summarizeToolResult("mcp__linear__list_projects", raw);
+    const r = summarizeToolResult("mcp__acme__list_projects", raw);
     expect(r.full.length).toBeLessThan(4200);
     expect(r.isJSONDocument).toBe(false);
   });

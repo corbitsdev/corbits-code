@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import { color, type SemanticRole } from "../theme.js";
 import { recordScalar, type McpRecords } from "../mcp-result-format.js";
 
-// How many records to show before collapsing to a "+N more" footer.
-const COLLAPSED_ROWS = 8;
-const EXPANDED_ROWS = 40;
+// Render every row and let the scroll viewport handle overflow. A high sanity
+// cap only guards against a pathologically large list locking up the renderer.
+const MAX_ROWS = 200;
 const COL_GAP = 2;
 
 type ColumnKind = "index" | "name" | "status" | "priority" | "team" | "date" | "text";
@@ -109,20 +109,90 @@ function layout(items: Record<string, unknown>[], available: number): { col: Col
 export type McpTableProps = {
   records: McpRecords;
   width: number;
-  expanded: boolean;
 };
 
-export function mcpTableRowCount(itemCount: number, expanded: boolean): number {
-  const shown = Math.min(itemCount, expanded ? EXPANDED_ROWS : COLLAPSED_ROWS);
-  // header + rows + ("+N more" footer when truncated)
+export function mcpTableRowCount(itemCount: number): number {
+  const shown = Math.min(itemCount, MAX_ROWS);
+  // header + rows + ("+N more" footer only past the sanity cap)
   return 1 + shown + (itemCount > shown ? 1 : 0);
 }
 
-export function McpTable({ records, width, expanded }: McpTableProps): ReactNode {
+// Fields shown first (in this order) in a record card; any other scalar fields
+// follow. Noisy identifiers and timestamps are hidden — they add no value.
+const DETAIL_ORDER = ["status", "state", "priority", "team", "lead", "assignee", "startDate", "targetDate", "dueDate", "url", "description", "summary"];
+const DETAIL_HIDE = new Set(["id", "createdAt", "updatedAt", "archivedAt", "completedAt", "canceledAt", "icon", "color", "slug"]);
+const TITLE_FIELDS = ["name", "title", "identifier", "label", "key"];
+const DATE_FIELDS = new Set(["startDate", "targetDate", "dueDate"]);
+
+function humanizeField(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function detailRole(key: string, value: string): SemanticRole | undefined {
+  if (key === "status" || key === "state") return statusRole(value);
+  if (key === "priority") return priorityRole(value);
+  return undefined;
+}
+
+export function mcpRecordCardRowCount(record: Record<string, unknown>): number {
+  return 1 + detailRows(record).length;
+}
+
+function detailRows(record: Record<string, unknown>): { key: string; value: string }[] {
+  const title = TITLE_FIELDS.find((f) => (recordScalar(record, f) ?? "").length > 0);
+  const present = Object.keys(record).filter(
+    (k) => k !== title && !DETAIL_HIDE.has(k) && (recordScalar(record, k) ?? "").length > 0,
+  );
+  const ordered = [
+    ...DETAIL_ORDER.filter((k) => present.includes(k)),
+    ...present.filter((k) => !DETAIL_ORDER.includes(k)),
+  ];
+  return ordered.map((key) => {
+    const raw = recordScalar(record, key) ?? "";
+    return { key, value: DATE_FIELDS.has(key) ? raw.slice(0, 10) : raw };
+  });
+}
+
+export type McpRecordCardProps = {
+  record: Record<string, unknown>;
+  width: number;
+};
+
+export function McpRecordCard({ record, width }: McpRecordCardProps): ReactNode {
+  const available = Math.max(24, width - 2);
+  const title = TITLE_FIELDS.map((f) => recordScalar(record, f)).find((v): v is string => v !== null && v.length > 0);
+  const rows = detailRows(record);
+  const labelWidth = Math.min(16, Math.max(0, ...rows.map((r) => humanizeField(r.key).length)));
+  const valueWidth = Math.max(8, available - labelWidth - COL_GAP);
+
+  return (
+    <Box flexDirection="column">
+      {title !== undefined && (
+        <Text bold color={color("accent")}>
+          {truncate(title, available)}
+        </Text>
+      )}
+      {rows.map((r, i) => {
+        const role = detailRole(r.key, r.value);
+        return (
+          <Text key={i}>
+            <Text color={color("muted")}>{pad(humanizeField(r.key), labelWidth)}</Text>
+            {" ".repeat(COL_GAP)}
+            <Text {...(role !== undefined ? { color: color(role) } : {})}>{truncate(r.value, valueWidth)}</Text>
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
+export function McpTable({ records, width }: McpTableProps): ReactNode {
   const available = Math.max(24, width - 2);
   const cols = layout(records.items, available);
-  const limit = expanded ? EXPANDED_ROWS : COLLAPSED_ROWS;
-  const shown = records.items.slice(0, limit);
+  const shown = records.items.slice(0, MAX_ROWS);
 
   return (
     <Box flexDirection="column">
@@ -151,7 +221,7 @@ export function McpTable({ records, width, expanded }: McpTableProps): ReactNode
       ))}
       {records.items.length > shown.length && (
         <Text color={color("muted")} dimColor>
-          +{records.items.length - shown.length} more {records.label} (expand to see more)
+          +{records.items.length - shown.length} more {records.label}
         </Text>
       )}
     </Box>

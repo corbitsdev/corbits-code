@@ -53,6 +53,20 @@ export function recordScalar(record: Record<string, unknown>, key: string): stri
   return scalarField(record, key);
 }
 
+// A single record result (get_project, get_issue, save_*): a plain object that is
+// not itself a list wrapper. Rendered as a detail card rather than a table.
+export function extractMcpRecord(content: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content.trim());
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  if (extractMcpRecords(content) !== null) return null;
+  return parsed as Record<string, unknown>;
+}
+
 // Some MCP servers nest the human-readable value one level down (e.g. Linear
 // returns status as `{ name: "In Progress" }`). Pull a scalar out of either.
 function scalarField(record: Record<string, unknown>, key: string): string | null {

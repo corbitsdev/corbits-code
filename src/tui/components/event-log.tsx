@@ -4,9 +4,9 @@ import type { ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, summarizeToolResult } from "../tool-formatter.js";
-import { extractMcpRecords } from "../mcp-result-format.js";
+import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
-import { McpTable, mcpTableRowCount } from "./mcp-table.js";
+import { McpTable, mcpTableRowCount, McpRecordCard, mcpRecordCardRowCount } from "./mcp-table.js";
 import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
@@ -72,7 +72,9 @@ function estimateRows(
       if (block.isError) return wrap(block.content);
       if (isMcpToolName(block.name) && !block.isError) {
         const records = extractMcpRecords(block.content);
-        if (records !== null) return mcpTableRowCount(records.items.length, expanded);
+        if (records !== null) return mcpTableRowCount(records.items.length);
+        const record = extractMcpRecord(block.content);
+        if (record !== null) return mcpRecordCardRowCount(record);
       }
       const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
       // JSON documents render via parseMarkdown which transforms tables (drops
@@ -278,7 +280,11 @@ function renderBlock(
       if (isMcpToolName(block.name)) {
         const records = extractMcpRecords(block.content);
         if (records !== null) {
-          return <McpTable key={key} records={records} width={columns} expanded={expanded} />;
+          return <McpTable key={key} records={records} width={columns} />;
+        }
+        const record = extractMcpRecord(block.content);
+        if (record !== null) {
+          return <McpRecordCard key={key} record={record} width={columns} />;
         }
       }
       const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);

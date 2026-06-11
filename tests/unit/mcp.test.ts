@@ -15,7 +15,7 @@ describe("isLocalSettings with mcpServers", () => {
   test("accepts valid mcpServers array", () => {
     expect(
       isLocalSettings({
-        mcpServers: [{ name: "linear", command: "npx", args: ["-y", "@linear/mcp"] }],
+        mcpServers: [{ name: "acme", command: "npx", args: ["-y", "@acme/mcp"] }],
       }),
     ).toBe(true);
   });
@@ -80,7 +80,7 @@ describe("isLocalSettings with mcpServers", () => {
     expect(
       isLocalSettings({
         mcpServers: {
-          linear: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"] },
+          acme: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"] },
         },
       }),
     ).toBe(true);
@@ -124,10 +124,10 @@ describe("createMCPPlugin", () => {
   }
 
   test("namespaces tools as mcp__<server>__<tool>", () => {
-    const client = makeFakeClient("linear", ["list_issues", "create_issue"]);
+    const client = makeFakeClient("acme", ["list_issues", "create_issue"]);
     const { plugin } = createMCPPlugin([client]);
     const names = plugin.tools!.map((t) => t.definition.name);
-    expect(names).toEqual(["mcp__linear__list_issues", "mcp__linear__create_issue"]);
+    expect(names).toEqual(["mcp__acme__list_issues", "mcp__acme__create_issue"]);
   });
 
   test("prefixes description with server name", () => {
@@ -204,16 +204,16 @@ describe("normalizeMcpServers", () => {
   });
 
   test("passes through array format unchanged", () => {
-    const input = [{ name: "linear", command: "npx", args: ["-y", "mcp-remote"] }];
+    const input = [{ name: "acme", command: "npx", args: ["-y", "mcp-remote"] }];
     expect(normalizeMcpServers(input)).toEqual(input);
   });
 
   test("converts object format to array format", () => {
     const input = {
-      linear: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"] },
+      acme: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"] },
     };
     expect(normalizeMcpServers(input)).toEqual([
-      { name: "linear", command: "npx", args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"] },
+      { name: "acme", command: "npx", args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"] },
     ]);
   });
 
@@ -248,21 +248,21 @@ describe("normalizeMcpServers", () => {
 
 describe("normalizeMcpServers with http transport", () => {
   test("accepts an http server by url", () => {
-    expect(normalizeMcpServers({ linear: { type: "http", url: "https://mcp.linear.app/mcp" } })).toEqual([
-      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+    expect(normalizeMcpServers({ acme: { type: "http", url: "https://mcp.acme.app/mcp" } })).toEqual([
+      { name: "acme", type: "http", url: "https://mcp.acme.app/mcp" },
     ]);
   });
 
   test("infers http when only url is given", () => {
-    expect(isLocalSettings({ mcpServers: { linear: { url: "https://mcp.linear.app/mcp" } } })).toBe(true);
+    expect(isLocalSettings({ mcpServers: { acme: { url: "https://mcp.acme.app/mcp" } } })).toBe(true);
   });
 
   test("rejects an http server with no url", () => {
-    expect(normalizeMcpServers({ linear: { type: "http" } })).toBeUndefined();
+    expect(normalizeMcpServers({ acme: { type: "http" } })).toBeUndefined();
   });
 
   test("rejects an unknown transport type", () => {
-    expect(normalizeMcpServers({ linear: { type: "ws", url: "wss://x" } })).toBeUndefined();
+    expect(normalizeMcpServers({ acme: { type: "ws", url: "wss://x" } })).toBeUndefined();
   });
 });
 
@@ -272,9 +272,9 @@ describe("MCP auth store", () => {
   test("round-trips state through disk", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      expect(await loadAuthState("linear", home)).toEqual({});
-      await saveAuthState("linear", { tokens, codeVerifier: "verifier" }, home);
-      expect(await loadAuthState("linear", home)).toEqual({ tokens, codeVerifier: "verifier" });
+      expect(await loadAuthState("acme", home)).toEqual({});
+      await saveAuthState("acme", { tokens, codeVerifier: "verifier" }, home);
+      expect(await loadAuthState("acme", home)).toEqual({ tokens, codeVerifier: "verifier" });
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -283,7 +283,7 @@ describe("MCP auth store", () => {
   test("isolates state per server name", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      await saveAuthState("linear", { tokens }, home);
+      await saveAuthState("acme", { tokens }, home);
       expect(await loadAuthState("github", home)).toEqual({});
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -297,13 +297,13 @@ describe("OAuth provider", () => {
     try {
       const seen: Array<{ name: string; url: string }> = [];
       const provider = await createOAuthProvider({
-        serverName: "linear",
+        serverName: "acme",
         redirectUrl: "http://127.0.0.1:5599/callback",
         onAuthURL: (name, url) => seen.push({ name, url }),
         home,
       });
-      provider.redirectToAuthorization(new URL("https://linear.app/oauth/authorize?client_id=abc"));
-      expect(seen).toEqual([{ name: "linear", url: "https://linear.app/oauth/authorize?client_id=abc" }]);
+      provider.redirectToAuthorization(new URL("https://acme.app/oauth/authorize?client_id=abc"));
+      expect(seen).toEqual([{ name: "acme", url: "https://acme.app/oauth/authorize?client_id=abc" }]);
       expect(provider.redirectUrl).toBe("http://127.0.0.1:5599/callback");
       expect(provider.clientMetadata.redirect_uris).toEqual(["http://127.0.0.1:5599/callback"]);
     } finally {
@@ -314,7 +314,7 @@ describe("OAuth provider", () => {
   test("supplies a stable, non-empty OAuth state parameter", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      const provider = await createOAuthProvider({ serverName: "linear", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      const provider = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
       const first = await provider.state?.();
       expect(first).toBeTruthy();
       expect(await provider.state?.()).toBe(first);
@@ -326,9 +326,9 @@ describe("OAuth provider", () => {
   test("persists tokens so a later provider reads them back", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      const first = await createOAuthProvider({ serverName: "linear", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      const first = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
       await first.saveTokens({ access_token: "abc", token_type: "Bearer" });
-      const second = await createOAuthProvider({ serverName: "linear", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      const second = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
       expect(second.tokens()).toEqual({ access_token: "abc", token_type: "Bearer" });
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -345,10 +345,10 @@ describe("dynamic tool runner", () => {
 
   test("dispatches a tool added after construction", async () => {
     const runner = createDynamicToolRunner([makeTool("base", "base-result")]);
-    runner.addTools([makeTool("mcp__linear__list", "late-result")]);
+    runner.addTools([makeTool("mcp__acme__list", "late-result")]);
 
-    expect(runner.currentDefinitions().map((d) => d.name)).toEqual(["base", "mcp__linear__list"]);
-    const result = await runner.run({ id: "c1", name: "mcp__linear__list", arguments: {} }, new AbortController().signal);
+    expect(runner.currentDefinitions().map((d) => d.name)).toEqual(["base", "mcp__acme__list"]);
+    const result = await runner.run({ id: "c1", name: "mcp__acme__list", arguments: {} }, new AbortController().signal);
     expect(result.content).toBe("late-result");
   });
 

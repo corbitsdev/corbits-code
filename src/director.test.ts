@@ -225,7 +225,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     ...mockCapabilities,
     infer: (opts) => ({ type: "infer", options: opts } as unknown as ReactorAction),
   };
-  const lateTool = { name: "mcp__linear__list_issues", description: "list", inputSchema: { type: "object" } };
+  const lateTool = { name: "mcp__acme__list_issues", description: "list", inputSchema: { type: "object" } };
   const inferTools = (action: Record<string, unknown> | undefined): unknown =>
     (action?.options as Record<string, unknown> | undefined)?.tools;
 

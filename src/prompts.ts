@@ -177,10 +177,20 @@ export function buildSystemPrompt(tools = defaultAgentTools, extensions?: string
   return joinSections(sections);
 }
 
+export function buildOutputRenderingRules(): string {
+  return [
+    "Output rendering:",
+    "- Tool results are already shown to the user in a rich, formatted view (tables, status colors, syntax). Do not reproduce or reformat tool output in your reply.",
+    "- Never redraw a tool's data as a Markdown table or a numbered list of its rows — it duplicates the rendered view and wraps badly in the terminal.",
+    "- After a tool runs, give only a brief takeaway: the direct answer, the one or two notable items, or the next step. Refer to the rendered result rather than restating it.",
+  ].join("\n");
+}
+
 export function buildChatSystemPrompt(extensions?: string[]): string {
   const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
     buildToolCallDiscipline(),
+    buildOutputRenderingRules(),
     buildStyleRules(),
     buildBudgetRules(),
     buildLSPGuidance(),
