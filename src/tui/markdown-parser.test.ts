@@ -266,17 +266,19 @@ describe("F3: GFM table relaxation", () => {
     expect(allText(lines[0] ?? [])).toContain("left");
   });
 
-  test("cell with escaped pipe is not split", () => {
+  test("cell with escaped pipe is not split into columns", () => {
     const lines = parseMarkdown("| code | desc |\n|---|---|\n| a\\|b | test |");
     expect(lines).toHaveLength(2);
     const row = allText(lines[1] ?? []);
-    expect(row).toContain("a\\|b");
+    // The escaped pipe stays inside one cell rather than splitting it.
+    expect(row).toContain("a|b");
   });
 
-  test("escaped pipe preserves literal pipe in output", () => {
+  test("escaped pipe renders as a literal pipe, not a backslash escape", () => {
     const lines = parseMarkdown("| a | b |\n|---|---|\n| x\\|y | z |");
     const row = allText(lines[1] ?? []);
-    expect(row).toContain("x\\|y");
+    expect(row).toContain("x|y");
+    expect(row).not.toContain("x\\|y");
   });
 });
 
@@ -298,4 +300,13 @@ describe("multi-line", () => {
     expect(allText(lines[1] ?? [])).toBe("Game 3 | June 7 | Vegas   ");
     expect(allText(lines[2] ?? [])).toBe("Game 4 | June 9 | Vegas   ");
   });
+});
+
+test("link with an empty URL still renders as styled text, not raw characters", () => {
+  const lines = parseMarkdown("see [docs]() here");
+  const segs = lines[0] ?? [];
+  const link = segs.find((s) => s.link === true);
+  expect(link?.text).toBe("docs");
+  // No "(...)" suffix for an empty URL, and the text is not split char-by-char.
+  expect(segs.some((s) => s.text.includes("("))).toBe(false);
 });
