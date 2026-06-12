@@ -839,3 +839,20 @@ test("write_file to a different file while on a fileless step sets planDeviated"
   // currentPlanStep stays at 0 — did not advance.
   expect(state.currentPlanStep).toBe(0);
 });
+
+test("gate count does not stick after an abort while a gate is open", () => {
+  const state = createAgentStreamState();
+  state.setGatePending(true);
+  expect(state.status).toBe("blocked");
+  // Abort the run while the gate is still open, then the gate resolves late.
+  state.requestStop();
+  expect(state.status).toBe("stopping");
+  state.setGatePending(false);
+  // A fresh run must not inherit a stuck gate count and start wedged.
+  state.markRunning();
+  expect(state.status).toBe("running");
+  state.setGatePending(true);
+  expect(state.status).toBe("blocked");
+  state.setGatePending(false);
+  expect(state.status).toBe("running");
+});
