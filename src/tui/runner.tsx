@@ -270,13 +270,13 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
-  // Drain queued user messages at the next inference boundary. The listener
-  // fires on every inference.done event; if there is a pending message it is
-  // delivered via deliver() (not send()) so it reaches the reactor directly
-  // without entering the send queue, which avoids the wait-for-idle semantics
-  // that would otherwise delay it until the next agent.send() call.
+  // Drain queued user messages after the agent finishes a full response cycle.
+  // connector.reply fires once per cycle after ALL tool calls in that round
+  // have executed and their results committed — using inference.done instead
+  // risks firing between an intermediate inference round and its tool results,
+  // which produces "tool_call_id did not have response messages" from the API.
   emitter.on("event", (event: { type: string }) => {
-    if (event.type !== "inference.done") return;
+    if (event.type !== "connector.reply") return;
     const text = injectionQueue.dequeue();
     if (text === undefined) return;
     try {

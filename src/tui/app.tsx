@@ -405,6 +405,30 @@ export function App({
           setCommandMessage(`Copied authorization URL for ${first.name}`);
         }
       },
+      copyLastOutput: () => {
+        // MCP auth URL takes priority when one is pending.
+        const first = mcpStatus.needsAuth[0];
+        if (first !== undefined) {
+          writeClipboard(first.url);
+          setCommandMessage(`Copied authorization URL for ${first.name}`);
+          return;
+        }
+        // Walk backwards for the last copyable block: reply, text, or tool_result.
+        const blocks = state.contentBlocks;
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i]!;
+          if (b.type === "reply" || b.type === "text") {
+            writeClipboard(b.content);
+            setCommandMessage("Copied to clipboard");
+            return;
+          }
+          if (b.type === "tool_result") {
+            writeClipboard(b.content);
+            setCommandMessage(`Copied ${b.name} output`);
+            return;
+          }
+        }
+      },
     },
   );
 
