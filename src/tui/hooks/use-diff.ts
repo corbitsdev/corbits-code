@@ -4,6 +4,8 @@ import { getWorkingTreeDiff, type DiffResult } from "../git-diff.js";
 export type UseDiffArgs = {
   cwd: string;
   active: boolean;
+  // Injectable for testing. Defaults to the real git implementation.
+  getDiff?: (cwd: string) => Promise<DiffResult>;
 };
 
 export type DiffState = {
@@ -28,7 +30,7 @@ export function shouldRefreshDiff({ active, lastRefreshAt, nowMs, intervalMs }: 
 
 const DIFF_REFRESH_INTERVAL_MS = 3000;
 
-export function useDiff({ cwd, active }: UseDiffArgs): DiffState {
+export function useDiff({ cwd, active, getDiff = getWorkingTreeDiff }: UseDiffArgs): DiffState {
   const [result, setResult] = useState<DiffResult | null>(null);
   const [loading, setLoading] = useState(false);
   // Tracks when the last completed refresh started so we can debounce on an
@@ -58,7 +60,7 @@ export function useDiff({ cwd, active }: UseDiffArgs): DiffState {
       lastRefreshAt.current = now;
       inFlight = true;
       setLoading(true);
-      getWorkingTreeDiff(cwd)
+      getDiff(cwd)
         .then((next) => {
           if (!cancelled) setResult(next);
         })
