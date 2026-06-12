@@ -4,6 +4,7 @@ export type ScrollController = {
   scrollOffset: number;
   scrollUp: () => void;
   scrollDown: () => void;
+  scrollToBottom: () => void;
   atBottom: boolean;
 };
 
@@ -29,6 +30,9 @@ export function useScroll({ maxOffset }: UseScrollArgs): ScrollController {
       const next = Math.min(maxOffset, scrollOffset + 1);
       setPinnedToBottom(next >= maxOffset);
       setStoredOffset(next);
+    },
+    scrollToBottom: () => {
+      setPinnedToBottom(true);
     },
   };
 }

@@ -21,7 +21,7 @@ export type EventLogProps = {
   visibleRows: number;
   columns: number;
   thinkingExpanded: boolean;
-  collapsedTools: ReadonlySet<string>;
+  expandedTools: ReadonlySet<string>;
   verbose: boolean;
 };
 
@@ -226,17 +226,12 @@ function blockToUnits(block: RenderableBlock, columns: number, expanded: boolean
         ...plainUnits(block.content, { color: color("muted") }, width, id),
       ];
     }
-    case "user": {
-      if (!expanded) {
-        const text = truncateLine(`> ${block.content}`, columns, false);
-        return [{ key: id, node: <Text key={id} color={color("success")}>{text}</Text>, rows: 1 }];
-      }
+    case "user":
       return block.content.split("\n").map((line, i) => {
         const text = (i === 0 ? "> " : "") + line;
         const key = `${id}-l${i}`;
         return { key, node: <Text key={key} color={color("success")}>{text.length > 0 ? text : " "}</Text>, rows: lineRows(text, width) };
       });
-    }
     case "text":
       return markdownUnits(block.content, width, id);
     case "tool_call":
@@ -303,10 +298,10 @@ export function EventLog({
   visibleRows,
   columns,
   thinkingExpanded,
-  collapsedTools,
+  expandedTools,
   verbose,
 }: EventLogProps): ReactNode {
-  const isExpanded = (block: RenderableBlock): boolean => verbose || !collapsedTools.has(block.id);
+  const isExpanded = (block: RenderableBlock): boolean => verbose || expandedTools.has(block.id);
   const units = buildLineUnits(contentBlocks, columns, thinkingExpanded, isExpanded);
 
   if (units.length === 0) {

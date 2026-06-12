@@ -10,6 +10,7 @@ function Harness({ maxOffset }: { maxOffset: number }): ReactNode {
   useInput((input) => {
     if (input === "u") scroll.scrollUp();
     if (input === "d") scroll.scrollDown();
+    if (input === "b") scroll.scrollToBottom();
   });
   return <Text>{`offset=${scroll.scrollOffset} bottom=${scroll.atBottom ? "1" : "0"}`}</Text>;
 }
@@ -66,4 +67,17 @@ test("a pinned-to-bottom offset that exceeds shrunken content stays at the new b
   rerender(<Harness maxOffset={2} />);
   await tick();
   expect(lastFrame()).toContain("offset=2 bottom=1");
+});
+
+test("scrollToBottom re-pins after scrolling up", async () => {
+  const { lastFrame, stdin } = render(<Harness maxOffset={19} />);
+  await tick();
+  stdin.write("u");
+  await tick();
+  stdin.write("u");
+  await tick();
+  expect(lastFrame()).toContain("bottom=0");
+  stdin.write("b");
+  await tick();
+  expect(lastFrame()).toContain("offset=19 bottom=1");
 });

@@ -28,6 +28,7 @@ export type KeymapActions = {
   closeHookPanel: () => void;
   scrollUp: () => void;
   scrollDown: () => void;
+  scrollToBottom: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
   togglePlanSidebar: () => void;
@@ -98,6 +99,10 @@ export function handleKey(
       }
     }
     return now;
+  }
+  if (key.ctrl && key.downArrow) {
+    actions.scrollToBottom();
+    return lastEscMs;
   }
   if (key.upArrow) {
     actions.scrollUp();

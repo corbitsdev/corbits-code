@@ -48,17 +48,15 @@ test("sidebar open: leftWidth is floor(columns * 0.65)", () => {
   expect(geo.rightWidth).toBe(100 - Math.floor(100 * 0.65));
 });
 
-// 3. visibleRows = rows - 12 - effectiveOverlayRows
-test("visibleRows equals rows - 12 - effectiveOverlayRows", () => {
+test("visibleRows equals rows - 9 - effectiveOverlayRows", () => {
   const geo = getGeo(makeArgs({ rows: 40 }));
-  expect(geo.visibleRows).toBe(40 - 12 - geo.effectiveOverlayRows);
+  expect(geo.visibleRows).toBe(40 - 9 - geo.effectiveOverlayRows);
 });
 
-// 4. No modals/gates: effectiveOverlayRows === 0, visibleRows === rows - 12
-test("no modals or gates: effectiveOverlayRows is 0 and visibleRows is rows - 12", () => {
+test("no modals or gates: effectiveOverlayRows is 0 and visibleRows is rows - 9", () => {
   const geo = getGeo(makeArgs({ rows: 40 }));
   expect(geo.effectiveOverlayRows).toBe(0);
-  expect(geo.visibleRows).toBe(40 - 12);
+  expect(geo.visibleRows).toBe(40 - 9);
 });
 
 // 5. helpOpen: true → effectiveOverlayRows === 16

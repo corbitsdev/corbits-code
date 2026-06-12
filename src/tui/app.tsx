@@ -94,7 +94,7 @@ export function App({
   const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const [collapsedTools, setCollapsedTools] = useState<ReadonlySet<string>>(() => new Set());
+  const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -165,11 +165,11 @@ export function App({
         state.contentBlocks,
         leftWidth,
         thinkingExpanded,
-        (block) => verbose || !collapsedTools.has(block.id),
+        (block) => verbose || expandedTools.has(block.id),
       ),
       visibleRows,
     ),
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, collapsedTools, visibleRows],
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, visibleRows],
   );
 
   const lastToolId = useMemo(() => {
@@ -217,6 +217,7 @@ export function App({
   const sendMessage = (message: string) => {
     sendCounterRef.current += 1;
     state.markRunning();
+    scroll.scrollToBottom();
     // Nudge a re-render so the in-flight indicator and interval timer activate
     // immediately rather than waiting for the first event from the new run.
     forceRender((n) => n + 1);
@@ -321,11 +322,15 @@ export function App({
         if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 1));
         else scroll.scrollDown();
       },
+      scrollToBottom: () => {
+        if (diffActive) setDiffScroll(diffMaxOffset);
+        else scroll.scrollToBottom();
+      },
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
         if (lastToolId !== null) {
           const id = lastToolId;
-          setCollapsedTools((prev) => {
+          setExpandedTools((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
@@ -382,7 +387,16 @@ export function App({
 
   return (
     <Box flexDirection="column" height={rows}>
-      <Box flexShrink={0} flexDirection="column">
+      <Box
+        flexShrink={0}
+        flexDirection="column"
+        borderStyle="single"
+        borderColor={color("muted")}
+        borderTop={false}
+        borderBottom
+        borderLeft={false}
+        borderRight={false}
+      >
         <Header
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
@@ -414,7 +428,7 @@ export function App({
                 visibleRows={visibleRows}
                 columns={leftWidth}
                 thinkingExpanded={thinkingExpanded}
-                collapsedTools={collapsedTools}
+                expandedTools={expandedTools}
                 verbose={verbose}
               />
             </Box>
@@ -493,18 +507,10 @@ export function App({
         <StatusBar
           provider={provider}
           model={model}
-          turnsUsed={state.turnsUsed}
-          planStep={state.currentPlanStep}
-          planTotal={state.planTotal}
-          planPending={gates.pendingPlan !== null}
-          planDeviated={state.planDeviated}
           cost={state.formattedCost}
           tokens={state.totalTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
-          currentToolName={state.currentToolName}
-          streamingType={state.streamingType}
-          awaitingResponse={state.awaitingResponse}
           connectedMCPServers={mcpStatus.connected}
         />
         </Box>

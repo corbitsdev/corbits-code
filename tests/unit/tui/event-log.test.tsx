@@ -30,7 +30,7 @@ function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
       visibleRows={overrides.visibleRows ?? 100}
       columns={overrides.columns ?? 200}
       thinkingExpanded={overrides.thinkingExpanded ?? false}
-      collapsedTools={overrides.collapsedTools ?? new Set()}
+      expandedTools={overrides.expandedTools ?? new Set()}
       verbose={overrides.verbose ?? false}
     />,
     { stdout: { columns: (overrides.columns ?? 200) + 20, rows: 200 } as unknown as NodeJS.WriteStream },
@@ -111,15 +111,16 @@ test("EventLog never shows raw JSON for tool call args in default view", () => {
   expect(frame).not.toContain('"limit":40');
 });
 
-test("EventLog shows the full tool result by default and the preview when collapsed", () => {
+test("EventLog summarizes a tool result by default and shows full content when expanded", () => {
   const blocks: ContentBlock[] = [
     { id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\tline one\n     2\tline two", isError: false },
   ];
-  expect(renderLog(blocks).lastFrame()).toContain("line one");
-  expect(renderLog(blocks, { collapsedTools: new Set(["r"]) }).lastFrame()).toContain("Read 2 lines");
+  expect(renderLog(blocks).lastFrame()).toContain("Read 2 lines");
+  expect(renderLog(blocks).lastFrame()).not.toContain("line one");
+  expect(renderLog(blocks, { expandedTools: new Set(["r"]) }).lastFrame()).toContain("line one");
 });
 
-test("EventLog renders web_search result envelopes as readable output", () => {
+test("EventLog renders web_search result envelopes as a readable summary", () => {
   const content = JSON.stringify({
     results: [
       { title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" },
@@ -129,7 +130,7 @@ test("EventLog renders web_search result envelopes as readable output", () => {
     { type: "tool_result", callId: "web-1", name: "web_search", content, isError: false },
   ]);
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Hono");
+  expect(frame).toContain("Found 1 web result");
   expect(frame).not.toContain('"results"');
 });
 
@@ -172,21 +173,12 @@ test("EventLog verbose reveals full tool args", () => {
   expect(lastFrame()).toContain("/tmp/example");
 });
 
-test("EventLog shows full tool result content by default", () => {
+test("EventLog reveals full tool result content when the block is expanded", () => {
   const { lastFrame } = renderLog(
     [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text", isError: false }],
+    { expandedTools: new Set(["r"]) },
   );
   expect(lastFrame()).toContain("hidden text");
-});
-
-test("EventLog compresses a block to a summary when it is collapsed", () => {
-  const { lastFrame } = renderLog(
-    [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text\n     2\tmore", isError: false }],
-    { collapsedTools: new Set(["r"]) },
-  );
-  const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("hidden text");
-  expect(frame).toContain("Read 2 lines");
 });
 
 test("EventLog filters out reply and plan blocks", () => {
@@ -226,12 +218,10 @@ test("EventLog shows long content in full by default, never a show-more marker",
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("a collapsed block compresses to one line marked with an ellipsis, not show-more", () => {
-  const long = "x".repeat(300);
-  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], {
-    columns: 80,
-    collapsedTools: new Set(["u"]),
-  });
+test("a long tool summary is marked with a bare ellipsis, not show-more", () => {
+  const { lastFrame } = renderLog([
+    { type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: "x".repeat(300) }) },
+  ], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("[show more]");
   expect(frame).toContain("…");

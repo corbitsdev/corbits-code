@@ -56,6 +56,7 @@ function makeActions(): KeymapActions {
     closeHookPanel: mock(() => {}),
     scrollUp: mock(() => {}),
     scrollDown: mock(() => {}),
+    scrollToBottom: mock(() => {}),
     toggleThinking: mock(() => {}),
     toggleLastTool: mock(() => {}),
     togglePlanSidebar: mock(() => {}),
@@ -194,6 +195,12 @@ test("up arrow with empty input calls scrollUp", () => {
 test("down arrow with empty input calls scrollDown", () => {
   const { actions } = dispatch("", DOWN_KEY, { hasInput: false });
   expect(actions.scrollDown).toHaveBeenCalledTimes(1);
+});
+
+test("Ctrl+Down jumps to the bottom instead of scrolling one line", () => {
+  const { actions } = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true });
+  expect(actions.scrollToBottom).toHaveBeenCalledTimes(1);
+  expect(actions.scrollDown).not.toHaveBeenCalled();
 });
 
 test("up arrow with hasInput calls scrollUp", () => {

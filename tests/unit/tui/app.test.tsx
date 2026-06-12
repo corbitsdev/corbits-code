@@ -85,10 +85,10 @@ test("App renders a submitted prompt once, not in both header and log", async ()
   expect(frame).toContain("> hello world");
 });
 
-test("App renders running status initially", () => {
+test("App hides the running status label in the status bar", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = renderApp(emitter);
-  expect(lastFrame()).toContain("Running");
+  expect(lastFrame()).not.toContain("Running");
 });
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
