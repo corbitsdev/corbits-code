@@ -70,7 +70,6 @@ export type AppProps = {
   onAgentError?: (err: unknown) => void;
   onInterrupt?: () => void;
   onNewSession?: () => void;
-  onQueueMessage?: (text: string) => void;
   permissionsAdmin?: PermissionsAdmin;
   profile?: string;
 };
@@ -91,7 +90,6 @@ export function App({
   onAgentError,
   onInterrupt,
   onNewSession,
-  onQueueMessage,
   permissionsAdmin,
   profile,
 }: AppProps): ReactNode {
@@ -116,9 +114,10 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
-  // Tracks messages queued for delivery at the next inference boundary.
-  // Incremented when the user submits while a run is active; decremented via
-  // the onMessageDelivered callback fired by the runner on each actual delivery.
+  // Messages queued while the agent is processing. Drained one-at-a-time when
+  // isProcessing goes false (connector.reply fires). Lives in React state so
+  // the drain path goes through sendMessage(), which correctly sets isProcessing.
+  const pendingQueueRef = useRef<string[]>([]);
   const [queuedCount, setQueuedCount] = useState(0);
 
   const providerManager = useProviderManager({
@@ -247,6 +246,7 @@ export function App({
     state.clear();
     gates.resetGates();
     setExpandedTools(new Set());
+    pendingQueueRef.current.length = 0;
     setQueuedCount(0);
     onNewSession?.();
     scroll.scrollToBottom();
@@ -295,13 +295,18 @@ export function App({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
 
-  // Decrement the queued badge when the runner successfully delivers a message.
-  // The runner emits "mid-run.delivered" immediately after agent.deliver() so
-  // the count stays accurate even when the model takes multiple turns per message.
+  // Drain one queued message when the agent finishes a response cycle.
+  // connector.reply fires when the agent produces its final reply for a turn.
   useEffect(() => {
-    const onDelivered = () => setQueuedCount((c) => Math.max(0, c - 1));
-    eventEmitter.on("mid-run.delivered", onDelivered);
-    return () => { eventEmitter.off("mid-run.delivered", onDelivered); };
+    const onEvent = (event: { type: string }) => {
+      if (event.type !== "connector.reply") return;
+      const text = pendingQueueRef.current.shift();
+      if (text === undefined) return;
+      setQueuedCount((c) => Math.max(0, c - 1));
+      sendMessage(text);
+    };
+    eventEmitter.on("event", onEvent);
+    return () => { eventEmitter.off("event", onEvent); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -317,8 +322,8 @@ export function App({
   const handleSend = (message: string) => {
     setCommandMessage(null);
     if (state.isProcessing) {
-      // Agent is mid-response — queue for delivery at the next connector.reply boundary.
-      onQueueMessage?.(message);
+      // Agent is mid-response — queue for delivery at the next connector.reply.
+      pendingQueueRef.current.push(message);
       setQueuedCount((c) => c + 1);
       return;
     }

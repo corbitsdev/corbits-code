@@ -43,7 +43,6 @@ import {
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
-import { createInjectionQueue, buildInjectionMessage } from "../subagent/inject.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -207,7 +206,6 @@ export async function runTUI(config: Config): Promise<number> {
   };
 
   const runSink = createRunSink({ emitter, hookManager });
-  const injectionQueue = createInjectionQueue();
 
   // Tool count before any MCP server connects; a reload is only worthwhile if
   // connecting actually added tools.
@@ -269,23 +267,6 @@ export async function runTUI(config: Config): Promise<number> {
       return currentAgent.blobReader;
     },
   };
-
-  // Drain queued user messages after the agent finishes a full response cycle.
-  // connector.reply fires once per cycle after ALL tool calls in that round
-  // have executed and their results committed — using inference.done instead
-  // risks firing between an intermediate inference round and its tool results,
-  // which produces "tool_call_id did not have response messages" from the API.
-  emitter.on("event", (event: { type: string }) => {
-    if (event.type !== "connector.reply") return;
-    const text = injectionQueue.dequeue();
-    if (text === undefined) return;
-    try {
-      agentProxy.deliver(buildInjectionMessage(text));
-      emitter.emit("mid-run.delivered");
-    } catch {
-      // Agent may be closed; ignore delivery failures silently.
-    }
-  });
 
   // A hard stop: closing the agent is the only thing that aborts the reactor
   // mid-inference (the send signal only rejects the send promise). Close it,
@@ -364,7 +345,6 @@ export async function runTUI(config: Config): Promise<number> {
       onAgentError={recordRunError}
       onInterrupt={interrupt}
       onNewSession={newSession}
-      onQueueMessage={(text) => injectionQueue.enqueue(text)}
       permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
