@@ -156,6 +156,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private planSubmitted = false;
   private plan: PlanStep[] = [];
   private readonly maxTurns: number | undefined;
+  // Tracks whether this director has already emitted done() so that any
+  // stray events delivered after termination do not produce a second done().
+  private terminated = false;
 
   constructor(
     systemPrompt: string,
@@ -175,10 +178,16 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    if (this.terminated) {
+      // The loop is over; swallow stray events rather than double-firing done().
+      return [];
+    }
+
     if (event.type === "inference.done") {
       this._turnsUsed++;
 
       if (this.maxTurns !== undefined && this._turnsUsed >= this.maxTurns) {
+        this.terminated = true;
         return [
           capabilities.checkpoint("max-turns-reached"),
           capabilities.reply(`Agent stopped: reached the configured limit of ${this.maxTurns} turns.`),
@@ -218,6 +227,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       }
 
       if (this.idleCycles >= 3) {
+        this.terminated = true;
         return [
           capabilities.checkpoint("idle-abort"),
           capabilities.reply("Agent stalled: no tool calls for 3 turns."),
