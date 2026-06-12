@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLineUnits } from "./components/event-log.js";
+import { EventLog, buildLineUnits, maxScrollOffset } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
@@ -157,14 +157,17 @@ export function App({
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows } = layout;
 
-  const lineUnitCount = useMemo(
-    () => buildLineUnits(
-      state.contentBlocks,
-      leftWidth,
-      thinkingExpanded,
-      (block) => verbose || expandedTools.has(block.id),
-    ).length,
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools],
+  const scrollMaxOffset = useMemo(
+    () => maxScrollOffset(
+      buildLineUnits(
+        state.contentBlocks,
+        leftWidth,
+        thinkingExpanded,
+        (block) => verbose || expandedTools.has(block.id),
+      ),
+      visibleRows,
+    ),
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, visibleRows],
   );
 
   const lastToolId = useMemo(() => {
@@ -175,7 +178,7 @@ export function App({
     return null;
   }, [state.contentBlocks]);
 
-  const scroll = useScroll({ renderableCount: lineUnitCount, visibleRows });
+  const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
   const latestUserMessageInLog = state.contentBlocks.some((block) =>
     block.type === "user" && block.content === state.latestUserMessage

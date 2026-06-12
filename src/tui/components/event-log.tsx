@@ -270,23 +270,22 @@ export function buildLineUnits(
   return units;
 }
 
+export function maxScrollOffset(units: LineUnit[], visibleRows: number): number {
+  let rows = 0;
+  let start = units.length;
+  for (let i = units.length - 1; i >= 0; i--) {
+    const next = units[i]!.rows;
+    if (rows + next > visibleRows && start < units.length) break;
+    rows += next;
+    start = i;
+  }
+  return Math.max(0, start);
+}
+
 export function visibleLineWindow(units: LineUnit[], scrollOffset: number, visibleRows: number): { start: number; end: number } {
   if (units.length === 0) return { start: 0, end: 0 };
 
-  if (scrollOffset >= units.length - 1) {
-    const end = units.length;
-    let rows = 0;
-    let start = end;
-    for (let i = end - 1; i >= 0; i--) {
-      const next = units[i]!.rows;
-      if (rows + next > visibleRows && start < end) break;
-      rows += next;
-      start = i;
-    }
-    return { start, end };
-  }
-
-  const start = Math.max(0, Math.min(scrollOffset, units.length - 1));
+  const start = Math.max(0, Math.min(scrollOffset, maxScrollOffset(units, visibleRows)));
   let rows = 0;
   let end = start;
   for (let i = start; i < units.length; i++) {

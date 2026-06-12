@@ -6,6 +6,7 @@ import {
   clampOffset,
   buildLineUnits,
   visibleLineWindow,
+  maxScrollOffset,
   renderableBlocks,
   truncateLine,
 } from "../../../src/tui/components/event-log.js";
@@ -277,6 +278,24 @@ test("visibleLineWindow keeps the painted rows within the viewport budget", () =
   expect(rows).toBeLessThanOrEqual(4);
   expect(end).toBe(units.length);
   expect(start).toBeGreaterThan(0);
+});
+
+test("the bottom is steady: every offset at or past maxScrollOffset shows the same full tail", () => {
+  const units = buildLineUnits(
+    Array.from({ length: 12 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 5;
+  const maxOffset = maxScrollOffset(units, visibleRows);
+  const atMax = visibleLineWindow(units, maxOffset, visibleRows);
+  expect(atMax.end).toBe(units.length);
+  // Scrolling past the max (or to the very last unit) does not move the window —
+  // the last line stays anchored at the bottom rather than drifting up.
+  for (const offset of [maxOffset + 1, units.length - 1, units.length + 5]) {
+    expect(visibleLineWindow(units, offset, visibleRows)).toEqual(atMax);
+  }
 });
 
 test("EventLog windows visible blocks by scrollOffset", () => {
