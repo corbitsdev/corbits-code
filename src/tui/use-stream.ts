@@ -234,7 +234,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       // next run in "blocked". Only the status flip is gated on a live run.
       gateCount += pending ? 1 : -1;
       if (gateCount < 0) gateCount = 0;
-      if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
+      if (status === "idle" || status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
       status = gateCount > 0 ? "blocked" : "running";
     },
     requestStop(): void {

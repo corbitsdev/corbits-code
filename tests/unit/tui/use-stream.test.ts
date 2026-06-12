@@ -504,6 +504,7 @@ test("D3: contentBlocks returns a new reference after a mutation", () => {
 // E1: resolving one gate while another is still open must NOT flip status back to "running".
 test("E1: status stays blocked when two gates open and only one resolves", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   state.setGatePending(true);
   state.setGatePending(true);
   state.setGatePending(false);
@@ -513,6 +514,7 @@ test("E1: status stays blocked when two gates open and only one resolves", () =>
 // E1: status returns to running only when the last gate resolves.
 test("E1: status returns to running when all gates resolve", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   state.setGatePending(true);
   state.setGatePending(true);
   state.setGatePending(false);
@@ -874,6 +876,7 @@ test("write_file to a different file while on a fileless step sets planDeviated"
 
 test("gate count does not stick after an abort while a gate is open", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   state.setGatePending(true);
   expect(state.status).toBe("blocked");
   // Abort the run while the gate is still open, then the gate resolves late.
