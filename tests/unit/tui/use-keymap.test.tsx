@@ -61,6 +61,7 @@ function makeActions(): KeymapActions {
     togglePlanSidebar: mock(() => {}),
     toggleDiffFullScreen: mock(() => {}),
     toggleHelp: mock(() => {}),
+    copyMcpUrl: mock(() => {}),
   };
 }
 
@@ -195,14 +196,14 @@ test("down arrow with empty input calls scrollDown", () => {
   expect(actions.scrollDown).toHaveBeenCalledTimes(1);
 });
 
-test("up arrow with hasInput is no-op", () => {
+test("up arrow with hasInput calls scrollUp", () => {
   const { actions } = dispatch("", UP_KEY, { hasInput: true });
-  expect(actions.scrollUp).not.toHaveBeenCalled();
+  expect(actions.scrollUp).toHaveBeenCalledTimes(1);
 });
 
-test("down arrow with hasInput is no-op", () => {
+test("down arrow with hasInput calls scrollDown", () => {
   const { actions } = dispatch("", DOWN_KEY, { hasInput: true });
-  expect(actions.scrollDown).not.toHaveBeenCalled();
+  expect(actions.scrollDown).toHaveBeenCalledTimes(1);
 });
 
 // --- Other Ctrl shortcuts ---
@@ -217,9 +218,11 @@ test("Ctrl+R calls toggleLastTool", () => {
   expect(actions.toggleLastTool).toHaveBeenCalledTimes(1);
 });
 
-test("Ctrl+O calls toggleLastTool", () => {
+test("Ctrl+O does not trigger any action", () => {
   const { actions } = dispatch("o", CTRL);
-  expect(actions.toggleLastTool).toHaveBeenCalledTimes(1);
+  expect(actions.toggleLastTool).not.toHaveBeenCalled();
+  expect(actions.togglePlanSidebar).not.toHaveBeenCalled();
+  expect(actions.toggleDiffFullScreen).not.toHaveBeenCalled();
 });
 
 test("Ctrl+P calls togglePlanSidebar", () => {
