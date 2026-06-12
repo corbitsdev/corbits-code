@@ -3,6 +3,7 @@ dist/
 .env
 .agent-state/
 .interchange/settings.json
+.interchange/permissions.json
 .pi
 .claude/settings.local.json
 .claude/worktrees

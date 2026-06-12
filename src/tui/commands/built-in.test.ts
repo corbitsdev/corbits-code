@@ -73,10 +73,10 @@ describe("/model alias", () => {
 });
 
 describe("/clear command", () => {
-  it("returns a send action with text /clear", () => {
+  it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
     const result = getCommand("clear")!.handler("", ctx);
-    expect(result).toEqual({ type: "send", text: "/clear" });
+    expect(result).toEqual({ type: "message", text: "Started a fresh session." });
   });
 
   it("calls signalClear", () => {
@@ -89,10 +89,10 @@ describe("/clear command", () => {
 });
 
 describe("/new command", () => {
-  it("returns a send action with text /new", () => {
+  it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
     const result = getCommand("new")!.handler("", ctx);
-    expect(result).toEqual({ type: "send", text: "/new" });
+    expect(result).toEqual({ type: "message", text: "Started a fresh session." });
   });
 
   it("calls signalClear", () => {

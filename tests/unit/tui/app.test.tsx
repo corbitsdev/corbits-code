@@ -85,10 +85,10 @@ test("App renders a submitted prompt once, not in both header and log", async ()
   expect(frame).toContain("> hello world");
 });
 
-test("App renders running status initially", () => {
+test("App hides the running status label in the status bar", () => {
   const emitter = new EventEmitter();
   const { lastFrame } = renderApp(emitter);
-  expect(lastFrame()).toContain("Running");
+  expect(lastFrame()).not.toContain("Running");
 });
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -122,16 +122,16 @@ test("CTRL+C while the agent is running stops the run instead of exiting", async
   stdin.write("\x03");
   await tick();
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Stopping");
+  expect(frame).toContain("Stopped");
   expect(frame).not.toContain("Exit Intercode?");
 });
 
-test("a second CTRL+C while stopping escalates to the exit confirm", async () => {
+test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
   const emitter = new EventEmitter();
   const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).toContain("Stopping");
+  expect(lastFrame()).toContain("Stopped");
   stdin.write("\x03");
   await tick();
   expect(lastFrame()).toContain("Exit Intercode?");
@@ -227,13 +227,13 @@ test("App scrolls the event log with arrow keys when the prompt is empty", async
   await tick();
   expect(lastFrame()).toContain("prompt-19");
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     stdin.write("\x1B[A");
     await tick();
   }
   expect(lastFrame()).toContain("prompt-0");
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     stdin.write("\x1B[B");
     await tick();
   }

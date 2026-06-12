@@ -1,10 +1,5 @@
 import { type ViewNode, VIEW_TABLE_MAX_ROWS } from "./spec.js";
 
-// Painted height of a node at a given pane width, used by the event log's
-// line-based scroll model (estimateRows). Must match what the registry renders:
-// text/heading wrap (and may overcount, which is the safe direction); every other
-// node renders one truncated line per item, so its height is an exact count.
-
 const LINE_PADDING = 2;
 
 // Count the rows a line occupies under word wrapping, matching Ink's <Text

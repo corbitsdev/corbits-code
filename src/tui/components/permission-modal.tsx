@@ -1,13 +1,14 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
+import type { ApprovalOutcome, ApprovalScope, GrantScope, PermissionRequest } from "../../permission/types.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
 
 export type PermissionModalProps = {
   request: PermissionRequest;
   onResolve: (outcome: ApprovalOutcome) => void;
+  width?: number;
 };
 
 // `command` choices show their hint in [] with dim styling (shell patterns/paths).
@@ -21,33 +22,63 @@ type Choice = {
   outcome: ApprovalOutcome;
 };
 
+const GRANT_OPTIONS: { grant: GrantScope; label: string; note: string }[] = [
+  { grant: "session", label: "Auto-accept this session", note: "until this session ends" },
+  { grant: "project", label: "Auto-accept in this project", note: "persisted per repo" },
+  { grant: "global", label: "Auto-accept globally", note: "all projects" },
+  { grant: "provider-model", label: "Auto-accept for this provider/model", note: "scoped to the active model" },
+];
+
+// The pattern a grant remembers. The scope ladder runs broadest-first
+// (`bun run *`) to narrowest (`bun run typecheck`); a one-keystroke grant should
+// remember the exact command the user is looking at, not silently authorize the
+// whole wildcard — so prefer the exact-subject scope, then the narrowest
+// persistable rung, and fall back to the raw subject.
+function grantPattern(request: PermissionRequest): { pattern: string; hint: string } | null {
+  const exact = request.scopes.find((scope) => scope.pattern === request.subject);
+  const narrowest = [...request.scopes].reverse().find((scope) => scope.pattern !== null);
+  const chosen = exact ?? narrowest;
+  if (chosen === undefined || chosen.pattern === null) return null;
+  return { pattern: chosen.pattern, hint: chosen.hint ?? chosen.pattern };
+}
+
 function buildChoices(request: PermissionRequest): Choice[] {
   const choices: Choice[] = [
     {
-      label: "Allow Once",
+      label: "Reject",
       hint: "start typing to add a message",
+      hintStyle: "note",
+      messageable: true,
+      outcome: { allow: false },
+    },
+    {
+      label: "Accept once",
+      hint: "this call only · start typing to add a message",
       hintStyle: "note",
       messageable: true,
       outcome: { allow: true },
     },
   ];
-  for (const scope of request.scopes) {
-    if (scope.pattern === null) continue;
+
+  const grant = grantPattern(request);
+  if (grant === null) return choices;
+
+  for (const option of GRANT_OPTIONS) {
+    const scope: ApprovalScope = {
+      id: option.grant,
+      label: option.label,
+      pattern: grant.pattern,
+      hint: grant.hint,
+      grant: option.grant,
+    };
     choices.push({
-      label: scope.label,
-      hint: scope.hint ?? scope.pattern,
+      label: option.label,
+      hint: `${grant.hint} · ${option.note}`,
       hintStyle: "command",
       messageable: false,
       outcome: { allow: true, persist: scope },
     });
   }
-  choices.push({
-    label: "Reject",
-    hint: "start typing to add a message",
-    hintStyle: "note",
-    messageable: true,
-    outcome: { allow: false },
-  });
   return choices;
 }
 
@@ -60,10 +91,11 @@ function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
   return {};
 }
 
-export function PermissionModal({ request, onResolve }: PermissionModalProps): ReactNode {
+export function PermissionModal({ request, onResolve, width = 80 }: PermissionModalProps): ReactNode {
   const choices = buildChoices(request);
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const descriptor = describeToolCall(
     request.tool,
     JSON.stringify(descriptorArgs(request)),
@@ -90,6 +122,11 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       return;
     }
 
+    if (key.ctrl && input === "o") {
+      setExpanded((e) => !e);
+      return;
+    }
+
     if (key.upArrow && message.length === 0) {
       setSelected((s) => (s > 0 ? s - 1 : choices.length - 1));
       return;
@@ -102,6 +139,17 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
     if (key.backspace || key.delete) {
       setMessage((m) => m.slice(0, -1));
       return;
+    }
+
+    // Number keys jump straight to an option and resolve it, as long as the user
+    // is not mid-message (where digits are part of the typed explanation).
+    if (message.length === 0 && /^[1-9]$/.test(input)) {
+      const index = Number(input) - 1;
+      const choice = choices[index];
+      if (choice) {
+        onResolve(choice.outcome);
+        return;
+      }
     }
 
     if (input && !key.ctrl && !key.meta && activeChoice?.messageable) {
@@ -118,12 +166,18 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       paddingY={1}
       marginX={1}
       marginY={1}
+      width={Math.max(24, width - 2)}
     >
       <Text bold color={toolColor}>Approval needed</Text>
       <Box marginTop={1} flexDirection="column" gap={0}>
         <Text color={color("muted")}>
-          {request.action}:{" "}
-          <Text color={toolColor}>{descriptor.display}</Text>
+          {request.action}
+          {descriptor.isShell ? null : (
+            <>
+              {": "}
+              <Text color={toolColor}>{descriptor.display}</Text>
+            </>
+          )}
         </Text>
         {descriptor.summary.length > 0 && (
           <Box marginLeft={2}>
@@ -144,10 +198,11 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
           const hintColor = choice.hintStyle === "command" ? color("muted") : color("muted");
           const hintDim = choice.hintStyle === "command";
           return (
-            <Text key={i}>
+            <Text key={i} wrap={expanded ? "wrap" : "truncate-end"}>
               <Text color={active ? color("brand") : color("muted")} bold={active}>
                 {active ? "› " : "  "}
               </Text>
+              <Text color={color("muted")}>{`${i + 1}. `}</Text>
               <Text color={active ? tone : color("text")} bold={active}>
                 {choice.label}
               </Text>
@@ -172,7 +227,7 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
         <Text color={color("muted")}>
           {messageMode
             ? "Enter confirm · Esc clear · ↑↓ navigate"
-            : "↑↓ navigate · Enter choose · Esc reject"}
+            : `1-${choices.length} select · ↑↓ navigate · Enter choose · Ctrl+O ${expanded ? "collapse" : "expand"} · Esc reject`}
         </Text>
       </Box>
     </Box>

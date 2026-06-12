@@ -42,6 +42,7 @@ const DEFAULT_CTX: KeymapContext = {
   hasInput: false,
   inputFocused: false,
   isRunning: false,
+  commandPaletteOpen: false,
 };
 
 const NOW = 1000;
@@ -56,6 +57,7 @@ function makeActions(): KeymapActions {
     closeHookPanel: mock(() => {}),
     scrollUp: mock(() => {}),
     scrollDown: mock(() => {}),
+    scrollToBottom: mock(() => {}),
     toggleThinking: mock(() => {}),
     toggleLastTool: mock(() => {}),
     togglePlanSidebar: mock(() => {}),
@@ -194,6 +196,21 @@ test("up arrow with empty input calls scrollUp", () => {
 test("down arrow with empty input calls scrollDown", () => {
   const { actions } = dispatch("", DOWN_KEY, { hasInput: false });
   expect(actions.scrollDown).toHaveBeenCalledTimes(1);
+});
+
+test("Ctrl+Down jumps to the bottom instead of scrolling one line", () => {
+  const { actions } = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true });
+  expect(actions.scrollToBottom).toHaveBeenCalledTimes(1);
+  expect(actions.scrollDown).not.toHaveBeenCalled();
+});
+
+test("arrows do not scroll while the command palette is open", () => {
+  const up = dispatch("", UP_KEY, { commandPaletteOpen: true });
+  expect(up.actions.scrollUp).not.toHaveBeenCalled();
+  const down = dispatch("", DOWN_KEY, { commandPaletteOpen: true });
+  expect(down.actions.scrollDown).not.toHaveBeenCalled();
+  const ctrlDown = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true }, { commandPaletteOpen: true });
+  expect(ctrlDown.actions.scrollToBottom).not.toHaveBeenCalled();
 });
 
 test("up arrow with hasInput calls scrollUp", () => {
