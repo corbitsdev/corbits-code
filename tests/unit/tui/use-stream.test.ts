@@ -436,3 +436,406 @@ test("elapsedMs freezes after the run completes", async () => {
   await new Promise((r) => setTimeout(r, 5));
   expect(state.elapsedMs).toBe(first);
 });
+
+// D3: contentBlocks getter must return the same array reference on consecutive reads
+// within a single render cycle (no intervening mutations).
+test("D3: contentBlocks returns the same reference when nothing changed", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 1,
+    data: { token: "hello" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const a = state.contentBlocks;
+  const b = state.contentBlocks;
+  expect(a).toBe(b);
+});
+
+// D3: After a mutation a new reference must be returned so React re-renders.
+test("D3: contentBlocks returns a new reference after a mutation", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 1,
+    data: { token: "hello" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const before = state.contentBlocks;
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 2,
+    data: { token: " world" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const after = state.contentBlocks;
+  expect(after).not.toBe(before);
+});
+
+// E1: resolving one gate while another is still open must NOT flip status back to "running".
+test("E1: status stays blocked when two gates open and only one resolves", () => {
+  const state = createAgentStreamState();
+  state.setGatePending(true);
+  state.setGatePending(true);
+  state.setGatePending(false);
+  expect(state.status).toBe("blocked");
+});
+
+// E1: status returns to running only when the last gate resolves.
+test("E1: status returns to running when all gates resolve", () => {
+  const state = createAgentStreamState();
+  state.setGatePending(true);
+  state.setGatePending(true);
+  state.setGatePending(false);
+  state.setGatePending(false);
+  expect(state.status).toBe("running");
+});
+
+// H3: a successful present must splice out the originating tool_call block.
+test("H3: present success removes the tool_call block from the log", () => {
+  const state = createAgentStreamState();
+  // validateView expects { type: "text", value: "..." } — not content.
+  const view = { type: "text", value: "hi" };
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "present", callId: "p1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "inference.tool_call.delta",
+    seq: 2,
+    data: { argumentFragment: JSON.stringify({ view }) } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "tool.done",
+    seq: 3,
+    data: { result: { callId: "p1", content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"],
+  });
+  const blocks = state.contentBlocks;
+  expect(blocks.some((b) => b.type === "tool_call" && b.name === "present")).toBe(false);
+  expect(blocks.some((b) => b.type === "view")).toBe(true);
+});
+
+// H4: callIdToName and callIdToArguments must not retain entries after tool.done is processed.
+// We verify this indirectly: after a tool.done for a given callId, a *second* tool.done
+// with the same callId (e.g. replayed or duplicated) must not find stale map entries.
+// The observable effect is that the second event falls through to a plain tool_result
+// rather than triggering special logic (no second plan block, no second view block).
+test("H4: stale map entries are cleaned up after tool.done for submit_plan", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("p1", [{ file: "a.ts", action: "create" }])) {
+    state.addEvent(e);
+  }
+  // Replay the same tool.done — should not create a second plan block.
+  state.addEvent({
+    type: "tool.done",
+    seq: 99,
+    data: { result: { callId: "p1", content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"],
+  });
+  expect(state.contentBlocks.filter((b) => b.type === "plan").length).toBe(1);
+});
+
+// ---------------------------------------------------------------------------
+// inference.error category mapping
+// ---------------------------------------------------------------------------
+
+function inferenceErrorEvent(category: string, message: string): ReactorEmittedEvent {
+  return {
+    type: "inference.error",
+    seq: 1,
+    data: { error: { category, message } } as unknown as ReactorEmittedEvent["data"],
+  };
+}
+
+test("inference.error credential_failure maps to friendly message and sets status failed", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("credential_failure", "raw"));
+  expect(state.status).toBe("failed");
+  const last = state.contentBlocks.at(-1);
+  expect(last?.type).toBe("error");
+  if (last?.type !== "error") return;
+  expect(last.message).toBe("Authentication failed — check your API key.");
+});
+
+test("inference.error quota_exhausted maps to friendly message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("quota_exhausted", "raw"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toBe("Quota exhausted — usage limit reached.");
+});
+
+test("inference.error context_overflow maps to friendly message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("context_overflow", "raw"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toBe("Context window full — start a new session.");
+});
+
+test("inference.error retryable maps to friendly message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("retryable", "raw"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toBe("Request failed — will retry.");
+});
+
+test("inference.error aborted maps to friendly message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("aborted", "raw"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toBe("Request aborted.");
+});
+
+test("inference.error timeout maps to friendly message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("timeout", "raw"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toBe("Request timed out.");
+});
+
+test("inference.error protocol_mismatch maps to friendly message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("protocol_mismatch", "raw"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toBe("Unexpected response from inference API.");
+});
+
+test("inference.error unknown category falls back to raw message", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("some_new_category", "the upstream detail"));
+  expect(state.status).toBe("failed");
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  // Falls back to err.message so callers see the original detail instead of undefined.
+  expect(last.message).toBe("the upstream detail");
+});
+
+// ---------------------------------------------------------------------------
+// reactor.error
+// ---------------------------------------------------------------------------
+
+test("reactor.error pushes an error block and sets status to failed", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "reactor.error",
+    seq: 1,
+    data: { fatal: true, error: "disk full" } as unknown as ReactorEmittedEvent["data"],
+  });
+  expect(state.status).toBe("failed");
+  const last = state.contentBlocks.at(-1);
+  expect(last?.type).toBe("error");
+  if (last?.type !== "error") return;
+  expect(last.message).toBe("disk full");
+});
+
+// ---------------------------------------------------------------------------
+// Orphaned inference.tool_call.delta (no preceding start, openCallId null)
+// ---------------------------------------------------------------------------
+
+test("orphaned tool_call.delta with no preceding start does not crash and is dropped", () => {
+  const state = createAgentStreamState();
+  // No tool_call.start has fired — openCallId is null and contentBlocks is empty.
+  expect(() => {
+    state.addEvent({
+      type: "inference.tool_call.delta",
+      seq: 1,
+      data: { argumentFragment: '{"path":"x"}' } as unknown as ReactorEmittedEvent["data"],
+    });
+  }).not.toThrow();
+  // Fragment must be silently dropped — no block should have been created.
+  expect(state.contentBlocks.length).toBe(0);
+});
+
+test("orphaned tool_call.delta after a text block does not corrupt the text block", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 1,
+    data: { token: "hello" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // openCallId is still null here — no start was ever fired.
+  state.addEvent({
+    type: "inference.tool_call.delta",
+    seq: 2,
+    data: { argumentFragment: "CORRUPT" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // The text block must be unchanged; the fragment must not have been appended.
+  expect(state.contentBlocks.length).toBe(1);
+  const block = state.contentBlocks[0];
+  if (block?.type !== "text") throw new Error("expected text block");
+  expect(block.content).toBe("hello");
+});
+
+// ---------------------------------------------------------------------------
+// connector.reply DROP path
+// ---------------------------------------------------------------------------
+
+test("connector.reply is dropped when text deltas already arrived this cycle", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 1,
+    data: { token: "streamed" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // connector.reply fired after deltas — must not append duplicate content.
+  state.addEvent({
+    type: "connector.reply",
+    seq: 2,
+    data: { content: "streamed" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // Still exactly one text block with only the streamed token.
+  const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+  expect(textBlocks.length).toBe(1);
+  if (textBlocks[0]?.type !== "text") return;
+  expect(textBlocks[0].content).toBe("streamed");
+});
+
+test("connector.reply is pushed when no text deltas arrived since the last reply", () => {
+  const state = createAgentStreamState();
+  // No inference.text.delta fired — director-generated reply must be rendered.
+  state.addEvent({
+    type: "connector.reply",
+    seq: 1,
+    data: { content: "director reply" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+  expect(textBlocks.length).toBe(1);
+  if (textBlocks[0]?.type !== "text") return;
+  expect(textBlocks[0].content).toBe("director reply");
+});
+
+test("connector.reply resets the delta flag so a subsequent reply is not dropped", () => {
+  const state = createAgentStreamState();
+  // First cycle: delta then reply (dropped).
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 1,
+    data: { token: "first" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "connector.reply",
+    seq: 2,
+    data: { content: "first" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // Second cycle: no delta before next reply — must NOT be dropped.
+  state.addEvent({
+    type: "connector.reply",
+    seq: 3,
+    data: { content: "second director" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // The second reply content must appear.
+  const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+  const combined = textBlocks.map((b) => (b.type === "text" ? b.content : "")).join("");
+  expect(combined).toContain("second director");
+});
+
+// ---------------------------------------------------------------------------
+// Duplicate inference.tool_call.start with the same callId
+// ---------------------------------------------------------------------------
+
+test("duplicate tool_call.start with the same callId does not corrupt a different in-flight call", () => {
+  const state = createAgentStreamState();
+  // Start call A.
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "read_file", callId: "a1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "inference.tool_call.delta",
+    seq: 2,
+    data: { argumentFragment: '{"path":"keep"}' } as unknown as ReactorEmittedEvent["data"],
+  });
+  // Spurious duplicate start for the same callId — must not corrupt call A's arg accumulator
+  // by overwriting it with an empty string while a different tool is running concurrently.
+  // After the duplicate start the openCallId is now "a1" again; a delta goes to a1.
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 3,
+    data: { name: "read_file", callId: "a1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "tool.done",
+    seq: 4,
+    data: { result: { callId: "a1", content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"],
+  });
+  // The tool_result block must use the tracked name, not fall back to callId.
+  const resultBlock = state.contentBlocks.find((b) => b.type === "tool_result");
+  expect(resultBlock?.type).toBe("tool_result");
+  if (resultBlock?.type !== "tool_result") return;
+  expect(resultBlock.name).toBe("read_file");
+});
+
+test("duplicate tool_call.start resets arg accumulator for that callId", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "write_file", callId: "w1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "inference.tool_call.delta",
+    seq: 2,
+    data: { argumentFragment: '{"path":"original.ts"}' } as unknown as ReactorEmittedEvent["data"],
+  });
+  // Duplicate start clears the arg accumulator to "".
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 3,
+    data: { name: "write_file", callId: "w1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  // Only the post-reset fragment arrives.
+  state.addEvent({
+    type: "inference.tool_call.delta",
+    seq: 4,
+    data: { argumentFragment: '{"path":"reset.ts"}' } as unknown as ReactorEmittedEvent["data"],
+  });
+  // Two tool_call blocks were pushed (one per start). The last one is the active one.
+  const toolCallBlocks = state.contentBlocks.filter((b) => b.type === "tool_call");
+  // We verify the last block's arguments only contain the post-reset fragment.
+  const lastToolCall = toolCallBlocks.at(-1);
+  if (lastToolCall?.type !== "tool_call") throw new Error("expected tool_call block");
+  expect(lastToolCall.arguments).toBe('{"path":"reset.ts"}');
+});
+
+// ---------------------------------------------------------------------------
+// nextFileStepIndex — fileless step skipping and plan deviation
+// ---------------------------------------------------------------------------
+
+test("write_file during a fileless step skips to the next file step and does not deviate", () => {
+  const state = createAgentStreamState();
+  // Step 0 has no file (investigate), step 1 has foo.ts.
+  for (const e of submitPlanEvents("p1", [
+    { file: "", action: "investigate" },
+    { file: "foo.ts", action: "edit" },
+  ])) {
+    state.addEvent(e);
+  }
+  // currentPlanStep is 0 (the investigate step). A write to foo.ts should
+  // skip step 0 (fileless) and match step 1, advancing the pointer past it.
+  for (const e of toolCallEvents("write_file", "w1", { path: "foo.ts" })) {
+    state.addEvent(e);
+  }
+  // Step 1 was the last file step; after advancing, currentPlanStep is null.
+  expect(state.planDeviated).toBe(false);
+  expect(state.currentPlanStep).toBeNull();
+});
+
+test("write_file to a different file while on a fileless step sets planDeviated", () => {
+  const state = createAgentStreamState();
+  for (const e of submitPlanEvents("p1", [
+    { file: "", action: "investigate" },
+    { file: "foo.ts", action: "edit" },
+  ])) {
+    state.addEvent(e);
+  }
+  // Write to a file that does not match the next file step.
+  for (const e of toolCallEvents("write_file", "w1", { path: "bar.ts" })) {
+    state.addEvent(e);
+  }
+  expect(state.planDeviated).toBe(true);
+  // currentPlanStep stays at 0 — did not advance.
+  expect(state.currentPlanStep).toBe(0);
+});
