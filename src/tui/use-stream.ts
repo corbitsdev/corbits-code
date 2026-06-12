@@ -41,6 +41,10 @@ export type AgentStreamState = {
   planDeviated: boolean;
   elapsedMs: number;
   awaitingResponse: boolean;
+  // True from the moment agent.send() is called until connector.reply fires.
+  // Covers the full response window including streaming and tool execution.
+  // Use this (not status === "running") to decide whether to queue a new message.
+  isProcessing: boolean;
   currentToolName: string | null;
   streamingType: "text" | "thinking" | "tool" | null;
   addEvent(event: ReactorEmittedEvent): void;
@@ -153,6 +157,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // between a send (or a tool result) and the first token of the next reply.
   // Drives the in-flight indicator; cleared the moment real content arrives.
   let awaitingResponse = false;
+  // True from markRunning() until connector.reply (or clear/requestStop).
+  // Stays true across all streaming and tool-execution phases within a cycle.
+  let isProcessing = false;
   let latestUserMessage = "";
   let planSteps: PlanStep[] = [];
   let currentPlanStep: number | null = null;
@@ -221,6 +228,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     get awaitingResponse() {
       return awaitingResponse;
     },
+    get isProcessing() {
+      return isProcessing;
+    },
     get currentToolName() {
       return currentToolName;
     },
@@ -242,6 +252,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       stopRequested = true;
       status = "stopped";
       awaitingResponse = false;
+      isProcessing = false;
       currentToolName = null;
       streamingType = null;
       finishedAt = Date.now();
@@ -255,6 +266,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
+      isProcessing = true;
     },
     clear(): void {
       contentBlocks.length = 0;
@@ -267,6 +279,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       stopRequested = false;
       hadTextDeltaSinceLastReply = false;
       awaitingResponse = false;
+      isProcessing = false;
       latestUserMessage = "";
       planSteps = [];
       currentPlanStep = null;
@@ -351,6 +364,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           }
           hadTextDeltaSinceLastReply = false;
           awaitingResponse = false;
+          isProcessing = false;
           break;
         }
         case "tool.done": {

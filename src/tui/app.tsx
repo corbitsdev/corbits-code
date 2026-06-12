@@ -316,8 +316,8 @@ export function App({
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    if (state.status === "running" || state.status === "blocked") {
-      // Agent is active — queue for delivery at the next inference boundary.
+    if (state.isProcessing) {
+      // Agent is mid-response — queue for delivery at the next connector.reply boundary.
       onQueueMessage?.(message);
       setQueuedCount((c) => c + 1);
       return;
