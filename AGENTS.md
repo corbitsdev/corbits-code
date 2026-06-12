@@ -183,7 +183,7 @@ For this project, the most relevant profiles from `.agents/agents/` are:
 - **Scope:** Only touch code directly related to the task. No drive-by refactors, reformatting, or renaming in files you pass through.
 - **Tests:** Add or update tests with every behavior change. Write a failing test first when fixing a bug.
 - **Dead code:** Delete old implementations when refactoring. Do not leave shims, re-exports, or renamed `_unused` variables.
-- **Comments:** Only when the WHY is non-obvious. Never describe WHAT the code does.
+- **Comments:** Code must be self-documenting. Add an inline comment only when the code cannot be made clear on its own; otherwise remove it. Never describe WHAT the code does — fix the names and structure instead.
 - **No emojis** in code or documentation.
 
 ## Build & Validation

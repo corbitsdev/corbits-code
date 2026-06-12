@@ -10,6 +10,12 @@ import {
 } from "../../../src/tui/components/event-log.js";
 import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
 import type { ContentBlock } from "../../../src/tui/use-stream.js";
+import { wrapCount } from "../../../src/tui/view/height.js";
+
+let blockSeq = 0;
+function block(data: Omit<ContentBlock, "id">): RenderableBlock {
+  return { ...data, id: `wb${(blockSeq += 1)}` } as RenderableBlock;
+}
 
 type Overrides = Partial<Parameters<typeof EventLog>[0]>;
 
@@ -166,8 +172,8 @@ test("EventLog verbose reveals full tool args", () => {
 
 test("EventLog per-block expansion reveals full tool result", () => {
   const { lastFrame } = renderLog(
-    [{ type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text", isError: false }],
-    { expandedTools: new Set([0]) },
+    [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text", isError: false }],
+    { expandedTools: new Set(["r"]) },
   );
   expect(lastFrame()).toContain("hidden text");
 });
@@ -240,23 +246,23 @@ test("truncateLine leaves short content untouched and respects expanded", () => 
 
 test("EventLog shows untruncated content when the block is expanded", () => {
   const long = "z".repeat(300);
-  const { lastFrame } = renderLog([{ type: "user", content: long }], {
+  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], {
     columns: 80,
-    expandedTools: new Set([0]),
+    expandedTools: new Set(["u"]),
   });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("… [show more]");
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("EventLog keeps expansion indices stable when thinking is hidden", () => {
+test("EventLog keeps expansion anchored to a block id when thinking is hidden", () => {
   const long = "z".repeat(300);
   const { lastFrame } = renderLog([
-    { type: "thinking", content: "hidden reasoning" },
-    { type: "user", content: long },
+    { id: "t", type: "thinking", content: "hidden reasoning" },
+    { id: "u", type: "user", content: long },
   ], {
     columns: 80,
-    expandedTools: new Set([1]),
+    expandedTools: new Set(["u"]),
   });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("hidden reasoning");
@@ -295,4 +301,35 @@ test("EventLog windows visible blocks by scrollOffset", () => {
   expect(frame).toContain("line-0");
   expect(frame).not.toContain("line-5");
   expect(frame).not.toContain("line-9");
+});
+
+test("wrapCount word-wraps greedily instead of packing characters", () => {
+  expect(wrapCount("aaaaaa aaaaaa aaaaaa", 10)).toBe(3);
+  expect(Math.ceil("aaaaaa aaaaaa aaaaaa".length / 10)).toBe(2);
+  expect(wrapCount("short", 10)).toBe(1);
+  expect(wrapCount("a\nb\nc", 10)).toBe(3);
+});
+
+test("visibleWindow does not reserve spacing for the topmost visible block", () => {
+  const blocks: RenderableBlock[] = [
+    block({ type: "text", content: "a" }),
+    block({ type: "text", content: "b" }),
+    block({ type: "text", content: "c" }),
+  ];
+  const expanded = () => false;
+  const win = visibleWindow(blocks, blocks.length, 3, 200, false, expanded);
+  expect(win.end).toBe(3);
+  expect(win.start).toBe(1);
+});
+
+test("visibleWindow charges spacing to lower blocks, not an unspaced top block", () => {
+  const blocks: RenderableBlock[] = [
+    block({ type: "tool_call", name: "read_file", arguments: "{}" }),
+    block({ type: "text", content: "b" }),
+    block({ type: "text", content: "c" }),
+  ];
+  const expanded = () => false;
+  const win = visibleWindow(blocks, blocks.length, 5, 200, false, expanded);
+  expect(win.start).toBe(0);
+  expect(win.end).toBe(3);
 });

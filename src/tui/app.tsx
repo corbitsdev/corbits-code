@@ -92,7 +92,7 @@ export function App({
   const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const [expandedTools, setExpandedTools] = useState<ReadonlySet<number>>(() => new Set());
+  const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -166,10 +166,10 @@ export function App({
     [state.contentBlocks, thinkingExpanded],
   );
 
-  const lastToolIndex = useMemo(() => {
-    const renderable = state.contentBlocks.filter((b) => b.type !== "reply" && b.type !== "plan");
-    for (let i = renderable.length - 1; i >= 0; i--) {
-      if (renderable[i]?.type === "tool_call") return i;
+  const lastToolId = useMemo(() => {
+    const blocks = state.contentBlocks;
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i]?.type === "tool_call") return blocks[i]!.id;
     }
     return null;
   }, [state.contentBlocks]);
@@ -318,12 +318,12 @@ export function App({
       },
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
-        if (lastToolIndex !== null) {
-          const idx = lastToolIndex;
+        if (lastToolId !== null) {
+          const id = lastToolId;
           setExpandedTools((prev) => {
             const next = new Set(prev);
-            if (next.has(idx)) next.delete(idx);
-            else next.add(idx);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
             return next;
           });
         }

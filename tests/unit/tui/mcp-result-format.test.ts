@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { formatMcpResult } from "../../../src/tui/mcp-result-format.js";
+import { formatMcpResult, extractMcpRecords, extractMcpRecord } from "../../../src/tui/mcp-result-format.js";
 
 describe("formatMcpResult", () => {
   test("summarizes a wrapped list by its key", () => {
@@ -43,5 +43,53 @@ describe("formatMcpResult", () => {
   test("handles non-JSON content as bounded text", () => {
     const r = formatMcpResult("just some text\nover two lines");
     expect(r.preview).toBe("2 lines");
+  });
+});
+
+// CL-1693: the detection primitives decide which renderer fires (table vs card
+// vs text). Getting them wrong renders a list as a card or dumps raw JSON.
+describe("extractMcpRecords (list detection)", () => {
+  test("a bare array of objects is detected as records", () => {
+    const r = extractMcpRecords(JSON.stringify([{ name: "a" }, { name: "b" }]));
+    expect(r?.label).toBe("items");
+    expect(r?.items).toHaveLength(2);
+  });
+
+  test("a wrapper with a single array key alongside scalars uses that key as the label", () => {
+    const r = extractMcpRecords(JSON.stringify({ projects: [{ name: "a" }], hasNextPage: false }));
+    expect(r?.label).toBe("projects");
+    expect(r?.items).toHaveLength(1);
+  });
+
+  test("an empty array is not a record list (falls back to text)", () => {
+    expect(extractMcpRecords("[]")).toBeNull();
+  });
+
+  test("an object with two array keys is ambiguous and not a list", () => {
+    expect(extractMcpRecords(JSON.stringify({ a: [{ x: 1 }], b: [{ y: 2 }] }))).toBeNull();
+  });
+
+  test("a wrapper with a non-scalar sibling is treated as a record, not a list", () => {
+    expect(extractMcpRecords(JSON.stringify({ projects: [{ name: "a" }], meta: { page: 1 } }))).toBeNull();
+  });
+
+  test("non-JSON content is not a record list", () => {
+    expect(extractMcpRecords("hello world")).toBeNull();
+  });
+});
+
+describe("extractMcpRecord (single record detection)", () => {
+  test("a single object is a record", () => {
+    const rec = extractMcpRecord(JSON.stringify({ name: "Proj", status: "active" }));
+    expect(rec?.name).toBe("Proj");
+  });
+
+  test("a record list is not a single record", () => {
+    expect(extractMcpRecord(JSON.stringify([{ name: "a" }, { name: "b" }]))).toBeNull();
+  });
+
+  test("a bare scalar or array is not a single record", () => {
+    expect(extractMcpRecord("42")).toBeNull();
+    expect(extractMcpRecord("[]")).toBeNull();
   });
 });
