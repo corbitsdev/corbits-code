@@ -392,4 +392,41 @@ describe("createPermissionGate", () => {
     // Cross-contamination check: the dangerous segment must not carry an echo scope.
     expect(secondPatterns.some((p) => p !== null && p.startsWith("echo"))).toBe(false);
   });
+
+  // CL-1694: the gate must own its approval state, not mutate the caller's array.
+  test("gate does not mutate the caller's approvals array and exposes its own via getApprovals", async () => {
+    const seed: Approval[] = [];
+    const persistScope: PermissionRequest["scopes"][number] = { id: "p", label: "", pattern: "npm *" };
+    const gate = createPermissionGate({
+      approvals: seed,
+      requestApproval: async () => ({ allow: true, persist: persistScope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    // Caller's seed array is untouched...
+    expect(seed).toEqual([]);
+    // ...but the gate remembers the grant internally.
+    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+  });
+
+  test("two gates seeded from the same array do not cross-contaminate approvals", async () => {
+    const seed: Approval[] = [];
+    const scope: PermissionRequest["scopes"][number] = { id: "p", label: "", pattern: "npm *" };
+    const gate1 = createPermissionGate({
+      approvals: seed,
+      requestApproval: async () => ({ allow: true, persist: scope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    const gate2 = createPermissionGate({
+      approvals: seed,
+      requestApproval: async () => ({ allow: false }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate1.evaluate(shellCall("npm test"));
+    // gate2 shares only the initial seed, not gate1's later grants.
+    expect(gate2.getApprovals()).toEqual([]);
+  });
 });

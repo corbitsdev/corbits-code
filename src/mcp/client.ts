@@ -37,6 +37,23 @@ function isHttpServer(config: MCPServerConfig): boolean {
   return config.type === "http" || (config.type === undefined && config.url !== undefined);
 }
 
+// Flatten an MCP tool result's content array into a single string. Text blocks
+// contribute their text; any other block (image, resource, ...) is stringified
+// rather than dropped, so a non-text or empty payload never becomes "undefined"
+// or throws downstream. This is the boundary where the MCP envelope is removed:
+// callers (and the TUI formatter) see plain text/JSON, never the content array.
+export function unwrapToolContent(content: unknown): string {
+  if (!Array.isArray(content) || content.length === 0) return "";
+  return content
+    .map((block) => {
+      if (block !== null && typeof block === "object" && (block as { type?: unknown }).type === "text") {
+        return String((block as { text?: unknown }).text ?? "");
+      }
+      return JSON.stringify(block);
+    })
+    .join("\n");
+}
+
 // List the server's tools and wrap the connected client in the MCPClient shape.
 async function finishClient(client: Client, serverName: string): Promise<MCPClient> {
   const result = await client.listTools();
@@ -51,14 +68,7 @@ async function finishClient(client: Client, serverName: string): Promise<MCPClie
     tools,
     async call(toolName, args, signal) {
       const result = await client.callTool({ name: toolName, arguments: args }, undefined, { signal });
-      const content = result.content;
-      if (!Array.isArray(content) || content.length === 0) return "";
-      return content
-        .map((block) => {
-          if (block.type === "text") return block.text;
-          return JSON.stringify(block);
-        })
-        .join("\n");
+      return unwrapToolContent(result.content);
     },
     async close() {
       await client.close().catch(() => undefined);

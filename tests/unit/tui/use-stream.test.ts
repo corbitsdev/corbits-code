@@ -856,3 +856,31 @@ test("gate count does not stick after an abort while a gate is open", () => {
   state.setGatePending(false);
   expect(state.status).toBe("running");
 });
+
+test("CL-1692: a block keeps its stable id across a submit_plan splice that shifts indices", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const before = state.contentBlocks;
+  const tracked = before.find((b) => b.type === "tool_call");
+  expect(tracked).toBeDefined();
+  const trackedId = tracked!.id;
+  const indexBefore = before.findIndex((b) => b.id === trackedId);
+
+  // submit_plan splices its own tool_call out and unshifts a plan block, which
+  // renumbers array positions — index-keyed expansion state would now point at
+  // the wrong block; id-keyed state must stay anchored to the same block.
+  for (const e of submitPlanEvents("plan-1", [{ file: "f", action: "a" }])) {
+    state.addEvent(e);
+  }
+
+  const after = state.contentBlocks;
+  const stillThere = after.find((b) => b.id === trackedId);
+  expect(stillThere).toBeDefined();
+  expect(stillThere!.type).toBe("tool_call");
+  const indexAfter = after.findIndex((b) => b.id === trackedId);
+  expect(indexAfter).not.toBe(indexBefore);
+});
