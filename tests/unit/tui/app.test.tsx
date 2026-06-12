@@ -227,13 +227,13 @@ test("App scrolls the event log with arrow keys when the prompt is empty", async
   await tick();
   expect(lastFrame()).toContain("prompt-19");
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     stdin.write("\x1B[A");
     await tick();
   }
   expect(lastFrame()).toContain("prompt-0");
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     stdin.write("\x1B[B");
     await tick();
   }

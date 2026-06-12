@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog } from "./components/event-log.js";
+import { EventLog, buildLineUnits } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
@@ -157,13 +157,14 @@ export function App({
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows } = layout;
 
-  const renderableCount = useMemo(
-    () => state.contentBlocks.filter((b) =>
-      b.type !== "reply" &&
-      b.type !== "plan" &&
-      (thinkingExpanded || b.type !== "thinking")
+  const lineUnitCount = useMemo(
+    () => buildLineUnits(
+      state.contentBlocks,
+      leftWidth,
+      thinkingExpanded,
+      (block) => verbose || expandedTools.has(block.id),
     ).length,
-    [state.contentBlocks, thinkingExpanded],
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools],
   );
 
   const lastToolId = useMemo(() => {
@@ -174,7 +175,7 @@ export function App({
     return null;
   }, [state.contentBlocks]);
 
-  const scroll = useScroll({ renderableCount, visibleRows });
+  const scroll = useScroll({ renderableCount: lineUnitCount, visibleRows });
 
   const latestUserMessageInLog = state.contentBlocks.some((block) =>
     block.type === "user" && block.content === state.latestUserMessage

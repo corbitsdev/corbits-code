@@ -3,8 +3,8 @@ import { render } from "ink-testing-library";
 import {
   EventLog,
   clampOffset,
-  windowBlocks,
-  visibleWindow,
+  buildLineUnits,
+  visibleLineWindow,
   renderableBlocks,
   truncateLine,
 } from "../../../src/tui/components/event-log.js";
@@ -198,13 +198,6 @@ test("clampOffset bounds offset to [0, total - visibleRows]", () => {
   expect(clampOffset(5, 3, 4)).toBe(0);
 });
 
-test("windowBlocks returns only the visible window", () => {
-  const items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-  expect(windowBlocks(items, 0, 3)).toEqual([0, 1, 2]);
-  expect(windowBlocks(items, 4, 3)).toEqual([4, 5, 6]);
-  expect(windowBlocks(items, 100, 3)).toEqual([7, 8, 9]);
-});
-
 test("renderableBlocks drops reply and plan blocks", () => {
   const blocks: ContentBlock[] = [
     { type: "plan", steps: [] },
@@ -270,22 +263,17 @@ test("EventLog keeps expansion anchored to a block id when thinking is hidden", 
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("visibleWindow keeps the painted rows within the viewport budget", () => {
-  // A tall block (wraps to ~5 rows at width 18) followed by short ones.
-  const blocks: RenderableBlock[] = [
-    { type: "text", content: "old line that should scroll out of view entirely here" },
-    { type: "text", content: "x".repeat(80) }, // wraps to several rows
-    { type: "text", content: "newest" },
+test("visibleLineWindow keeps the painted rows within the viewport budget", () => {
+  const blocks: ContentBlock[] = [
+    block({ type: "text", content: "old line that should scroll out of view entirely here" }),
+    block({ type: "text", content: "x".repeat(80) }),
+    block({ type: "text", content: "newest" }),
   ];
-  const { start, end } = visibleWindow(blocks, 100, 4, 20, false, () => false);
-  const shown = blocks.slice(start, end);
-  const rows = shown.reduce((n, b) => {
-    const content = b.type === "text" ? b.content : "";
-    return n + content.split("\n").reduce((m, l) => m + Math.max(1, Math.ceil(l.length / 18)), 0);
-  }, 0);
+  const units = buildLineUnits(blocks, 20, false, () => false);
+  const { start, end } = visibleLineWindow(units, units.length, 4);
+  const rows = units.slice(start, end).reduce((n, u) => n + u.rows, 0);
   expect(rows).toBeLessThanOrEqual(4);
-  // The newest block is always retained; the oldest is dropped.
-  expect(end).toBe(3);
+  expect(end).toBe(units.length);
   expect(start).toBeGreaterThan(0);
 });
 
@@ -310,26 +298,30 @@ test("wrapCount word-wraps greedily instead of packing characters", () => {
   expect(wrapCount("a\nb\nc", 10)).toBe(3);
 });
 
-test("visibleWindow does not reserve spacing for the topmost visible block", () => {
-  const blocks: RenderableBlock[] = [
-    block({ type: "text", content: "a" }),
-    block({ type: "text", content: "b" }),
-    block({ type: "text", content: "c" }),
-  ];
-  const expanded = () => false;
-  const win = visibleWindow(blocks, blocks.length, 3, 200, false, expanded);
-  expect(win.end).toBe(3);
-  expect(win.start).toBe(1);
+test("buildLineUnits explodes a multi-line text block into one unit per line", () => {
+  const units = buildLineUnits([block({ type: "text", content: "a\nb\nc" })], 200, false, () => false);
+  expect(units.length).toBe(3);
+  expect(units.every((u) => u.rows === 1)).toBe(true);
 });
 
-test("visibleWindow charges spacing to lower blocks, not an unspaced top block", () => {
-  const blocks: RenderableBlock[] = [
-    block({ type: "tool_call", name: "read_file", arguments: "{}" }),
-    block({ type: "text", content: "b" }),
-    block({ type: "text", content: "c" }),
-  ];
-  const expanded = () => false;
-  const win = visibleWindow(blocks, blocks.length, 5, 200, false, expanded);
-  expect(win.start).toBe(0);
-  expect(win.end).toBe(3);
+test("buildLineUnits inserts a blank spacer unit between conversational turns", () => {
+  const units = buildLineUnits(
+    [block({ type: "user", content: "hi" }), block({ type: "text", content: "reply" })],
+    200,
+    false,
+    () => false,
+  );
+  expect(units.length).toBe(3);
+});
+
+test("visibleLineWindow advances one line per scroll step", () => {
+  const units = buildLineUnits(
+    Array.from({ length: 6 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const w0 = visibleLineWindow(units, 0, 3);
+  const w1 = visibleLineWindow(units, 1, 3);
+  expect(w1.start).toBe(w0.start + 1);
 });
