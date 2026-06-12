@@ -92,7 +92,7 @@ export function App({
   const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
-  const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
+  const [collapsedTools, setCollapsedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -163,11 +163,11 @@ export function App({
         state.contentBlocks,
         leftWidth,
         thinkingExpanded,
-        (block) => verbose || expandedTools.has(block.id),
+        (block) => verbose || !collapsedTools.has(block.id),
       ),
       visibleRows,
     ),
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, visibleRows],
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, collapsedTools, visibleRows],
   );
 
   const lastToolId = useMemo(() => {
@@ -324,7 +324,7 @@ export function App({
       toggleLastTool: () => {
         if (lastToolId !== null) {
           const id = lastToolId;
-          setExpandedTools((prev) => {
+          setCollapsedTools((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
@@ -413,7 +413,7 @@ export function App({
                 visibleRows={visibleRows}
                 columns={leftWidth}
                 thinkingExpanded={thinkingExpanded}
-                expandedTools={expandedTools}
+                collapsedTools={collapsedTools}
                 verbose={verbose}
               />
             </Box>

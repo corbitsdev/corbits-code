@@ -21,12 +21,12 @@ export type EventLogProps = {
   visibleRows: number;
   columns: number;
   thinkingExpanded: boolean;
-  expandedTools: ReadonlySet<string>;
+  collapsedTools: ReadonlySet<string>;
   verbose: boolean;
 };
 
 const LINE_PADDING = 2;
-const SHOW_MORE = "… [show more]";
+const ELLIPSIS = "…";
 
 export function isRenderable(block: ContentBlock): block is RenderableBlock {
   return block.type !== "reply" && block.type !== "plan";
@@ -46,8 +46,8 @@ export function clampOffset(offset: number, total: number, visibleRows: number):
 function truncateToWidth(text: string, available: number): string {
   const avail = Math.max(8, available);
   if (text.length <= avail) return text;
-  const head = Math.max(0, avail - SHOW_MORE.length);
-  return text.slice(0, head) + SHOW_MORE;
+  const head = Math.max(0, avail - ELLIPSIS.length);
+  return text.slice(0, head) + ELLIPSIS;
 }
 
 export function truncateLine(text: string, columns: number, expanded: boolean): string {
@@ -303,10 +303,10 @@ export function EventLog({
   visibleRows,
   columns,
   thinkingExpanded,
-  expandedTools,
+  collapsedTools,
   verbose,
 }: EventLogProps): ReactNode {
-  const isExpanded = (block: RenderableBlock): boolean => verbose || expandedTools.has(block.id);
+  const isExpanded = (block: RenderableBlock): boolean => verbose || !collapsedTools.has(block.id);
   const units = buildLineUnits(contentBlocks, columns, thinkingExpanded, isExpanded);
 
   if (units.length === 0) {

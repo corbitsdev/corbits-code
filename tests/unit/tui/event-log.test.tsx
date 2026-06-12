@@ -30,7 +30,7 @@ function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
       visibleRows={overrides.visibleRows ?? 100}
       columns={overrides.columns ?? 200}
       thinkingExpanded={overrides.thinkingExpanded ?? false}
-      expandedTools={overrides.expandedTools ?? new Set()}
+      collapsedTools={overrides.collapsedTools ?? new Set()}
       verbose={overrides.verbose ?? false}
     />,
     { stdout: { columns: (overrides.columns ?? 200) + 20, rows: 200 } as unknown as NodeJS.WriteStream },
@@ -111,13 +111,12 @@ test("EventLog never shows raw JSON for tool call args in default view", () => {
   expect(frame).not.toContain('"limit":40');
 });
 
-test("EventLog renders tool result preview, never raw content, for non-JSON result", () => {
-  const { lastFrame } = renderLog([
-    { type: "tool_result", callId: "c1", name: "read_file", content: "     1\tline one\n     2\tline two", isError: false },
-  ]);
-  const frame = lastFrame() ?? "";
-  expect(frame).toContain("Read 2 lines");
-  expect(frame).not.toContain("line one");
+test("EventLog shows the full tool result by default and the preview when collapsed", () => {
+  const blocks: ContentBlock[] = [
+    { id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\tline one\n     2\tline two", isError: false },
+  ];
+  expect(renderLog(blocks).lastFrame()).toContain("line one");
+  expect(renderLog(blocks, { collapsedTools: new Set(["r"]) }).lastFrame()).toContain("Read 2 lines");
 });
 
 test("EventLog renders web_search result envelopes as readable output", () => {
@@ -130,7 +129,7 @@ test("EventLog renders web_search result envelopes as readable output", () => {
     { type: "tool_result", callId: "web-1", name: "web_search", content, isError: false },
   ]);
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Found 1 web result");
+  expect(frame).toContain("Hono");
   expect(frame).not.toContain('"results"');
 });
 
@@ -173,12 +172,21 @@ test("EventLog verbose reveals full tool args", () => {
   expect(lastFrame()).toContain("/tmp/example");
 });
 
-test("EventLog per-block expansion reveals full tool result", () => {
+test("EventLog shows full tool result content by default", () => {
   const { lastFrame } = renderLog(
     [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text", isError: false }],
-    { expandedTools: new Set(["r"]) },
   );
   expect(lastFrame()).toContain("hidden text");
+});
+
+test("EventLog compresses a block to a summary when it is collapsed", () => {
+  const { lastFrame } = renderLog(
+    [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text\n     2\tmore", isError: false }],
+    { collapsedTools: new Set(["r"]) },
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("hidden text");
+  expect(frame).toContain("Read 2 lines");
 });
 
 test("EventLog filters out reply and plan blocks", () => {
@@ -210,28 +218,35 @@ test("renderableBlocks drops reply and plan blocks", () => {
   expect(renderableBlocks(blocks).map((b) => b.type)).toEqual(["text"]);
 });
 
-test("EventLog truncates long single-line content with a show-more indicator", () => {
-  const long = "x".repeat(300);
-  for (const columns of [80, 120, 160]) {
-    const { lastFrame } = renderLog([{ type: "user", content: long }], { columns });
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("… [show more]");
-    // The truncated marker line must fit within the pane width.
-    const longest = Math.max(...frame.split("\n").map((l) => l.length));
-    expect(longest).toBeLessThanOrEqual(columns);
-  }
+test("EventLog shows long content in full by default, never a show-more marker", () => {
+  const long = "z".repeat(300);
+  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("[show more]");
+  expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("truncateLine cuts at availableWidth and grows with column width", () => {
+test("a collapsed block compresses to one line marked with an ellipsis, not show-more", () => {
+  const long = "x".repeat(300);
+  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], {
+    columns: 80,
+    collapsedTools: new Set(["u"]),
+  });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("[show more]");
+  expect(frame).toContain("…");
+  const longest = Math.max(...frame.split("\n").map((l) => l.length));
+  expect(longest).toBeLessThanOrEqual(80);
+});
+
+test("truncateToWidth marks a cut with a bare ellipsis", () => {
   const long = "abcdefghij".repeat(40);
-  const at = (columns: number) => truncateLine(long, columns, false);
   for (const columns of [80, 120, 160]) {
-    const out = at(columns);
-    expect(out.endsWith("… [show more]")).toBe(true);
+    const out = truncateLine(long, columns, false);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out).not.toContain("[show more]");
     expect(out.length).toBe(columns - 2);
   }
-  expect(at(120).length).toBeGreaterThan(at(80).length);
-  expect(at(160).length).toBeGreaterThan(at(120).length);
 });
 
 test("truncateLine leaves short content untouched and respects expanded", () => {
@@ -240,29 +255,14 @@ test("truncateLine leaves short content untouched and respects expanded", () => 
   expect(truncateLine(long, 80, true)).toBe(long);
 });
 
-test("EventLog shows untruncated content when the block is expanded", () => {
-  const long = "z".repeat(300);
-  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], {
-    columns: 80,
-    expandedTools: new Set(["u"]),
-  });
-  const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("… [show more]");
-  expect(frame.replace(/\s/g, "")).toContain(long);
-});
-
-test("EventLog keeps expansion anchored to a block id when thinking is hidden", () => {
+test("thinking stays hidden by default while other content shows in full", () => {
   const long = "z".repeat(300);
   const { lastFrame } = renderLog([
     { id: "t", type: "thinking", content: "hidden reasoning" },
     { id: "u", type: "user", content: long },
-  ], {
-    columns: 80,
-    expandedTools: new Set(["u"]),
-  });
+  ], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("hidden reasoning");
-  expect(frame).not.toContain("… [show more]");
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
