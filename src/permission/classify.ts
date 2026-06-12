@@ -15,6 +15,30 @@ export function classifyTool(toolName: string): Tier {
   return ALLOW_TOOLS.has(toolName) ? "allow" : "ask";
 }
 
+const SAFE_SHELL_PROGRAMS = new Set([
+  "cat", "head", "tail", "wc", "cut", "tr", "nl", "rev", "column", "uniq", "sort", "comm", "look",
+  "ls", "tree", "stat", "file", "du", "df", "basename", "dirname", "realpath", "readlink",
+  "echo", "printf", "date", "whoami", "hostname", "uname", "pwd", "which", "type", "printenv", "id",
+  "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings",
+]);
+
+const SHELL_METACHARACTERS = /[|&;<>`$(){}]|\\\n|\n/;
+const WRITE_FLAG = /^(-o|--output)(=|$)/;
+
+export function isAutoAllowedShellCall(call: ToolCall): boolean {
+  if (call.name !== "run_shell") return false;
+  const command = stringArg(call, "command").trim();
+  if (command.length === 0) return false;
+  if (SHELL_METACHARACTERS.test(command)) return false;
+
+  const tokens = command.split(/\s+/);
+  const program = tokens[0] ?? "";
+  if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
+  if (tokens.some((token) => WRITE_FLAG.test(token))) return false;
+
+  return true;
+}
+
 // File scopes intentionally stop at the directory level. There is no "every
 // file" rung: a persisted "*" would silently authorize all future writes/edits
 // in the directory, which is too blunt to offer as a one-keystroke choice.

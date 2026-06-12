@@ -1,6 +1,6 @@
 import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, RequestApproval } from "./types.js";
-import { classifyTool, buildRequests } from "./classify.js";
+import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { isApproved } from "./matcher.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
@@ -38,6 +38,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
     if (classifyTool(call.name) === "allow") return { allowed: true };
+    if (isAutoAllowedShellCall(call)) return { allowed: true };
     if (auto && call.name !== "run_shell") return { allowed: true };
 
     for (const request of buildRequests(call)) {
