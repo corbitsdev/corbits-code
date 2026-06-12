@@ -236,6 +236,28 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
+  // A hard stop: closing the agent is the only thing that aborts the reactor
+  // mid-inference (the send signal only rejects the send promise). Close it,
+  // drain the old stream, and rebuild a fresh agent so the next send works.
+  const interrupt = async (): Promise<void> => {
+    if (reloading) return;
+    reloading = true;
+    let release!: () => void;
+    reloadBarrier = new Promise<void>((r) => (release = r));
+    try {
+      await currentAgent.close().catch(() => undefined);
+      await streamPromise.catch(() => undefined);
+      currentAgent = await buildAgent();
+      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+    } catch (err) {
+      recordRunError(err);
+    } finally {
+      reloading = false;
+      reloadBarrier = null;
+      release();
+    }
+  };
+
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
   // and restore it on exit (including abrupt process exit) so history returns.
@@ -259,6 +281,7 @@ export async function runTUI(config: Config): Promise<number> {
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
+      onInterrupt={() => { void interrupt(); }}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
     { exitOnCtrlC: false },

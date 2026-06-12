@@ -229,11 +229,13 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       status = gateCount > 0 ? "blocked" : "running";
     },
     requestStop(): void {
-      // Only an in-flight run can be stopped. Once stopping, the reactor's
-      // current cycle finishes and reactor.done settles the status to "stopped".
       if (status !== "running" && status !== "blocked") return;
       stopRequested = true;
-      status = "stopping";
+      status = "stopped";
+      awaitingResponse = false;
+      currentToolName = null;
+      streamingType = null;
+      finishedAt = Date.now();
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).

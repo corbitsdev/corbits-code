@@ -66,6 +66,7 @@ export type AppProps = {
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
+  onInterrupt?: () => void;
   profile?: string;
 };
 
@@ -83,6 +84,7 @@ export function App({
   initialHooks = [],
   onToggleHook,
   onAgentError,
+  onInterrupt,
   profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
@@ -229,9 +231,8 @@ export function App({
 
   const requestStop = () => {
     sendAbortRef.current?.abort();
+    onInterrupt?.();
     state.requestStop();
-    // requestStop mutates the stream state in place, so nudge a re-render to
-    // reflect the "Stopping" status immediately rather than on the next event.
     forceRender((n) => n + 1);
   };
 

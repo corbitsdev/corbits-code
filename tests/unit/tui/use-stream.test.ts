@@ -846,7 +846,7 @@ test("gate count does not stick after an abort while a gate is open", () => {
   expect(state.status).toBe("blocked");
   // Abort the run while the gate is still open, then the gate resolves late.
   state.requestStop();
-  expect(state.status).toBe("stopping");
+  expect(state.status).toBe("stopped");
   state.setGatePending(false);
   // A fresh run must not inherit a stuck gate count and start wedged.
   state.markRunning();

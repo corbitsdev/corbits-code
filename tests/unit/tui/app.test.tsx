@@ -122,16 +122,16 @@ test("CTRL+C while the agent is running stops the run instead of exiting", async
   stdin.write("\x03");
   await tick();
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Stopping");
+  expect(frame).toContain("Stopped");
   expect(frame).not.toContain("Exit Intercode?");
 });
 
-test("a second CTRL+C while stopping escalates to the exit confirm", async () => {
+test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
   const emitter = new EventEmitter();
   const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).toContain("Stopping");
+  expect(lastFrame()).toContain("Stopped");
   stdin.write("\x03");
   await tick();
   expect(lastFrame()).toContain("Exit Intercode?");
