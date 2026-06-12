@@ -13,9 +13,9 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /(^|\/)\.netrc$/,
   /(^|\/)\.git-credentials$/,
   // interchange-code's own settings hold provider credentials. Covers both the
-  // global (~/.interchange/settings.json) and per-repo (.interchange/settings.json)
+  // global (~/.intercode/settings.json) and per-repo (.intercode/settings.json)
   // locations.
-  /(^|\/)\.interchange\/settings\.json$/,
+  /(^|\/)\.intercode\/settings\.json$/,
   /(^|\/)\.pgpass$/,
   /(^|\/)\.htpasswd$/,
   /(^|\/)\.ssh\//,
@@ -58,7 +58,7 @@ export function commandReferencesSensitivePath(command: string): string | undefi
 // Deny any tool call that would expose a secret file. Two surfaces are guarded:
 // path-keyed tool arguments (read_file, write_file, ...) on the resolved path
 // after the path-escape plugin, and run_shell command strings, which are
-// tokenised and matched so `cat .env` or `cat ~/.interchange/settings.json` are
+// tokenised and matched so `cat .env` or `cat ~/.intercode/settings.json` are
 // blocked the same as a direct read.
 //
 // This is a hard deny that runs before the permission plugin, so it holds even

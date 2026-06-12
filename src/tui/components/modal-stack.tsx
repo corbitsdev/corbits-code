@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { LifecycleHookStatus } from "../../hooks.js";
+import type { LifecycleHookStatus } from "../../session/hooks.js";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
 import type { PlanStep } from "../use-stream.js";
 import { HookPanel } from "./hook-panel.js";

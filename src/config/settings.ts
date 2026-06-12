@@ -79,11 +79,11 @@ export function normalizeOpenAICompatibleBaseURL(raw: string): string {
 }
 
 export function globalSettingsPath(home: string = homedir()): string {
-  return join(home, ".interchange", "settings.json");
+  return join(home, ".intercode", "settings.json");
 }
 
 export function localSettingsPath(cwd: string): string {
-  return join(cwd, ".interchange", "settings.json");
+  return join(cwd, ".intercode", "settings.json");
 }
 
 function isENOENT(err: unknown): boolean {

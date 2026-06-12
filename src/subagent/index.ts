@@ -25,15 +25,15 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 
-import { buildOpenAISource } from "./config.js";
-import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
-import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
-import { authzPlugin } from "./plugins/authz-plugin.js";
-import { verifyPlugin } from "./plugins/verify-plugin.js";
-import { webToolsPlugin } from "./web/plugin.js";
-import { buildSubAgentSystemPrompt } from "./prompts.js";
-import { generateSessionId } from "./session.js";
-import { consumeStream } from "./stream-consumer.js";
+import { buildOpenAISource } from "../config/index.js";
+import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { authzPlugin } from "../plugins/authz-plugin.js";
+import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { webToolsPlugin } from "../web/plugin.js";
+import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { generateSessionId } from "../session/index.js";
+import { consumeStream } from "../session/stream-consumer.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
@@ -101,6 +101,7 @@ export type RunSubAgentParams = {
   workdirBase: string;
   provider: SubAgentProvider;
   description: string;
+  context?: string;
   prompt: string;
   maxTurns?: number;
   signal?: AbortSignal;
@@ -179,8 +180,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       : Promise.resolve();
 
   try {
+    const fullPrompt = params.context
+      ? `${params.description}\n\n## Context\n${params.context}\n\n## Task\n${params.prompt}`
+      : `${params.description}\n\n${params.prompt}`;
     const result = await agent.send(
-      `${params.description}\n\n${params.prompt}`,
+      fullPrompt,
       params.signal !== undefined ? { signal: params.signal } : undefined,
     );
     return result.reply.trim().length > 0
@@ -206,7 +210,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Delegate a self-contained sub-task to an autonomous sub-agent. The sub-agent has the full file, search, and shell toolset, runs without approval prompts, and returns a concise written result. Use it to parallelize exploration (\"map every caller of X\", \"summarize how module Y works\") or to hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. The sub-agent cannot ask you questions and shares your working tree, so give it everything it needs in the prompt.",
+    "Delegate a self-contained sub-task to an autonomous sub-agent. The sub-agent has the full file, search, and shell toolset, runs without approval prompts, and returns a concise written result. Use it to parallelize exploration (\"map every caller of X\", \"summarize how module Y works\") or to hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. The sub-agent cannot ask you questions and shares your working tree, so give it everything it needs in the prompt. Use the context field for durable background information (codebase structure, conventions, constraints) and the prompt field for the actionable goal.",
   inputSchema: {
     type: "object",
     properties: {
@@ -214,10 +218,15 @@ export const taskToolDefinition: ToolDefinition = {
         type: "string",
         description: "A short label for the sub-task (a few words), shown in the activity log.",
       },
+      context: {
+        type: "string",
+        description:
+          "Optional: durable background information such as codebase structure, conventions, or constraints that provide context for the task.",
+      },
       prompt: {
         type: "string",
         description:
-          "The full, self-contained instructions for the sub-agent: the goal, relevant context, and what to report back.",
+          "The actionable goal and specific instructions for the sub-agent: what it needs to accomplish and what to report back.",
       },
     },
     required: ["description", "prompt"],
@@ -240,6 +249,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
     definition: taskToolDefinition,
     handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
       const description = typeof args.description === "string" ? args.description.trim() : "";
+      const context = typeof args.context === "string" ? args.context.trim() : undefined;
       const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
       if (description.length === 0 || prompt.length === 0) {
         return "Error: task requires a non-empty description and prompt.";
@@ -250,6 +260,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           workdirBase: deps.getWorkdirBase(),
           provider: deps.provider,
           description,
+          ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,
           signal,
           ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),

@@ -68,7 +68,7 @@ The TUI has an extensible slash-command framework. Built-ins: `/help` (shortcut 
 
 ## Lifecycle Hooks
 
-Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatically, discovered from `.interchange/hooks` (per-repo) and `~/.interchange/hooks` (global). `postTurn` receives aggregated turn context (tool calls, results, token usage, duration); `postRun` receives a run summary. The TUI hook panel lists discovered hooks and lets the user enable/disable them. See `docs/HOOKS.md`.
+Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatically, discovered from `.intercode/hooks` (per-repo) and `~/.intercode/hooks` (global). `postTurn` receives aggregated turn context (tool calls, results, token usage, duration); `postRun` receives a run summary. The TUI hook panel lists discovered hooks and lets the user enable/disable them. See `docs/HOOKS.md`.
 
 ## Failure Modes and Recovery
 
@@ -98,7 +98,7 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 ## Configuration
 
-Providers and models are configured in `~/.interchange/settings.json` (holds providers + credentials), with a selection-only per-repo `.interchange/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. The `OPENAI_COMPATIBLE_*` env vars still override individual fields, so existing `.env` setups keep working. The agent is denied read access to both settings files.
+Providers and models are configured in `~/.intercode/settings.json` (holds providers + credentials), with a selection-only per-repo `.intercode/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. The `OPENAI_COMPATIBLE_*` env vars still override individual fields, so existing `.env` setups keep working. The agent is denied read access to both settings files.
 
 ## Roadmap (planned, not yet shipped)
 

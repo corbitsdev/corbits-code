@@ -18,6 +18,9 @@ export type RunSink = {
   getStatus: () => RunSummary["status"];
   getRunError: () => string | undefined;
   getTurnCollector: () => TurnCollector;
+  // Resets accumulated run state (completed flag, error, turn history) so the
+  // post-run hook for a new session reports only the turns from that session.
+  reset: () => void;
 };
 
 export function getTUIRunSummaryStatus(
@@ -34,8 +37,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
 
   let runCompleted = false;
   let runError: string | undefined;
-
-  const turnCollector = createTurnContextCollector((ctx) => {
+  let turnCollector = createTurnContextCollector((ctx) => {
     hookManager.dispatchPostTurn(ctx);
   });
 
@@ -60,5 +62,12 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     getStatus: () => getTUIRunSummaryStatus(runCompleted, runError),
     getRunError: () => runError,
     getTurnCollector: () => turnCollector,
+    reset: () => {
+      runCompleted = false;
+      runError = undefined;
+      turnCollector = createTurnContextCollector((ctx) => {
+        hookManager.dispatchPostTurn(ctx);
+      });
+    },
   };
 }

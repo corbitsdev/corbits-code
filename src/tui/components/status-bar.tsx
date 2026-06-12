@@ -62,7 +62,7 @@ export function StatusBar({
           <Text color={color("muted")} wrap="truncate-end">MCP: {connectedMCPServers.join(", ")}</Text>
         </>
       )}
-      {status !== "running" && (
+      {status !== "running" && status !== "idle" && (
         <>
           <Divider />
           <Text bold color={terminalStatusColor(status)} wrap="truncate-end">

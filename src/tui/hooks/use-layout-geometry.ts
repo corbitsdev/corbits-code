@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import type { ProviderCatalogEntry } from "../../config.js";
+import type { ProviderCatalogEntry } from "../../config/index.js";
 
 export type GateContext = {
   pendingPermission: {
@@ -16,6 +16,8 @@ export type ModalContext = {
   hookPanelOpen: boolean;
   exitConfirmOpen: boolean;
   agentModalOpen: boolean;
+  permissionsOpen: boolean;
+  permissionEntryCount: number;
 };
 
 export type UseLayoutGeometryArgs = {
@@ -43,15 +45,55 @@ export function computeVisibleRows({ rows, chromeRows, effectiveOverlayRows, ext
   return Math.max(1, rows - chromeRows - effectiveOverlayRows - extraChromeRows);
 }
 
+// Fixed chrome: title + border + section headers + footer hint inside the overlay.
+const PERMISSIONS_OVERLAY_FIXED = 6;
+// Cap so the overlay never consumes more than this many rows.
+const PERMISSIONS_OVERLAY_MAX = 20;
+
 export type LayoutGeometry = {
   leftWidth: number;
   rightWidth: number;
   visibleRows: number;
   diffVisibleRows: number;
   effectiveOverlayRows: number;
+  permissionsOverlayRows: number;
 };
 
 const CHROME_ROWS = 9;
+
+export type ComputeOverlayRowsArgs = {
+  gateContext: GateContext;
+  modalContext: ModalContext;
+  hookCount: number;
+  providerCatalog: ProviderCatalogEntry[];
+  innerWidth: number;
+};
+
+export function computeOverlayRows({
+  gateContext,
+  modalContext,
+  hookCount,
+  providerCatalog,
+  innerWidth,
+}: ComputeOverlayRowsArgs): number {
+  if (gateContext.pendingPermission !== null) {
+    const head = `${gateContext.pendingPermission.action}: ${gateContext.pendingPermission.subject}`;
+    const subjectLines = Math.max(1, Math.ceil(head.length / Math.max(8, innerWidth)));
+    const persistable = gateContext.pendingPermission.scopes.filter((s) => s.pattern !== null).length;
+    const choices = 2 + persistable;
+    return 11 + subjectLines + choices;
+  }
+  if (gateContext.pendingPlan !== null) return 18;
+  if (gateContext.pendingOperator !== null) return 10 + gateContext.pendingOperator.options.length;
+  if (modalContext.helpOpen) return 16;
+  if (modalContext.hookPanelOpen) return 4 + hookCount;
+  if (modalContext.exitConfirmOpen) return 6;
+  if (modalContext.agentModalOpen) {
+    const widestModels = providerCatalog.reduce((n, p) => Math.max(n, p.models.length), 0);
+    return 16 + Math.max(providerCatalog.length, widestModels);
+  }
+  return 0;
+}
 
 export function useLayoutGeometry({
   columns,
@@ -66,26 +108,13 @@ export function useLayoutGeometry({
   const leftWidth = sidebarOpen ? Math.floor(columns * 0.65) : columns;
   const rightWidth = columns - leftWidth;
 
-  const overlayRows = useMemo(() => {
-    const innerWidth = Math.max(8, leftWidth - 8);
-    if (gateContext.pendingPermission !== null) {
-      const head = `${gateContext.pendingPermission.action}: ${gateContext.pendingPermission.subject}`;
-      const subjectLines = Math.max(1, Math.ceil(head.length / innerWidth));
-      const persistable = gateContext.pendingPermission.scopes.filter((s) => s.pattern !== null).length;
-      const choices = 2 + persistable;
-      return 11 + subjectLines + choices;
-    }
-    if (gateContext.pendingPlan !== null) return 18;
-    if (gateContext.pendingOperator !== null) return 10 + gateContext.pendingOperator.options.length;
-    if (modalContext.helpOpen) return 16;
-    if (modalContext.hookPanelOpen) return 4 + hookCount;
-    if (modalContext.exitConfirmOpen) return 6;
-    if (modalContext.agentModalOpen) {
-      const widestModels = providerCatalog.reduce((n, p) => Math.max(n, p.models.length), 0);
-      return 16 + Math.max(providerCatalog.length, widestModels);
-    }
-    return 0;
-  }, [
+  const overlayRows = useMemo(() => computeOverlayRows({
+    gateContext,
+    modalContext,
+    hookCount,
+    providerCatalog,
+    innerWidth: leftWidth - 8,
+  }), [
     gateContext.pendingPermission,
     gateContext.pendingPlan,
     gateContext.pendingOperator,
@@ -116,8 +145,18 @@ export function useLayoutGeometry({
   }, [overlayRows]);
 
   const effectiveOverlayRows = Math.max(overlayRows, deferredOverlayRows);
-  const visibleRows = computeVisibleRows({ rows, chromeRows: CHROME_ROWS, effectiveOverlayRows, extraChromeRows });
+
+  const permissionsOverlayRows = modalContext.permissionsOpen
+    ? Math.min(PERMISSIONS_OVERLAY_MAX, PERMISSIONS_OVERLAY_FIXED + modalContext.permissionEntryCount)
+    : 0;
+
+  const visibleRows = computeVisibleRows({
+    rows,
+    chromeRows: CHROME_ROWS,
+    effectiveOverlayRows: effectiveOverlayRows + permissionsOverlayRows,
+    extraChromeRows,
+  });
   const diffVisibleRows = Math.max(1, visibleRows - 2);
 
-  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows };
+  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows };
 }

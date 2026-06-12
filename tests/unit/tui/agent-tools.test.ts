@@ -44,7 +44,7 @@ mock.module("../../../src/web/plugin.js", () => ({
   webToolsPlugin: () => ({}),
 }));
 
-mock.module("../../../src/director.js", () => ({
+mock.module("../../../src/agent/director.js", () => ({
   askOperatorDefinition: {
     name: "ask_operator",
     description: "Ask operator",
@@ -54,7 +54,7 @@ mock.module("../../../src/director.js", () => ({
   createCodingDirector: mock(() => ({})),
 }));
 
-const { createAgentToolset } = await import("../../../src/agent-tools.js");
+const { createAgentToolset } = await import("../../../src/agent/tools.js");
 
 const fakePermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),

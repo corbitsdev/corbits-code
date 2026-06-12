@@ -15,7 +15,7 @@ test("createAgentToolset calls createLSPPlugin with correct args", async () => {
     dispose: async () => {},
   } as unknown as ReturnType<typeof posixModule.createPosixTools>);
 
-  const { createAgentToolset } = await import("../../src/agent-tools.js");
+  const { createAgentToolset } = await import("../../src/agent/tools.js");
   const permissionGate = { check: async () => ({ allowed: true }) } as never;
 
   await createAgentToolset({

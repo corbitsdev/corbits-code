@@ -17,11 +17,11 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 export function profilesDir(home: string = homedir()): string {
-  return join(home, ".interchange", "profiles");
+  return join(home, ".intercode", "profiles");
 }
 
 export function projectProfilePath(cwd: string): string {
-  return join(cwd, ".interchange", "profile.json");
+  return join(cwd, ".intercode", "profile.json");
 }
 
 function isENOENT(err: unknown): boolean {

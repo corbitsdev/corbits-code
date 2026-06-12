@@ -9,7 +9,7 @@ import {
   loadDirectorState,
   type RunState,
   type DirectorPersistedState,
-} from "./state.js";
+} from "./session/state.js";
 
 const SESSION_ID = "test-session-001";
 

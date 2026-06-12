@@ -1,4 +1,4 @@
-import type { ProviderCatalogEntry } from "./config.js";
+import type { ProviderCatalogEntry } from "./index.js";
 
 export type ProviderSubmission = {
   name: string;

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createChatDirector, createCodingDirector } from "./director.js";
+import { createChatDirector, createCodingDirector } from "./agent/director.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
 
 const mockState: ReactorState = {} as unknown as ReactorState;

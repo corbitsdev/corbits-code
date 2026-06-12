@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../../src/config.js";
+import { loadConfig } from "../../src/config/index.js";
 
 const envVars = {
   OPENAI_COMPATIBLE_API_KEY: "test-key",

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { reReadBlockPlugin } from "./re-read-block-plugin.js";
-import type { CodingDirector } from "../director.js";
+import type { CodingDirector } from "../agent/director.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 function makeDirectorStub(filesReadAtTurn: Map<string, number>): CodingDirector {

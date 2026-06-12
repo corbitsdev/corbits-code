@@ -94,11 +94,11 @@ export function hooksDirectory(): string {
 }
 
 export function localHooksDirectory(cwd: string = process.cwd()): string {
-  return join(cwd, ".interchange", "hooks");
+  return join(cwd, ".intercode", "hooks");
 }
 
 export function globalHooksDirectory(): string {
-  return join(homedir(), ".interchange", "hooks");
+  return join(homedir(), ".intercode", "hooks");
 }
 
 export function hookDirectories(cwd: string = process.cwd()): string[] {

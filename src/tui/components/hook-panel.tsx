@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 
-import type { LifecycleHookStatus } from "../../hooks.js";
+import type { LifecycleHookStatus } from "../../session/hooks.js";
 
 export type HookPanelProps = {
   hooks: LifecycleHookStatus[];
