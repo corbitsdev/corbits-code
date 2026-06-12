@@ -28,6 +28,10 @@ export type PermissionGateOptions = {
   // auto-allows future calls when these still match the grant's providerModel.
   providerName?: string;
   model?: string;
+  // The workspace root. Used to confine auto-allowed shell reads to the project;
+  // a command whose path arguments resolve outside it is never auto-allowed.
+  // Defaults to the process cwd (the workspace) when omitted.
+  cwd?: string;
 };
 
 export type PermissionGate = {
@@ -39,7 +43,7 @@ export type PermissionGate = {
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
-  const { requestApproval, persist, interactive, skipPermissions, auto, providerName, model } = options;
+  const { requestApproval, persist, interactive, skipPermissions, auto, providerName, model, cwd } = options;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
   const activeProviderModel =
@@ -51,7 +55,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
     if (classifyTool(call.name) === "allow") return { allowed: true };
-    if (isAutoAllowedShellCall(call)) return { allowed: true };
+    if (isAutoAllowedShellCall(call, cwd)) return { allowed: true };
     if (auto && call.name !== "run_shell") return { allowed: true };
 
     for (const request of buildRequests(call)) {

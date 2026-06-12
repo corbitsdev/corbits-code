@@ -10,8 +10,9 @@ function storePath(cwd: string, sessionId: string): string {
   return join(sessionDir(cwd, sessionId), "permissions.json");
 }
 
-// Persistent project grants live next to the project's settings, committed with
-// the repo (no credentials, only tool/pattern allowlists).
+// Persistent project grants live next to the project's settings. The file is
+// gitignored (machine-local), so a teammate who pulls the repo never silently
+// inherits another machine's auto-approvals.
 function projectStorePath(cwd: string): string {
   return join(cwd, ".interchange", "permissions.json");
 }
@@ -27,12 +28,22 @@ function globalStorePath(home: string = homedir()): string {
 // temp file + rename so a reader never observes a torn file.
 const writeChains = new Map<string, Promise<void>>();
 
+// A persisted pattern with no literal characters (e.g. "*", "**", "?") would
+// auto-allow every call for its tool. The interactive classifier never produces
+// such a pattern, so a file containing one was hand-edited or injected via a
+// pulled/committed permissions file — reject it at the load boundary rather than
+// trust it.
+function hasLiteralFloor(pattern: string): boolean {
+  return pattern.replace(/[*?\s]/g, "").length > 0;
+}
+
 function isApproval(value: unknown): value is Approval {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   return (
     typeof record.tool === "string" &&
     typeof record.pattern === "string" &&
+    hasLiteralFloor(record.pattern) &&
     (record.providerModel === undefined || typeof record.providerModel === "string")
   );
 }
@@ -51,13 +62,28 @@ async function readApprovalsField(path: string, field: string): Promise<Approval
   }
 }
 
-// Serialize writes to a single path and rename atomically so concurrent grants
-// never tear the file or clobber each other.
-function writeAtomic(path: string, payload: string): Promise<void> {
+async function readObjectFile(path: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf-8")) as unknown;
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+// Serialize the full read-modify-write per path so concurrent grants to the same
+// file (a global and a provider-model grant resolving together both touch the
+// global file) never lose an update, and rename atomically so a reader never
+// observes a torn file.
+function chainObjectWrite(
+  path: string,
+  mutate: (current: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
   const tmp = `${path}.${process.pid}.tmp`;
   const run = async (): Promise<void> => {
+    const next = mutate(await readObjectFile(path));
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(tmp, payload);
+    await writeFile(tmp, JSON.stringify(next, null, 2));
     await rename(tmp, path);
   };
   const chained = (writeChains.get(path) ?? Promise.resolve()).then(run, run);
@@ -69,32 +95,15 @@ export async function loadApprovals(cwd: string, sessionId: string): Promise<App
   return readApprovalsField(storePath(cwd, sessionId), "approvals");
 }
 
-export async function saveApprovals(
-  cwd: string,
-  sessionId: string,
-  approvals: readonly Approval[],
-): Promise<void> {
-  const payload = JSON.stringify({ approvals: [...approvals] }, null, 2);
-  const path = storePath(cwd, sessionId);
-  const tmp = `${path}.${process.pid}.tmp`;
-  const run = async (): Promise<void> => {
-    await mkdir(sessionDir(cwd, sessionId), { recursive: true });
-    await writeFile(tmp, payload);
-    await rename(tmp, path);
-  };
-  const chained = (writeChains.get(cwd) ?? Promise.resolve()).then(run, run);
-  writeChains.set(cwd, chained.catch(() => undefined));
-  return chained;
-}
-
 export async function loadProjectApprovals(cwd: string): Promise<Approval[]> {
   return readApprovalsField(projectStorePath(cwd), "approvals");
 }
 
 export async function saveProjectApproval(cwd: string, approval: Approval): Promise<void> {
-  const existing = await loadProjectApprovals(cwd);
-  const payload = JSON.stringify({ approvals: [...existing, approval] }, null, 2);
-  return writeAtomic(projectStorePath(cwd), payload);
+  return chainObjectWrite(projectStorePath(cwd), (current) => ({
+    ...current,
+    approvals: [...parseApprovalList(current.approvals), approval],
+  }));
 }
 
 export async function loadGlobalApprovals(home: string = homedir()): Promise<Approval[]> {
@@ -121,21 +130,11 @@ export async function loadProviderModelApprovals(home: string = homedir()): Prom
   }
 }
 
-async function readGlobalFile(home: string): Promise<Record<string, unknown>> {
-  try {
-    const raw = await readFile(globalStorePath(home), "utf-8");
-    const parsed = JSON.parse(raw) as unknown;
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
-
 export async function saveGlobalApproval(approval: Approval, home: string = homedir()): Promise<void> {
-  const current = await readGlobalFile(home);
-  const existing = parseApprovalList(current.approvals);
-  const next = { ...current, approvals: [...existing, approval] };
-  return writeAtomic(globalStorePath(home), JSON.stringify(next, null, 2));
+  return chainObjectWrite(globalStorePath(home), (current) => ({
+    ...current,
+    approvals: [...parseApprovalList(current.approvals), approval],
+  }));
 }
 
 export async function saveProviderModelApproval(
@@ -143,16 +142,13 @@ export async function saveProviderModelApproval(
   approval: Approval,
   home: string = homedir(),
 ): Promise<void> {
-  const current = await readGlobalFile(home);
-  const rawMap = current.providerModels;
-  const map: Record<string, unknown> =
-    typeof rawMap === "object" && rawMap !== null ? (rawMap as Record<string, unknown>) : {};
-  const existing = parseApprovalList(map[providerModel]);
   // Strip the providerModel field from the stored record; the map key carries it.
   const { providerModel: _omit, ...bare } = approval;
-  const next = {
-    ...current,
-    providerModels: { ...map, [providerModel]: [...existing, bare] },
-  };
-  return writeAtomic(globalStorePath(home), JSON.stringify(next, null, 2));
+  return chainObjectWrite(globalStorePath(home), (current) => {
+    const rawMap = current.providerModels;
+    const map: Record<string, unknown> =
+      typeof rawMap === "object" && rawMap !== null ? (rawMap as Record<string, unknown>) : {};
+    const existing = parseApprovalList(map[providerModel]);
+    return { ...current, providerModels: { ...map, [providerModel]: [...existing, bare] } };
+  });
 }

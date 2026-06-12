@@ -54,6 +54,22 @@ describe("isAutoAllowedShellCall — environment dump", () => {
   });
 });
 
+describe("isAutoAllowedShellCall — workspace containment", () => {
+  test("denies reads of paths outside the workspace", () => {
+    expect(isAutoAllowedShellCall(shellCall("cat /etc/passwd"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("strings /proc/self/environ"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("xxd ../../etc/hosts"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("cat ~/.aws/config"), "/repo")).toBe(false);
+  });
+
+  test("allows reads of paths inside the workspace", () => {
+    expect(isAutoAllowedShellCall(shellCall("cat src/index.ts"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("wc -l README.md"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("ls -la"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("grep -r needle ."), "/repo")).toBe(true);
+  });
+});
+
 describe("secret-guard plugin hard-denies regardless of classification", () => {
   test("blocks cat .env at the plugin layer even when not auto-allowed", async () => {
     const middleware = secretGuardPlugin().middleware;

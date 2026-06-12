@@ -31,6 +31,12 @@ describe("project store", () => {
       { tool: "write_file", pattern: "src/*" },
     ]);
   });
+
+  test("drops an over-broad pattern at load so a poisoned file cannot over-grant", async () => {
+    await saveProjectApproval(dir, { tool: "run_shell", pattern: "*" });
+    await saveProjectApproval(dir, { tool: "run_shell", pattern: "npm *" });
+    expect(await loadProjectApprovals(dir)).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+  });
 });
 
 describe("global store", () => {

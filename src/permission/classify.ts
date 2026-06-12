@@ -1,3 +1,5 @@
+import { resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes } from "./command.js";
@@ -30,7 +32,30 @@ const WRITE_FLAG = /^(-o|--output)(=|$)/;
 // the search, turning a "safe" search into arbitrary code execution.
 const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 
-export function isAutoAllowedShellCall(call: ToolCall): boolean {
+// A safe read command auto-runs only when every path-like argument stays inside
+// the workspace. Containment — not a secret-name denylist — is the real
+// invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
+// `strings /proc/self/environ` from auto-reading any file on the host. The
+// secret guard remains a hard-deny backstop for secrets that live inside cwd.
+function escapesWorkspace(token: string, cwd: string): boolean {
+  if (token.startsWith("~")) return true;
+  const target = resolve(cwd, token);
+  let realTarget = target;
+  try {
+    realTarget = realpathSync(target);
+  } catch {
+    realTarget = target;
+  }
+  let realCwd = cwd;
+  try {
+    realCwd = realpathSync(cwd);
+  } catch {
+    realCwd = cwd;
+  }
+  return realTarget !== realCwd && !realTarget.startsWith(realCwd + sep);
+}
+
+export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
   if (call.name !== "run_shell") return false;
   const command = stringArg(call, "command").trim();
   if (command.length === 0) return false;
@@ -39,9 +64,12 @@ export function isAutoAllowedShellCall(call: ToolCall): boolean {
   const tokens = command.split(/\s+/);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
-  if (tokens.some((token) => WRITE_FLAG.test(token))) return false;
-  if (tokens.some((token) => EXEC_FLAG.test(token))) return false;
-  if (tokens.slice(1).some((token) => isSensitivePath(token))) return false;
+
+  const args = tokens.slice(1);
+  if (args.some((token) => WRITE_FLAG.test(token))) return false;
+  if (args.some((token) => EXEC_FLAG.test(token))) return false;
+  if (args.some((token) => isSensitivePath(token))) return false;
+  if (args.some((token) => !token.startsWith("-") && escapesWorkspace(token, cwd))) return false;
 
   return true;
 }

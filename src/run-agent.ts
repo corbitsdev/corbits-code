@@ -140,6 +140,7 @@ export async function runAgent(
   const approvals = await loadApprovals(config.cwd, config.sessionId);
   const permissionGate = createPermissionGate({
     approvals,
+    cwd: config.cwd,
     interactive: false,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,

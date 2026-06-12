@@ -101,6 +101,7 @@ export async function runTUI(config: Config): Promise<number> {
   ];
   const permissionGate = createPermissionGate({
     approvals: seededApprovals,
+    cwd: config.cwd,
     providerName: config.providerName,
     model: config.model,
     requestApproval: (request) =>
