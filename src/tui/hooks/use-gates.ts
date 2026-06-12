@@ -37,18 +37,30 @@ export type UseGatesArgs = {
   setGatePending: (pending: boolean) => void;
 };
 
+// Each queued entry bundles the display payload with its resolve callback so
+// we can advance to the next item after the head is resolved.
+type PlanQueueEntry = { plan: PlanStep[]; resolve: (approved: boolean) => void };
+type OperatorQueueEntry = { question: string; options: string[]; resolve: (index: number) => void };
+type PermissionQueueEntry = { request: PermissionRequest; resolve: (outcome: ApprovalOutcome) => void };
+
 export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateController {
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const [pendingOperator, setPendingOperator] = useState<PendingOperator | null>(null);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
-  const planResolveRef = useRef<((approved: boolean) => void) | null>(null);
-  const operatorResolveRef = useRef<((index: number) => void) | null>(null);
-  const permissionResolveRef = useRef<((outcome: ApprovalOutcome) => void) | null>(null);
+
+  // FIFO queues — one per gate type. The head entry is what's currently shown.
+  const planQueue = useRef<PlanQueueEntry[]>([]);
+  const operatorQueue = useRef<OperatorQueueEntry[]>([]);
+  const permissionQueue = useRef<PermissionQueueEntry[]>([]);
 
   useEffect(() => {
     const handler = ({ plan, resolve }: PlanGateEvent) => {
-      planResolveRef.current = resolve;
-      setPendingPlan(plan);
+      planQueue.current.push({ plan, resolve });
+      // Only update visible state when this is the first (head) entry; later
+      // entries stay invisible until the head resolves.
+      if (planQueue.current.length === 1) {
+        setPendingPlan(plan);
+      }
       setGatePending(true);
     };
     eventEmitter.on("plan.gate", handler);
@@ -59,8 +71,10 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
 
   useEffect(() => {
     const handler = ({ question, options, resolve }: OperatorGateEvent) => {
-      operatorResolveRef.current = resolve;
-      setPendingOperator({ question, options });
+      operatorQueue.current.push({ question, options, resolve });
+      if (operatorQueue.current.length === 1) {
+        setPendingOperator({ question, options });
+      }
       setGatePending(true);
     };
     eventEmitter.on("operator.gate", handler);
@@ -71,8 +85,10 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
 
   useEffect(() => {
     const handler = ({ request, resolve }: PermissionGateEvent) => {
-      permissionResolveRef.current = resolve;
-      setPendingPermission(request);
+      permissionQueue.current.push({ request, resolve });
+      if (permissionQueue.current.length === 1) {
+        setPendingPermission(request);
+      }
       setGatePending(true);
     };
     eventEmitter.on("permission.gate", handler);
@@ -82,11 +98,12 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
   }, [eventEmitter, setGatePending]);
 
   const resolvePlan = (approved: boolean) => {
-    const resolve = planResolveRef.current;
-    planResolveRef.current = null;
-    setPendingPlan(null);
+    const head = planQueue.current.shift();
+    const next = planQueue.current[0] ?? null;
+    // Advance display to the next queued gate, or clear when the queue empties.
+    setPendingPlan(next ? next.plan : null);
     setGatePending(false);
-    resolve?.(approved);
+    head?.resolve(approved);
   };
 
   return {
@@ -97,18 +114,18 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     approve: () => resolvePlan(true),
     reject: () => resolvePlan(false),
     selectOperator: (index: number) => {
-      const resolve = operatorResolveRef.current;
-      operatorResolveRef.current = null;
-      setPendingOperator(null);
+      const head = operatorQueue.current.shift();
+      const next = operatorQueue.current[0] ?? null;
+      setPendingOperator(next ? { question: next.question, options: next.options } : null);
       setGatePending(false);
-      resolve?.(index);
+      head?.resolve(index);
     },
     resolvePermission: (outcome: ApprovalOutcome) => {
-      const resolve = permissionResolveRef.current;
-      permissionResolveRef.current = null;
-      setPendingPermission(null);
+      const head = permissionQueue.current.shift();
+      const next = permissionQueue.current[0] ?? null;
+      setPendingPermission(next ? next.request : null);
       setGatePending(false);
-      resolve?.(outcome);
+      head?.resolve(outcome);
     },
   };
 }
