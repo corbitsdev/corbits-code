@@ -26,7 +26,22 @@ export type UseLayoutGeometryArgs = {
   modalContext: ModalContext;
   hookCount: number;
   providerCatalog: ProviderCatalogEntry[];
+  // Additional chrome rows rendered outside the overlay accounting (e.g.
+  // McpAuthPrompt, commandMessage). Must be subtracted so the log does not
+  // overpaint into content below it.
+  extraChromeRows?: number;
 };
+
+export type ComputeVisibleRowsArgs = {
+  rows: number;
+  chromeRows: number;
+  effectiveOverlayRows: number;
+  extraChromeRows: number;
+};
+
+export function computeVisibleRows({ rows, chromeRows, effectiveOverlayRows, extraChromeRows }: ComputeVisibleRowsArgs): number {
+  return Math.max(1, rows - chromeRows - effectiveOverlayRows - extraChromeRows);
+}
 
 export type LayoutGeometry = {
   leftWidth: number;
@@ -46,6 +61,7 @@ export function useLayoutGeometry({
   modalContext,
   hookCount,
   providerCatalog,
+  extraChromeRows = 0,
 }: UseLayoutGeometryArgs): LayoutGeometry {
   const leftWidth = sidebarOpen ? Math.floor(columns * 0.65) : columns;
   const rightWidth = columns - leftWidth;
@@ -100,7 +116,7 @@ export function useLayoutGeometry({
   }, [overlayRows]);
 
   const effectiveOverlayRows = Math.max(overlayRows, deferredOverlayRows);
-  const visibleRows = Math.max(1, rows - CHROME_ROWS - effectiveOverlayRows);
+  const visibleRows = computeVisibleRows({ rows, chromeRows: CHROME_ROWS, effectiveOverlayRows, extraChromeRows });
   const diffVisibleRows = Math.max(1, visibleRows - 2);
 
   return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows };
