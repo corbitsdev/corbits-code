@@ -11,7 +11,7 @@ import {
   buildSubmitRules,
   buildSystemPrompt,
   buildToolCallDiscipline,
-} from "../../src/prompts.js";
+} from "../../src/agent/prompts.js";
 
 const sections = [
   buildAgentRole,

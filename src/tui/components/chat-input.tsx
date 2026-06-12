@@ -13,6 +13,8 @@ export type ChatInputProps = {
   // When false, the input ignores all keystrokes. Set while an overlay or modal
   // is capturing input so keys do not leak into the prompt underneath it.
   active?: boolean;
+  // Number of messages queued for delivery at the next inference boundary.
+  queuedCount?: number;
 };
 
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
@@ -106,7 +108,7 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, active = true }: ChatInputProps): ReactNode {
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, active = true, queuedCount = 0 }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // The last value this component produced itself. Used to tell an external
@@ -223,6 +225,11 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
 
   return (
     <Box flexDirection="column">
+      {queuedCount > 0 && (
+        <Box paddingX={1}>
+          <Text color="yellow">{queuedCount === 1 ? "(1 message queued)" : `(${queuedCount} messages queued)`}</Text>
+        </Box>
+      )}
       {suggestions.length > 0 && (
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
           {suggestions.map((cmd, i) => (

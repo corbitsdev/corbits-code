@@ -7,7 +7,7 @@ import type {
   TokenUsage,
   LastCycleSource,
 } from "@intx/types/runtime";
-import { createCodingDirector } from "../../src/director.js";
+import { createCodingDirector } from "../../src/agent/director.js";
 
 // ---------------------------------------------------------------------------
 // Minimal stubs

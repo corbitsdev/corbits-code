@@ -6,7 +6,7 @@ test("createAgentStreamState initial state is empty", () => {
   const state = createAgentStreamState();
   expect(state.contentBlocks.length).toBe(0);
   expect(state.turnsUsed).toBe(0);
-  expect(state.status).toBe("running");
+  expect(state.status).toBe("idle");
   expect(state.totalCost).toBe(0);
   expect(state.totalTokens).toBe(0);
   expect(state.hooks).toEqual([]);
@@ -38,7 +38,7 @@ test("clear resets the transcript, telemetry, and status", () => {
   expect(state.turnsUsed).toBe(0);
   expect(state.totalTokens).toBe(0);
   expect(state.totalCost).toBe(0);
-  expect(state.status).toBe("running");
+  expect(state.status).toBe("idle");
   expect(state.latestUserMessage).toBe("");
   expect(state.currentPlanStep).toBe(null);
 });
@@ -400,6 +400,7 @@ test("a failed write does not advance the plan step", () => {
 
 test("setGatePending toggles between running and blocked", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   expect(state.status).toBe("running");
   state.setGatePending(true);
   expect(state.status).toBe("blocked");
@@ -503,6 +504,7 @@ test("D3: contentBlocks returns a new reference after a mutation", () => {
 // E1: resolving one gate while another is still open must NOT flip status back to "running".
 test("E1: status stays blocked when two gates open and only one resolves", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   state.setGatePending(true);
   state.setGatePending(true);
   state.setGatePending(false);
@@ -512,6 +514,7 @@ test("E1: status stays blocked when two gates open and only one resolves", () =>
 // E1: status returns to running only when the last gate resolves.
 test("E1: status returns to running when all gates resolve", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   state.setGatePending(true);
   state.setGatePending(true);
   state.setGatePending(false);
@@ -873,6 +876,7 @@ test("write_file to a different file while on a fileless step sets planDeviated"
 
 test("gate count does not stick after an abort while a gate is open", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   state.setGatePending(true);
   expect(state.status).toBe("blocked");
   // Abort the run while the gate is still open, then the gate resolves late.

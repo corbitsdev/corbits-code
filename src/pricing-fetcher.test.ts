@@ -8,7 +8,7 @@ import {
   writePricingCache,
   startPricingRefresh,
   type PricingCache,
-} from "./pricing-fetcher.js";
+} from "./cost/pricing-fetcher.js";
 
 // ---------------------------------------------------------------------------
 // parseModelsDevPricing

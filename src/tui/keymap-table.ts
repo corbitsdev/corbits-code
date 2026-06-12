@@ -9,6 +9,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+P", description: "Toggle plan full-screen" },
   { keys: "Ctrl+D", description: "Toggle diff full-screen" },
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
+  { keys: "Ctrl+Y", description: "Copy last output to clipboard" },
   { keys: "↑ / ↓", description: "Scroll active pane when prompt is empty" },
   { keys: "ESC", description: "Back / close overlay" },
   { keys: "ESC ESC", description: "Clear prompt" },

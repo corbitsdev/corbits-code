@@ -17,7 +17,7 @@ import { ModalStack } from "./components/modal-stack.js";
 import { PermissionsManager } from "./components/permissions-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
-import type { ProviderCatalogEntry } from "../config.js";
+import type { ProviderCatalogEntry } from "../config/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -31,7 +31,7 @@ import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
-import type { LifecycleHookStatus } from "../hooks.js";
+import type { LifecycleHookStatus } from "../session/hooks.js";
 import "./commands/built-in.js";
 
 // How long the run can be continuously awaiting a response with no new content
@@ -94,6 +94,8 @@ export function App({
   profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const mcpStatus = useMCPStatus(eventEmitter);
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
@@ -114,6 +116,11 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  // Messages queued while the agent is processing. Drained one-at-a-time when
+  // isProcessing goes false (connector.reply fires). Lives in React state so
+  // the drain path goes through sendMessage(), which correctly sets isProcessing.
+  const pendingQueueRef = useRef<string[]>([]);
+  const [queuedCount, setQueuedCount] = useState(0);
 
   const providerManager = useProviderManager({
     initialProvider,
@@ -149,12 +156,12 @@ export function App({
       pendingPlan: gates.pendingPlan,
       pendingOperator: gates.pendingOperator,
     },
-    modalContext: { helpOpen: helpOpen || permissionsOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
+    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen, permissionEntryCount: permissionEntries.length },
     hookCount: state.hooks.length,
     providerCatalog,
     extraChromeRows,
   });
-  const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows } = layout;
+  const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
   const scrollMaxOffset = useMemo(
     () => maxScrollOffset(
@@ -212,7 +219,8 @@ export function App({
   // Incremented on every send so useSpinner can reset its elapsed clock per turn.
   const sendCounterRef = useRef(0);
 
-  const sendMessage = (message: string) => {
+  const sendMessageRef = useRef<(message: string) => void>(null!);
+  sendMessageRef.current = (message: string) => {
     sendCounterRef.current += 1;
     state.markRunning();
     scroll.scrollToBottom();
@@ -227,22 +235,32 @@ export function App({
       onAgentError?.(err);
     });
   };
+  const sendMessage = (message: string) => sendMessageRef.current(message);
 
   const requestStop = () => {
     sendAbortRef.current?.abort();
     onInterrupt?.();
     state.requestStop();
+    // Discard queued messages — a stopped run should not silently replay them
+    // into the next session's first turn when connector.reply eventually fires.
+    pendingQueueRef.current.length = 0;
+    setQueuedCount(0);
     forceRender((n) => n + 1);
   };
 
-  const startNewSession = () => {
+  const startNewSessionRef = useRef<() => void>(() => undefined);
+  startNewSessionRef.current = () => {
     sendAbortRef.current?.abort();
     state.clear();
+    gates.resetGates();
     setExpandedTools(new Set());
+    pendingQueueRef.current.length = 0;
+    setQueuedCount(0);
     onNewSession?.();
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
   };
+  const startNewSession = () => startNewSessionRef.current();
 
   const commandContext = useMemo(() => ({
     getVerbose: () => verbose,
@@ -251,9 +269,8 @@ export function App({
       setVerbose(next);
       return next;
     },
-    signalClear: startNewSession,
+    signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [verbose, mcpStatus.servers]);
 
   // Track the last moment real progress was observed. Reset whenever new content
@@ -286,6 +303,26 @@ export function App({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
 
+  // Drain one queued message when the agent finishes a response cycle.
+  // Uses a ref for sendMessage so the closure never goes stale. Guards on
+  // !isProcessing to avoid double-sending if connector.reply fires back-to-back.
+  useEffect(() => {
+    const onEvent = (event: { type: string }) => {
+      if (event.type !== "connector.reply") return;
+      if (pendingQueueRef.current.length === 0) return;
+      // Do not drain while a gate is open — connector.reply should not fire
+      // mid-gate, but if it does, markRunning() would zero gateCount and
+      // corrupt the blocked state.
+      if (stateRef.current.status === "blocked") return;
+      const text = pendingQueueRef.current.shift()!;
+      setQueuedCount((c) => Math.max(0, c - 1));
+      sendMessageRef.current(text);
+    };
+    eventEmitter.on("event", onEvent);
+    return () => { eventEmitter.off("event", onEvent); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Send the initial task once the App (and its gate listeners) is mounted, so
   // the run is driven through the same abortable path as interactive sends.
   useEffect(() => {
@@ -297,6 +334,12 @@ export function App({
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
+    if (state.isProcessing) {
+      // Agent is mid-response — queue for delivery at the next connector.reply.
+      pendingQueueRef.current.push(message);
+      setQueuedCount((c) => c + 1);
+      return;
+    }
     sendMessage(message);
   };
 
@@ -378,6 +421,30 @@ export function App({
         if (first !== undefined) {
           writeClipboard(first.url);
           setCommandMessage(`Copied authorization URL for ${first.name}`);
+        }
+      },
+      copyLastOutput: () => {
+        // MCP auth URL takes priority when one is pending.
+        const first = mcpStatus.needsAuth[0];
+        if (first !== undefined) {
+          writeClipboard(first.url);
+          setCommandMessage(`Copied authorization URL for ${first.name}`);
+          return;
+        }
+        // Walk backwards for the last copyable block: reply, text, or tool_result.
+        const blocks = state.contentBlocks;
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i]!;
+          if (b.type === "reply" || b.type === "text") {
+            writeClipboard(b.content);
+            setCommandMessage("Copied to clipboard");
+            return;
+          }
+          if (b.type === "tool_result") {
+            writeClipboard(b.content);
+            setCommandMessage(`Copied ${b.name} output`);
+            return;
+          }
         }
       },
     },
@@ -519,6 +586,7 @@ export function App({
           entries={permissionEntries}
           onRevoke={handleRevokePermission}
           onClose={() => setPermissionsOpen(false)}
+          maxHeight={permissionsOverlayRows}
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
@@ -552,6 +620,7 @@ export function App({
               value={inputValue}
               onChange={setInputValue}
               active={inputActive}
+              queuedCount={queuedCount}
             />
           )}
         <StatusBar

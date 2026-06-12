@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import { generateSessionId } from "./session.js";
+import { generateSessionId } from "../session/index.js";
 
 import {
   globalSettingsPath,
@@ -205,7 +205,7 @@ export async function loadConfig(
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
 
   // The per-repo selection file still applies on top of a --config source: that
-  // file supplies provider definitions, while .interchange/settings.json supplies
+  // file supplies provider definitions, while .intercode/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
   const local = await loadLocalSettings(localSettingsPath(cwd));
 

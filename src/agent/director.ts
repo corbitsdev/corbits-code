@@ -7,11 +7,11 @@ import type {
   ReactorAction,
   ToolDefinition,
 } from "@intx/types/runtime";
-import type { DirectorPersistedState } from "./state.js";
+import type { DirectorPersistedState } from "../session/state.js";
 import {
   type SessionMetadata,
   type TaskBoundary,
-} from "./context-compactor.js";
+} from "../session/compactor.js";
 
 export type PlanStep = {
   file: string;

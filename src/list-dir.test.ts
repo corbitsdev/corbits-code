@@ -2,7 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { mkdtemp, mkdir, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listDirectory } from "./list-dir.js";
+import { listDirectory } from "./util/list-dir.js";
 
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "list-dir-"));

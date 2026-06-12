@@ -18,34 +18,34 @@ import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { buildOpenAISource, type Config } from "./config.js";
+import { buildOpenAISource, type Config } from "../config/index.js";
 import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
-import { authzPlugin } from "./plugins/authz-plugin.js";
-import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
-import { reReadBlockPlugin } from "./plugins/re-read-block-plugin.js";
-import { verifyPlugin } from "./plugins/verify-plugin.js";
-import { permissionPlugin } from "./plugins/permission-plugin.js";
-import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
-import { webToolsPlugin } from "./web/plugin.js";
-import { connectMCPServers } from "./mcp/client.js";
-import { createMCPPlugin } from "./mcp/plugin.js";
-import { createPermissionGate } from "./permission/gate.js";
-import { loadApprovals } from "./permission/store.js";
+import { authzPlugin } from "../plugins/authz-plugin.js";
+import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import { reReadBlockPlugin } from "../plugins/re-read-block-plugin.js";
+import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { permissionPlugin } from "../plugins/permission-plugin.js";
+import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { webToolsPlugin } from "../web/plugin.js";
+import { connectMCPServers } from "../mcp/client.js";
+import { createMCPPlugin } from "../mcp/plugin.js";
+import { createPermissionGate } from "../permission/gate.js";
+import { loadApprovals } from "../permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
-import { createTaskTool } from "./subagent.js";
-import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "./state.js";
+import { createTaskTool } from "../subagent/index.js";
+import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "../session/state.js";
 import { runCritique } from "./critic.js";
-import { loadPricing, startPricingRefresh } from "./pricing-fetcher.js";
+import { loadPricing, startPricingRefresh } from "../cost/pricing-fetcher.js";
 import { createRenderer } from "./renderer.js";
-import { consumeStream } from "./stream-consumer.js";
+import { consumeStream } from "../session/stream-consumer.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
   createTurnContextCollector,
   discoverLifecycleHooks,
   hookDirectories,
-} from "./hooks.js";
-import { initSessionDir, sessionContextDir, sessionDir } from "./session.js";
+} from "../session/hooks.js";
+import { initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
 
 /* eslint-disable no-console */
 

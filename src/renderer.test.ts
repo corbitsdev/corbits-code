@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createRenderer } from "./renderer.js";
+import { createRenderer } from "./agent/renderer.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 // Capture stdout/stderr writes during a test

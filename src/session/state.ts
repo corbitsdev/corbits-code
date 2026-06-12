@@ -1,7 +1,7 @@
 import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { sessionDir } from "./session.js";
+import { sessionDir } from "./index.js";
 
 export type RunState = {
   status: "running" | "done" | "failed";

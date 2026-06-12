@@ -2,7 +2,7 @@ import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { color } from "../theme.js";
-import { type ProviderSubmission } from "../../provider-catalog.js";
+import { type ProviderSubmission } from "../../config/providers.js";
 
 export type AgentProvider = {
   name: string;

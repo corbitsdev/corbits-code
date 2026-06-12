@@ -14,7 +14,7 @@ export type MCPAuthState = {
 };
 
 export function mcpAuthDir(home: string = homedir()): string {
-  return join(home, ".interchange", "mcp-auth");
+  return join(home, ".intercode", "mcp-auth");
 }
 
 // File names are derived from the server name, which is operator-controlled and
