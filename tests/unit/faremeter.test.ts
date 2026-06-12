@@ -52,3 +52,52 @@ test("multiple addUsage calls accumulate", () => {
   expect(faremeter.getTotalTokens()).toBe(4500);
   expect(faremeter.getTotalCost()).toBe(0.06);
 });
+
+test("cacheWrite tokens increase total tokens but not cost", () => {
+  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
+  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 300, thinking: 0 });
+  expect(faremeter.getTotalTokens()).toBe(1800);
+  expect(faremeter.getTotalCost()).toBe(0.02);
+});
+
+test("thinking tokens increase total tokens but not cost", () => {
+  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
+  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 250 });
+  expect(faremeter.getTotalTokens()).toBe(1750);
+  expect(faremeter.getTotalCost()).toBe(0.02);
+});
+
+test("cacheWrite and thinking tokens combined increase tokens but not cost", () => {
+  const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
+  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 300, thinking: 250 });
+  expect(faremeter.getTotalTokens()).toBe(2050);
+  expect(faremeter.getTotalCost()).toBe(0.02);
+});
+
+test("cacheRead tokens increase both total tokens and cost", () => {
+  const faremeter = createFaremeter({
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+    cacheReadPricePerToken: 0.000005,
+  });
+  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 0, thinking: 0 });
+  expect(faremeter.getTotalTokens()).toBe(1700);
+  expect(faremeter.getTotalCost()).toBe(0.021);
+});
+
+test("formatCost zero case", () => {
+  expect(formatCost(0)).toBe("$0.0000");
+});
+
+test("formatCost rounding behavior", () => {
+  expect(formatCost(0.00001)).toBe("$0.0000");
+  expect(formatCost(0.000015)).toBe("$0.0000");
+  expect(formatCost(0.0001)).toBe("$0.0001");
+  expect(formatCost(0.0001499)).toBe("$0.0001");
+  expect(formatCost(0.0002)).toBe("$0.0002");
+});
+
+test("formatCost large values", () => {
+  expect(formatCost(100.123456)).toBe("$100.1235");
+  expect(formatCost(999.9999)).toBe("$999.9999");
+});
