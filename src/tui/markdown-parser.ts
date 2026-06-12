@@ -81,11 +81,13 @@ function parseSegments(text: string): StyledSegment[] {
     // For URLs with balanced parens (e.g., fn(arg)), try to match a single level
     // of nesting. If URL is long (> 40 chars), omit the URL from output.
     const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]*(?:\([^)]*\))?[^)]*)\)/);
-    if (linkMatch && linkMatch[1] && linkMatch[2]) {
+    if (linkMatch && linkMatch[1] !== undefined && linkMatch[2] !== undefined) {
       const text = linkMatch[1];
       const url = linkMatch[2];
       segments.push({ text, link: true });
-      if (url.length <= 40) {
+      // Show the URL only when it is present and short enough to be useful;
+      // an empty URL ([text]()) still renders as a styled link, not raw text.
+      if (url.length > 0 && url.length <= 40) {
         segments.push({ text: ` (${url})` });
       }
       remaining = remaining.slice(linkMatch[0].length);
@@ -246,7 +248,8 @@ function extractTableCells(line: string): string[] {
 
   while (i < trimmed.length) {
     if (trimmed[i] === "\\" && trimmed[i + 1] === "|") {
-      cell += "\\|";
+      // An escaped pipe is literal cell content: render it as "|", not "\|".
+      cell += "|";
       i += 2;
     } else if (trimmed[i] === "|") {
       cells.push(cell.trim());
