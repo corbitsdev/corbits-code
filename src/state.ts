@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { sessionDir } from "./session.js";
@@ -59,7 +59,9 @@ export async function saveDirectorState(
 ): Promise<void> {
   const path = directorStatePath(cwd, sessionId);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(state, null, 2));
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(state, null, 2));
+  await rename(tmp, path);
 }
 
 export async function loadDirectorState(
@@ -74,6 +76,7 @@ export async function loadDirectorState(
     }
     return parsed;
   } catch (err) {
+    if (err instanceof SyntaxError) return null;
     if (
       typeof err === "object" &&
       err !== null &&
@@ -89,7 +92,9 @@ export async function loadDirectorState(
 export async function saveState(cwd: string, sessionId: string, state: RunState): Promise<void> {
   const path = statePath(cwd, sessionId);
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(state, null, 2));
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(state, null, 2));
+  await rename(tmp, path);
 }
 
 function isValidRunState(data: unknown): data is RunState {
@@ -114,6 +119,7 @@ export async function loadState(cwd: string, sessionId: string): Promise<RunStat
     }
     return parsed;
   } catch (err) {
+    if (err instanceof SyntaxError) return null;
     if (
       typeof err === "object" &&
       err !== null &&
