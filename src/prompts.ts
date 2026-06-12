@@ -53,8 +53,6 @@ export function buildToolCallDiscipline(): string {
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- To see what a directory contains, use list_dir. Do not shell out to ls or find for listings.",
-    "- Never use run_shell to print to the user (no echo, printf, or cat-as-narration). To tell the user something, write it directly in your reply. run_shell is only for commands whose effects or output you actually need.",
     "- Understand before you change: read enough to be sure, then act. Not more.",
   ].join("\n");
 }
@@ -146,8 +144,26 @@ export function buildFewShot(): string {
   ].join("\n");
 }
 
+const TOOL_SUMMARIES: Record<string, string> = {
+  read_file: "read a file",
+  write_file: "create or overwrite a file",
+  edit_file: "make a surgical edit to an existing file",
+  run_shell: "run a shell command (single read-only commands need no approval; never use it to print to the user)",
+  search_files: "find files by name or pattern",
+  grep: "search file contents",
+  list_dir: "list a directory's entries (use instead of ls or find)",
+  lsp: "resolve symbols — goToDefinition, findReferences, hover",
+  web_search: "search the web (use instead of curl or wget)",
+  web_fetch: "fetch the content of a URL",
+  task: "delegate a self-contained subtask to a sub-agent",
+  submit_plan: "record the plan; required before finishing",
+  submit_output: "signal the task is complete — the only way to finish",
+  ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+};
+
 export function buildAvailableTools(tools = defaultAgentTools): string {
-  return `Available tools: ${tools.join(", ")}.`;
+  const lines = tools.map((tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`);
+  return ["Tools:", ...lines].join("\n");
 }
 
 export function buildActiveContext(date = new Date()): string {
