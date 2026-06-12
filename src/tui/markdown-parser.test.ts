@@ -280,6 +280,20 @@ describe("F3: GFM table relaxation", () => {
     expect(row).toContain("x|y");
     expect(row).not.toContain("x\\|y");
   });
+
+  test("trailing empty cell is preserved to match header column count", () => {
+    const lines = parseMarkdown("| a | b | c |\n|---|---|---|\n| x | y | |");
+    expect(lines).toHaveLength(2);
+    // The rendered output shows: "a | b | c" and "x | y |  "
+    // With 3 columns, we should see two pipe separators " | " in each row.
+    const header = allText(lines[0] ?? []);
+    const dataRow = allText(lines[1] ?? []);
+    const headerPipes = (header.match(/\s\|\s/g) ?? []).length;
+    const dataPipes = (dataRow.match(/\s\|\s/g) ?? []).length;
+    // 3 columns = 2 pipe separators in each row
+    expect(headerPipes).toBe(2);
+    expect(dataPipes).toBe(2);
+  });
 });
 
 describe("multi-line", () => {
