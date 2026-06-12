@@ -3,9 +3,9 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config.js";
-import type { Config, UnconfiguredConfig } from "./config.js";
-import type { ResolvedProvider, Settings } from "./settings.js";
+import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config/index.js";
+import type { Config, UnconfiguredConfig } from "./config/index.js";
+import type { ResolvedProvider, Settings } from "./config/settings.js";
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {

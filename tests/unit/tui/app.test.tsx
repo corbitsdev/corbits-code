@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { Agent } from "@intx/agent";
-import { loadSettings } from "../../../src/settings.js";
-import type { ProviderCatalogEntry } from "../../../src/config.js";
+import { loadSettings } from "../../../src/config/settings.js";
+import type { ProviderCatalogEntry } from "../../../src/config/index.js";
 
 const mockAgent = {
   send: mock(() => Promise.resolve({ reply: "ok", turn: {} as unknown as ReactorEmittedEvent["data"] })),

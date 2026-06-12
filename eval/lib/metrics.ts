@@ -1,6 +1,6 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
-import { lookupModelPricing, type PricingCache } from "../../src/pricing-fetcher.js";
+import { lookupModelPricing, type PricingCache } from "../../src/cost/pricing-fetcher.js";
 import type { Cost, JudgeScores, PriceOverride, RunMetrics } from "./types.js";
 
 // Cost from token usage. Returns { known: false, usd: null } when the model is

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import type { ProviderCatalogEntry } from "../../config.js";
+import type { ProviderCatalogEntry } from "../../config/index.js";
 
 export type GateContext = {
   pendingPermission: {

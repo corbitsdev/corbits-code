@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { createInjectionQueue, buildInjectionMessage } from "../../src/mid-run-inject.js";
+import { createInjectionQueue, buildInjectionMessage } from "../../src/subagent/inject.js";
 
 test("createInjectionQueue enqueues and dequeues in FIFO order", () => {
   const queue = createInjectionQueue();

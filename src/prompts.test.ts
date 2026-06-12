@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { createCodingDirector, submitPlanDefinition, submitOutputDefinition } from "./director.js";
+import { createCodingDirector, submitPlanDefinition, submitOutputDefinition } from "./agent/director.js";
 import {
   buildActiveContext,
   buildAgentRole,
@@ -16,7 +16,7 @@ import {
   buildSubmitRules,
   buildSystemPrompt,
   buildToolCallDiscipline,
-} from "./prompts.js";
+} from "./agent/prompts.js";
 
 const minimalToolDefinitions = [submitPlanDefinition, submitOutputDefinition];
 

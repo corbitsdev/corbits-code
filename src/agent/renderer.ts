@@ -1,7 +1,7 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { createFaremeter, formatCost } from "./faremeter.js";
-import type { PricingCache } from "./pricing-fetcher.js";
+import { createFaremeter, formatCost } from "../cost/faremeter.js";
+import type { PricingCache } from "../cost/pricing-fetcher.js";
 
 export type Renderer = {
   render(event: ReactorEmittedEvent): void;

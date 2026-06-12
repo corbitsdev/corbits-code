@@ -12,14 +12,14 @@ import {
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
-import { buildOpenAISource, type Config } from "../config.js";
+import { buildOpenAISource, type Config } from "../config/index.js";
 import type { PlanStep } from "./use-stream.js";
-import { createChatDirector, type ApprovalGate } from "../director.js";
-import { buildChatSystemPrompt } from "../prompts.js";
-import { loadAgentContextExtensions } from "../run-agent.js";
+import { createChatDirector, type ApprovalGate } from "../agent/director.js";
+import { buildChatSystemPrompt } from "../agent/prompts.js";
+import { loadAgentContextExtensions } from "../agent/run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
-import { createAgentToolset } from "../agent-tools.js";
+import { createAgentToolset } from "../agent/tools.js";
 import {
   loadApprovals,
   loadProjectApprovals,
@@ -30,8 +30,8 @@ import {
   saveProviderModelApproval,
 } from "../permission/store.js";
 import type { Approval, GrantScope } from "../permission/types.js";
-import { consumeStream } from "../stream-consumer.js";
-import { enterAltScreen } from "../alt-screen.js";
+import { consumeStream } from "../session/stream-consumer.js";
+import { enterAltScreen } from "../util/alt-screen.js";
 import { App } from "./app.js";
 import type { OperatorGateEvent, PermissionGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
 import {
@@ -40,16 +40,16 @@ import {
   discoverLifecycleHooks,
   hookDirectories,
   type RunSummary,
-} from "../hooks.js";
-import { createRunSink } from "../run-sink.js";
-import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session.js";
-import { createInjectionQueue, buildInjectionMessage } from "../mid-run-inject.js";
+} from "../session/hooks.js";
+import { createRunSink } from "../session/run-sink.js";
+import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
+import { createInjectionQueue, buildInjectionMessage } from "../subagent/inject.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
 }
 
-export { getTUIRunSummaryStatus } from "../run-sink.js";
+export { getTUIRunSummaryStatus } from "../session/run-sink.js";
 
 export type ResolveExitCodeArgs = {
   runError: string | undefined;

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Approval } from "./types.js";
-import { sessionDir } from "../session.js";
+import { sessionDir } from "../session/index.js";
 
 // Approvals are remembered per session, alongside the run state.
 function storePath(cwd: string, sessionId: string): string {

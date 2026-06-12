@@ -2,7 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isLocalSettings, normalizeMcpServers } from "../../src/settings.js";
+import { isLocalSettings, normalizeMcpServers } from "../../src/config/settings.js";
 import { createMCPPlugin } from "../../src/mcp/plugin.js";
 import { loadAuthState, saveAuthState } from "../../src/mcp/auth-store.js";
 import { createOAuthProvider } from "../../src/mcp/oauth-provider.js";

@@ -4,8 +4,8 @@ import {
   taskToolDefinition,
   type RunSubAgentParams,
   type SubAgentProvider,
-} from "../../src/subagent.js";
-import { buildSubAgentSystemPrompt } from "../../src/prompts.js";
+} from "../../src/subagent/index.js";
+import { buildSubAgentSystemPrompt } from "../../src/agent/prompts.js";
 
 const provider: SubAgentProvider = {
   providerName: "test",

@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import { createFaremeter, formatCost } from "../faremeter.js";
-import type { LifecycleHookEvent, LifecycleHookStatus } from "../hooks.js";
+import { createFaremeter, formatCost } from "../cost/faremeter.js";
+import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
 export type PlanStep = { file: string; action: string };

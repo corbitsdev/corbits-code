@@ -1,5 +1,5 @@
 import type { ToolPlugin } from "@intx/tools-posix";
-import type { CodingDirector } from "../director.js";
+import type { CodingDirector } from "../agent/director.js";
 
 export function reReadBlockPlugin(
   getDirector: () => Pick<CodingDirector, "getFilesReadAtTurn"> | undefined,

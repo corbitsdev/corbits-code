@@ -6,7 +6,7 @@ import {
   type ModalContext,
   type UseLayoutGeometryArgs,
 } from "../../../src/tui/hooks/use-layout-geometry.js";
-import type { ProviderCatalogEntry } from "../../../src/config.js";
+import type { ProviderCatalogEntry } from "../../../src/config/index.js";
 
 const CHROME_ROWS = 9;
 

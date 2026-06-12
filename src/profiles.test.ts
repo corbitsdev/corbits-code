@@ -7,7 +7,7 @@ import {
   projectProfilePath,
   profilesDir,
   resolveProfile,
-} from "./profiles.js";
+} from "./config/profiles.js";
 
 function makeTmp(): string {
   return join(tmpdir(), `interchange-profiles-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);

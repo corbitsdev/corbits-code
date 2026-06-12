@@ -2,13 +2,13 @@
 
 import { resolve } from "node:path";
 
-import { loadConfig } from "./config.js";
-import { loadState, loadDirectorState } from "./state.js";
-import { runAgent } from "./run-agent.js";
+import { loadConfig } from "./config/index.js";
+import { loadState, loadDirectorState } from "./session/state.js";
+import { runAgent } from "./agent/run-agent.js";
 import { runTUI } from "./tui/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
-import type { Config, UnconfiguredConfig } from "./config.js";
-import { resolveLatestSession } from "./session.js";
+import type { Config, UnconfiguredConfig } from "./config/index.js";
+import { resolveLatestSession } from "./session/index.js";
 
 export type MainRunners = {
   runAgent(

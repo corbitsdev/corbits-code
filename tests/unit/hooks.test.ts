@@ -14,7 +14,7 @@ import {
   hookDirectories,
   localHooksDirectory,
   type LifecycleHookEvent,
-} from "../../src/hooks.js";
+} from "../../src/session/hooks.js";
 
 const usage: TokenUsage = {
   input: 2,

@@ -17,7 +17,7 @@ import { ModalStack } from "./components/modal-stack.js";
 import { PermissionsManager } from "./components/permissions-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
-import type { ProviderCatalogEntry } from "../config.js";
+import type { ProviderCatalogEntry } from "../config/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -31,7 +31,7 @@ import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
-import type { LifecycleHookStatus } from "../hooks.js";
+import type { LifecycleHookStatus } from "../session/hooks.js";
 import "./commands/built-in.js";
 
 // How long the run can be continuously awaiting a response with no new content

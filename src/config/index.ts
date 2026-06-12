@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import { generateSessionId } from "./session.js";
+import { generateSessionId } from "../session/index.js";
 
 import {
   globalSettingsPath,

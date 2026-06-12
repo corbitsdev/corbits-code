@@ -25,15 +25,15 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 
-import { buildOpenAISource } from "./config.js";
-import { pathEscapePlugin } from "./plugins/path-escape-plugin.js";
-import { secretGuardPlugin } from "./plugins/secret-guard-plugin.js";
-import { authzPlugin } from "./plugins/authz-plugin.js";
-import { verifyPlugin } from "./plugins/verify-plugin.js";
-import { webToolsPlugin } from "./web/plugin.js";
-import { buildSubAgentSystemPrompt } from "./prompts.js";
-import { generateSessionId } from "./session.js";
-import { consumeStream } from "./stream-consumer.js";
+import { buildOpenAISource } from "../config/index.js";
+import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { authzPlugin } from "../plugins/authz-plugin.js";
+import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { webToolsPlugin } from "../web/plugin.js";
+import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { generateSessionId } from "../session/index.js";
+import { consumeStream } from "../session/stream-consumer.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to

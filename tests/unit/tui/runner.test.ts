@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
 import { createTUIEventEmitter, getTUIRunSummaryStatus } from "../../../src/tui/runner.js";
-import { createRunSink } from "../../../src/run-sink.js";
+import { createRunSink } from "../../../src/session/run-sink.js";
 
 test("createTUIEventEmitter returns an EventEmitter", () => {
   const emitter = createTUIEventEmitter();

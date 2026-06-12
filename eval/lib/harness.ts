@@ -2,10 +2,10 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig } from "../../src/config.js";
-import { runAgent } from "../../src/run-agent.js";
-import { createTurnContextCollector } from "../../src/hooks.js";
-import { loadPricing, type PricingCache } from "../../src/pricing-fetcher.js";
+import { loadConfig } from "../../src/config/index.js";
+import { runAgent } from "../../src/agent/run-agent.js";
+import { createTurnContextCollector } from "../../src/session/hooks.js";
+import { loadPricing, type PricingCache } from "../../src/cost/pricing-fetcher.js";
 import { computeCost, medianMetrics, tallyToolCalls } from "./metrics.js";
 import { judgeRun, type JudgeConfig } from "./judge.js";
 import type { Cost, EvalTask, JudgeScores, RunMetrics, Variant } from "./types.js";

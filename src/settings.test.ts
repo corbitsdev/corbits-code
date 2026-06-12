@@ -13,7 +13,7 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   type Settings,
-} from "./settings.js";
+} from "./config/settings.js";
 
 const firepass: Settings = {
   defaultProvider: "firepass",
