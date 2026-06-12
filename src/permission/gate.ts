@@ -40,6 +40,14 @@ export type PermissionGate = {
   getApprovals: () => readonly Approval[];
   // Forget every remembered approval so a fresh session re-prompts from scratch.
   reset: () => void;
+  // The approvals granted only for this session (not persisted to any store).
+  getSessionApprovals: () => readonly Approval[];
+  // Drop one approval from the gate's live list and from the session set so the
+  // /permissions surface can revoke a session grant without a restart.
+  removeSessionApproval: (target: Approval) => void;
+  // Replace the persisted portion of the live list (session grants are kept) so
+  // a store edit made through /permissions takes effect immediately.
+  setSeededApprovals: (seeded: readonly Approval[]) => void;
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
@@ -100,5 +108,31 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     sessionGrants.length = 0;
   };
 
-  return { evaluate, getApprovals: () => approvals, reset };
+  const sameApproval = (a: Approval, b: Approval): boolean =>
+    a.tool === b.tool && a.pattern === b.pattern && a.providerModel === b.providerModel;
+
+  const getSessionApprovals = (): readonly Approval[] => [...sessionGrants];
+
+  const removeSessionApproval = (target: Approval): void => {
+    for (let i = approvals.length - 1; i >= 0; i--) {
+      if (sameApproval(approvals[i]!, target)) approvals.splice(i, 1);
+    }
+    for (let i = sessionGrants.length - 1; i >= 0; i--) {
+      if (sameApproval(sessionGrants[i]!, target)) sessionGrants.splice(i, 1);
+    }
+  };
+
+  const setSeededApprovals = (seeded: readonly Approval[]): void => {
+    approvals.length = 0;
+    approvals.push(...seeded, ...sessionGrants);
+  };
+
+  return {
+    evaluate,
+    getApprovals: () => approvals,
+    reset,
+    getSessionApprovals,
+    removeSessionApproval,
+    setSeededApprovals,
+  };
 }

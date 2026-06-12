@@ -18,6 +18,7 @@ import { createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
 import { loadAgentContextExtensions } from "../run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset } from "../agent-tools.js";
 import {
   loadApprovals,
@@ -124,6 +125,8 @@ export async function runTUI(config: Config): Promise<number> {
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
   });
+
+  const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
   const toolset = await createAgentToolset({
     cwd: config.cwd,
@@ -343,6 +346,7 @@ export async function runTUI(config: Config): Promise<number> {
       onAgentError={recordRunError}
       onInterrupt={() => { void interrupt(); }}
       onNewSession={() => { void newSession(); }}
+      permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
     { exitOnCtrlC: false },

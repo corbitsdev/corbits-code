@@ -9,6 +9,9 @@ import {
   saveGlobalApproval,
   saveProjectApproval,
   saveProviderModelApproval,
+  removeProjectApproval,
+  removeGlobalApproval,
+  removeProviderModelApproval,
 } from "./store.js";
 
 let dir: string;
@@ -36,6 +39,38 @@ describe("project store", () => {
     await saveProjectApproval(dir, { tool: "run_shell", pattern: "*" });
     await saveProjectApproval(dir, { tool: "run_shell", pattern: "npm *" });
     expect(await loadProjectApprovals(dir)).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+  });
+
+  test("removeProjectApproval drops only the matching entry", async () => {
+    await saveProjectApproval(dir, { tool: "run_shell", pattern: "npm *" });
+    await saveProjectApproval(dir, { tool: "write_file", pattern: "src/*" });
+    await removeProjectApproval(dir, { tool: "run_shell", pattern: "npm *" });
+    expect(await loadProjectApprovals(dir)).toEqual([{ tool: "write_file", pattern: "src/*" }]);
+  });
+});
+
+describe("revocation across the shared global file", () => {
+  test("removeGlobalApproval leaves provider-model grants intact", async () => {
+    await saveGlobalApproval({ tool: "run_shell", pattern: "git *" }, dir);
+    await saveProviderModelApproval("openai:gpt-5", { tool: "run_shell", pattern: "npm *" }, dir);
+    await removeGlobalApproval({ tool: "run_shell", pattern: "git *" }, dir);
+    expect(await loadGlobalApprovals(dir)).toEqual([]);
+    expect(await loadProviderModelApprovals(dir)).toEqual([
+      { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" },
+    ]);
+  });
+
+  test("removeProviderModelApproval drops only that key's entry", async () => {
+    await saveProviderModelApproval("openai:gpt-5", { tool: "run_shell", pattern: "npm *" }, dir);
+    await saveProviderModelApproval("anthropic:opus", { tool: "run_shell", pattern: "ls *" }, dir);
+    await removeProviderModelApproval(
+      "openai:gpt-5",
+      { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" },
+      dir,
+    );
+    expect(await loadProviderModelApprovals(dir)).toEqual([
+      { tool: "run_shell", pattern: "ls *", providerModel: "anthropic:opus" },
+    ]);
   });
 });
 

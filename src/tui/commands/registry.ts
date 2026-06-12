@@ -9,7 +9,7 @@ export type CommandResult =
   | { type: "message"; text: string }
   | { type: "send"; text: string }
   | { type: "view"; view: "plan" | "diff" }
-  | { type: "overlay"; overlay: "help" }
+  | { type: "overlay"; overlay: "help" | "permissions" }
   | { type: "modal"; modal: "agent" }
   | { type: "noop" };
 

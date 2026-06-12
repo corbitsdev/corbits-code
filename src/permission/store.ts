@@ -52,6 +52,10 @@ function parseApprovalList(raw: unknown): Approval[] {
   return Array.isArray(raw) ? raw.filter(isApproval) : [];
 }
 
+function sameApproval(a: Approval, b: Approval): boolean {
+  return a.tool === b.tool && a.pattern === b.pattern && a.providerModel === b.providerModel;
+}
+
 async function readApprovalsField(path: string, field: string): Promise<Approval[]> {
   try {
     const raw = await readFile(path, "utf-8");
@@ -106,6 +110,13 @@ export async function saveProjectApproval(cwd: string, approval: Approval): Prom
   }));
 }
 
+export async function removeProjectApproval(cwd: string, target: Approval): Promise<void> {
+  return chainObjectWrite(projectStorePath(cwd), (current) => ({
+    ...current,
+    approvals: parseApprovalList(current.approvals).filter((a) => !sameApproval(a, target)),
+  }));
+}
+
 export async function loadGlobalApprovals(home: string = homedir()): Promise<Approval[]> {
   return readApprovalsField(globalStorePath(home), "approvals");
 }
@@ -137,6 +148,13 @@ export async function saveGlobalApproval(approval: Approval, home: string = home
   }));
 }
 
+export async function removeGlobalApproval(target: Approval, home: string = homedir()): Promise<void> {
+  return chainObjectWrite(globalStorePath(home), (current) => ({
+    ...current,
+    approvals: parseApprovalList(current.approvals).filter((a) => !sameApproval(a, target)),
+  }));
+}
+
 export async function saveProviderModelApproval(
   providerModel: string,
   approval: Approval,
@@ -150,5 +168,20 @@ export async function saveProviderModelApproval(
       typeof rawMap === "object" && rawMap !== null ? (rawMap as Record<string, unknown>) : {};
     const existing = parseApprovalList(map[providerModel]);
     return { ...current, providerModels: { ...map, [providerModel]: [...existing, bare] } };
+  });
+}
+
+export async function removeProviderModelApproval(
+  providerModel: string,
+  target: Approval,
+  home: string = homedir(),
+): Promise<void> {
+  const { providerModel: _omit, ...bare } = target;
+  return chainObjectWrite(globalStorePath(home), (current) => {
+    const rawMap = current.providerModels;
+    const map: Record<string, unknown> =
+      typeof rawMap === "object" && rawMap !== null ? (rawMap as Record<string, unknown>) : {};
+    const remaining = parseApprovalList(map[providerModel]).filter((a) => !sameApproval(a, bare));
+    return { ...current, providerModels: { ...map, [providerModel]: remaining } };
   });
 }

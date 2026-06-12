@@ -202,6 +202,43 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(2);
   });
 
+  test("exposes session grants and revokes one live without touching persisted ones", async () => {
+    const sessionScope: PermissionRequest["scopes"][number] = {
+      id: "s", label: "", pattern: "curl *", grant: "session",
+    };
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async () => ({ allow: true, persist: sessionScope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("curl x"));
+    expect(gate.getSessionApprovals()).toEqual([{ tool: "run_shell", pattern: "curl *" }]);
+
+    gate.removeSessionApproval({ tool: "run_shell", pattern: "curl *" });
+    expect(gate.getSessionApprovals()).toEqual([]);
+    // The seeded persisted approval is untouched by a session revoke.
+    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+  });
+
+  test("setSeededApprovals swaps the persisted portion and keeps session grants", async () => {
+    const sessionScope: PermissionRequest["scopes"][number] = {
+      id: "s", label: "", pattern: "curl *", grant: "session",
+    };
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async () => ({ allow: true, persist: sessionScope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("curl x"));
+    gate.setSeededApprovals([{ tool: "write_file", pattern: "src/*" }]);
+    expect(gate.getApprovals()).toEqual([
+      { tool: "write_file", pattern: "src/*" },
+      { tool: "run_shell", pattern: "curl *" },
+    ]);
+  });
+
   test("asks once and persists an approved scope, then stops asking", async () => {
     const approvals: Approval[] = [];
     const persisted: Approval[] = [];

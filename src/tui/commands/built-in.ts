@@ -33,6 +33,12 @@ registerCommand({
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
+registerCommand({
+  name: "permissions",
+  description: "View and revoke remembered approvals across scopes",
+  handler: (_args, _ctx) => ({ type: "overlay", overlay: "permissions" }),
+});
+
 // signalClear rotates to a fresh session: the on-screen transcript and run
 // telemetry are reset and the agent is rebuilt against a new state directory,
 // so the conversation starts empty. The prior session stays on disk under its

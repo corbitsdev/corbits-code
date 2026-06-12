@@ -14,6 +14,8 @@ import { PlanView } from "./components/plan-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
+import { PermissionsManager } from "./components/permissions-manager.js";
+import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config.js";
 import { useSpinner } from "./hooks/use-spinner.js";
@@ -68,6 +70,7 @@ export type AppProps = {
   onAgentError?: (err: unknown) => void;
   onInterrupt?: () => void;
   onNewSession?: () => void;
+  permissionsAdmin?: PermissionsAdmin;
   profile?: string;
 };
 
@@ -87,6 +90,7 @@ export function App({
   onAgentError,
   onInterrupt,
   onNewSession,
+  permissionsAdmin,
   profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
@@ -107,6 +111,8 @@ export function App({
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
 
   const providerManager = useProviderManager({
@@ -143,7 +149,7 @@ export function App({
       pendingPlan: gates.pendingPlan,
       pendingOperator: gates.pendingOperator,
     },
-    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
+    modalContext: { helpOpen: helpOpen || permissionsOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
     hookCount: state.hooks.length,
     providerCatalog,
     extraChromeRows,
@@ -193,7 +199,8 @@ export function App({
     helpOpen ||
     gates.gateOpen ||
     hookPanelOpen ||
-    agentModalOpen
+    agentModalOpen ||
+    permissionsOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -301,7 +308,9 @@ export function App({
   useKeymap(
     {
       exitConfirmOpen,
-      helpOpen,
+      // The permissions overlay owns input through its own useInput, exactly
+      // like the help overlay, so block the global keymap the same way.
+      helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
       agentModalOpen,
       hookPanelOpen,
@@ -390,12 +399,32 @@ export function App({
       return;
     }
     if (result.type === "overlay") {
-      setHelpOpen(true);
+      if (result.overlay === "permissions") {
+        setPermissionsOpen(true);
+      } else {
+        setHelpOpen(true);
+      }
       return;
     }
     if (result.type === "modal" && result.modal === "agent") {
       setAgentModalOpen(true);
     }
+  };
+
+  const refreshPermissions = () => {
+    if (permissionsAdmin === undefined) return;
+    void permissionsAdmin.list().then(setPermissionEntries);
+  };
+
+  useEffect(() => {
+    if (!permissionsOpen) return;
+    refreshPermissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permissionsOpen]);
+
+  const handleRevokePermission = (entry: ScopedApproval) => {
+    if (permissionsAdmin === undefined) return;
+    void permissionsAdmin.revoke(entry).then(refreshPermissions);
   };
 
   return (
@@ -484,6 +513,13 @@ export function App({
         pendingPermission={gates.pendingPermission}
         onResolvePermission={gates.resolvePermission}
       />
+      {permissionsOpen && (
+        <PermissionsManager
+          entries={permissionEntries}
+          onRevoke={handleRevokePermission}
+          onClose={() => setPermissionsOpen(false)}
+        />
+      )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
         <Box paddingX={1}>
