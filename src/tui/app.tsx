@@ -94,6 +94,8 @@ export function App({
   profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const mcpStatus = useMCPStatus(eventEmitter);
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
@@ -217,7 +219,8 @@ export function App({
   // Incremented on every send so useSpinner can reset its elapsed clock per turn.
   const sendCounterRef = useRef(0);
 
-  const sendMessage = (message: string) => {
+  const sendMessageRef = useRef<(message: string) => void>(null!);
+  sendMessageRef.current = (message: string) => {
     sendCounterRef.current += 1;
     state.markRunning();
     scroll.scrollToBottom();
@@ -232,11 +235,16 @@ export function App({
       onAgentError?.(err);
     });
   };
+  const sendMessage = (message: string) => sendMessageRef.current(message);
 
   const requestStop = () => {
     sendAbortRef.current?.abort();
     onInterrupt?.();
     state.requestStop();
+    // Discard queued messages — a stopped run should not silently replay them
+    // into the next session's first turn when connector.reply eventually fires.
+    pendingQueueRef.current.length = 0;
+    setQueuedCount(0);
     forceRender((n) => n + 1);
   };
 
@@ -296,14 +304,19 @@ export function App({
   }, [state.status, state.awaitingResponse]);
 
   // Drain one queued message when the agent finishes a response cycle.
-  // connector.reply fires when the agent produces its final reply for a turn.
+  // Uses a ref for sendMessage so the closure never goes stale. Guards on
+  // !isProcessing to avoid double-sending if connector.reply fires back-to-back.
   useEffect(() => {
     const onEvent = (event: { type: string }) => {
       if (event.type !== "connector.reply") return;
-      const text = pendingQueueRef.current.shift();
-      if (text === undefined) return;
+      if (pendingQueueRef.current.length === 0) return;
+      // Do not drain while a gate is open — connector.reply should not fire
+      // mid-gate, but if it does, markRunning() would zero gateCount and
+      // corrupt the blocked state.
+      if (stateRef.current.status === "blocked") return;
+      const text = pendingQueueRef.current.shift()!;
       setQueuedCount((c) => Math.max(0, c - 1));
-      sendMessage(text);
+      sendMessageRef.current(text);
     };
     eventEmitter.on("event", onEvent);
     return () => { eventEmitter.off("event", onEvent); };
