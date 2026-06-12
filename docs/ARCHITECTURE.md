@@ -13,15 +13,16 @@ The system is an event-driven agent loop with a custom reactor director. The CLI
 - Dispatches to `runAgent` (headless) or `runTUI` (default)
 - Handles resume by loading previous `RunState` + `DirectorPersistedState` and re-running with the prior task
 
-### Config Resolution (`src/config.ts`, `src/settings.ts`)
+### Config Resolution (`src/config/index.ts`, `src/config/settings.ts`)
 
 - Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > `OPENAI_COMPATIBLE_*` env > per-repo `.interchange/settings.json` (selection only) > global `~/.interchange/settings.json`.
 - `--config <path>` replaces the global settings file as the provider source (the eval harness's per-run injection seam). With no settings file, credentials come entirely from env, preserving the original `.env` workflow.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
+- `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.
 - Both settings files are on the secret-guard denylist, so the agent cannot read its own credentials.
 
-### Agent Runner (`src/run-agent.ts`)
+### Agent Runner (`src/agent/run-agent.ts`)
 
 - Loads run state and refuses to start over an in-progress run (unless `--force`)
 - Loads pricing (models.dev) and starts a background pricing refresh
@@ -39,12 +40,14 @@ The system is an event-driven agent loop with a custom reactor director. The CLI
 - Wires `ask_operator` to an operator-gate event resolved by a modal
 - Drives the terminal alternate-screen buffer manually (Ink 7 has no alt-screen option) and renders the Ink app
 - Bridges reactor events to React via an `EventEmitter`
+- **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
+- **Session rotation** — Uses a serial `opQueueTail` promise chain (not a boolean flag) to prevent concurrent rotation operations. Each new rotation chains onto the tail, ensuring in-flight operations complete before the session is torn down.
 
-### Event Stream Consumer (`src/stream-consumer.ts`)
+### Event Stream Consumer (`src/session/stream-consumer.ts`)
 
 - Consumes the async iterable from `agent.stream()`, invoking a sink per event, with stream error handling
 
-### Custom Directors (`src/director.ts`)
+### Custom Directors (`src/agent/director.ts`)
 
 Two directors, selected by front end:
 
@@ -59,13 +62,13 @@ Two directors, selected by front end:
 
 Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`, `idleCycles`, `planSubmitted`, `plan` steps, and `filesRead` (path → turn).
 
-### Director-Layer Tools (`src/director.ts`)
+### Director-Layer Tools (`src/agent/director.ts`)
 
 - `submit_plan` — Ordered steps of `{ file, action, reason }`; declared on turn 1.
 - `ask_operator` — Pauses for a clarifying question with a list of options.
 - `submit_output` — The only clean termination signal; requires a prior plan.
 
-### System Prompt (`src/prompts.ts`)
+### System Prompt (`src/agent/prompts.ts`)
 
 The agent's identity is **Intercode**, framed as a senior teammate who owns the outcome (not an assistant). The prompt is composed from small, individually-exported sections so they can be tested and reused.
 
@@ -74,20 +77,20 @@ The agent's identity is **Intercode**, framed as a senior teammate who owns the 
 
 > The prompt rewrite (CL-1220) is in place; the "measured improvement vs the prior prompt" acceptance remains to be validated by running the eval harness (CL-1219) against a real provider.
 
-### State Persistence (`src/state.ts`)
+### State Persistence (`src/session/state.ts`)
 
 - `RunState` — `running` | `done` | `failed`, turns used, task, timestamps, error
 - `DirectorPersistedState` — director internals for resume
 - Atomic JSON save/load to `.agent-state/run.json` and `.agent-state/director.json`, with schema validation on load
 - Conversation context is persisted separately by the git-backed store under `.agent-state/context`
 
-### Post-Submit Critique (`src/critic.ts`)
+### Post-Submit Critique (`src/agent/critic.ts`)
 
 - Runs after the agent completes, before acceptance
 - Runs `build`, `typecheck`, and `test` scripts when present in the target `package.json`
 - 5-minute timeout per command; accepts only if all pass; surfaces failures as errors
 
-### Lifecycle Hooks (`src/hooks.ts`)
+### Lifecycle Hooks (`src/session/hooks.ts`)
 
 - Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.interchange/hooks` (local) and `~/.interchange/hooks` (global)
 - `TurnContext` aggregates per-turn data (assistant turn, tool calls/results, token usage, source, duration); a turn-context collector builds it from the event stream
@@ -95,12 +98,12 @@ The agent's identity is **Intercode**, framed as a senior teammate who owns the 
 - The manager exposes enable/disable and emits `hooks.loaded` / `hook.updated` events for the TUI hook panel
 - See `docs/HOOKS.md`
 
-### Pricing (`src/pricing-fetcher.ts`, `src/faremeter.ts`)
+### Pricing (`src/cost/pricing-fetcher.ts`, `src/cost/faremeter.ts`)
 
 - `pricing-fetcher` loads model pricing from models.dev, caches it, and refreshes in the background
 - `faremeter` converts `inference.usage` token counts into a formatted cost using that pricing
 
-### Renderer (`src/renderer.ts`)
+### Renderer (`src/agent/renderer.ts`)
 
 - Headless event rendering: formats the event stream to stderr with live cost, seeded by start time, model, and pricing cache
 
@@ -143,8 +146,8 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
-- `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap and gate/scroll/diff state.
-- `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost.
+- `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap, gate/scroll/diff state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner).
+- `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost. **AgentStatus** is a 7-state machine: `"idle"` (not-yet-started or post-clear), `"running"`, `"stopping"`, `"stopped"`, `"blocked"` (awaiting operator), `"done"`, `"failed"`. Initial state and post-`/clear` state are both `"idle"` (not `"running"`), so the permission-gate refcount (`setGatePending`) correctly skips terminal and idle states.
 - Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
 - Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
 - Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts`.
@@ -236,8 +239,8 @@ The set of directories searched for manifests is configurable via `.interchange/
 
 ```
 CLI argv
-  → Config
-    → RunAgent / RunTUI
+  → src/config/index.ts (Config)
+    → src/agent/run-agent.ts (headless) | src/tui/runner.tsx (TUI)
       → LoadState, LoadPricing, discover hooks
       → CreatePermissionGate
       → CreatePosixTools (plugin chain)
@@ -245,11 +248,11 @@ CLI argv
       → CreateAgent (git-backed contextDir)
       → SaveState (running)
       → agent.send(task)
-      → consumeStream(agent.stream(), sink)
+      → src/session/stream-consumer.ts → sink
           → turnCollector.observe → postTurn hooks
           → render (headless) | emit to React (TUI)
           → on tool.done: saveState, saveDirectorState
-      → RunCritique
+      → src/agent/critic.ts (RunCritique)
       → dispatch postRun summary
       → SaveState (done | failed) → Cleanup
 ```
