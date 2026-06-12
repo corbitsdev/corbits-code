@@ -208,9 +208,13 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       return streamingType;
     },
     setGatePending(pending: boolean): void {
-      if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
+      // Always balance the count, even when the run is terminal/stopping — a gate
+      // that opened while running can still resolve after a stop, and if the
+      // decrement were skipped the count would stick above zero and wedge the
+      // next run in "blocked". Only the status flip is gated on a live run.
       gateCount += pending ? 1 : -1;
       if (gateCount < 0) gateCount = 0;
+      if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
       status = gateCount > 0 ? "blocked" : "running";
     },
     requestStop(): void {
@@ -222,7 +226,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).
+      // Clear any gate count left over from an aborted-while-gated prior run so
+      // the new run never starts wedged in "blocked".
       stopRequested = false;
+      gateCount = 0;
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
