@@ -10,6 +10,7 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
     "typecheck": "tsc --noEmit && tsc --noEmit -p eval/tsconfig.json",
     "test": "bun test ./src ./tests ./eval/lib",
+    "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",
     "run": "bun run build && ./dist/index.js",
     "eval": "bun run scripts/eval.ts"
   },

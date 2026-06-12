@@ -7,20 +7,20 @@ import {
   projectProfilePath,
   profilesDir,
   resolveProfile,
-} from "./profiles.js";
+} from "./config/profiles.js";
 
 function makeTmp(): string {
   return join(tmpdir(), `interchange-profiles-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
 
-test("profilesDir returns ~/.interchange/profiles", () => {
+test("profilesDir returns ~/.intercode/profiles", () => {
   const result = profilesDir("/home/user");
-  expect(result).toBe("/home/user/.interchange/profiles");
+  expect(result).toBe("/home/user/.intercode/profiles");
 });
 
-test("projectProfilePath returns <cwd>/.interchange/profile.json", () => {
+test("projectProfilePath returns <cwd>/.intercode/profile.json", () => {
   const result = projectProfilePath("/my/project");
-  expect(result).toBe("/my/project/.interchange/profile.json");
+  expect(result).toBe("/my/project/.intercode/profile.json");
 });
 
 test("loadProfile returns null for missing file", async () => {
@@ -87,7 +87,7 @@ test("resolveProfile returns empty object when no profile files exist", async ()
 
 test("resolveProfile applies project profile fields", async () => {
   const cwd = makeTmp();
-  const dir = join(cwd, ".interchange");
+  const dir = join(cwd, ".intercode");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "profile.json"), JSON.stringify({ model: "claude-sonnet", maxTurns: 30 }));
   const result = await resolveProfile(cwd);
@@ -97,7 +97,7 @@ test("resolveProfile applies project profile fields", async () => {
 
 test("resolveProfile surfaces profile name when set", async () => {
   const cwd = makeTmp();
-  const dir = join(cwd, ".interchange");
+  const dir = join(cwd, ".intercode");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "profile.json"), JSON.stringify({ profile: "work" }));
   const result = await resolveProfile(cwd);
@@ -107,10 +107,10 @@ test("resolveProfile surfaces profile name when set", async () => {
 test("resolveProfile: project profile fields override named profile fields", async () => {
   const home = makeTmp();
   const cwd = makeTmp();
-  const namedDir = join(home, ".interchange", "profiles");
+  const namedDir = join(home, ".intercode", "profiles");
   await mkdir(namedDir, { recursive: true });
   await writeFile(join(namedDir, "work.json"), JSON.stringify({ model: "base-model", maxTurns: 10 }));
-  const localDir = join(cwd, ".interchange");
+  const localDir = join(cwd, ".intercode");
   await mkdir(localDir, { recursive: true });
   await writeFile(join(localDir, "profile.json"), JSON.stringify({ profile: "work", model: "override-model" }));
 

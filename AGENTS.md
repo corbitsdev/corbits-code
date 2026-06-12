@@ -98,8 +98,8 @@ Profiles let users configure per-project or named-profile overrides for model, m
 
 **Profile file locations:**
 
-- Project profile: `.interchange/profile.json` in the repo root — committed to the repo, safe (no credentials).
-- Named profiles: `~/.interchange/profiles/<name>.json` — user-level, machine-specific overrides.
+- Project profile: `.intercode/profile.json` in the repo root — committed to the repo, safe (no credentials).
+- Named profiles: `~/.intercode/profiles/<name>.json` — user-level, machine-specific overrides.
 
 **Profile file format:**
 
@@ -116,7 +116,7 @@ Profiles let users configure per-project or named-profile overrides for model, m
 
 | Key | Type | Description |
 |---|---|---|
-| `profile` | string | Named profile to inherit from (`~/.interchange/profiles/<name>.json`). |
+| `profile` | string | Named profile to inherit from (`~/.intercode/profiles/<name>.json`). |
 | `model` | string | Model override for the active provider. |
 | `maxTurns` | number | Hard turn cap for the headless runner director. |
 | `systemPromptExtensions` | string[] | Freeform strings appended to the system prompt. |
@@ -125,10 +125,10 @@ Profiles let users configure per-project or named-profile overrides for model, m
 
 1. CLI flags (`--model`, `--profile`)
 2. Environment variables (`OPENAI_COMPATIBLE_*`)
-3. Per-repo local settings (`.interchange/settings.json`)
-4. Project profile (`.interchange/profile.json`)
-5. Named profile (`~/.interchange/profiles/<name>.json`)
-6. Global settings (`~/.interchange/settings.json`)
+3. Per-repo local settings (`.intercode/settings.json`)
+4. Project profile (`.intercode/profile.json`)
+5. Named profile (`~/.intercode/profiles/<name>.json`)
+6. Global settings (`~/.intercode/settings.json`)
 
 When both a project profile and a named profile apply, the project profile's field values take precedence over the named profile's.
 

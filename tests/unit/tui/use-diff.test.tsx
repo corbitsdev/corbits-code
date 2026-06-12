@@ -1,22 +1,18 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
+import { useDiff } from "../../../src/tui/hooks/use-diff.js";
+import type { DiffResult } from "../../../src/tui/git-diff.js";
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
 
-const mockGetWorkingTreeDiff = mock(async (_cwd: string) => ({
+const mockGetWorkingTreeDiff = mock(async (_cwd: string): Promise<DiffResult> => ({
   available: true,
   files: [{ path: "a.ts", lines: [{ kind: "added" as const, text: "+ line" }] }],
 }));
 
-mock.module("../../../src/tui/git-diff.js", () => ({
-  getWorkingTreeDiff: mockGetWorkingTreeDiff,
-}));
-
-const { useDiff } = await import("../../../src/tui/hooks/use-diff.js");
-
 function Harness({ cwd, active }: { cwd: string; active: boolean }) {
-  const { result, loading } = useDiff({ cwd, active });
+  const { result, loading } = useDiff({ cwd, active, getDiff: mockGetWorkingTreeDiff });
   return (
     <Text>{`loading:${loading}|available:${result?.available ?? "null"}`}</Text>
   );

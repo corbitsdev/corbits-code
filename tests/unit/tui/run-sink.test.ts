@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createRunSink, getTUIRunSummaryStatus } from "../../../src/run-sink.js";
+import { createRunSink, getTUIRunSummaryStatus } from "../../../src/session/run-sink.js";
 
 function makeArgs() {
   const emitter = new EventEmitter();
@@ -66,4 +66,33 @@ test("getTurnCollector is available and has expected shape", () => {
   expect(typeof collector.getTurns).toBe("function");
   expect(typeof collector.getTokenUsage).toBe("function");
   expect(typeof collector.getToolCallCount).toBe("function");
+});
+
+// Session rotation: reset() clears accumulated state so the post-run hook for a
+// new session only sees turns from that session, not the prior one.
+test("reset clears status, error, and turn collector between sessions", () => {
+  const args = makeArgs();
+  const runSink = createRunSink(args);
+
+  // Simulate a completed session with an error.
+  runSink.sink({ type: "reactor.done", data: {} } as never);
+  runSink.sink({ type: "reactor.error", data: { error: "oops" } } as never);
+  expect(runSink.getStatus()).toBe("failed");
+  expect(runSink.getRunError()).toBe("oops");
+
+  // Rotate — new session begins.
+  runSink.reset();
+
+  // Status resets to cancelled (no events yet) and error is gone.
+  expect(runSink.getStatus()).toBe("cancelled");
+  expect(runSink.getRunError()).toBeUndefined();
+
+  // The turn collector returned after reset is fresh.
+  const collector = runSink.getTurnCollector();
+  expect(collector.getTurns()).toHaveLength(0);
+  expect(collector.getToolCallCount()).toBe(0);
+
+  // New session can complete normally.
+  runSink.sink({ type: "reactor.done", data: {} } as never);
+  expect(runSink.getStatus()).toBe("done");
 });

@@ -14,7 +14,7 @@ import {
   hookDirectories,
   localHooksDirectory,
   type LifecycleHookEvent,
-} from "../../src/hooks.js";
+} from "../../src/session/hooks.js";
 
 const usage: TokenUsage = {
   input: 2,
@@ -88,8 +88,8 @@ test("discoverLifecycleHooks gives local hooks precedence over global hooks", as
 test("hookDirectories resolves local hooks from the configured cwd", () => {
   const cwd = join(tmpdir(), "interchange-target-cwd");
 
-  expect(localHooksDirectory(cwd)).toBe(join(cwd, ".interchange", "hooks"));
-  expect(hookDirectories(cwd)[0]).toBe(join(cwd, ".interchange", "hooks"));
+  expect(localHooksDirectory(cwd)).toBe(join(cwd, ".intercode", "hooks"));
+  expect(hookDirectories(cwd)[0]).toBe(join(cwd, ".intercode", "hooks"));
 });
 
 test("createTurnContextCollector emits a turn after inference without tools", () => {

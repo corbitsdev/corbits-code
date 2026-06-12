@@ -2,13 +2,13 @@
 
 import { resolve } from "node:path";
 
-import { loadConfig } from "./config.js";
-import { loadState, loadDirectorState } from "./state.js";
-import { runAgent } from "./run-agent.js";
+import { loadConfig } from "./config/index.js";
+import { loadState, loadDirectorState } from "./session/state.js";
+import { runAgent } from "./agent/run-agent.js";
 import { runTUI } from "./tui/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
-import type { Config, UnconfiguredConfig } from "./config.js";
-import { resolveLatestSession } from "./session.js";
+import type { Config, UnconfiguredConfig } from "./config/index.js";
+import { resolveLatestSession } from "./session/index.js";
 
 export type MainRunners = {
   runAgent(
@@ -50,7 +50,7 @@ function printHelp(): void {
   console.log("Options:");
   console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
   console.log("  --cwd <dir>        Working directory (default: current directory)");
-  console.log("  --config <path>    Settings file to use (default: ~/.interchange/settings.json)");
+  console.log("  --config <path>    Settings file to use (default: ~/.intercode/settings.json)");
   console.log("  --provider <name>  Select a configured provider");
   console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
@@ -58,8 +58,8 @@ function printHelp(): void {
   console.log("  --help             Show this help message");
   console.log("");
   console.log("Configuration:");
-  console.log("  Providers and credentials are read from ~/.interchange/settings.json");
-  console.log("  (selection can be overridden per repo via .interchange/settings.json).");
+  console.log("  Providers and credentials are read from ~/.intercode/settings.json");
+  console.log("  (selection can be overridden per repo via .intercode/settings.json).");
   console.log("  The OPENAI_COMPATIBLE_* env vars still override individual fields.");
 }
 

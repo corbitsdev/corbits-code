@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { EventEmitter } from "node:events";
-import type { MCPServerState } from "../../agent-tools.js";
+import type { MCPServerState } from "../../agent/tools.js";
 
 export type MCPStatusController = {
   // Servers currently awaiting authorization, in arrival order.

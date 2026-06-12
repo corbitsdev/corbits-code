@@ -1,4 +1,4 @@
-import { loadSettings, resolveProvider } from "../../src/settings.js";
+import { loadSettings, resolveProvider } from "../../src/config/settings.js";
 import type { JudgeScores } from "./types.js";
 
 // The resolved judge endpoint. Credentials come from a CL-927 settings file (on

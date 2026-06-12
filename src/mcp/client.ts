@@ -3,7 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { MCPServerConfig } from "../settings.js";
+import type { MCPServerConfig } from "../config/settings.js";
 import { createOAuthProvider } from "./oauth-provider.js";
 import { startCallbackServer } from "./callback-server.js";
 

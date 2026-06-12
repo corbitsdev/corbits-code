@@ -1,13 +1,13 @@
 import type { Agent } from "@intx/agent";
 import { useState } from "react";
-import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config.js";
-import { localSettingsPath, saveGlobalSettings, saveLocalSettings } from "../../settings.js";
+import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
+import { localSettingsPath, saveGlobalSettings, saveLocalSettings } from "../../config/settings.js";
 import {
   buildProviderEntry,
   defaultProviderAfterSave,
   defaultProviderAfterDelete,
   type ProviderSubmission,
-} from "../../provider-catalog.js";
+} from "../../config/providers.js";
 
 export type UseProviderManagerArgs = {
   initialProvider: string;

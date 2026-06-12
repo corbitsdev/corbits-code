@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 import { expect, test } from "bun:test";
 
-import { fetchPricing, loadPricing, parseModelsDevPricing, readPricingCache, writePricingCache } from "../../src/pricing-fetcher.js";
+import { fetchPricing, loadPricing, parseModelsDevPricing, readPricingCache, writePricingCache } from "../../src/cost/pricing-fetcher.js";
 
 function response(body: unknown, ok = true, status = 200): Response {
   return new Response(JSON.stringify(body), { status: ok ? status : status });

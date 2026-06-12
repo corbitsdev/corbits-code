@@ -6,7 +6,7 @@ import {
   classifyTaskBoundary,
   buildLLMTurnSummary,
   type SessionMetadata,
-} from "./context-compactor.js";
+} from "./session/compactor.js";
 import type { ConversationTurn, StrategyContext } from "@intx/types/runtime";
 
 const mockStrategyCtx: StrategyContext = {

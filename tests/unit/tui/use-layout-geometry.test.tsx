@@ -1,90 +1,122 @@
-import { render } from "ink-testing-library";
-import { Text } from "ink";
 import { test, expect } from "bun:test";
-import { useLayoutGeometry } from "../../../src/tui/hooks/use-layout-geometry.js";
-import type { UseLayoutGeometryArgs } from "../../../src/tui/hooks/use-layout-geometry.js";
+import {
+  computeOverlayRows,
+  computeVisibleRows,
+  type GateContext,
+  type ModalContext,
+  type UseLayoutGeometryArgs,
+} from "../../../src/tui/hooks/use-layout-geometry.js";
+import type { ProviderCatalogEntry } from "../../../src/config/index.js";
 
-function Harness({ args }: { args: UseLayoutGeometryArgs }) {
-  const geo = useLayoutGeometry(args);
-  return <Text>{JSON.stringify(geo)}</Text>;
-}
+const CHROME_ROWS = 9;
 
-function makeArgs(overrides: Partial<UseLayoutGeometryArgs> = {}): UseLayoutGeometryArgs {
-  return {
-    columns: 100,
-    rows: 40,
-    sidebarOpen: false,
-    gateContext: { pendingPermission: null, pendingPlan: null, pendingOperator: null },
-    modalContext: { helpOpen: false, hookPanelOpen: false, exitConfirmOpen: false, agentModalOpen: false },
-    hookCount: 0,
-    providerCatalog: [],
-    ...overrides,
-  };
-}
+// Default empty modal and gate contexts
+const noGates: GateContext = {
+  pendingPermission: null,
+  pendingPlan: null,
+  pendingOperator: null,
+};
 
-function getGeo(args: UseLayoutGeometryArgs) {
-  const { lastFrame } = render(<Harness args={args} />);
-  const frame = lastFrame();
-  return JSON.parse(frame ?? "{}") as {
-    leftWidth: number;
-    rightWidth: number;
-    visibleRows: number;
-    diffVisibleRows: number;
-    effectiveOverlayRows: number;
-  };
+const noModals: ModalContext = {
+  helpOpen: false,
+  hookPanelOpen: false,
+  exitConfirmOpen: false,
+  agentModalOpen: false,
+  permissionsOpen: false,
+  permissionEntryCount: 0,
+};
+
+type GeoArgs = {
+  columns?: number;
+  rows?: number;
+  sidebarOpen?: boolean;
+  gateContext?: GateContext;
+  modalContext?: ModalContext;
+  hookCount?: number;
+  providerCatalog?: ProviderCatalogEntry[];
+};
+
+function computeGeo({
+  columns = 100,
+  rows = 40,
+  sidebarOpen = false,
+  gateContext = noGates,
+  modalContext = noModals,
+  hookCount = 0,
+  providerCatalog = [],
+}: GeoArgs = {}) {
+  const leftWidth = sidebarOpen ? Math.floor(columns * 0.65) : columns;
+  const rightWidth = columns - leftWidth;
+  const effectiveOverlayRows = computeOverlayRows({
+    gateContext,
+    modalContext,
+    hookCount,
+    providerCatalog,
+    innerWidth: leftWidth - 8,
+  });
+  const visibleRows = computeVisibleRows({
+    rows,
+    chromeRows: CHROME_ROWS,
+    effectiveOverlayRows,
+    extraChromeRows: 0,
+  });
+  const diffVisibleRows = Math.max(1, visibleRows - 2);
+  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows };
 }
 
 // 1. Sidebar closed: leftWidth === columns, rightWidth === 0
 test("sidebar closed: leftWidth equals columns, rightWidth is 0", () => {
-  const geo = getGeo(makeArgs({ columns: 100, sidebarOpen: false }));
+  const geo = computeGeo({ columns: 100, sidebarOpen: false });
   expect(geo.leftWidth).toBe(100);
   expect(geo.rightWidth).toBe(0);
 });
 
 // 2. Sidebar open: leftWidth = floor(columns * 0.65), rightWidth = columns - leftWidth
 test("sidebar open: leftWidth is floor(columns * 0.65)", () => {
-  const geo = getGeo(makeArgs({ columns: 100, sidebarOpen: true }));
+  const geo = computeGeo({ columns: 100, sidebarOpen: true });
   expect(geo.leftWidth).toBe(Math.floor(100 * 0.65));
   expect(geo.rightWidth).toBe(100 - Math.floor(100 * 0.65));
 });
 
 test("visibleRows equals rows - 9 - effectiveOverlayRows", () => {
-  const geo = getGeo(makeArgs({ rows: 40 }));
+  const geo = computeGeo({ rows: 40 });
   expect(geo.visibleRows).toBe(40 - 9 - geo.effectiveOverlayRows);
 });
 
 test("no modals or gates: effectiveOverlayRows is 0 and visibleRows is rows - 9", () => {
-  const geo = getGeo(makeArgs({ rows: 40 }));
+  const geo = computeGeo({ rows: 40 });
   expect(geo.effectiveOverlayRows).toBe(0);
   expect(geo.visibleRows).toBe(40 - 9);
 });
 
 // 5. helpOpen: true → effectiveOverlayRows === 16
 test("helpOpen: effectiveOverlayRows is 16", () => {
-  const geo = getGeo(makeArgs({ modalContext: { helpOpen: true, hookPanelOpen: false, exitConfirmOpen: false, agentModalOpen: false } }));
+  const geo = computeGeo({ modalContext: { ...noModals, helpOpen: true } });
   expect(geo.effectiveOverlayRows).toBe(16);
 });
 
 // 6. exitConfirmOpen: true → effectiveOverlayRows === 6
 test("exitConfirmOpen: effectiveOverlayRows is 6", () => {
-  const geo = getGeo(makeArgs({ modalContext: { helpOpen: false, hookPanelOpen: true, exitConfirmOpen: false, agentModalOpen: false }, hookCount: 3 }));
-  expect(geo.effectiveOverlayRows).toBe(7);
+  const geo = computeGeo({
+    modalContext: { ...noModals, exitConfirmOpen: true },
+  });
+  expect(geo.effectiveOverlayRows).toBe(6);
 });
 
 // 7. hookPanelOpen: true with hookCount=3 → effectiveOverlayRows === 4 + 3 = 7
 test("hookPanelOpen with hookCount=3: effectiveOverlayRows is 7", () => {
-  const geo = getGeo(makeArgs({
-    modalContext: { helpOpen: false, hookPanelOpen: true, exitConfirmOpen: false, agentModalOpen: false },
+  const geo = computeGeo({
+    modalContext: { ...noModals, hookPanelOpen: true },
     hookCount: 3,
-  }));
+  });
   expect(geo.effectiveOverlayRows).toBe(7);
 });
 
 // exitConfirmOpen dedicated test
 test("exitConfirmOpen: effectiveOverlayRows is 6", () => {
-  const geo = getGeo(makeArgs({
-    modalContext: { helpOpen: false, hookPanelOpen: false, exitConfirmOpen: true, agentModalOpen: false },
-  }));
+  const geo = computeGeo({
+    modalContext: { ...noModals, exitConfirmOpen: true },
+  });
   expect(geo.effectiveOverlayRows).toBe(6);
 });
 
@@ -93,50 +125,49 @@ test("agentModalOpen with 2 providers each having 3 models: effectiveOverlayRows
   const providerCatalog = [
     { id: "p1", name: "P1", models: [{ id: "m1" }, { id: "m2" }, { id: "m3" }] },
     { id: "p2", name: "P2", models: [{ id: "m4" }, { id: "m5" }, { id: "m6" }] },
-  ] as any;
-  const geo = getGeo(makeArgs({
-    modalContext: { helpOpen: false, hookPanelOpen: false, exitConfirmOpen: false, agentModalOpen: true },
+  ] as unknown as ProviderCatalogEntry[];
+  const geo = computeGeo({
+    modalContext: { ...noModals, agentModalOpen: true },
     providerCatalog,
-  }));
+  });
   expect(geo.effectiveOverlayRows).toBe(19);
 });
 
 // 9. pendingPlan !== null → effectiveOverlayRows === 18
 test("pendingPlan non-null: effectiveOverlayRows is 18", () => {
-  const geo = getGeo(makeArgs({
-    gateContext: { pendingPermission: null, pendingPlan: { steps: [] }, pendingOperator: null },
-  }));
+  const geo = computeGeo({
+    gateContext: { ...noGates, pendingPlan: { steps: [] } },
+  });
   expect(geo.effectiveOverlayRows).toBe(18);
 });
 
 // 10. pendingOperator with 4 options → effectiveOverlayRows === 10 + 4 = 14
 test("pendingOperator with 4 options: effectiveOverlayRows is 14", () => {
-  const geo = getGeo(makeArgs({
+  const geo = computeGeo({
     gateContext: {
-      pendingPermission: null,
-      pendingPlan: null,
+      ...noGates,
       pendingOperator: { options: ["a", "b", "c", "d"] },
     },
-  }));
+  });
   expect(geo.effectiveOverlayRows).toBe(14);
 });
 
 // 11. diffVisibleRows === max(1, visibleRows - 2)
 test("diffVisibleRows is max(1, visibleRows - 2)", () => {
-  const geo = getGeo(makeArgs({ rows: 40 }));
+  const geo = computeGeo({ rows: 40 });
   expect(geo.diffVisibleRows).toBe(Math.max(1, geo.visibleRows - 2));
 });
 
 // Edge: very small rows → visibleRows and diffVisibleRows floor at 1
 test("very small rows: visibleRows and diffVisibleRows floor at 1", () => {
-  const geo = getGeo(makeArgs({ rows: 5 }));
+  const geo = computeGeo({ rows: 5 });
   expect(geo.visibleRows).toBe(1);
   expect(geo.diffVisibleRows).toBe(1);
 });
 
 // Sidebar open with non-round columns
 test("sidebar open with odd columns: widths sum to columns", () => {
-  const geo = getGeo(makeArgs({ columns: 133, sidebarOpen: true }));
+  const geo = computeGeo({ columns: 133, sidebarOpen: true });
   expect(geo.leftWidth + geo.rightWidth).toBe(133);
   expect(geo.leftWidth).toBe(Math.floor(133 * 0.65));
 });

@@ -73,8 +73,16 @@ test("hunk-body lines beginning with +++/--- classify as added/removed, not meta
 });
 
 test("getWorkingTreeDiff returns unavailable outside a repository", async () => {
-  const result = await getWorkingTreeDiff("/");
-  expect(result.available).toBe(false);
+  // Use a freshly-created temp dir that is guaranteed to not be inside any git
+  // work tree — relying on "/" is fragile because the host machine may have a
+  // git repo at its root (e.g. in CI or some macOS configurations).
+  const nonRepo = await mkdtemp(join(tmpdir(), "diff-nonrepo-"));
+  try {
+    const result = await getWorkingTreeDiff(nonRepo);
+    expect(result.available).toBe(false);
+  } finally {
+    await import("node:fs/promises").then((fs) => fs.rm(nonRepo, { recursive: true, force: true }));
+  }
 });
 
 test("getWorkingTreeDiff returns a structured result inside a repository", async () => {
@@ -87,14 +95,22 @@ test("getWorkingTreeDiff returns a structured result inside a repository", async
 
 test("a fresh repo with no commits is available and shows untracked files", async () => {
   const dir = await mkdtemp(join(tmpdir(), "diff-nohead-"));
-  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
-  await mkdir(join(dir, "src"), { recursive: true });
-  await writeFile(join(dir, "src", "new.ts"), "export const answer = 42;\n");
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    // Provide local git identity so git does not read global config under
+    // parallel load, which can produce warnings that corrupt stdout captures.
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir });
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "new.ts"), "export const answer = 42;\n");
 
-  const result = await getWorkingTreeDiff(dir);
-  expect(result.available).toBe(true);
-  if (result.available) {
-    const text = result.files.flatMap((f) => f.lines).map((l) => l.text).join("\n");
-    expect(text).toContain("answer = 42");
+    const result = await getWorkingTreeDiff(dir);
+    expect(result.available).toBe(true);
+    if (result.available) {
+      const text = result.files.flatMap((f) => f.lines).map((l) => l.text).join("\n");
+      expect(text).toContain("answer = 42");
+    }
+  } finally {
+    await import("node:fs/promises").then((fs) => fs.rm(dir, { recursive: true, force: true }));
   }
 });

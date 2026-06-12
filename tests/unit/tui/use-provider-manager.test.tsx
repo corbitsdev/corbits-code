@@ -6,13 +6,13 @@ import { act } from "react";
 const mockSaveGlobalSettings = mock(async (_path: string, _settings: unknown) => {});
 const mockSaveLocalSettings = mock(async (_path: string, _settings: unknown) => {});
 
-mock.module("../../../src/settings.js", () => ({
+mock.module("../../../src/config/settings.js", () => ({
   saveGlobalSettings: mockSaveGlobalSettings,
   saveLocalSettings: mockSaveLocalSettings,
   localSettingsPath: (cwd: string) => `${cwd}/.agent/settings.json`,
 }));
 
-mock.module("../../../src/config.js", () => ({
+mock.module("../../../src/config/index.js", () => ({
   buildOpenAISource: (opts: unknown) => opts,
   providerCatalogToSettings: (catalog: unknown[], defaultProvider: string | undefined) => ({
     providers: {},
