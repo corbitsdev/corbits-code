@@ -205,8 +205,11 @@ export function App({
   const sendAbortRef = useRef<AbortController | null>(null);
   const [, forceRender] = useState(0);
   const didSendInitial = useRef(false);
+  // Incremented on every send so useSpinner can reset its elapsed clock per turn.
+  const sendCounterRef = useRef(0);
 
   const sendMessage = (message: string) => {
+    sendCounterRef.current += 1;
     state.markRunning();
     // Nudge a re-render so the in-flight indicator and interval timer activate
     // immediately rather than waiting for the first event from the new run.
@@ -275,7 +278,7 @@ export function App({
   // Spin only while the model is working with nothing streaming yet; the moment
   // a token lands, awaitingResponse flips false and the indicator clears.
   const awaitingResponse = state.status === "running" && state.awaitingResponse;
-  const spinner = useSpinner(awaitingResponse);
+  const spinner = useSpinner(awaitingResponse, sendCounterRef.current);
 
   useKeymap(
     {
