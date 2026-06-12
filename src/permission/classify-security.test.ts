@@ -68,6 +68,18 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("ls -la"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("grep -r needle ."), "/repo")).toBe(true);
   });
+
+  test("denies a workspace-escaping path glued to a grep/rg flag value", () => {
+    expect(isAutoAllowedShellCall(shellCall("grep --file=/etc/passwd ."), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("grep -f/etc/passwd ."), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("rg --file=/etc/passwd ."), "/repo")).toBe(false);
+    // A separated flag value is a positional token and already caught.
+    expect(isAutoAllowedShellCall(shellCall("grep -f /etc/passwd ."), "/repo")).toBe(false);
+  });
+
+  test("allows an in-workspace flag-glued path", () => {
+    expect(isAutoAllowedShellCall(shellCall("grep --file=patterns.txt src"), "/repo")).toBe(true);
+  });
 });
 
 describe("secret-guard plugin hard-denies regardless of classification", () => {

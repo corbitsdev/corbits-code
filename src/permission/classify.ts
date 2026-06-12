@@ -55,6 +55,24 @@ function escapesWorkspace(token: string, cwd: string): boolean {
   return realTarget !== realCwd && !realTarget.startsWith(realCwd + sep);
 }
 
+// grep/rg read a file through a flag value (`--file=PATH`, `-fPATH`), so a path
+// glued to a flag escapes the positional containment check. Surface that glued
+// value so it gets the same workspace-containment treatment as a bare argument.
+function flagPathValue(token: string): string | null {
+  if (token.startsWith("--")) {
+    const eq = token.indexOf("=");
+    return eq === -1 ? null : token.slice(eq + 1);
+  }
+  const glued = /^-f(.+)$/.exec(token);
+  return glued !== null ? (glued[1] ?? null) : null;
+}
+
+function argEscapesWorkspace(token: string, cwd: string): boolean {
+  if (!token.startsWith("-")) return escapesWorkspace(token, cwd);
+  const value = flagPathValue(token);
+  return value !== null && value.length > 0 && escapesWorkspace(value, cwd);
+}
+
 export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
   if (call.name !== "run_shell") return false;
   const command = stringArg(call, "command").trim();
@@ -69,7 +87,7 @@ export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd
   if (args.some((token) => WRITE_FLAG.test(token))) return false;
   if (args.some((token) => EXEC_FLAG.test(token))) return false;
   if (args.some((token) => isSensitivePath(token))) return false;
-  if (args.some((token) => !token.startsWith("-") && escapesWorkspace(token, cwd))) return false;
+  if (args.some((token) => argEscapesWorkspace(token, cwd))) return false;
 
   return true;
 }
