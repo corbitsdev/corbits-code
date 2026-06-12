@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { sessionDir } from "./session.js";
@@ -19,6 +19,7 @@ export type DirectorPersistedState = {
   idleCycles: number;
   planSubmitted: boolean;
   plan: Array<{ file: string; action: string; reason: string }>;
+  terminated?: boolean;
   filesRead?: Array<{ path: string; turn: number }>;
 };
 
@@ -52,28 +53,51 @@ function directorStatePath(cwd: string, sessionId: string): string {
   return join(sessionDir(cwd, sessionId), "director.json");
 }
 
+let tmpWriteCounter = 0;
+
+// Write atomically: serialize to a unique temp file, then rename into place so a
+// crash mid-write never leaves torn JSON. The temp name combines the pid with a
+// monotonic counter so concurrent or rapid successive saves within one process
+// never collide on the same temp path (pid alone is not unique per call).
+async function atomicWrite(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.${(tmpWriteCounter += 1)}.tmp`;
+  await writeFile(tmp, content);
+  await rename(tmp, path);
+}
+
+// A corrupt or shape-invalid state file means resume is silently starting over
+// and prior progress is being discarded. Surface it rather than swallowing it.
+function warnUnreadableState(path: string, reason: string): void {
+  process.stderr.write(`interchange-code: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
+}
+
 export async function saveDirectorState(
   cwd: string,
   sessionId: string,
   state: DirectorPersistedState,
 ): Promise<void> {
-  const path = directorStatePath(cwd, sessionId);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(state, null, 2));
+  await atomicWrite(directorStatePath(cwd, sessionId), JSON.stringify(state, null, 2));
 }
 
 export async function loadDirectorState(
   cwd: string,
   sessionId: string,
 ): Promise<DirectorPersistedState | null> {
+  const path = directorStatePath(cwd, sessionId);
   try {
-    const raw = await readFile(directorStatePath(cwd, sessionId), "utf8");
+    const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
     if (!isValidDirectorState(parsed)) {
+      warnUnreadableState(path, "invalid shape");
       return null;
     }
     return parsed;
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      warnUnreadableState(path, "corrupt JSON");
+      return null;
+    }
     if (
       typeof err === "object" &&
       err !== null &&
@@ -87,9 +111,7 @@ export async function loadDirectorState(
 }
 
 export async function saveState(cwd: string, sessionId: string, state: RunState): Promise<void> {
-  const path = statePath(cwd, sessionId);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(state, null, 2));
+  await atomicWrite(statePath(cwd, sessionId), JSON.stringify(state, null, 2));
 }
 
 function isValidRunState(data: unknown): data is RunState {
@@ -106,14 +128,20 @@ function isValidRunState(data: unknown): data is RunState {
 }
 
 export async function loadState(cwd: string, sessionId: string): Promise<RunState | null> {
+  const path = statePath(cwd, sessionId);
   try {
-    const raw = await readFile(statePath(cwd, sessionId), "utf8");
+    const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
     if (!isValidRunState(parsed)) {
+      warnUnreadableState(path, "invalid shape");
       return null;
     }
     return parsed;
   } catch (err) {
+    if (err instanceof SyntaxError) {
+      warnUnreadableState(path, "corrupt JSON");
+      return null;
+    }
     if (
       typeof err === "object" &&
       err !== null &&

@@ -156,6 +156,132 @@ describe("mixed inline content", () => {
   });
 });
 
+describe("F1: italic intraword restriction", () => {
+  test("snake_case identifiers should not italicize inner word", () => {
+    const segs = firstLine("my_var_name");
+    expect(allText(segs)).toBe("my_var_name");
+    expect(segs.every((s) => !s.italic)).toBe(true);
+  });
+
+  test("underscore at word boundary opens italic", () => {
+    const segs = firstLine("word _italic_ text");
+    expect(allText(segs)).toBe("word italic text");
+    const italic = segs.find((s) => s.italic);
+    expect(italic?.text).toBe("italic");
+  });
+
+  test("underscore after whitespace and before whitespace is italic", () => {
+    const segs = firstLine(" _it_ ");
+    const italic = segs.find((s) => s.italic);
+    expect(italic?.text).toBe("it");
+  });
+
+  test("star can still italicize intraword", () => {
+    const segs = firstLine("my*var*name");
+    expect(allText(segs)).toBe("myvarname");
+    const italic = segs.find((s) => s.italic);
+    expect(italic?.text).toBe("var");
+  });
+
+  test("bold with underscores is unaffected", () => {
+    const segs = firstLine("__bold__ text");
+    expect(allText(segs)).toBe("bold text");
+    expect(segs.find((s) => s.bold)?.text).toBe("bold");
+  });
+
+  test("bold with stars is unaffected", () => {
+    const segs = firstLine("**bold** text");
+    expect(allText(segs)).toBe("bold text");
+    expect(segs.find((s) => s.bold)?.text).toBe("bold");
+  });
+
+  test("file path should not italicize segments", () => {
+    const segs = firstLine("path/to_file_name.txt");
+    expect(allText(segs)).toBe("path/to_file_name.txt");
+    expect(segs.every((s) => !s.italic)).toBe(true);
+  });
+
+  test("underscore followed by non-whitespace in identifier context", () => {
+    const segs = firstLine("foo_bar baz");
+    expect(allText(segs)).toBe("foo_bar baz");
+    expect(segs.every((s) => !s.italic)).toBe(true);
+  });
+});
+
+describe("F2: link URL handling", () => {
+  test("short URL shows full URL in parens", () => {
+    const segs = firstLine("[link](http://example.com)");
+    expect(allText(segs)).toBe("link (http://example.com)");
+  });
+
+  test("URL with parens stops at first closing paren", () => {
+    const segs = firstLine("[func](fn(arg))");
+    expect(allText(segs)).toBe("func (fn(arg))");
+  });
+
+  test("very long URL is not shown in parens", () => {
+    const segs = firstLine("[docs](https://example.com/path/to/very/long/documentation/page)");
+    expect(allText(segs)).toBe("docs");
+    expect(segs.find((s) => s.link)?.text).toBe("docs");
+  });
+
+  test("medium length URL shown in parens", () => {
+    const segs = firstLine("[api](https://api.example.com/v1)");
+    const text = allText(segs);
+    expect(text).toContain("api");
+    expect(text).toContain("https://api.example.com/v1");
+  });
+
+  test("URL with function call parens", () => {
+    const segs = firstLine("[help](https://example.com?q=fn(x))");
+    const text = allText(segs);
+    expect(text).toContain("help");
+  });
+});
+
+describe("F3: GFM table relaxation", () => {
+  test("table with single dashes in separator", () => {
+    const lines = parseMarkdown("| a | b |\n|-|-|\n| 1 | 2 |");
+    expect(lines).toHaveLength(2);
+    expect(allText(lines[0] ?? [])).toContain("a");
+    expect(allText(lines[0] ?? [])).toContain("b");
+    expect(allText(lines[1] ?? [])).toContain("1");
+  });
+
+  test("table with two dashes in separator", () => {
+    const lines = parseMarkdown("| name | value |\n|--|--|\n| foo | bar |");
+    expect(lines).toHaveLength(2);
+    expect(allText(lines[0] ?? [])).toContain("name");
+  });
+
+  test("table with default three dashes still works", () => {
+    const lines = parseMarkdown("| x | y |\n|---|---|\n| 1 | 2 |");
+    expect(lines).toHaveLength(2);
+    expect(allText(lines[0] ?? [])).toContain("x");
+  });
+
+  test("table separator with alignment colons", () => {
+    const lines = parseMarkdown("| left | center | right |\n|:---|:--:|--:|\n| a | b | c |");
+    expect(lines).toHaveLength(2);
+    expect(allText(lines[0] ?? [])).toContain("left");
+  });
+
+  test("cell with escaped pipe is not split into columns", () => {
+    const lines = parseMarkdown("| code | desc |\n|---|---|\n| a\\|b | test |");
+    expect(lines).toHaveLength(2);
+    const row = allText(lines[1] ?? []);
+    // The escaped pipe stays inside one cell rather than splitting it.
+    expect(row).toContain("a|b");
+  });
+
+  test("escaped pipe renders as a literal pipe, not a backslash escape", () => {
+    const lines = parseMarkdown("| a | b |\n|---|---|\n| x\\|y | z |");
+    const row = allText(lines[1] ?? []);
+    expect(row).toContain("x|y");
+    expect(row).not.toContain("x\\|y");
+  });
+});
+
 describe("multi-line", () => {
   test("each line parses independently", () => {
     const lines = parseMarkdown("# Heading\n- item\nplain");
@@ -174,4 +300,13 @@ describe("multi-line", () => {
     expect(allText(lines[1] ?? [])).toBe("Game 3 | June 7 | Vegas   ");
     expect(allText(lines[2] ?? [])).toBe("Game 4 | June 9 | Vegas   ");
   });
+});
+
+test("link with an empty URL still renders as styled text, not raw characters", () => {
+  const lines = parseMarkdown("see [docs]() here");
+  const segs = lines[0] ?? [];
+  const link = segs.find((s) => s.link === true);
+  expect(link?.text).toBe("docs");
+  // No "(...)" suffix for an empty URL, and the text is not split char-by-char.
+  expect(segs.some((s) => s.text.includes("("))).toBe(false);
 });
