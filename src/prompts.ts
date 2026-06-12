@@ -52,8 +52,9 @@ export function buildToolCallDiscipline(): string {
     "How you work:",
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
+    "- You already know where you are: the working directory is in Active context and your shell runs there. Never run pwd, ls, or find to orient — read AGENTS.md or CLAUDE.md if present and use list_dir and grep to explore.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- Understand before you change: read enough to be sure, then act. Not more.",
+    "- Understand before you change: read enough to be sure, then act. Not more. Read a file once and take in the whole region you need — don't re-open or page through a file you've already read.",
   ].join("\n");
 }
 
@@ -166,10 +167,11 @@ export function buildAvailableTools(tools = defaultAgentTools): string {
   return ["Tools:", ...lines].join("\n");
 }
 
-export function buildActiveContext(date = new Date()): string {
+export function buildActiveContext(date = new Date(), cwd = process.cwd()): string {
   return [
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
+    `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
     "User Name: Optional",
     "Company Name: Optional",
     "Other User Info: Optional",
