@@ -30,6 +30,7 @@ import {
   createRunSummary,
   discoverLifecycleHooks,
   hookDirectories,
+  type RunSummary,
 } from "../hooks.js";
 import { createRunSink } from "../run-sink.js";
 import { initSessionDir, sessionContextDir } from "../session.js";
@@ -39,6 +40,20 @@ export function createTUIEventEmitter(): EventEmitter {
 }
 
 export { getTUIRunSummaryStatus } from "../run-sink.js";
+
+export type ResolveExitCodeArgs = {
+  runError: string | undefined;
+  sinkError: string | undefined;
+  status: RunSummary["status"];
+};
+
+export function resolveExitCode(args: ResolveExitCodeArgs): number {
+  const { runError, sinkError, status } = args;
+  if (runError !== undefined || sinkError !== undefined || status !== "done") {
+    return 1;
+  }
+  return 0;
+}
 
 export async function runTUI(config: Config): Promise<number> {
   await initSessionDir(config.cwd, config.sessionId);
@@ -300,5 +315,9 @@ export async function runTUI(config: Config): Promise<number> {
   }
   await toolset.dispose();
 
-  return 0;
+  return resolveExitCode({
+    runError,
+    sinkError,
+    status: runSink.getStatus(),
+  });
 }
