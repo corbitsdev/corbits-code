@@ -6,14 +6,17 @@ import { EventEmitter } from "node:events";
 import type { ReactNode } from "react";
 import { useGates, type PlanGateEvent, type OperatorGateEvent } from "../../../src/tui/hooks/use-gates.js";
 
-function Harness({ emitter, onGate }: { emitter: EventEmitter; onGate: (pending: boolean) => void }): ReactNode {
+function Harness({ emitter, onGate, onReset }: { emitter: EventEmitter; onGate: (pending: boolean) => void; onReset?: (resetFn: () => void) => void }): ReactNode {
   const gates = useGates({ eventEmitter: emitter, setGatePending: onGate });
   useInput((input) => {
     if (input === "a") gates.approve();
     if (input === "r") gates.reject();
     if (input === "0") gates.selectOperator(0);
     if (input === "p") gates.resolvePermission({ allow: true });
+    if (input === "x") gates.resetGates();
   });
+  // Expose resetGates to the test once on first render.
+  onReset?.(gates.resetGates);
   const plan = gates.pendingPlan === null ? "none" : `plan:${gates.pendingPlan.length}`;
   const op = gates.pendingOperator === null ? "none" : `op:${gates.pendingOperator.question}`;
   const perm = gates.pendingPermission === null ? "none" : `perm:${gates.pendingPermission.subject}`;
@@ -211,4 +214,53 @@ test("permission gate surfaces a request and resolves the outcome", async () => 
   await tick();
   expect(outcome).toEqual({ allow: true });
   expect(lastFrame()).toContain("none none none open=0");
+});
+
+// resetGates drains all queues, resolves each with safe defaults, and clears
+// visible state — simulating a /clear rotation that fires while gates are open.
+test("resetGates resolves all pending gates and clears visible state", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  let planResolved: boolean | null = null;
+  let opResolved: number | null = null;
+  let permResolved: { allow: boolean } | null = null;
+
+  const { lastFrame, stdin } = render(
+    <Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />,
+  );
+  await tick();
+
+  // Open one of each gate type.
+  emitter.emit("plan.gate", {
+    plan: [{ file: "a.ts", action: "write" }],
+    resolve: (v: boolean) => { planResolved = v; },
+  } satisfies PlanGateEvent);
+
+  emitter.emit("operator.gate", {
+    question: "continue?",
+    options: ["yes"],
+    resolve: (i: number) => { opResolved = i; },
+  } satisfies OperatorGateEvent);
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run shell command", subject: "rm -rf", scopes: [] },
+    resolve: (o: { allow: boolean }) => { permResolved = o; },
+  });
+  await tick();
+
+  expect(lastFrame()).toContain("open=1");
+
+  // Trigger reset via keystroke.
+  stdin.write("x");
+  await tick();
+
+  // All gates resolved with safe defaults.
+  expect(planResolved).toBe(false);
+  expect(opResolved).toBe(0);
+  expect(permResolved).toEqual({ allow: false });
+
+  // UI reflects cleared state.
+  expect(lastFrame()).toContain("none none none open=0");
+  // setGatePending(false) was called during reset.
+  expect(gateCalls[gateCalls.length - 1]).toBe(false);
 });

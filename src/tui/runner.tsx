@@ -214,45 +214,46 @@ export async function runTUI(config: Config): Promise<number> {
   let currentAgent = await buildAgent();
   let streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
 
-  // Reload coordination. A reload must close the old agent (releasing the
-  // per-workdir lock) before opening the new one, so `send` is held behind
-  // `reloadBarrier` during the swap, and a reload defers until no send is in
-  // flight (so it never interrupts an active turn).
+  // Serial operation queue. Each rotation (reload, interrupt, newSession) enqueues
+  // an async task; they run one at a time. `send` awaits the tail of the queue
+  // before dispatching so it never races a concurrent rebuild.
+  let opQueueTail: Promise<void> = Promise.resolve();
   let inFlight = 0;
   let pendingReload = false;
-  let reloading = false;
-  let reloadBarrier: Promise<void> | null = null;
+  // When buildAgent() throws after the old agent has been closed, this flag is
+  // set and subsequent `send` calls throw immediately rather than dispatching to
+  // a closed agent.
+  let fatalBuildError: Error | null = null;
 
-  const reloadIfIdle = async (): Promise<void> => {
-    if (!pendingReload || reloading || inFlight > 0) return;
+  const enqueueOp = (op: () => Promise<void>): Promise<void> => {
+    opQueueTail = opQueueTail.then(op, op);
+    return opQueueTail;
+  };
+
+  const reloadIfIdle = (): void => {
+    if (!pendingReload || inFlight > 0) return;
     pendingReload = false;
-    reloading = true;
-    let release!: () => void;
-    reloadBarrier = new Promise<void>((r) => (release = r));
-    try {
+    void enqueueOp(async () => {
       const old = currentAgent;
       await old.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();
       streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
-    } finally {
-      reloading = false;
-      reloadBarrier = null;
-      release();
-    }
+    });
   };
 
   // Stable handle handed to the App so the underlying agent can be swapped out
   // from under it without a remount; method calls always target the live agent.
   const agentProxy: Agent = {
     send: async (content, opts) => {
-      if (reloadBarrier !== null) await reloadBarrier;
+      await opQueueTail;
+      if (fatalBuildError !== null) throw fatalBuildError;
       inFlight++;
       try {
         return await currentAgent.send(content, opts);
       } finally {
         inFlight--;
-        void reloadIfIdle();
+        reloadIfIdle();
       }
     },
     stream: () => currentAgent.stream(),
@@ -270,55 +271,53 @@ export async function runTUI(config: Config): Promise<number> {
   // A hard stop: closing the agent is the only thing that aborts the reactor
   // mid-inference (the send signal only rejects the send promise). Close it,
   // drain the old stream, and rebuild a fresh agent so the next send works.
-  const interrupt = async (): Promise<void> => {
-    if (reloading) return;
-    reloading = true;
-    let release!: () => void;
-    reloadBarrier = new Promise<void>((r) => (release = r));
-    try {
-      await currentAgent.close().catch(() => undefined);
-      await streamPromise.catch(() => undefined);
-      currentAgent = await buildAgent();
-      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
-    } catch (err) {
-      recordRunError(err);
-    } finally {
-      reloading = false;
-      reloadBarrier = null;
-      release();
-    }
+  const interrupt = (): void => {
+    void enqueueOp(async () => {
+      try {
+        await currentAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
+        currentAgent = await buildAgent();
+        streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        fatalBuildError = null;
+      } catch (err) {
+        recordRunError(err);
+        fatalBuildError = err instanceof Error ? err : new Error(String(err));
+      }
+    });
   };
 
   // /clear and /new start a fresh conversation: mint a new session id and its
   // own state directory, repoint the working tree at it, and rebuild the agent
   // so it resumes from an empty git-backed store. The prior session stays on
-  // disk under its own id, resumable later. Sub-agents nest under the new
-  // session automatically because getWorkdirBase reads the live id.
-  const newSession = async (): Promise<void> => {
+  // disk under its own id, resumable later.
+  //
+  // Sub-agent lifecycle on rotation: any sub-agents spawned before /clear
+  // continue running in their own processes. Their onEvent output was captured
+  // in the cleared transcript and will not appear in the new session's log.
+  // This is acceptable — the sub-agents are isolated by session directory and
+  // cannot write to the new session's store. They will terminate naturally.
+  const newSession = (): void => {
     // The App clears its transcript unconditionally on /clear, so the backend
-    // rotation must not be skipped under contention or the UI and the live
-    // store would desync. Wait for any in-flight reload/interrupt to settle,
-    // then claim the swap.
-    while (reloading && reloadBarrier !== null) await reloadBarrier;
-    reloading = true;
-    let release!: () => void;
-    reloadBarrier = new Promise<void>((r) => (release = r));
-    try {
-      sessionId = generateSessionId();
-      workdir = sessionContextDir(config.cwd, sessionId);
-      await initSessionDir(config.cwd, sessionId);
-      permissionGate.reset();
-      await currentAgent.close().catch(() => undefined);
-      await streamPromise.catch(() => undefined);
-      currentAgent = await buildAgent();
-      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
-    } catch (err) {
-      recordRunError(err);
-    } finally {
-      reloading = false;
-      reloadBarrier = null;
-      release();
-    }
+    // rotation is always enqueued regardless of contention; the queue serialises
+    // it behind any in-progress op. Sub-agents nest under the new session
+    // automatically because getWorkdirBase reads the live sessionId.
+    void enqueueOp(async () => {
+      try {
+        sessionId = generateSessionId();
+        workdir = sessionContextDir(config.cwd, sessionId);
+        await initSessionDir(config.cwd, sessionId);
+        permissionGate.reset();
+        runSink.reset();
+        await currentAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
+        currentAgent = await buildAgent();
+        streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        fatalBuildError = null;
+      } catch (err) {
+        recordRunError(err);
+        fatalBuildError = err instanceof Error ? err : new Error(String(err));
+      }
+    });
   };
 
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
@@ -344,8 +343,8 @@ export async function runTUI(config: Config): Promise<number> {
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
-      onInterrupt={() => { void interrupt(); }}
-      onNewSession={() => { void newSession(); }}
+      onInterrupt={interrupt}
+      onNewSession={newSession}
       permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
@@ -370,7 +369,7 @@ export async function runTUI(config: Config): Promise<number> {
     .then(() => {
       if (toolset.dynamicRunner.currentDefinitions().length > baseToolCount) {
         pendingReload = true;
-        void reloadIfIdle();
+        reloadIfIdle();
       }
     });
 
@@ -393,7 +392,7 @@ export async function runTUI(config: Config): Promise<number> {
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   }));
 
-  if (reloadBarrier !== null) await reloadBarrier;
+  await opQueueTail.catch(() => undefined);
   try {
     await currentAgent.close();
   } catch {

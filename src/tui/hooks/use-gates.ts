@@ -30,6 +30,9 @@ export type GateController = {
   reject: () => void;
   selectOperator: (index: number) => void;
   resolvePermission: (outcome: ApprovalOutcome) => void;
+  // Drain all queued gates, resolving each with a safe default, and clear
+  // visible state. Called on session rotation so stale modals do not persist.
+  resetGates: () => void;
 };
 
 export type UseGatesArgs = {
@@ -106,6 +109,19 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     head?.resolve(approved);
   };
 
+  const resetGates = () => {
+    for (const entry of planQueue.current) entry.resolve(false);
+    planQueue.current = [];
+    for (const entry of operatorQueue.current) entry.resolve(0);
+    operatorQueue.current = [];
+    for (const entry of permissionQueue.current) entry.resolve({ allow: false });
+    permissionQueue.current = [];
+    setPendingPlan(null);
+    setPendingOperator(null);
+    setPendingPermission(null);
+    setGatePending(false);
+  };
+
   return {
     pendingPlan,
     pendingOperator,
@@ -127,5 +143,6 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       setGatePending(false);
       head?.resolve(outcome);
     },
+    resetGates,
   };
 }

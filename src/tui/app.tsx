@@ -235,14 +235,17 @@ export function App({
     forceRender((n) => n + 1);
   };
 
-  const startNewSession = () => {
+  const startNewSessionRef = useRef<() => void>(() => undefined);
+  startNewSessionRef.current = () => {
     sendAbortRef.current?.abort();
     state.clear();
+    gates.resetGates();
     setExpandedTools(new Set());
     onNewSession?.();
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
   };
+  const startNewSession = () => startNewSessionRef.current();
 
   const commandContext = useMemo(() => ({
     getVerbose: () => verbose,
@@ -251,9 +254,8 @@ export function App({
       setVerbose(next);
       return next;
     },
-    signalClear: startNewSession,
+    signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [verbose, mcpStatus.servers]);
 
   // Track the last moment real progress was observed. Reset whenever new content
