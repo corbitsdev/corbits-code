@@ -17,6 +17,7 @@ import { mcpClientToAgentTools } from "./mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "./tui/dynamic-tool-runner.js";
 import type { MCPServerConfig } from "./settings.js";
 import { createTaskTool, type SubAgentProvider } from "./subagent.js";
+import { createListDirTool } from "./list-dir.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 export type AgentToolsetArgs = {
@@ -28,7 +29,7 @@ export type AgentToolsetArgs = {
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
     provider: SubAgentProvider;
-    workdirBase: string;
+    getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
   };
 };
@@ -76,11 +77,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools),
+    createListDirTool(cwd),
     ...(args.subAgent !== undefined
       ? [
           createTaskTool({
             cwd,
-            workdirBase: args.subAgent.workdirBase,
+            getWorkdirBase: args.subAgent.getWorkdirBase,
             provider: args.subAgent.provider,
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
           }),

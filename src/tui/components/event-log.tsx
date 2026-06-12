@@ -13,6 +13,8 @@ import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
 
+export type LineUnit = { key: string; node: ReactNode; rows: number };
+
 export type EventLogProps = {
   contentBlocks: ContentBlock[];
   scrollOffset: number;
@@ -24,7 +26,7 @@ export type EventLogProps = {
 };
 
 const LINE_PADDING = 2;
-const SHOW_MORE = "… [show more]";
+const ELLIPSIS = "…";
 
 export function isRenderable(block: ContentBlock): block is RenderableBlock {
   return block.type !== "reply" && block.type !== "plan";
@@ -41,101 +43,16 @@ export function clampOffset(offset: number, total: number, visibleRows: number):
   return offset;
 }
 
-export function windowBlocks<T>(blocks: T[], scrollOffset: number, visibleRows: number): T[] {
-  const start = clampOffset(scrollOffset, blocks.length, visibleRows);
-  return blocks.slice(start, start + visibleRows);
-}
-
-function estimateRows(
-  block: RenderableBlock,
-  columns: number,
-  thinkingExpanded: boolean,
-  expanded: boolean,
-): number {
-  const width = Math.max(8, columns - LINE_PADDING);
-  const rows = (text: string): number => wrapCount(text, width);
-
-  switch (block.type) {
-    case "user":
-      return expanded ? rows(block.content) : 1;
-    case "thinking":
-      return thinkingExpanded ? 1 + rows(block.content) : 1;
-    case "text":
-      return rows(block.content);
-    case "tool_call":
-      return expanded ? 1 + rows(block.arguments) : 1;
-    case "tool_result": {
-      if (block.isError) return rows(block.content);
-      if (isMcpToolName(block.name) && !block.isError) {
-        const records = extractMcpRecords(block.content);
-        if (records !== null) return viewHeight(mcpRecordsToView(records), columns);
-        const record = extractMcpRecord(block.content);
-        if (record !== null) return viewHeight(mcpRecordToView(record), columns);
-      }
-      const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
-      if (isJSONDocument) return parseMarkdown(full).length;
-      return expanded ? rows(full) : 1;
-    }
-    case "view":
-      return viewHeight(block.node, columns);
-    case "error":
-      return rows(block.message);
-    default:
-      return 1;
-  }
-}
-
-function isSpacedBlock(block: RenderableBlock | undefined): boolean {
-  return block !== undefined && (block.type === "user" || block.type === "text");
-}
-
-export function visibleWindow(
-  blocks: RenderableBlock[],
-  scrollOffset: number,
-  visibleRows: number,
-  columns: number,
-  thinkingExpanded: boolean,
-  isExpanded: (block: RenderableBlock) => boolean,
-): { start: number; end: number } {
-  if (blocks.length === 0) return { start: 0, end: 0 };
-  if (scrollOffset >= blocks.length - 1) {
-    const end = blocks.length;
-    let rows = 0;
-    let start = end;
-    for (let i = end - 1; i >= 0; i--) {
-      const block = blocks[i]!;
-      const previousTopGainsSpacing = start < end && isSpacedBlock(blocks[start]);
-      const next =
-        estimateRows(block, columns, thinkingExpanded, isExpanded(block)) +
-        (previousTopGainsSpacing ? 1 : 0);
-      if (rows + next > visibleRows && start < end) break;
-      rows += next;
-      start = i;
-    }
-    return { start, end };
-  }
-
-  const start = Math.max(0, Math.min(scrollOffset, blocks.length - 1));
-  let rows = 0;
-  let end = start;
-  for (let i = start; i < blocks.length; i++) {
-    const block = blocks[i]!;
-    const spaced = i > start && (block.type === "user" || block.type === "text");
-    const next =
-      estimateRows(block, columns, thinkingExpanded, isExpanded(block)) + (spaced ? 1 : 0);
-    if (rows + next > visibleRows && end > start) break;
-    rows += next;
-    end = i + 1;
-  }
-  return { start, end };
+function truncateToWidth(text: string, available: number): string {
+  const avail = Math.max(8, available);
+  if (text.length <= avail) return text;
+  const head = Math.max(0, avail - ELLIPSIS.length);
+  return text.slice(0, head) + ELLIPSIS;
 }
 
 export function truncateLine(text: string, columns: number, expanded: boolean): string {
   if (expanded) return text;
-  const available = Math.max(8, columns - LINE_PADDING);
-  if (text.length <= available) return text;
-  const head = Math.max(0, available - SHOW_MORE.length);
-  return text.slice(0, head) + SHOW_MORE;
+  return truncateToWidth(text, columns - LINE_PADDING);
 }
 
 type TextProps = {
@@ -155,7 +72,6 @@ function segmentProps(seg: StyledSegment): TextProps {
     props.bold = true;
     if (seg.heading === 1) props.color = color("brand");
     else if (seg.heading === 2) props.color = color("accent");
-    // h3–h6 are bold in the default text colour.
   }
   if (seg.link) {
     props.underline = true;
@@ -179,141 +95,201 @@ function renderMarkdownSegments(segments: StyledSegment[]): ReactNode[] {
   ));
 }
 
-function renderMarkdownLines(content: string): ReactNode {
-  const lines = parseMarkdown(content);
-  return (
-    <Box flexDirection="column">
-      {lines.map((lineSegments, i) =>
-        // Each line is ONE Text with nested Text children for inline styles. Ink
-        // only wraps within a single Text node, never across sibling nodes in a
-        // row Box — so mounting segments as a row makes every styled word an
-        // unwrappable atom. Nesting them lets the line flow and wrap normally.
-        lineSegments.length === 0 ? (
-          <Text key={`line-${i}`}> </Text>
-        ) : (
-          <Text key={`line-${i}`}>{renderMarkdownSegments(lineSegments)}</Text>
-        ),
-      )}
-    </Box>
-  );
+function lineRows(text: string, width: number): number {
+  return wrapCount(text.length > 0 ? text : " ", width);
 }
 
-function renderBlock(
-  block: RenderableBlock,
-  index: number,
-  columns: number,
-  expanded: boolean,
-  thinkingExpanded: boolean,
-  rowLimit: number,
-): ReactNode {
-  const key = `${block.type}-${index}`;
+function markdownUnits(content: string, width: number, keyPrefix: string): LineUnit[] {
+  return parseMarkdown(content).map((segments, i) => {
+    const key = `${keyPrefix}-l${i}`;
+    return {
+      key,
+      node:
+        segments.length === 0 ? (
+          <Text key={key}> </Text>
+        ) : (
+          <Text key={key}>{renderMarkdownSegments(segments)}</Text>
+        ),
+      rows: lineRows(segments.map((s) => s.text).join(""), width),
+    };
+  });
+}
+
+function plainUnits(content: string, props: TextProps & { dimColor?: boolean }, width: number, keyPrefix: string): LineUnit[] {
+  return content.split("\n").map((line, i) => {
+    const key = `${keyPrefix}-l${i}`;
+    return {
+      key,
+      node: (
+        <Text key={key} {...props}>
+          {line.length > 0 ? line : " "}
+        </Text>
+      ),
+      rows: lineRows(line, width),
+    };
+  });
+}
+
+function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, columns: number, width: number, expanded: boolean): LineUnit[] {
+  const id = block.id;
+  const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
+  const SHELL_PREFIX = "$ ";
+
+  if (isShell) {
+    const command = expanded ? full : truncateToWidth(summary, width - SHELL_PREFIX.length);
+    return [
+      {
+        key: `${id}-h`,
+        node: (
+          <Box key={`${id}-h`} flexDirection="row">
+            <Text color={color("muted")} dimColor>{SHELL_PREFIX}</Text>
+            <Text color={color(role)}>{command}</Text>
+          </Box>
+        ),
+        rows: lineRows(`${SHELL_PREFIX}${command}`, width),
+      },
+    ];
+  }
+
+  if (expanded) {
+    const headline: LineUnit = {
+      key: `${id}-h`,
+      node: <Text key={`${id}-h`} color={color(role)}>{display}</Text>,
+      rows: lineRows(display, width),
+    };
+    return full.length > 0 ? [headline, ...plainUnits(full, { color: color("muted") }, width, id)] : [headline];
+  }
+
+  const summaryText = summary.length > 0 ? truncateToWidth(summary, width - display.length - 1) : "";
+  return [
+    {
+      key: `${id}-h`,
+      node: (
+        <Box key={`${id}-h`} flexDirection="row">
+          <Text color={color(role)}>{display}</Text>
+          {summaryText.length > 0 ? <Text color={color("muted")} dimColor> {summaryText}</Text> : null}
+        </Box>
+      ),
+      rows: lineRows(summaryText.length > 0 ? `${display} ${summaryText}` : display, width),
+    },
+  ];
+}
+
+function toolResultUnits(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): LineUnit[] {
+  const id = block.id;
+
+  if (block.isError) {
+    if (!expanded) {
+      return [{ key: id, node: <Text key={id} color={color("danger")}>error: {truncateLine(block.content, columns, false)}</Text>, rows: 1 }];
+    }
+    return block.content.split("\n").map((line, i) => {
+      const text = (i === 0 ? "error: " : "") + line;
+      const key = `${id}-l${i}`;
+      return { key, node: <Text key={key} color={color("danger")}>{text.length > 0 ? text : " "}</Text>, rows: lineRows(text, width) };
+    });
+  }
+
+  if (isMcpToolName(block.name)) {
+    const records = extractMcpRecords(block.content);
+    if (records !== null) {
+      const view = mcpRecordsToView(records);
+      return [{ key: id, node: <View key={id} node={view} columns={columns} />, rows: viewHeight(view, columns) }];
+    }
+    const record = extractMcpRecord(block.content);
+    if (record !== null) {
+      const view = mcpRecordToView(record);
+      return [{ key: id, node: <View key={id} node={view} columns={columns} />, rows: viewHeight(view, columns) }];
+    }
+  }
+
+  const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
+  if (isJSONDocument) {
+    return markdownUnits(full, width, id);
+  }
+  if (expanded) {
+    return plainUnits(full, { color: color("muted") }, width, id);
+  }
+  return [{ key: id, node: <Text key={id} color={color("muted")} dimColor>{truncateLine(preview, columns, false)}</Text>, rows: 1 }];
+}
+
+function blockToUnits(block: RenderableBlock, columns: number, expanded: boolean, thinkingExpanded: boolean): LineUnit[] {
+  const width = Math.max(8, columns - LINE_PADDING);
+  const id = block.id;
+
   switch (block.type) {
     case "thinking": {
       if (!thinkingExpanded) {
-        return (
-          <Text key={key} color={color("muted")} dimColor>
-            ▸ thinking…
-          </Text>
-        );
+        return [{ key: id, node: <Text key={id} color={color("muted")} dimColor>▸ thinking…</Text>, rows: 1 }];
       }
-      return (
-        <Box key={key} flexDirection="column">
-          <Text color={color("muted")} dimColor>
-            ▾ thinking
-          </Text>
-          <Text color={color("muted")}>{block.content}</Text>
-        </Box>
-      );
+      return [
+        { key: `${id}-h`, node: <Text key={`${id}-h`} color={color("muted")} dimColor>▾ thinking</Text>, rows: 1 },
+        ...plainUnits(block.content, { color: color("muted") }, width, id),
+      ];
     }
     case "user":
-      return (
-        <Text key={key} color={color("success")}>
-          {truncateLine(`> ${block.content}`, columns, expanded)}
-        </Text>
-      );
+      return block.content.split("\n").map((line, i) => {
+        const text = (i === 0 ? "> " : "") + line;
+        const key = `${id}-l${i}`;
+        return { key, node: <Text key={key} color={color("success")}>{text.length > 0 ? text : " "}</Text>, rows: lineRows(text, width) };
+      });
     case "text":
-      return <Box key={key}>{renderMarkdownLines(block.content)}</Box>;
-    case "tool_call": {
-      const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
-      if (isShell) {
-        // Lean shell: a dim prompt glyph, then the command as the headline.
-        const command = expanded ? full : truncateLine(summary, columns, false);
-        return (
-          <Box key={key} flexDirection="column">
-            <Box flexDirection="row">
-              <Text color={color("muted")} dimColor>$ </Text>
-              <Text color={color(role)}>{command}</Text>
-            </Box>
-          </Box>
-        );
-      }
-      const argsLine = expanded ? full : truncateLine(summary, columns, false);
-      return (
-        <Box key={key} flexDirection="column">
-          <Box flexDirection="row">
-            <Text color={color(role)}>{display}</Text>
-            {summary.length > 0 ? <Text> </Text> : null}
-            {!expanded && summary.length > 0 ? (
-              <Text color={color("muted")} dimColor>
-                {argsLine}
-              </Text>
-            ) : null}
-          </Box>
-          {expanded && full.length > 0 ? (
-            <Text color={color("muted")}>{full}</Text>
-          ) : null}
-        </Box>
-      );
-    }
-    case "tool_result": {
-      if (block.isError) {
-        return (
-          <Text key={key} color={color("danger")}>
-            error: {truncateLine(block.content, columns, expanded)}
-          </Text>
-        );
-      }
-      if (isMcpToolName(block.name)) {
-        const records = extractMcpRecords(block.content);
-        if (records !== null) {
-          return <View key={key} node={mcpRecordsToView(records)} columns={columns} />;
-        }
-        const record = extractMcpRecord(block.content);
-        if (record !== null) {
-          return <View key={key} node={mcpRecordToView(record)} columns={columns} />;
-        }
-      }
-      const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
-      if (isJSONDocument) {
-        return <Box key={key}>{renderMarkdownLines(full)}</Box>;
-      }
-      const line = expanded ? full : truncateLine(preview, columns, false);
-      if (expanded) {
-        return (
-          <Text key={key} color={color("muted")}>
-            {line}
-          </Text>
-        );
-      }
-      return (
-        <Text key={key} color={color("muted")} dimColor>
-          {line}
-        </Text>
-      );
-    }
+      return markdownUnits(block.content, width, id);
+    case "tool_call":
+      return toolCallUnits(block, columns, width, expanded);
+    case "tool_result":
+      return toolResultUnits(block, columns, width, expanded);
     case "view":
-      return <View key={key} node={block.node} columns={columns} />;
+      return [{ key: id, node: <View key={id} node={block.node} columns={columns} />, rows: viewHeight(block.node, columns) }];
     case "error":
-      return (
-        <Box key={key} flexDirection="column">
-          {block.message.split("\n").map((line, i) => (
-            <Text key={i} color={color("danger")}>{line}</Text>
-          ))}
-        </Box>
-      );
+      return plainUnits(block.message, { color: color("danger") }, width, id);
     default:
-      return null;
+      return [];
   }
+}
+
+export function buildLineUnits(
+  contentBlocks: ContentBlock[],
+  columns: number,
+  thinkingExpanded: boolean,
+  isExpanded: (block: RenderableBlock) => boolean,
+): LineUnit[] {
+  const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
+  const units: LineUnit[] = [];
+  for (const block of blocks) {
+    const startsTurn = block.type === "user" || block.type === "text";
+    if (startsTurn && units.length > 0) {
+      units.push({ key: `sp-${block.id}`, node: <Text key={`sp-${block.id}`}> </Text>, rows: 1 });
+    }
+    units.push(...blockToUnits(block, columns, isExpanded(block), thinkingExpanded));
+  }
+  return units;
+}
+
+export function maxScrollOffset(units: LineUnit[], visibleRows: number): number {
+  let rows = 0;
+  let start = units.length;
+  for (let i = units.length - 1; i >= 0; i--) {
+    const next = units[i]!.rows;
+    if (rows + next > visibleRows && start < units.length) break;
+    rows += next;
+    start = i;
+  }
+  return Math.max(0, start);
+}
+
+export function visibleLineWindow(units: LineUnit[], scrollOffset: number, visibleRows: number): { start: number; end: number } {
+  if (units.length === 0) return { start: 0, end: 0 };
+
+  const start = Math.max(0, Math.min(scrollOffset, maxScrollOffset(units, visibleRows)));
+  let rows = 0;
+  let end = start;
+  for (let i = start; i < units.length; i++) {
+    const next = units[i]!.rows;
+    if (rows + next > visibleRows && end > start) break;
+    rows += next;
+    end = i + 1;
+  }
+  return { start, end };
 }
 
 export function EventLog({
@@ -325,42 +301,20 @@ export function EventLog({
   expandedTools,
   verbose,
 }: EventLogProps): ReactNode {
-  const entries = renderableBlocks(contentBlocks)
-    .map((block, index) => ({ block, index }))
-    .filter((entry) => thinkingExpanded || entry.block.type !== "thinking");
-  const blocks = entries.map((entry) => entry.block);
+  const isExpanded = (block: RenderableBlock): boolean => verbose || expandedTools.has(block.id);
+  const units = buildLineUnits(contentBlocks, columns, thinkingExpanded, isExpanded);
 
-  if (blocks.length === 0) {
-    // Nothing to show yet — stay blank rather than announcing an empty state.
+  if (units.length === 0) {
     return <Box paddingX={1} />;
   }
 
-  const isExpanded = (block: RenderableBlock): boolean => verbose || expandedTools.has(block.id);
-  const { start, end } = visibleWindow(
-    blocks,
-    scrollOffset,
-    visibleRows,
-    columns,
-    thinkingExpanded,
-    isExpanded,
-  );
-  const visible = entries.slice(start, end);
+  const { start, end } = visibleLineWindow(units, scrollOffset, visibleRows);
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {visible.map(({ block, index: absoluteIndex }, i) => {
-        const expanded = isExpanded(block);
-        const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded, visibleRows);
-        // A little breathing room before each conversational turn (a user
-        // message or an assistant reply), while tool call/result sequences stay
-        // tight together.
-        const spaced = i > 0 && (block.type === "user" || block.type === "text");
-        return (
-          <Box key={`row-${absoluteIndex}`} marginTop={spaced ? 1 : 0}>
-            {node}
-          </Box>
-        );
-      })}
+      {units.slice(start, end).map((unit) => (
+        <Box key={unit.key}>{unit.node}</Box>
+      ))}
     </Box>
   );
 }

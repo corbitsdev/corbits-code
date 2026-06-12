@@ -28,7 +28,7 @@ test("task tool definition requires description and prompt", () => {
 });
 
 test("handler rejects empty description or prompt", async () => {
-  const tool = createTaskTool({ cwd: "/repo", workdirBase: "/repo/.ctx", provider });
+  const tool = createTaskTool({ cwd: "/repo", getWorkdirBase: () => "/repo/.ctx", provider });
   expect(await callHandler(tool, { description: "", prompt: "do it" })).toContain("Error:");
   expect(await callHandler(tool, { description: "label", prompt: "  " })).toContain("Error:");
 });
@@ -37,7 +37,7 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
   let received: RunSubAgentParams | undefined;
   const tool = createTaskTool({
     cwd: "/repo",
-    workdirBase: "/repo/.ctx",
+    getWorkdirBase: () => "/repo/.ctx",
     provider,
     maxTurns: 7,
     run: async (params) => {
@@ -62,7 +62,7 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
 test("handler reports runner failures without throwing", async () => {
   const tool = createTaskTool({
     cwd: "/repo",
-    workdirBase: "/repo/.ctx",
+    getWorkdirBase: () => "/repo/.ctx",
     provider,
     run: async () => {
       throw new Error("provider exploded");

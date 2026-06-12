@@ -79,6 +79,16 @@ test("buildActiveContext includes current date and optional identity fields", ()
   expect(context).toContain("Other User Info: Optional");
 });
 
+test("active context names the working directory so the agent need not discover it", () => {
+  const context = buildActiveContext(new Date(2026, 5, 5), "/repo/root");
+  expect(context).toContain("Working Directory: /repo/root");
+});
+
+test("system prompt tells the agent not to run pwd or ls to orient", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain("Never run pwd, ls, or find to orient");
+});
+
 test("system and chat prompts end with active context", () => {
   const systemPrompt = buildSystemPrompt();
   const chatPrompt = buildChatSystemPrompt();

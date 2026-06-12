@@ -1,48 +1,38 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export type ScrollController = {
   scrollOffset: number;
   scrollUp: () => void;
   scrollDown: () => void;
+  scrollToBottom: () => void;
   atBottom: boolean;
 };
 
 export type UseScrollArgs = {
-  renderableCount: number;
-  visibleRows: number;
+  maxOffset: number;
 };
 
-export function useScroll({ renderableCount, visibleRows }: UseScrollArgs): ScrollController {
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+export function useScroll({ maxOffset }: UseScrollArgs): ScrollController {
+  const [storedOffset, setStoredOffset] = useState(0);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
-  const maxOffset = Math.max(0, renderableCount - 1);
-
-  useEffect(() => {
-    if (isPinnedToBottom) {
-      setScrollOffset(maxOffset);
-    }
-  }, [maxOffset, isPinnedToBottom]);
-
-  useEffect(() => {
-    if (scrollOffset <= maxOffset) return;
-    setScrollOffset(maxOffset);
-    setIsPinnedToBottom(true);
-  }, [maxOffset, scrollOffset]);
+  const scrollOffset = pinnedToBottom ? maxOffset : Math.min(storedOffset, maxOffset);
+  const atBottom = pinnedToBottom || scrollOffset >= maxOffset;
 
   return {
     scrollOffset,
-    atBottom: isPinnedToBottom,
+    atBottom,
     scrollUp: () => {
-      setIsPinnedToBottom(false);
-      setScrollOffset((o) => Math.max(0, o - 1));
+      setPinnedToBottom(false);
+      setStoredOffset(Math.max(0, scrollOffset - 1));
     },
     scrollDown: () => {
-      setScrollOffset((o) => {
-        const next = Math.min(maxOffset, o + 1);
-        setIsPinnedToBottom(next >= maxOffset);
-        return next;
-      });
+      const next = Math.min(maxOffset, scrollOffset + 1);
+      setPinnedToBottom(next >= maxOffset);
+      setStoredOffset(next);
+    },
+    scrollToBottom: () => {
+      setPinnedToBottom(true);
     },
   };
 }

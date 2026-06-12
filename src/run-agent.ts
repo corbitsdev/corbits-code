@@ -45,7 +45,7 @@ import {
   discoverLifecycleHooks,
   hookDirectories,
 } from "./hooks.js";
-import { initSessionDir, sessionContextDir } from "./session.js";
+import { initSessionDir, sessionContextDir, sessionDir } from "./session.js";
 
 /* eslint-disable no-console */
 
@@ -140,6 +140,7 @@ export async function runAgent(
   const approvals = await loadApprovals(config.cwd, config.sessionId);
   const permissionGate = createPermissionGate({
     approvals,
+    cwd: config.cwd,
     interactive: false,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
@@ -174,7 +175,7 @@ export async function runAgent(
     ...posixToolList,
     createTaskTool({
       cwd: config.cwd,
-      workdirBase: workdir,
+      getWorkdirBase: () => sessionDir(config.cwd, config.sessionId),
       provider: {
         providerName: config.providerName,
         baseURL: config.baseURL,

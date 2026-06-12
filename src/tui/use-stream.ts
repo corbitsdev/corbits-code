@@ -31,6 +31,8 @@ export type AgentStreamState = {
   status: AgentStatus;
   totalCost: number;
   totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
@@ -46,6 +48,7 @@ export type AgentStreamState = {
   setGatePending(pending: boolean): void;
   requestStop(): void;
   markRunning(): void;
+  clear(): void;
 };
 
 function parsePlanSteps(rawArguments: string): PlanStep[] {
@@ -160,10 +163,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // resolving one gate while another is still open does not prematurely
   // flip status back to "running".
   let gateCount = 0;
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
-  const faremeter = createFaremeter();
+  let faremeter = createFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
   }
@@ -187,6 +190,12 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     get totalTokens() {
       return faremeter.getTotalTokens();
+    },
+    get inputTokens() {
+      return faremeter.getInputTokens();
+    },
+    get outputTokens() {
+      return faremeter.getOutputTokens();
     },
     get formattedCost() {
       return formatCost(faremeter.getTotalCost());
@@ -229,11 +238,13 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       status = gateCount > 0 ? "blocked" : "running";
     },
     requestStop(): void {
-      // Only an in-flight run can be stopped. Once stopping, the reactor's
-      // current cycle finishes and reactor.done settles the status to "stopped".
       if (status !== "running" && status !== "blocked") return;
       stopRequested = true;
-      status = "stopping";
+      status = "stopped";
+      awaitingResponse = false;
+      currentToolName = null;
+      streamingType = null;
+      finishedAt = Date.now();
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).
@@ -244,6 +255,29 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
+    },
+    clear(): void {
+      contentBlocks.length = 0;
+      contentBlocksDirty = true;
+      blockSeq = 0;
+      callIdToName.clear();
+      callIdToArguments.clear();
+      turnsUsed = 0;
+      status = "running";
+      stopRequested = false;
+      hadTextDeltaSinceLastReply = false;
+      awaitingResponse = false;
+      latestUserMessage = "";
+      planSteps = [];
+      currentPlanStep = null;
+      planDeviated = false;
+      currentToolName = null;
+      streamingType = null;
+      gateCount = 0;
+      startedAt = Date.now();
+      finishedAt = null;
+      openCallId = null;
+      faremeter = createFaremeter();
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {

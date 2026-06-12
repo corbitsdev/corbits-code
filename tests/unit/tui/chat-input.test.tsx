@@ -36,6 +36,22 @@ test("ChatInput renders prompt", () => {
   expect(lastFrame()).toContain("> ");
 });
 
+test("ChatInput renders a multi-line value across lines with the caret on the last line", () => {
+  const { lastFrame } = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value={"first\nsecond"}
+      onChange={() => {}}
+    />,
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("> first");
+  // The continuation line is present and the caret sits at the end of it.
+  expect(frame).toMatch(/second\s*▏/);
+});
+
 test("ChatInput does not exit the process on CTRL+C", async () => {
   const originalExit = process.exit;
   let exited = false;

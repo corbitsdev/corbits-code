@@ -33,16 +33,22 @@ registerCommand({
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
-// signalClear is a hook for future use — for example, persisting a pre-computed
-// summary to the director before the boundary message is sent. It is currently
-// a no-op because the director generates the context envelope from internal
-// state when it processes the /clear message.
+registerCommand({
+  name: "permissions",
+  description: "View and revoke remembered approvals across scopes",
+  handler: (_args, _ctx) => ({ type: "overlay", overlay: "permissions" }),
+});
+
+// signalClear rotates to a fresh session: the on-screen transcript and run
+// telemetry are reset and the agent is rebuilt against a new state directory,
+// so the conversation starts empty. The prior session stays on disk under its
+// own id. Nothing is sent to the model — this is a local reset, not a message.
 registerCommand({
   name: "clear",
-  description: "Compact context and start a new task",
+  description: "Start a fresh session in a new state directory",
   handler: (_args, ctx) => {
     ctx.signalClear();
-    return { type: "send", text: "/clear" };
+    return { type: "message", text: "Started a fresh session." };
   },
 });
 
@@ -51,7 +57,7 @@ registerCommand({
   description: "Alias for /clear",
   handler: (_args, ctx) => {
     ctx.signalClear();
-    return { type: "send", text: "/new" };
+    return { type: "message", text: "Started a fresh session." };
   },
 });
 

@@ -16,7 +16,22 @@ const key = (overrides: Partial<InputKey> = {}): InputKey => ({
   tab: false,
   ctrl: false,
   meta: false,
+  shift: false,
   ...overrides,
+});
+
+describe("applyKey — newline on Shift/Alt+Enter", () => {
+  test("Shift+Enter inserts a newline at the cursor", () => {
+    expect(applyKey(state("ab", 1), "", key({ return: true, shift: true }))).toEqual(state("a\nb", 2));
+  });
+
+  test("Alt/Option+Enter also inserts a newline", () => {
+    expect(applyKey(state("ab", 2), "", key({ return: true, meta: true }))).toEqual(state("ab\n", 3));
+  });
+
+  test("plain Enter is a no-op in applyKey (the caller submits)", () => {
+    expect(applyKey(state("ab", 1), "", key({ return: true }))).toEqual(state("ab", 1));
+  });
 });
 
 describe("applyKey — character insertion", () => {

@@ -226,7 +226,7 @@ export const taskToolDefinition: ToolDefinition = {
 
 export type TaskToolDeps = {
   cwd: string;
-  workdirBase: string;
+  getWorkdirBase: () => string;
   provider: SubAgentProvider;
   maxTurns?: number;
   // Injectable for tests; defaults to the real runSubAgent.
@@ -247,7 +247,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       try {
         const params: RunSubAgentParams = {
           cwd: deps.cwd,
-          workdirBase: deps.workdirBase,
+          workdirBase: deps.getWorkdirBase(),
           provider: deps.provider,
           description,
           prompt,
