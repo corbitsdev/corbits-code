@@ -50,6 +50,14 @@ test("multiplexer commands grant the exact command, not the broad wildcard", asy
   expect(outcome).toMatchObject({ allow: true, persist: { grant: "project", pattern: "bun run typecheck" } });
 });
 
+test("footer reflects the real option count and offers Ctrl+O to expand", () => {
+  const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("1-6 select");
+  expect(frame).not.toContain("1-9 select");
+  expect(frame).toContain("Ctrl+O expand");
+});
+
 test("PermissionModal shows web tool argument details", () => {
   const webRequest: PermissionRequest = {
     tool: "web_search",

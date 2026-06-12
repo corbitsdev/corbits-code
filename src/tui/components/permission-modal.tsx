@@ -8,6 +8,7 @@ import { describeToolCall } from "../tool-formatter.js";
 export type PermissionModalProps = {
   request: PermissionRequest;
   onResolve: (outcome: ApprovalOutcome) => void;
+  width?: number;
 };
 
 // `command` choices show their hint in [] with dim styling (shell patterns/paths).
@@ -90,10 +91,11 @@ function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
   return {};
 }
 
-export function PermissionModal({ request, onResolve }: PermissionModalProps): ReactNode {
+export function PermissionModal({ request, onResolve, width = 80 }: PermissionModalProps): ReactNode {
   const choices = buildChoices(request);
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const descriptor = describeToolCall(
     request.tool,
     JSON.stringify(descriptorArgs(request)),
@@ -117,6 +119,11 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       if (!activeChoice) return;
       const trimmed = message.trim();
       onResolve(trimmed.length > 0 ? { ...activeChoice.outcome, message: trimmed } : activeChoice.outcome);
+      return;
+    }
+
+    if (key.ctrl && input === "o") {
+      setExpanded((e) => !e);
       return;
     }
 
@@ -159,6 +166,7 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       paddingY={1}
       marginX={1}
       marginY={1}
+      width={Math.max(24, width - 2)}
     >
       <Text bold color={toolColor}>Approval needed</Text>
       <Box marginTop={1} flexDirection="column" gap={0}>
@@ -190,7 +198,7 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
           const hintColor = choice.hintStyle === "command" ? color("muted") : color("muted");
           const hintDim = choice.hintStyle === "command";
           return (
-            <Text key={i}>
+            <Text key={i} wrap={expanded ? "wrap" : "truncate-end"}>
               <Text color={active ? color("brand") : color("muted")} bold={active}>
                 {active ? "› " : "  "}
               </Text>
@@ -219,7 +227,7 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
         <Text color={color("muted")}>
           {messageMode
             ? "Enter confirm · Esc clear · ↑↓ navigate"
-            : "1-9 select · ↑↓ navigate · Enter choose · Esc reject"}
+            : `1-${choices.length} select · ↑↓ navigate · Enter choose · Ctrl+O ${expanded ? "collapse" : "expand"} · Esc reject`}
         </Text>
       </Box>
     </Box>

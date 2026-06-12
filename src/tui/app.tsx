@@ -512,6 +512,7 @@ export function App({
         onSelectOperator={gates.selectOperator}
         pendingPermission={gates.pendingPermission}
         onResolvePermission={gates.resolvePermission}
+        width={columns}
       />
       {permissionsOpen && (
         <PermissionsManager
