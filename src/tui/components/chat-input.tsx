@@ -203,13 +203,23 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
     }
   }, { isActive: active });
 
-  // Render text split at the cursor so the cursor glyph sits inline, not
-  // always trailing. Over a real character the cursor is a reverse-video cell;
-  // at end-of-input it is a visible caret glyph rather than a styled space, so
-  // the prompt line never ends in whitespace (which terminals — and Ink's test
-  // frame — trim away, which would erase the trailing space of the "> " prompt).
-  const before = value.slice(0, cursor);
-  const after = value.slice(cursor);
+  // Split the value into display lines and locate the cursor's line and column,
+  // so a multi-line prompt (Shift+Enter) renders the caret on the right line.
+  // The cursor glyph sits inline: a reverse-video cell over a real character, or
+  // a visible caret at end-of-line (never trailing whitespace, which terminals
+  // and Ink's test frame trim — which would eat the "> " prompt's trailing space).
+  const lines = value.split("\n");
+  let remaining = cursor;
+  let cursorLine = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const len = lines[i]!.length;
+    if (remaining <= len) {
+      cursorLine = i;
+      break;
+    }
+    remaining -= len + 1;
+  }
+  const cursorCol = remaining;
 
   return (
     <Box flexDirection="column">
@@ -225,17 +235,35 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
           ))}
         </Box>
       )}
-      <Box flexDirection="row" paddingX={1} paddingY={1}>
-        <Text color="green">{"> "}</Text>
-        <Text>{before}</Text>
-        {after.length > 0 ? (
-          <>
-            <Text backgroundColor="white" color="black">{after[0]}</Text>
-            <Text>{after.slice(1)}</Text>
-          </>
-        ) : (
-          <Text color="green">▏</Text>
-        )}
+      <Box flexDirection="column" paddingX={1} paddingY={1}>
+        {lines.map((line, i) => {
+          const prefix = i === 0 ? "> " : "  ";
+          if (i !== cursorLine) {
+            return (
+              <Text key={i}>
+                <Text color="green">{prefix}</Text>
+                {line}
+              </Text>
+            );
+          }
+          const head = line.slice(0, cursorCol);
+          const atChar = line.slice(cursorCol, cursorCol + 1);
+          const tail = line.slice(cursorCol + 1);
+          return (
+            <Text key={i}>
+              <Text color="green">{prefix}</Text>
+              <Text>{head}</Text>
+              {atChar.length > 0 ? (
+                <>
+                  <Text backgroundColor="white" color="black">{atChar}</Text>
+                  <Text>{tail}</Text>
+                </>
+              ) : (
+                <Text color="green">▏</Text>
+              )}
+            </Text>
+          );
+        })}
       </Box>
     </Box>
   );
