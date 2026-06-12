@@ -3,8 +3,8 @@ import { render } from "ink-testing-library";
 import { Text } from "ink";
 import { useSpinner, SPINNER_FRAMES } from "../../../src/tui/hooks/use-spinner.js";
 
-function Harness({ active }: { active: boolean }) {
-  const { frame, elapsedMs } = useSpinner(active);
+function Harness({ active, resetKey }: { active: boolean; resetKey?: number }) {
+  const { frame, elapsedMs } = useSpinner(active, resetKey);
   return <Text>{`frame:${frame}|elapsed:${elapsedMs}`}</Text>;
 }
 
@@ -44,6 +44,48 @@ test("flipping active to false resets frame and elapsedMs", async () => {
   await tick(20);
   expect(lastFrame()).toContain(`frame:${SPINNER_FRAMES[0]}`);
   expect(lastFrame()).toContain("elapsed:0");
+});
+
+// CL-1699: when resetKey changes, the cumulative elapsed must restart at 0 so a
+// new user turn does not inherit the prior turn's running total.
+test("CL-1699: changing resetKey resets elapsedMs to 0 even after prior accumulation", async () => {
+  const { lastFrame, rerender } = render(<Harness active={true} resetKey={1} />);
+  await tick(200);
+
+  // Briefly idle to preserve accumulated time in pausedElapsedRef.
+  rerender(<Harness active={false} resetKey={1} />);
+  await tick(20);
+
+  // New turn — resetKey increments. Even though pausedElapsedRef held prior
+  // elapsed, the new key must zero it out before the spinner re-arms.
+  rerender(<Harness active={true} resetKey={2} />);
+  await tick(20);
+
+  const frame = lastFrame() ?? "";
+  const match = /elapsed:(\d+)/.exec(frame);
+  expect(match).not.toBeNull();
+  // Fresh turn: elapsed should be close to 0 (only ~20 ms since reset).
+  expect(Number(match![1])).toBeLessThan(150);
+});
+
+// CL-1699: within a single turn, re-arming with the same resetKey must still
+// accumulate (preserves C2 behavior).
+test("CL-1699: same resetKey preserves cumulative elapsed across re-arms", async () => {
+  const { lastFrame, rerender } = render(<Harness active={true} resetKey={1} />);
+  await tick(200);
+
+  // Briefly idle — same key, same turn.
+  rerender(<Harness active={false} resetKey={1} />);
+  await tick(20);
+
+  // Re-arm with same key — elapsed must resume from prior value, not 0.
+  rerender(<Harness active={true} resetKey={1} />);
+  await tick(20);
+
+  const frame = lastFrame() ?? "";
+  const match = /elapsed:(\d+)/.exec(frame);
+  expect(match).not.toBeNull();
+  expect(Number(match![1])).toBeGreaterThan(150);
 });
 
 // C2: re-toggling active (false -> true) should NOT reset elapsedMs to 0 if the

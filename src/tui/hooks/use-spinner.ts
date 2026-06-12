@@ -19,19 +19,35 @@ export function computeAnchor(pausedElapsedMs: number): number {
 // Animate a spinner only while `active`. Returns the current frame and the
 // cumulative elapsed time so callers can surface a "still working" hint.
 //
-// Elapsed is cumulative: brief pauses (e.g. between a tool result and the
-// next model turn) do not reset the counter. Going inactive snaps the display
-// back to 0, but the accumulated value is preserved in a ref so the clock
-// resumes correctly when active becomes true again.
+// Elapsed is cumulative within a turn: brief pauses (e.g. between a tool
+// result and the next model chunk) do not reset the counter. Going inactive
+// snaps the display back to 0, but the accumulated value is preserved in a ref
+// so the clock resumes correctly when active becomes true again within the same
+// turn.
+//
+// `resetKey` identifies the current user turn. When resetKey changes, the
+// accumulated elapsed is zeroed so a new turn always starts the clock fresh
+// instead of inheriting the prior turn's running total.
 // Idle: no interval, no re-renders.
-export function useSpinner(active: boolean): SpinnerState {
+export function useSpinner(active: boolean, resetKey?: number): SpinnerState {
   const [frameIndex, setFrameIndex] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const startRef = useRef<number | null>(null);
   // Accumulated elapsed captured when going inactive. Preserved so re-arming
-  // continues the cumulative clock. Reset to 0 only when startRef was null
-  // at the moment we go inactive (spinner was already stopped — fresh session).
+  // continues the cumulative clock within the same turn (same resetKey).
   const pausedElapsedRef = useRef(0);
+  // Tracks the last seen resetKey so we can detect a new turn starting.
+  const lastResetKeyRef = useRef<number | undefined>(undefined);
+
+  // A new turn begins when resetKey changes. Zero the accumulated elapsed so
+  // the fresh turn's clock starts at 0 rather than the prior turn's total.
+  // Run synchronously (not inside the active effect) so the reset happens
+  // before the active effect reads pausedElapsedRef.
+  if (resetKey !== lastResetKeyRef.current) {
+    lastResetKeyRef.current = resetKey;
+    pausedElapsedRef.current = 0;
+    startRef.current = null;
+  }
 
   useEffect(() => {
     if (!active) {
@@ -55,7 +71,7 @@ export function useSpinner(active: boolean): SpinnerState {
       if (startRef.current !== null) setElapsedMs(Date.now() - startRef.current);
     }, FRAME_MS);
     return () => clearInterval(interval);
-  }, [active]);
+  }, [active, resetKey]);
 
   return { frame: SPINNER_FRAMES[frameIndex] ?? SPINNER_FRAMES[0], elapsedMs };
 }
