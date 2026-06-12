@@ -122,8 +122,13 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       <Text bold color={toolColor}>Approval needed</Text>
       <Box marginTop={1} flexDirection="column" gap={0}>
         <Text color={color("muted")}>
-          {request.action}:{" "}
-          <Text color={toolColor}>{descriptor.display}</Text>
+          {request.action}
+          {descriptor.isShell ? null : (
+            <>
+              {": "}
+              <Text color={toolColor}>{descriptor.display}</Text>
+            </>
+          )}
         </Text>
         {descriptor.summary.length > 0 && (
           <Box marginLeft={2}>
