@@ -9,6 +9,7 @@ export type PermissionsManagerProps = {
   entries: ScopedApproval[];
   onRevoke: (entry: ScopedApproval) => void;
   onClose: () => void;
+  maxHeight?: number;
 };
 
 const SCOPE_LABEL: Record<GrantScope, string> = {
@@ -29,10 +30,23 @@ function entryLabel(entry: ScopedApproval): string {
   return `${entry.tool}  ${entry.pattern}${suffix}`;
 }
 
-export function PermissionsManager({ entries, onRevoke, onClose }: PermissionsManagerProps): ReactNode {
+// Fixed rows consumed by the box chrome (borders, padding, title, hint footer).
+const FIXED_CHROME = 6;
+
+export function PermissionsManager({ entries, onRevoke, onClose, maxHeight }: PermissionsManagerProps): ReactNode {
   const ordered = orderEntries(entries);
   const [selected, setSelected] = useState(0);
   const active = ordered.length > 0 ? Math.min(selected, ordered.length - 1) : 0;
+
+  // Determine how many entry rows are visible given the height budget.
+  const availableEntryRows = maxHeight !== undefined ? Math.max(1, maxHeight - FIXED_CHROME) : undefined;
+  // Scroll offset: keep the active entry visible within the window.
+  const scrollOffset = availableEntryRows !== undefined && availableEntryRows < ordered.length
+    ? Math.max(0, Math.min(active - Math.floor(availableEntryRows / 2), ordered.length - availableEntryRows))
+    : 0;
+  const visibleEntries = availableEntryRows !== undefined
+    ? ordered.slice(scrollOffset, scrollOffset + availableEntryRows)
+    : ordered;
 
   useInput((input, key) => {
     if (key.escape) {
@@ -77,19 +91,20 @@ export function PermissionsManager({ entries, onRevoke, onClose }: PermissionsMa
         </Box>
       ) : (
         SCOPE_ORDER.map((scope) => {
-          const scoped = ordered.filter((e) => e.scope === scope);
+          const scoped = visibleEntries.filter((e) => e.scope === scope);
           if (scoped.length === 0) return null;
           return (
             <Box key={scope} flexDirection="column" marginTop={1}>
               <Text bold color={color("muted")}>{SCOPE_LABEL[scope]}</Text>
               {scoped.map((entry) => {
-                const isActive = ordered.indexOf(entry) === active;
+                const globalIndex = ordered.indexOf(entry);
+                const isActive = globalIndex === active;
                 return (
-                  <Box key={`${scope}-${ordered.indexOf(entry)}`} marginLeft={1}>
+                  <Box key={`${scope}-${globalIndex}`} marginLeft={1}>
                     <Text color={isActive ? color("brand") : color("muted")} bold={isActive}>
                       {isActive ? "› " : "  "}
                     </Text>
-                    <Text color={isActive ? color("text") : color("text")} bold={isActive}>
+                    <Text bold={isActive}>
                       {entryLabel(entry)}
                     </Text>
                   </Box>

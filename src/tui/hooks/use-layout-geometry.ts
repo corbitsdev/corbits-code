@@ -16,6 +16,8 @@ export type ModalContext = {
   hookPanelOpen: boolean;
   exitConfirmOpen: boolean;
   agentModalOpen: boolean;
+  permissionsOpen: boolean;
+  permissionEntryCount: number;
 };
 
 export type UseLayoutGeometryArgs = {
@@ -43,12 +45,18 @@ export function computeVisibleRows({ rows, chromeRows, effectiveOverlayRows, ext
   return Math.max(1, rows - chromeRows - effectiveOverlayRows - extraChromeRows);
 }
 
+// Fixed chrome: title + border + section headers + footer hint inside the overlay.
+const PERMISSIONS_OVERLAY_FIXED = 6;
+// Cap so the overlay never consumes more than this many rows.
+const PERMISSIONS_OVERLAY_MAX = 20;
+
 export type LayoutGeometry = {
   leftWidth: number;
   rightWidth: number;
   visibleRows: number;
   diffVisibleRows: number;
   effectiveOverlayRows: number;
+  permissionsOverlayRows: number;
 };
 
 const CHROME_ROWS = 9;
@@ -116,8 +124,18 @@ export function useLayoutGeometry({
   }, [overlayRows]);
 
   const effectiveOverlayRows = Math.max(overlayRows, deferredOverlayRows);
-  const visibleRows = computeVisibleRows({ rows, chromeRows: CHROME_ROWS, effectiveOverlayRows, extraChromeRows });
+
+  const permissionsOverlayRows = modalContext.permissionsOpen
+    ? Math.min(PERMISSIONS_OVERLAY_MAX, PERMISSIONS_OVERLAY_FIXED + modalContext.permissionEntryCount)
+    : 0;
+
+  const visibleRows = computeVisibleRows({
+    rows,
+    chromeRows: CHROME_ROWS,
+    effectiveOverlayRows: effectiveOverlayRows + permissionsOverlayRows,
+    extraChromeRows,
+  });
   const diffVisibleRows = Math.max(1, visibleRows - 2);
 
-  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows };
+  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows };
 }

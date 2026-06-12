@@ -149,12 +149,12 @@ export function App({
       pendingPlan: gates.pendingPlan,
       pendingOperator: gates.pendingOperator,
     },
-    modalContext: { helpOpen: helpOpen || permissionsOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
+    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen, permissionEntryCount: permissionEntries.length },
     hookCount: state.hooks.length,
     providerCatalog,
     extraChromeRows,
   });
-  const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows } = layout;
+  const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
   const scrollMaxOffset = useMemo(
     () => maxScrollOffset(
@@ -519,6 +519,7 @@ export function App({
           entries={permissionEntries}
           onRevoke={handleRevokePermission}
           onClose={() => setPermissionsOpen(false)}
+          maxHeight={permissionsOverlayRows}
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
