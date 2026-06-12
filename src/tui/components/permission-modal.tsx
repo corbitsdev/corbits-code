@@ -28,13 +28,17 @@ const GRANT_OPTIONS: { grant: GrantScope; label: string; note: string }[] = [
   { grant: "provider-model", label: "Auto-accept for this provider/model", note: "scoped to the active model" },
 ];
 
-// The pattern a grant remembers. Prefer the broadest persistable scope the
-// classifier offered (e.g. `npm *` over `npm test`); fall back to the request's
-// raw subject when no glob scope was produced.
+// The pattern a grant remembers. The scope ladder runs broadest-first
+// (`bun run *`) to narrowest (`bun run typecheck`); a one-keystroke grant should
+// remember the exact command the user is looking at, not silently authorize the
+// whole wildcard — so prefer the exact-subject scope, then the narrowest
+// persistable rung, and fall back to the raw subject.
 function grantPattern(request: PermissionRequest): { pattern: string; hint: string } | null {
-  const persistable = request.scopes.find((scope) => scope.pattern !== null);
-  if (persistable === undefined || persistable.pattern === null) return null;
-  return { pattern: persistable.pattern, hint: persistable.hint ?? persistable.pattern };
+  const exact = request.scopes.find((scope) => scope.pattern === request.subject);
+  const narrowest = [...request.scopes].reverse().find((scope) => scope.pattern !== null);
+  const chosen = exact ?? narrowest;
+  if (chosen === undefined || chosen.pattern === null) return null;
+  return { pattern: chosen.pattern, hint: chosen.hint ?? chosen.pattern };
 }
 
 function buildChoices(request: PermissionRequest): Choice[] {

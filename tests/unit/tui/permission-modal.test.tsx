@@ -26,7 +26,28 @@ test("PermissionModal shows reject, accept-once, and the four scoped grants", ()
   expect(frame).toContain("Auto-accept in this project");
   expect(frame).toContain("Auto-accept globally");
   expect(frame).toContain("Auto-accept for this provider/model");
-  expect(frame).toContain("npm *");
+  // The grant remembers the exact command, not the broad `npm *` wildcard.
+  expect(frame).toContain("npm test");
+  expect(frame).not.toContain("npm *");
+});
+
+test("multiplexer commands grant the exact command, not the broad wildcard", async () => {
+  const multiplexer: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: "bun run typecheck",
+    scopes: [
+      { id: "prefix", label: "Always allow bun run *", pattern: "bun run *" },
+      { id: "exact", label: "Always allow this exact command", pattern: "bun run typecheck" },
+    ],
+  };
+  let outcome: ApprovalOutcome | null = null;
+  const { lastFrame, stdin } = render(<PermissionModal request={multiplexer} onResolve={(o) => { outcome = o; }} />);
+  await tick();
+  expect(lastFrame() ?? "").not.toContain("bun run *");
+  stdin.write("4");
+  await tick();
+  expect(outcome).toMatchObject({ allow: true, persist: { grant: "project", pattern: "bun run typecheck" } });
 });
 
 test("PermissionModal shows web tool argument details", () => {
@@ -70,7 +91,7 @@ test("selecting the session grant persists the broadest pattern with that scope"
   await tick();
   stdin.write("3");
   await tick();
-  expect(outcome).toMatchObject({ allow: true, persist: { grant: "session", pattern: "npm *" } });
+  expect(outcome).toMatchObject({ allow: true, persist: { grant: "session", pattern: "npm test" } });
 });
 
 test("'5' persists a global-scoped grant with the broadest pattern", async () => {
@@ -79,7 +100,7 @@ test("'5' persists a global-scoped grant with the broadest pattern", async () =>
   await tick();
   stdin.write("5");
   await tick();
-  expect(outcome).toMatchObject({ allow: true, persist: { grant: "global", pattern: "npm *" } });
+  expect(outcome).toMatchObject({ allow: true, persist: { grant: "global", pattern: "npm test" } });
 });
 
 test("Escape rejects", async () => {
