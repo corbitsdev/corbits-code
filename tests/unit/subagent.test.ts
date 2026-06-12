@@ -81,3 +81,65 @@ test("sub-agent prompt is autonomous and does not advertise the task tool", () =
   // A sub-agent must never be told it can delegate further (no recursion).
   expect(prompt).not.toContain("task,");
 });
+
+test("handler injects context block before task when provided", async () => {
+  let received: RunSubAgentParams | undefined;
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      received = params;
+      return "task completed";
+    },
+  });
+
+  const result = await callHandler(tool, {
+    description: "refactor utils",
+    context: "The codebase uses functional programming with no classes.",
+    prompt: "Extract duplicated validation logic into a shared function.",
+  });
+
+  expect(received?.context).toBe("The codebase uses functional programming with no classes.");
+  expect(received?.prompt).toBe("Extract duplicated validation logic into a shared function.");
+  expect(result).toContain("task completed");
+});
+
+test("handler sends prompt without context block when context is empty or omitted", async () => {
+  let receivedNoContext: RunSubAgentParams | undefined;
+  let receivedEmptyContext: RunSubAgentParams | undefined;
+
+  const toolNoContext = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      receivedNoContext = params;
+      return "done";
+    },
+  });
+
+  const toolEmptyContext = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      receivedEmptyContext = params;
+      return "done";
+    },
+  });
+
+  await callHandler(toolNoContext, {
+    description: "check code",
+    prompt: "Review the function signatures.",
+  });
+
+  await callHandler(toolEmptyContext, {
+    description: "check code",
+    context: "  ",
+    prompt: "Review the function signatures.",
+  });
+
+  expect(receivedNoContext?.context).toBeUndefined();
+  expect(receivedEmptyContext?.context).toBeUndefined();
+});
