@@ -43,12 +43,16 @@ export function clampOffset(offset: number, total: number, visibleRows: number):
   return offset;
 }
 
+function truncateToWidth(text: string, available: number): string {
+  const avail = Math.max(8, available);
+  if (text.length <= avail) return text;
+  const head = Math.max(0, avail - SHOW_MORE.length);
+  return text.slice(0, head) + SHOW_MORE;
+}
+
 export function truncateLine(text: string, columns: number, expanded: boolean): string {
   if (expanded) return text;
-  const available = Math.max(8, columns - LINE_PADDING);
-  if (text.length <= available) return text;
-  const head = Math.max(0, available - SHOW_MORE.length);
-  return text.slice(0, head) + SHOW_MORE;
+  return truncateToWidth(text, columns - LINE_PADDING);
 }
 
 type TextProps = {
@@ -129,39 +133,46 @@ function plainUnits(content: string, props: TextProps & { dimColor?: boolean }, 
 function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, columns: number, width: number, expanded: boolean): LineUnit[] {
   const id = block.id;
   const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
+  const SHELL_PREFIX = "$ ";
 
   if (isShell) {
-    const command = expanded ? full : truncateLine(summary, columns, false);
+    const command = expanded ? full : truncateToWidth(summary, width - SHELL_PREFIX.length);
     return [
       {
         key: `${id}-h`,
         node: (
           <Box key={`${id}-h`} flexDirection="row">
-            <Text color={color("muted")} dimColor>$ </Text>
+            <Text color={color("muted")} dimColor>{SHELL_PREFIX}</Text>
             <Text color={color(role)}>{command}</Text>
           </Box>
         ),
-        rows: expanded ? lineRows(command, width) : 1,
+        rows: lineRows(`${SHELL_PREFIX}${command}`, width),
       },
     ];
   }
 
-  const headline: LineUnit = {
-    key: `${id}-h`,
-    node: (
-      <Box key={`${id}-h`} flexDirection="row">
-        <Text color={color(role)}>{display}</Text>
-        {!expanded && summary.length > 0 ? (
-          <Text color={color("muted")} dimColor> {truncateLine(summary, columns, false)}</Text>
-        ) : null}
-      </Box>
-    ),
-    rows: 1,
-  };
-  if (expanded && full.length > 0) {
-    return [headline, ...plainUnits(full, { color: color("muted") }, width, id)];
+  if (expanded) {
+    const headline: LineUnit = {
+      key: `${id}-h`,
+      node: <Text key={`${id}-h`} color={color(role)}>{display}</Text>,
+      rows: lineRows(display, width),
+    };
+    return full.length > 0 ? [headline, ...plainUnits(full, { color: color("muted") }, width, id)] : [headline];
   }
-  return [headline];
+
+  const summaryText = summary.length > 0 ? truncateToWidth(summary, width - display.length - 1) : "";
+  return [
+    {
+      key: `${id}-h`,
+      node: (
+        <Box key={`${id}-h`} flexDirection="row">
+          <Text color={color(role)}>{display}</Text>
+          {summaryText.length > 0 ? <Text color={color("muted")} dimColor> {summaryText}</Text> : null}
+        </Box>
+      ),
+      rows: lineRows(summaryText.length > 0 ? `${display} ${summaryText}` : display, width),
+    },
+  ];
 }
 
 function toolResultUnits(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): LineUnit[] {

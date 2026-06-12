@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Box } from "ink";
 import { render } from "ink-testing-library";
 import {
   EventLog,
@@ -20,9 +21,10 @@ function block(data: Omit<ContentBlock, "id">): RenderableBlock {
 type Overrides = Partial<Parameters<typeof EventLog>[0]>;
 
 function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
+  const withIds = blocks.map((b, i) => ("id" in b ? b : { ...b, id: `fixture-${i}` })) as ContentBlock[];
   return render(
     <EventLog
-      contentBlocks={blocks}
+      contentBlocks={withIds}
       scrollOffset={overrides.scrollOffset ?? 0}
       visibleRows={overrides.visibleRows ?? 100}
       columns={overrides.columns ?? 200}
@@ -312,6 +314,23 @@ test("buildLineUnits inserts a blank spacer unit between conversational turns", 
     () => false,
   );
   expect(units.length).toBe(3);
+});
+
+test("a composed headline unit never claims fewer rows than it paints", () => {
+  const cmd = "echo " + "y".repeat(60);
+  const units = buildLineUnits(
+    [block({ type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: cmd }) })],
+    30,
+    false,
+    () => true,
+  );
+  const headline = units[0]!;
+  const { lastFrame } = render(
+    <Box width={28}>{headline.node}</Box>,
+    { stdout: { columns: 28, rows: 80 } as unknown as NodeJS.WriteStream },
+  );
+  const painted = (lastFrame() ?? "").split("\n").filter((r) => r.trim().length > 0).length;
+  expect(headline.rows).toBeGreaterThanOrEqual(painted);
 });
 
 test("visibleLineWindow advances one line per scroll step", () => {
