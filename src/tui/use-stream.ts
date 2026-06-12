@@ -31,6 +31,8 @@ export type AgentStreamState = {
   status: AgentStatus;
   totalCost: number;
   totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
@@ -188,6 +190,12 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     get totalTokens() {
       return faremeter.getTotalTokens();
+    },
+    get inputTokens() {
+      return faremeter.getInputTokens();
+    },
+    get outputTokens() {
+      return faremeter.getOutputTokens();
     },
     get formattedCost() {
       return formatCost(faremeter.getTotalCost());

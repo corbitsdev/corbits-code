@@ -558,7 +558,8 @@ export function App({
           provider={provider}
           model={model}
           cost={state.formattedCost}
-          tokens={state.totalTokens}
+          inputTokens={state.inputTokens}
+          outputTokens={state.outputTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
           connectedMCPServers={mcpStatus.connected}

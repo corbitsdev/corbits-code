@@ -9,17 +9,19 @@ function renderBar(props: Partial<StatusBarProps> = {}) {
       provider={props.provider ?? "zen"}
       model={props.model ?? "test-model"}
       cost={props.cost ?? "$0.0000"}
-      tokens={props.tokens ?? 0}
+      inputTokens={props.inputTokens ?? 0}
+      outputTokens={props.outputTokens ?? 0}
       elapsedMs={props.elapsedMs ?? 0}
       status={props.status ?? "running"}
     />,
   );
 }
 
-test("StatusBar renders provider, model and run telemetry", () => {
-  const { lastFrame } = renderBar({ tokens: 4200, cost: "$0.12" });
+test("StatusBar renders provider, model and split token telemetry", () => {
+  const { lastFrame } = renderBar({ inputTokens: 4200, outputTokens: 318, cost: "$0.12" });
   expect(lastFrame()).toContain("zen · test-model");
-  expect(lastFrame()).toContain("4200 tokens");
+  expect(lastFrame()).toContain("↑4200");
+  expect(lastFrame()).toContain("↓318");
   expect(lastFrame()).toContain("$0.12");
 });
 
