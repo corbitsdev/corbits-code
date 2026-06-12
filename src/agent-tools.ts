@@ -29,7 +29,7 @@ export type AgentToolsetArgs = {
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
     provider: SubAgentProvider;
-    workdirBase: string;
+    getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
   };
 };
@@ -82,7 +82,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ? [
           createTaskTool({
             cwd,
-            workdirBase: args.subAgent.workdirBase,
+            getWorkdirBase: args.subAgent.getWorkdirBase,
             provider: args.subAgent.provider,
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
           }),
