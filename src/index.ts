@@ -50,7 +50,7 @@ function printHelp(): void {
   console.log("Options:");
   console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
   console.log("  --cwd <dir>        Working directory (default: current directory)");
-  console.log("  --config <path>    Settings file to use (default: ~/.interchange/settings.json)");
+  console.log("  --config <path>    Settings file to use (default: ~/.intercode/settings.json)");
   console.log("  --provider <name>  Select a configured provider");
   console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
@@ -58,8 +58,8 @@ function printHelp(): void {
   console.log("  --help             Show this help message");
   console.log("");
   console.log("Configuration:");
-  console.log("  Providers and credentials are read from ~/.interchange/settings.json");
-  console.log("  (selection can be overridden per repo via .interchange/settings.json).");
+  console.log("  Providers and credentials are read from ~/.intercode/settings.json");
+  console.log("  (selection can be overridden per repo via .intercode/settings.json).");
   console.log("  The OPENAI_COMPATIBLE_* env vars still override individual fields.");
 }
 

@@ -15,7 +15,7 @@ The system is an event-driven agent loop with a custom reactor director. The CLI
 
 ### Config Resolution (`src/config.ts`, `src/settings.ts`)
 
-- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > `OPENAI_COMPATIBLE_*` env > per-repo `.interchange/settings.json` (selection only) > global `~/.interchange/settings.json`.
+- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > `OPENAI_COMPATIBLE_*` env > per-repo `.intercode/settings.json` (selection only) > global `~/.intercode/settings.json`.
 - `--config <path>` replaces the global settings file as the provider source (the eval harness's per-run injection seam). With no settings file, credentials come entirely from env, preserving the original `.env` workflow.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.
@@ -89,7 +89,7 @@ The agent's identity is **Intercode**, framed as a senior teammate who owns the 
 
 ### Lifecycle Hooks (`src/hooks.ts`)
 
-- Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.interchange/hooks` (local) and `~/.interchange/hooks` (global)
+- Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.intercode/hooks` (local) and `~/.intercode/hooks` (global)
 - `TurnContext` aggregates per-turn data (assistant turn, tool calls/results, token usage, source, duration); a turn-context collector builds it from the event stream
 - `RunSummary` aggregates the whole run for `postRun`
 - The manager exposes enable/disable and emits `hooks.loaded` / `hook.updated` events for the TUI hook panel
@@ -122,7 +122,7 @@ tool call
 **Rejection behavior:** Any plugin can short-circuit by returning a `ToolResult` with `isError: true`; the error propagates to the agent and downstream plugins/execution are skipped.
 
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
-- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls that would expose a sensitive file: path-keyed arguments (`read_file`, `write_file`, …) and `run_shell` command strings, which are tokenized so `cat .env` or `cat ~/.interchange/settings.json` are blocked the same as a direct read. Runs before the permission plugin, so the deny holds even under `--dangerously-skip-permissions`. Shell containment is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly).
+- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls that would expose a sensitive file: path-keyed arguments (`read_file`, `write_file`, …) and `run_shell` command strings, which are tokenized so `cat .env` or `cat ~/.intercode/settings.json` are blocked the same as a direct read. Runs before the permission plugin, so the deny holds even under `--dangerously-skip-permissions`. Shell containment is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly).
 - **Authorization** (`authz-plugin.ts`) — Denies catastrophic shell command patterns by regex.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
 - **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch.
@@ -149,7 +149,7 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
 - Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts`.
 - Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/agent`; `/model` aliases `/agent`).
-- `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.interchange/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
+- `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.intercode/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
 
 ### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
 
@@ -230,7 +230,7 @@ All skill files must begin with a YAML frontmatter block. Files without frontmat
 
 #### Plugin Path Configuration
 
-The set of directories searched for manifests is configurable via `.interchange/settings.json` under `pluginPaths`. Each entry is a path (absolute or relative to the repository root) that the loader checks for a manifest file. The three fallback scan directories (`.agents/`, `.claude/`, `.codex/`) are always included and cannot be disabled.
+The set of directories searched for manifests is configurable via `.intercode/settings.json` under `pluginPaths`. Each entry is a path (absolute or relative to the repository root) that the loader checks for a manifest file. The three fallback scan directories (`.agents/`, `.claude/`, `.codex/`) are always included and cannot be disabled.
 
 ## Data Flow
 

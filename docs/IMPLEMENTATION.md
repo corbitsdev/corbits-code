@@ -118,7 +118,7 @@ docs/
 
 Provider and model configuration lives in JSON settings files. The global file holds provider definitions and API keys; the per-repo file selects among them and must not contain credentials.
 
-- Global: `~/.interchange/settings.json`
+- Global: `~/.intercode/settings.json`
 
   ```json
   {
@@ -136,7 +136,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
 
-- Per-repo: `.interchange/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 
@@ -150,7 +150,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
 OpenAI-compatible `baseURL` values are normalized during provider resolution. A plain base URL such as `https://provider.example.com/v1` is preserved, a trailing slash is removed, and a pasted full chat-completions endpoint such as `https://provider.example.com/v1/chat/completions` is reduced to `https://provider.example.com/v1` before the runtime appends `/chat/completions`. Invalid non-URL values fail with an explicit baseURL error.
 
-`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.interchange/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
+`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
 
 ### Environment Variables (override)
 
@@ -170,7 +170,7 @@ OpenAI-compatible `baseURL` values are normalized during provider resolution. A 
 | `run` (optional) | — | Run a task (default verb) |
 | `resume` | — | Resume the last run in the working directory |
 | `--cwd <dir>` | `process.cwd()` | Working directory |
-| `--config <path>` | `~/.interchange/settings.json` | Settings file to use |
+| `--config <path>` | `~/.intercode/settings.json` | Settings file to use |
 | `--provider <name>` | from settings | Select a configured provider |
 | `--model <id>` | provider default | Select a model for the active provider |
 | `--headless`, `-h` | false | Headless CLI mode (default is the TUI) |
@@ -210,7 +210,7 @@ Positional arguments are joined into the task description. In headless mode a ta
 
 ### Lifecycle Hooks
 
-- Discovered from `.interchange/hooks` (local) and `~/.interchange/hooks` (global)
+- Discovered from `.intercode/hooks` (local) and `~/.intercode/hooks` (global)
 - Types: `typescript` (imported by file URL) and `shell` (executed)
 - `postTurn(TurnContext)` fired per turn; `postRun(RunSummary)` fired once at completion
 - See `docs/HOOKS.md`

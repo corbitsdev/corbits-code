@@ -22,8 +22,8 @@ const ENV_KEYS = [
 
 // A global settings path guaranteed not to exist, so file resolution is inert
 // and the env-based tests below stay hermetic regardless of the dev machine's
-// real ~/.interchange/settings.json.
-const NO_SETTINGS = join(tmpdir(), "interchange-code-tests-missing", ".interchange", "settings.json");
+// real ~/.intercode/settings.json.
+const NO_SETTINGS = join(tmpdir(), "interchange-code-tests-missing", ".intercode", "settings.json");
 
 function stashEnv(): Record<string, string | undefined> {
   const stash: Record<string, string | undefined> = {};
@@ -315,9 +315,9 @@ describe("loadConfig", () => {
       setRequiredEnv();
       // Unset model env so the profile model (layer below env) can apply.
       delete process.env.OPENAI_COMPATIBLE_MODEL;
-      await mkdir(join(cwd, ".interchange"), { recursive: true });
+      await mkdir(join(cwd, ".intercode"), { recursive: true });
       await writeFile(
-        join(cwd, ".interchange", "profile.json"),
+        join(cwd, ".intercode", "profile.json"),
         JSON.stringify({ model: "profile-model", maxTurns: 25, systemPromptExtensions: ["ext1"] }),
       );
       const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: NO_SETTINGS });
@@ -336,9 +336,9 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       setRequiredEnv();
-      await mkdir(join(cwd, ".interchange"), { recursive: true });
+      await mkdir(join(cwd, ".intercode"), { recursive: true });
       await writeFile(
-        join(cwd, ".interchange", "profile.json"),
+        join(cwd, ".intercode", "profile.json"),
         JSON.stringify({ model: "profile-model" }),
       );
       const config = await loadConfig(["--cwd", cwd, "--model", "accounts/fireworks/routers/kimi-k2p6-turbo", "task"], {
@@ -356,9 +356,9 @@ describe("loadConfig", () => {
     const stash = stashEnv();
     const cwd = await emptyCwd();
     try {
-      await mkdir(join(cwd, ".interchange"), { recursive: true });
+      await mkdir(join(cwd, ".intercode"), { recursive: true });
       await writeFile(
-        join(cwd, ".interchange", "settings.json"),
+        join(cwd, ".intercode", "settings.json"),
         JSON.stringify({ provider: "b", model: "b-model" }),
       );
       const globalPath = join(cwd, "global.json");

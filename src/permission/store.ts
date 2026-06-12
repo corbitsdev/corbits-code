@@ -14,13 +14,13 @@ function storePath(cwd: string, sessionId: string): string {
 // gitignored (machine-local), so a teammate who pulls the repo never silently
 // inherits another machine's auto-approvals.
 function projectStorePath(cwd: string): string {
-  return join(cwd, ".interchange", "permissions.json");
+  return join(cwd, ".intercode", "permissions.json");
 }
 
 // Persistent global and provider-model grants share one file under the user's
 // home, alongside the global settings file.
 function globalStorePath(home: string = homedir()): string {
-  return join(home, ".interchange", "permissions.json");
+  return join(home, ".intercode", "permissions.json");
 }
 
 // Tool calls dispatch concurrently, so two approvals can resolve at nearly the

@@ -1,8 +1,8 @@
 // Where a granted approval is remembered. `session` lives only in memory for the
 // current run; the rest are persisted to a store that survives restart.
 //   - `session`: in-memory only (the historical default)
-//   - `project`: per-repo file at <cwd>/.interchange/permissions.json
-//   - `global`: every project, in <home>/.interchange/permissions.json
+//   - `project`: per-repo file at <cwd>/.intercode/permissions.json
+//   - `global`: every project, in <home>/.intercode/permissions.json
 //   - `provider-model`: scoped to the active providerName+model, persisted
 //     globally under a key of `${providerName}:${model}`
 export type GrantScope = "session" | "project" | "global" | "provider-model";

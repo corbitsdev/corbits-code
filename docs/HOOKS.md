@@ -3,12 +3,12 @@
 Interchange Code discovers lifecycle hooks from:
 
 ```text
-.interchange/hooks/
-~/.interchange/hooks/
+.intercode/hooks/
+~/.intercode/hooks/
 ```
 
-Local hooks in `.interchange/hooks/` take precedence over global hooks in
-`~/.interchange/hooks/` when both directories contain a hook with the same file
+Local hooks in `.intercode/hooks/` take precedence over global hooks in
+`~/.intercode/hooks/` when both directories contain a hook with the same file
 name.
 
 Supported files:

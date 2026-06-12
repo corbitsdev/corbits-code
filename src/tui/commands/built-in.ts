@@ -75,7 +75,7 @@ registerCommand({
   handler: (_args, ctx) => {
     const servers = ctx.getMCPServers?.() ?? [];
     if (servers.length === 0) {
-      return { type: "message", text: "No MCP servers connected. Add mcpServers to .interchange/settings.json." };
+      return { type: "message", text: "No MCP servers connected. Add mcpServers to .intercode/settings.json." };
     }
     const lines = servers.map((s) => {
       const toolList = s.tools.length > 0 ? s.tools.join(", ") : "(no tools)";
