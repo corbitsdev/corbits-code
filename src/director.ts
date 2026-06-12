@@ -219,9 +219,16 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
       if (this.submitCalled) {
         if (!hasToolCalls) {
+          // submit_output is the clean termination signal. Once it has succeeded
+          // and the model produces a turn with no further tool calls, end the
+          // run — emitting done() and latching terminated so a stray later event
+          // cannot reopen the loop (without this, the run only stops at the
+          // maxTurns backstop).
+          this.terminated = true;
           return [
             capabilities.checkpoint("submit-accepted"),
             capabilities.reply("Task completed."),
+            capabilities.done(),
           ];
         }
       }
@@ -284,6 +291,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       idleCycles: this.idleCycles,
       planSubmitted: this.planSubmitted,
       plan: this.plan,
+      terminated: this.terminated,
       filesRead: [...this.filesReadAtTurn.entries()].map(([path, turn]) => ({ path, turn })),
     };
   }
@@ -298,6 +306,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     this.idleCycles = state.idleCycles ?? 0;
     this.planSubmitted = state.planSubmitted ?? false;
     this.plan = state.plan ?? [];
+    // Restore the terminal latch so a run resumed from a terminal checkpoint
+    // does not re-enter the loop with the guard reset to false.
+    this.terminated = state.terminated ?? false;
     this.filesReadAtTurn.clear();
     for (const { path, turn } of state.filesRead ?? []) {
       this.filesReadAtTurn.set(path, turn);

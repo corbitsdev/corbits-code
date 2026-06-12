@@ -19,6 +19,7 @@ export type DirectorPersistedState = {
   idleCycles: number;
   planSubmitted: boolean;
   plan: Array<{ file: string; action: string; reason: string }>;
+  terminated?: boolean;
   filesRead?: Array<{ path: string; turn: number }>;
 };
 
