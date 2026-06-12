@@ -264,7 +264,11 @@ export async function runTUI(config: Config): Promise<number> {
   // disk under its own id, resumable later. Sub-agents nest under the new
   // session automatically because getWorkdirBase reads the live id.
   const newSession = async (): Promise<void> => {
-    if (reloading) return;
+    // The App clears its transcript unconditionally on /clear, so the backend
+    // rotation must not be skipped under contention or the UI and the live
+    // store would desync. Wait for any in-flight reload/interrupt to settle,
+    // then claim the swap.
+    while (reloading && reloadBarrier !== null) await reloadBarrier;
     reloading = true;
     let release!: () => void;
     reloadBarrier = new Promise<void>((r) => (release = r));
@@ -272,6 +276,7 @@ export async function runTUI(config: Config): Promise<number> {
       sessionId = generateSessionId();
       workdir = sessionContextDir(config.cwd, sessionId);
       await initSessionDir(config.cwd, sessionId);
+      permissionGate.reset();
       approvals.splice(0, approvals.length);
       await currentAgent.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);

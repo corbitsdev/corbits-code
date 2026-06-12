@@ -28,6 +28,8 @@ export type PermissionGate = {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
+  // Forget every remembered approval so a fresh session re-prompts from scratch.
+  reset: () => void;
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
@@ -67,5 +69,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     return { allowed: true };
   };
 
-  return { evaluate, getApprovals: () => approvals };
+  const reset = (): void => {
+    approvals.length = 0;
+  };
+
+  return { evaluate, getApprovals: () => approvals, reset };
 }

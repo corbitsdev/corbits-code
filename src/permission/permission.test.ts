@@ -172,6 +172,22 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
+  test("reset forgets remembered approvals so the next call re-asks", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect(asked).toBe(0);
+    gate.reset();
+    expect(gate.getApprovals()).toEqual([]);
+    expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
   test("asks once and persists an approved scope, then stops asking", async () => {
     const approvals: Approval[] = [];
     const persisted: Approval[] = [];
