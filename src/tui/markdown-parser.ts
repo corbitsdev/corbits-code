@@ -261,9 +261,7 @@ function extractTableCells(line: string): string[] {
     }
   }
 
-  if (cell.length > 0) {
-    cells.push(cell.trim());
-  }
+  cells.push(cell.trim());
 
   return cells;
 }
