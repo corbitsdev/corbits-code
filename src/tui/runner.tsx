@@ -19,8 +19,16 @@ import { buildChatSystemPrompt } from "../prompts.js";
 import { loadAgentContextExtensions } from "../run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createAgentToolset } from "../agent-tools.js";
-import { loadApprovals, saveApprovals } from "../permission/store.js";
-import type { Approval } from "../permission/types.js";
+import {
+  loadApprovals,
+  loadProjectApprovals,
+  loadGlobalApprovals,
+  loadProviderModelApprovals,
+  saveProjectApproval,
+  saveGlobalApproval,
+  saveProviderModelApproval,
+} from "../permission/store.js";
+import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../stream-consumer.js";
 import { enterAltScreen } from "../alt-screen.js";
 import { App } from "./app.js";
@@ -78,19 +86,38 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
-  const approvals = await loadApprovals(config.cwd, sessionId);
+  const activeProviderModel = `${config.providerName}:${config.model}`;
+  const sessionApprovals = await loadApprovals(config.cwd, sessionId);
+  const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
+    loadProjectApprovals(config.cwd),
+    loadGlobalApprovals(),
+    loadProviderModelApprovals(),
+  ]);
+  const seededApprovals: Approval[] = [
+    ...sessionApprovals,
+    ...projectApprovals,
+    ...globalApprovals,
+    ...providerModelApprovals,
+  ];
   const permissionGate = createPermissionGate({
-    approvals,
+    approvals: seededApprovals,
+    providerName: config.providerName,
+    model: config.model,
     requestApproval: (request) =>
       new Promise((resolve) => {
         const event: PermissionGateEvent = { request, resolve };
         emitter.emit("permission.gate", event);
       }),
-    persist: (approval: Approval) => {
-      // The gate owns its own approval list now, so maintain the durable store
-      // here by recording each grant before writing it out.
-      approvals.push(approval);
-      void saveApprovals(config.cwd, sessionId, approvals);
+    persist: (approval: Approval, scope: GrantScope) => {
+      // Route each persisted grant to the store its scope selects. Session
+      // grants never reach here — the gate keeps those in memory only.
+      if (scope === "project") {
+        void saveProjectApproval(config.cwd, approval);
+      } else if (scope === "global") {
+        void saveGlobalApproval(approval);
+      } else if (scope === "provider-model") {
+        void saveProviderModelApproval(activeProviderModel, approval);
+      }
     },
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
@@ -277,7 +304,6 @@ export async function runTUI(config: Config): Promise<number> {
       workdir = sessionContextDir(config.cwd, sessionId);
       await initSessionDir(config.cwd, sessionId);
       permissionGate.reset();
-      approvals.splice(0, approvals.length);
       await currentAgent.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();

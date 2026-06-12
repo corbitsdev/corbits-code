@@ -148,7 +148,7 @@ test("PermissionModal does not render when pendingPermission is null", () => {
   expect(lastFrame()).not.toContain("Approval needed");
 });
 
-test("PermissionModal Enter calls onResolvePermission with allow outcome", async () => {
+test("PermissionModal '2' calls onResolvePermission with an accept-once outcome", async () => {
   let outcome: ApprovalOutcome | null = null;
   const { stdin } = render(
     <ModalStack
@@ -158,7 +158,7 @@ test("PermissionModal Enter calls onResolvePermission with allow outcome", async
     />
   );
   await tick();
-  stdin.write("\r");
+  stdin.write("2");
   await tick();
   expect(outcome).toEqual({ allow: true });
 });

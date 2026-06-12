@@ -1,14 +1,32 @@
+// Where a granted approval is remembered. `session` lives only in memory for the
+// current run; the rest are persisted to a store that survives restart.
+//   - `session`: in-memory only (the historical default)
+//   - `project`: per-repo file at <cwd>/.interchange/permissions.json
+//   - `global`: every project, in <home>/.interchange/permissions.json
+//   - `provider-model`: scoped to the active providerName+model, persisted
+//     globally under a key of `${providerName}:${model}`
+export type GrantScope = "session" | "project" | "global" | "provider-model";
+
 // A single persistable approval: a tool name plus a glob pattern that, when it
 // matches a future call's subject (a shell command or a file path), auto-allows
-// it without asking again. Scoped to one working directory by the store.
-export type Approval = { tool: string; pattern: string };
+// it without asking again. `providerModel`, when set, restricts the approval to
+// the matching active providerName+model.
+export type Approval = { tool: string; pattern: string; providerModel?: string };
 
 // One option offered to the operator at approval time. `pattern` is the glob
 // that gets persisted if the operator picks this scope; `null` means "just this
-// once" — allow now, remember nothing.
+// once" — allow now, remember nothing. `grant` selects where the approval is
+// remembered; it defaults to `session` when absent so older callers keep their
+// in-memory behavior.
 // `hint`, when set, is shown to the operator in place of the raw `pattern`
 // (e.g. an MCP tool's human label instead of its mcp__ identifier).
-export type ApprovalScope = { id: string; label: string; pattern: string | null; hint?: string };
+export type ApprovalScope = {
+  id: string;
+  label: string;
+  pattern: string | null;
+  hint?: string;
+  grant?: GrantScope;
+};
 
 // A request surfaced to the operator for one consequential action. For a shell
 // command this is a single segment of a chained command; for a file tool it is

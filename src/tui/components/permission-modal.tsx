@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
+import type { ApprovalOutcome, ApprovalScope, GrantScope, PermissionRequest } from "../../permission/types.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
 
@@ -21,33 +21,59 @@ type Choice = {
   outcome: ApprovalOutcome;
 };
 
+const GRANT_OPTIONS: { grant: GrantScope; label: string; note: string }[] = [
+  { grant: "session", label: "Auto-accept this session", note: "until this session ends" },
+  { grant: "project", label: "Auto-accept in this project", note: "persisted per repo" },
+  { grant: "global", label: "Auto-accept globally", note: "all projects" },
+  { grant: "provider-model", label: "Auto-accept for this provider/model", note: "scoped to the active model" },
+];
+
+// The pattern a grant remembers. Prefer the broadest persistable scope the
+// classifier offered (e.g. `npm *` over `npm test`); fall back to the request's
+// raw subject when no glob scope was produced.
+function grantPattern(request: PermissionRequest): { pattern: string; hint: string } | null {
+  const persistable = request.scopes.find((scope) => scope.pattern !== null);
+  if (persistable === undefined || persistable.pattern === null) return null;
+  return { pattern: persistable.pattern, hint: persistable.hint ?? persistable.pattern };
+}
+
 function buildChoices(request: PermissionRequest): Choice[] {
   const choices: Choice[] = [
     {
-      label: "Allow Once",
+      label: "Reject",
       hint: "start typing to add a message",
+      hintStyle: "note",
+      messageable: true,
+      outcome: { allow: false },
+    },
+    {
+      label: "Accept once",
+      hint: "this call only · start typing to add a message",
       hintStyle: "note",
       messageable: true,
       outcome: { allow: true },
     },
   ];
-  for (const scope of request.scopes) {
-    if (scope.pattern === null) continue;
+
+  const grant = grantPattern(request);
+  if (grant === null) return choices;
+
+  for (const option of GRANT_OPTIONS) {
+    const scope: ApprovalScope = {
+      id: option.grant,
+      label: option.label,
+      pattern: grant.pattern,
+      hint: grant.hint,
+      grant: option.grant,
+    };
     choices.push({
-      label: scope.label,
-      hint: scope.hint ?? scope.pattern,
+      label: option.label,
+      hint: `${grant.hint} · ${option.note}`,
       hintStyle: "command",
       messageable: false,
       outcome: { allow: true, persist: scope },
     });
   }
-  choices.push({
-    label: "Reject",
-    hint: "start typing to add a message",
-    hintStyle: "note",
-    messageable: true,
-    outcome: { allow: false },
-  });
   return choices;
 }
 
@@ -104,6 +130,17 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
       return;
     }
 
+    // Number keys jump straight to an option and resolve it, as long as the user
+    // is not mid-message (where digits are part of the typed explanation).
+    if (message.length === 0 && /^[1-9]$/.test(input)) {
+      const index = Number(input) - 1;
+      const choice = choices[index];
+      if (choice) {
+        onResolve(choice.outcome);
+        return;
+      }
+    }
+
     if (input && !key.ctrl && !key.meta && activeChoice?.messageable) {
       setMessage((m) => m + input);
     }
@@ -153,6 +190,7 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
               <Text color={active ? color("brand") : color("muted")} bold={active}>
                 {active ? "› " : "  "}
               </Text>
+              <Text color={color("muted")}>{`${i + 1}. `}</Text>
               <Text color={active ? tone : color("text")} bold={active}>
                 {choice.label}
               </Text>
@@ -177,7 +215,7 @@ export function PermissionModal({ request, onResolve }: PermissionModalProps): R
         <Text color={color("muted")}>
           {messageMode
             ? "Enter confirm · Esc clear · ↑↓ navigate"
-            : "↑↓ navigate · Enter choose · Esc reject"}
+            : "1-9 select · ↑↓ navigate · Enter choose · Esc reject"}
         </Text>
       </Box>
     </Box>
