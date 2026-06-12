@@ -24,7 +24,8 @@ const testProvider: ProviderCatalogEntry = {
   models: ["test-model"],
 };
 
-function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]) {
+function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1] & { initialTask?: string }) {
+  const { initialTask, ...renderOptions } = options ?? {};
   return render(
     <App
       eventEmitter={emitter}
@@ -36,8 +37,9 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
       globalSettingsPath="/tmp/interchange-code-test-settings.json"
       globalDefaultProvider="test-provider"
       cwd="/tmp"
+      initialTask={initialTask ?? ""}
     />,
-    options,
+    renderOptions,
   );
 }
 
@@ -118,7 +120,8 @@ const settleRun = (emitter: EventEmitter) =>
 
 test("CTRL+C while the agent is running stops the run instead of exiting", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 }, initialTask: "go" });
+  await tick();
   stdin.write("\x03");
   await tick();
   const frame = lastFrame() ?? "";
@@ -128,7 +131,8 @@ test("CTRL+C while the agent is running stops the run instead of exiting", async
 
 test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 }, initialTask: "go" });
+  await tick();
   stdin.write("\x03");
   await tick();
   expect(lastFrame()).toContain("Stopped");

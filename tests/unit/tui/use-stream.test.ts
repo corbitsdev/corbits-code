@@ -6,7 +6,7 @@ test("createAgentStreamState initial state is empty", () => {
   const state = createAgentStreamState();
   expect(state.contentBlocks.length).toBe(0);
   expect(state.turnsUsed).toBe(0);
-  expect(state.status).toBe("running");
+  expect(state.status).toBe("idle");
   expect(state.totalCost).toBe(0);
   expect(state.totalTokens).toBe(0);
   expect(state.hooks).toEqual([]);
@@ -38,7 +38,7 @@ test("clear resets the transcript, telemetry, and status", () => {
   expect(state.turnsUsed).toBe(0);
   expect(state.totalTokens).toBe(0);
   expect(state.totalCost).toBe(0);
-  expect(state.status).toBe("running");
+  expect(state.status).toBe("idle");
   expect(state.latestUserMessage).toBe("");
   expect(state.currentPlanStep).toBe(null);
 });
@@ -400,6 +400,7 @@ test("a failed write does not advance the plan step", () => {
 
 test("setGatePending toggles between running and blocked", () => {
   const state = createAgentStreamState();
+  state.markRunning();
   expect(state.status).toBe("running");
   state.setGatePending(true);
   expect(state.status).toBe("blocked");

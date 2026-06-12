@@ -23,7 +23,7 @@ export type ContentBlockData =
 
 export type ContentBlock = ContentBlockData & { id: string };
 
-export type AgentStatus = "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
+export type AgentStatus = "idle" | "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
 
 export type AgentStreamState = {
   contentBlocks: ContentBlock[];
@@ -142,7 +142,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   const callIdToArguments = new Map<string, string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
   let turnsUsed = 0;
-  let status: AgentStatus = "running";
+  let status: AgentStatus = "idle";
   let stopRequested = false;
   // True when at least one inference.text.delta fired since the last connector.reply.
   // Used to distinguish model-generated replies (already accumulated via deltas —
@@ -263,7 +263,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       callIdToName.clear();
       callIdToArguments.clear();
       turnsUsed = 0;
-      status = "running";
+      status = "idle";
       stopRequested = false;
       hadTextDeltaSinceLastReply = false;
       awaitingResponse = false;
