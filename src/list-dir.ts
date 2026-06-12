@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
@@ -29,9 +29,25 @@ export async function listDirectory(cwd: string, path: string): Promise<string> 
     return `Error: ${rel} is outside the workspace.`;
   }
 
+  // A symlink inside the workspace can resolve to a target outside it; the
+  // string prefix check above only sees the lexical path. Resolve the real path
+  // of both the target and the root before comparing so symlink escapes are
+  // refused.
+  let realAbs: string;
+  let realCwd: string;
+  try {
+    realAbs = await realpath(abs);
+    realCwd = await realpath(cwd);
+  } catch (err) {
+    return `Error: cannot list ${rel}: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  if (realAbs !== realCwd && !realAbs.startsWith(realCwd + sep)) {
+    return `Error: ${rel} is outside the workspace.`;
+  }
+
   let entries;
   try {
-    entries = await readdir(abs, { withFileTypes: true });
+    entries = await readdir(realAbs, { withFileTypes: true });
   } catch (err) {
     return `Error: cannot list ${rel}: ${err instanceof Error ? err.message : String(err)}`;
   }

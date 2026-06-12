@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listDirectory } from "./list-dir.js";
@@ -34,5 +34,15 @@ describe("listDirectory", () => {
     const dir = await fixture();
     const out = await listDirectory(dir, "nope");
     expect(out).toContain("cannot list nope");
+  });
+
+  test("refuses to follow a symlink that resolves outside the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "list-dir-outside-"));
+    await writeFile(join(outside, "secret.txt"), "");
+    await symlink(outside, join(dir, "escape"));
+    const out = await listDirectory(dir, "escape");
+    expect(out).toContain("outside the workspace");
+    expect(out).not.toContain("secret.txt");
   });
 });

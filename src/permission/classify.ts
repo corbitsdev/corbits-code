@@ -2,6 +2,7 @@ import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes } from "./command.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
+import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 
 // Read-only tools never need approval; they cannot change the workspace. Every
 // other posix tool is consequential and defaults to the "ask" tier. Catastrophic
@@ -18,12 +19,16 @@ export function classifyTool(toolName: string): Tier {
 const SAFE_SHELL_PROGRAMS = new Set([
   "cat", "head", "tail", "wc", "cut", "tr", "nl", "rev", "column", "uniq", "sort", "comm", "look",
   "ls", "tree", "stat", "file", "du", "df", "basename", "dirname", "realpath", "readlink",
-  "echo", "printf", "date", "whoami", "hostname", "uname", "pwd", "which", "type", "printenv", "id",
+  "echo", "printf", "date", "whoami", "hostname", "uname", "pwd", "which", "type", "id",
   "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings",
 ]);
 
 const SHELL_METACHARACTERS = /[|&;<>`$(){}]|\\\n|\n/;
 const WRITE_FLAG = /^(-o|--output)(=|$)/;
+
+// Flags on grep/rg that run an arbitrary binary on each matched file or before
+// the search, turning a "safe" search into arbitrary code execution.
+const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 
 export function isAutoAllowedShellCall(call: ToolCall): boolean {
   if (call.name !== "run_shell") return false;
@@ -35,6 +40,8 @@ export function isAutoAllowedShellCall(call: ToolCall): boolean {
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
   if (tokens.some((token) => WRITE_FLAG.test(token))) return false;
+  if (tokens.some((token) => EXEC_FLAG.test(token))) return false;
+  if (tokens.slice(1).some((token) => isSensitivePath(token))) return false;
 
   return true;
 }
