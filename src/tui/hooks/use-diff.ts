@@ -44,19 +44,26 @@ export function useDiff({ cwd, active }: UseDiffArgs): DiffState {
     lastRefreshAt.current = null;
 
     let cancelled = false;
+    // Guards against overlapping fetches: on a large repo a single diff can take
+    // longer than the interval, and without this the next tick would start a
+    // second fetch that could resolve out of order and show a stale result.
+    let inFlight = false;
 
     const tryRefresh = () => {
+      if (inFlight) return;
       const now = Date.now();
       if (!shouldRefreshDiff({ active, lastRefreshAt: lastRefreshAt.current, nowMs: now, intervalMs: DIFF_REFRESH_INTERVAL_MS })) {
         return;
       }
       lastRefreshAt.current = now;
+      inFlight = true;
       setLoading(true);
       getWorkingTreeDiff(cwd)
         .then((next) => {
           if (!cancelled) setResult(next);
         })
         .finally(() => {
+          inFlight = false;
           if (!cancelled) setLoading(false);
         });
     };
