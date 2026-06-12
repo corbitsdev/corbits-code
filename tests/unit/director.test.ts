@@ -202,3 +202,58 @@ test("a subsequent event after idle-abort done does not emit a second done()", a
   const after = await director.decide(idleTurn(), state, caps);
   expect(hasDone(after)).toBe(false);
 });
+
+function submitCallTurn(): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      content: [{ type: "tool_call", id: "call-submit", name: "submit_output", arguments: { result: "done" } }],
+      model: "test-model",
+      timestamp: 0,
+    },
+    usage,
+    source,
+  };
+}
+
+function submitToolDone(): ReactorInboundEvent {
+  return {
+    type: "tool.done",
+    result: { callId: "call-submit", content: "ok", isError: false },
+  } as unknown as ReactorInboundEvent;
+}
+
+test("submit_output success then a final no-tool-call turn terminates the run", async () => {
+  const director = createCodingDirector("sys", [], undefined, 100);
+  await director.decide(submitCallTurn(), state, makeCapabilities());
+  await director.decide(submitToolDone(), state, makeCapabilities());
+  const result = await director.decide(idleTurn(), state, makeCapabilities());
+  // submit_output is the clean termination signal; it must emit done(), not
+  // leave the loop running until the maxTurns backstop.
+  expect(hasDone(result)).toBe(true);
+});
+
+test("no further action is emitted after a submit-accepted termination", async () => {
+  const director = createCodingDirector("sys", [], undefined, 100);
+  await director.decide(submitCallTurn(), state, makeCapabilities());
+  await director.decide(submitToolDone(), state, makeCapabilities());
+  await director.decide(idleTurn(), state, makeCapabilities());
+  const caps = makeCapabilities();
+  const after = await director.decide(idleTurn(), state, caps);
+  expect(hasDone(after)).toBe(false);
+  expect(after).toEqual([]);
+});
+
+test("setState restores the terminated guard so a resumed terminal run stays terminal", async () => {
+  const director = createCodingDirector("sys", [], undefined, 100);
+  await director.decide(idleTurn(), state, makeCapabilities());
+  await director.decide(idleTurn(), state, makeCapabilities());
+  await director.decide(idleTurn(), state, makeCapabilities());
+  const saved = director.getState();
+
+  const resumed = createCodingDirector("sys", [], saved, 100);
+  const caps = makeCapabilities();
+  const after = await resumed.decide(idleTurn(), state, caps);
+  expect(after).toEqual([]);
+});
