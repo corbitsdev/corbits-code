@@ -67,6 +67,7 @@ export type AppProps = {
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
   onInterrupt?: () => void;
+  onNewSession?: () => void;
   profile?: string;
 };
 
@@ -85,6 +86,7 @@ export function App({
   onToggleHook,
   onAgentError,
   onInterrupt,
+  onNewSession,
   profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
@@ -120,17 +122,6 @@ export function App({
   const { provider, model, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
-
-  const commandContext = useMemo(() => ({
-    getVerbose: () => verbose,
-    toggleVerbose: () => {
-      const next = !verbose;
-      setVerbose(next);
-      return next;
-    },
-    signalClear: () => {},
-    getMCPServers: () => mcpStatus.servers,
-  }), [verbose, mcpStatus.servers]);
 
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
@@ -236,6 +227,27 @@ export function App({
     state.requestStop();
     forceRender((n) => n + 1);
   };
+
+  const startNewSession = () => {
+    sendAbortRef.current?.abort();
+    state.clear();
+    setExpandedTools(new Set());
+    onNewSession?.();
+    scroll.scrollToBottom();
+    forceRender((n) => n + 1);
+  };
+
+  const commandContext = useMemo(() => ({
+    getVerbose: () => verbose,
+    toggleVerbose: () => {
+      const next = !verbose;
+      setVerbose(next);
+      return next;
+    },
+    signalClear: startNewSession,
+    getMCPServers: () => mcpStatus.servers,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [verbose, mcpStatus.servers]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).

@@ -12,6 +12,37 @@ test("createAgentStreamState initial state is empty", () => {
   expect(state.hooks).toEqual([]);
 });
 
+test("clear resets the transcript, telemetry, and status", () => {
+  const state = createAgentStreamState();
+
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 1,
+    data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  state.addEvent({
+    type: "inference.done",
+    seq: 2,
+    data: {
+      turn: { role: "assistant", model: "test", timestamp: 0, content: [] },
+      usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { id: "xai", model: "test" },
+    } as unknown as ReactorEmittedEvent["data"],
+  });
+  expect(state.contentBlocks.length).toBeGreaterThan(0);
+  expect(state.turnsUsed).toBeGreaterThan(0);
+
+  state.clear();
+
+  expect(state.contentBlocks.length).toBe(0);
+  expect(state.turnsUsed).toBe(0);
+  expect(state.totalTokens).toBe(0);
+  expect(state.totalCost).toBe(0);
+  expect(state.status).toBe("running");
+  expect(state.latestUserMessage).toBe("");
+  expect(state.currentPlanStep).toBe(null);
+});
+
 test("createAgentStreamState accumulates tool_call events", () => {
   const state = createAgentStreamState();
 

@@ -46,6 +46,7 @@ export type AgentStreamState = {
   setGatePending(pending: boolean): void;
   requestStop(): void;
   markRunning(): void;
+  clear(): void;
 };
 
 function parsePlanSteps(rawArguments: string): PlanStep[] {
@@ -160,10 +161,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // resolving one gate while another is still open does not prematurely
   // flip status back to "running".
   let gateCount = 0;
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
-  const faremeter = createFaremeter();
+  let faremeter = createFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
   }
@@ -246,6 +247,29 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
+    },
+    clear(): void {
+      contentBlocks.length = 0;
+      contentBlocksDirty = true;
+      blockSeq = 0;
+      callIdToName.clear();
+      callIdToArguments.clear();
+      turnsUsed = 0;
+      status = "running";
+      stopRequested = false;
+      hadTextDeltaSinceLastReply = false;
+      awaitingResponse = false;
+      latestUserMessage = "";
+      planSteps = [];
+      currentPlanStep = null;
+      planDeviated = false;
+      currentToolName = null;
+      streamingType = null;
+      gateCount = 0;
+      startedAt = Date.now();
+      finishedAt = null;
+      openCallId = null;
+      faremeter = createFaremeter();
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {

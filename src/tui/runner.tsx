@@ -33,7 +33,7 @@ import {
   type RunSummary,
 } from "../hooks.js";
 import { createRunSink } from "../run-sink.js";
-import { initSessionDir, sessionContextDir } from "../session.js";
+import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -56,7 +56,9 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 }
 
 export async function runTUI(config: Config): Promise<number> {
-  await initSessionDir(config.cwd, config.sessionId);
+  let sessionId = config.sessionId;
+  let workdir = sessionContextDir(config.cwd, sessionId);
+  await initSessionDir(config.cwd, sessionId);
   const emitter = createTUIEventEmitter();
   const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
@@ -76,7 +78,7 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
-  const approvals = await loadApprovals(config.cwd, config.sessionId);
+  const approvals = await loadApprovals(config.cwd, sessionId);
   const permissionGate = createPermissionGate({
     approvals,
     requestApproval: (request) =>
@@ -88,7 +90,7 @@ export async function runTUI(config: Config): Promise<number> {
       // The gate owns its own approval list now, so maintain the durable store
       // here by recording each grant before writing it out.
       approvals.push(approval);
-      void saveApprovals(config.cwd, config.sessionId, approvals);
+      void saveApprovals(config.cwd, sessionId, approvals);
     },
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
@@ -111,7 +113,7 @@ export async function runTUI(config: Config): Promise<number> {
         apiKey: config.apiKey,
         model: config.model,
       },
-      workdirBase: sessionContextDir(config.cwd, config.sessionId),
+      getWorkdirBase: () => sessionDir(config.cwd, sessionId),
     },
   });
 
@@ -139,8 +141,6 @@ export async function runTUI(config: Config): Promise<number> {
     id: "interchange-code/tui-tools",
     factory: () => toolset.dynamicRunner,
   });
-
-  const workdir = sessionContextDir(config.cwd, config.sessionId);
 
   const def = defineAgent({
     id: "interchange-code/tui-agent",
@@ -258,6 +258,34 @@ export async function runTUI(config: Config): Promise<number> {
     }
   };
 
+  // /clear and /new start a fresh conversation: mint a new session id and its
+  // own state directory, repoint the working tree at it, and rebuild the agent
+  // so it resumes from an empty git-backed store. The prior session stays on
+  // disk under its own id, resumable later. Sub-agents nest under the new
+  // session automatically because getWorkdirBase reads the live id.
+  const newSession = async (): Promise<void> => {
+    if (reloading) return;
+    reloading = true;
+    let release!: () => void;
+    reloadBarrier = new Promise<void>((r) => (release = r));
+    try {
+      sessionId = generateSessionId();
+      workdir = sessionContextDir(config.cwd, sessionId);
+      await initSessionDir(config.cwd, sessionId);
+      approvals.splice(0, approvals.length);
+      await currentAgent.close().catch(() => undefined);
+      await streamPromise.catch(() => undefined);
+      currentAgent = await buildAgent();
+      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+    } catch (err) {
+      recordRunError(err);
+    } finally {
+      reloading = false;
+      reloadBarrier = null;
+      release();
+    }
+  };
+
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
   // and restore it on exit (including abrupt process exit) so history returns.
@@ -282,6 +310,7 @@ export async function runTUI(config: Config): Promise<number> {
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
       onInterrupt={() => { void interrupt(); }}
+      onNewSession={() => { void newSession(); }}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
     { exitOnCtrlC: false },
