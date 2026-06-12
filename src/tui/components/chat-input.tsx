@@ -29,6 +29,7 @@ export type InputKey = {
   tab: boolean;
   ctrl: boolean;
   meta: boolean;
+  shift: boolean;
 };
 
 export type EditState = {
@@ -64,6 +65,16 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
     return {
       value: value.slice(0, cursor) + value.slice(cursor + 1),
       cursor,
+    };
+  }
+
+  // Shift+Enter (and Alt/Option+Enter, which some terminals send instead)
+  // inserts a newline rather than submitting. Plain Enter is handled by the
+  // caller as submit.
+  if (key.return && (key.shift || key.meta)) {
+    return {
+      value: value.slice(0, cursor) + "\n" + value.slice(cursor),
+      cursor: cursor + 1,
     };
   }
 
@@ -167,7 +178,7 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       }
     }
 
-    if (key.return) {
+    if (key.return && !key.shift && !key.meta) {
       const trimmed = value.trim();
       if (trimmed.length > 0) {
         if (trimmed.startsWith("/")) {
