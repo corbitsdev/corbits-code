@@ -10,6 +10,12 @@ import {
 } from "../../../src/tui/components/event-log.js";
 import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
 import type { ContentBlock } from "../../../src/tui/use-stream.js";
+import { wrapCount } from "../../../src/tui/view/height.js";
+
+let blockSeq = 0;
+function block(data: Omit<ContentBlock, "id">): RenderableBlock {
+  return { ...data, id: `wb${(blockSeq += 1)}` } as RenderableBlock;
+}
 
 type Overrides = Partial<Parameters<typeof EventLog>[0]>;
 
@@ -295,4 +301,23 @@ test("EventLog windows visible blocks by scrollOffset", () => {
   expect(frame).toContain("line-0");
   expect(frame).not.toContain("line-5");
   expect(frame).not.toContain("line-9");
+});
+
+test("wrapCount word-wraps greedily instead of packing characters", () => {
+  expect(wrapCount("aaaaaa aaaaaa aaaaaa", 10)).toBe(3);
+  expect(Math.ceil("aaaaaa aaaaaa aaaaaa".length / 10)).toBe(2);
+  expect(wrapCount("short", 10)).toBe(1);
+  expect(wrapCount("a\nb\nc", 10)).toBe(3);
+});
+
+test("visibleWindow does not reserve spacing for the topmost visible block", () => {
+  const blocks: RenderableBlock[] = [
+    block({ type: "text", content: "a" }),
+    block({ type: "text", content: "b" }),
+    block({ type: "text", content: "c" }),
+  ];
+  const expanded = () => false;
+  const win = visibleWindow(blocks, blocks.length, 3, 200, false, expanded);
+  expect(win.end).toBe(3);
+  expect(win.start).toBe(1);
 });

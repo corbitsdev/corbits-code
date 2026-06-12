@@ -8,6 +8,7 @@ import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
 import { View, viewHeight } from "../view/index.js";
+import { wrapCount } from "../view/height.js";
 import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
@@ -45,10 +46,6 @@ export function windowBlocks<T>(blocks: T[], scrollOffset: number, visibleRows: 
   return blocks.slice(start, start + visibleRows);
 }
 
-// Roughly how many terminal rows a block will paint at this width. Used only to
-// bound the visible window so the log never emits more rows than the viewport —
-// emitting more than the terminal can show makes Ink's redraw desync and ghost
-// stale text. The estimate errs toward overcounting (safer: shows slightly less).
 function estimateRows(
   block: RenderableBlock,
   columns: number,
@@ -56,21 +53,19 @@ function estimateRows(
   expanded: boolean,
 ): number {
   const width = Math.max(8, columns - LINE_PADDING);
-  const wrap = (text: string): number => Math.max(1, Math.ceil(text.length / width));
-  const sumLines = (content: string): number =>
-    content.split("\n").reduce((n, line) => n + wrap(line), 0);
+  const rows = (text: string): number => wrapCount(text, width);
 
   switch (block.type) {
     case "user":
-      return expanded ? sumLines(block.content) : 1;
+      return expanded ? rows(block.content) : 1;
     case "thinking":
-      return thinkingExpanded ? 1 + sumLines(block.content) : 1;
+      return thinkingExpanded ? 1 + rows(block.content) : 1;
     case "text":
-      return sumLines(block.content);
+      return rows(block.content);
     case "tool_call":
-      return expanded ? 1 + sumLines(block.arguments) : 1;
+      return expanded ? 1 + rows(block.arguments) : 1;
     case "tool_result": {
-      if (block.isError) return wrap(block.content);
+      if (block.isError) return rows(block.content);
       if (isMcpToolName(block.name) && !block.isError) {
         const records = extractMcpRecords(block.content);
         if (records !== null) return viewHeight(mcpRecordsToView(records), columns);
@@ -78,25 +73,22 @@ function estimateRows(
         if (record !== null) return viewHeight(mcpRecordToView(record), columns);
       }
       const { full, isJSONDocument } = summarizeToolResult(block.name, block.content);
-      // JSON documents render via parseMarkdown which transforms tables (drops
-      // the separator row, pads cells) so the rendered line count differs from
-      // the raw newline count. Count parsed lines directly to stay accurate.
       if (isJSONDocument) return parseMarkdown(full).length;
-      return expanded ? sumLines(full) : 1;
+      return expanded ? rows(full) : 1;
     }
     case "view":
       return viewHeight(block.node, columns);
     case "error":
-      return sumLines(block.message);
+      return rows(block.message);
     default:
       return 1;
   }
 }
 
-// Select the slice to render: take the bottom of the current block window, then
-// walk upward accumulating estimated rows until the viewport is full. This keeps
-// the newest content visible and guarantees the painted height never exceeds
-// `visibleRows`, which is what prevents the ghosting on overflow.
+function isSpacedBlock(block: RenderableBlock | undefined): boolean {
+  return block !== undefined && (block.type === "user" || block.type === "text");
+}
+
 export function visibleWindow(
   blocks: RenderableBlock[],
   scrollOffset: number,
@@ -112,9 +104,10 @@ export function visibleWindow(
     let start = end;
     for (let i = end - 1; i >= 0; i--) {
       const block = blocks[i]!;
-      const spaced = block.type === "user" || block.type === "text";
+      const previousTopGainsSpacing = start < end && isSpacedBlock(blocks[start]);
       const next =
-        estimateRows(block, columns, thinkingExpanded, isExpanded(block)) + (spaced ? 1 : 0);
+        estimateRows(block, columns, thinkingExpanded, isExpanded(block)) +
+        (previousTopGainsSpacing ? 1 : 0);
       if (rows + next > visibleRows && start < end) break;
       rows += next;
       start = i;
