@@ -50,7 +50,13 @@ export function PermissionsManager({ entries, onRevoke, onClose }: PermissionsMa
     }
     if (input === "d" || key.delete || key.backspace) {
       const target = ordered[active];
-      if (target !== undefined) onRevoke(target);
+      if (target !== undefined) {
+        // The parent reloads the list after a revoke, shifting indices. Drop the
+        // cursor to the top now so a follow-up keystroke can't revoke a row that
+        // slid under it.
+        setSelected(0);
+        onRevoke(target);
+      }
     }
   });
 
