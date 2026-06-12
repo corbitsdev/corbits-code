@@ -1,0 +1,62 @@
+import { test, expect } from "bun:test";
+import { shouldAbortForStall } from "../../../src/tui/app.js";
+
+test("shouldAbortForStall: fires when running, awaiting, and stalled beyond timeout", () => {
+  expect(shouldAbortForStall({
+    status: "running",
+    awaitingResponse: true,
+    lastActivityAt: 0,
+    nowMs: 130000,
+    stallTimeoutMs: 120000,
+  })).toBe(true);
+});
+
+test("shouldAbortForStall: does not fire when activity is recent", () => {
+  expect(shouldAbortForStall({
+    status: "running",
+    awaitingResponse: true,
+    lastActivityAt: 120000,
+    nowMs: 130000,
+    stallTimeoutMs: 120000,
+  })).toBe(false);
+});
+
+test("shouldAbortForStall: does not fire when not awaiting response", () => {
+  expect(shouldAbortForStall({
+    status: "running",
+    awaitingResponse: false,
+    lastActivityAt: 0,
+    nowMs: 130000,
+    stallTimeoutMs: 120000,
+  })).toBe(false);
+});
+
+test("shouldAbortForStall: does not fire when status is not running", () => {
+  expect(shouldAbortForStall({
+    status: "done",
+    awaitingResponse: true,
+    lastActivityAt: 0,
+    nowMs: 130000,
+    stallTimeoutMs: 120000,
+  })).toBe(false);
+});
+
+test("shouldAbortForStall: does not fire when status is stopping", () => {
+  expect(shouldAbortForStall({
+    status: "stopping",
+    awaitingResponse: true,
+    lastActivityAt: 0,
+    nowMs: 130000,
+    stallTimeoutMs: 120000,
+  })).toBe(false);
+});
+
+test("shouldAbortForStall: boundary — exactly at timeout fires", () => {
+  expect(shouldAbortForStall({
+    status: "running",
+    awaitingResponse: true,
+    lastActivityAt: 0,
+    nowMs: 120000,
+    stallTimeoutMs: 120000,
+  })).toBe(true);
+});

@@ -53,9 +53,10 @@ function colorProps(role: SemanticRole | undefined): { color?: string } {
 }
 
 // Allocate a width to each column so the row fits `available`, dropping columns
-// from the right when space is tight (ported from the MCP table) and letting the
-// first column absorb any leftover. Returns the surviving columns and widths.
-function allocate(columns: ViewColumn[], rows: Record<string, string>[], available: number): { columns: ViewColumn[]; widths: number[] } {
+// from the right when space is tight (ported from the MCP table). Leftover space
+// is distributed to the last column, not to a right-aligned first column.
+// Returns the surviving columns and widths.
+export function allocate(columns: ViewColumn[], rows: Record<string, string>[], available: number): { columns: ViewColumn[]; widths: number[] } {
   const natural = columns.map((c) =>
     Math.min(24, Math.max(c.header.length, ...rows.map((r) => (r[c.field] ?? "").length), 1)),
   );
@@ -68,7 +69,7 @@ function allocate(columns: ViewColumn[], rows: Record<string, string>[], availab
   }
   if (widths.length === 1 && widths[0]! > available) widths[0] = available;
   const leftover = available - total();
-  if (leftover > 0) widths[0] = widths[0]! + leftover;
+  if (leftover > 0 && widths.length > 0) widths[widths.length - 1] = widths[widths.length - 1]! + leftover;
   return { columns: cols, widths };
 }
 

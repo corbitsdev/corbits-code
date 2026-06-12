@@ -1,13 +1,14 @@
-import { test, expect } from "bun:test";
+import { test, expect, mock } from "bun:test";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
-import { useTerminalSize } from "../../../src/tui/hooks/use-terminal-size.js";
+import { useTerminalSize, debounce } from "../../../src/tui/hooks/use-terminal-size.js";
 
 // ink-testing-library's internal Stdout hardcodes columns=100 and has no rows
 // property (so rows falls back to the hook's FALLBACK_ROWS=24). These tests
 // assert the hook correctly reads what the ink context provides.
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
+const fastTick = (): Promise<void> => new Promise((r) => setImmediate(r));
 
 function Harness() {
   const { columns, rows } = useTerminalSize();
@@ -34,4 +35,44 @@ test("hook re-renders on resize: columns update is reflected in frame", async ()
   stdout.emit("resize");
   await tick();
   expect(lastFrame()).toContain("cols:100");
+});
+
+test("debounce coalesces rapid calls into a single invocation", async () => {
+  const fn = mock(() => {});
+  const debounced = debounce(fn, 50);
+
+  debounced();
+  debounced();
+  debounced();
+
+  await fastTick();
+  expect(fn).toHaveBeenCalledTimes(0);
+
+  await new Promise((r) => setTimeout(r, 60));
+  expect(fn).toHaveBeenCalledTimes(1);
+});
+
+test("debounce trailing call uses latest arguments", async () => {
+  const fn = mock(() => {});
+  const debounced = debounce(fn, 50);
+
+  debounced("first");
+  debounced("second");
+  debounced("third");
+
+  await new Promise((r) => setTimeout(r, 60));
+  expect(fn).toHaveBeenCalledWith("third");
+  expect(fn).toHaveBeenCalledTimes(1);
+});
+
+test("debounce clears pending timer on cleanup", async () => {
+  const fn = mock(() => {});
+  const debounced = debounce(fn, 100);
+
+  debounced();
+  const cleanup = debounced.cleanup;
+  cleanup();
+
+  await new Promise((r) => setTimeout(r, 150));
+  expect(fn).not.toHaveBeenCalled();
 });

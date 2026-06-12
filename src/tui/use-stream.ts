@@ -100,6 +100,30 @@ function stringifyToolContent(content: unknown): string {
 
 export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = []): AgentStreamState {
   const contentBlocks: ContentBlock[] = [];
+  // Cached snapshot returned by the contentBlocks getter. Rebuilt lazily only
+  // when the internal array is mutated, so repeated reads within one render
+  // return the same reference and referential-equality memoization holds.
+  let contentBlocksSnapshot: ContentBlock[] = [];
+  let contentBlocksDirty = true;
+
+  // Wrappers that mark the snapshot dirty so the getter rebuilds on next read.
+  const pushBlock = (block: ContentBlock): void => {
+    contentBlocks.push(block);
+    contentBlocksDirty = true;
+  };
+  const spliceBlocks = (start: number, deleteCount: number): void => {
+    contentBlocks.splice(start, deleteCount);
+    contentBlocksDirty = true;
+  };
+  const unshiftBlock = (block: ContentBlock): void => {
+    contentBlocks.unshift(block);
+    contentBlocksDirty = true;
+  };
+  const setBlock = (index: number, block: ContentBlock): void => {
+    contentBlocks[index] = block;
+    contentBlocksDirty = true;
+  };
+
   const callIdToName = new Map<string, string>();
   const callIdToArguments = new Map<string, string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
@@ -121,6 +145,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   let planDeviated = false;
   let currentToolName: string | null = null;
   let streamingType: "text" | "thinking" | "tool" | null = null;
+  // Refcount of open gates. Status is "blocked" while this is > 0, so
+  // resolving one gate while another is still open does not prematurely
+  // flip status back to "running".
+  let gateCount = 0;
   const startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
@@ -131,7 +159,11 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
 
   return {
     get contentBlocks() {
-      return [...contentBlocks];
+      if (contentBlocksDirty) {
+        contentBlocksSnapshot = [...contentBlocks];
+        contentBlocksDirty = false;
+      }
+      return contentBlocksSnapshot;
     },
     get turnsUsed() {
       return turnsUsed;
@@ -176,8 +208,14 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       return streamingType;
     },
     setGatePending(pending: boolean): void {
+      // Always balance the count, even when the run is terminal/stopping — a gate
+      // that opened while running can still resolve after a stop, and if the
+      // decrement were skipped the count would stick above zero and wedge the
+      // next run in "blocked". Only the status flip is gated on a live run.
+      gateCount += pending ? 1 : -1;
+      if (gateCount < 0) gateCount = 0;
       if (status === "done" || status === "failed" || status === "stopping" || status === "stopped") return;
-      status = pending ? "blocked" : "running";
+      status = gateCount > 0 ? "blocked" : "running";
     },
     requestStop(): void {
       // Only an in-flight run can be stopped. Once stopping, the reactor's
@@ -188,7 +226,10 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).
+      // Clear any gate count left over from an aborted-while-gated prior run so
+      // the new run never starts wedged in "blocked".
       stopRequested = false;
+      gateCount = 0;
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
@@ -198,7 +239,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         case "message.received": {
           const data = event.data as { message: { content: string } };
           latestUserMessage = data.message.content;
-          contentBlocks.push({ type: "user", content: data.message.content });
+          pushBlock({ type: "user", content: data.message.content });
           break;
         }
         case "inference.thinking.delta": {
@@ -208,8 +249,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
             last.content += token;
+            contentBlocksDirty = true;
           } else {
-            contentBlocks.push({ type: "thinking", content: token });
+            pushBlock({ type: "thinking", content: token });
           }
           break;
         }
@@ -221,8 +263,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
             last.content += token;
+            contentBlocksDirty = true;
           } else {
-            contentBlocks.push({ type: "text", content: token });
+            pushBlock({ type: "text", content: token });
           }
           break;
         }
@@ -234,7 +277,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           callIdToName.set(data.callId, data.name);
           callIdToArguments.set(data.callId, "");
           openCallId = data.callId;
-          contentBlocks.push({ type: "tool_call", name: data.name, arguments: "" });
+          pushBlock({ type: "tool_call", name: data.name, arguments: "" });
           break;
         }
         case "inference.tool_call.delta": {
@@ -242,6 +285,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "tool_call") {
             last.arguments += fragment;
+            contentBlocksDirty = true;
           }
           if (openCallId !== null) {
             callIdToArguments.set(openCallId, (callIdToArguments.get(openCallId) ?? "") + fragment);
@@ -255,8 +299,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             const last = contentBlocks[contentBlocks.length - 1];
             if (last && last.type === "text") {
               last.content += replyData.content;
+              contentBlocksDirty = true;
             } else {
-              contentBlocks.push({ type: "text", content: replyData.content });
+              pushBlock({ type: "text", content: replyData.content });
             }
           }
           hadTextDeltaSinceLastReply = false;
@@ -284,15 +329,18 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
               }
             }
             const planArgs = callIdToArguments.get(result.callId) ?? "";
+            // Read all needed values before deleting map entries (H4).
+            callIdToName.delete(result.callId);
+            callIdToArguments.delete(result.callId);
             const steps = parsePlanSteps(planArgs);
             if (planCallIndex >= 0) {
-              contentBlocks.splice(planCallIndex, 1);
+              spliceBlocks(planCallIndex, 1);
             }
             const existingPlanIndex = contentBlocks.findIndex((b) => b.type === "plan");
             if (existingPlanIndex >= 0) {
-              contentBlocks[existingPlanIndex] = { type: "plan", steps };
+              setBlock(existingPlanIndex, { type: "plan", steps });
             } else {
-              contentBlocks.unshift({ type: "plan", steps });
+              unshiftBlock({ type: "plan", steps });
             }
             planSteps = steps;
             planDeviated = false;
@@ -322,6 +370,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
           // error surfaces and the model can self-correct.
           if (name === "present" && !result.isError) {
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
+            // Read args before deleting (H4).
+            callIdToName.delete(result.callId);
+            callIdToArguments.delete(result.callId);
             let view: unknown;
             try {
               view = (JSON.parse(rawArgs) as { view?: unknown }).view;
@@ -330,17 +381,34 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             }
             const validated = validateView(view);
             if (validated.ok) {
-              contentBlocks.push({ type: "view", node: validated.node });
+              // Remove the originating tool_call block so it does not appear
+              // as a redundant "Render view" line above the rendered output (H3).
+              let presentCallIndex = -1;
+              for (let i = contentBlocks.length - 1; i >= 0; i--) {
+                const b = contentBlocks[i];
+                if (b?.type === "tool_call" && b.name === "present") {
+                  presentCallIndex = i;
+                  break;
+                }
+              }
+              if (presentCallIndex >= 0) {
+                spliceBlocks(presentCallIndex, 1);
+              }
+              pushBlock({ type: "view", node: validated.node });
               break;
             }
           }
 
-          contentBlocks.push({ type: "tool_result", callId: result.callId, name, content, isError: result.isError });
+          // Delete map entries now that all special-case handling is done (H4).
+          callIdToName.delete(result.callId);
+          callIdToArguments.delete(result.callId);
+
+          pushBlock({ type: "tool_result", callId: result.callId, name, content, isError: result.isError });
           break;
         }
         case "reactor.error": {
           const data = event.data as { fatal: boolean; error: string };
-          contentBlocks.push({ type: "error", message: data.error });
+          pushBlock({ type: "error", message: data.error });
           break;
         }
         case "inference.error": {
@@ -355,7 +423,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             protocol_mismatch: "Unexpected response from inference API.",
           };
           const msg = friendly[err.category] ?? err.message;
-          contentBlocks.push({ type: "error", message: msg });
+          pushBlock({ type: "error", message: msg });
           break;
         }
         default:

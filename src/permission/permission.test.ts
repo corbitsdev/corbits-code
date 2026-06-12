@@ -241,4 +241,155 @@ describe("createPermissionGate", () => {
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
+
+  // SECURITY: skipPermissions must short-circuit BEFORE the approval callback is
+  // ever invoked. If the callback fires it means skipPermissions is being used as
+  // a post-classification hint rather than a gate bypass, which could leave the
+  // callback in control of the allow/deny outcome.
+  test("skipPermissions never invokes the approval callback", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: true,
+    });
+    const verdict = await gate.evaluate(shellCall("rm -rf /"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  // SECURITY: headless (interactive=false, no requestApproval) with an unapproved
+  // ask-tier tool must produce a hard denial. Silent allow would be catastrophic
+  // because automated pipelines often run headless and must not silently gain
+  // write/exec capabilities.
+  test("headless run denies unapproved ask-tier tool with a reason", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/evil.ts" } });
+    expect(verdict.allowed).toBe(false);
+    expect("reason" in verdict && verdict.reason.length > 0).toBe(true);
+  });
+
+  // SECURITY: headless with requestApproval present but interactive=false must
+  // still deny — interactive=false is the authoritative headless signal, not the
+  // absence of the callback.
+  test("interactive=false denies even when a requestApproval callback is provided", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: false,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("curl x"));
+    expect(verdict.allowed).toBe(false);
+    // The callback must never fire in headless mode — calling it would be wrong
+    // even if we ultimately denied, because it implies we surfaced a UI prompt.
+    expect(asked).toBe(0);
+  });
+
+  // auto mode rule: `call.name !== "run_shell"` auto-approves. Pin this exactly
+  // so a future code change that widens or narrows the condition breaks a test.
+  test("auto mode auto-approves edit_file and unknown ask-tier tools, not run_shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+
+    // Non-shell ask-tier tools must be auto-approved without asking.
+    const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
+    expect(editVerdict.allowed).toBe(true);
+    const unknownVerdict = await gate.evaluate({ id: "c", name: "web_search", arguments: {} });
+    expect(unknownVerdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+
+    // run_shell must NOT be auto-approved — it goes to the approval callback.
+    const shellVerdict = await gate.evaluate(shellCall("curl x"));
+    expect(shellVerdict.allowed).toBe(true); // callback returns allow: true
+    expect(asked).toBe(1);
+  });
+
+  // SECURITY: persist callback must fire EXACTLY ONCE when pattern is non-null,
+  // and NEVER when pattern is null ("just this once" approval).
+  test("persist fires exactly once for a non-null pattern approval", async () => {
+    const persisted: Approval[] = [];
+    const persistScope: PermissionRequest["scopes"][number] = { id: "exact", label: "", pattern: "curl x" };
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: persistScope }),
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("curl x"));
+    // Evaluate same command again — now pre-approved, persist should not fire again.
+    await gate.evaluate(shellCall("curl x"));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toEqual({ tool: "run_shell", pattern: "curl x" });
+  });
+
+  test("persist never fires when pattern is null (one-time approval)", async () => {
+    const persisted: Approval[] = [];
+    // pattern: null signals "allow just this once — do not remember"
+    const oneTimeScope: PermissionRequest["scopes"][number] = { id: "once", label: "", pattern: null };
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true, persist: oneTimeScope }),
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+    await gate.evaluate(shellCall("curl x"));
+    expect(persisted).toHaveLength(0);
+  });
+
+  // SECURITY: chained-shell bypass vector. A command whose first segment is
+  // benign and whose later segment is write-like must NOT have the dangerous
+  // segment masked. Each segment must be classified and approved independently.
+  // A failure here means `echo ok && cat > /etc/passwd` could slip through if
+  // only the first segment's classification were checked.
+  test("dangerous later segment in a chain is classified independently from a benign first", async () => {
+    const seen: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      // Allow the benign first segment, deny everything else.
+      requestApproval: async (req) => {
+        seen.push(req.subject);
+        return { allow: req.subject === "echo ok" };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    // The dangerous second segment must be presented as its own request, not
+    // hidden behind the benign echo.
+    const verdict = await gate.evaluate(shellCall("echo ok && cat > /etc/x"));
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toContain("echo ok");
+    expect(seen).toContain("cat > /etc/x");
+  });
+
+  // Verify the chained classification produces separate PermissionRequests with
+  // the correct subjects — the dangerous segment must not inherit the benign one's
+  // approval scope or subject.
+  test("buildRequests splits chained command into independent requests with correct subjects", () => {
+    const reqs = buildRequests(shellCall("echo ok && cat > /etc/x"));
+    expect(reqs).toHaveLength(2);
+    expect(reqs[0]?.subject).toBe("echo ok");
+    expect(reqs[1]?.subject).toBe("cat > /etc/x");
+    // Each request must carry its own scopes derived from its own segment.
+    const firstPatterns = reqs[0]?.scopes.map((s) => s.pattern) ?? [];
+    const secondPatterns = reqs[1]?.scopes.map((s) => s.pattern) ?? [];
+    expect(firstPatterns.some((p) => p !== null && p.startsWith("echo"))).toBe(true);
+    expect(secondPatterns.some((p) => p !== null && p.startsWith("cat"))).toBe(true);
+    // Cross-contamination check: the dangerous segment must not carry an echo scope.
+    expect(secondPatterns.some((p) => p !== null && p.startsWith("echo"))).toBe(false);
+  });
 });

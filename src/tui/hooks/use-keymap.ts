@@ -99,11 +99,11 @@ export function handleKey(
     }
     return now;
   }
-  if (key.upArrow && !context.hasInput) {
+  if (key.upArrow) {
     actions.scrollUp();
     return lastEscMs;
   }
-  if (key.downArrow && !context.hasInput) {
+  if (key.downArrow) {
     actions.scrollDown();
     return lastEscMs;
   }
@@ -112,10 +112,6 @@ export function handleKey(
     return lastEscMs;
   }
   if (key.ctrl && input === "r") {
-    actions.toggleLastTool();
-    return lastEscMs;
-  }
-  if (key.ctrl && input === "o") {
     actions.toggleLastTool();
     return lastEscMs;
   }

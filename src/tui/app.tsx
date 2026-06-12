@@ -1,4 +1,5 @@
 import { Box, Text, useApp } from "ink";
+import type { AgentStatus } from "./use-stream.js";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
@@ -30,6 +31,26 @@ import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import type { LifecycleHookStatus } from "../hooks.js";
 import "./commands/built-in.js";
+
+// How long the run can be continuously awaiting a response with no new content
+// before the watchdog fires and aborts the in-flight request.
+export const STALL_TIMEOUT_MS = 120_000;
+
+export type ShouldAbortForStallArgs = {
+  status: AgentStatus;
+  awaitingResponse: boolean;
+  lastActivityAt: number;
+  nowMs: number;
+  stallTimeoutMs: number;
+};
+
+// Pure decision helper: returns true when the run is genuinely stuck and should
+// be aborted. Extracted so the timeout logic is unit-testable without a React harness.
+export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, nowMs, stallTimeoutMs }: ShouldAbortForStallArgs): boolean {
+  if (status !== "running") return false;
+  if (!awaitingResponse) return false;
+  return nowMs - lastActivityAt >= stallTimeoutMs;
+}
 
 export type AppProps = {
   eventEmitter: EventEmitter;
@@ -114,6 +135,12 @@ export function App({
     return block?.type === "plan" ? block.steps : [];
   }, [state.contentBlocks]);
 
+  // McpAuthPrompt and commandMessage render outside the overlay region, so
+  // their rows must be subtracted explicitly to prevent the log from overpainting.
+  const extraChromeRows =
+    (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
+    (commandMessage !== null ? 1 : 0);
+
   const layout = useLayoutGeometry({
     columns,
     rows,
@@ -126,6 +153,7 @@ export function App({
     modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
     hookCount: state.hooks.length,
     providerCatalog,
+    extraChromeRows,
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows } = layout;
 
@@ -154,7 +182,7 @@ export function App({
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
   const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
-  const diff = useDiff({ cwd: process.cwd(), active: diffActive, refreshKey: renderableCount });
+  const diff = useDiff({ cwd: process.cwd(), active: diffActive });
   const diffLineCount = useMemo(
     () => (diff.result?.available ? diff.result.files.reduce((n, f) => n + f.lines.length, 0) : 0),
     [diff.result],
@@ -199,6 +227,36 @@ export function App({
     // reflect the "Stopping" status immediately rather than on the next event.
     forceRender((n) => n + 1);
   };
+
+  // Track the last moment real progress was observed. Reset whenever new content
+  // blocks arrive or the streaming type changes (both are signs the model is alive).
+  const lastActivityAtRef = useRef(Date.now());
+  const contentBlocksLength = state.contentBlocks.length;
+  useEffect(() => {
+    lastActivityAtRef.current = Date.now();
+  }, [contentBlocksLength, state.streamingType]);
+
+  // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
+  // with no new content, abort the in-flight request and surface a message so the
+  // user knows they need to retry rather than waiting indefinitely.
+  useEffect(() => {
+    if (state.status !== "running") return;
+    const check = () => {
+      if (shouldAbortForStall({
+        status: state.status,
+        awaitingResponse: state.awaitingResponse,
+        lastActivityAt: lastActivityAtRef.current,
+        nowMs: Date.now(),
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+      })) {
+        requestStop();
+        setCommandMessage("Request timed out after no response. Please retry.");
+      }
+    };
+    const handle = setInterval(check, 1000);
+    return () => clearInterval(handle);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status, state.awaitingResponse]);
 
   // Send the initial task once the App (and its gate listeners) is mounted, so
   // the run is driven through the same abortable path as interactive sends.
