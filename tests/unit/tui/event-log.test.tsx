@@ -321,3 +321,15 @@ test("visibleWindow does not reserve spacing for the topmost visible block", () 
   expect(win.end).toBe(3);
   expect(win.start).toBe(1);
 });
+
+test("visibleWindow charges spacing to lower blocks, not an unspaced top block", () => {
+  const blocks: RenderableBlock[] = [
+    block({ type: "tool_call", name: "read_file", arguments: "{}" }),
+    block({ type: "text", content: "b" }),
+    block({ type: "text", content: "c" }),
+  ];
+  const expanded = () => false;
+  const win = visibleWindow(blocks, blocks.length, 5, 200, false, expanded);
+  expect(win.start).toBe(0);
+  expect(win.end).toBe(3);
+});
