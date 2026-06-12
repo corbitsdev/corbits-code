@@ -239,6 +239,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
     if (event.type === "tool.done") {
       if (isOperatorDeclinedToolResult(event.result)) {
+        // Mark terminal like the other done() paths so a stray later event
+        // cannot re-enter decide() and emit a second done().
+        this.terminated = true;
         return [
           capabilities.checkpoint("operator-declined"),
           capabilities.done(),
