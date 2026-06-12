@@ -62,17 +62,34 @@ bin/
   pre-commit              Runs typecheck + build before every commit
 src/
   index.ts                CLI entry: verbs, .env load, dispatch, help
-  config.ts               Config resolution (env vars + flags)
-  run-agent.ts            Headless runner: tools, director, hooks, critique
-  stream-consumer.ts      Async stream consumer with error handling
-  director.ts             CodingDirector + ChatDirector; director-layer tool defs
-  prompts.ts              System prompt builders (agent + chat)
-  state.ts                RunState / DirectorPersistedState JSON save/load
-  critic.ts               Post-submit critique (build, typecheck, test)
-  faremeter.ts            Token usage → cost
-  pricing-fetcher.ts      models.dev pricing load + background refresh
-  renderer.ts             Headless event-stream renderer (stderr + live cost)
-  hooks.ts                Lifecycle hooks: discovery, turn collector, run summary
+  agent/
+    director.ts           CodingDirector + ChatDirector; director-layer tool defs
+    prompts.ts            System prompt builders (agent + chat)
+    critic.ts             Post-submit critique (build, typecheck, test)
+    tools.ts              Agent tool registration helpers
+    renderer.ts           Headless event-stream renderer (stderr + live cost)
+    run-agent.ts          Headless runner: tools, director, hooks, critique
+  session/
+    index.ts              Session lifecycle (was session.ts)
+    state.ts              RunState / DirectorPersistedState JSON save/load
+    compactor.ts          Context compactor (was context-compactor.ts)
+    run-sink.ts           Run-level event sink
+    stream-consumer.ts    Async stream consumer with error handling
+    hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
+  subagent/
+    index.ts              Subagent creation (was subagent.ts)
+    inject.ts             Mid-run message injection queue (was mid-run-inject.ts)
+  config/
+    index.ts              Config resolution (env vars + flags) (was config.ts)
+    settings.ts           Settings schema, validators, loaders, resolveProvider
+    providers.ts          ProviderCatalogEntry type + TUI provider list helpers
+    profiles.ts           Profile-level selection logic
+  cost/
+    faremeter.ts          Token usage → cost
+    pricing-fetcher.ts    models.dev pricing load + background refresh
+  util/
+    alt-screen.ts         Terminal alternate-screen helpers
+    list-dir.ts           Directory listing utility
   permission/
     classify.ts           Tool tier + approval-request construction
     command.ts            Chained-command split + command scopes
@@ -90,7 +107,7 @@ src/
   tui/
     app.tsx               Root full-screen layout
     runner.tsx            Chat-mode agent setup + Ink render (alt-screen)
-    use-stream.ts         Event stream → React state
+    use-stream.ts         Event stream → React state (AgentStatus machine)
     git-diff.ts           Working-tree diff
     tool-formatter.ts     Human-readable tool args/results
     markdown-parser.ts    Markdown rendering
@@ -104,9 +121,10 @@ src/
       plan-view.tsx, diff-view.tsx, context-panel.tsx,
       operator-modal.tsx, permission-modal.tsx, approval-modal.tsx,
       agent-modal.tsx, exit-confirm.tsx, help-overlay.tsx, hook-panel.tsx,
-      in-flight-indicator.tsx
+      in-flight-indicator.tsx, modal-stack.tsx
     hooks/
-      use-diff.ts, use-gates.ts, use-keymap.ts,
+      use-diff.ts, use-gates.ts, use-keymap.ts, use-layout-geometry.ts,
+      use-mcp-status.ts, use-provider-manager.ts,
       use-scroll.ts, use-spinner.ts, use-terminal-size.ts
 docs/
   PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, HOOKS.md
@@ -207,6 +225,9 @@ Positional arguments are joined into the task description. In headless mode a ta
 - `connector.reply` — model reply content
 - `inference.error` / `reactor.error` — parse/inference and fatal errors
 - `reactor.done` — loop completion
+
+The TUI `EventEmitter` (bridging runner → React) also carries:
+- `"mid-run.delivered"` — emitted by `runner.tsx` after a queued mid-run message is delivered to the agent; `app.tsx` listens to increment the badge count
 
 ### Lifecycle Hooks
 
