@@ -79,6 +79,41 @@ test("operator gate surfaces and resolves the selected index", async () => {
   expect(lastFrame()).toContain("none none none open=0");
 });
 
+// E1: two gates open concurrently — each gate independently calls setGatePending
+// on open (true) and close (false). The caller (use-stream.ts) owns the refcount;
+// use-gates.ts is responsible only for signalling its own gate transitions.
+test("E1: each gate independently signals open and close to setGatePending", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  const { stdin } = render(<Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />);
+  await tick();
+
+  // Open the plan gate first.
+  const planEvent: PlanGateEvent = {
+    plan: [{ file: "a.ts", action: "x" }],
+    resolve: () => {},
+  };
+  emitter.emit("plan.gate", planEvent);
+  await tick();
+  expect(gateCalls).toEqual([true]);
+
+  // Open the operator gate while plan gate is still open.
+  const opEvent: OperatorGateEvent = {
+    question: "pick",
+    options: ["yes"],
+    resolve: () => {},
+  };
+  emitter.emit("operator.gate", opEvent);
+  await tick();
+  expect(gateCalls).toEqual([true, true]);
+
+  // Resolve the plan gate — use-gates signals false for it; refcount in
+  // use-stream.ts ensures status stays blocked until all gates close.
+  stdin.write("a");
+  await tick();
+  expect(gateCalls).toEqual([true, true, false]);
+});
+
 test("permission gate surfaces a request and resolves the outcome", async () => {
   const emitter = new EventEmitter();
   let outcome: { allow: boolean } | null = null;
