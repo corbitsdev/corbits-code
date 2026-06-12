@@ -135,26 +135,35 @@ describe("submit_output without plan", () => {
 describe("operator declined tool calls", () => {
   const declined = "Blocked by permission policy: Operator declined: Run shell command (npm view hono version)";
 
-  function stopsAfterDecline(result: ReactorAction | ReactorAction[]): boolean {
-    const actions = actionsArray(result);
-    return (
-      actions.some((a) => a.type === "checkpoint" && "message" in a && a.message === "operator-declined") &&
-      actions.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.") &&
-      actions.some((a) => a.type === "done") &&
-      !actions.some((a) => a.type === "infer")
-    );
-  }
+  const hasCheckpoint = (actions: ReactorAction[]): boolean =>
+    actions.some((a) => a.type === "checkpoint" && "message" in a && a.message === "operator-declined");
+  const hasDeclineReply = (actions: ReactorAction[]): boolean =>
+    actions.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.");
+  const hasInfer = (actions: ReactorAction[]): boolean => actions.some((a) => a.type === "infer");
+  const hasDone = (actions: ReactorAction[]): boolean => actions.some((a) => a.type === "done");
 
-  test("coding director ends the run instead of re-inferring", async () => {
+  // CL-1698 contract — the two surfaces differ deliberately:
+  //  - Headless (coding): end the run cleanly with a reply explaining why + done.
+  //  - Interactive (chat): surface the rejection and wait for the next user
+  //    message; do NOT emit done(), which would kill the reactor and break
+  //    further sends. Neither surface re-infers off a bare decline.
+  test("coding director ends the run with a reply and done, without re-inferring", async () => {
     const director = createCodingDirector("", []);
-    const result = await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities);
-    expect(stopsAfterDecline(result)).toBe(true);
+    const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(hasCheckpoint(actions)).toBe(true);
+    expect(hasDeclineReply(actions)).toBe(true);
+    expect(hasDone(actions)).toBe(true);
+    expect(hasInfer(actions)).toBe(false);
   });
 
-  test("chat director ends the run instead of re-inferring", async () => {
+  test("chat director surfaces the decline and waits, keeping the reactor alive", async () => {
     const director = createChatDirector("", [], async () => true);
-    const result = await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities);
-    expect(stopsAfterDecline(result)).toBe(true);
+    const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(hasCheckpoint(actions)).toBe(true);
+    expect(hasDeclineReply(actions)).toBe(true);
+    // No done(): the TUI must stay alive so the user can send another message.
+    expect(hasDone(actions)).toBe(false);
+    expect(hasInfer(actions)).toBe(false);
   });
 });
 

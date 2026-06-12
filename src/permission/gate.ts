@@ -6,8 +6,9 @@ import { isApproved } from "./matcher.js";
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
 export type PermissionGateOptions = {
-  // Approvals already remembered for this directory. Seeded from the store; the
-  // gate appends to it in memory as the operator approves new scopes.
+  // Approvals already remembered for this directory. Used only to SEED the gate;
+  // the gate copies them and owns its in-memory list, so the caller's array is
+  // never mutated and two gates never cross-contaminate through a shared array.
   approvals: Approval[];
   // Surface a request to the operator. Required when interactive.
   requestApproval?: RequestApproval;
@@ -23,10 +24,16 @@ export type PermissionGateOptions = {
   auto?: boolean;
 };
 
-export type PermissionGate = { evaluate: (call: ToolCall) => Promise<GateVerdict> };
+export type PermissionGate = {
+  evaluate: (call: ToolCall) => Promise<GateVerdict>;
+  // The gate's current in-memory approvals, including any granted this session.
+  getApprovals: () => readonly Approval[];
+};
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
-  const { approvals, requestApproval, persist, interactive, skipPermissions, auto } = options;
+  const { requestApproval, persist, interactive, skipPermissions, auto } = options;
+  // Own a private copy so evaluating a grant never mutates the caller's array.
+  const approvals: Approval[] = [...options.approvals];
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
@@ -59,5 +66,5 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     return { allowed: true };
   };
 
-  return { evaluate };
+  return { evaluate, getApprovals: () => approvals };
 }

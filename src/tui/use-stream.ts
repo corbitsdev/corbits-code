@@ -7,7 +7,10 @@ import { validateView, type ViewNode } from "./view/index.js";
 
 export type PlanStep = { file: string; action: string };
 
-export type ContentBlock =
+// The block payload by type. Blocks carry a stable `id` (see ContentBlock) so UI
+// state like "which tool is expanded" survives array mutations (plan/present
+// splices) that would otherwise renumber positional indices.
+export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
@@ -17,6 +20,8 @@ export type ContentBlock =
   | { type: "plan"; steps: PlanStep[] }
   | { type: "view"; node: ViewNode }
   | { type: "error"; message: string };
+
+export type ContentBlock = ContentBlockData & { id: string };
 
 export type AgentStatus = "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
 
@@ -105,22 +110,28 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // return the same reference and referential-equality memoization holds.
   let contentBlocksSnapshot: ContentBlock[] = [];
   let contentBlocksDirty = true;
+  // Monotonic per-state counter for stable block ids. Stable ids let the UI key
+  // expansion/selection state to a block rather than its array position, which
+  // shifts when plan/present handlers splice the array.
+  let blockSeq = 0;
+  const nextBlockId = (): string => `b${(blockSeq += 1)}`;
 
-  // Wrappers that mark the snapshot dirty so the getter rebuilds on next read.
-  const pushBlock = (block: ContentBlock): void => {
-    contentBlocks.push(block);
+  // Wrappers that assign a stable id and mark the snapshot dirty so the getter
+  // rebuilds on next read.
+  const pushBlock = (block: ContentBlockData): void => {
+    contentBlocks.push({ ...block, id: nextBlockId() });
     contentBlocksDirty = true;
   };
   const spliceBlocks = (start: number, deleteCount: number): void => {
     contentBlocks.splice(start, deleteCount);
     contentBlocksDirty = true;
   };
-  const unshiftBlock = (block: ContentBlock): void => {
-    contentBlocks.unshift(block);
+  const unshiftBlock = (block: ContentBlockData): void => {
+    contentBlocks.unshift({ ...block, id: nextBlockId() });
     contentBlocksDirty = true;
   };
-  const setBlock = (index: number, block: ContentBlock): void => {
-    contentBlocks[index] = block;
+  const setBlock = (index: number, block: ContentBlockData): void => {
+    contentBlocks[index] = { ...block, id: nextBlockId() };
     contentBlocksDirty = true;
   };
 

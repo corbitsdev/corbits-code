@@ -246,11 +246,15 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
     if (event.type === "tool.done") {
       if (isOperatorDeclinedToolResult(event.result)) {
-        // Mark terminal like the other done() paths so a stray later event
-        // cannot re-enter decide() and emit a second done().
+        // Headless contract: the operator said no, so end the run cleanly and
+        // record why in the transcript. (The interactive chat director instead
+        // keeps the reactor alive — see ChatDirectorImpl — because done() there
+        // would kill further sends.) Mark terminal so a stray later event cannot
+        // re-enter decide() and emit a second done().
         this.terminated = true;
         return [
           capabilities.checkpoint("operator-declined"),
+          capabilities.reply("Tool call rejected by operator."),
           capabilities.done(),
         ];
       }

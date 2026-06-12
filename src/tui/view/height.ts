@@ -37,7 +37,7 @@ function wrapLineCount(line: string, width: number): number {
   return Math.max(1, lines);
 }
 
-function wrapCount(text: string, width: number): number {
+export function wrapCount(text: string, width: number): number {
   const w = Math.max(1, width);
   return text.split("\n").reduce((n, line) => n + wrapLineCount(line, w), 0);
 }
