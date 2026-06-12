@@ -84,7 +84,10 @@ export async function runTUI(config: Config): Promise<number> {
         const event: PermissionGateEvent = { request, resolve };
         emitter.emit("permission.gate", event);
       }),
-    persist: (_approval: Approval) => {
+    persist: (approval: Approval) => {
+      // The gate owns its own approval list now, so maintain the durable store
+      // here by recording each grant before writing it out.
+      approvals.push(approval);
       void saveApprovals(config.cwd, config.sessionId, approvals);
     },
     interactive: true,
