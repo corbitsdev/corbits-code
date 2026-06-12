@@ -281,6 +281,7 @@ export async function runTUI(config: Config): Promise<number> {
     if (text === undefined) return;
     try {
       agentProxy.deliver(buildInjectionMessage(text));
+      emitter.emit("mid-run.delivered");
     } catch {
       // Agent may be closed; ignore delivery failures silently.
     }

@@ -117,10 +117,9 @@ export function App({
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   // Tracks messages queued for delivery at the next inference boundary.
-  // Incremented when the user submits while a run is active; decremented each
-  // time turnsUsed advances (each inference.done drains one queued message).
+  // Incremented when the user submits while a run is active; decremented via
+  // the onMessageDelivered callback fired by the runner on each actual delivery.
   const [queuedCount, setQueuedCount] = useState(0);
-  const prevTurnsUsedRef = useRef(0);
 
   const providerManager = useProviderManager({
     initialProvider,
@@ -249,7 +248,6 @@ export function App({
     gates.resetGates();
     setExpandedTools(new Set());
     setQueuedCount(0);
-    prevTurnsUsedRef.current = 0;
     onNewSession?.();
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
@@ -297,6 +295,16 @@ export function App({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
 
+  // Decrement the queued badge when the runner successfully delivers a message.
+  // The runner emits "mid-run.delivered" immediately after agent.deliver() so
+  // the count stays accurate even when the model takes multiple turns per message.
+  useEffect(() => {
+    const onDelivered = () => setQueuedCount((c) => Math.max(0, c - 1));
+    eventEmitter.on("mid-run.delivered", onDelivered);
+    return () => { eventEmitter.off("mid-run.delivered", onDelivered); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Send the initial task once the App (and its gate listeners) is mounted, so
   // the run is driven through the same abortable path as interactive sends.
   useEffect(() => {
@@ -305,17 +313,6 @@ export function App({
     if (initialTask.length > 0) sendMessage(initialTask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Decrement the queued count each time the agent completes an inference turn
-  // (meaning it has consumed one queued message).
-  useEffect(() => {
-    const prev = prevTurnsUsedRef.current;
-    if (state.turnsUsed > prev) {
-      const delta = state.turnsUsed - prev;
-      prevTurnsUsedRef.current = state.turnsUsed;
-      setQueuedCount((c) => Math.max(0, c - delta));
-    }
-  }, [state.turnsUsed]);
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
