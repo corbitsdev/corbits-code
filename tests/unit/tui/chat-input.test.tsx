@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
+import { useState } from "react";
 import { ChatInput } from "../../../src/tui/components/chat-input.js";
 
 const noopContext = { getModel: () => "m", setModel: () => {}, getVerbose: () => false, toggleVerbose: () => false };
@@ -69,4 +70,33 @@ test("ChatInput renders its controlled value", () => {
     />,
   );
   expect(lastFrame()).toContain("hello");
+});
+
+
+test("cursor stays mid-string across successive edits", async () => {
+  let current = "";
+  function Harness() {
+    const [v, setV] = useState("");
+    current = v;
+    return (
+      <ChatInput
+        onSubmit={() => {}}
+        onCommand={() => {}}
+        commandContext={noopContext}
+        value={v}
+        onChange={setV}
+      />
+    );
+  }
+  const { stdin } = render(<Harness />);
+  const press = async (s: string) => { stdin.write(s); await Promise.resolve(); await Promise.resolve(); };
+
+  await press("a");
+  await press("b");
+  await press("c");
+  await press("[D");
+  await press("[D");
+  await press("X");
+  await press("Y");
+  expect(current).toBe("aXYbc");
 });

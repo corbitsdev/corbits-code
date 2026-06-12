@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult } from "../commands/registry.js";
@@ -98,10 +98,15 @@ function slashPrefix(value: string): string | null {
 export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, active = true }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  // The last value this component produced itself. Used to tell an external
+  // value change (tab-completion, a programmatic set) apart from our own edit
+  // echoed back through the value prop — only the former should jump the cursor
+  // to the end. Without this, every keystroke snaps the cursor away from mid-line.
+  const selfSetValue = useRef<string | null>(null);
 
-  // When value changes externally (e.g. tab-completion), place cursor at end.
-  // We track the previous value to distinguish external changes from our own.
+  // Reset the cursor to the end only when value changes from the OUTSIDE.
   useEffect(() => {
+    if (value === selfSetValue.current) return;
     setCursor(value.length);
   }, [value]);
 
@@ -177,9 +182,10 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
 
     const next = applyKey({ value, cursor }, input, key);
     if (next.value !== value) {
+      // Record our own edit so the value-change effect does not treat the
+      // echoed prop update as external and yank the cursor to the end.
+      selfSetValue.current = next.value;
       onChange(next.value);
-      // useEffect will fire for external value changes, but for our own edits
-      // we set cursor directly to avoid a render cycle with a stale cursor.
       setCursor(next.cursor);
     } else if (next.cursor !== cursor) {
       setCursor(next.cursor);
