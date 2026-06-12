@@ -309,6 +309,7 @@ export function App({
       planFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
+      commandPaletteOpen: inputValue.startsWith("/") && !inputValue.includes(" "),
       // "stopping" is deliberately excluded: a stop is already in flight, so the
       // next Ctrl+C / double-Esc should escalate to the exit path rather than
       // re-issuing a no-op stop and trapping the user while the run drains.

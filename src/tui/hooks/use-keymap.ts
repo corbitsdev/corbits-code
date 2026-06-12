@@ -17,6 +17,7 @@ export type KeymapContext = {
   hasInput: boolean;
   inputFocused: boolean;
   isRunning: boolean;
+  commandPaletteOpen: boolean;
 };
 
 export type KeymapActions = {
@@ -99,6 +100,12 @@ export function handleKey(
       }
     }
     return now;
+  }
+  // While the slash-command palette is open, arrow keys navigate its list (the
+  // input component owns them). Ink broadcasts every keypress to all useInput
+  // handlers, so without this guard the same arrow would also scroll the log.
+  if (context.commandPaletteOpen && (key.upArrow || key.downArrow)) {
+    return lastEscMs;
   }
   if (key.ctrl && key.downArrow) {
     actions.scrollToBottom();
