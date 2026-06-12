@@ -114,6 +114,85 @@ test("E1: each gate independently signals open and close to setGatePending", asy
   expect(gateCalls).toEqual([true, true, false]);
 });
 
+// Two plan gates opened before the first resolves — the second must not
+// overwrite the first. Both resolve callbacks must fire with the correct
+// values and in FIFO order.
+test("Q1: two same-type (plan) gates queued — both resolve in order without dropping", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  let resolved1: boolean | null = null;
+  let resolved2: boolean | null = null;
+  const { lastFrame, stdin } = render(
+    <Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />,
+  );
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [{ file: "a.ts", action: "x" }],
+    resolve: (v: boolean) => { resolved1 = v; },
+  } satisfies PlanGateEvent);
+  await tick();
+
+  // Second gate arrives while first is still pending.
+  emitter.emit("plan.gate", {
+    plan: [{ file: "b.ts", action: "y" }],
+    resolve: (v: boolean) => { resolved2 = v; },
+  } satisfies PlanGateEvent);
+  await tick();
+
+  // Each enqueue fires setGatePending(true).
+  expect(gateCalls).toEqual([true, true]);
+  // Head of queue (first gate) is still showing.
+  expect(lastFrame()).toContain("plan:1");
+
+  // Resolve first gate — head advances to second gate.
+  stdin.write("a");
+  await tick();
+  expect(resolved1).toBe(true);
+  expect(resolved2).toBeNull(); // second not yet resolved
+  expect(gateCalls).toEqual([true, true, false]);
+  // Second gate is now the head.
+  expect(lastFrame()).toContain("plan:1");
+  expect(lastFrame()).toContain("open=1");
+
+  // Resolve second gate.
+  stdin.write("r");
+  await tick();
+  expect(resolved2).toBe(false);
+  expect(gateCalls).toEqual([true, true, false, false]);
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+// setGatePending refcount discipline: two gates enqueued, one resolved →
+// net balance is +1 (still pending from use-stream.ts perspective).
+test("Q2: setGatePending sequence for two-open-one-resolved is true,true,false", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  const { stdin } = render(
+    <Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />,
+  );
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [],
+    resolve: () => {},
+  } satisfies PlanGateEvent);
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [],
+    resolve: () => {},
+  } satisfies PlanGateEvent);
+  await tick();
+
+  expect(gateCalls).toEqual([true, true]);
+
+  // Resolve the first (head) — one false, but one still in queue.
+  stdin.write("a");
+  await tick();
+  expect(gateCalls).toEqual([true, true, false]);
+});
+
 test("permission gate surfaces a request and resolves the outcome", async () => {
   const emitter = new EventEmitter();
   let outcome: { allow: boolean } | null = null;
