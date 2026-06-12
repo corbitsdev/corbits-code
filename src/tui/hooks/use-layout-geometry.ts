@@ -51,7 +51,7 @@ export type LayoutGeometry = {
   effectiveOverlayRows: number;
 };
 
-const CHROME_ROWS = 12;
+const CHROME_ROWS = 9;
 
 export function useLayoutGeometry({
   columns,

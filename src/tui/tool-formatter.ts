@@ -275,10 +275,14 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
     case "run_shell": {
       // Success returns raw output; failure is prefixed "exit code N\n<output>".
       const fail = content.match(/^exit code (\d+)\n([\s\S]*)$/);
+      const output = fail ? fail[2] ?? "" : content;
+      const firstLine = output.split("\n").find((line) => line.trim().length > 0) ?? "";
+      const lineCount = countLines(output);
+      const more = lineCount > 1 ? ` (+${lineCount - 1} more lines)` : "";
       if (fail) {
-        preview = `Shell: exit ${fail[1]} — ${countLines(fail[2] ?? "")} lines of output`;
+        preview = firstLine.length > 0 ? `exit ${fail[1]}: ${firstLine}${more}` : `exit ${fail[1]}`;
       } else {
-        preview = `Shell: exit 0 — ${countLines(content)} lines of output`;
+        preview = firstLine.length > 0 ? `${firstLine}${more}` : "(no output)";
       }
       break;
     }

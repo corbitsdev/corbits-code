@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog } from "./components/event-log.js";
+import { EventLog, buildLineUnits, maxScrollOffset } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
@@ -14,6 +14,8 @@ import { PlanView } from "./components/plan-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
+import { PermissionsManager } from "./components/permissions-manager.js";
+import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config.js";
 import { useSpinner } from "./hooks/use-spinner.js";
@@ -66,6 +68,9 @@ export type AppProps = {
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
+  onInterrupt?: () => void;
+  onNewSession?: () => void;
+  permissionsAdmin?: PermissionsAdmin;
   profile?: string;
 };
 
@@ -83,6 +88,9 @@ export function App({
   initialHooks = [],
   onToggleHook,
   onAgentError,
+  onInterrupt,
+  onNewSession,
+  permissionsAdmin,
   profile,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
@@ -103,6 +111,8 @@ export function App({
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
 
   const providerManager = useProviderManager({
@@ -118,17 +128,6 @@ export function App({
   const { provider, model, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
-
-  const commandContext = useMemo(() => ({
-    getVerbose: () => verbose,
-    toggleVerbose: () => {
-      const next = !verbose;
-      setVerbose(next);
-      return next;
-    },
-    signalClear: () => {},
-    getMCPServers: () => mcpStatus.servers,
-  }), [verbose, mcpStatus.servers]);
 
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
@@ -150,20 +149,24 @@ export function App({
       pendingPlan: gates.pendingPlan,
       pendingOperator: gates.pendingOperator,
     },
-    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
+    modalContext: { helpOpen: helpOpen || permissionsOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen },
     hookCount: state.hooks.length,
     providerCatalog,
     extraChromeRows,
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows } = layout;
 
-  const renderableCount = useMemo(
-    () => state.contentBlocks.filter((b) =>
-      b.type !== "reply" &&
-      b.type !== "plan" &&
-      (thinkingExpanded || b.type !== "thinking")
-    ).length,
-    [state.contentBlocks, thinkingExpanded],
+  const scrollMaxOffset = useMemo(
+    () => maxScrollOffset(
+      buildLineUnits(
+        state.contentBlocks,
+        leftWidth,
+        thinkingExpanded,
+        (block) => verbose || expandedTools.has(block.id),
+      ),
+      visibleRows,
+    ),
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, visibleRows],
   );
 
   const lastToolId = useMemo(() => {
@@ -174,7 +177,7 @@ export function App({
     return null;
   }, [state.contentBlocks]);
 
-  const scroll = useScroll({ renderableCount, visibleRows });
+  const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
   const latestUserMessageInLog = state.contentBlocks.some((block) =>
     block.type === "user" && block.content === state.latestUserMessage
@@ -196,7 +199,8 @@ export function App({
     helpOpen ||
     gates.gateOpen ||
     hookPanelOpen ||
-    agentModalOpen
+    agentModalOpen ||
+    permissionsOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -211,6 +215,7 @@ export function App({
   const sendMessage = (message: string) => {
     sendCounterRef.current += 1;
     state.markRunning();
+    scroll.scrollToBottom();
     // Nudge a re-render so the in-flight indicator and interval timer activate
     // immediately rather than waiting for the first event from the new run.
     forceRender((n) => n + 1);
@@ -225,11 +230,31 @@ export function App({
 
   const requestStop = () => {
     sendAbortRef.current?.abort();
+    onInterrupt?.();
     state.requestStop();
-    // requestStop mutates the stream state in place, so nudge a re-render to
-    // reflect the "Stopping" status immediately rather than on the next event.
     forceRender((n) => n + 1);
   };
+
+  const startNewSession = () => {
+    sendAbortRef.current?.abort();
+    state.clear();
+    setExpandedTools(new Set());
+    onNewSession?.();
+    scroll.scrollToBottom();
+    forceRender((n) => n + 1);
+  };
+
+  const commandContext = useMemo(() => ({
+    getVerbose: () => verbose,
+    toggleVerbose: () => {
+      const next = !verbose;
+      setVerbose(next);
+      return next;
+    },
+    signalClear: startNewSession,
+    getMCPServers: () => mcpStatus.servers,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [verbose, mcpStatus.servers]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -283,7 +308,9 @@ export function App({
   useKeymap(
     {
       exitConfirmOpen,
-      helpOpen,
+      // The permissions overlay owns input through its own useInput, exactly
+      // like the help overlay, so block the global keymap the same way.
+      helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
       agentModalOpen,
       hookPanelOpen,
@@ -291,6 +318,7 @@ export function App({
       planFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
+      commandPaletteOpen: inputValue.startsWith("/") && !inputValue.includes(" "),
       // "stopping" is deliberately excluded: a stop is already in flight, so the
       // next Ctrl+C / double-Esc should escalate to the exit path rather than
       // re-issuing a no-op stop and trapping the user while the run drains.
@@ -315,6 +343,10 @@ export function App({
       scrollDown: () => {
         if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 1));
         else scroll.scrollDown();
+      },
+      scrollToBottom: () => {
+        if (diffActive) setDiffScroll(diffMaxOffset);
+        else scroll.scrollToBottom();
       },
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
@@ -367,7 +399,11 @@ export function App({
       return;
     }
     if (result.type === "overlay") {
-      setHelpOpen(true);
+      if (result.overlay === "permissions") {
+        setPermissionsOpen(true);
+      } else {
+        setHelpOpen(true);
+      }
       return;
     }
     if (result.type === "modal" && result.modal === "agent") {
@@ -375,9 +411,34 @@ export function App({
     }
   };
 
+  const refreshPermissions = () => {
+    if (permissionsAdmin === undefined) return;
+    void permissionsAdmin.list().then(setPermissionEntries);
+  };
+
+  useEffect(() => {
+    if (!permissionsOpen) return;
+    refreshPermissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permissionsOpen]);
+
+  const handleRevokePermission = (entry: ScopedApproval) => {
+    if (permissionsAdmin === undefined) return;
+    void permissionsAdmin.revoke(entry).then(refreshPermissions);
+  };
+
   return (
     <Box flexDirection="column" height={rows}>
-      <Box flexShrink={0} flexDirection="column">
+      <Box
+        flexShrink={0}
+        flexDirection="column"
+        borderStyle="single"
+        borderColor={color("muted")}
+        borderTop={false}
+        borderBottom
+        borderLeft={false}
+        borderRight={false}
+      >
         <Header
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
@@ -451,7 +512,15 @@ export function App({
         onSelectOperator={gates.selectOperator}
         pendingPermission={gates.pendingPermission}
         onResolvePermission={gates.resolvePermission}
+        width={columns}
       />
+      {permissionsOpen && (
+        <PermissionsManager
+          entries={permissionEntries}
+          onRevoke={handleRevokePermission}
+          onClose={() => setPermissionsOpen(false)}
+        />
+      )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
         <Box paddingX={1}>
@@ -488,18 +557,11 @@ export function App({
         <StatusBar
           provider={provider}
           model={model}
-          turnsUsed={state.turnsUsed}
-          planStep={state.currentPlanStep}
-          planTotal={state.planTotal}
-          planPending={gates.pendingPlan !== null}
-          planDeviated={state.planDeviated}
           cost={state.formattedCost}
-          tokens={state.totalTokens}
+          inputTokens={state.inputTokens}
+          outputTokens={state.outputTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
-          currentToolName={state.currentToolName}
-          streamingType={state.streamingType}
-          awaitingResponse={state.awaitingResponse}
           connectedMCPServers={mcpStatus.connected}
         />
         </Box>

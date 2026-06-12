@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
+import { Box } from "ink";
 import { render } from "ink-testing-library";
 import {
   EventLog,
   clampOffset,
-  windowBlocks,
-  visibleWindow,
+  buildLineUnits,
+  visibleLineWindow,
+  maxScrollOffset,
   renderableBlocks,
   truncateLine,
 } from "../../../src/tui/components/event-log.js";
@@ -20,9 +22,10 @@ function block(data: Omit<ContentBlock, "id">): RenderableBlock {
 type Overrides = Partial<Parameters<typeof EventLog>[0]>;
 
 function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
+  const withIds = blocks.map((b, i) => ("id" in b ? b : { ...b, id: `fixture-${i}` })) as ContentBlock[];
   return render(
     <EventLog
-      contentBlocks={blocks}
+      contentBlocks={withIds}
       scrollOffset={overrides.scrollOffset ?? 0}
       visibleRows={overrides.visibleRows ?? 100}
       columns={overrides.columns ?? 200}
@@ -108,16 +111,16 @@ test("EventLog never shows raw JSON for tool call args in default view", () => {
   expect(frame).not.toContain('"limit":40');
 });
 
-test("EventLog renders tool result preview, never raw content, for non-JSON result", () => {
-  const { lastFrame } = renderLog([
-    { type: "tool_result", callId: "c1", name: "read_file", content: "     1\tline one\n     2\tline two", isError: false },
-  ]);
-  const frame = lastFrame() ?? "";
-  expect(frame).toContain("Read 2 lines");
-  expect(frame).not.toContain("line one");
+test("EventLog summarizes a tool result by default and shows full content when expanded", () => {
+  const blocks: ContentBlock[] = [
+    { id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\tline one\n     2\tline two", isError: false },
+  ];
+  expect(renderLog(blocks).lastFrame()).toContain("Read 2 lines");
+  expect(renderLog(blocks).lastFrame()).not.toContain("line one");
+  expect(renderLog(blocks, { expandedTools: new Set(["r"]) }).lastFrame()).toContain("line one");
 });
 
-test("EventLog renders web_search result envelopes as readable output", () => {
+test("EventLog renders web_search result envelopes as a readable summary", () => {
   const content = JSON.stringify({
     results: [
       { title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" },
@@ -170,7 +173,7 @@ test("EventLog verbose reveals full tool args", () => {
   expect(lastFrame()).toContain("/tmp/example");
 });
 
-test("EventLog per-block expansion reveals full tool result", () => {
+test("EventLog reveals full tool result content when the block is expanded", () => {
   const { lastFrame } = renderLog(
     [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text", isError: false }],
     { expandedTools: new Set(["r"]) },
@@ -198,13 +201,6 @@ test("clampOffset bounds offset to [0, total - visibleRows]", () => {
   expect(clampOffset(5, 3, 4)).toBe(0);
 });
 
-test("windowBlocks returns only the visible window", () => {
-  const items = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-  expect(windowBlocks(items, 0, 3)).toEqual([0, 1, 2]);
-  expect(windowBlocks(items, 4, 3)).toEqual([4, 5, 6]);
-  expect(windowBlocks(items, 100, 3)).toEqual([7, 8, 9]);
-});
-
 test("renderableBlocks drops reply and plan blocks", () => {
   const blocks: ContentBlock[] = [
     { type: "plan", steps: [] },
@@ -214,28 +210,33 @@ test("renderableBlocks drops reply and plan blocks", () => {
   expect(renderableBlocks(blocks).map((b) => b.type)).toEqual(["text"]);
 });
 
-test("EventLog truncates long single-line content with a show-more indicator", () => {
-  const long = "x".repeat(300);
-  for (const columns of [80, 120, 160]) {
-    const { lastFrame } = renderLog([{ type: "user", content: long }], { columns });
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("… [show more]");
-    // The truncated marker line must fit within the pane width.
-    const longest = Math.max(...frame.split("\n").map((l) => l.length));
-    expect(longest).toBeLessThanOrEqual(columns);
-  }
+test("EventLog shows long content in full by default, never a show-more marker", () => {
+  const long = "z".repeat(300);
+  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("[show more]");
+  expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("truncateLine cuts at availableWidth and grows with column width", () => {
+test("a long tool summary is marked with a bare ellipsis, not show-more", () => {
+  const { lastFrame } = renderLog([
+    { type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: "x".repeat(300) }) },
+  ], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("[show more]");
+  expect(frame).toContain("…");
+  const longest = Math.max(...frame.split("\n").map((l) => l.length));
+  expect(longest).toBeLessThanOrEqual(80);
+});
+
+test("truncateToWidth marks a cut with a bare ellipsis", () => {
   const long = "abcdefghij".repeat(40);
-  const at = (columns: number) => truncateLine(long, columns, false);
   for (const columns of [80, 120, 160]) {
-    const out = at(columns);
-    expect(out.endsWith("… [show more]")).toBe(true);
+    const out = truncateLine(long, columns, false);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out).not.toContain("[show more]");
     expect(out.length).toBe(columns - 2);
   }
-  expect(at(120).length).toBeGreaterThan(at(80).length);
-  expect(at(160).length).toBeGreaterThan(at(120).length);
 });
 
 test("truncateLine leaves short content untouched and respects expanded", () => {
@@ -244,49 +245,47 @@ test("truncateLine leaves short content untouched and respects expanded", () => 
   expect(truncateLine(long, 80, true)).toBe(long);
 });
 
-test("EventLog shows untruncated content when the block is expanded", () => {
-  const long = "z".repeat(300);
-  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], {
-    columns: 80,
-    expandedTools: new Set(["u"]),
-  });
-  const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("… [show more]");
-  expect(frame.replace(/\s/g, "")).toContain(long);
-});
-
-test("EventLog keeps expansion anchored to a block id when thinking is hidden", () => {
+test("thinking stays hidden by default while other content shows in full", () => {
   const long = "z".repeat(300);
   const { lastFrame } = renderLog([
     { id: "t", type: "thinking", content: "hidden reasoning" },
     { id: "u", type: "user", content: long },
-  ], {
-    columns: 80,
-    expandedTools: new Set(["u"]),
-  });
+  ], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("hidden reasoning");
-  expect(frame).not.toContain("… [show more]");
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("visibleWindow keeps the painted rows within the viewport budget", () => {
-  // A tall block (wraps to ~5 rows at width 18) followed by short ones.
-  const blocks: RenderableBlock[] = [
-    { type: "text", content: "old line that should scroll out of view entirely here" },
-    { type: "text", content: "x".repeat(80) }, // wraps to several rows
-    { type: "text", content: "newest" },
+test("visibleLineWindow keeps the painted rows within the viewport budget", () => {
+  const blocks: ContentBlock[] = [
+    block({ type: "text", content: "old line that should scroll out of view entirely here" }),
+    block({ type: "text", content: "x".repeat(80) }),
+    block({ type: "text", content: "newest" }),
   ];
-  const { start, end } = visibleWindow(blocks, 100, 4, 20, false, () => false);
-  const shown = blocks.slice(start, end);
-  const rows = shown.reduce((n, b) => {
-    const content = b.type === "text" ? b.content : "";
-    return n + content.split("\n").reduce((m, l) => m + Math.max(1, Math.ceil(l.length / 18)), 0);
-  }, 0);
+  const units = buildLineUnits(blocks, 20, false, () => false);
+  const { start, end } = visibleLineWindow(units, units.length, 4);
+  const rows = units.slice(start, end).reduce((n, u) => n + u.rows, 0);
   expect(rows).toBeLessThanOrEqual(4);
-  // The newest block is always retained; the oldest is dropped.
-  expect(end).toBe(3);
+  expect(end).toBe(units.length);
   expect(start).toBeGreaterThan(0);
+});
+
+test("the bottom is steady: every offset at or past maxScrollOffset shows the same full tail", () => {
+  const units = buildLineUnits(
+    Array.from({ length: 12 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 5;
+  const maxOffset = maxScrollOffset(units, visibleRows);
+  const atMax = visibleLineWindow(units, maxOffset, visibleRows);
+  expect(atMax.end).toBe(units.length);
+  // Scrolling past the max (or to the very last unit) does not move the window —
+  // the last line stays anchored at the bottom rather than drifting up.
+  for (const offset of [maxOffset + 1, units.length - 1, units.length + 5]) {
+    expect(visibleLineWindow(units, offset, visibleRows)).toEqual(atMax);
+  }
 });
 
 test("EventLog windows visible blocks by scrollOffset", () => {
@@ -310,26 +309,47 @@ test("wrapCount word-wraps greedily instead of packing characters", () => {
   expect(wrapCount("a\nb\nc", 10)).toBe(3);
 });
 
-test("visibleWindow does not reserve spacing for the topmost visible block", () => {
-  const blocks: RenderableBlock[] = [
-    block({ type: "text", content: "a" }),
-    block({ type: "text", content: "b" }),
-    block({ type: "text", content: "c" }),
-  ];
-  const expanded = () => false;
-  const win = visibleWindow(blocks, blocks.length, 3, 200, false, expanded);
-  expect(win.end).toBe(3);
-  expect(win.start).toBe(1);
+test("buildLineUnits explodes a multi-line text block into one unit per line", () => {
+  const units = buildLineUnits([block({ type: "text", content: "a\nb\nc" })], 200, false, () => false);
+  expect(units.length).toBe(3);
+  expect(units.every((u) => u.rows === 1)).toBe(true);
 });
 
-test("visibleWindow charges spacing to lower blocks, not an unspaced top block", () => {
-  const blocks: RenderableBlock[] = [
-    block({ type: "tool_call", name: "read_file", arguments: "{}" }),
-    block({ type: "text", content: "b" }),
-    block({ type: "text", content: "c" }),
-  ];
-  const expanded = () => false;
-  const win = visibleWindow(blocks, blocks.length, 5, 200, false, expanded);
-  expect(win.start).toBe(0);
-  expect(win.end).toBe(3);
+test("buildLineUnits inserts a blank spacer unit between conversational turns", () => {
+  const units = buildLineUnits(
+    [block({ type: "user", content: "hi" }), block({ type: "text", content: "reply" })],
+    200,
+    false,
+    () => false,
+  );
+  expect(units.length).toBe(3);
+});
+
+test("a composed headline unit never claims fewer rows than it paints", () => {
+  const cmd = "echo " + "y".repeat(60);
+  const units = buildLineUnits(
+    [block({ type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: cmd }) })],
+    30,
+    false,
+    () => true,
+  );
+  const headline = units[0]!;
+  const { lastFrame } = render(
+    <Box width={28}>{headline.node}</Box>,
+    { stdout: { columns: 28, rows: 80 } as unknown as NodeJS.WriteStream },
+  );
+  const painted = (lastFrame() ?? "").split("\n").filter((r) => r.trim().length > 0).length;
+  expect(headline.rows).toBeGreaterThanOrEqual(painted);
+});
+
+test("visibleLineWindow advances one line per scroll step", () => {
+  const units = buildLineUnits(
+    Array.from({ length: 6 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const w0 = visibleLineWindow(units, 0, 3);
+  const w1 = visibleLineWindow(units, 1, 3);
+  expect(w1.start).toBe(w0.start + 1);
 });

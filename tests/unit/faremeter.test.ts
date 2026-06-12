@@ -13,6 +13,14 @@ test("addUsage accumulates tokens and cost", () => {
   expect(faremeter.getTotalTokens()).toBe(1500);
 });
 
+test("splits tokens into input (prompt + cache) and output (completion + thinking)", () => {
+  const faremeter = createFaremeter();
+  faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 50, thinking: 80 });
+  expect(faremeter.getInputTokens()).toBe(1250);
+  expect(faremeter.getOutputTokens()).toBe(580);
+  expect(faremeter.getTotalTokens()).toBe(1830);
+});
+
 test("addUsage computes cost from input and output tokens", () => {
   const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
   faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });

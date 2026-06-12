@@ -18,9 +18,18 @@ import { createChatDirector, type ApprovalGate } from "../director.js";
 import { buildChatSystemPrompt } from "../prompts.js";
 import { loadAgentContextExtensions } from "../run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset } from "../agent-tools.js";
-import { loadApprovals, saveApprovals } from "../permission/store.js";
-import type { Approval } from "../permission/types.js";
+import {
+  loadApprovals,
+  loadProjectApprovals,
+  loadGlobalApprovals,
+  loadProviderModelApprovals,
+  saveProjectApproval,
+  saveGlobalApproval,
+  saveProviderModelApproval,
+} from "../permission/store.js";
+import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../stream-consumer.js";
 import { enterAltScreen } from "../alt-screen.js";
 import { App } from "./app.js";
@@ -33,7 +42,7 @@ import {
   type RunSummary,
 } from "../hooks.js";
 import { createRunSink } from "../run-sink.js";
-import { initSessionDir, sessionContextDir } from "../session.js";
+import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -56,7 +65,9 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 }
 
 export async function runTUI(config: Config): Promise<number> {
-  await initSessionDir(config.cwd, config.sessionId);
+  let sessionId = config.sessionId;
+  let workdir = sessionContextDir(config.cwd, sessionId);
+  await initSessionDir(config.cwd, sessionId);
   const emitter = createTUIEventEmitter();
   const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
@@ -76,24 +87,46 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
-  const approvals = await loadApprovals(config.cwd, config.sessionId);
+  const activeProviderModel = `${config.providerName}:${config.model}`;
+  const sessionApprovals = await loadApprovals(config.cwd, sessionId);
+  const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
+    loadProjectApprovals(config.cwd),
+    loadGlobalApprovals(),
+    loadProviderModelApprovals(),
+  ]);
+  const seededApprovals: Approval[] = [
+    ...sessionApprovals,
+    ...projectApprovals,
+    ...globalApprovals,
+    ...providerModelApprovals,
+  ];
   const permissionGate = createPermissionGate({
-    approvals,
+    approvals: seededApprovals,
+    cwd: config.cwd,
+    providerName: config.providerName,
+    model: config.model,
     requestApproval: (request) =>
       new Promise((resolve) => {
         const event: PermissionGateEvent = { request, resolve };
         emitter.emit("permission.gate", event);
       }),
-    persist: (approval: Approval) => {
-      // The gate owns its own approval list now, so maintain the durable store
-      // here by recording each grant before writing it out.
-      approvals.push(approval);
-      void saveApprovals(config.cwd, config.sessionId, approvals);
+    persist: (approval: Approval, scope: GrantScope) => {
+      // Route each persisted grant to the store its scope selects. Session
+      // grants never reach here — the gate keeps those in memory only.
+      if (scope === "project") {
+        void saveProjectApproval(config.cwd, approval);
+      } else if (scope === "global") {
+        void saveGlobalApproval(approval);
+      } else if (scope === "provider-model") {
+        void saveProviderModelApproval(activeProviderModel, approval);
+      }
     },
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
   });
+
+  const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
   const toolset = await createAgentToolset({
     cwd: config.cwd,
@@ -111,7 +144,7 @@ export async function runTUI(config: Config): Promise<number> {
         apiKey: config.apiKey,
         model: config.model,
       },
-      workdirBase: sessionContextDir(config.cwd, config.sessionId),
+      getWorkdirBase: () => sessionDir(config.cwd, sessionId),
     },
   });
 
@@ -139,8 +172,6 @@ export async function runTUI(config: Config): Promise<number> {
     id: "interchange-code/tui-tools",
     factory: () => toolset.dynamicRunner,
   });
-
-  const workdir = sessionContextDir(config.cwd, config.sessionId);
 
   const def = defineAgent({
     id: "interchange-code/tui-agent",
@@ -236,6 +267,60 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
+  // A hard stop: closing the agent is the only thing that aborts the reactor
+  // mid-inference (the send signal only rejects the send promise). Close it,
+  // drain the old stream, and rebuild a fresh agent so the next send works.
+  const interrupt = async (): Promise<void> => {
+    if (reloading) return;
+    reloading = true;
+    let release!: () => void;
+    reloadBarrier = new Promise<void>((r) => (release = r));
+    try {
+      await currentAgent.close().catch(() => undefined);
+      await streamPromise.catch(() => undefined);
+      currentAgent = await buildAgent();
+      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+    } catch (err) {
+      recordRunError(err);
+    } finally {
+      reloading = false;
+      reloadBarrier = null;
+      release();
+    }
+  };
+
+  // /clear and /new start a fresh conversation: mint a new session id and its
+  // own state directory, repoint the working tree at it, and rebuild the agent
+  // so it resumes from an empty git-backed store. The prior session stays on
+  // disk under its own id, resumable later. Sub-agents nest under the new
+  // session automatically because getWorkdirBase reads the live id.
+  const newSession = async (): Promise<void> => {
+    // The App clears its transcript unconditionally on /clear, so the backend
+    // rotation must not be skipped under contention or the UI and the live
+    // store would desync. Wait for any in-flight reload/interrupt to settle,
+    // then claim the swap.
+    while (reloading && reloadBarrier !== null) await reloadBarrier;
+    reloading = true;
+    let release!: () => void;
+    reloadBarrier = new Promise<void>((r) => (release = r));
+    try {
+      sessionId = generateSessionId();
+      workdir = sessionContextDir(config.cwd, sessionId);
+      await initSessionDir(config.cwd, sessionId);
+      permissionGate.reset();
+      await currentAgent.close().catch(() => undefined);
+      await streamPromise.catch(() => undefined);
+      currentAgent = await buildAgent();
+      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+    } catch (err) {
+      recordRunError(err);
+    } finally {
+      reloading = false;
+      reloadBarrier = null;
+      release();
+    }
+  };
+
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
   // and restore it on exit (including abrupt process exit) so history returns.
@@ -259,6 +344,9 @@ export async function runTUI(config: Config): Promise<number> {
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
+      onInterrupt={() => { void interrupt(); }}
+      onNewSession={() => { void newSession(); }}
+      permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
     { exitOnCtrlC: false },

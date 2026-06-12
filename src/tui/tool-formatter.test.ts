@@ -117,12 +117,14 @@ describe("summarizeToolResult", () => {
     );
   });
 
-  test("run_shell success reports exit 0", () => {
-    expect(summarizeToolResult("run_shell", "line a\nline b").preview).toBe("Shell: exit 0 — 2 lines of output");
+  test("run_shell success previews the first output line", () => {
+    expect(summarizeToolResult("run_shell", "line a\nline b").preview).toBe("line a (+1 more lines)");
+    expect(summarizeToolResult("run_shell", "only one").preview).toBe("only one");
+    expect(summarizeToolResult("run_shell", "").preview).toBe("(no output)");
   });
 
-  test("run_shell failure reports exit code", () => {
-    expect(summarizeToolResult("run_shell", "exit code 1\nboom").preview).toBe("Shell: exit 1 — 1 lines of output");
+  test("run_shell failure previews the exit code and first error line", () => {
+    expect(summarizeToolResult("run_shell", "exit code 1\nboom").preview).toBe("exit 1: boom");
   });
 
   test("search_files no match", () => {

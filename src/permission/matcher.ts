@@ -22,7 +22,19 @@ export function matchesPattern(subject: string, pattern: string): boolean {
 }
 
 // True when any stored approval for this tool matches the subject. The subject
-// is the shell command segment (run_shell) or the file path (write/edit).
-export function isApproved(tool: string, subject: string, approvals: readonly Approval[]): boolean {
-  return approvals.some((a) => a.tool === tool && matchesPattern(subject, a.pattern));
+// is the shell command segment (run_shell) or the file path (write/edit). An
+// approval bound to a `providerModel` only matches when `activeProviderModel`
+// equals it, so a grant scoped to one model never leaks to another.
+export function isApproved(
+  tool: string,
+  subject: string,
+  approvals: readonly Approval[],
+  activeProviderModel?: string,
+): boolean {
+  return approvals.some(
+    (a) =>
+      a.tool === tool &&
+      matchesPattern(subject, a.pattern) &&
+      (a.providerModel === undefined || a.providerModel === activeProviderModel),
+  );
 }

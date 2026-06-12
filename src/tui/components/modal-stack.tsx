@@ -35,6 +35,8 @@ export type ModalStackProps = {
 
   pendingPermission: PermissionRequest | null;
   onResolvePermission: (outcome: ApprovalOutcome) => void;
+
+  width?: number;
 };
 
 export function ModalStack({
@@ -58,6 +60,7 @@ export function ModalStack({
   onSelectOperator,
   pendingPermission,
   onResolvePermission,
+  width,
 }: ModalStackProps): ReactNode {
   return (
     <>
@@ -86,7 +89,7 @@ export function ModalStack({
         />
       )}
       {pendingPermission !== null && (
-        <PermissionModal request={pendingPermission} onResolve={onResolvePermission} />
+        <PermissionModal request={pendingPermission} onResolve={onResolvePermission} {...(width !== undefined ? { width } : {})} />
       )}
     </>
   );
