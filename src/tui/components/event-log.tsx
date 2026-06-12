@@ -18,7 +18,7 @@ export type EventLogProps = {
   visibleRows: number;
   columns: number;
   thinkingExpanded: boolean;
-  expandedTools: ReadonlySet<number>;
+  expandedTools: ReadonlySet<string>;
   verbose: boolean;
 };
 
@@ -103,7 +103,7 @@ export function visibleWindow(
   visibleRows: number,
   columns: number,
   thinkingExpanded: boolean,
-  isExpanded: (absoluteIndex: number) => boolean,
+  isExpanded: (block: RenderableBlock) => boolean,
 ): { start: number; end: number } {
   if (blocks.length === 0) return { start: 0, end: 0 };
   if (scrollOffset >= blocks.length - 1) {
@@ -114,7 +114,7 @@ export function visibleWindow(
       const block = blocks[i]!;
       const spaced = block.type === "user" || block.type === "text";
       const next =
-        estimateRows(block, columns, thinkingExpanded, isExpanded(i)) + (spaced ? 1 : 0);
+        estimateRows(block, columns, thinkingExpanded, isExpanded(block)) + (spaced ? 1 : 0);
       if (rows + next > visibleRows && start < end) break;
       rows += next;
       start = i;
@@ -129,7 +129,7 @@ export function visibleWindow(
     const block = blocks[i]!;
     const spaced = i > start && (block.type === "user" || block.type === "text");
     const next =
-      estimateRows(block, columns, thinkingExpanded, isExpanded(i)) + (spaced ? 1 : 0);
+      estimateRows(block, columns, thinkingExpanded, isExpanded(block)) + (spaced ? 1 : 0);
     if (rows + next > visibleRows && end > start) break;
     rows += next;
     end = i + 1;
@@ -342,21 +342,21 @@ export function EventLog({
     return <Box paddingX={1} />;
   }
 
-  const isExpanded = (absoluteIndex: number): boolean => verbose || expandedTools.has(absoluteIndex);
+  const isExpanded = (block: RenderableBlock): boolean => verbose || expandedTools.has(block.id);
   const { start, end } = visibleWindow(
     blocks,
     scrollOffset,
     visibleRows,
     columns,
     thinkingExpanded,
-    (filteredIndex) => isExpanded(entries[filteredIndex]?.index ?? filteredIndex),
+    isExpanded,
   );
   const visible = entries.slice(start, end);
 
   return (
     <Box flexDirection="column" paddingX={1}>
       {visible.map(({ block, index: absoluteIndex }, i) => {
-        const expanded = isExpanded(absoluteIndex);
+        const expanded = isExpanded(block);
         const node = renderBlock(block, absoluteIndex, columns, expanded, thinkingExpanded, visibleRows);
         // A little breathing room before each conversational turn (a user
         // message or an assistant reply), while tool call/result sequences stay
