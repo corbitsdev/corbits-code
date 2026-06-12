@@ -70,6 +70,7 @@ export type AppProps = {
   onAgentError?: (err: unknown) => void;
   onInterrupt?: () => void;
   onNewSession?: () => void;
+  onQueueMessage?: (text: string) => void;
   permissionsAdmin?: PermissionsAdmin;
   profile?: string;
 };
@@ -90,6 +91,7 @@ export function App({
   onAgentError,
   onInterrupt,
   onNewSession,
+  onQueueMessage,
   permissionsAdmin,
   profile,
 }: AppProps): ReactNode {
@@ -114,6 +116,11 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  // Tracks messages queued for delivery at the next inference boundary.
+  // Incremented when the user submits while a run is active; decremented each
+  // time turnsUsed advances (each inference.done drains one queued message).
+  const [queuedCount, setQueuedCount] = useState(0);
+  const prevTurnsUsedRef = useRef(0);
 
   const providerManager = useProviderManager({
     initialProvider,
@@ -241,6 +248,8 @@ export function App({
     state.clear();
     gates.resetGates();
     setExpandedTools(new Set());
+    setQueuedCount(0);
+    prevTurnsUsedRef.current = 0;
     onNewSession?.();
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
@@ -297,8 +306,25 @@ export function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Decrement the queued count each time the agent completes an inference turn
+  // (meaning it has consumed one queued message).
+  useEffect(() => {
+    const prev = prevTurnsUsedRef.current;
+    if (state.turnsUsed > prev) {
+      const delta = state.turnsUsed - prev;
+      prevTurnsUsedRef.current = state.turnsUsed;
+      setQueuedCount((c) => Math.max(0, c - delta));
+    }
+  }, [state.turnsUsed]);
+
   const handleSend = (message: string) => {
     setCommandMessage(null);
+    if (state.status === "running" || state.status === "blocked") {
+      // Agent is active — queue for delivery at the next inference boundary.
+      onQueueMessage?.(message);
+      setQueuedCount((c) => c + 1);
+      return;
+    }
     sendMessage(message);
   };
 
@@ -555,6 +581,7 @@ export function App({
               value={inputValue}
               onChange={setInputValue}
               active={inputActive}
+              queuedCount={queuedCount}
             />
           )}
         <StatusBar

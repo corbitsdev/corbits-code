@@ -43,6 +43,7 @@ import {
 } from "../hooks.js";
 import { createRunSink } from "../run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session.js";
+import { createInjectionQueue, buildInjectionMessage } from "../mid-run-inject.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -206,6 +207,7 @@ export async function runTUI(config: Config): Promise<number> {
   };
 
   const runSink = createRunSink({ emitter, hookManager });
+  const injectionQueue = createInjectionQueue();
 
   // Tool count before any MCP server connects; a reload is only worthwhile if
   // connecting actually added tools.
@@ -267,6 +269,22 @@ export async function runTUI(config: Config): Promise<number> {
       return currentAgent.blobReader;
     },
   };
+
+  // Drain queued user messages at the next inference boundary. The listener
+  // fires on every inference.done event; if there is a pending message it is
+  // delivered via deliver() (not send()) so it reaches the reactor directly
+  // without entering the send queue, which avoids the wait-for-idle semantics
+  // that would otherwise delay it until the next agent.send() call.
+  emitter.on("event", (event: { type: string }) => {
+    if (event.type !== "inference.done") return;
+    const text = injectionQueue.dequeue();
+    if (text === undefined) return;
+    try {
+      agentProxy.deliver(buildInjectionMessage(text));
+    } catch {
+      // Agent may be closed; ignore delivery failures silently.
+    }
+  });
 
   // A hard stop: closing the agent is the only thing that aborts the reactor
   // mid-inference (the send signal only rejects the send promise). Close it,
@@ -345,6 +363,7 @@ export async function runTUI(config: Config): Promise<number> {
       onAgentError={recordRunError}
       onInterrupt={interrupt}
       onNewSession={newSession}
+      onQueueMessage={(text) => injectionQueue.enqueue(text)}
       permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
     />,
