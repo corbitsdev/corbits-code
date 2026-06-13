@@ -50,6 +50,7 @@ import {
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
+import { WorkflowController } from "./workflow-controller.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -180,6 +181,16 @@ export async function runTUI(config: Config): Promise<number> {
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
+  // Owns the workflow lifecycle: slash-command starts, auto-invoke, capability
+  // overrides, resume, and publishing status to the App via the emitter.
+  const workflowController = new WorkflowController({
+    cwd: config.cwd,
+    emitter,
+    getSessionId: () => sessionId,
+    getToolDefinitions: () => toolset.dynamicRunner.currentDefinitions(),
+    getDirector: () => directorHolder.instance,
+  });
+
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the core set plus any promoted via tool_search.
   // `activeNames` persists across agent reloads, so `computeAdvertised` — run
@@ -276,6 +287,8 @@ export async function runTUI(config: Config): Promise<number> {
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();
       streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+      // The rebuild made a fresh director; re-attach the active workflow.
+      workflowController.reattach();
     });
   };
 
@@ -336,6 +349,7 @@ export async function runTUI(config: Config): Promise<number> {
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
         streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        workflowController.reattach();
         fatalBuildError = null;
       } catch (err) {
         recordRunError(err);
@@ -370,6 +384,8 @@ export async function runTUI(config: Config): Promise<number> {
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
         streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        // A fresh session drops any active workflow.
+        workflowController.reset();
         fatalBuildError = null;
       } catch (err) {
         recordRunError(err);
@@ -411,6 +427,10 @@ export async function runTUI(config: Config): Promise<number> {
       onSubAgentProviderChange={(provider) => {
         liveSubAgentProvider.current = provider;
       }}
+      onStartWorkflow={(name) => workflowController.start(name)}
+      listWorkflows={() => workflowController.list()}
+      onToggleCapability={(name) => workflowController.toggleCapability(name)}
+      initialWorkflowStatus={workflowController.status()}
     />,
     { exitOnCtrlC: false },
   );
@@ -433,10 +453,17 @@ export async function runTUI(config: Config): Promise<number> {
       },
       mcpConnectController.signal,
     )
-    .then(() => {
+    .then(async () => {
       if (toolset.dynamicRunner.currentDefinitions().length > baseToolCount) {
         pendingReload = true;
         reloadIfIdle();
+      }
+      // Now that the capability map reflects connected MCP servers, restore any
+      // persisted workflow, then auto-invoke the profile's workflow if one is
+      // declared and nothing is already active. --no-workflow suppresses this.
+      await workflowController.resume();
+      if (!config.noWorkflow && config.workflow !== undefined && !workflowController.isActive()) {
+        workflowController.autoInvoke(config.workflow);
       }
     });
 

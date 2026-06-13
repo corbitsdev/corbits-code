@@ -7,6 +7,8 @@ export type ProfileConfig = {
   model?: string;
   maxTurns?: number;
   systemPromptExtensions?: string[];
+  // Name of a workflow to auto-start when a session begins on this profile.
+  workflow?: string;
 };
 
 const ALLOWED_KEYS: ReadonlySet<string> = new Set([
@@ -14,6 +16,7 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   "model",
   "maxTurns",
   "systemPromptExtensions",
+  "workflow",
 ]);
 
 export function profilesDir(home: string = homedir()): string {
@@ -68,6 +71,9 @@ function validateProfileConfig(value: unknown, path: string): ProfileConfig {
         `Invalid profile at ${path}: "systemPromptExtensions" must be an array of strings.`,
       );
     }
+  }
+  if (obj.workflow !== undefined && typeof obj.workflow !== "string") {
+    throw new Error(`Invalid profile at ${path}: "workflow" must be a string.`);
   }
   return obj as unknown as ProfileConfig;
 }

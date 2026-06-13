@@ -82,6 +82,10 @@ export type Config = {
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
+  // Workflow to auto-start for this session, from the resolved profile.
+  workflow?: string;
+  // Suppress auto-invoking the profile's workflow for this run (--no-workflow).
+  noWorkflow: boolean;
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -154,6 +158,7 @@ export async function loadConfig(
   let provider: string | undefined;
   let model: string | undefined;
   let profileFlag: string | undefined;
+  let noWorkflow = false;
   const positional: string[] = [];
 
   const requireValue = (flag: string, value: string | undefined): string => {
@@ -204,6 +209,10 @@ export async function loadConfig(
     }
     if (arg === "--no-auto") {
       auto = false;
+      continue;
+    }
+    if (arg === "--no-workflow") {
+      noWorkflow = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -298,6 +307,8 @@ export async function loadConfig(
     auto,
     globalSettingsPath: effectiveSettingsPath,
     sessionId: generateSessionId(),
+    noWorkflow,
+    ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
     providers: buildProviderCatalog(settings, resolved),
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),

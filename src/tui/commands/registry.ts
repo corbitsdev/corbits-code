@@ -5,6 +5,10 @@ export type CommandContext = {
   toggleAuto: () => boolean;
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
+  // Start a workflow by name; returns a status message to surface to the user.
+  startWorkflow?: (name: string) => string;
+  // List available workflows for /workflows.
+  listWorkflows?: () => Array<{ name: string; description: string }>;
 };
 
 export type CommandResult =
