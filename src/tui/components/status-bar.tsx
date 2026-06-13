@@ -12,6 +12,7 @@ export type StatusBarProps = {
   elapsedMs: number;
   status: AgentStatus;
   connectedMCPServers?: string[];
+  auto?: boolean;
 };
 
 
@@ -46,10 +47,17 @@ export function StatusBar({
   elapsedMs,
   status,
   connectedMCPServers = [],
+  auto = false,
 }: StatusBarProps): ReactNode {
   return (
     <Box flexDirection="row" paddingX={1} overflow="hidden">
       <Text color={color("accent")} wrap="truncate-end">{provider} · {model}</Text>
+      {auto && (
+        <>
+          <Divider />
+          <Text bold color={color("warning")} wrap="truncate-end">AUTO</Text>
+        </>
+      )}
       <Divider />
       <Text color={color("success")} wrap="truncate-end">{cost}</Text>
       <Divider />

@@ -137,7 +137,11 @@ export async function loadConfig(
   let force = false;
   let headless = false;
   let dangerouslySkipPermissions = false;
-  let auto = false;
+  // Auto mode is the default: non-destructive consequential actions (file
+  // writes/edits, safe read-only shell) run without prompting, while malicious
+  // commands stay denied and script-runners still ask. Pass --no-auto to revert
+  // to ask-on-every-write, or toggle live in the TUI with /auto.
+  let auto = true;
   let configPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
@@ -188,6 +192,10 @@ export async function loadConfig(
     }
     if (arg === "--auto") {
       auto = true;
+      continue;
+    }
+    if (arg === "--no-auto") {
+      auto = false;
       continue;
     }
     if (arg.startsWith("--")) {
