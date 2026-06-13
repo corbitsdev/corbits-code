@@ -78,6 +78,7 @@ export type Config = {
   profile?: string;
   systemPromptExtensions?: string[];
   maxTurns?: number;
+  reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
 };
@@ -280,6 +281,7 @@ export async function loadConfig(
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
     ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
+    ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
     ...(local?.mcpServers !== undefined
       ? { mcpServers: local.mcpServers }
       : settings?.mcpServers !== undefined

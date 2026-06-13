@@ -2,6 +2,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+
 // A configured inference provider. `apiKey` is secret and lives only in the
 // global settings file; `baseURL` is editable provider metadata that lives with
 // it. `models` is always an array so single-model and multi-model providers are
@@ -40,6 +42,7 @@ export type MCPServerConfig = {
 export type LocalSettings = {
   provider?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
 };
 
@@ -189,10 +192,11 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   if (typeof value !== "object" || value === null) return false;
   const s = value as Record<string, unknown>;
   for (const key of Object.keys(s)) {
-    if (key !== "provider" && key !== "model" && key !== "mcpServers") return false;
+    if (key !== "provider" && key !== "model" && key !== "reasoningEffort" && key !== "mcpServers") return false;
   }
   if (s.provider !== undefined && typeof s.provider !== "string") return false;
   if (s.model !== undefined && typeof s.model !== "string") return false;
+  if (s.reasoningEffort !== undefined && !isReasoningEffort(s.reasoningEffort)) return false;
   if (s.mcpServers !== undefined) {
     if (normalizeMcpServers(s.mcpServers) === undefined) return false;
   }
@@ -242,13 +246,14 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   }
   if (!isLocalSettings(parsed)) {
     throw new Error(
-      `Invalid local settings in ${path}: only "provider" and "model" are allowed (no credentials).`,
+      `Invalid local settings in ${path}: only "provider", "model", and "reasoningEffort" are allowed (no credentials).`,
     );
   }
   const s = parsed as Record<string, unknown>;
   return {
     ...(s.provider !== undefined ? { provider: s.provider as string } : {}),
     ...(s.model !== undefined ? { model: s.model as string } : {}),
+    ...(s.reasoningEffort !== undefined ? { reasoningEffort: s.reasoningEffort as ReasoningEffort } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
   } as LocalSettings;
 }
@@ -274,7 +279,9 @@ export async function saveGlobalSettings(path: string, settings: Settings): Prom
 // written via temp-file + rename so a concurrent reader never sees a torn file.
 export async function saveLocalSettings(path: string, local: LocalSettings): Promise<void> {
   if (!isLocalSettings(local)) {
-    throw new Error(`Refusing to write invalid local settings: only "provider" and "model" are allowed.`);
+    throw new Error(
+      `Refusing to write invalid local settings: only "provider", "model", and "reasoningEffort" are allowed.`,
+    );
   }
   const payload = JSON.stringify(local, null, 2);
   const tmp = `${path}.${process.pid}.tmp`;
