@@ -42,7 +42,7 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<O
 
     get clientMetadata(): OAuthClientMetadata {
       return {
-        client_name: "interchange-code",
+        client_name: "intercode",
         redirect_uris: [opts.redirectUrl],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],

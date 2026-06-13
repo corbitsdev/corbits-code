@@ -12,7 +12,7 @@ const envVars = {
 
 // A global settings path that does not exist, so the env vars above drive
 // resolution and the test stays independent of the dev machine.
-const NO_SETTINGS = join(tmpdir(), "interchange-code-tests-missing", ".interchange", "settings.json");
+const NO_SETTINGS = join(tmpdir(), "intercode-tests-missing", ".interchange", "settings.json");
 
 async function withEnv(fn: () => void | Promise<void>): Promise<void> {
   const original: Record<string, string | undefined> = {};

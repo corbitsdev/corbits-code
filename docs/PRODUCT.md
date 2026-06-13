@@ -1,4 +1,4 @@
-# interchange-code — Product
+# Intercode — Product
 
 ## What It Is
 
@@ -31,7 +31,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 ### TUI Mode (default)
 
 ```bash
-$ interchange-code "Add JWT auth to the API"
+$ intercode "Add JWT auth to the API"
 ```
 
 A full-screen terminal interface: a pinned header (status, turns, live cost), a scrollable event log, a context panel that toggles between the working-tree diff and the plan, modals for permission prompts and operator questions, and a chat input for follow-up turns.
@@ -39,7 +39,7 @@ A full-screen terminal interface: a pinned header (status, turns, live cost), a 
 ### Headless Mode
 
 ```bash
-$ interchange-code --headless "Add JWT auth to the API"
+$ intercode --headless "Add JWT auth to the API"
 ```
 
 Streams the event log to stderr for scripts and CI. Non-interactive: any action that would need operator approval is denied unless `--dangerously-skip-permissions` is set.
@@ -47,7 +47,7 @@ Streams the event log to stderr for scripts and CI. Non-interactive: any action 
 ### Resume
 
 ```bash
-$ interchange-code resume
+$ intercode resume
 ```
 
 Continues from the last saved state in the working directory.
@@ -94,7 +94,7 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 **What the user sees:** `Ctrl+C` mid-run, network error, or crash. The last state is persisted.
 
-**Recovery:** `interchange-code resume` reloads `RunState` + `DirectorPersistedState` and continues.
+**Recovery:** `intercode resume` reloads `RunState` + `DirectorPersistedState` and continues.
 
 ## Configuration
 

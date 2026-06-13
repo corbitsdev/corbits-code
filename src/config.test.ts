@@ -23,7 +23,7 @@ const ENV_KEYS = [
 // A global settings path guaranteed not to exist, so file resolution is inert
 // and the env-based tests below stay hermetic regardless of the dev machine's
 // real ~/.intercode/settings.json.
-const NO_SETTINGS = join(tmpdir(), "interchange-code-tests-missing", ".intercode", "settings.json");
+const NO_SETTINGS = join(tmpdir(), "intercode-tests-missing", ".intercode", "settings.json");
 
 function stashEnv(): Record<string, string | undefined> {
   const stash: Record<string, string | undefined> = {};

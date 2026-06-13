@@ -69,7 +69,7 @@ async function atomicWrite(path: string, content: string): Promise<void> {
 // A corrupt or shape-invalid state file means resume is silently starting over
 // and prior progress is being discarded. Surface it rather than swallowing it.
 function warnUnreadableState(path: string, reason: string): void {
-  process.stderr.write(`interchange-code: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
+  process.stderr.write(`intercode: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
 }
 
 export async function saveDirectorState(
