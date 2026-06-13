@@ -1,10 +1,10 @@
 {
-  "name": "interchange-code",
+  "name": "intercode",
   "version": "0.2.1",
   "private": true,
   "type": "module",
   "bin": {
-    "interchange-code": "./dist/index.js"
+    "intercode": "./dist/index.js"
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",

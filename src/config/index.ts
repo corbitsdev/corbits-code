@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
+import { setModelReasoningCapabilities, validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { readPricingCache } from "../cost/pricing-fetcher.js";
 
 import {
   globalSettingsPath,
@@ -30,14 +32,19 @@ export function buildOpenAISource(fields: {
   baseURL: string;
   apiKey: string;
   model: string;
+  reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
+  const overrides =
+    fields.reasoningEffort !== undefined
+      ? { providerOptions: { reasoning_effort: fields.reasoningEffort } }
+      : {};
   return {
     id: fields.id,
     provider: "openai-compatible",
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey: fields.apiKey,
     model: fields.model,
-    defaults: { maxTokens: SOURCE_MAX_TOKENS },
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
 }
 
@@ -72,6 +79,7 @@ export type Config = {
   profile?: string;
   systemPromptExtensions?: string[];
   maxTurns?: number;
+  reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
 };
@@ -137,7 +145,11 @@ export async function loadConfig(
   let force = false;
   let headless = false;
   let dangerouslySkipPermissions = false;
-  let auto = false;
+  // Auto mode is the default: non-destructive consequential actions (file
+  // writes/edits, safe read-only shell) run without prompting, while malicious
+  // commands stay denied and script-runners still ask. Pass --no-auto to revert
+  // to ask-on-every-write, or toggle live in the TUI with /auto.
+  let auto = true;
   let configPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
@@ -188,6 +200,10 @@ export async function loadConfig(
     }
     if (arg === "--auto") {
       auto = true;
+      continue;
+    }
+    if (arg === "--no-auto") {
+      auto = false;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -256,6 +272,21 @@ export async function loadConfig(
     };
   }
 
+  // Enforce model/effort compatibility at the boundary. The modal only offers
+  // supported levels, but a hand-edited local settings file can pair an effort
+  // with a model that does not accept it; reject it here rather than shipping an
+  // effort the model will refuse. Seed the capability registry from the cached
+  // models.dev metadata (no network) so a non-reasoning model is caught too;
+  // a cache miss leaves the local heuristic in charge.
+  if (local?.reasoningEffort !== undefined) {
+    const cached = await readPricingCache();
+    setModelReasoningCapabilities(cached?.reasoning ?? {});
+    const verdict = validateEffort(resolved.model, local.reasoningEffort);
+    if (!verdict.ok) {
+      throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
+    }
+  }
+
   return {
     configured: true,
     ...resolved,
@@ -274,6 +305,7 @@ export async function loadConfig(
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
     ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
+    ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
     ...(local?.mcpServers !== undefined
       ? { mcpServers: local.mcpServers }
       : settings?.mcpServers !== undefined

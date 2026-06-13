@@ -5,6 +5,7 @@ import type { PlanStep } from "../use-stream.js";
 import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
+import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import { ApprovalModal } from "./approval-modal.js";
 import { OperatorModal } from "./operator-modal.js";
 import { PermissionModal } from "./permission-modal.js";
@@ -20,8 +21,9 @@ export type ModalStackProps = {
   agentProviders: AgentProvider[];
   activeProvider: string;
   activeModel: string;
-  onAgentApply: (provider: string, model: string) => void;
-  onAgentPersistDefault: (provider: string, model: string) => void;
+  activeEffort: ReasoningEffort | undefined;
+  onAgentApply: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
+  onAgentPersistDefault: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
   onAgentSaveProvider: (provider: ProviderFormSubmission) => { ok: true } | { ok: false; error: string };
   onAgentDeleteProvider: (provider: string) => void;
   onCloseAgentModal: () => void;
@@ -48,6 +50,7 @@ export function ModalStack({
   agentProviders,
   activeProvider,
   activeModel,
+  activeEffort,
   onAgentApply,
   onAgentPersistDefault,
   onAgentSaveProvider,
@@ -71,6 +74,7 @@ export function ModalStack({
           providers={agentProviders}
           activeProvider={activeProvider}
           activeModel={activeModel}
+          activeEffort={activeEffort}
           onApply={onAgentApply}
           onPersistDefault={onAgentPersistDefault}
           onSaveProvider={onAgentSaveProvider}

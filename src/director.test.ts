@@ -227,6 +227,40 @@ describe("chatDirector.signalNewTask", () => {
   });
 });
 
+describe("chatDirector LSP auto-activation", () => {
+  test("reading a code file activates the lsp tool on success", async () => {
+    const activated: string[][] = [];
+    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
+    expect(activated).toEqual([["lsp"]]);
+  });
+
+  test("editing a code file activates lsp", async () => {
+    const activated: string[][] = [];
+    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "edit_file", args: { path: "lib/bar.rs" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
+    expect(activated).toEqual([["lsp"]]);
+  });
+
+  test("a non-code file does not activate lsp", async () => {
+    const activated: string[][] = [];
+    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "README.md" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
+    expect(activated).toEqual([]);
+  });
+
+  test("a failed read does not activate lsp", async () => {
+    const activated: string[][] = [];
+    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
+    await director.decide(makeToolErrorEvent("c", "Error: not found"), mockState, mockCapabilities);
+    expect(activated).toEqual([]);
+  });
+});
+
 describe("updateToolDefinitions rewrites infer tools", () => {
   const makeMessageReceivedEvent = (content: string) =>
     ({ type: "message.received", message: { role: "user", content } }) as unknown as ReactorInboundEvent;

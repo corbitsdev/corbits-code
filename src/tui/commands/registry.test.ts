@@ -8,6 +8,8 @@ import type { CommandContext } from "./registry.js";
 const ctx: CommandContext = {
   getVerbose: () => false,
   toggleVerbose: () => false,
+  getAuto: () => false,
+  toggleAuto: () => false,
   signalClear: () => {},
 };
 

@@ -335,8 +335,19 @@ export function createCodingDirector(
 
 export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
 
+const CODE_FILE_EXT =
+  /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cc|cpp|h|hpp|rb|php|cs|swift|kt|kts|scala)$/i;
+
+function isCodeFile(path: string): boolean {
+  return CODE_FILE_EXT.test(path);
+}
+
 class ChatDirectorImpl extends DefaultDirector {
   private readonly submitPlanArgs = new Map<string, unknown>();
+  // read_file/edit_file calls targeting a code file; on success they auto-load
+  // the language server so LSP is enabled "at that point in time".
+  private readonly lspTriggerCalls = new Set<string>();
+  private readonly onActivateTools: ((names: string[]) => void) | undefined;
   private readonly approvalGate: ApprovalGate;
   private readonly taskClassifier:
     | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
@@ -353,12 +364,14 @@ class ChatDirectorImpl extends DefaultDirector {
     toolDefinitions: ToolDefinition[],
     approvalGate: ApprovalGate,
     taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
+    onActivateTools?: (names: string[]) => void,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
     this.approvalGate = approvalGate;
     this.taskClassifier = taskClassifier;
+    this.onActivateTools = onActivateTools;
   }
 
   // Replace the live tool set the model is advertised. MCP servers connect after
@@ -437,10 +450,21 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "inference.done") {
       this.turnCount++;
       for (const block of event.turn.content) {
-        if (block.type === "tool_call" && block.name === "submit_plan") {
+        if (block.type !== "tool_call") continue;
+        if (block.name === "submit_plan") {
           this.submitPlanArgs.set(block.id, block.arguments);
+        } else if (block.name === "read_file" || block.name === "edit_file") {
+          const path = typeof block.arguments?.path === "string" ? block.arguments.path : "";
+          if (isCodeFile(path)) this.lspTriggerCalls.add(block.id);
         }
       }
+    }
+
+    // Reading or editing a code file auto-loads the language server for the rest
+    // of the session, so the model gets LSP without having to discover it.
+    if (event.type === "tool.done" && this.lspTriggerCalls.has(event.result.callId)) {
+      this.lspTriggerCalls.delete(event.result.callId);
+      if (!event.result.isError) this.onActivateTools?.(["lsp"]);
     }
 
     if (event.type === "tool.done" && this.submitPlanArgs.has(event.result.callId)) {
@@ -484,11 +508,10 @@ export function createChatDirector(
   toolDefinitions: ToolDefinition[],
   approvalGate?: ApprovalGate,
   taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
+  onActivateTools?: (names: string[]) => void,
 ): ChatDirectorWithClear {
-  if (approvalGate !== undefined) {
-    return new ChatDirectorImpl(systemPrompt, toolDefinitions, approvalGate, taskClassifier);
-  }
-  return new ChatDirectorImpl(systemPrompt, toolDefinitions, async () => true, taskClassifier);
+  const gate = approvalGate ?? (async () => true);
+  return new ChatDirectorImpl(systemPrompt, toolDefinitions, gate, taskClassifier, onActivateTools);
 }
 
 export interface ChatDirectorWithClear extends ReactorDirector {

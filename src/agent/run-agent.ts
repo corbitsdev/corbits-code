@@ -17,6 +17,7 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 
 import { buildOpenAISource, type Config } from "../config/index.js";
 import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
@@ -32,10 +33,12 @@ import { createMCPPlugin } from "../mcp/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { loadApprovals } from "../permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
+import { gatherEnvironment } from "./environment.js";
 import { createTaskTool } from "../subagent/index.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "../session/state.js";
 import { runCritique } from "./critic.js";
 import { loadPricing, startPricingRefresh } from "../cost/pricing-fetcher.js";
+import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { createRenderer } from "./renderer.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import {
@@ -118,6 +121,7 @@ export async function runAgent(
   initialDirectorState?: DirectorPersistedState,
   onEvent?: (event: ReactorEmittedEvent) => void,
 ): Promise<number> {
+  registerOpenAICompatibleAdapter();
   await initSessionDir(config.cwd, config.sessionId);
   const state = await loadState(config.cwd, config.sessionId);
   if (state !== null && state.status === "running" && !config.force) {
@@ -127,6 +131,7 @@ export async function runAgent(
 
   const startedAt = initialStartedAt ?? Date.now();
   const pricingCache = await loadPricing();
+  setModelReasoningCapabilities(pricingCache?.reasoning ?? {});
   const pricingRefresh = startPricingRefresh();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
@@ -181,6 +186,7 @@ export async function runAgent(
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       },
     }),
     stringTool({
@@ -226,7 +232,7 @@ export async function runAgent(
   ];
 
   const codingDirectorDef = defineDirector({
-    id: "interchange-code/coding",
+    id: "intercode/coding",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
       const d = createCodingDirector(
@@ -241,16 +247,17 @@ export async function runAgent(
   });
 
   const toolsFactory = defineTool({
-    id: "interchange-code/tools",
+    id: "intercode/tools",
     factory: () => createToolRunner(agentTools),
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
-  const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined);
+  const environment = await gatherEnvironment(config.cwd);
+  const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined, environment);
 
   const def = defineAgent({
-    id: "interchange-code/agent",
+    id: "intercode/agent",
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -268,12 +275,13 @@ export async function runAgent(
       baseURL: config.baseURL,
       apiKey: config.apiKey,
       model: config.model,
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
     }),
     storage,
     workdir,
     audit: noopAuditStore(),
     authorize: permissiveAuthorize(),
-    directors: createDirectorRegistry({ factories: [codingDirectorDef.factory], defaultId: "interchange-code/coding" }),
+    directors: createDirectorRegistry({ factories: [codingDirectorDef.factory], defaultId: "intercode/coding" }),
   });
 
   // directorHolder is populated synchronously by the factory during createAgent.

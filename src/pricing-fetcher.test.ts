@@ -1,14 +1,38 @@
 import { describe, test, expect } from "bun:test";
 import {
   parseModelsDevPricing,
+  parseModelsDevReasoning,
   fetchPricing,
   loadPricing,
   lookupModelPricing,
+  lookupModelReasoning,
   readPricingCache,
   writePricingCache,
   startPricingRefresh,
   type PricingCache,
 } from "./cost/pricing-fetcher.js";
+
+describe("parseModelsDevReasoning", () => {
+  test("collects the per-model reasoning flag from a nested models.dev payload", () => {
+    const payload = {
+      openai: {
+        models: {
+          "gpt-5.1": { id: "gpt-5.1", reasoning: true },
+          "gpt-4o": { id: "gpt-4o", reasoning: false },
+          legacy: { id: "legacy" },
+        },
+      },
+    };
+    expect(parseModelsDevReasoning(payload)).toEqual({ "gpt-5.1": true, "gpt-4o": false });
+  });
+
+  test("lookupModelReasoning reads the cached flag, undefined when absent", () => {
+    const cache: PricingCache = { timestamp: 0, models: {}, reasoning: { "gpt-5.1": true } };
+    expect(lookupModelReasoning(cache, "gpt-5.1")).toBe(true);
+    expect(lookupModelReasoning(cache, "unknown")).toBeUndefined();
+    expect(lookupModelReasoning(null, "gpt-5.1")).toBeUndefined();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // parseModelsDevPricing

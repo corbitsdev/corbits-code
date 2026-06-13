@@ -1,3 +1,6 @@
+import type { EnvironmentInfo } from "./environment.js";
+import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
+
 const defaultAgentTools = [
   "read_file",
   "write_file",
@@ -52,9 +55,9 @@ export function buildToolCallDiscipline(): string {
     "How you work:",
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
-    "- You already know where you are: the working directory is in Active context and your shell runs there. Never run pwd, ls, or find to orient — read AGENTS.md or CLAUDE.md if present and use list_dir and grep to explore.",
+    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block, and your shell runs in that directory. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- Understand before you change: read enough to be sure, then act. Not more. Read a file once and take in the whole region you need — don't re-open or page through a file you've already read.",
+    "- Understand before you change: grep for the symbol, read the file and its callers, then edit. Don't change code you haven't read, and don't read past what the task touches. Take in the whole region you need in one read — don't re-open or page through a file you've already read.",
   ].join("\n");
 }
 
@@ -139,9 +142,10 @@ export function buildLSPGuidance(): string {
 
 export function buildFewShot(): string {
   return [
-    "A good sequence, fixing a bug:",
-    "submit_plan -> grep the failing symbol -> read just that region -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
-    "Locate, understand, change, verify, finish. Don't read everything first; don't finish before verifying.",
+    "The shape of a turn — locate, understand, change, verify, finish:",
+    "- Fixing a bug: submit_plan -> grep the failing symbol -> read just that region -> write a failing test that reproduces it -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
+    "- Adding a feature: submit_plan -> grep/list_dir to find where similar code lives -> read that file and the module it sits in -> edit_file or write_file following the patterns you saw -> grep the callers you affected -> run the build and tests -> submit_output.",
+    "Don't read everything first; don't finish before verifying. One tool call per turn minimum, always.",
   ].join("\n");
 }
 
@@ -160,11 +164,29 @@ const TOOL_SUMMARIES: Record<string, string> = {
   submit_plan: "record the plan; required before finishing",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  present: "render structured data (lists, tables, status) to the user",
+  tool_search: "load more tools by capability when you need them",
 };
 
-export function buildAvailableTools(tools = defaultAgentTools): string {
+export function buildAvailableTools(tools: readonly string[] = defaultAgentTools): string {
   const lines = tools.map((tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`);
   return ["Tools:", ...lines].join("\n");
+}
+
+// Listed by name + one-liner only (no schema) so the model knows the capability
+// exists and can load it with tool_search, without paying the schema cost up front.
+export function buildDiscoverableCapabilities(tools: readonly string[] = CATALOG_TOOL_NAMES): string {
+  const lines = tools.map((tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`);
+  return ["Discoverable tools (NOT loaded — call tool_search to load before using):", ...lines].join("\n");
+}
+
+export function buildToolSearchGuidance(): string {
+  return [
+    "Loading more tools:",
+    '- Only the core tools above are loaded. The "Discoverable tools" listed, plus any connected integrations (issue trackers, etc.) that are not listed at all, exist but are not loaded.',
+    '- When you need one, call tool_search with a short description of the capability (e.g. "create a file", "search the web", "find references", "issue tracker"). It loads the matching tools; call them on the next turn.',
+    "- The language server loads automatically once you read or edit a code file.",
+  ].join("\n");
 }
 
 export function buildActiveContext(date = new Date(), cwd = process.cwd()): string {
@@ -172,13 +194,44 @@ export function buildActiveContext(date = new Date(), cwd = process.cwd()): stri
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
-    "User Name: Optional",
-    "Company Name: Optional",
-    "Other User Info: Optional",
+    `Memory: ${cwd}/.intercode/MEMORY.md (scratch pad for agent)`,
   ].join("\n");
 }
 
-export function buildSystemPrompt(tools = defaultAgentTools, extensions?: string[]): string {
+// The live environment, computed per run. This is what lets a weaker model act
+// without burning turns rediscovering its own situation: where it is, what git
+// looks like right now, and what sits at the top level. Prefer this over
+// buildActiveContext whenever the runner can gather it.
+export function buildEnvironmentContext(env: EnvironmentInfo): string {
+  const lines = [
+    "<env>",
+    `Working directory: ${env.cwd} — your shell already runs here; never run pwd, ls, or find just to orient.`,
+    `Platform: ${env.platform}`,
+    `Current Date: ${formatDateDDMMYYYY(env.date)} (prompt cache survives for <=24hr)`,
+  ];
+  if (!env.isGitRepo) {
+    lines.push("Git: not a git repository");
+  } else if ((env.gitDirtyCount ?? 0) === 0) {
+    lines.push(`Git: on ${env.gitBranch ?? "(detached HEAD)"}, working tree clean`);
+  } else {
+    lines.push(`Git: on ${env.gitBranch ?? "(detached HEAD)"}, ${env.gitDirtyCount} uncommitted change(s):`);
+    if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
+  }
+  if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
+  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad across turns)`);
+  lines.push("</env>");
+  return lines.join("\n");
+}
+
+function contextSection(env?: EnvironmentInfo): string {
+  return env ? buildEnvironmentContext(env) : buildActiveContext();
+}
+
+export function buildSystemPrompt(
+  tools = defaultAgentTools,
+  extensions?: string[],
+  env?: EnvironmentInfo,
+): string {
   const sections = [
     buildAgentRole(),
     buildToolCallDiscipline(),
@@ -193,7 +246,7 @@ export function buildSystemPrompt(tools = defaultAgentTools, extensions?: string
     buildSubmitRules(),
     buildFewShot(),
     buildAvailableTools(tools),
-    buildActiveContext(),
+    contextSection(env),
   ];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
@@ -211,7 +264,7 @@ export function buildOutputRenderingRules(): string {
   ].join("\n");
 }
 
-export function buildSubAgentSystemPrompt(extensions?: string[]): string {
+export function buildSubAgentSystemPrompt(extensions?: string[], env?: EnvironmentInfo): string {
   const sections = [
     "You are a sub-agent dispatched by Intercode to carry out one self-contained task autonomously. You have the full file, search, and shell toolset and you act without asking for approval — finish the task and report back.",
     buildToolCallDiscipline(),
@@ -224,7 +277,7 @@ export function buildSubAgentSystemPrompt(extensions?: string[]): string {
     "- When the task is done, stop calling tools and reply with a concise result: what you found or changed, the key file paths, and anything the dispatcher must know. This final message is the only thing returned to the dispatcher — make it self-contained.",
     "- Do not ask the dispatcher questions; you cannot receive answers. Make the best-judgment call, act, and note any assumption in your result.",
     buildAvailableTools(defaultChatTools),
-    buildActiveContext(),
+    contextSection(env),
   ];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
@@ -232,7 +285,7 @@ export function buildSubAgentSystemPrompt(extensions?: string[]): string {
   return joinSections(sections);
 }
 
-export function buildChatSystemPrompt(extensions?: string[]): string {
+export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentInfo): string {
   const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
     buildToolCallDiscipline(),
@@ -243,8 +296,10 @@ export function buildChatSystemPrompt(extensions?: string[]): string {
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
-    buildAvailableTools(defaultChatToolsWithTask),
-    buildActiveContext(),
+    buildAvailableTools(CORE_TOOL_NAMES),
+    buildDiscoverableCapabilities(),
+    buildToolSearchGuidance(),
+    contextSection(env),
   ];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
