@@ -22,6 +22,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
+import { gatherEnvironment } from "../agent/environment.js";
 import { loadAgentContextExtensions } from "../agent/run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
@@ -174,7 +175,8 @@ export async function runTUI(config: Config): Promise<number> {
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
-  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined);
+  const environment = await gatherEnvironment(config.cwd);
+  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined, environment);
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
@@ -187,7 +189,7 @@ export async function runTUI(config: Config): Promise<number> {
     all.filter((d) => CORE_TOOL_NAMES.includes(d.name) || activeNames.has(d.name));
 
   const chatDirectorDef = defineDirector({
-    id: "interchange-code/chat",
+    id: "intercode/chat",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
       const d = createChatDirector(
@@ -203,12 +205,12 @@ export async function runTUI(config: Config): Promise<number> {
   });
 
   const toolsFactory = defineTool({
-    id: "interchange-code/tui-tools",
+    id: "intercode/tui-tools",
     factory: () => toolset.dynamicRunner,
   });
 
   const def = defineAgent({
-    id: "interchange-code/tui-agent",
+    id: "intercode/tui-agent",
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -236,7 +238,7 @@ export async function runTUI(config: Config): Promise<number> {
       workdir,
       audit: noopAuditStore(),
       authorize: permissiveAuthorize(),
-      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "interchange-code/chat" }),
+      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "intercode/chat" }),
     });
   };
 

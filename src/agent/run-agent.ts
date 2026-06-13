@@ -33,6 +33,7 @@ import { createMCPPlugin } from "../mcp/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { loadApprovals } from "../permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
+import { gatherEnvironment } from "./environment.js";
 import { createTaskTool } from "../subagent/index.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "../session/state.js";
 import { runCritique } from "./critic.js";
@@ -231,7 +232,7 @@ export async function runAgent(
   ];
 
   const codingDirectorDef = defineDirector({
-    id: "interchange-code/coding",
+    id: "intercode/coding",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
       const d = createCodingDirector(
@@ -246,16 +247,17 @@ export async function runAgent(
   });
 
   const toolsFactory = defineTool({
-    id: "interchange-code/tools",
+    id: "intercode/tools",
     factory: () => createToolRunner(agentTools),
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
-  const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined);
+  const environment = await gatherEnvironment(config.cwd);
+  const systemPrompt = buildSystemPrompt(undefined, extensions.length > 0 ? extensions : undefined, environment);
 
   const def = defineAgent({
-    id: "interchange-code/agent",
+    id: "intercode/agent",
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -279,7 +281,7 @@ export async function runAgent(
     workdir,
     audit: noopAuditStore(),
     authorize: permissiveAuthorize(),
-    directors: createDirectorRegistry({ factories: [codingDirectorDef.factory], defaultId: "interchange-code/coding" }),
+    directors: createDirectorRegistry({ factories: [codingDirectorDef.factory], defaultId: "intercode/coding" }),
   });
 
   // directorHolder is populated synchronously by the factory during createAgent.

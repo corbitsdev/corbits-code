@@ -7,6 +7,7 @@ import {
   buildAvailableTools,
   buildBudgetRules,
   buildChatSystemPrompt,
+  buildEnvironmentContext,
   buildFewShot,
   buildGroundingRules,
   buildPlanDecisionRules,
@@ -70,13 +71,11 @@ test("buildSystemPrompt includes web_search and web_fetch in tool list", () => {
   expect(prompt).toContain("web_fetch");
 });
 
-test("buildActiveContext includes current date and optional identity fields", () => {
-  const context = buildActiveContext(new Date(2026, 5, 5));
+test("buildActiveContext includes the current date in DD/MM/YYYY and the memory path", () => {
+  const context = buildActiveContext(new Date(2026, 5, 5), "/repo/root");
   expect(context).toContain("Active context:");
   expect(context).toContain("Current Date: 05/06/2026 (prompt cache survives for <=24hr)");
-  expect(context).toContain("User Name: Optional");
-  expect(context).toContain("Company Name: Optional");
-  expect(context).toContain("Other User Info: Optional");
+  expect(context).toContain("/repo/root/.intercode/MEMORY.md");
 });
 
 test("active context names the working directory so the agent need not discover it", () => {
@@ -89,13 +88,56 @@ test("system prompt tells the agent not to run pwd or ls to orient", () => {
   expect(prompt).toContain("Never run pwd, ls, or find to orient");
 });
 
-test("system and chat prompts end with active context", () => {
+test("without an env, system and chat prompts end with the static active context", () => {
   const systemPrompt = buildSystemPrompt();
   const chatPrompt = buildChatSystemPrompt();
-  expect(systemPrompt.trim()).toMatch(/Other User Info: Optional$/);
-  expect(chatPrompt.trim()).toMatch(/Other User Info: Optional$/);
+  expect(systemPrompt.trim()).toMatch(/\.intercode\/MEMORY\.md \(scratch pad for agent\)$/);
+  expect(chatPrompt.trim()).toMatch(/\.intercode\/MEMORY\.md \(scratch pad for agent\)$/);
   expect(systemPrompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
   expect(chatPrompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
+});
+
+test("when an env is supplied, the prompt ends with a live <env> block instead", () => {
+  const env = {
+    cwd: "/repo/root",
+    platform: "Darwin 25.4.0",
+    date: new Date(2026, 5, 5),
+    isGitRepo: true,
+    gitBranch: "main",
+    gitDirtyCount: 2,
+    gitStatusSummary: " M src/a.ts\n?? tmp/",
+    topLevel: "src/  tests/  package.json",
+  };
+  const prompt = buildSystemPrompt(undefined, undefined, env);
+  expect(prompt).toContain("<env>");
+  expect(prompt.trim()).toMatch(/<\/env>$/);
+  expect(prompt).toContain("Working directory: /repo/root");
+  expect(prompt).toContain("Platform: Darwin 25.4.0");
+  expect(prompt).toContain("Git: on main, 2 uncommitted change(s):");
+  expect(prompt).toContain(" M src/a.ts");
+  expect(prompt).toContain("Top level: src/  tests/  package.json");
+  // The static fallback context must not also be present.
+  expect(prompt).not.toContain("Active context:");
+});
+
+test("buildEnvironmentContext reports a clean tree and a non-git directory", () => {
+  const clean = buildEnvironmentContext({
+    cwd: "/r",
+    platform: "Linux 6",
+    date: new Date(2026, 0, 1),
+    isGitRepo: true,
+    gitBranch: "dev",
+    gitDirtyCount: 0,
+  });
+  expect(clean).toContain("Git: on dev, working tree clean");
+
+  const noGit = buildEnvironmentContext({
+    cwd: "/r",
+    platform: "Linux 6",
+    date: new Date(2026, 0, 1),
+    isGitRepo: false,
+  });
+  expect(noGit).toContain("Git: not a git repository");
 });
 
 test("tool discipline prefers web tools over shell for web access", () => {

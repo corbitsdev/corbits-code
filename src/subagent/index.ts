@@ -33,6 +33,7 @@ import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 
@@ -132,24 +133,25 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   });
   const tools = fromToolRunner(posixTools);
 
-  const systemPrompt = buildSubAgentSystemPrompt();
+  const environment = await gatherEnvironment(params.cwd);
+  const systemPrompt = buildSubAgentSystemPrompt(undefined, environment);
 
   const directorDef = defineDirector({
-    id: "interchange-code/subagent",
+    id: "intercode/subagent",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       new SubAgentDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], maxTurns),
   });
 
   const toolsFactory = defineTool({
-    id: "interchange-code/subagent-tools",
+    id: "intercode/subagent-tools",
     factory: () => createToolRunner(tools),
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());
 
   const def = defineAgent({
-    id: "interchange-code/subagent",
+    id: "intercode/subagent",
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -177,7 +179,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({
       factories: [directorDef.factory],
-      defaultId: "interchange-code/subagent",
+      defaultId: "intercode/subagent",
     }),
   });
 
