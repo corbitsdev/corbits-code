@@ -1,3 +1,5 @@
+import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
+
 const defaultAgentTools = [
   "read_file",
   "write_file",
@@ -160,11 +162,29 @@ const TOOL_SUMMARIES: Record<string, string> = {
   submit_plan: "record the plan; required before finishing",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  present: "render structured data (lists, tables, status) to the user",
+  tool_search: "load more tools by capability when you need them",
 };
 
-export function buildAvailableTools(tools = defaultAgentTools): string {
+export function buildAvailableTools(tools: readonly string[] = defaultAgentTools): string {
   const lines = tools.map((tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`);
   return ["Tools:", ...lines].join("\n");
+}
+
+// Listed by name + one-liner only (no schema) so the model knows the capability
+// exists and can load it with tool_search, without paying the schema cost up front.
+export function buildDiscoverableCapabilities(tools: readonly string[] = CATALOG_TOOL_NAMES): string {
+  const lines = tools.map((tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`);
+  return ["Discoverable tools (NOT loaded — call tool_search to load before using):", ...lines].join("\n");
+}
+
+export function buildToolSearchGuidance(): string {
+  return [
+    "Loading more tools:",
+    '- Only the core tools above are loaded. The "Discoverable tools" listed, plus any connected integrations (issue trackers, etc.) that are not listed at all, exist but are not loaded.',
+    '- When you need one, call tool_search with a short description of the capability (e.g. "create a file", "search the web", "find references", "issue tracker"). It loads the matching tools; call them on the next turn.',
+    "- The language server loads automatically once you read or edit a code file.",
+  ].join("\n");
 }
 
 export function buildActiveContext(date = new Date(), cwd = process.cwd()): string {
@@ -243,7 +263,9 @@ export function buildChatSystemPrompt(extensions?: string[]): string {
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
-    buildAvailableTools(defaultChatToolsWithTask),
+    buildAvailableTools(CORE_TOOL_NAMES),
+    buildDiscoverableCapabilities(),
+    buildToolSearchGuidance(),
     buildActiveContext(),
   ];
   if (extensions !== undefined && extensions.length > 0) {

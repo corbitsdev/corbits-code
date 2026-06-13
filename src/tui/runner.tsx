@@ -16,7 +16,9 @@ import { buildOpenAISource, type Config } from "../config/index.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
+import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
 import type { SubAgentProvider } from "../subagent/index.js";
+import type { ToolDefinition } from "@intx/types/runtime";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -176,13 +178,21 @@ export async function runTUI(config: Config): Promise<number> {
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
+  // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
+  // dispatch but advertises only the core set plus any promoted via tool_search.
+  // `activeNames` persists across agent reloads, so `computeAdvertised` — run
+  // inside the director factory on every (re)build — keeps the gate stable.
+  const activeNames = new Set<string>();
+  const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
+    all.filter((d) => CORE_TOOL_NAMES.includes(d.name) || activeNames.has(d.name));
+
   const chatDirectorDef = defineDirector({
     id: "interchange-code/chat",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
       const d = createChatDirector(
         agentCtx.systemPrompt,
-        [...agentCtx.toolDefinitions],
+        computeAdvertised([...agentCtx.toolDefinitions]),
         approvalGate,
       );
       directorHolder.instance = d;
@@ -264,6 +274,27 @@ export async function runTUI(config: Config): Promise<number> {
       streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
     });
   };
+
+  // tool_search (and contextual triggers) promote tools into the advertised set.
+  // Advertising takes effect on the next infer; a reload is scheduled so a newly
+  // connected MCP tool also becomes dispatchable. Built-in tools are already in
+  // the dispatch map, so promoting them needs no reload.
+  const promoteTools = (names: string[]): void => {
+    let changed = false;
+    for (const name of names) {
+      if (!activeNames.has(name)) {
+        activeNames.add(name);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    directorHolder.instance?.updateToolDefinitions(
+      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+    );
+    pendingReload = true;
+    reloadIfIdle();
+  };
+  toolset.setToolPromoter(promoteTools);
 
   // Stable handle handed to the App so the underlying agent can be swapped out
   // from under it without a remount; method calls always target the live agent.
@@ -391,7 +422,10 @@ export async function runTUI(config: Config): Promise<number> {
     .connectMCP(
       {
         onStatus: (status) => emitter.emit("mcp.status", status),
-        onToolsChanged: (definitions) => directorHolder.instance?.updateToolDefinitions(definitions),
+        // MCP tools register for dispatch but stay unadvertised (blind) until
+        // tool_search promotes them, so they never bloat the per-turn context.
+        onToolsChanged: (definitions) =>
+          directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
       },
       mcpConnectController.signal,
     )

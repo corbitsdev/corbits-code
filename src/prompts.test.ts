@@ -135,6 +135,17 @@ test("buildChatSystemPrompt includes web tools and web access discipline", () =>
   expect(prompt).toContain(buildGroundingRules());
 });
 
+test("buildChatSystemPrompt advertises core tools and teaches tool_search for the rest", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toContain("tool_search");
+  expect(prompt).toContain("Discoverable tools");
+  expect(prompt).toContain("call them on the next turn");
+  expect(prompt).toContain("read_file");
+  // Discoverable built-ins are named (one-liners), but specific MCP integrations
+  // are never enumerated in the prompt — they are discovered blind.
+  expect(prompt).not.toContain("mcp__");
+});
+
 test("agent identity is Intercode with a quality bar, not an assistant", () => {
   const role = buildAgentRole();
   expect(role).toContain("Intercode");
