@@ -7,7 +7,7 @@ import type {
   TokenUsage,
   ToolResult,
 } from "@intx/types/runtime";
-import { createChatDirector } from "../../src/agent/director.js";
+import { createChatDirector, createCodingDirector } from "../../src/agent/director.js";
 import { WorkflowRuntime } from "../../src/workflows/runtime.js";
 import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
 import type { CapabilityMap } from "../../src/workflows/capabilities.js";
@@ -99,4 +99,48 @@ test("an advance_workflow tool call advances the runtime through the director", 
   await director.decide({ type: "tool.done", result }, state, caps);
 
   expect(runtime.currentStep()?.id).toBe("b");
+});
+
+function submitOutputTurn(callId: string, args: Record<string, unknown>): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      content: [{ type: "tool_call", id: callId, name: "submit_output", arguments: args }],
+      model: "test-model",
+      timestamp: 0,
+    },
+    usage,
+    source: { id: "t", provider: "openai", model: "test-model" },
+  };
+}
+
+function idleTurn(): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: { role: "assistant", content: [], model: "test-model", timestamp: 0 },
+    usage,
+    source: { id: "t", provider: "openai", model: "test-model" },
+  };
+}
+
+function hasDone(result: ReactorAction | ReactorAction[]): boolean {
+  return (Array.isArray(result) ? result : [result]).some((a) => a.type === "done");
+}
+
+test("a step-tagged submit_output does not terminate the headless run", async () => {
+  const director = createCodingDirector("sys", [], undefined, 100);
+  const caps = makeCapabilities();
+  await director.decide(submitOutputTurn("call-1", { step: "a", summary: "did a" }), state, caps);
+  await director.decide({ type: "tool.done", result: { callId: "call-1", content: "ok", isError: false } }, state, caps);
+  // A following tool-less turn must NOT end the run — the submit was a step advance.
+  expect(hasDone(await director.decide(idleTurn(), state, caps))).toBe(false);
+});
+
+test("an untagged submit_output still terminates the headless run", async () => {
+  const director = createCodingDirector("sys", [], undefined, 100);
+  const caps = makeCapabilities();
+  await director.decide(submitOutputTurn("call-1", { summary: "all done" }), state, caps);
+  await director.decide({ type: "tool.done", result: { callId: "call-1", content: "ok", isError: false } }, state, caps);
+  expect(hasDone(await director.decide(idleTurn(), state, caps))).toBe(true);
 });

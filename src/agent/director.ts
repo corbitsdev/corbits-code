@@ -276,7 +276,15 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         ];
       }
       const name = this.callIdToName.get(event.result.callId);
-      if (name === "submit_output" && isSuccessfulToolResult(event.result)) {
+      // A step-tagged submit_output ({ step }) is a workflow step-advance signal,
+      // not a terminal submit. Do not latch termination on it, so the two
+      // meanings of submit_output cannot collide when a workflow is driving.
+      const submitArgs = this.callIdToArgs.get(event.result.callId);
+      const isStepTagged =
+        typeof submitArgs === "object" &&
+        submitArgs !== null &&
+        typeof (submitArgs as Record<string, unknown>).step === "string";
+      if (name === "submit_output" && isSuccessfulToolResult(event.result) && !isStepTagged) {
         this.submitCalled = true;
         if (!this.planSubmitted && this._turnsUsed - 1 > 3) {
           const base = await super.decide(event, state, capabilities);

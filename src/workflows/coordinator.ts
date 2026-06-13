@@ -13,6 +13,9 @@ export class WorkflowCoordinator {
     // mid-recipe. Failures are swallowed — losing the workflow checkpoint must
     // not crash the agent loop.
     private readonly persist: () => void = () => {},
+    // When true the workflow pauses after each step for user confirmation; the
+    // directive tells the agent to gate via ask_operator before advancing.
+    private readonly stepThrough: boolean = false,
   ) {}
 
   isActive(): boolean {
@@ -34,6 +37,12 @@ export class WorkflowCoordinator {
     const lines = [`[WORKFLOW STEP ${ordinal}: ${step.label}]`, ""];
     if (step.prompt !== undefined) lines.push(step.prompt, "");
     for (const guidance of guidanceFor(step)) lines.push(guidance);
+    if (this.stepThrough && step.type !== "gate") {
+      lines.push(
+        `Step-through mode is on: when this step is done, summarize it and call` +
+          ` ask_operator to confirm before you advance.`,
+      );
+    }
     lines.push(
       `When this step is complete, call advance_workflow to continue` +
         ` (or submit_output with { "step": "${step.id}" }).`,
@@ -41,9 +50,10 @@ export class WorkflowCoordinator {
     return lines.join("\n");
   }
 
-  // Handle a completed tool call. Returns true when the runtime advanced, so the
-  // director can reset its idle counter (a workflow advance is real progress,
-  // not a stall).
+  // Handle a completed tool call, advancing the runtime when it is an
+  // advance_workflow or a step-tagged submit_output. Returns true when the
+  // runtime advanced (used by tests; the directors already reset their idle
+  // counters on any tool call, so a workflow advance is never seen as a stall).
   handleToolDone(name: string | undefined, args: unknown, isError: boolean): boolean {
     if (isError || !this.runtime.isActive()) return false;
     if (name === "advance_workflow") {

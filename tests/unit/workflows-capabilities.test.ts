@@ -72,6 +72,19 @@ test("resolveStep returns the satisfying tools when runnable", () => {
   expect(res.tools).toHaveLength(2);
 });
 
+test("substring-adjacent tool names do not produce false-positive capabilities", () => {
+  // git_fetch must not satisfy doc-search; a github gist tool must not satisfy
+  // code-host; an unrelated tool must not satisfy ticket-tracker.
+  const map = detectCapabilities([
+    tool("git_fetch"),
+    tool("mcp__github__create_github_gist"),
+    tool("prefetch_cache"),
+  ]);
+  expect(map.has("doc-search")).toBe(false);
+  expect(map.has("code-host")).toBe(false);
+  expect(map.has("ticket-tracker")).toBe(false);
+});
+
 test("the capability registry is extensible by data alone", () => {
   for (const name of Object.keys(CAPABILITIES)) {
     expect(CAPABILITIES[name as keyof typeof CAPABILITIES].requiredTools.length).toBeGreaterThan(0);

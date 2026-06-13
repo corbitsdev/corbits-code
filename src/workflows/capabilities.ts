@@ -26,17 +26,11 @@ export const CAPABILITIES: Record<
   },
   "code-host": {
     description: "Open and review pull requests on a code host (GitHub)",
-    requiredTools: [
-      "create_pull_request",
-      "get_pull_request",
-      "pull_request",
-      "create_pr",
-      "github",
-    ],
+    requiredTools: ["create_pull_request", "get_pull_request", "pull_request", "create_pr"],
   },
   "doc-search": {
     description: "Search and fetch external documentation",
-    requiredTools: ["web_search", "web_fetch", "search_documentation", "fetch"],
+    requiredTools: ["web_search", "web_fetch", "search_documentation"],
   },
 };
 
@@ -53,8 +47,25 @@ export type StepResolution = {
   tools: ToolDefinition[];
 };
 
+function tokenize(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 0);
+}
+
+// A pattern matches when its tokens appear as a contiguous run within the tool
+// name's tokens. This avoids substring false positives — "web_fetch" no longer
+// matches "git_fetch", and a provider token like "linear" matches the server
+// segment but not an unrelated substring.
 function matches(toolName: string, pattern: string): boolean {
-  return toolName.toLowerCase().includes(pattern.toLowerCase());
+  const tokens = tokenize(toolName);
+  const needle = tokenize(pattern);
+  if (needle.length === 0) return false;
+  for (let i = 0; i + needle.length <= tokens.length; i++) {
+    if (needle.every((tok, j) => tokens[i + j] === tok)) return true;
+  }
+  return false;
 }
 
 // Inspect the active tool surface and build the capability map. Unknown tools
