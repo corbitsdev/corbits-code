@@ -13,9 +13,16 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildOpenAISource, type Config } from "../config/index.js";
+import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
+import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
+import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
+import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
+import type { SubAgentProvider } from "../subagent/index.js";
+import type { ToolDefinition } from "@intx/types/runtime";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
+import { gatherEnvironment } from "../agent/environment.js";
 import { loadAgentContextExtensions } from "../agent/run-agent.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
@@ -65,6 +72,16 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 }
 
 export async function runTUI(config: Config): Promise<number> {
+  registerOpenAICompatibleAdapter();
+  // Seed reasoning capabilities from the cached models.dev metadata so the
+  // /agent effort selector can gate non-reasoning models immediately, then
+  // refresh from the network in the background (updates the cache for next run).
+  setModelReasoningCapabilities((await readPricingCache())?.reasoning ?? {});
+  void loadPricing()
+    .then((cache) => {
+      if (cache !== null) setModelReasoningCapabilities(cache.reasoning ?? {});
+    })
+    .catch(() => undefined);
   let sessionId = config.sessionId;
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
@@ -128,6 +145,19 @@ export async function runTUI(config: Config): Promise<number> {
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
+  // Track the active subagent provider so a live /agent switch (provider, model,
+  // or reasoning effort) reaches subagents spawned afterward. Seeded from config
+  // and updated by the App through onSubAgentProviderChange.
+  const liveSubAgentProvider: { current: SubAgentProvider } = {
+    current: {
+      providerName: config.providerName,
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+    },
+  };
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
@@ -138,30 +168,36 @@ export async function runTUI(config: Config): Promise<number> {
       }),
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
-      provider: {
-        providerName: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-      },
+      provider: () => liveSubAgentProvider.current,
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
     },
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
   const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
-  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined);
+  const environment = await gatherEnvironment(config.cwd);
+  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined, environment);
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
+  // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
+  // dispatch but advertises only the core set plus any promoted via tool_search.
+  // `activeNames` persists across agent reloads, so `computeAdvertised` — run
+  // inside the director factory on every (re)build — keeps the gate stable.
+  const activeNames = new Set<string>();
+  const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
+    all.filter((d) => CORE_TOOL_NAMES.includes(d.name) || activeNames.has(d.name));
+
   const chatDirectorDef = defineDirector({
-    id: "interchange-code/chat",
+    id: "intercode/chat",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
       const d = createChatDirector(
         agentCtx.systemPrompt,
-        [...agentCtx.toolDefinitions],
+        computeAdvertised([...agentCtx.toolDefinitions]),
         approvalGate,
+        undefined,
+        (names) => promoteTools(names),
       );
       directorHolder.instance = d;
       return d;
@@ -169,12 +205,12 @@ export async function runTUI(config: Config): Promise<number> {
   });
 
   const toolsFactory = defineTool({
-    id: "interchange-code/tui-tools",
+    id: "intercode/tui-tools",
     factory: () => toolset.dynamicRunner,
   });
 
   const def = defineAgent({
-    id: "interchange-code/tui-agent",
+    id: "intercode/tui-agent",
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -196,12 +232,13 @@ export async function runTUI(config: Config): Promise<number> {
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       }),
       storage,
       workdir,
       audit: noopAuditStore(),
       authorize: permissiveAuthorize(),
-      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "interchange-code/chat" }),
+      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "intercode/chat" }),
     });
   };
 
@@ -241,6 +278,27 @@ export async function runTUI(config: Config): Promise<number> {
       streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
     });
   };
+
+  // tool_search (and contextual triggers) promote tools into the advertised set.
+  // Advertising takes effect on the next infer; a reload is scheduled so a newly
+  // connected MCP tool also becomes dispatchable. Built-in tools are already in
+  // the dispatch map, so promoting them needs no reload.
+  const promoteTools = (names: string[]): void => {
+    let changed = false;
+    for (const name of names) {
+      if (!activeNames.has(name)) {
+        activeNames.add(name);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    directorHolder.instance?.updateToolDefinitions(
+      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+    );
+    pendingReload = true;
+    reloadIfIdle();
+  };
+  toolset.setToolPromoter(promoteTools);
 
   // Stable handle handed to the App so the underlying agent can be swapped out
   // from under it without a remount; method calls always target the live agent.
@@ -335,6 +393,7 @@ export async function runTUI(config: Config): Promise<number> {
       sessionTitle={config.task}
       initialModel={config.model}
       initialProvider={config.providerName}
+      {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}
       providers={config.providers}
       globalSettingsPath={config.globalSettingsPath}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
@@ -347,6 +406,11 @@ export async function runTUI(config: Config): Promise<number> {
       onNewSession={newSession}
       permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
+      initialAuto={config.auto}
+      onToggleAuto={(value) => permissionGate.setAuto(value)}
+      onSubAgentProviderChange={(provider) => {
+        liveSubAgentProvider.current = provider;
+      }}
     />,
     { exitOnCtrlC: false },
   );
@@ -362,7 +426,10 @@ export async function runTUI(config: Config): Promise<number> {
     .connectMCP(
       {
         onStatus: (status) => emitter.emit("mcp.status", status),
-        onToolsChanged: (definitions) => directorHolder.instance?.updateToolDefinitions(definitions),
+        // MCP tools register for dispatch but stay unadvertised (blind) until
+        // tool_search promotes them, so they never bloat the per-turn context.
+        onToolsChanged: (definitions) =>
+          directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
       },
       mcpConnectController.signal,
     )

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config/index.js";
+import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import type { ResolvedProvider, Settings } from "./config/settings.js";
 
@@ -23,7 +23,7 @@ const ENV_KEYS = [
 // A global settings path guaranteed not to exist, so file resolution is inert
 // and the env-based tests below stay hermetic regardless of the dev machine's
 // real ~/.intercode/settings.json.
-const NO_SETTINGS = join(tmpdir(), "interchange-code-tests-missing", ".intercode", "settings.json");
+const NO_SETTINGS = join(tmpdir(), "intercode-tests-missing", ".intercode", "settings.json");
 
 function stashEnv(): Record<string, string | undefined> {
   const stash: Record<string, string | undefined> = {};
@@ -382,6 +382,29 @@ describe("loadConfig", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  test("rejects a local reasoningEffort unsupported by the selected model", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      await writeFile(
+        join(cwd, ".intercode", "settings.json"),
+        JSON.stringify({ provider: "a", model: "a-model", reasoningEffort: "xhigh" }),
+      );
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({ providers: { a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] } } }),
+      );
+      await expect(
+        loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath }),
+      ).rejects.toThrow(/reasoningEffort/);
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("buildOpenAISource", () => {
@@ -393,6 +416,25 @@ describe("buildOpenAISource", () => {
       model: "fp-large",
     });
     expect(source.baseURL).toBe("https://fp/v1");
+  });
+
+  test("omits reasoning_effort when effort is absent", () => {
+    const source = buildOpenAISource({ id: "fp", baseURL: "https://fp/v1", apiKey: "k", model: "m" });
+    expect(source.defaults).toEqual({ maxTokens: SOURCE_MAX_TOKENS });
+  });
+
+  test("sets providerOptions.reasoning_effort when effort is present", () => {
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1",
+      apiKey: "k",
+      model: "gpt-5.1",
+      reasoningEffort: "high",
+    });
+    expect(source.defaults).toEqual({
+      maxTokens: SOURCE_MAX_TOKENS,
+      providerOptions: { reasoning_effort: "high" },
+    });
   });
 });
 

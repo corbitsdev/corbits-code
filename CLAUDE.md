@@ -1,6 +1,6 @@
-# Claude Workspace — interchange-code
+# Claude Workspace — Intercode
 
-This repository is **interchange-code**, a single-process coding agent CLI built on Interchange primitives and backed by the LLM. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline.
+This repository is **Intercode**, a single-process coding agent CLI built on Interchange primitives and backed by the LLM. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline.
 
 ## Startup
 

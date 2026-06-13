@@ -1,8 +1,41 @@
-# interchange-code — Architecture
+# Intercode — Architecture
 
 ## System Overview
 
 The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a policy director, sends a task, and consumes the event stream. A custom director enforces policy on top of the reactor's default behavior. Two front ends consume the same loop: a headless renderer (stderr) and an Ink-based TUI.
+
+## The Reactor Loop
+
+The reactor (from `@intx/agent`) drives a single agent turn-by-turn. Each turn is:
+
+1. **Inference** — the LLM produces an assistant turn (text plus zero or more `tool_call` blocks).
+2. **Tool dispatch** — each `tool_call` runs concurrently; results return as `tool.done` events.
+3. **Director decision** — `CodingDirector.decide()` receives every event and returns `ReactorAction[]` that control what happens next.
+
+This repeats until the director emits `capabilities.done()`.
+
+### Events
+
+| Event | When it fires |
+|---|---|
+| `inference.done` | The LLM finished one assistant turn. Carries the full turn content. |
+| `tool.done` | One tool call completed. Carries the result and the original `callId`. |
+
+### ReactorActions
+
+The director returns actions that shape the loop:
+
+- `capabilities.continue()` — run another inference turn (implicit default).
+- `capabilities.reply(text)` — inject a synthetic tool result into the next turn's context.
+- `capabilities.checkpoint(label)` — persist a named checkpoint to `.agent-state/`.
+- `capabilities.done()` — terminate the loop.
+
+### Mandatory director-layer tools
+
+Two tools exist only at the director layer and gate the loop:
+
+- **`submit_plan`** — records the plan into durable director state; required before `submit_output` is accepted.
+- **`submit_output`** — the only signal that terminates cleanly. Conversational text without it does not end the session; the reactor keeps running inference turns until `submit_output` is called or the director aborts on a stall.
 
 ## Components
 
@@ -156,7 +189,7 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
 ### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
 
-interchange-code supports an extension system that sources slash commands and context skills from external skill directories. The contract is compatible with the `marketplace.json` + `plugins/<name>/skills/<skill-name>/SKILL.md` layout used by Claude Code and Codex plugin ecosystems.
+Intercode supports an extension system that sources slash commands and context skills from external skill directories. The contract is compatible with the `marketplace.json` + `plugins/<name>/skills/<skill-name>/SKILL.md` layout used by Claude Code and Codex plugin ecosystems.
 
 #### Discovery
 

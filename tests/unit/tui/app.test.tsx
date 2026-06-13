@@ -34,7 +34,7 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
       initialModel="test-model"
       initialProvider="test-provider"
       providers={[testProvider]}
-      globalSettingsPath="/tmp/interchange-code-test-settings.json"
+      globalSettingsPath="/tmp/intercode-test-settings.json"
       globalDefaultProvider="test-provider"
       cwd="/tmp"
       initialTask={initialTask ?? ""}
@@ -195,7 +195,7 @@ test("App keeps header and footer visible after many events", async () => {
       initialModel="test-model"
       initialProvider="test-provider"
       providers={[testProvider]}
-      globalSettingsPath="/tmp/interchange-code-test-settings.json"
+      globalSettingsPath="/tmp/intercode-test-settings.json"
       globalDefaultProvider="test-provider"
       cwd="/tmp"
     />,

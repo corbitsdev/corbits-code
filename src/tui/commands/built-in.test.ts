@@ -3,12 +3,15 @@ import "./built-in.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
-const makeCtx = (): CommandContext & { verbose: boolean } => {
-  const state = { verbose: false };
+const makeCtx = (): CommandContext & { verbose: boolean; auto: boolean } => {
+  const state = { verbose: false, auto: false };
   return {
     verbose: state.verbose,
+    auto: state.auto,
     getVerbose: () => state.verbose,
     toggleVerbose: () => { state.verbose = !state.verbose; return state.verbose; },
+    getAuto: () => state.auto,
+    toggleAuto: () => { state.auto = !state.auto; return state.auto; },
     signalClear: () => {},
   };
 };
@@ -49,6 +52,22 @@ describe("/verbose command", () => {
     if (on.type === "message") expect(on.text).toContain("on");
     const off = getCommand("verbose")!.handler("", ctx);
     expect(ctx.getVerbose()).toBe(false);
+    if (off.type === "message") expect(off.text).toContain("off");
+  });
+});
+
+describe("/auto command", () => {
+  it("is registered", () => {
+    expect(getCommand("auto")).toBeDefined();
+  });
+
+  it("toggles auto state and reports it", () => {
+    const ctx = makeCtx();
+    const on = getCommand("auto")!.handler("", ctx);
+    expect(ctx.getAuto()).toBe(true);
+    if (on.type === "message") expect(on.text).toContain("on");
+    const off = getCommand("auto")!.handler("", ctx);
+    expect(ctx.getAuto()).toBe(false);
     if (off.type === "message") expect(off.text).toContain("off");
   });
 });

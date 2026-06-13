@@ -44,8 +44,8 @@ async function loadEnvFile(path: string): Promise<void> {
 /* eslint-disable no-console */
 
 function printHelp(): void {
-  console.log("Usage: interchange-code [run] <task description>");
-  console.log("       interchange-code resume [--force]");
+  console.log("Usage: intercode [run] <task description>");
+  console.log("       intercode resume [--force]");
   console.log("");
   console.log("Options:");
   console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
@@ -54,7 +54,8 @@ function printHelp(): void {
   console.log("  --provider <name>  Select a configured provider");
   console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
-  console.log("  --auto             Auto-approve non-destructive permissions (safe shell commands, repeat writes)");
+  console.log("  --auto             Auto-approve safe shell and file writes/edits (default; recoverable via git)");
+  console.log("  --no-auto          Disable auto mode: ask before every file write/edit and command");
   console.log("  --help             Show this help message");
   console.log("");
   console.log("Configuration:");
@@ -112,7 +113,7 @@ export async function mainWithRunners(
 
   if (config.configured === false) {
     if (config.headless) {
-      console.error(`interchange-code: ${config.providerError}`);
+      console.error(`intercode: ${config.providerError}`);
       return 1;
     }
     return runners.runOnboarding(config);
@@ -140,7 +141,7 @@ if (import.meta.main) {
     (code) => process.exit(code),
     (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`interchange-code: ${message}`);
+      console.error(`intercode: ${message}`);
       process.exit(1);
     },
   );

@@ -295,6 +295,27 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
+  test("setAuto toggles auto mode live", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: false,
+    });
+    expect(gate.getAuto()).toBe(false);
+    const denied = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(denied.allowed).toBe(false);
+    expect(asked).toBe(1);
+
+    gate.setAuto(true);
+    expect(gate.getAuto()).toBe(true);
+    const allowed = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(allowed.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
   test("auto mode still asks for shell commands", async () => {
     let asked = 0;
     const gate = createPermissionGate({

@@ -135,6 +135,49 @@ test("persistSelection applies selection and calls saveLocalSettings", async () 
   );
 });
 
+test("applySelection threads reasoning effort into the source and state", async () => {
+  const agent = makeAgent();
+  const args = makeArgs({ agent: agent as unknown as UseProviderManagerArgs["agent"] });
+  render(<CapturingHarness args={args} />);
+
+  await act(async () => {
+    capturedCtrl.applySelection("anthropic", "claude-3-opus", "high");
+  });
+
+  expect(capturedCtrl.reasoningEffort).toBe("high");
+  expect(agent.setSource).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: "high" }));
+});
+
+test("persistSelection with effort writes reasoningEffort to local settings", async () => {
+  const args = makeArgs();
+  render(<CapturingHarness args={args} />);
+
+  await act(async () => {
+    capturedCtrl.persistSelection("anthropic", "claude-3-opus", "medium");
+  });
+  await tick();
+
+  expect(mockSaveLocalSettings).toHaveBeenCalledWith(
+    "/repo/.agent/settings.json",
+    { provider: "anthropic", model: "claude-3-opus", reasoningEffort: "medium" },
+  );
+});
+
+test("persistSelection with no override omits reasoningEffort from local settings", async () => {
+  const args = makeArgs({ initialReasoningEffort: "high" });
+  render(<CapturingHarness args={args} />);
+
+  await act(async () => {
+    capturedCtrl.persistSelection("anthropic", "claude-3-opus", undefined);
+  });
+  await tick();
+
+  expect(mockSaveLocalSettings).toHaveBeenCalledWith(
+    "/repo/.agent/settings.json",
+    { provider: "anthropic", model: "claude-3-opus" },
+  );
+});
+
 test("upsertProvider with name conflict returns error and does not update state", async () => {
   const args = makeArgs();
   render(<CapturingHarness args={args} />);

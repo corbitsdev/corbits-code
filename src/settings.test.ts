@@ -272,6 +272,17 @@ describe("validators", () => {
     expect(isLocalSettings({ provider: "a", model: "m" })).toBe(true);
     expect(isLocalSettings({})).toBe(true);
   });
+
+  test("isLocalSettings accepts a valid reasoningEffort", () => {
+    expect(isLocalSettings({ model: "m", reasoningEffort: "high" })).toBe(true);
+    // "none" is OpenAI's explicit disable-reasoning value, a real level.
+    expect(isLocalSettings({ reasoningEffort: "none" })).toBe(true);
+  });
+
+  test("isLocalSettings rejects an invalid reasoningEffort", () => {
+    expect(isLocalSettings({ reasoningEffort: "ultra" })).toBe(false);
+    expect(isLocalSettings({ reasoningEffort: 5 })).toBe(false);
+  });
 });
 
 describe("loaders", () => {
@@ -356,6 +367,33 @@ describe("saveLocalSettings", () => {
     }
   });
 
+  test("round-trips a reasoningEffort through loadLocalSettings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".intercode", "settings.json");
+      await saveLocalSettings(path, { provider: "firepass", model: "fp-small", reasoningEffort: "high" });
+      expect(await loadLocalSettings(path)).toEqual({
+        provider: "firepass",
+        model: "fp-small",
+        reasoningEffort: "high",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadLocalSettings rejects an invalid reasoningEffort", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      await mkdir(join(dir, ".intercode"), { recursive: true });
+      const path = join(dir, ".intercode", "settings.json");
+      await writeFile(path, JSON.stringify({ model: "m", reasoningEffort: "ultra" }));
+      await expect(loadLocalSettings(path)).rejects.toThrow(/reasoningEffort/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("creates the .intercode directory when missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
@@ -373,7 +411,7 @@ describe("saveLocalSettings", () => {
       const path = join(dir, ".intercode", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
       const leaky = { provider: "a", apiKey: "leak" } as unknown as { provider?: string };
-      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/only "provider" and "model"/);
+      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/only "provider", "model", and "reasoningEffort"/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

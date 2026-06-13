@@ -3,6 +3,15 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
+import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
+
+// undefined is "no override" (omit the field); "none" is OpenAI's explicit
+// disable-reasoning value. Both read as "off", so label them distinctly.
+function effortLabel(effort: ReasoningEffort | undefined): string {
+  if (effort === undefined) return "default (no override)";
+  if (effort === "none") return "none (disable reasoning)";
+  return effort;
+}
 
 export type AgentProvider = {
   name: string;
@@ -15,7 +24,7 @@ export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission }
 
 export type ProviderFormField = "name" | "baseURL" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
-type Step = "provider" | "model" | "form" | "delete";
+type Step = "provider" | "model" | "effort" | "form" | "delete";
 
 const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "apiKey", "models", "defaultModel"];
 
@@ -53,8 +62,9 @@ export type AgentModalProps = {
   providers: AgentProvider[];
   activeProvider: string;
   activeModel: string;
-  onApply: (provider: string, model: string) => void;
-  onPersistDefault: (provider: string, model: string) => void;
+  activeEffort: ReasoningEffort | undefined;
+  onApply: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
+  onPersistDefault: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
   onSaveProvider: (provider: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
@@ -118,6 +128,7 @@ export function AgentModal({
   providers,
   activeProvider,
   activeModel,
+  activeEffort,
   onApply,
   onPersistDefault,
   onSaveProvider,
@@ -131,6 +142,9 @@ export function AgentModal({
   const [step, setStep] = useState<Step>("provider");
   const [providerIndex, setProviderIndex] = useState(initialProvider);
   const [modelIndex, setModelIndex] = useState(0);
+  const [pendingProvider, setPendingProvider] = useState<string | undefined>(undefined);
+  const [pendingModel, setPendingModel] = useState<string | undefined>(undefined);
+  const [effortIndex, setEffortIndex] = useState(0);
   const [formIndex, setFormIndex] = useState(0);
   const [formValues, setFormValues] = useState<ProviderFormValues>(() => initialFormValues(undefined));
   const [editingProvider, setEditingProvider] = useState<string | undefined>(undefined);
@@ -138,6 +152,10 @@ export function AgentModal({
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
+  // The leading `undefined` is the "no override" choice; the rest are the real
+  // levels the model accepts.
+  const efforts: (ReasoningEffort | undefined)[] =
+    pendingModel !== undefined ? [undefined, ...supportedEfforts(pendingModel)] : [];
   const currentField = FORM_FIELDS[formIndex] ?? "name";
 
   const enterModelStep = (): void => {
@@ -147,6 +165,16 @@ export function AgentModal({
     const idx = active !== undefined ? provider.models.indexOf(active) : -1;
     setModelIndex(idx >= 0 ? idx : 0);
     setStep("model");
+  };
+
+  const enterEffortStep = (providerName: string, modelName: string): void => {
+    setPendingProvider(providerName);
+    setPendingModel(modelName);
+    const active = providerName === activeProvider && modelName === activeModel ? activeEffort : undefined;
+    const options: (ReasoningEffort | undefined)[] = [undefined, ...supportedEfforts(modelName)];
+    const idx = options.indexOf(active);
+    setEffortIndex(idx >= 0 ? idx : 0);
+    setStep("effort");
   };
 
   const enterAddForm = (): void => {
@@ -228,12 +256,35 @@ export function AgentModal({
       const model = models[modelIndex];
       if (provider === undefined || model === undefined) return;
       if (key.return) {
-        onApply(provider.name, model);
+        enterEffortStep(provider.name, model);
+      }
+      return;
+    }
+
+    if (step === "effort") {
+      if (key.upArrow) {
+        setEffortIndex((i) => (i > 0 ? i - 1 : efforts.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setEffortIndex((i) => (i < efforts.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (key.escape) {
+        setStep("model");
+        return;
+      }
+      if (pendingProvider === undefined || pendingModel === undefined) return;
+      // efforts[effortIndex] may be undefined — that is the "no override" choice,
+      // not an invalid index (the cursor is always within range).
+      const effort = efforts[effortIndex];
+      if (key.return) {
+        onApply(pendingProvider, pendingModel, effort);
         onClose();
         return;
       }
       if (input === "d") {
-        onPersistDefault(provider.name, model);
+        onPersistDefault(pendingProvider, pendingModel, effort);
         onClose();
       }
       return;
@@ -343,6 +394,32 @@ export function AgentModal({
         </Box>
       )}
 
+      {step === "effort" && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={color("muted")}>
+            {pendingProvider} · {pendingModel} — reasoning effort
+          </Text>
+          {pendingModel !== undefined && supportedEfforts(pendingModel).length === 0 && (
+            <Text color={color("muted")}>(this model does not support reasoning effort)</Text>
+          )}
+          {efforts.map((e, i) => {
+            const isActive = e === activeEffort;
+            const isCursor = i === effortIndex;
+            return (
+              <Box key={e ?? "__default__"} flexDirection="row" gap={1}>
+                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                  {isCursor ? ">" : " "}
+                </Text>
+                <Text color={isCursor ? color("accent") : color("text")}>
+                  {isActive ? "* " : "  "}
+                  {effortLabel(e)}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
       {step === "delete" && (
         <Box marginTop={1} flexDirection="column">
           <Text color={color("danger")}>Remove provider {selectedProvider?.name}?</Text>
@@ -384,7 +461,8 @@ export function AgentModal({
       <Box marginTop={1}>
         <Text dimColor>
           {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · Esc close"}
-          {step === "model" && "Up/Down navigate · Enter use now · d set as default · Esc back"}
+          {step === "model" && "Up/Down navigate · Enter effort · Esc back"}
+          {step === "effort" && "Up/Down navigate · Enter use now · d set as default · Esc back"}
           {step === "form" && "Up/Down fields · Enter next/save · Esc cancel"}
           {step === "delete" && "y remove · n cancel · Esc back"}
         </Text>

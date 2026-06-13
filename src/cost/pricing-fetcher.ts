@@ -12,6 +12,10 @@ export type ModelPricing = {
 export type PricingCache = {
   timestamp: number;
   models: Record<string, ModelPricing>;
+  // models.dev also publishes a per-model `reasoning` boolean. Captured here so
+  // the /agent reasoning-effort selector can hide options for non-reasoning
+  // models. Optional for backward compatibility with caches written before it.
+  reasoning?: Record<string, boolean>;
 };
 
 export type PricingFetcherOptions = {
@@ -87,6 +91,26 @@ export function parseModelsDevPricing(payload: unknown): Record<string, ModelPri
   return models;
 }
 
+function collectModelReasoning(value: unknown, reasoning: Record<string, boolean>): void {
+  if (!isRecord(value)) {
+    if (Array.isArray(value)) for (const item of value) collectModelReasoning(item, reasoning);
+    return;
+  }
+  const id = typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
+  if (id !== null && typeof value.reasoning === "boolean") {
+    reasoning[id] = value.reasoning;
+  }
+  for (const child of Object.values(value)) {
+    if (isRecord(child) || Array.isArray(child)) collectModelReasoning(child, reasoning);
+  }
+}
+
+export function parseModelsDevReasoning(payload: unknown): Record<string, boolean> {
+  const reasoning: Record<string, boolean> = {};
+  collectModelReasoning(payload, reasoning);
+  return reasoning;
+}
+
 export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<PricingCache | null> {
   try {
     const payload = JSON.parse(await Bun.file(cachePath).text());
@@ -98,10 +122,24 @@ export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<
       if (pricing instanceof type.errors) return null;
       models[modelId] = pricing;
     }
-    return { timestamp: parsed.timestamp, models };
+    const reasoning: Record<string, boolean> = {};
+    if (isRecord(payload) && isRecord(payload.reasoning)) {
+      for (const [modelId, flag] of Object.entries(payload.reasoning)) {
+        if (typeof flag === "boolean") reasoning[modelId] = flag;
+      }
+    }
+    return {
+      timestamp: parsed.timestamp,
+      models,
+      ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+export function lookupModelReasoning(cache: PricingCache | null, modelId: string): boolean | undefined {
+  return cache?.reasoning?.[modelId];
 }
 
 export async function writePricingCache(cache: PricingCache, cachePath = DEFAULT_CACHE_PATH): Promise<void> {
@@ -121,11 +159,17 @@ export async function fetchPricing(options: PricingFetcherOptions = {}): Promise
   if (!response.ok) {
     throw new Error(`models.dev pricing request failed: ${response.status}`);
   }
-  const models = parseModelsDevPricing(await response.json());
+  const payload = await response.json();
+  const models = parseModelsDevPricing(payload);
   if (Object.keys(models).length === 0) {
     throw new Error("models.dev pricing response did not include model prices");
   }
-  return { timestamp: now(), models };
+  const reasoning = parseModelsDevReasoning(payload);
+  return {
+    timestamp: now(),
+    models,
+    ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
+  };
 }
 
 export async function loadPricing(options: PricingFetcherOptions = {}): Promise<PricingCache | null> {

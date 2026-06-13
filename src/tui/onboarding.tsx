@@ -116,7 +116,7 @@ export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): React
         borderRight={false}
       >
         <Text bold color={color("brand")}>
-          interchange-code
+          Intercode
         </Text>
         <Text color={color("muted")}> · </Text>
         <Text color={color("muted")}>Provider setup</Text>

@@ -15,7 +15,7 @@ const CALLBACK_PATH = "/callback";
 const DONE_HTML =
   "<!doctype html><meta charset=utf-8><title>Authorized</title>" +
   "<body style=\"font-family:system-ui;padding:3rem;text-align:center\">" +
-  "<h1>Authorization complete</h1><p>You can close this tab and return to interchange-code.</p>";
+  "<h1>Authorization complete</h1><p>You can close this tab and return to Intercode.</p>";
 
 // Start an ephemeral loopback server to receive the OAuth redirect. Binds to a
 // random port on 127.0.0.1 so it never collides with anything and is only

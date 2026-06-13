@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { AgentStatus } from "../use-stream.js";
 import { color } from "../theme.js";
+import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 
 export type StatusBarProps = {
   provider: string;
@@ -12,6 +13,8 @@ export type StatusBarProps = {
   elapsedMs: number;
   status: AgentStatus;
   connectedMCPServers?: string[];
+  reasoningEffort?: ReasoningEffort | undefined;
+  auto?: boolean;
 };
 
 
@@ -46,10 +49,26 @@ export function StatusBar({
   elapsedMs,
   status,
   connectedMCPServers = [],
+  reasoningEffort,
+  auto = false,
 }: StatusBarProps): ReactNode {
   return (
     <Box flexDirection="row" paddingX={1} overflow="hidden">
       <Text color={color("accent")} wrap="truncate-end">{provider} · {model}</Text>
+      {auto && (
+        <>
+          <Divider />
+          <Text bold color={color("warning")} wrap="truncate-end">AUTO</Text>
+        </>
+      )}
+      {reasoningEffort !== undefined && (
+        <>
+          <Divider />
+          <Text bold color={color("warning")} wrap="truncate-end">
+            EFFORT:{reasoningEffort.toUpperCase()}
+          </Text>
+        </>
+      )}
       <Divider />
       <Text color={color("success")} wrap="truncate-end">{cost}</Text>
       <Divider />

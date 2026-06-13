@@ -12,7 +12,7 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /(^|\/)\.npmrc$/,
   /(^|\/)\.netrc$/,
   /(^|\/)\.git-credentials$/,
-  // interchange-code's own settings hold provider credentials. Covers both the
+  // Intercode's own settings hold provider credentials. Covers both the
   // global (~/.intercode/settings.json) and per-repo (.intercode/settings.json)
   // locations.
   /(^|\/)\.intercode\/settings\.json$/,

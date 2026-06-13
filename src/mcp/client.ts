@@ -87,7 +87,7 @@ async function connectStdio(config: MCPServerConfig, options: MCPConnectOptions)
   if (config.args !== undefined) transportOptions.args = config.args;
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
 
-  const client = new Client({ name: "interchange-code", version: "1.0.0" });
+  const client = new Client({ name: "intercode", version: "1.0.0" });
   try {
     await client.connect(new StdioClientTransport(transportOptions));
     return { ok: true, client: await finishClient(client, config.name) };
@@ -114,7 +114,7 @@ async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions):
   // The transport satisfies the interface at runtime; cast at the boundary.
   const makeTransport = (): Transport =>
     new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
-  const client = new Client({ name: "interchange-code", version: "1.0.0" });
+  const client = new Client({ name: "intercode", version: "1.0.0" });
 
   try {
     try {
