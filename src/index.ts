@@ -54,7 +54,8 @@ function printHelp(): void {
   console.log("  --provider <name>  Select a configured provider");
   console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
-  console.log("  --auto             Auto-approve non-destructive permissions (safe shell commands, repeat writes)");
+  console.log("  --auto             Auto-approve non-destructive permissions (default; safe shell, file writes/edits)");
+  console.log("  --no-auto          Disable auto mode: ask before every consequential action");
   console.log("  --help             Show this help message");
   console.log("");
   console.log("Configuration:");

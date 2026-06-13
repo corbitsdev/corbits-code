@@ -74,6 +74,8 @@ export type AppProps = {
   onNewSession?: () => void;
   permissionsAdmin?: PermissionsAdmin;
   profile?: string;
+  initialAuto?: boolean;
+  onToggleAuto?: (value: boolean) => void;
 };
 
 export function App({
@@ -95,6 +97,8 @@ export function App({
   onNewSession,
   permissionsAdmin,
   profile,
+  initialAuto = false,
+  onToggleAuto,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const stateRef = useRef(state);
@@ -107,6 +111,7 @@ export function App({
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
+  const [auto, setAuto] = useState(initialAuto);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("plan");
@@ -273,9 +278,16 @@ export function App({
       setVerbose(next);
       return next;
     },
+    getAuto: () => auto,
+    toggleAuto: () => {
+      const next = !auto;
+      setAuto(next);
+      onToggleAuto?.(next);
+      return next;
+    },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-  }), [verbose, mcpStatus.servers]);
+  }), [verbose, auto, onToggleAuto, mcpStatus.servers]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -638,6 +650,7 @@ export function App({
           status={state.status}
           connectedMCPServers={mcpStatus.connected}
           reasoningEffort={reasoningEffort}
+          auto={auto}
         />
         </Box>
       )}

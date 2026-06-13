@@ -350,6 +350,8 @@ export async function runTUI(config: Config): Promise<number> {
       onNewSession={newSession}
       permissionsAdmin={permissionsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
+      initialAuto={config.auto}
+      onToggleAuto={(value) => permissionGate.setAuto(value)}
     />,
     { exitOnCtrlC: false },
   );

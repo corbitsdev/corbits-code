@@ -16,6 +16,20 @@ registerCommand({
 });
 
 registerCommand({
+  name: "auto",
+  description: "Toggle auto-approve for non-destructive actions (writes, edits, safe shell)",
+  handler: (_args, ctx) => {
+    const enabled = ctx.toggleAuto();
+    return {
+      type: "message",
+      text: enabled
+        ? "Auto mode on — file writes/edits and safe shell run without asking."
+        : "Auto mode off — every consequential action will ask first.",
+    };
+  },
+});
+
+registerCommand({
   name: "diff",
   description: "Show the working-tree diff in the context panel",
   handler: (_args, _ctx) => ({ type: "view", view: "diff" }),

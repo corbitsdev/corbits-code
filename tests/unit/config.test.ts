@@ -33,6 +33,20 @@ async function withEnv(fn: () => void | Promise<void>): Promise<void> {
   }
 }
 
+test("loadConfig defaults auto mode on", async () => {
+  await withEnv(async () => {
+    const config = await loadConfig(["do something"], { globalSettingsPath: NO_SETTINGS });
+    expect(config.auto).toBe(true);
+  });
+});
+
+test("loadConfig --no-auto disables auto mode", async () => {
+  await withEnv(async () => {
+    const config = await loadConfig(["--no-auto", "do something"], { globalSettingsPath: NO_SETTINGS });
+    expect(config.auto).toBe(false);
+  });
+});
+
 test("loadConfig parses --headless flag", async () => {
   await withEnv(async () => {
     const config = await loadConfig(["--headless", "do something"], { globalSettingsPath: NO_SETTINGS });

@@ -21,5 +21,6 @@ export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/plan", description: "Show the plan panel" },
   { keys: "/agent", description: "Configure provider and model" },
   { keys: "/permissions", description: "View and revoke remembered approvals" },
+  { keys: "/auto", description: "Toggle auto-approve for non-destructive actions" },
   { keys: "/verbose", description: "Toggle full tool output" },
 ];

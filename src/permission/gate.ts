@@ -48,10 +48,17 @@ export type PermissionGate = {
   // Replace the persisted portion of the live list (session grants are kept) so
   // a store edit made through /permissions takes effect immediately.
   setSeededApprovals: (seeded: readonly Approval[]) => void;
+  // Whether auto mode is currently on. Auto mode auto-approves non-destructive
+  // consequential actions (file writes/edits) without prompting.
+  getAuto: () => boolean;
+  // Turn auto mode on or off for the rest of the session. The /auto command
+  // wires the TUI toggle here so a switch takes effect on the next tool call.
+  setAuto: (value: boolean) => void;
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
-  const { requestApproval, persist, interactive, skipPermissions, auto, providerName, model, cwd } = options;
+  const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
+  let auto = options.auto;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
   const activeProviderModel =
@@ -134,5 +141,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     getSessionApprovals,
     removeSessionApproval,
     setSeededApprovals,
+    getAuto: () => auto === true,
+    setAuto: (value: boolean) => {
+      auto = value;
+    },
   };
 }
