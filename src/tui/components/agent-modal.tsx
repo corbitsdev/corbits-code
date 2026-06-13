@@ -5,6 +5,14 @@ import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
 import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
 
+// undefined is "no override" (omit the field); "none" is OpenAI's explicit
+// disable-reasoning value. Both read as "off", so label them distinctly.
+function effortLabel(effort: ReasoningEffort | undefined): string {
+  if (effort === undefined) return "default (no override)";
+  if (effort === "none") return "none (disable reasoning)";
+  return effort;
+}
+
 export type AgentProvider = {
   name: string;
   baseURL: string;
@@ -401,7 +409,7 @@ export function AgentModal({
                 </Text>
                 <Text color={isCursor ? color("accent") : color("text")}>
                   {isActive ? "* " : "  "}
-                  {e ?? "default (no override)"}
+                  {effortLabel(e)}
                 </Text>
               </Box>
             );

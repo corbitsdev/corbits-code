@@ -275,13 +275,13 @@ describe("validators", () => {
 
   test("isLocalSettings accepts a valid reasoningEffort", () => {
     expect(isLocalSettings({ model: "m", reasoningEffort: "high" })).toBe(true);
+    // "none" is OpenAI's explicit disable-reasoning value, a real level.
+    expect(isLocalSettings({ reasoningEffort: "none" })).toBe(true);
   });
 
   test("isLocalSettings rejects an invalid reasoningEffort", () => {
     expect(isLocalSettings({ reasoningEffort: "ultra" })).toBe(false);
     expect(isLocalSettings({ reasoningEffort: 5 })).toBe(false);
-    // "none" is no longer a level — absence means no override, not a value.
-    expect(isLocalSettings({ reasoningEffort: "none" })).toBe(false);
   });
 });
 
