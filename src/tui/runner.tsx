@@ -143,6 +143,7 @@ export async function runTUI(config: Config): Promise<number> {
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       },
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
     },

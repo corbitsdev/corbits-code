@@ -33,6 +33,23 @@ test("handler rejects empty description or prompt", async () => {
   expect(await callHandler(tool, { description: "label", prompt: "  " })).toContain("Error:");
 });
 
+test("handler forwards the provider's reasoning effort to the runner", async () => {
+  let receivedEffort: RunSubAgentParams | undefined;
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider: { ...provider, reasoningEffort: "high" },
+    run: async (params) => {
+      receivedEffort = params;
+      return "done";
+    },
+  });
+
+  await callHandler(tool, { description: "task", prompt: "do it" });
+
+  expect(receivedEffort?.provider.reasoningEffort).toBe("high");
+});
+
 test("handler forwards trimmed args to the runner and wraps the result", async () => {
   let received: RunSubAgentParams | undefined;
   const tool = createTaskTool({

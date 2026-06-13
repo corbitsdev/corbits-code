@@ -181,6 +181,7 @@ export async function runAgent(
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       },
     }),
     stringTool({

@@ -26,6 +26,7 @@ import type {
 } from "@intx/types/runtime";
 
 import { buildOpenAISource } from "../config/index.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
@@ -94,6 +95,9 @@ export type SubAgentProvider = {
   baseURL: string;
   apiKey: string;
   model: string;
+  // Subagents inherit the parent's reasoning effort so a /agent selection
+  // applies to delegated work, not just the top-level loop.
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type RunSubAgentParams = {
@@ -163,6 +167,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       baseURL: params.provider.baseURL,
       apiKey: params.provider.apiKey,
       model: params.provider.model,
+      ...(params.provider.reasoningEffort !== undefined
+        ? { reasoningEffort: params.provider.reasoningEffort }
+        : {}),
     }),
     storage,
     workdir,
