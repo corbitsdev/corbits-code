@@ -3,7 +3,7 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
-import { askOperatorDefinition, presentDefinition } from "../agent/director.js";
+import { advanceWorkflowDefinition, askOperatorDefinition, presentDefinition } from "../agent/director.js";
 import { validateView } from "../tui/view/index.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
@@ -115,6 +115,15 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const result = validateView(rawArgs.view);
         if (result.ok) return "Rendered.";
         return `Invalid view spec at ${result.error}. Fix the spec and call present again.`;
+      },
+    }),
+    stringTool({
+      definition: advanceWorkflowDefinition,
+      // The director observes this call and advances the workflow runtime; the
+      // handler only needs to acknowledge so the model gets a clean tool result.
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        const note = typeof rawArgs.note === "string" && rawArgs.note.length > 0 ? ` (${rawArgs.note})` : "";
+        return `Workflow step marked complete${note}. Advancing to the next step.`;
       },
     }),
   ];

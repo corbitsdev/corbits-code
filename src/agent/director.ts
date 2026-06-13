@@ -12,6 +12,7 @@ import {
   type SessionMetadata,
   type TaskBoundary,
 } from "../session/compactor.js";
+import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 
 export type PlanStep = {
   file: string;
@@ -88,6 +89,22 @@ export const presentDefinition: ToolDefinition = {
       },
     },
     required: ["view"],
+  },
+};
+
+export const advanceWorkflowDefinition: ToolDefinition = {
+  name: "advance_workflow",
+  description:
+    "Call this when the current workflow step is finished to advance to the next step. " +
+    "Include an optional note summarizing what the step accomplished.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      note: {
+        type: "string",
+        description: "Optional summary of what this step accomplished",
+      },
+    },
   },
 };
 
@@ -344,6 +361,9 @@ function isCodeFile(path: string): boolean {
 
 class ChatDirectorImpl extends DefaultDirector {
   private readonly submitPlanArgs = new Map<string, unknown>();
+  // advance_workflow / submit_output calls, tracked by id so tool.done can ask
+  // the coordinator whether they advance the active workflow.
+  private readonly workflowCalls = new Map<string, { name: string; args: unknown }>();
   // read_file/edit_file calls targeting a code file; on success they auto-load
   // the language server so LSP is enabled "at that point in time".
   private readonly lspTriggerCalls = new Set<string>();
@@ -354,6 +374,7 @@ class ChatDirectorImpl extends DefaultDirector {
     | undefined;
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
+  private workflowCoordinator: WorkflowCoordinator | undefined;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -365,6 +386,7 @@ class ChatDirectorImpl extends DefaultDirector {
     approvalGate: ApprovalGate,
     taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
     onActivateTools?: (names: string[]) => void,
+    workflowCoordinator?: WorkflowCoordinator,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
@@ -372,6 +394,13 @@ class ChatDirectorImpl extends DefaultDirector {
     this.approvalGate = approvalGate;
     this.taskClassifier = taskClassifier;
     this.onActivateTools = onActivateTools;
+    this.workflowCoordinator = workflowCoordinator;
+  }
+
+  // The TUI builds the coordinator only once a workflow is started (via slash
+  // command or auto-invoke), so it is wired in after construction.
+  setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
+    this.workflowCoordinator = coordinator;
   }
 
   // Replace the live tool set the model is advertised. MCP servers connect after
@@ -386,10 +415,23 @@ class ChatDirectorImpl extends DefaultDirector {
   private withCurrentTools(
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
-    const rewrite = (action: ReactorAction): ReactorAction =>
-      action.type === "infer"
-        ? { type: "infer", options: { ...action.options, tools: this._toolDefinitions } }
-        : action;
+    // When a workflow is active, advertise the advance_workflow tool and append
+    // the current step's directive to the system prompt so the model sees the
+    // step instruction at the start of each turn.
+    const active = this.workflowCoordinator?.isActive() === true;
+    const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+      ? [...this._toolDefinitions, advanceWorkflowDefinition]
+      : this._toolDefinitions;
+    const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
+    const rewrite = (action: ReactorAction): ReactorAction => {
+      if (action.type !== "infer") return action;
+      const options = { ...action.options, tools };
+      if (directive !== null) {
+        const base = action.options?.systemPrompt ?? this._systemPrompt;
+        options.systemPrompt = `${base}\n\n${directive}`;
+      }
+      return { type: "infer", options };
+    };
     return Array.isArray(result) ? result.map(rewrite) : rewrite(result);
   }
 
@@ -457,7 +499,18 @@ class ChatDirectorImpl extends DefaultDirector {
           const path = typeof block.arguments?.path === "string" ? block.arguments.path : "";
           if (isCodeFile(path)) this.lspTriggerCalls.add(block.id);
         }
+        if (block.name === "advance_workflow" || block.name === "submit_output") {
+          this.workflowCalls.set(block.id, { name: block.name, args: block.arguments });
+        }
       }
+    }
+
+    // A completed advance_workflow or step-tagged submit_output moves the
+    // workflow runtime to its next step.
+    if (event.type === "tool.done" && this.workflowCalls.has(event.result.callId)) {
+      const call = this.workflowCalls.get(event.result.callId);
+      this.workflowCalls.delete(event.result.callId);
+      this.workflowCoordinator?.handleToolDone(call?.name, call?.args, event.result.isError === true);
     }
 
     // Reading or editing a code file auto-loads the language server for the rest
@@ -509,12 +562,21 @@ export function createChatDirector(
   approvalGate?: ApprovalGate,
   taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
   onActivateTools?: (names: string[]) => void,
+  workflowCoordinator?: WorkflowCoordinator,
 ): ChatDirectorWithClear {
   const gate = approvalGate ?? (async () => true);
-  return new ChatDirectorImpl(systemPrompt, toolDefinitions, gate, taskClassifier, onActivateTools);
+  return new ChatDirectorImpl(
+    systemPrompt,
+    toolDefinitions,
+    gate,
+    taskClassifier,
+    onActivateTools,
+    workflowCoordinator,
+  );
 }
 
 export interface ChatDirectorWithClear extends ReactorDirector {
   signalNewTask(summary?: string): void;
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
+  setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
 }
