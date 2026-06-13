@@ -382,6 +382,29 @@ describe("loadConfig", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  test("rejects a local reasoningEffort unsupported by the selected model", async () => {
+    const stash = stashEnv();
+    const cwd = await emptyCwd();
+    try {
+      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      await writeFile(
+        join(cwd, ".intercode", "settings.json"),
+        JSON.stringify({ provider: "a", model: "a-model", reasoningEffort: "xhigh" }),
+      );
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({ providers: { a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] } } }),
+      );
+      await expect(
+        loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath }),
+      ).rejects.toThrow(/reasoningEffort/);
+    } finally {
+      restoreEnv(stash);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("buildOpenAISource", () => {

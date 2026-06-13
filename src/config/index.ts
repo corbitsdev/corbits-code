@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
-import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 
 import {
   globalSettingsPath,
@@ -269,6 +269,17 @@ export async function loadConfig(
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
     };
+  }
+
+  // Enforce model/effort compatibility at the boundary. The modal only offers
+  // supported levels, but a hand-edited local settings file can pair an effort
+  // with a model that does not accept it; reject it here rather than shipping an
+  // effort the model will refuse.
+  if (local?.reasoningEffort !== undefined) {
+    const verdict = validateEffort(resolved.model, local.reasoningEffort);
+    if (!verdict.ok) {
+      throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
+    }
   }
 
   return {
