@@ -1,195 +1,38 @@
-# Agent Instructions — interchange-code
+# Agent Instructions — Intercode
 
-This repository is **interchange-code**, a single-process coding agent CLI built on top of the Interchange runtime. To work here effectively you must understand how the Interchange event loop works — not just where files are.
+**Intercode** is a single-process coding agent CLI built on the Interchange runtime. This file is your operating manual: how to work here and what bar to hold. For how the system itself is built, read `/docs` — do not re-derive it from source.
 
-## Session Initialization
+## Before You Start
 
-Before responding to the user's first message, complete these steps in order:
+1. Load the `style` and `philosophy` skills.
+2. Read this file.
+3. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` first (see Reference).
+4. Confirm the working-tree status before editing.
 
-1. Load the `style` skill.
-2. Load the `philosophy` skill.
-3. Read this file.
+## Conventions
 
-Do not do anything else before completing those steps.
+- **Runtime:** Bun + TypeScript, ES modules only. No CommonJS.
+- **Paradigm:** Functional. No classes, no OOP.
+- **Types:** Full type safety. Avoid `any`; prefer `unknown`. Validate all external input (config, tool args, file contents, env) at the boundary with arktype (`type({...})`) — do not hand-roll `typeof` guards for structured data.
+- **Files:** Small functions, small files, clear names. Acronyms keep their case (`URL`, `JSON`, `API`).
+- **Comments:** Code is self-documenting. Comment *why*, never *what*. If a comment describes what the code does, fix the names instead.
+- **No emojis** in code or docs.
 
-Before making changes:
+## Scope Discipline
 
-1. Read `CLAUDE.md` when working in a Claude workspace.
-2. Check `.agents/agents/` for project agent profiles that match the task.
-3. Check `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` for project-specific skills that match the task.
-4. Confirm the working tree status before editing.
+Touch only code directly related to the task. No drive-by renames, reformatting, import reordering, or "while I'm here" refactors in files you pass through — they pollute diffs and risk breakage. Raise unrelated fixes as separate work.
 
-## How the Interchange Loop Works
+When refactoring replaces an old path, **delete the old one**. No back-compat shims, re-exports, or `_unused` renames for callers you own. If everyone who calls it is internal and updated, the old path should not survive.
 
-Interchange is an event-driven agent runtime. Understanding it is a prerequisite for working in this repo.
+## Tests
 
-### The reactor
-
-The reactor drives a single agent turn-by-turn. Each turn is:
-
-1. **Inference** — the LLM produces an assistant turn (text + zero or more `tool_call` blocks).
-2. **Tool dispatch** — each `tool_call` is executed concurrently; results come back as `tool.done` events.
-3. **Director decision** — `CodingDirector.decide()` receives every event and returns `ReactorAction[]` that control what happens next (continue, checkpoint, reply, done).
-
-This repeats until the director emits `capabilities.done()`.
-
-### Key event types
-
-| Event | When it fires |
-|---|---|
-| `inference.done` | LLM finished one assistant turn. Carries the full turn content. |
-| `tool.done` | One tool call completed. Carries the result and the original `callId`. |
-
-### ReactorActions
-
-The director returns actions to shape the loop:
-
-- `capabilities.continue()` — run another inference turn (implicit default).
-- `capabilities.reply(text)` — inject a synthetic tool result into the next turn's context.
-- `capabilities.checkpoint(label)` — persist a named checkpoint to `.agent-state/`.
-- `capabilities.done()` — terminate the loop.
-
-### The two mandatory tools
-
-Every agent session has two special tools that exist only at the director layer:
-
-- **`submit_plan`** — must be called on turn 1 for multi-step tasks. The director stores the plan and enforces adherence. Skipping it on long tasks triggers a warning.
-- **`submit_output`** — the only signal that terminates the loop cleanly. Conversational text without `submit_output` does not end the session; the director will keep running inference turns until it stalls or `submit_output` is called.
-
-### Stall detection
-
-`CodingDirector` aborts automatically on:
-
-- **3 consecutive idle turns** — turns where the LLM produced no `tool_call` blocks. Terminates with `"Agent stalled: no tool calls for 3 turns."`
-
-State is persisted atomically to `.agent-state/run.json` after every event so the run can be resumed with `interchange-code resume`.
-
-## Project Layout
-
-```
-src/
-  index.ts        CLI entry point — arg parsing, env loading, routes to runAgent or runTUI
-  run-agent.ts    Headless agent runner — creates director, wires tools, streams events
-  director.ts     CodingDirector — extends DefaultDirector with plan/stall enforcement
-  prompts.ts      System prompt builders — tool-call discipline, submit rules, budget rules
-  state.ts        Atomic JSON save/load for run state and director state
-  critic.ts       Post-submit critique loop — reviews output before final acceptance
-  config.ts       Config loading from CLI args + env
-  tui/            Ink-based TUI (Phase 5)
-  plugins/        Tool middleware — path-escape, authz, verify
-```
-
-Key Interchange packages (all workspace-local under `interchange/packages/`):
-
-| Package | Role |
-|---|---|
-| `@intx/agent` | `agent.stream()` — drives the reactor loop, emits typed events |
-| `@intx/inference` | `DefaultDirector`, SSE runner, OpenAI-compatible provider client |
-| `@intx/tools-posix` | `createPosixTools` — sandboxed shell/file tools |
-| `@intx/tools-lsp` | `createLSPPlugin` — LSP tool (goToDefinition, findReferences, hover) + diagnostics middleware |
-| `@intx/types` | Shared runtime types (`ReactorDirector`, `ReactorAction`, `ToolDefinition`, etc.) |
-| `@intx/storage-isogit` | Git-backed state storage for resume |
-
-LSP features require `typescript-language-server` to be installed and on `PATH` (`npm install -g typescript-language-server typescript`). Without it, the `lsp` tool returns "no LSP server available for this file type" and degrades gracefully.
-
-## Profile System
-
-Profiles let users configure per-project or named-profile overrides for model, maxTurns, and systemPromptExtensions.
-
-**Profile file locations:**
-
-- Project profile: `.intercode/profile.json` in the repo root — committed to the repo, safe (no credentials).
-- Named profiles: `~/.intercode/profiles/<name>.json` — user-level, machine-specific overrides.
-
-**Profile file format:**
-
-```json
-{
-  "profile": "work",
-  "model": "claude-opus-4-8",
-  "maxTurns": 50,
-  "systemPromptExtensions": ["no-destructive-migrations"]
-}
-```
-
-**Supported keys:**
-
-| Key | Type | Description |
-|---|---|---|
-| `profile` | string | Named profile to inherit from (`~/.intercode/profiles/<name>.json`). |
-| `model` | string | Model override for the active provider. |
-| `maxTurns` | number | Hard turn cap for the headless runner director. |
-| `systemPromptExtensions` | string[] | Freeform strings appended to the system prompt. |
-
-**Layer order (highest priority first):**
-
-1. CLI flags (`--model`, `--profile`)
-2. Environment variables (`OPENAI_COMPATIBLE_*`)
-3. Per-repo local settings (`.intercode/settings.json`)
-4. Project profile (`.intercode/profile.json`)
-5. Named profile (`~/.intercode/profiles/<name>.json`)
-6. Global settings (`~/.intercode/settings.json`)
-
-When both a project profile and a named profile apply, the project profile's field values take precedence over the named profile's.
-
-The active profile name is shown in the TUI header after the path: `Intercode · parent/repo [profile]`.
-
-## Reference Material
-
-- `PLAN.md` — full architecture, design decisions, and phase breakdown. Read before any architectural work.
-- `interchange/` — the Interchange runtime source. Read package source when the types or behaviour are ambiguous.
-- `tests/` — `unit/` for isolated logic, `integration/` for agent-loop harness tests, `e2e/` for end-to-end fixture repos.
-
-## Workspace Layout
-
-- `.agents/` — shared agent assets and skills that apply across runtimes.
-- `.codex/` — Codex-specific workspace assets.
-- `.claude/` — Claude-specific workspace assets.
-
-Prefer `.agents/` for guidance that applies to more than one runtime.
-
-## Shared Skills
-
-Core shared skills live in `.agents/skills/`:
-
-- `style` — coding, Git, validation, and documentation conventions. Always load first.
-- `philosophy` — engineering principles and decision rules. Always load alongside `style`.
-- `dispatch` — coordinates parallel agent work. Load when planning multi-file or multi-phase tasks.
-- `interview` — gathers requirements for ambiguous or complex work. Load when the task is underspecified.
-- `scribe` — maintains product, architecture, and implementation docs. Load when updating `PLAN.md` or adding design docs.
-- `brand-identity` — applies the Corbits brand system to artifacts. Load when generating user-facing output or demos.
-- `design-lab` — explores UI directions and implementation plans. Load when working on the TUI.
-
-## Shared Agent Profiles
-
-For this project, the most relevant profiles from `.agents/agents/` are:
-
-- `karen` — coordinates planning, dispatch, and escalation. Default orchestrator for complex work.
-- `greybeard` — reviews product, architecture, and implementation plans. Load before major architectural decisions.
-- `critique` — reviews code quality and tests assumptions without fixing them. Use before declaring work complete.
-- `intern` — runs clear mechanical tasks and reports results. Use for refactors, moves, or repetitive edits.
-- `neckbeard` — provides intentionally pedantic read-only reviews. Use when you want edge-case scrutiny.
-- `bruckheimer` — turns early product visions into buildable briefs. Use when the user describes a feature in prose.
-- `draper` — reviews artifacts against the Corbits brand system. Use for demos and user-facing output.
-- `emil` — reviews UI and design engineering quality. Use for TUI work.
-- `linear` — creates, updates, and comments on Linear issues. Use only when the user references Linear.
-
-## Development Rules
-
-- **TypeScript:** Full type safety always. Avoid `any`. Prefer `unknown` over `any`.
-- **Modules:** ES modules (import/export) only. No CommonJS.
-- **Paradigm:** Functional programming. No classes, no OOP.
-- **Validation:** Use arktype (`type({...})`) for all schema and boundary validation (config files, external input, tool args). Do not hand-roll `typeof` type guards for structured data.
-- **Files:** Small functions, small files, clear naming.
-- **Scope:** Only touch code directly related to the task. No drive-by refactors, reformatting, or renaming in files you pass through.
-- **Tests:** Add or update tests with every behavior change. Write a failing test first when fixing a bug.
-- **Dead code:** Delete old implementations when refactoring. Do not leave shims, re-exports, or renamed `_unused` variables.
-- **Comments:** Code must be self-documenting. Add an inline comment only when the code cannot be made clear on its own; otherwise remove it. Never describe WHAT the code does — fix the names and structure instead.
-- **No emojis** in code or documentation.
+- Add or update tests with every behavior change.
+- Fixing a bug starts with a failing test that reproduces it — then the fix, proven by that test passing. Do not start by patching.
+- `tests/unit/` isolated logic · `tests/integration/` agent-loop harness · `tests/e2e/` fixture repos.
 
 ## Build & Validation
 
-Always run the full validation suite before declaring any task complete:
+Run the full suite before declaring any task complete:
 
 ```bash
 bun run typecheck
@@ -197,31 +40,38 @@ bun run build
 bun test
 ```
 
-If any step fails, report the failure and do not declare completion. Do not work around a failing build by running individual targets.
-
-## Setup
-
-New contributors must configure git hooks before their first commit:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-To verify your environment is correctly configured:
-
-```bash
-./bin/check-env
-```
+If any step fails, report it and do not declare completion. Do not work around a failing build by running individual targets and treating their success as equivalent. If a failure is pre-existing and unrelated to your change, say so explicitly.
 
 ## Commits
 
-- Commit changes as you go, using the commit guidance from the `style` skill.
-- Separate refactoring from feature additions (distinct commits).
-- Do not amend published commits. Create a new commit for fixes.
-- After committing, remind the user to push to remote.
-- If co-authoring git commits, you are Intercode.
-- Co-authored by intercode@abklabs.com
+- Commit as you go, following the `style` skill's message format (plain-English summary, no `feat:`/`fix:` prefixes, no filename in the summary).
+- Separate refactors from feature additions into distinct commits.
+- Do not amend published commits — create a new commit for fixes.
+- After committing, remind the user to push.
+- Author: `Intercode <intercode@abklabs.com>`.
 
-## Bug Reporting
+## Setup
 
-When the user reports a bug, do not start by trying to fix it. Start by writing a test that reproduces the bug. Then fix the bug and prove it with a passing test.
+New contributors configure git hooks before their first commit, then verify the environment:
+
+```bash
+git config core.hooksPath .githooks
+./bin/check-env
+```
+
+## Reference (`/docs`)
+
+The source is the truth; these docs guide you to it.
+
+- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, the mandatory `submit_plan`/`submit_output` tools, stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, or tools.**
+- `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags, state persistence, the eval harness.
+- `docs/PRODUCT.md` — what we're building and why.
+- `docs/HOOKS.md` — lifecycle hooks.
+- `PLAN.md` — phase breakdown and demo strategy.
+
+## Workspace Layout
+
+- `.agents/` — shared agent assets and skills (prefer this for cross-runtime guidance).
+- `.intercode/` — Intercode's own workspace state: settings, profiles, memory, hooks, and permissions.
+
+Do not duplicate shared content between these folders.
