@@ -34,7 +34,21 @@ import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import type { LifecycleHookStatus } from "../session/hooks.js";
+import { WorkflowPanel } from "./components/workflow-panel.js";
+import type { WorkflowStatus } from "./workflow-controller.js";
+import type { CapabilityName } from "../workflows/types.js";
 import "./commands/built-in.js";
+import "./commands/workflows.js";
+
+const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
+  active: false,
+  name: undefined,
+  stepIndex: 0,
+  total: 0,
+  label: "",
+  steps: [],
+  capabilities: [],
+};
 
 // How long the run can be continuously awaiting a response with no new content
 // before the watchdog fires and aborts the in-flight request.
@@ -78,6 +92,10 @@ export type AppProps = {
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
+  onStartWorkflow?: (name: string) => string;
+  listWorkflows?: () => Array<{ name: string; description: string }>;
+  onToggleCapability?: (name: CapabilityName) => void;
+  initialWorkflowStatus?: WorkflowStatus;
 };
 
 export function App({
@@ -102,6 +120,10 @@ export function App({
   initialAuto = false,
   onToggleAuto,
   onSubAgentProviderChange,
+  onStartWorkflow,
+  listWorkflows,
+  onToggleCapability,
+  initialWorkflowStatus,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const stateRef = useRef(state);
@@ -127,6 +149,10 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
+    initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
+  );
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
@@ -149,6 +175,13 @@ export function App({
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
+  // Live workflow status published by the WorkflowController in the runner.
+  useEffect(() => {
+    const onWorkflow = (status: WorkflowStatus) => setWorkflowStatus(status);
+    eventEmitter.on("workflow", onWorkflow);
+    return () => { eventEmitter.off("workflow", onWorkflow); };
+  }, [eventEmitter]);
+
   const planSteps = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
     return block?.type === "plan" ? block.steps : [];
@@ -163,7 +196,7 @@ export function App({
   const layout = useLayoutGeometry({
     columns,
     rows,
-    sidebarOpen,
+    sidebarOpen: sidebarOpen || workflowPanelOpen,
     gateContext: {
       pendingPermission: gates.pendingPermission,
       pendingPlan: gates.pendingPlan,
@@ -220,7 +253,8 @@ export function App({
     gates.gateOpen ||
     hookPanelOpen ||
     agentModalOpen ||
-    permissionsOpen
+    permissionsOpen ||
+    workflowPanelOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -291,7 +325,9 @@ export function App({
     },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-  }), [verbose, auto, onToggleAuto, mcpStatus.servers]);
+    ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
+    ...(listWorkflows !== undefined ? { listWorkflows } : {}),
+  }), [verbose, auto, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -379,6 +415,7 @@ export function App({
       hookPanelOpen,
       diffFullScreenOpen,
       planFullScreenOpen,
+      workflowPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       commandPaletteOpen: inputValue.startsWith("/") && !inputValue.includes(" "),
@@ -435,6 +472,7 @@ export function App({
           setDiffScroll(0);
         }
       },
+      toggleWorkflowPanel: () => setWorkflowPanelOpen((open) => !open),
       toggleHelp: () => setHelpOpen((open) => !open),
       copyMcpUrl: () => {
         const first = mcpStatus.needsAuth[0];
@@ -531,6 +569,16 @@ export function App({
           latestUserMessage={headerLatestUserMessage}
           width={columns}
           {...(profile !== undefined ? { profile } : {})}
+          {...(workflowStatus.active && workflowStatus.name !== undefined
+            ? {
+                workflow: {
+                  name: workflowStatus.name,
+                  stepIndex: workflowStatus.stepIndex,
+                  total: workflowStatus.total,
+                  label: workflowStatus.label,
+                },
+              }
+            : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -561,18 +609,28 @@ export function App({
                 verbose={verbose}
               />
             </Box>
-            {sidebarOpen && (
+            {(workflowPanelOpen || sidebarOpen) && (
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
-                <ContextPanel
-                  view={contextView}
-                  steps={planSteps}
-                  currentPlanStep={state.currentPlanStep}
-                  planDeviated={state.planDeviated}
-                  width={rightWidth}
-                  diffResult={diff.result}
-                  diffScrollOffset={diffScroll}
-                  diffVisibleRows={diffVisibleRows}
-                />
+                {workflowPanelOpen ? (
+                  <WorkflowPanel
+                    status={workflowStatus}
+                    width={rightWidth}
+                    maxRows={visibleRows}
+                    onToggleCapability={(name) => onToggleCapability?.(name)}
+                    onClose={() => setWorkflowPanelOpen(false)}
+                  />
+                ) : (
+                  <ContextPanel
+                    view={contextView}
+                    steps={planSteps}
+                    currentPlanStep={state.currentPlanStep}
+                    planDeviated={state.planDeviated}
+                    width={rightWidth}
+                    diffResult={diff.result}
+                    diffScrollOffset={diffScroll}
+                    diffVisibleRows={diffVisibleRows}
+                  />
+                )}
               </Box>
             )}
           </>
