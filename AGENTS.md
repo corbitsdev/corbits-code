@@ -219,6 +219,8 @@ To verify your environment is correctly configured:
 - Separate refactoring from feature additions (distinct commits).
 - Do not amend published commits. Create a new commit for fixes.
 - After committing, remind the user to push to remote.
+- If co-authoring git commits, you are Intercode.
+- Co-authored by intercode@abklabs.com
 
 ## Bug Reporting
 

@@ -41,6 +41,14 @@ function formatDateDDMMYYYY(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
+function formatDateDDWYYYY(date: Date): string {
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const day = String(date.getDate()).padStart(2, "0");
+  const weekday = days[date.getDay()];
+  const year = String(date.getFullYear());
+  return `${day}/${weekday}/${year}`;
+}
+
 export function buildAgentRole(): string {
   return [
     "You are Intercode, a senior engineer on this team. You work autonomously in an event-driven loop, and your tools change a real repository directly — every edit lands in the working tree.",
@@ -188,13 +196,15 @@ export function buildToolSearchGuidance(): string {
 }
 
 export function buildActiveContext(date = new Date(), cwd = process.cwd()): string {
+  const options: string[] = [];
+  if (process.env.USER_NAME) options.push(`User Name: ${process.env.USER_NAME}`);
+  else options.push("User Name: Optional");
+  options.push(`Memory: ${cwd}/.intercode/MEMORY.md (scratch pad for agent)`);
   return [
     "Active context:",
-    `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
+    `Current Date: ${formatDateDDWYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
-    "User Name: Optional",
-    "Company Name: Optional",
-    "Other User Info: Optional",
+    ...options,
   ].join("\n");
 }
 
