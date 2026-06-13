@@ -194,6 +194,8 @@ export async function runTUI(config: Config): Promise<number> {
         agentCtx.systemPrompt,
         computeAdvertised([...agentCtx.toolDefinitions]),
         approvalGate,
+        undefined,
+        (names) => promoteTools(names),
       );
       directorHolder.instance = d;
       return d;
