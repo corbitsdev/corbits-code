@@ -5,6 +5,7 @@ import { writeTests } from "./write-tests.js";
 import { triageBug } from "./triage-bug.js";
 import { codeReview } from "./code-review.js";
 import { scopeProject } from "./scope-project.js";
+import { buildFeature } from "./build-feature.js";
 
 // The static registry of all built-in workflows. Adding a workflow is adding one
 // import and one entry here — nothing else. The atomic workflows are registered
@@ -17,6 +18,7 @@ export const WORKFLOWS: Workflow[] = [
   triageBug,
   codeReview,
   scopeProject,
+  buildFeature,
 ];
 
 export function findWorkflow(name: string): Workflow | undefined {
