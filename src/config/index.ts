@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
-import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { setModelReasoningCapabilities, validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { readPricingCache } from "../cost/pricing-fetcher.js";
 
 import {
   globalSettingsPath,
@@ -274,8 +275,12 @@ export async function loadConfig(
   // Enforce model/effort compatibility at the boundary. The modal only offers
   // supported levels, but a hand-edited local settings file can pair an effort
   // with a model that does not accept it; reject it here rather than shipping an
-  // effort the model will refuse.
+  // effort the model will refuse. Seed the capability registry from the cached
+  // models.dev metadata (no network) so a non-reasoning model is caught too;
+  // a cache miss leaves the local heuristic in charge.
   if (local?.reasoningEffort !== undefined) {
+    const cached = await readPricingCache();
+    setModelReasoningCapabilities(cached?.reasoning ?? {});
     const verdict = validateEffort(resolved.model, local.reasoningEffort);
     if (!verdict.ok) {
       throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);

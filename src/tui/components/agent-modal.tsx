@@ -399,6 +399,9 @@ export function AgentModal({
           <Text color={color("muted")}>
             {pendingProvider} · {pendingModel} — reasoning effort
           </Text>
+          {pendingModel !== undefined && supportedEfforts(pendingModel).length === 0 && (
+            <Text color={color("muted")}>(this model does not support reasoning effort)</Text>
+          )}
           {efforts.map((e, i) => {
             const isActive = e === activeEffort;
             const isCursor = i === effortIndex;

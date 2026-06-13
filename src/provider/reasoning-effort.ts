@@ -33,7 +33,31 @@ function isKnownOpenAIReasoningModel(model: string): boolean {
   return model.startsWith("gpt-5") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4");
 }
 
-export function supportedEfforts(model: string): ReasoningEffort[] {
+// Per-model reasoning capability sourced from models.dev (populated at startup,
+// see model-capabilities). The registry is the authority on "does this model
+// reason at all"; the rung sets above are the local authority on "which levels".
+// A model absent from the registry is unknown, not non-reasoning.
+let reasoningCapableByModel: Record<string, boolean> = {};
+
+export function setModelReasoningCapabilities(map: Record<string, boolean>): void {
+  reasoningCapableByModel = map;
+}
+
+export function modelReasoningCapability(model: string): boolean | undefined {
+  return reasoningCapableByModel[model];
+}
+
+// The effort levels to offer for a model. `reasoningCapable` defaults to the
+// models.dev-backed registry: when it positively reports a model does not
+// reason, no effort is offered; when it is unknown (offline, first run, or a
+// model models.dev does not list) the local heuristic decides.
+export function supportedEfforts(
+  model: string,
+  reasoningCapable: boolean | undefined = modelReasoningCapability(model),
+): ReasoningEffort[] {
+  if (reasoningCapable === false) {
+    return [];
+  }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];
   }
@@ -50,6 +74,9 @@ export function validateEffort(
   const supported = supportedEfforts(model);
   if (supported.includes(effort)) {
     return { ok: true };
+  }
+  if (supported.length === 0) {
+    return { ok: false, error: `Model "${model}" does not support reasoning, so it cannot take a reasoning effort.` };
   }
   return {
     ok: false,

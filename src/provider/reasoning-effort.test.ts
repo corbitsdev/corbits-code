@@ -1,9 +1,11 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 import {
   REASONING_EFFORTS,
   isReasoningEffort,
   supportedEfforts,
   validateEffort,
+  setModelReasoningCapabilities,
+  modelReasoningCapability,
 } from "./reasoning-effort.js";
 
 describe("REASONING_EFFORTS", () => {
@@ -53,5 +55,31 @@ describe("validateEffort", () => {
   test("rejects xhigh on unknown models", () => {
     expect(validateEffort("unknown", "xhigh").ok).toBe(false);
     expect(validateEffort("unknown", "minimal").ok).toBe(false);
+  });
+});
+
+describe("reasoning capability gate", () => {
+  afterEach(() => setModelReasoningCapabilities({}));
+
+  test("a model models.dev marks non-reasoning gets no effort options", () => {
+    expect(supportedEfforts("gpt-4o", false)).toEqual([]);
+  });
+
+  test("an unknown capability falls back to the local heuristic", () => {
+    expect(supportedEfforts("gpt-5", undefined)).toEqual(["minimal", "low", "medium", "high"]);
+  });
+
+  test("supportedEfforts reads the registry by default", () => {
+    setModelReasoningCapabilities({ "chat-only-model": false });
+    expect(modelReasoningCapability("chat-only-model")).toBe(false);
+    expect(supportedEfforts("chat-only-model")).toEqual([]);
+    expect(supportedEfforts("model-not-in-registry")).toEqual(["low", "medium", "high"]);
+  });
+
+  test("validateEffort rejects any effort for a non-reasoning model", () => {
+    setModelReasoningCapabilities({ "chat-only-model": false });
+    const result = validateEffort("chat-only-model", "low");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("does not support reasoning");
   });
 });

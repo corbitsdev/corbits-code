@@ -37,6 +37,7 @@ import { createTaskTool } from "../subagent/index.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "../session/state.js";
 import { runCritique } from "./critic.js";
 import { loadPricing, startPricingRefresh } from "../cost/pricing-fetcher.js";
+import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { createRenderer } from "./renderer.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import {
@@ -129,6 +130,7 @@ export async function runAgent(
 
   const startedAt = initialStartedAt ?? Date.now();
   const pricingCache = await loadPricing();
+  setModelReasoningCapabilities(pricingCache?.reasoning ?? {});
   const pricingRefresh = startPricingRefresh();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),

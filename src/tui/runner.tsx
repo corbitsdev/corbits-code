@@ -14,6 +14,8 @@ import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildOpenAISource, type Config } from "../config/index.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
+import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
+import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
@@ -68,6 +70,15 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 
 export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
+  // Seed reasoning capabilities from the cached models.dev metadata so the
+  // /agent effort selector can gate non-reasoning models immediately, then
+  // refresh from the network in the background (updates the cache for next run).
+  setModelReasoningCapabilities((await readPricingCache())?.reasoning ?? {});
+  void loadPricing()
+    .then((cache) => {
+      if (cache !== null) setModelReasoningCapabilities(cache.reasoning ?? {});
+    })
+    .catch(() => undefined);
   let sessionId = config.sessionId;
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
