@@ -17,6 +17,7 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 
 import { buildOpenAISource, type Config } from "../config/index.js";
 import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
@@ -118,6 +119,7 @@ export async function runAgent(
   initialDirectorState?: DirectorPersistedState,
   onEvent?: (event: ReactorEmittedEvent) => void,
 ): Promise<number> {
+  registerOpenAICompatibleAdapter();
   await initSessionDir(config.cwd, config.sessionId);
   const state = await loadState(config.cwd, config.sessionId);
   if (state !== null && state.status === "running" && !config.force) {

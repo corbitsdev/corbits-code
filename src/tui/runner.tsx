@@ -13,6 +13,7 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildOpenAISource, type Config } from "../config/index.js";
+import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -65,6 +66,7 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 }
 
 export async function runTUI(config: Config): Promise<number> {
+  registerOpenAICompatibleAdapter();
   let sessionId = config.sessionId;
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
