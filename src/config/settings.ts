@@ -2,7 +2,9 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { type } from "arktype";
+
+import { REASONING_EFFORTS, type ReasoningEffort } from "../provider/reasoning-effort.js";
 
 // A configured inference provider. `apiKey` is secret and lives only in the
 // global settings file; `baseURL` is editable provider metadata that lives with
@@ -98,55 +100,67 @@ function isENOENT(err: unknown): boolean {
   );
 }
 
+// arktype is the single validation vocabulary for config boundaries (see
+// AGENTS.md). The schemas below own structural validation; the imperative
+// helpers that remain (transport selection, dual array/object MCP format) are
+// normalization and cross-field business rules, not type checks.
+const ProviderSettingsSchema = type({
+  "name?": "string",
+  baseURL: "string",
+  apiKey: "string",
+  models: "string[]",
+  "defaultModel?": "string",
+});
+
+const SettingsSchema = type({
+  "defaultProvider?": "string",
+  providers: type({ "[string]": ProviderSettingsSchema }),
+  // mcpServers accepts both array and object forms, so it is validated by
+  // normalizeMcpServers rather than expressed structurally here.
+  "mcpServers?": "unknown",
+});
+
+// Per-entry MCP shape without the name key. The "exactly one transport" rule is
+// a cross-field constraint enforced after the structural check.
+const McpEntrySchema = type({
+  "type?": "'stdio' | 'http'",
+  "command?": "string",
+  "args?": "string[]",
+  "env?": "Record<string, string>",
+  "url?": "string",
+});
+
+const LocalSettingsSchema = type({
+  "provider?": "string",
+  "model?": "string",
+  "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
+  "mcpServers?": "unknown",
+  // Reject any other key so local settings can never smuggle credentials.
+  "+": "reject",
+});
+
 function isProviderSettings(value: unknown): value is ProviderSettings {
-  if (typeof value !== "object" || value === null) return false;
-  const p = value as Record<string, unknown>;
-  if (typeof p.baseURL !== "string") return false;
-  if (typeof p.apiKey !== "string") return false;
-  if (!Array.isArray(p.models) || !p.models.every((m) => typeof m === "string")) return false;
-  if (p.defaultModel !== undefined && typeof p.defaultModel !== "string") return false;
-  if (p.name !== undefined && typeof p.name !== "string") return false;
-  return true;
+  return ProviderSettingsSchema.allows(value);
 }
 
 export function isSettings(value: unknown): value is Settings {
-  if (typeof value !== "object" || value === null) return false;
+  if (!SettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
-  if (s.defaultProvider !== undefined && typeof s.defaultProvider !== "string") return false;
-  if (typeof s.providers !== "object" || s.providers === null) return false;
-  if (!Object.values(s.providers).every(isProviderSettings)) return false;
-  // mcpServers is also allowed in global settings.
-  if (s.mcpServers !== undefined) {
-    if (normalizeMcpServers(s.mcpServers) === undefined) return false;
-  }
+  if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
   return true;
 }
 
 function isMCPServerConfigEntry(value: unknown): value is Omit<MCPServerConfig, "name"> {
-  if (typeof value !== "object" || value === null) return false;
+  if (!McpEntrySchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
-  if (s.type !== undefined && s.type !== "stdio" && s.type !== "http") return false;
-  if (s.command !== undefined && typeof s.command !== "string") return false;
-  if (s.url !== undefined && typeof s.url !== "string") return false;
   // Exactly one transport must be specified.
   const isHttp = s.type === "http" || (s.type === undefined && typeof s.url === "string");
-  if (isHttp) {
-    if (typeof s.url !== "string") return false;
-  } else if (typeof s.command !== "string") {
-    return false;
-  }
-  if (s.args !== undefined && (!Array.isArray(s.args) || !s.args.every((a) => typeof a === "string"))) return false;
-  if (s.env !== undefined) {
-    if (typeof s.env !== "object" || s.env === null) return false;
-    if (!Object.values(s.env).every((v) => typeof v === "string")) return false;
-  }
-  return true;
+  return isHttp ? typeof s.url === "string" : typeof s.command === "string";
 }
 
 function isMCPServerConfigWithKey(value: unknown): value is MCPServerConfig {
   if (typeof value !== "object" || value === null) return false;
-  const s = value as Record<string, unknown>;
-  if (typeof s.name !== "string") return false;
+  if (typeof (value as Record<string, unknown>).name !== "string") return false;
   return isMCPServerConfigEntry(value);
 }
 
@@ -189,17 +203,9 @@ export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefin
 // allowed). The mcpServers key is permitted because MCP server configs are
 // expected to live in the repo.
 export function isLocalSettings(value: unknown): value is LocalSettings {
-  if (typeof value !== "object" || value === null) return false;
+  if (!LocalSettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
-  for (const key of Object.keys(s)) {
-    if (key !== "provider" && key !== "model" && key !== "reasoningEffort" && key !== "mcpServers") return false;
-  }
-  if (s.provider !== undefined && typeof s.provider !== "string") return false;
-  if (s.model !== undefined && typeof s.model !== "string") return false;
-  if (s.reasoningEffort !== undefined && !isReasoningEffort(s.reasoningEffort)) return false;
-  if (s.mcpServers !== undefined) {
-    if (normalizeMcpServers(s.mcpServers) === undefined) return false;
-  }
+  if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
   return true;
 }
 

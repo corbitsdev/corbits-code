@@ -179,6 +179,7 @@ For this project, the most relevant profiles from `.agents/agents/` are:
 - **TypeScript:** Full type safety always. Avoid `any`. Prefer `unknown` over `any`.
 - **Modules:** ES modules (import/export) only. No CommonJS.
 - **Paradigm:** Functional programming. No classes, no OOP.
+- **Validation:** Use arktype (`type({...})`) for all schema and boundary validation (config files, external input, tool args). Do not hand-roll `typeof` type guards for structured data.
 - **Files:** Small functions, small files, clear naming.
 - **Scope:** Only touch code directly related to the task. No drive-by refactors, reformatting, or renaming in files you pass through.
 - **Tests:** Add or update tests with every behavior change. Write a failing test first when fixing a bug.
