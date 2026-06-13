@@ -18,6 +18,7 @@ import { PermissionsManager } from "./components/permissions-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -60,6 +61,7 @@ export type AppProps = {
   sessionTitle: string;
   initialModel: string;
   initialProvider: string;
+  initialReasoningEffort?: ReasoningEffort;
   providers: ProviderCatalogEntry[];
   globalSettingsPath: string;
   globalDefaultProvider?: string;
@@ -80,6 +82,7 @@ export function App({
   sessionTitle,
   initialModel,
   initialProvider,
+  initialReasoningEffort,
   providers,
   globalSettingsPath,
   globalDefaultProvider: initialGlobalDefaultProvider,
@@ -125,6 +128,7 @@ export function App({
   const providerManager = useProviderManager({
     initialProvider,
     initialModel,
+    ...(initialReasoningEffort !== undefined ? { initialReasoningEffort } : {}),
     initialCatalog: providers,
     initialGlobalDefaultProvider,
     cwd,
@@ -132,7 +136,7 @@ export function App({
     agent,
     onMessage: setCommandMessage,
   });
-  const { provider, model, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
+  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
@@ -567,6 +571,7 @@ export function App({
         agentProviders={toAgentProviders(providerCatalog)}
         activeProvider={provider}
         activeModel={model}
+        activeEffort={reasoningEffort}
         onAgentApply={applySelection}
         onAgentPersistDefault={persistSelection}
         onAgentSaveProvider={upsertProvider}
@@ -632,6 +637,7 @@ export function App({
           elapsedMs={state.elapsedMs}
           status={state.status}
           connectedMCPServers={mcpStatus.connected}
+          reasoningEffort={reasoningEffort}
         />
         </Box>
       )}

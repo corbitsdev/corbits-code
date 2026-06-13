@@ -196,6 +196,7 @@ export async function runTUI(config: Config): Promise<number> {
         baseURL: config.baseURL,
         apiKey: config.apiKey,
         model: config.model,
+        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       }),
       storage,
       workdir,
@@ -335,6 +336,7 @@ export async function runTUI(config: Config): Promise<number> {
       sessionTitle={config.task}
       initialModel={config.model}
       initialProvider={config.providerName}
+      {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}
       providers={config.providers}
       globalSettingsPath={config.globalSettingsPath}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
