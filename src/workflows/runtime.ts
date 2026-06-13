@@ -40,9 +40,16 @@ export class WorkflowRuntime {
   private readonly listeners = new Set<WorkflowListener>();
 
   constructor(
-    private readonly capabilities: CapabilityMap,
+    private capabilities: CapabilityMap,
     private readonly resolve: Resolver = findWorkflow,
   ) {}
+
+  // Replace the capability map mid-run. Steps already settled keep their status;
+  // not-yet-reached steps are resolved against the new map (so toggling a
+  // capability off in the TUI skips its remaining steps).
+  setCapabilities(capabilities: CapabilityMap): void {
+    this.capabilities = capabilities;
+  }
 
   on(listener: WorkflowListener): () => void {
     this.listeners.add(listener);
