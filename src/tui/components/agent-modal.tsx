@@ -54,9 +54,9 @@ export type AgentModalProps = {
   providers: AgentProvider[];
   activeProvider: string;
   activeModel: string;
-  activeEffort: ReasoningEffort;
-  onApply: (provider: string, model: string, effort: ReasoningEffort) => void;
-  onPersistDefault: (provider: string, model: string, effort: ReasoningEffort) => void;
+  activeEffort: ReasoningEffort | undefined;
+  onApply: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
+  onPersistDefault: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
   onSaveProvider: (provider: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
@@ -144,7 +144,10 @@ export function AgentModal({
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
-  const efforts = pendingModel !== undefined ? supportedEfforts(pendingModel) : [];
+  // The leading `undefined` is the "no override" choice; the rest are the real
+  // levels the model accepts.
+  const efforts: (ReasoningEffort | undefined)[] =
+    pendingModel !== undefined ? [undefined, ...supportedEfforts(pendingModel)] : [];
   const currentField = FORM_FIELDS[formIndex] ?? "name";
 
   const enterModelStep = (): void => {
@@ -159,8 +162,9 @@ export function AgentModal({
   const enterEffortStep = (providerName: string, modelName: string): void => {
     setPendingProvider(providerName);
     setPendingModel(modelName);
-    const active = providerName === activeProvider && modelName === activeModel ? activeEffort : "none";
-    const idx = supportedEfforts(modelName).indexOf(active);
+    const active = providerName === activeProvider && modelName === activeModel ? activeEffort : undefined;
+    const options: (ReasoningEffort | undefined)[] = [undefined, ...supportedEfforts(modelName)];
+    const idx = options.indexOf(active);
     setEffortIndex(idx >= 0 ? idx : 0);
     setStep("effort");
   };
@@ -262,8 +266,10 @@ export function AgentModal({
         setStep("model");
         return;
       }
+      if (pendingProvider === undefined || pendingModel === undefined) return;
+      // efforts[effortIndex] may be undefined — that is the "no override" choice,
+      // not an invalid index (the cursor is always within range).
       const effort = efforts[effortIndex];
-      if (pendingProvider === undefined || pendingModel === undefined || effort === undefined) return;
       if (key.return) {
         onApply(pendingProvider, pendingModel, effort);
         onClose();
@@ -389,14 +395,13 @@ export function AgentModal({
             const isActive = e === activeEffort;
             const isCursor = i === effortIndex;
             return (
-              <Box key={e} flexDirection="row" gap={1}>
+              <Box key={e ?? "__default__"} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
                   {isCursor ? ">" : " "}
                 </Text>
                 <Text color={isCursor ? color("accent") : color("text")}>
                   {isActive ? "* " : "  "}
-                  {e}
-                  {e === "none" ? " (clear override)" : ""}
+                  {e ?? "default (no override)"}
                 </Text>
               </Box>
             );

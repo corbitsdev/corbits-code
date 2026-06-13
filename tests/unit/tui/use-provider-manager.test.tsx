@@ -163,12 +163,12 @@ test("persistSelection with effort writes reasoningEffort to local settings", as
   );
 });
 
-test("persistSelection with none omits reasoningEffort from local settings", async () => {
+test("persistSelection with no override omits reasoningEffort from local settings", async () => {
   const args = makeArgs({ initialReasoningEffort: "high" });
   render(<CapturingHarness args={args} />);
 
   await act(async () => {
-    capturedCtrl.persistSelection("anthropic", "claude-3-opus", "none");
+    capturedCtrl.persistSelection("anthropic", "claude-3-opus", undefined);
   });
   await tick();
 

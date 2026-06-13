@@ -32,7 +32,7 @@ function base(): ModalStackProps {
     agentProviders: PROVIDERS,
     activeProvider: "openai",
     activeModel: "gpt-4o",
-    activeEffort: "none",
+    activeEffort: undefined,
     onAgentApply: () => {},
     onAgentPersistDefault: () => {},
     onAgentSaveProvider: () => ({ ok: true }),
@@ -170,7 +170,7 @@ test("AgentModal advances to the effort step and applies the chosen effort", asy
 });
 
 test("AgentModal effort step 'd' persists the chosen effort as default", async () => {
-  let persisted: { effort: string } | null = null;
+  let persisted: { effort: string | undefined } | null = null;
   const { stdin } = render(
     <ModalStack
       {...base()}
@@ -186,11 +186,13 @@ test("AgentModal effort step 'd' persists the chosen effort as default", async (
   await tick();
   stdin.write("\r"); // provider -> model
   await tick();
-  stdin.write("\r"); // model -> effort
+  stdin.write("\r"); // model -> effort (cursor starts on "default (no override)")
   await tick();
-  stdin.write("d"); // persist with effort "none"
+  stdin.write("[B"); // down to the first real level, "minimal"
   await tick();
-  expect(persisted).toEqual({ effort: "none" });
+  stdin.write("d"); // persist the chosen effort
+  await tick();
+  expect(persisted).toEqual({ effort: "minimal" });
 });
 
 test("PermissionModal renders when pendingPermission is non-null", () => {

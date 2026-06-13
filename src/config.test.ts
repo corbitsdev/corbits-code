@@ -423,17 +423,6 @@ describe("buildOpenAISource", () => {
     expect(source.defaults).toEqual({ maxTokens: SOURCE_MAX_TOKENS });
   });
 
-  test("omits reasoning_effort when effort is none", () => {
-    const source = buildOpenAISource({
-      id: "fp",
-      baseURL: "https://fp/v1",
-      apiKey: "k",
-      model: "m",
-      reasoningEffort: "none",
-    });
-    expect(source.defaults).toEqual({ maxTokens: SOURCE_MAX_TOKENS });
-  });
-
   test("sets providerOptions.reasoning_effort when effort is present", () => {
     const source = buildOpenAISource({
       id: "fp",

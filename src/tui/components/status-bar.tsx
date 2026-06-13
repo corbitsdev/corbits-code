@@ -13,7 +13,7 @@ export type StatusBarProps = {
   elapsedMs: number;
   status: AgentStatus;
   connectedMCPServers?: string[];
-  reasoningEffort?: ReasoningEffort;
+  reasoningEffort?: ReasoningEffort | undefined;
   auto?: boolean;
 };
 
@@ -49,7 +49,7 @@ export function StatusBar({
   elapsedMs,
   status,
   connectedMCPServers = [],
-  reasoningEffort = "none",
+  reasoningEffort,
   auto = false,
 }: StatusBarProps): ReactNode {
   return (
@@ -61,7 +61,7 @@ export function StatusBar({
           <Text bold color={color("warning")} wrap="truncate-end">AUTO</Text>
         </>
       )}
-      {reasoningEffort !== "none" && (
+      {reasoningEffort !== undefined && (
         <>
           <Divider />
           <Text bold color={color("warning")} wrap="truncate-end">

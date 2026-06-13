@@ -8,7 +8,7 @@ import {
 
 describe("REASONING_EFFORTS", () => {
   test("is ordered from least to most effort", () => {
-    expect(REASONING_EFFORTS).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(REASONING_EFFORTS).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
   });
 });
 
@@ -24,15 +24,15 @@ describe("isReasoningEffort", () => {
 
 describe("supportedEfforts", () => {
   test("known reasoning model gets the default set without xhigh", () => {
-    expect(supportedEfforts("gpt-5")).toEqual(["none", "minimal", "low", "medium", "high"]);
+    expect(supportedEfforts("gpt-5")).toEqual(["minimal", "low", "medium", "high"]);
   });
 
   test("xhigh-capable model includes xhigh", () => {
-    expect(supportedEfforts("gpt-5.1")).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(supportedEfforts("gpt-5.1")).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
   });
 
   test("unknown model gets the safe subset", () => {
-    expect(supportedEfforts("some-random-model")).toEqual(["none", "low", "medium", "high"]);
+    expect(supportedEfforts("some-random-model")).toEqual(["low", "medium", "high"]);
   });
 });
 

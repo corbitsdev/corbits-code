@@ -21,9 +21,9 @@ export type ModalStackProps = {
   agentProviders: AgentProvider[];
   activeProvider: string;
   activeModel: string;
-  activeEffort: ReasoningEffort;
-  onAgentApply: (provider: string, model: string, effort: ReasoningEffort) => void;
-  onAgentPersistDefault: (provider: string, model: string, effort: ReasoningEffort) => void;
+  activeEffort: ReasoningEffort | undefined;
+  onAgentApply: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
+  onAgentPersistDefault: (provider: string, model: string, effort: ReasoningEffort | undefined) => void;
   onAgentSaveProvider: (provider: ProviderFormSubmission) => { ok: true } | { ok: false; error: string };
   onAgentDeleteProvider: (provider: string) => void;
   onCloseAgentModal: () => void;

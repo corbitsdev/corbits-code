@@ -3,7 +3,10 @@
 // "variant" or a separate model — the same model accepts an effort level that
 // trades latency and cost against reasoning depth.
 
-export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+// The selectable effort levels. "No override" is represented as the absence of
+// a value (undefined), not a member here — so every level in this list is a
+// real request value the model is asked to honor.
+export const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
@@ -11,9 +14,8 @@ export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return typeof value === "string" && (REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
-// The effort levels every OpenAI reasoning model accepts. `none` is always
-// available because it means "no override" rather than a request value.
-const DEFAULT_EFFORTS: readonly ReasoningEffort[] = ["none", "minimal", "low", "medium", "high"];
+// The effort levels every OpenAI reasoning model accepts.
+const DEFAULT_EFFORTS: readonly ReasoningEffort[] = ["minimal", "low", "medium", "high"];
 
 // Models that additionally accept the `xhigh` level. Listed explicitly because
 // xhigh is not universally supported; an unknown model must not be assumed to
@@ -22,7 +24,7 @@ const XHIGH_MODELS: readonly string[] = ["gpt-5.1", "gpt-5.1-codex", "gpt-5.1-co
 
 // The safe subset offered for models we do not recognize. Conservative on
 // purpose: these are the levels the broadest range of reasoning models accept.
-const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["none", "low", "medium", "high"];
+const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"];
 
 function isKnownOpenAIReasoningModel(model: string): boolean {
   return model.startsWith("gpt-5") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4");

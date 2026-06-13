@@ -29,33 +29,33 @@ export type UseProviderManagerArgs = {
 export type ProviderManagerController = {
   provider: string;
   model: string;
-  reasoningEffort: ReasoningEffort;
+  reasoningEffort: ReasoningEffort | undefined;
   providerCatalog: ProviderCatalogEntry[];
   globalDefaultProvider: string | undefined;
-  applySelection: (providerName: string, nextModel: string, nextEffort?: ReasoningEffort) => void;
-  persistSelection: (providerName: string, nextModel: string, nextEffort?: ReasoningEffort) => void;
+  applySelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
+  persistSelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
 };
 
-// The selection writer omits reasoningEffort when it is "none" so the project
-// settings file stays minimal and a cleared override leaves no stale key.
+// The selection writer omits reasoningEffort when there is no override so the
+// project settings file stays minimal and a cleared override leaves no stale key.
 function localSelection(
   providerName: string,
   model: string,
-  effort: ReasoningEffort,
+  effort: ReasoningEffort | undefined,
 ): LocalSettings {
   return {
     provider: providerName,
     model,
-    ...(effort !== "none" ? { reasoningEffort: effort } : {}),
+    ...(effort !== undefined ? { reasoningEffort: effort } : {}),
   };
 }
 
 export function useProviderManager({
   initialProvider,
   initialModel,
-  initialReasoningEffort = "none",
+  initialReasoningEffort,
   initialCatalog,
   initialGlobalDefaultProvider,
   cwd,
@@ -66,7 +66,7 @@ export function useProviderManager({
 }: UseProviderManagerArgs): ProviderManagerController {
   const [provider, setProvider] = useState<string>(initialProvider);
   const [model, setModel] = useState<string>(initialModel);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(initialReasoningEffort);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(initialReasoningEffort);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(initialCatalog);
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
 
@@ -74,7 +74,7 @@ export function useProviderManager({
     catalog: readonly ProviderCatalogEntry[],
     providerName: string,
     nextModel: string,
-    nextEffort: ReasoningEffort,
+    nextEffort: ReasoningEffort | undefined,
   ): boolean => {
     const entry = catalog.find((p) => p.name === providerName);
     if (entry === undefined) {
@@ -87,7 +87,7 @@ export function useProviderManager({
         baseURL: entry.baseURL,
         apiKey: entry.apiKey,
         model: nextModel,
-        reasoningEffort: nextEffort,
+        ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
       }),
     );
     onSelectionChange?.({
@@ -95,7 +95,7 @@ export function useProviderManager({
       baseURL: entry.baseURL,
       apiKey: entry.apiKey,
       model: nextModel,
-      ...(nextEffort !== "none" ? { reasoningEffort: nextEffort } : {}),
+      ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
     });
     setProvider(providerName);
     setModel(nextModel);
@@ -106,7 +106,7 @@ export function useProviderManager({
   const applySelection = (
     providerName: string,
     nextModel: string,
-    nextEffort: ReasoningEffort = reasoningEffort,
+    nextEffort: ReasoningEffort | undefined,
   ): void => {
     if (applyCatalogSelection(providerCatalog, providerName, nextModel, nextEffort)) {
       onMessage(`Now using ${providerName} · ${nextModel}`);
@@ -128,7 +128,7 @@ export function useProviderManager({
   const persistSelection = (
     providerName: string,
     nextModel: string,
-    nextEffort: ReasoningEffort = reasoningEffort,
+    nextEffort: ReasoningEffort | undefined,
   ): void => {
     applySelection(providerName, nextModel, nextEffort);
     void saveLocalSettings(localSettingsPath(cwd), localSelection(providerName, nextModel, nextEffort)).catch(

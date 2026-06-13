@@ -57,11 +57,6 @@ test("StatusBar renders the reasoning-effort indicator", () => {
   expect(lastFrame()).toContain("EFFORT:HIGH");
 });
 
-test("StatusBar hides the indicator when effort is none", () => {
-  const { lastFrame } = renderBar({ reasoningEffort: "none" });
-  expect(lastFrame()).not.toContain("EFFORT");
-});
-
 test("StatusBar hides the indicator when effort is unset", () => {
   const { lastFrame } = renderBar();
   expect(lastFrame()).not.toContain("EFFORT");

@@ -34,7 +34,7 @@ export function buildOpenAISource(fields: {
   reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
   const overrides =
-    fields.reasoningEffort !== undefined && fields.reasoningEffort !== "none"
+    fields.reasoningEffort !== undefined
       ? { providerOptions: { reasoning_effort: fields.reasoningEffort } }
       : {};
   return {
