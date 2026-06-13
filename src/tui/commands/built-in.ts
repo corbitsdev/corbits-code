@@ -17,14 +17,14 @@ registerCommand({
 
 registerCommand({
   name: "auto",
-  description: "Toggle auto-approve for non-destructive actions (writes, edits, safe shell)",
+  description: "Toggle auto-approve for file writes/edits and safe shell (recoverable via git)",
   handler: (_args, ctx) => {
     const enabled = ctx.toggleAuto();
     return {
       type: "message",
       text: enabled
-        ? "Auto mode on — file writes/edits and safe shell run without asking."
-        : "Auto mode off — every consequential action will ask first.",
+        ? "Auto mode on — file writes/edits (recoverable via git) and safe shell run without asking."
+        : "Auto mode off — every file write/edit and command will ask first.",
     };
   },
 });
