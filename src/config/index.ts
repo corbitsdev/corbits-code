@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 
 import {
   globalSettingsPath,
@@ -30,14 +31,19 @@ export function buildOpenAISource(fields: {
   baseURL: string;
   apiKey: string;
   model: string;
+  reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
+  const overrides =
+    fields.reasoningEffort !== undefined && fields.reasoningEffort !== "none"
+      ? { providerOptions: { reasoning_effort: fields.reasoningEffort } }
+      : {};
   return {
     id: fields.id,
     provider: "openai-compatible",
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey: fields.apiKey,
     model: fields.model,
-    defaults: { maxTokens: SOURCE_MAX_TOKENS },
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
 }
 

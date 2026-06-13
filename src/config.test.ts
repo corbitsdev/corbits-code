@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings } from "./config/index.js";
+import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import type { ResolvedProvider, Settings } from "./config/settings.js";
 
@@ -393,6 +393,36 @@ describe("buildOpenAISource", () => {
       model: "fp-large",
     });
     expect(source.baseURL).toBe("https://fp/v1");
+  });
+
+  test("omits reasoning_effort when effort is absent", () => {
+    const source = buildOpenAISource({ id: "fp", baseURL: "https://fp/v1", apiKey: "k", model: "m" });
+    expect(source.defaults).toEqual({ maxTokens: SOURCE_MAX_TOKENS });
+  });
+
+  test("omits reasoning_effort when effort is none", () => {
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1",
+      apiKey: "k",
+      model: "m",
+      reasoningEffort: "none",
+    });
+    expect(source.defaults).toEqual({ maxTokens: SOURCE_MAX_TOKENS });
+  });
+
+  test("sets providerOptions.reasoning_effort when effort is present", () => {
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1",
+      apiKey: "k",
+      model: "gpt-5.1",
+      reasoningEffort: "high",
+    });
+    expect(source.defaults).toEqual({
+      maxTokens: SOURCE_MAX_TOKENS,
+      providerOptions: { reasoning_effort: "high" },
+    });
   });
 });
 
