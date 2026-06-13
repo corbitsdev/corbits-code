@@ -1,10 +1,23 @@
 import { isValidWorkflowName, type Workflow } from "./types.js";
+import { updateTicket } from "./update-ticket.js";
+import { improveDocs } from "./improve-docs.js";
+import { writeTests } from "./write-tests.js";
+import { triageBug } from "./triage-bug.js";
+import { codeReview } from "./code-review.js";
+import { scopeProject } from "./scope-project.js";
 
 // The static registry of all built-in workflows. Adding a workflow is adding one
 // import and one entry here — nothing else. The atomic workflows are registered
 // before the composites that reference them so `findWorkflow` resolves nested
 // references at module-load time.
-export const WORKFLOWS: Workflow[] = [];
+export const WORKFLOWS: Workflow[] = [
+  updateTicket,
+  improveDocs,
+  writeTests,
+  triageBug,
+  codeReview,
+  scopeProject,
+];
 
 export function findWorkflow(name: string): Workflow | undefined {
   return WORKFLOWS.find((workflow) => workflow.name === name);
