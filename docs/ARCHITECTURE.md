@@ -100,6 +100,19 @@ Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`
 - `submit_plan` — Ordered steps of `{ file, action, reason }`; declared on turn 1.
 - `ask_operator` — Pauses for a clarifying question with a list of options.
 - `submit_output` — The only clean termination signal; requires a prior plan.
+- `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
+
+### Workflows (`src/workflows/`)
+
+Workflows are named, ordered recipes the agent follows step by step — a thin layer above the reactor loop, not a replacement. They ship as first-class TypeScript validated at compile time with `satisfies Workflow`; the static `WORKFLOWS` registry is the single source of truth.
+
+- `types.ts` — `Workflow`, `WorkflowStep` (`prompt`, `capability`, `agent`, `skill`, `workflow` sub-workflow ref, `optional`, `parallel`, `type: "gate"`), and the `WorkflowState` persistence shape. `MAX_WORKFLOW_DEPTH` bounds nesting.
+- `capabilities.ts` — `detectCapabilities` maps the live tool surface to abstract capabilities (`ticket-tracker`, `code-host`, `doc-search`) by name pattern; `resolveStep` decides whether a step runs. A capability override set forces integrations off per run. Adding a capability is a data edit, not a logic change.
+- `runtime.ts` — `WorkflowRuntime` drives execution on a call stack: it skips capability-unsatisfied steps, descends into sub-workflow references, emits step lifecycle events, and snapshots `WorkflowState`. `state.ts` persists that snapshot atomically to `.agent-state/workflow.json` for resume.
+- `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
+- The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
+
+Invocation: a `/<name>` slash command per workflow plus `/workflows` to list; auto-invoke from a profile's `workflow` field once MCP servers connect (suppressed by `--no-workflow`). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows progress, `Ctrl+W` opens the step/capability panel.
 
 ### System Prompt (`src/agent/prompts.ts`)
 

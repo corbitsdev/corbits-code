@@ -63,8 +63,8 @@ git config core.hooksPath .githooks
 
 The source is the truth; these docs guide you to it.
 
-- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, the mandatory `submit_plan`/`submit_output` tools, stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, or tools.**
-- `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags, state persistence, the eval harness.
+- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, the mandatory `submit_plan`/`submit_output` tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.**
+- `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags (incl. `--no-workflow`), state persistence, the eval harness.
 - `docs/PRODUCT.md` — what we're building and why.
 - `docs/HOOKS.md` — lifecycle hooks.
 - `PLAN.md` — phase breakdown and demo strategy.
