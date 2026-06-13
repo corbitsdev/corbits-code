@@ -28,7 +28,7 @@ export type AgentToolsetArgs = {
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
-    provider: SubAgentProvider;
+    provider: SubAgentProvider | (() => SubAgentProvider);
     getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
   };

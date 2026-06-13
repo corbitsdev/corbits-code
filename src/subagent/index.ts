@@ -243,7 +243,10 @@ export const taskToolDefinition: ToolDefinition = {
 export type TaskToolDeps = {
   cwd: string;
   getWorkdirBase: () => string;
-  provider: SubAgentProvider;
+  // A getter so a live /agent provider/model/effort switch reaches subagents
+  // spawned after the change, not just the value captured at startup. A plain
+  // value is also accepted for callers with no live switching (e.g. headless).
+  provider: SubAgentProvider | (() => SubAgentProvider);
   maxTurns?: number;
   // Injectable for tests; defaults to the real runSubAgent.
   run?: (params: RunSubAgentParams) => Promise<string>;
@@ -265,7 +268,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         const params: RunSubAgentParams = {
           cwd: deps.cwd,
           workdirBase: deps.getWorkdirBase(),
-          provider: deps.provider,
+          provider: typeof deps.provider === "function" ? deps.provider() : deps.provider,
           description,
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,

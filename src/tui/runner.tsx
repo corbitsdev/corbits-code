@@ -14,6 +14,7 @@ import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildOpenAISource, type Config } from "../config/index.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
+import type { SubAgentProvider } from "../subagent/index.js";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -130,6 +131,19 @@ export async function runTUI(config: Config): Promise<number> {
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
+  // Track the active subagent provider so a live /agent switch (provider, model,
+  // or reasoning effort) reaches subagents spawned afterward. Seeded from config
+  // and updated by the App through onSubAgentProviderChange.
+  const liveSubAgentProvider: { current: SubAgentProvider } = {
+    current: {
+      providerName: config.providerName,
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+    },
+  };
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
@@ -140,13 +154,7 @@ export async function runTUI(config: Config): Promise<number> {
       }),
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
-      provider: {
-        providerName: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      },
+      provider: () => liveSubAgentProvider.current,
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
     },
   });
@@ -354,6 +362,9 @@ export async function runTUI(config: Config): Promise<number> {
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
       initialAuto={config.auto}
       onToggleAuto={(value) => permissionGate.setAuto(value)}
+      onSubAgentProviderChange={(provider) => {
+        liveSubAgentProvider.current = provider;
+      }}
     />,
     { exitOnCtrlC: false },
   );

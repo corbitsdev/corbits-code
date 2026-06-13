@@ -19,6 +19,7 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -76,6 +77,7 @@ export type AppProps = {
   profile?: string;
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
+  onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
 };
 
 export function App({
@@ -99,6 +101,7 @@ export function App({
   profile,
   initialAuto = false,
   onToggleAuto,
+  onSubAgentProviderChange,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const stateRef = useRef(state);
@@ -140,6 +143,7 @@ export function App({
     globalSettingsPath,
     agent,
     onMessage: setCommandMessage,
+    ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
   const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
 

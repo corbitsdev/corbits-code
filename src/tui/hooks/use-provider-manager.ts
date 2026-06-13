@@ -3,6 +3,7 @@ import { useState } from "react";
 import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
 import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings } from "../../config/settings.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
+import type { SubAgentProvider } from "../../subagent/index.js";
 import {
   buildProviderEntry,
   defaultProviderAfterSave,
@@ -20,6 +21,9 @@ export type UseProviderManagerArgs = {
   globalSettingsPath: string;
   agent: Agent;
   onMessage: (msg: string) => void;
+  // Fired whenever the active source changes (provider, model, or effort) so the
+  // subagent provider can track a live /agent switch, not just the startup value.
+  onSelectionChange?: (provider: SubAgentProvider) => void;
 };
 
 export type ProviderManagerController = {
@@ -58,6 +62,7 @@ export function useProviderManager({
   globalSettingsPath,
   agent,
   onMessage,
+  onSelectionChange,
 }: UseProviderManagerArgs): ProviderManagerController {
   const [provider, setProvider] = useState<string>(initialProvider);
   const [model, setModel] = useState<string>(initialModel);
@@ -85,6 +90,13 @@ export function useProviderManager({
         reasoningEffort: nextEffort,
       }),
     );
+    onSelectionChange?.({
+      providerName,
+      baseURL: entry.baseURL,
+      apiKey: entry.apiKey,
+      model: nextModel,
+      ...(nextEffort !== "none" ? { reasoningEffort: nextEffort } : {}),
+    });
     setProvider(providerName);
     setModel(nextModel);
     setReasoningEffort(nextEffort);
