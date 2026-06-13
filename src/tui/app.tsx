@@ -18,6 +18,8 @@ import { PermissionsManager } from "./components/permissions-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -60,6 +62,7 @@ export type AppProps = {
   sessionTitle: string;
   initialModel: string;
   initialProvider: string;
+  initialReasoningEffort?: ReasoningEffort;
   providers: ProviderCatalogEntry[];
   globalSettingsPath: string;
   globalDefaultProvider?: string;
@@ -72,6 +75,9 @@ export type AppProps = {
   onNewSession?: () => void;
   permissionsAdmin?: PermissionsAdmin;
   profile?: string;
+  initialAuto?: boolean;
+  onToggleAuto?: (value: boolean) => void;
+  onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
 };
 
 export function App({
@@ -80,6 +86,7 @@ export function App({
   sessionTitle,
   initialModel,
   initialProvider,
+  initialReasoningEffort,
   providers,
   globalSettingsPath,
   globalDefaultProvider: initialGlobalDefaultProvider,
@@ -92,6 +99,9 @@ export function App({
   onNewSession,
   permissionsAdmin,
   profile,
+  initialAuto = false,
+  onToggleAuto,
+  onSubAgentProviderChange,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const stateRef = useRef(state);
@@ -104,6 +114,7 @@ export function App({
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
+  const [auto, setAuto] = useState(initialAuto);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("plan");
@@ -125,14 +136,16 @@ export function App({
   const providerManager = useProviderManager({
     initialProvider,
     initialModel,
+    ...(initialReasoningEffort !== undefined ? { initialReasoningEffort } : {}),
     initialCatalog: providers,
     initialGlobalDefaultProvider,
     cwd,
     globalSettingsPath,
     agent,
     onMessage: setCommandMessage,
+    ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
-  const { provider, model, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
+  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
@@ -269,9 +282,16 @@ export function App({
       setVerbose(next);
       return next;
     },
+    getAuto: () => auto,
+    toggleAuto: () => {
+      const next = !auto;
+      setAuto(next);
+      onToggleAuto?.(next);
+      return next;
+    },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-  }), [verbose, mcpStatus.servers]);
+  }), [verbose, auto, onToggleAuto, mcpStatus.servers]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -567,6 +587,7 @@ export function App({
         agentProviders={toAgentProviders(providerCatalog)}
         activeProvider={provider}
         activeModel={model}
+        activeEffort={reasoningEffort}
         onAgentApply={applySelection}
         onAgentPersistDefault={persistSelection}
         onAgentSaveProvider={upsertProvider}
@@ -632,6 +653,8 @@ export function App({
           elapsedMs={state.elapsedMs}
           status={state.status}
           connectedMCPServers={mcpStatus.connected}
+          reasoningEffort={reasoningEffort}
+          auto={auto}
         />
         </Box>
       )}

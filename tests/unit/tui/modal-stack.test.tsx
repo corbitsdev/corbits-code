@@ -32,6 +32,7 @@ function base(): ModalStackProps {
     agentProviders: PROVIDERS,
     activeProvider: "openai",
     activeModel: "gpt-4o",
+    activeEffort: undefined,
     onAgentApply: () => {},
     onAgentPersistDefault: () => {},
     onAgentSaveProvider: () => ({ ok: true }),
@@ -135,6 +136,65 @@ test("OperatorModal Enter calls onSelectOperator with selected index", async () 
   stdin.write("\r");
   await tick();
   expect(selected).toBe(0);
+});
+
+const EFFORT_PROVIDERS: AgentProvider[] = [
+  { name: "openai", baseURL: "https://api.openai.com/v1", models: ["gpt-5.1"] },
+];
+
+test("AgentModal advances to the effort step and applies the chosen effort", async () => {
+  let applied: { provider: string; model: string; effort: string } | null = null;
+  const { lastFrame, stdin } = render(
+    <ModalStack
+      {...base()}
+      agentModalOpen
+      agentProviders={EFFORT_PROVIDERS}
+      activeProvider="openai"
+      activeModel="gpt-5.1"
+      onAgentApply={(provider, model, effort) => {
+        applied = { provider, model, effort };
+      }}
+    />,
+  );
+  await tick();
+  stdin.write("\r"); // provider -> model
+  await tick();
+  stdin.write("\r"); // model -> effort
+  await tick();
+  expect(lastFrame()).toContain("reasoning effort");
+  stdin.write("\x1B[B"); // default -> none
+  await tick();
+  stdin.write("\x1B[B"); // none -> minimal
+  await tick();
+  stdin.write("\r"); // apply
+  await tick();
+  expect(applied).toEqual({ provider: "openai", model: "gpt-5.1", effort: "minimal" });
+});
+
+test("AgentModal effort step 'd' persists the chosen effort as default", async () => {
+  let persisted: { effort: string | undefined } | null = null;
+  const { stdin } = render(
+    <ModalStack
+      {...base()}
+      agentModalOpen
+      agentProviders={EFFORT_PROVIDERS}
+      activeProvider="openai"
+      activeModel="gpt-5.1"
+      onAgentPersistDefault={(_provider, _model, effort) => {
+        persisted = { effort };
+      }}
+    />,
+  );
+  await tick();
+  stdin.write("\r"); // provider -> model
+  await tick();
+  stdin.write("\r"); // model -> effort (cursor starts on "default (no override)")
+  await tick();
+  stdin.write("[B"); // down once: "default" -> "none" (first real level for gpt-5.1)
+  await tick();
+  stdin.write("d"); // persist the chosen effort
+  await tick();
+  expect(persisted).toEqual({ effort: "none" });
 });
 
 test("PermissionModal renders when pendingPermission is non-null", () => {

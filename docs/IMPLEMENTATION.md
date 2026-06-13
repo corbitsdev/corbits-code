@@ -1,6 +1,6 @@
-# interchange-code — Implementation
+# Intercode — Implementation
 
-Package version: **0.2.1**. CLI binary: `interchange-code` (`./dist/index.js`).
+Package version: **0.2.1**. CLI binary: `intercode` (`./dist/index.js`).
 
 ## Runtime
 
@@ -170,6 +170,24 @@ OpenAI-compatible `baseURL` values are normalized during provider resolution. A 
 
 `--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
 
+### Profiles (`src/config/profiles.ts`)
+
+Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).
+
+- Project profile: `.intercode/profile.json` in the repo root — committed, credential-free.
+- Named profiles: `~/.intercode/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag.
+
+```json
+{
+  "profile": "work",
+  "model": "claude-opus-4-8",
+  "maxTurns": 50,
+  "systemPromptExtensions": ["no-destructive-migrations"]
+}
+```
+
+`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
+
 ### Environment Variables (override)
 
 | Variable | Description |
@@ -271,5 +289,5 @@ An internal measurement tool, kept **outside `src/`** so it is never part of the
 ## Deployment
 
 - Single bundled entry: `./dist/index.js`
-- CLI name: `interchange-code`
+- CLI name: `intercode`
 - Self-contained: runtime dependencies are workspace-linked or bundled; no container or orchestration required

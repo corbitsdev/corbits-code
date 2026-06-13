@@ -26,12 +26,14 @@ import type {
 } from "@intx/types/runtime";
 
 import { buildOpenAISource } from "../config/index.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 
@@ -94,6 +96,9 @@ export type SubAgentProvider = {
   baseURL: string;
   apiKey: string;
   model: string;
+  // Subagents inherit the parent's reasoning effort so a /agent selection
+  // applies to delegated work, not just the top-level loop.
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type RunSubAgentParams = {
@@ -128,24 +133,25 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   });
   const tools = fromToolRunner(posixTools);
 
-  const systemPrompt = buildSubAgentSystemPrompt();
+  const environment = await gatherEnvironment(params.cwd);
+  const systemPrompt = buildSubAgentSystemPrompt(undefined, environment);
 
   const directorDef = defineDirector({
-    id: "interchange-code/subagent",
+    id: "intercode/subagent",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       new SubAgentDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], maxTurns),
   });
 
   const toolsFactory = defineTool({
-    id: "interchange-code/subagent-tools",
+    id: "intercode/subagent-tools",
     factory: () => createToolRunner(tools),
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());
 
   const def = defineAgent({
-    id: "interchange-code/subagent",
+    id: "intercode/subagent",
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -163,6 +169,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       baseURL: params.provider.baseURL,
       apiKey: params.provider.apiKey,
       model: params.provider.model,
+      ...(params.provider.reasoningEffort !== undefined
+        ? { reasoningEffort: params.provider.reasoningEffort }
+        : {}),
     }),
     storage,
     workdir,
@@ -170,7 +179,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({
       factories: [directorDef.factory],
-      defaultId: "interchange-code/subagent",
+      defaultId: "intercode/subagent",
     }),
   });
 
@@ -236,7 +245,10 @@ export const taskToolDefinition: ToolDefinition = {
 export type TaskToolDeps = {
   cwd: string;
   getWorkdirBase: () => string;
-  provider: SubAgentProvider;
+  // A getter so a live /agent provider/model/effort switch reaches subagents
+  // spawned after the change, not just the value captured at startup. A plain
+  // value is also accepted for callers with no live switching (e.g. headless).
+  provider: SubAgentProvider | (() => SubAgentProvider);
   maxTurns?: number;
   // Injectable for tests; defaults to the real runSubAgent.
   run?: (params: RunSubAgentParams) => Promise<string>;
@@ -258,7 +270,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         const params: RunSubAgentParams = {
           cwd: deps.cwd,
           workdirBase: deps.getWorkdirBase(),
-          provider: deps.provider,
+          provider: typeof deps.provider === "function" ? deps.provider() : deps.provider,
           description,
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,

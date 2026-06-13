@@ -13,6 +13,7 @@ function renderBar(props: Partial<StatusBarProps> = {}) {
       outputTokens={props.outputTokens ?? 0}
       elapsedMs={props.elapsedMs ?? 0}
       status={props.status ?? "running"}
+      {...(props.reasoningEffort !== undefined ? { reasoningEffort: props.reasoningEffort } : {})}
     />,
   );
 }
@@ -49,4 +50,14 @@ test("StatusBar does not render plan progress", () => {
 test("StatusBar formats elapsed time", () => {
   const { lastFrame } = renderBar({ elapsedMs: 65000 });
   expect(lastFrame()).toContain("1:05");
+});
+
+test("StatusBar renders the reasoning-effort indicator", () => {
+  const { lastFrame } = renderBar({ reasoningEffort: "high" });
+  expect(lastFrame()).toContain("EFFORT:HIGH");
+});
+
+test("StatusBar hides the indicator when effort is unset", () => {
+  const { lastFrame } = renderBar();
+  expect(lastFrame()).not.toContain("EFFORT");
 });

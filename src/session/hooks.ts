@@ -362,10 +362,10 @@ async function createTypeScriptHookCommand(
 ): Promise<string[]> {
   const runnerPath = join(
     tmpdir(),
-    "interchange-code-hook-runners",
+    "intercode-hook-runners",
     `${hashHookRunner(hook.path, kind)}.ts`,
   );
-  await mkdir(join(tmpdir(), "interchange-code-hook-runners"), { recursive: true });
+  await mkdir(join(tmpdir(), "intercode-hook-runners"), { recursive: true });
   await writeFile(runnerPath, typeScriptHookRunnerSource(hook.path, kind));
   return ["bun", runnerPath];
 }

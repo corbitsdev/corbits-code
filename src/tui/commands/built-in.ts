@@ -16,6 +16,20 @@ registerCommand({
 });
 
 registerCommand({
+  name: "auto",
+  description: "Toggle auto-approve for file writes/edits and safe shell (recoverable via git)",
+  handler: (_args, ctx) => {
+    const enabled = ctx.toggleAuto();
+    return {
+      type: "message",
+      text: enabled
+        ? "Auto mode on — file writes/edits (recoverable via git) and safe shell run without asking."
+        : "Auto mode off — every file write/edit and command will ask first.",
+    };
+  },
+});
+
+registerCommand({
   name: "diff",
   description: "Show the working-tree diff in the context panel",
   handler: (_args, _ctx) => ({ type: "view", view: "diff" }),

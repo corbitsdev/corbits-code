@@ -12,7 +12,7 @@ const envVars = {
 
 // A global settings path that does not exist, so the env vars above drive
 // resolution and the test stays independent of the dev machine.
-const NO_SETTINGS = join(tmpdir(), "interchange-code-tests-missing", ".interchange", "settings.json");
+const NO_SETTINGS = join(tmpdir(), "intercode-tests-missing", ".interchange", "settings.json");
 
 async function withEnv(fn: () => void | Promise<void>): Promise<void> {
   const original: Record<string, string | undefined> = {};
@@ -32,6 +32,20 @@ async function withEnv(fn: () => void | Promise<void>): Promise<void> {
     }
   }
 }
+
+test("loadConfig defaults auto mode on", async () => {
+  await withEnv(async () => {
+    const config = await loadConfig(["do something"], { globalSettingsPath: NO_SETTINGS });
+    expect(config.auto).toBe(true);
+  });
+});
+
+test("loadConfig --no-auto disables auto mode", async () => {
+  await withEnv(async () => {
+    const config = await loadConfig(["--no-auto", "do something"], { globalSettingsPath: NO_SETTINGS });
+    expect(config.auto).toBe(false);
+  });
+});
 
 test("loadConfig parses --headless flag", async () => {
   await withEnv(async () => {

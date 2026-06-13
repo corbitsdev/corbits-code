@@ -1,6 +1,8 @@
 export type CommandContext = {
   getVerbose: () => boolean;
   toggleVerbose: () => boolean;
+  getAuto: () => boolean;
+  toggleAuto: () => boolean;
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
 };
