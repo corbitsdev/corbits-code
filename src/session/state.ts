@@ -59,7 +59,7 @@ let tmpWriteCounter = 0;
 // crash mid-write never leaves torn JSON. The temp name combines the pid with a
 // monotonic counter so concurrent or rapid successive saves within one process
 // never collide on the same temp path (pid alone is not unique per call).
-async function atomicWrite(path: string, content: string): Promise<void> {
+export async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${(tmpWriteCounter += 1)}.tmp`;
   await writeFile(tmp, content);
@@ -68,7 +68,7 @@ async function atomicWrite(path: string, content: string): Promise<void> {
 
 // A corrupt or shape-invalid state file means resume is silently starting over
 // and prior progress is being discarded. Surface it rather than swallowing it.
-function warnUnreadableState(path: string, reason: string): void {
+export function warnUnreadableState(path: string, reason: string): void {
   process.stderr.write(`intercode: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
 }
 

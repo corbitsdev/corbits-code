@@ -2,39 +2,53 @@ import { type ViewNode, VIEW_TABLE_MAX_ROWS } from "./spec.js";
 
 const LINE_PADDING = 2;
 
-// Count the rows a line occupies under word wrapping, matching Ink's <Text
-// wrap="wrap">. A naive ceil(len/width) UNDERCOUNTS space-heavy text (words don't
-// split across the boundary), and undercounting is the dangerous direction for the
-// scroll model — it lets the log paint more rows than the viewport. Simulate the
-// greedy wrap instead: words go on the current line until they don't fit; a word
-// longer than the width breaks across lines by character.
-function wrapLineCount(line: string, width: number): number {
-  const words = line.split(/\s+/).filter((w) => w.length > 0);
-  if (words.length === 0) return 1;
-  let lines = 1;
-  let col = 0;
-  const placeLongWord = (len: number): void => {
-    lines += Math.floor(len / width);
-    col = len % width;
-  };
-  for (const word of words) {
-    if (col === 0) {
-      if (word.length <= width) col = word.length;
-      else placeLongWord(word.length);
-    } else if (col + 1 + word.length <= width) {
-      col += 1 + word.length;
+export type RowRange = { start: number; end: number };
+
+// Greedy word-wrap for a single logical line (no embedded newlines). Returns the
+// character ranges each visual row occupies, end-exclusive, with the space that a
+// soft break lands on consumed (excluded from both rows) — exactly how a terminal
+// soft-wraps. A word longer than the width hard-breaks by character so no content
+// is lost. This is the single source of truth for wrapping: the event log slices
+// content by these ranges and renders one Text per row with no further wrapping,
+// so the painted row count is authoritative rather than an estimate that can
+// diverge from what Ink draws.
+export function wrapRanges(line: string, width: number): RowRange[] {
+  const w = Math.max(1, width);
+  if (line.length <= w) return [{ start: 0, end: line.length }];
+
+  const ranges: RowRange[] = [];
+  let pos = 0;
+  while (line.length - pos > w) {
+    const windowEnd = pos + w;
+    let breakAt = -1;
+    for (let i = windowEnd; i > pos; i--) {
+      if (/\s/.test(line[i]!)) {
+        breakAt = i;
+        break;
+      }
+    }
+    if (breakAt <= pos) {
+      ranges.push({ start: pos, end: windowEnd });
+      pos = windowEnd;
     } else {
-      lines += 1;
-      if (word.length <= width) col = word.length;
-      else placeLongWord(word.length);
+      ranges.push({ start: pos, end: breakAt });
+      pos = breakAt + 1;
     }
   }
-  return Math.max(1, lines);
+  ranges.push({ start: pos, end: line.length });
+  return ranges;
+}
+
+// Wrap a logical line into the visual rows it occupies, preserving every
+// character (indentation, internal spacing) except the single space a soft break
+// consumes.
+export function wrapLines(line: string, width: number): string[] {
+  return wrapRanges(line, width).map((r) => line.slice(r.start, r.end));
 }
 
 export function wrapCount(text: string, width: number): number {
   const w = Math.max(1, width);
-  return text.split("\n").reduce((n, line) => n + wrapLineCount(line, w), 0);
+  return text.split("\n").reduce((n, line) => n + wrapRanges(line, w).length, 0);
 }
 
 export function viewHeight(node: ViewNode, columns: number): number {

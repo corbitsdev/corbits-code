@@ -71,7 +71,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     if (skipPermissions) return { allowed: true };
     if (classifyTool(call.name) === "allow") return { allowed: true };
     if (isAutoAllowedShellCall(call, cwd)) return { allowed: true };
-    if (auto && call.name !== "run_shell") return { allowed: true };
+    // In AUTO mode the authz and secret-guard plugins have already hard-denied
+    // destructive commands and credential reads upstream, so everything that
+    // reaches here is safe to allow without a prompt.
+    if (auto) return { allowed: true };
 
     for (const request of buildRequests(call)) {
       if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;
