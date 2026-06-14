@@ -194,7 +194,7 @@ export function buildActiveContext(date = new Date(), cwd = process.cwd()): stri
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
-    `Memory: ${cwd}/.intercode/MEMORY.md (your scratch pad; read it if it exists, create it when you have something worth persisting)`,
+    `Memory: ${cwd}/.intercode/MEMORY.md (your scratch pad across sessions — read it when context would help, write to it when you learn something worth keeping)`,
   ].join("\n");
 }
 
@@ -218,7 +218,7 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
   }
   if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
-  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad; read it if it exists, create it when you have something worth persisting)`);
+  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad across sessions — read it when context would help, write to it when you learn something worth keeping)`);
   lines.push("</env>");
   return lines.join("\n");
 }
@@ -285,10 +285,21 @@ export function buildSubAgentSystemPrompt(extensions?: string[], env?: Environme
   return joinSections(sections);
 }
 
+export function buildChatToolCallDiscipline(): string {
+  return [
+    "How you work:",
+    "- Use tools to do real work — read files, run commands, search. Answer directly in prose when no action is needed; a greeting or a clarifying question does not require a tool call.",
+    "- Don't narrate routine actions before doing them — just call the tool.",
+    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
+    "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
+    "- Understand before you change: grep for the symbol, read the file and its callers, then edit.",
+  ].join("\n");
+}
+
 export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentInfo): string {
   const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
-    buildToolCallDiscipline(),
+    buildChatToolCallDiscipline(),
     buildOutputRenderingRules(),
     buildStyleRules(),
     buildBudgetRules(),
