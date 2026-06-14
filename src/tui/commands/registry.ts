@@ -5,6 +5,16 @@ export type CommandContext = {
   toggleAuto: () => boolean;
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
+  // Start a workflow by name; returns a status message to surface to the user.
+  startWorkflow?: (name: string) => string;
+  // List available workflows for /workflows.
+  listWorkflows?: () => Array<{ name: string; description: string }>;
+  // Open the workflow panel (Ctrl+W surface).
+  openWorkflowPanel?: () => void;
+  // Open the workflow picker modal (/workflows command).
+  openWorkflowPicker?: () => void;
+  // Enter plan mode: strips write/edit tools until submit_plan is approved.
+  enterPlanMode?: () => void;
 };
 
 export type CommandResult =

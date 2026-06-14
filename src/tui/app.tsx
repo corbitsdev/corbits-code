@@ -35,13 +35,68 @@ import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
-import { writeFile, mkdir, unlink } from "node:fs/promises";
+import { writeFile, mkdir, unlink, readFile } from "node:fs/promises";
+import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
+import { WorkflowPanel } from "./components/workflow-panel.js";
+import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
+import type { WorkflowStatus } from "./workflow-controller.js";
+import type { CapabilityName } from "../workflows/types.js";
+import { WORKFLOWS } from "../workflows/index.js";
 import "./commands/built-in.js";
+import "./commands/plan.js";
+import "./commands/workflows.js";
+
+// Resolve @path/to/file mentions in a user message. Each @mention is replaced
+// with the file's contents wrapped in a labelled fenced block so the agent gets
+// full context without having to call read_file. Mentions that cannot be read
+// are left as-is and a warning is appended so the agent knows.
+async function resolveAtMentions(message: string, cwd: string): Promise<string> {
+  // Match @word, @path/with/slashes, or @"quoted path" — stop at whitespace.
+  const pattern = /@("([^"]+)"|(\S+))/g;
+  const mentions: Array<{ full: string; path: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(message)) !== null) {
+    const path = m[2] ?? m[3] ?? "";
+    if (path.length > 0) mentions.push({ full: m[0], path });
+  }
+  if (mentions.length === 0) return message;
+
+  const replacements: Array<{ full: string; replacement: string }> = await Promise.all(
+    mentions.map(async ({ full, path }) => {
+      const abs = isAbsolute(path) ? path : resolve(cwd, path);
+      try {
+        const content = await readFile(abs, "utf-8");
+        const ext = abs.split(".").pop() ?? "";
+        return { full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` };
+      } catch {
+        return { full, replacement: `${full} (file not found)` };
+      }
+    }),
+  );
+
+  let result = message;
+  for (const { full, replacement } of replacements) {
+    result = result.replace(full, replacement);
+  }
+  return result;
+}
+
+const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
+  active: false,
+  name: undefined,
+  stepIndex: 0,
+  total: 0,
+  label: "",
+  steps: [],
+  capabilities: [],
+};
 
 // How long the run can be continuously awaiting a response with no new content
 // before the watchdog fires and aborts the in-flight request.
 export const STALL_TIMEOUT_MS = 120_000;
+
+export type AgentMode = "edit" | "auto" | "plan";
 
 export type ShouldAbortForStallArgs = {
   status: AgentStatus;
@@ -90,6 +145,12 @@ export type AppProps = {
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
+  onStartWorkflow?: (name: string) => string;
+  listWorkflows?: () => Array<{ name: string; description: string }>;
+  onEnterPlanMode?: () => void;
+  onExitPlanMode?: () => void;
+  onToggleCapability?: (name: CapabilityName) => void;
+  initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
   profilesDir?: string;
 };
@@ -116,6 +177,12 @@ export function App({
   initialAuto = false,
   onToggleAuto,
   onSubAgentProviderChange,
+  onStartWorkflow,
+  listWorkflows,
+  onEnterPlanMode,
+  onExitPlanMode,
+  onToggleCapability,
+  initialWorkflowStatus,
   initialProfiles = [],
   profilesDir,
 }: AppProps): ReactNode {
@@ -130,7 +197,10 @@ export function App({
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
-  const [auto, setAuto] = useState(initialAuto);
+  const [agentMode, setAgentMode] = useState<AgentMode>(initialAuto ? "auto" : "edit");
+  const agentModeRef = useRef(agentMode);
+  agentModeRef.current = agentMode;
+  const auto = agentMode === "auto";
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("plan");
@@ -143,6 +213,11 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
+  const [workflowPickerOpen, setWorkflowPickerOpen] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
+    initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
+  );
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
@@ -184,10 +259,40 @@ export function App({
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
-  const planSteps = useMemo(() => {
+  // Live workflow status published by the WorkflowController in the runner.
+  useEffect(() => {
+    const onWorkflow = (status: WorkflowStatus) => setWorkflowStatus(status);
+    eventEmitter.on("workflow", onWorkflow);
+    return () => { eventEmitter.off("workflow", onWorkflow); };
+  }, [eventEmitter]);
+
+  // Sync TUI mode with director plan phase transitions.
+  // active=true: agent called plan_enter — switch to Plan mode.
+  // active=false: plan approved — revert to Edit, but only if we were in Plan mode.
+  useEffect(() => {
+    const onPlanPhase = (active: boolean) => {
+      if (active) {
+        onEnterPlanMode?.();
+        setAgentMode("plan");
+      } else if (agentModeRef.current === "plan") {
+        setAgentMode("edit");
+      }
+    };
+    eventEmitter.on("plan-phase", onPlanPhase);
+    return () => { eventEmitter.off("plan-phase", onPlanPhase); };
+  }, [eventEmitter, onEnterPlanMode]);
+
+  const planBlock = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
-    return block?.type === "plan" ? block.steps : [];
+    return block?.type === "plan" ? block : undefined;
   }, [state.contentBlocks]);
+  const planSteps = planBlock?.steps ?? [];
+  const planGoal = planBlock?.goal;
+
+  // Sidebar opens automatically when there's a plan or an active workflow.
+  // Manual sidebarOpen still works for the diff view.
+  const autoSidebarOpen = planSteps.length > 0 || workflowStatus.active;
+  const effectiveSidebarOpen = sidebarOpen || autoSidebarOpen || workflowPanelOpen;
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
@@ -198,7 +303,7 @@ export function App({
   const layout = useLayoutGeometry({
     columns,
     rows,
-    sidebarOpen,
+    sidebarOpen: effectiveSidebarOpen,
     gateContext: {
       pendingPermission: gates.pendingPermission,
       pendingPlan: gates.pendingPlan,
@@ -239,6 +344,8 @@ export function App({
   );
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
+  const modeColor = agentMode === "plan" ? color("success") : agentMode === "auto" ? color("warning") : color("accent");
+
   const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
   const diff = useDiff({ cwd: process.cwd(), active: diffActive });
   const diffLineCount = useMemo(
@@ -255,7 +362,8 @@ export function App({
     gates.gateOpen ||
     hookPanelOpen ||
     agentModalOpen ||
-    permissionsOpen
+    permissionsOpen ||
+    workflowPanelOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -317,16 +425,21 @@ export function App({
       setVerbose(next);
       return next;
     },
-    getAuto: () => auto,
+    getAuto: () => agentMode === "auto",
     toggleAuto: () => {
-      const next = !auto;
-      setAuto(next);
+      const next = agentMode !== "auto";
+      setAgentMode(next ? "auto" : "edit");
       onToggleAuto?.(next);
       return next;
     },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-  }), [verbose, auto, onToggleAuto, mcpStatus.servers]);
+    ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
+    ...(listWorkflows !== undefined ? { listWorkflows } : {}),
+    ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
+    openWorkflowPanel: () => setWorkflowPanelOpen(true),
+    openWorkflowPicker: () => setWorkflowPickerOpen(true),
+  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -355,6 +468,7 @@ export function App({
     };
     const handle = setInterval(check, 1000);
     return () => clearInterval(handle);
+  // `state` is a stable mutable object — only the reactive scalar fields matter here.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
 
@@ -389,19 +503,27 @@ export function App({
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    if (state.isProcessing) {
-      // Agent is mid-response — queue for delivery at the next connector.reply.
-      pendingQueueRef.current.push(message);
-      setQueuedCount((c) => c + 1);
-      return;
-    }
-    sendMessage(message);
+    // Resolve @file mentions before the message reaches the agent. This is
+    // async; we fire-and-forget here so the send is non-blocking, trusting
+    // that the message will be queued when processing is still ongoing.
+    void resolveAtMentions(message, cwd).then((resolved) => {
+      if (state.isProcessing) {
+        pendingQueueRef.current.push(resolved);
+        setQueuedCount((c) => c + 1);
+        return;
+      }
+      sendMessage(resolved);
+    });
   };
 
-  // Spin only while the model is working with nothing streaming yet; the moment
-  // a token lands, awaitingResponse flips false and the indicator clears.
+  // Spin for the full duration of a send cycle (markRunning → connector.reply):
+  // "Thinking…" while waiting for the model's first token, "Working…" while
+  // tools are executing between inference turns. isProcessing covers both phases
+  // and correctly clears when connector.reply fires (unlike status === "running",
+  // which stays set while the reactor is in wait() between user messages).
   const awaitingResponse = state.status === "running" && state.awaitingResponse;
-  const spinner = useSpinner(awaitingResponse, sendCounterRef.current);
+  const spinner = useSpinner(state.isProcessing, sendCounterRef.current);
+  const spinnerLabel = state.isProcessing && !awaitingResponse ? "Working…" : undefined;
 
   useKeymap(
     {
@@ -410,10 +532,11 @@ export function App({
       // like the help overlay, so block the global keymap the same way.
       helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
-      agentModalOpen,
+      agentModalOpen: agentModalOpen || workflowPickerOpen,
       hookPanelOpen,
       diffFullScreenOpen,
       planFullScreenOpen,
+      workflowPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       commandPaletteOpen: inputValue.startsWith("/") && (
@@ -467,17 +590,18 @@ export function App({
         }
       },
       togglePlanSidebar: () => {
-        setPlanFullScreenOpen((open) => !open);
-        if (planFullScreenOpen) {
-          setPlanScroll(0);
-        }
+        setPlanFullScreenOpen((open) => {
+          if (open) setPlanScroll(0);
+          return !open;
+        });
       },
       toggleDiffFullScreen: () => {
-        setDiffFullScreenOpen((open) => !open);
-        if (diffFullScreenOpen) {
-          setDiffScroll(0);
-        }
+        setDiffFullScreenOpen((open) => {
+          if (open) setDiffScroll(0);
+          return !open;
+        });
       },
+      toggleWorkflowPanel: () => setWorkflowPanelOpen((open) => !open),
       toggleHelp: () => setHelpOpen((open) => !open),
       copyMcpUrl: () => {
         const first = mcpStatus.needsAuth[0];
@@ -510,6 +634,21 @@ export function App({
           }
         }
       },
+      cycleMode: () => {
+        const order: AgentMode[] = ["edit", "auto", "plan"];
+        const next = order[(order.indexOf(agentMode) + 1) % order.length]!;
+        if (next === "plan") {
+          onEnterPlanMode?.();
+          onToggleAuto?.(false);
+          setAgentMode("plan");
+        } else {
+          // Leaving plan mode — tell the director to unlock write/edit tools.
+          if (agentMode === "plan") onExitPlanMode?.();
+          const isAuto = next === "auto";
+          onToggleAuto?.(isAuto);
+          setAgentMode(next);
+        }
+      },
     },
   );
 
@@ -530,6 +669,7 @@ export function App({
     }
     if (result.type === "overlay") {
       if (result.overlay === "permissions") {
+        refreshPermissions();
         setPermissionsOpen(true);
       } else {
         setHelpOpen(true);
@@ -546,11 +686,6 @@ export function App({
     void permissionsAdmin.list().then(setPermissionEntries);
   };
 
-  useEffect(() => {
-    if (!permissionsOpen) return;
-    refreshPermissions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permissionsOpen]);
 
   const handleRevokePermission = (entry: ScopedApproval) => {
     if (permissionsAdmin === undefined) return;
@@ -574,6 +709,16 @@ export function App({
           latestUserMessage={headerLatestUserMessage}
           width={columns}
           {...(profile !== undefined ? { profile } : {})}
+          {...(workflowStatus.active && workflowStatus.name !== undefined
+            ? {
+                workflow: {
+                  name: workflowStatus.name,
+                  stepIndex: workflowStatus.stepIndex,
+                  total: workflowStatus.total,
+                  label: workflowStatus.label,
+                },
+              }
+            : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -583,6 +728,8 @@ export function App({
             currentPlanStep={state.currentPlanStep}
             planDeviated={state.planDeviated}
             width={columns}
+            borderColor={modeColor}
+            {...(planGoal !== undefined ? { goal: planGoal } : {})}
           />
         ) : diffFullScreenOpen ? (
           <DiffView
@@ -604,18 +751,30 @@ export function App({
                 verbose={verbose}
               />
             </Box>
-            {sidebarOpen && (
+            {effectiveSidebarOpen && (
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
-                <ContextPanel
-                  view={contextView}
-                  steps={planSteps}
-                  currentPlanStep={state.currentPlanStep}
-                  planDeviated={state.planDeviated}
-                  width={rightWidth}
-                  diffResult={diff.result}
-                  diffScrollOffset={diffScroll}
-                  diffVisibleRows={diffVisibleRows}
-                />
+                {(workflowPanelOpen || (workflowStatus.active && contextView !== "diff" && planSteps.length === 0)) ? (
+                  <WorkflowPanel
+                    status={workflowStatus}
+                    width={rightWidth}
+                    maxRows={visibleRows}
+                    onToggleCapability={(name) => onToggleCapability?.(name)}
+                    onClose={() => setWorkflowPanelOpen(false)}
+                  />
+                ) : (
+                  <ContextPanel
+                    view={contextView}
+                    steps={planSteps}
+                    currentPlanStep={state.currentPlanStep}
+                    planDeviated={state.planDeviated}
+                    width={rightWidth}
+                    diffResult={diff.result}
+                    diffScrollOffset={diffScroll}
+                    diffVisibleRows={diffVisibleRows}
+                    borderColor={modeColor}
+                    {...(planGoal !== undefined ? { goal: planGoal } : {})}
+                  />
+                )}
               </Box>
             )}
           </>
@@ -650,6 +809,23 @@ export function App({
         onResolvePermission={gates.resolvePermission}
         width={columns}
       />
+      {workflowPickerOpen && (
+        <WorkflowPickerModal
+          workflows={WORKFLOWS}
+          onSelect={(name) => {
+            setWorkflowPickerOpen(false);
+            if (onStartWorkflow !== undefined) {
+              const msg = onStartWorkflow(name);
+              if (msg.startsWith("Started")) {
+                sendMessage(`Begin the ${name} workflow.`);
+              } else {
+                setCommandMessage(msg);
+              }
+            }
+          }}
+          onClose={() => setWorkflowPickerOpen(false)}
+        />
+      )}
       {permissionsOpen && (
         <PermissionsManager
           entries={permissionEntries}
@@ -667,13 +843,14 @@ export function App({
       {!planFullScreenOpen && !diffFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
           <InFlightIndicator
-            active={awaitingResponse}
+            active={state.isProcessing}
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
+            {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
           />
           <Box
             borderStyle="single"
-            borderColor={color("muted")}
+            borderColor={modeColor}
             borderTop
             borderBottom={false}
             borderLeft={false}
@@ -698,11 +875,12 @@ export function App({
           cost={state.formattedCost}
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
+          cacheReadTokens={state.cacheReadTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
-          connectedMCPServers={mcpStatus.connected}
           reasoningEffort={reasoningEffort}
           auto={auto}
+          agentMode={agentMode}
         />
         </Box>
       )}

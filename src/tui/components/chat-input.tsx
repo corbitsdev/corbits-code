@@ -275,10 +275,12 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
             const desc = s.kind === "command" ? s.description : s.sub.description;
             return (
               <Box key={label} flexDirection="row" gap={1}>
-                <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx}>
-                  {label}
-                </Text>
-                <Text color="gray">{desc}</Text>
+                <Box width={22} flexShrink={0}>
+                  <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx} wrap="truncate-end">
+                    {label}
+                  </Text>
+                </Box>
+                <Text color="gray" wrap="truncate-end">{desc}</Text>
               </Box>
             );
           })}

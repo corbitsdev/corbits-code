@@ -1,9 +1,11 @@
-node_modules/
+node_modules
 dist/
 .env
 .agent-state/
-.interchange/settings.json
-.interchange/permissions.json
+.intercode/settings.json
+.intercode/permissions.json
+.intercode/MEMORY.md
 .pi
 .claude/settings.local.json
 .claude/worktrees
+tmp/

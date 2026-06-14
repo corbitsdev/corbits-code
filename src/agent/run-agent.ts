@@ -20,7 +20,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 
 import { buildOpenAISource, type Config } from "../config/index.js";
-import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
+import { createCodingDirector, advanceWorkflowDefinition, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "../plugins/re-read-block-plugin.js";
@@ -207,8 +207,9 @@ export async function runAgent(
     stringTool({
       definition: askOperatorDefinition,
       handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
-        const question = typeof args.question === "string" ? args.question : "";
-        const options = Array.isArray(args.options) ? args.options.map(String) : [];
+        const parsed = type({ "question?": "string", "options?": "unknown[]" })(args);
+        const question = !(parsed instanceof type.errors) && parsed.question !== undefined ? parsed.question : "";
+        const options = !(parsed instanceof type.errors) && parsed.options !== undefined ? parsed.options.map(String) : [];
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
@@ -227,11 +228,25 @@ export async function runAgent(
     }),
     stringTool({
       definition: submitOutputDefinition,
-      handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+      handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        // Step-tagged submit_output ({ step: "x" }) is a workflow step-advancement
+        // signal, not a terminal submission. Do not require a plan for these.
+        if (!(type({ step: "string" })(args) instanceof type.errors)) {
+          return "Step advanced.";
+        }
         if (!directorHolder.instance?.getState().planSubmitted) {
           return "Error: You must call submit_plan before submit_output.";
         }
         return "Submission accepted. The task is now complete.";
+      },
+    }),
+    stringTool({
+      definition: advanceWorkflowDefinition,
+      handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        // The coding director's tool.done handler dispatches to the workflow
+        // coordinator when advance_workflow completes. This handler is a
+        // pass-through — the coordinator read the args during tracking.
+        return "Advanced.";
       },
     }),
   ];

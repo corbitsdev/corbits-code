@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import "./built-in.js";
+import "./workflows.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
@@ -29,26 +30,17 @@ describe("/help command", () => {
 });
 
 describe("/workflows command", () => {
-  it("routes 'diff' arg to the diff view", () => {
-    const ctx = makeCtx();
-    expect(getCommand("workflows")!.handler("diff", ctx)).toEqual({ type: "view", view: "diff" });
+  it("is registered", () => {
+    expect(getCommand("workflows")).toBeDefined();
   });
 
-  it("routes 'plan' arg to the plan view", () => {
+  it("returns noop and opens the workflow picker", () => {
+    let opened = false;
     const ctx = makeCtx();
-    expect(getCommand("workflows")!.handler("plan", ctx)).toEqual({ type: "view", view: "plan" });
-  });
-
-  it("returns a usage message for an unknown sub-command", () => {
-    const ctx = makeCtx();
-    const result = getCommand("workflows")!.handler("unknown", ctx);
-    expect(result.type).toBe("message");
-  });
-
-  it("declares diff and plan as subcommands", () => {
-    const def = getCommand("workflows")!;
-    expect(def.subcommands?.map((s) => s.name)).toContain("diff");
-    expect(def.subcommands?.map((s) => s.name)).toContain("plan");
+    ctx.openWorkflowPicker = () => { opened = true; };
+    const result = getCommand("workflows")!.handler("", ctx);
+    expect(result).toEqual({ type: "noop" });
+    expect(opened).toBe(true);
   });
 });
 

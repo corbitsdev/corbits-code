@@ -316,7 +316,7 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(1);
   });
 
-  test("auto mode still asks for shell commands", async () => {
+  test("auto mode allows shell commands without prompting (authz plugin blocks dangerous ones upstream)", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -327,7 +327,7 @@ describe("createPermissionGate", () => {
     });
     const verdict = await gate.evaluate(shellCall("npm test"));
     expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked).toBe(0);
   });
 
   // SECURITY: skipPermissions must short-circuit BEFORE the approval callback is
@@ -380,9 +380,9 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
-  // auto mode rule: `call.name !== "run_shell"` auto-approves. Pin this exactly
-  // so a future code change that widens or narrows the condition breaks a test.
-  test("auto mode auto-approves edit_file and unknown ask-tier tools, not run_shell", async () => {
+  // In auto mode everything is auto-approved. The authz and secret-guard plugins
+  // hard-deny dangerous and credential-reading commands before reaching this gate.
+  test("auto mode auto-approves all tool calls including run_shell", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -392,17 +392,16 @@ describe("createPermissionGate", () => {
       auto: true,
     });
 
-    // Non-shell ask-tier tools must be auto-approved without asking.
     const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
     expect(editVerdict.allowed).toBe(true);
     const unknownVerdict = await gate.evaluate({ id: "c", name: "web_search", arguments: {} });
     expect(unknownVerdict.allowed).toBe(true);
     expect(asked).toBe(0);
 
-    // run_shell must NOT be auto-approved — it goes to the approval callback.
+    // Shell commands are also auto-approved in auto mode.
     const shellVerdict = await gate.evaluate(shellCall("curl x"));
-    expect(shellVerdict.allowed).toBe(true); // callback returns allow: true
-    expect(asked).toBe(1);
+    expect(shellVerdict.allowed).toBe(true); // no callback needed
+    expect(asked).toBe(0);
   });
 
   // SECURITY: persist callback must fire EXACTLY ONCE when pattern is non-null,
