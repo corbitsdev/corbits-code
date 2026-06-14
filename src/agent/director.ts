@@ -15,6 +15,8 @@ import {
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { type } from "arktype";
 
+const PathArgSchema = type({ path: "string" });
+
 const PlanStepSchema = type({
   file: "string",
   action: "string",
@@ -724,7 +726,8 @@ class ChatDirectorImpl extends DefaultDirector {
         if (block.name === "submit_plan") {
           this.submitPlanArgs.set(block.id, block.arguments);
         } else if (block.name === "read_file" || block.name === "edit_file") {
-          const path = typeof block.arguments?.path === "string" ? block.arguments.path : "";
+          const pathResult = PathArgSchema(block.arguments);
+          const path = pathResult instanceof type.errors ? "" : pathResult.path;
           if (isCodeFile(path)) this.lspTriggerCalls.add(block.id);
         }
         if (block.name === "advance_workflow" || block.name === "submit_output") {
