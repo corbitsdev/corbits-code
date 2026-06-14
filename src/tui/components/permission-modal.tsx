@@ -23,24 +23,11 @@ type Choice = {
 };
 
 const GRANT_OPTIONS: { grant: GrantScope; label: string; note: string }[] = [
-  { grant: "session", label: "Auto-accept this session", note: "until this session ends" },
+  { grant: "session", label: "Auto-accept this session", note: "this session" },
   { grant: "project", label: "Auto-accept in this project", note: "persisted per repo" },
   { grant: "global", label: "Auto-accept globally", note: "all projects" },
-  { grant: "provider-model", label: "Auto-accept for this provider/model", note: "scoped to the active model" },
+  { grant: "provider-model", label: "Auto-accept for this provider/model", note: "scoped to active model" },
 ];
-
-// The pattern a grant remembers. The scope ladder runs broadest-first
-// (`bun run *`) to narrowest (`bun run typecheck`); a one-keystroke grant should
-// remember the exact command the user is looking at, not silently authorize the
-// whole wildcard — so prefer the exact-subject scope, then the narrowest
-// persistable rung, and fall back to the raw subject.
-function grantPattern(request: PermissionRequest): { pattern: string; hint: string } | null {
-  const exact = request.scopes.find((scope) => scope.pattern === request.subject);
-  const narrowest = [...request.scopes].reverse().find((scope) => scope.pattern !== null);
-  const chosen = exact ?? narrowest;
-  if (chosen === undefined || chosen.pattern === null) return null;
-  return { pattern: chosen.pattern, hint: chosen.hint ?? chosen.pattern };
-}
 
 function buildChoices(request: PermissionRequest): Choice[] {
   const choices: Choice[] = [
@@ -60,25 +47,64 @@ function buildChoices(request: PermissionRequest): Choice[] {
     },
   ];
 
-  const grant = grantPattern(request);
-  if (grant === null) return choices;
-
-  for (const option of GRANT_OPTIONS) {
-    const scope: ApprovalScope = {
-      id: option.grant,
-      label: option.label,
-      pattern: grant.pattern,
-      hint: grant.hint,
-      grant: option.grant,
-    };
-    choices.push({
-      label: option.label,
-      hint: `${grant.hint} · ${option.note}`,
-      hintStyle: "command",
-      messageable: false,
-      outcome: { allow: true, persist: scope },
-    });
+  // The scope ladder from deriveCommandScopes runs broadest-first (e.g.
+  // "git diff *") down to the exact command. Show the broadest prefix scope
+  // as explicit session + project choices so the user can approve a whole
+  // command family at once (e.g. approve "git diff *" → covers all git diff
+  // flags without repeated prompts). Only add these when a prefix scope
+  // actually exists (i.e. the exact command has at least one wildcard rung above it).
+  const exactPattern = request.subject;
+  const prefixScope = request.scopes.find(
+    (s) => s.pattern !== null && s.pattern !== exactPattern && s.pattern.endsWith("*"),
+  );
+  if (prefixScope?.pattern) {
+    const broadPattern = prefixScope.pattern;
+    const broadHint = prefixScope.hint ?? broadPattern;
+    for (const option of [GRANT_OPTIONS[0]!, GRANT_OPTIONS[1]!]) {
+      choices.push({
+        label: `Allow ${broadPattern}`,
+        hint: `${broadHint} · ${option.note}`,
+        hintStyle: "command",
+        messageable: false,
+        outcome: {
+          allow: true,
+          persist: {
+            id: `${option.grant}-broad`,
+            label: `Allow ${broadPattern}`,
+            pattern: broadPattern,
+            hint: broadHint,
+            grant: option.grant,
+          },
+        },
+      });
+    }
   }
+
+  // Exact-command persist options (session / project / global / provider-model).
+  const exactScope = request.scopes.find((s) => s.pattern === exactPattern)
+    ?? [...request.scopes].reverse().find((s) => s.pattern !== null);
+  if (exactScope?.pattern) {
+    const hint = exactScope.hint ?? exactScope.pattern;
+    for (const option of GRANT_OPTIONS) {
+      choices.push({
+        label: option.label,
+        hint: `${hint} · ${option.note}`,
+        hintStyle: "command",
+        messageable: false,
+        outcome: {
+          allow: true,
+          persist: {
+            id: option.grant,
+            label: option.label,
+            pattern: exactScope.pattern,
+            hint,
+            grant: option.grant,
+          },
+        },
+      });
+    }
+  }
+
   return choices;
 }
 
