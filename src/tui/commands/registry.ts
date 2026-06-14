@@ -21,9 +21,15 @@ export type CommandResult =
   | { type: "modal"; modal: "agent" }
   | { type: "noop" };
 
+export type SubcommandDefinition = {
+  name: string;
+  description: string;
+};
+
 export type CommandDefinition = {
   name: string;
   description: string;
+  subcommands?: readonly SubcommandDefinition[];
   handler: (args: string, ctx: CommandContext) => CommandResult;
 };
 
