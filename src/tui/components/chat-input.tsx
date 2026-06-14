@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
+import { useAtSuggestions, AtSuggestions } from "./at-mention/index.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -10,6 +11,7 @@ export type ChatInputProps = {
   commandContext: CommandContext;
   value: string;
   onChange: (value: string) => void;
+  cwd: string;
   // When false, the input ignores all keystrokes. Set while an overlay or modal
   // is capturing input so keys do not leak into the prompt underneath it.
   active?: boolean;
@@ -128,7 +130,7 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, active = true, queuedCount = 0 }: ChatInputProps): ReactNode {
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, cwd, active = true, queuedCount = 0 }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // The last value this component produced itself. Used to tell an external
@@ -142,6 +144,8 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
     if (value === selfSetValue.current) return;
     setCursor(value.length);
   }, [value]);
+
+  const atMention = useAtSuggestions(cwd);
 
   const slashState = useMemo(() => parseSlashState(value), [value]);
   const suggestions = useMemo((): Suggestion[] => {
@@ -160,6 +164,9 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
 
   // Clamp selectedIdx whenever suggestions change.
   const clampedIdx = suggestions.length > 0 ? Math.min(selectedIdx, suggestions.length - 1) : 0;
+  const atClampedIdx = atMention.suggestions.length > 0
+    ? Math.min(atMention.selectedIdx, atMention.suggestions.length - 1)
+    : 0;
 
   const dispatchCommand = (raw: string) => {
     const trimmed = raw.trim();
@@ -178,9 +185,39 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
     onChange("");
     setCursor(0);
     setSelectedIdx(0);
+    atMention.clear();
+  };
+
+  // Splice a completed @path into the input at the current atState position.
+  const completeAtSelection = (selected: string) => {
+    if (atMention.atState === null) return;
+    const { atStart } = atMention.atState;
+    const trailing = selected.endsWith("/") ? "" : " ";
+    const completed = value.slice(0, atStart) + "@" + selected + trailing + value.slice(cursor);
+    const newCursor = atStart + 1 + selected.length + trailing.length;
+    selfSetValue.current = completed;
+    onChange(completed);
+    setCursor(newCursor);
+    atMention.clear();
   };
 
   useInput((input, key) => {
+    // @ picker takes priority over slash suggestions (they are mutually exclusive
+    // by construction: slash state only fires when value starts with /).
+    if (atMention.suggestions.length > 0) {
+      if (key.upArrow) { atMention.selectUp(); return; }
+      if (key.downArrow) { atMention.selectDown(); return; }
+      if (key.tab || key.return) {
+        const sel = atMention.suggestions[atClampedIdx];
+        if (sel !== undefined) completeAtSelection(sel);
+        return;
+      }
+      if (key.escape) {
+        atMention.clear();
+        return;
+      }
+    }
+
     if (suggestions.length > 0) {
       if (key.upArrow) {
         setSelectedIdx((i) => Math.max(0, i - 1));
@@ -238,8 +275,10 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       selfSetValue.current = next.value;
       onChange(next.value);
       setCursor(next.cursor);
+      atMention.refresh(next.value, next.cursor);
     } else if (next.cursor !== cursor) {
       setCursor(next.cursor);
+      atMention.refresh(next.value, next.cursor);
     }
   }, { isActive: active });
 
@@ -261,6 +300,11 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
   }
   const cursorCol = remaining;
 
+  // Slash and @ pickers are mutually exclusive: slash owns the field when value
+  // starts with /, @ picker fires for any other @ token in the input.
+  const showSlash = suggestions.length > 0;
+  const showAt = !showSlash && atMention.suggestions.length > 0;
+
   return (
     <Box flexDirection="column">
       {queuedCount > 0 && (
@@ -268,7 +312,7 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
           <Text color="yellow">{queuedCount === 1 ? "(1 message queued)" : `(${queuedCount} messages queued)`}</Text>
         </Box>
       )}
-      {suggestions.length > 0 && (
+      {showSlash && (
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
           {suggestions.map((s, i) => {
             const label = s.kind === "command" ? `/${s.name}` : `/${s.parentName} ${s.sub.name}`;
@@ -285,6 +329,9 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
             );
           })}
         </Box>
+      )}
+      {showAt && (
+        <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
       <Box flexDirection="column" paddingX={1} paddingY={1}>
         {lines.map((line, i) => {

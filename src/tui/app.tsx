@@ -865,6 +865,7 @@ export function App({
               commandContext={commandContext}
               value={inputValue}
               onChange={setInputValue}
+              cwd={cwd}
               active={inputActive}
               queuedCount={queuedCount}
             />
