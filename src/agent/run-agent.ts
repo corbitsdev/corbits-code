@@ -35,6 +35,7 @@ import { loadApprovals } from "../permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { gatherEnvironment } from "./environment.js";
 import { createTaskTool } from "../subagent/index.js";
+import { loadAgentProfiles } from "./profiles.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "../session/state.js";
 import { runCritique } from "./critic.js";
 import { loadPricing, startPricingRefresh } from "../cost/pricing-fetcher.js";
@@ -176,6 +177,8 @@ export async function runAgent(
   const posixToolList = fromToolRunner(posixTools);
   const workdir = sessionContextDir(config.cwd, config.sessionId);
 
+  const agentProfiles = await loadAgentProfiles(join(config.cwd, ".agents", "agents"));
+
   const agentTools = [
     ...posixToolList,
     createTaskTool({
@@ -188,6 +191,8 @@ export async function runAgent(
         model: config.model,
         ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
       },
+      ...(config.settings !== undefined ? { settings: config.settings } : {}),
+      ...(agentProfiles.length > 0 ? { profiles: agentProfiles } : {}),
     }),
     stringTool({
       definition: submitPlanDefinition,

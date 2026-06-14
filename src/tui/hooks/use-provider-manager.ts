@@ -1,7 +1,7 @@
 import type { Agent } from "@intx/agent";
 import { useState } from "react";
 import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
-import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings } from "../../config/settings.js";
+import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../../subagent/index.js";
 import {
@@ -17,6 +17,7 @@ export type UseProviderManagerArgs = {
   initialReasoningEffort?: ReasoningEffort;
   initialCatalog: ProviderCatalogEntry[];
   initialGlobalDefaultProvider: string | undefined;
+  initialTiers?: Partial<Record<ProviderTier, TierAssignment>>;
   cwd: string;
   globalSettingsPath: string;
   agent: Agent;
@@ -32,10 +33,12 @@ export type ProviderManagerController = {
   reasoningEffort: ReasoningEffort | undefined;
   providerCatalog: ProviderCatalogEntry[];
   globalDefaultProvider: string | undefined;
+  tiers: Partial<Record<ProviderTier, TierAssignment>>;
   applySelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   persistSelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
+  saveTierAssignment: (tier: ProviderTier, provider: string, model: string) => void;
 };
 
 // The selection writer omits reasoningEffort when there is no override so the
@@ -58,6 +61,7 @@ export function useProviderManager({
   initialReasoningEffort,
   initialCatalog,
   initialGlobalDefaultProvider,
+  initialTiers,
   cwd,
   globalSettingsPath,
   agent,
@@ -69,6 +73,7 @@ export function useProviderManager({
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(initialReasoningEffort);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(initialCatalog);
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
+  const [tiers, setTiers] = useState<Partial<Record<ProviderTier, TierAssignment>>>(initialTiers ?? {});
 
   const applyCatalogSelection = (
     catalog: readonly ProviderCatalogEntry[],
@@ -203,15 +208,31 @@ export function useProviderManager({
     );
   };
 
+  const saveTierAssignment = (tier: ProviderTier, tierProvider: string, tierModel: string): void => {
+    const nextTiers = { ...tiers, [tier]: { provider: tierProvider, model: tierModel } };
+    setTiers(nextTiers);
+    const settings = { ...providerCatalogToSettings(providerCatalog, globalDefaultProvider), tiers: nextTiers };
+    void saveGlobalSettings(globalSettingsPath, settings).then(
+      () => onMessage(`Saved tier ${tier}: ${tierProvider} · ${tierModel}`),
+      (err: unknown) => {
+        onMessage(
+          `Tier assignment saved locally, but persisting failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+  };
+
   return {
     provider,
     model,
     reasoningEffort,
     providerCatalog,
     globalDefaultProvider,
+    tiers,
     applySelection,
     persistSelection,
     upsertProvider,
     deleteProvider,
+    saveTierAssignment,
   };
 }
