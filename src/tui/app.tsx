@@ -400,13 +400,14 @@ export function App({
     sendMessage(message);
   };
 
-  // Spin whenever the agent is running — "Thinking…" while waiting for the first
-  // token, "Working…" while executing tools between inference turns. Without the
-  // tool-execution phase, the screen looks frozen during long shell commands.
-  const isRunning = state.status === "running";
-  const awaitingResponse = isRunning && state.awaitingResponse;
-  const spinner = useSpinner(isRunning, sendCounterRef.current);
-  const spinnerLabel = awaitingResponse ? undefined : "Working…";
+  // Spin for the full duration of a send cycle (markRunning → connector.reply):
+  // "Thinking…" while waiting for the model's first token, "Working…" while
+  // tools are executing between inference turns. isProcessing covers both phases
+  // and correctly clears when connector.reply fires (unlike status === "running",
+  // which stays set while the reactor is in wait() between user messages).
+  const awaitingResponse = state.status === "running" && state.awaitingResponse;
+  const spinner = useSpinner(state.isProcessing, sendCounterRef.current);
+  const spinnerLabel = state.isProcessing && !awaitingResponse ? "Working…" : undefined;
 
   useKeymap(
     {
@@ -681,7 +682,7 @@ export function App({
       {!planFullScreenOpen && !diffFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
           <InFlightIndicator
-            active={isRunning}
+            active={state.isProcessing}
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
