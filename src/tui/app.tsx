@@ -400,10 +400,13 @@ export function App({
     sendMessage(message);
   };
 
-  // Spin only while the model is working with nothing streaming yet; the moment
-  // a token lands, awaitingResponse flips false and the indicator clears.
-  const awaitingResponse = state.status === "running" && state.awaitingResponse;
-  const spinner = useSpinner(awaitingResponse, sendCounterRef.current);
+  // Spin whenever the agent is running — "Thinking…" while waiting for the first
+  // token, "Working…" while executing tools between inference turns. Without the
+  // tool-execution phase, the screen looks frozen during long shell commands.
+  const isRunning = state.status === "running";
+  const awaitingResponse = isRunning && state.awaitingResponse;
+  const spinner = useSpinner(isRunning, sendCounterRef.current);
+  const spinnerLabel = awaitingResponse ? undefined : "Working…";
 
   useKeymap(
     {
@@ -678,9 +681,10 @@ export function App({
       {!planFullScreenOpen && !diffFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
           <InFlightIndicator
-            active={awaitingResponse}
+            active={isRunning}
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
+            {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
           />
           <Box
             borderStyle="single"
@@ -709,6 +713,7 @@ export function App({
           cost={state.formattedCost}
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
+          cacheReadTokens={state.cacheReadTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
           connectedMCPServers={mcpStatus.connected}

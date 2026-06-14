@@ -10,6 +10,7 @@ export type StatusBarProps = {
   cost: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
   elapsedMs: number;
   status: AgentStatus;
   connectedMCPServers?: string[];
@@ -46,6 +47,7 @@ export function StatusBar({
   cost,
   inputTokens,
   outputTokens,
+  cacheReadTokens = 0,
   elapsedMs,
   status,
   connectedMCPServers = [],
@@ -72,7 +74,9 @@ export function StatusBar({
       <Divider />
       <Text color={color("success")} wrap="truncate-end">{cost}</Text>
       <Divider />
-      <Text color={color("muted")} wrap="truncate-end">↑{inputTokens} ↓{outputTokens}</Text>
+      <Text color={color("muted")} wrap="truncate-end">
+        ↑{inputTokens} ↓{outputTokens}{cacheReadTokens > 0 ? ` cR:${cacheReadTokens}` : ""}
+      </Text>
       <Divider />
       <Text color={color("muted")} wrap="truncate-end">{formatElapsed(elapsedMs)}</Text>
       {connectedMCPServers.length > 0 && (

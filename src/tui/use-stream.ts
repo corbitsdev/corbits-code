@@ -33,6 +33,7 @@ export type AgentStreamState = {
   totalTokens: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
@@ -170,6 +171,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // resolving one gate while another is still open does not prematurely
   // flip status back to "running".
   let gateCount = 0;
+  let cacheReadTokens = 0;
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
@@ -203,6 +205,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     get outputTokens() {
       return faremeter.getOutputTokens();
+    },
+    get cacheReadTokens() {
+      return cacheReadTokens;
     },
     get formattedCost() {
       return formatCost(faremeter.getTotalCost());
@@ -498,6 +503,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       if (event.type === "inference.usage") {
         const data = event.data as { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; thinking: number } };
         faremeter.addUsage(data.usage);
+        cacheReadTokens += data.usage.cacheRead;
       }
 
       if (event.type === "reactor.done") {
