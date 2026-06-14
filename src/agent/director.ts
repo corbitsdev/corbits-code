@@ -92,6 +92,33 @@ export const presentDefinition: ToolDefinition = {
   },
 };
 
+export const suggestWorkflowDefinition: ToolDefinition = {
+  name: "suggest_workflow",
+  description:
+    "Suggest launching a named workflow when the user's request clearly maps to one. " +
+    "Present the workflow and extracted context for operator approval before starting. " +
+    "Only call this once per message, and only when no workflow is already active.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workflow: {
+        type: "string",
+        description: "Workflow name (e.g. triage-bug, build-feature, code-review)",
+      },
+      context: {
+        type: "string",
+        description:
+          "Key context extracted from the user's message (bug description, feature request, etc.)",
+      },
+      reason: {
+        type: "string",
+        description: "One sentence explaining why this workflow fits the request",
+      },
+    },
+    required: ["workflow", "reason"],
+  },
+};
+
 export const advanceWorkflowDefinition: ToolDefinition = {
   name: "advance_workflow",
   description:
@@ -400,12 +427,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
       if (hasTerminal) {
         if (this.workflowIdleTurns >= 3) {
-          return [
-            capabilities.reply(
-              "The workflow appears stuck on this step. Send a message to continue or advance manually.",
-            ),
-            capabilities.wait(),
-          ];
+          // Headless mode: wait() is the only valid terminal — do not pair with reply().
+          return [capabilities.wait()];
         }
         const nudge = "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
@@ -497,6 +520,7 @@ class ChatDirectorImpl extends DefaultDirector {
   // read_file/edit_file calls targeting a code file; on success they auto-load
   // the language server so LSP is enabled "at that point in time".
   private readonly lspTriggerCalls = new Set<string>();
+  private readonly askOperatorCalls = new Set<string>();
   private readonly onActivateTools: ((names: string[]) => void) | undefined;
   private readonly approvalGate: ApprovalGate;
   private readonly taskClassifier:
@@ -510,6 +534,10 @@ class ChatDirectorImpl extends DefaultDirector {
   // does not spin forever.
   private workflowIdleTurns = 0;
   private lastInferenceTurnHadContent = false;
+  // Set when ask_operator completes successfully. The agent's next reply is a
+  // legitimate request for free-form operator input, not workflow idling — let
+  // it through instead of suppressing it with a forced re-inference.
+  private operatorJustResponded = false;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -649,6 +677,9 @@ class ChatDirectorImpl extends DefaultDirector {
         if (block.name === "advance_workflow" || block.name === "submit_output") {
           this.workflowCalls.set(block.id, { name: block.name, args: block.arguments });
         }
+        if (block.name === "ask_operator") {
+          this.askOperatorCalls.add(block.id);
+        }
       }
     }
 
@@ -659,6 +690,16 @@ class ChatDirectorImpl extends DefaultDirector {
       this.workflowCalls.delete(event.result.callId);
       const advanced = this.workflowCoordinator?.handleToolDone(call?.name, call?.args, event.result.isError === true);
       if (advanced) this.workflowIdleTurns = 0;
+    }
+
+    // When ask_operator completes, the agent's next turn may legitimately reply
+    // asking for free-form input rather than making tool calls. Flag this so the
+    // terminal-substitution logic below lets that reply pass through.
+    if (event.type === "tool.done" && this.askOperatorCalls.has(event.result.callId)) {
+      this.askOperatorCalls.delete(event.result.callId);
+      if (!event.result.isError) {
+        this.operatorJustResponded = true;
+      }
     }
 
     // Reading or editing a code file auto-loads the language server for the rest
@@ -707,12 +748,18 @@ class ChatDirectorImpl extends DefaultDirector {
       const actions = Array.isArray(base) ? base : [base];
       const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
       if (hasTerminal && this.lastInferenceTurnHadContent) {
+        // ask_operator just completed: the agent is legitimately waiting for
+        // free-form operator input, not idling. Let the reply through.
+        if (this.operatorJustResponded) {
+          this.operatorJustResponded = false;
+          return base;
+        }
         if (this.workflowIdleTurns >= 3) {
+          // reply() in chat mode keeps the reactor alive — do not pair with wait().
           return [
             capabilities.reply(
               "The workflow appears stuck on this step. Send a message to continue or advance manually.",
             ),
-            capabilities.wait(),
           ];
         }
         // Strip both reply() and wait() — the reactor exits early after reply()

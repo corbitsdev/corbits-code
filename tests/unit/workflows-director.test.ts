@@ -171,7 +171,7 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   expect(hasInfer(result)).toBe(true);
 });
 
-test("auto-continuation falls back to wait after 3 consecutive text-only turns", async () => {
+test("auto-continuation falls back after 3 consecutive text-only turns", async () => {
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
@@ -182,9 +182,11 @@ test("auto-continuation falls back to wait after 3 consecutive text-only turns",
   await director.decide(textTurn("text 2"), state, caps);
   await director.decide(textTurn("text 3"), state, caps);
   const result = await director.decide(textTurn("text 4"), state, caps);
-  // After 3+ idle (text-only) turns the director should fall back to wait, not infer.
+  // After 3+ idle (text-only) turns the director must stop re-inferring and hand
+  // back to the user. In chat mode this is a reply(); headless uses wait().
+  const actions = Array.isArray(result) ? result : [result];
   expect(hasInfer(result)).toBe(false);
-  expect((Array.isArray(result) ? result : [result]).some((a) => a.type === "wait")).toBe(true);
+  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(true);
 });
 
 test("a step-tagged submit_output does not terminate the headless run", async () => {
