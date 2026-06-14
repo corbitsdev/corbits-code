@@ -60,6 +60,7 @@ function makeActions(): KeymapActions {
     scrollToBottom: mock(() => {}),
     toggleThinking: mock(() => {}),
     toggleLastTool: mock(() => {}),
+    toggleVerbose: mock(() => {}),
     togglePlanSidebar: mock(() => {}),
     toggleDiffFullScreen: mock(() => {}),
     toggleHelp: mock(() => {}),
@@ -235,11 +236,9 @@ test("Ctrl+R calls toggleLastTool", () => {
   expect(actions.toggleLastTool).toHaveBeenCalledTimes(1);
 });
 
-test("Ctrl+O does not trigger any action", () => {
+test("Ctrl+O calls toggleVerbose", () => {
   const { actions } = dispatch("o", CTRL);
-  expect(actions.toggleLastTool).not.toHaveBeenCalled();
-  expect(actions.togglePlanSidebar).not.toHaveBeenCalled();
-  expect(actions.toggleDiffFullScreen).not.toHaveBeenCalled();
+  expect(actions.toggleVerbose).toHaveBeenCalledTimes(1);
 });
 
 test("Ctrl+P calls togglePlanSidebar", () => {

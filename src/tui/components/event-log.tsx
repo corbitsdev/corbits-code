@@ -8,7 +8,7 @@ import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
 import { View, viewHeight } from "../view/index.js";
-import { wrapCount } from "../view/height.js";
+import { wrapCount, wrapLines, wrapRanges } from "../view/height.js";
 import { color } from "../theme.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
@@ -99,35 +99,69 @@ function lineRows(text: string, width: number): number {
   return wrapCount(text.length > 0 ? text : " ", width);
 }
 
+// Slice a styled line's segments to the character range [start, end), preserving
+// each surviving segment's styling. Used to carry inline markdown styling across
+// the visual rows a wrapped line breaks into.
+function sliceSegments(segments: StyledSegment[], start: number, end: number): StyledSegment[] {
+  const out: StyledSegment[] = [];
+  let pos = 0;
+  for (const seg of segments) {
+    const segStart = pos;
+    const segEnd = pos + seg.text.length;
+    pos = segEnd;
+    const from = Math.max(start, segStart);
+    const to = Math.min(end, segEnd);
+    if (to > from) out.push({ ...seg, text: seg.text.slice(from - segStart, to - segStart) });
+  }
+  return out;
+}
+
+// One unit per visual row, each exactly one row tall. Because we wrap the styled
+// line ourselves and render rows that already fit the width, Ink never re-wraps,
+// so the unit's row count is exact and the scroll window can step one row at a time.
 function markdownUnits(content: string, width: number, keyPrefix: string): LineUnit[] {
-  return parseMarkdown(content).map((segments, i) => {
-    const key = `${keyPrefix}-l${i}`;
-    return {
-      key,
-      node:
-        segments.length === 0 ? (
-          <Text key={key}> </Text>
-        ) : (
-          <Text key={key}>{renderMarkdownSegments(segments)}</Text>
+  const units: LineUnit[] = [];
+  parseMarkdown(content).forEach((segments, li) => {
+    if (segments.length === 0) {
+      const key = `${keyPrefix}-l${li}`;
+      units.push({ key, node: <Text key={key}> </Text>, rows: 1 });
+      return;
+    }
+    const text = segments.map((s) => s.text).join("");
+    wrapRanges(text, width).forEach((range, ri) => {
+      const rowSegments = sliceSegments(segments, range.start, range.end);
+      const key = `${keyPrefix}-l${li}-r${ri}`;
+      units.push({
+        key,
+        node: (
+          <Text key={key}>
+            {rowSegments.length > 0 ? renderMarkdownSegments(rowSegments) : " "}
+          </Text>
         ),
-      rows: lineRows(segments.map((s) => s.text).join(""), width),
-    };
+        rows: 1,
+      });
+    });
   });
+  return units;
 }
 
 function plainUnits(content: string, props: TextProps & { dimColor?: boolean }, width: number, keyPrefix: string): LineUnit[] {
-  return content.split("\n").map((line, i) => {
-    const key = `${keyPrefix}-l${i}`;
-    return {
-      key,
-      node: (
-        <Text key={key} {...props}>
-          {line.length > 0 ? line : " "}
-        </Text>
-      ),
-      rows: lineRows(line, width),
-    };
+  const units: LineUnit[] = [];
+  content.split("\n").forEach((line, li) => {
+    wrapLines(line, width).forEach((row, ri) => {
+      const key = `${keyPrefix}-l${li}-r${ri}`;
+      units.push({
+        key,
+        node: (
+          <Text key={key} {...props}>
+            {row.length > 0 ? row : " "}
+          </Text>
+        ),
+        rows: 1,
+      });
+    });
   });
+  return units;
 }
 
 function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, columns: number, width: number, expanded: boolean): LineUnit[] {
@@ -136,7 +170,7 @@ function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, c
   const SHELL_PREFIX = "$ ";
 
   if (isShell) {
-    const command = expanded ? full : truncateToWidth(summary, width - SHELL_PREFIX.length);
+    const command = expanded ? full : summary;
     return [
       {
         key: `${id}-h`,
@@ -160,7 +194,7 @@ function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, c
     return full.length > 0 ? [headline, ...plainUnits(full, { color: color("muted") }, width, id)] : [headline];
   }
 
-  const summaryText = summary.length > 0 ? truncateToWidth(summary, width - display.length - 1) : "";
+  const summaryText = summary;
   return [
     {
       key: `${id}-h`,
@@ -179,14 +213,15 @@ function toolResultUnits(block: Extract<RenderableBlock, { type: "tool_result" }
   const id = block.id;
 
   if (block.isError) {
-    if (!expanded) {
-      return [{ key: id, node: <Text key={id} color={color("danger")}>error: {truncateLine(block.content, columns, false)}</Text>, rows: 1 }];
-    }
-    return block.content.split("\n").map((line, i) => {
-      const text = (i === 0 ? "error: " : "") + line;
-      const key = `${id}-l${i}`;
-      return { key, node: <Text key={key} color={color("danger")}>{text.length > 0 ? text : " "}</Text>, rows: lineRows(text, width) };
-    });
+    return plainUnits(
+      block.content
+        .split("\n")
+        .map((line, i) => (i === 0 ? "error: " : "") + line)
+        .join("\n"),
+      { color: color("danger") },
+      width,
+      id,
+    );
   }
 
   if (isMcpToolName(block.name)) {
@@ -209,7 +244,7 @@ function toolResultUnits(block: Extract<RenderableBlock, { type: "tool_result" }
   if (expanded) {
     return plainUnits(full, { color: color("muted") }, width, id);
   }
-  return [{ key: id, node: <Text key={id} color={color("muted")} dimColor>{truncateLine(preview, columns, false)}</Text>, rows: 1 }];
+  return plainUnits(preview, { color: color("muted"), dimColor: true }, width, id);
 }
 
 function blockToUnits(block: RenderableBlock, columns: number, expanded: boolean, thinkingExpanded: boolean): LineUnit[] {
@@ -227,11 +262,15 @@ function blockToUnits(block: RenderableBlock, columns: number, expanded: boolean
       ];
     }
     case "user":
-      return block.content.split("\n").map((line, i) => {
-        const text = (i === 0 ? "> " : "") + line;
-        const key = `${id}-l${i}`;
-        return { key, node: <Text key={key} color={color("success")}>{text.length > 0 ? text : " "}</Text>, rows: lineRows(text, width) };
-      });
+      return plainUnits(
+        block.content
+          .split("\n")
+          .map((line, i) => (i === 0 ? "> " : "") + line)
+          .join("\n"),
+        { color: color("success") },
+        width,
+        id,
+      );
     case "text":
       return markdownUnits(block.content, width, id);
     case "tool_call":

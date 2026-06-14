@@ -36,12 +36,6 @@ registerCommand({
 });
 
 registerCommand({
-  name: "plan",
-  description: "Show the plan in the context panel",
-  handler: (_args, _ctx) => ({ type: "view", view: "plan" }),
-});
-
-registerCommand({
   name: "agent",
   description: "Open the agent configuration surface (provider, model)",
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
@@ -73,14 +67,6 @@ registerCommand({
     ctx.signalClear();
     return { type: "message", text: "Started a fresh session." };
   },
-});
-
-// /model is retained as an alias so existing muscle memory still lands somewhere
-// sensible: it opens the same /agent surface where provider and model now live.
-registerCommand({
-  name: "model",
-  description: "Alias for /agent (provider and model configuration)",
-  handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
 registerCommand({

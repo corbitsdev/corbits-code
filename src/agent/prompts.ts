@@ -1,5 +1,6 @@
 import type { EnvironmentInfo } from "./environment.js";
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
+import { WORKFLOWS } from "../workflows/index.js";
 
 const defaultAgentTools = [
   "read_file",
@@ -164,6 +165,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   submit_plan: "record the plan; required before finishing",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  plan_enter: "switch to read-only plan mode before making changes",
+  suggest_workflow: "propose launching a built-in workflow when the user's request matches one",
   present: "render structured data (lists, tables, status) to the user",
   tool_search: "load more tools by capability when you need them",
 };
@@ -194,7 +197,7 @@ export function buildActiveContext(date = new Date(), cwd = process.cwd()): stri
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
-    `Memory: ${cwd}/.intercode/MEMORY.md (scratch pad for agent)`,
+    `Memory: ${cwd}/.intercode/MEMORY.md (your scratch pad across sessions — read it when context would help, write to it when you learn something worth keeping)`,
   ].join("\n");
 }
 
@@ -218,7 +221,7 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
   }
   if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
-  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad across turns)`);
+  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad across sessions — read it when context would help, write to it when you learn something worth keeping)`);
   lines.push("</env>");
   return lines.join("\n");
 }
@@ -254,6 +257,28 @@ export function buildSystemPrompt(
   return joinSections(sections);
 }
 
+export function buildPlanModeRules(): string {
+  return [
+    "Plan mode:",
+    "- For non-trivial tasks — anything involving multiple files, risky edits, schema changes, or unclear scope — call plan_enter before making any changes.",
+    "- In plan mode, write_file and edit_file are disabled. Explore the codebase with read tools, then call submit_plan with an ordered list of steps.",
+    "- The user reviews and approves the plan before execution begins. Once approved, the full toolset unlocks and you execute the plan.",
+    "- Skip plan mode for small, local, obviously reversible changes (a one-line fix, a doc edit).",
+  ].join("\n");
+}
+
+export function buildWorkflowSuggestionRules(): string {
+  const list = WORKFLOWS.map((w) => `  - ${w.name}: ${w.description}`).join("\n");
+  return [
+    "Suggesting workflows:",
+    "- When the user's message clearly maps to one of the built-in workflows below, call suggest_workflow with the workflow name, key context extracted from their message, and a one-sentence reason.",
+    "- Only suggest when intent is unambiguous — a direct bug report, feature request, or explicit ask for one of these recipes. Don't suggest for vague or conversational messages.",
+    "- Only call suggest_workflow once per message, and never when a workflow is already active.",
+    "Available workflows:",
+    list,
+  ].join("\n");
+}
+
 export function buildOutputRenderingRules(): string {
   return [
     "Output rendering:",
@@ -285,10 +310,22 @@ export function buildSubAgentSystemPrompt(extensions?: string[], env?: Environme
   return joinSections(sections);
 }
 
+export function buildChatToolCallDiscipline(): string {
+  return [
+    "How you work:",
+    "- Use tools to do real work — read files, run commands, search. Answer directly in prose when no action is needed; a greeting or a clarifying question does not require a tool call.",
+    "- Don't narrate routine actions before doing them — just call the tool.",
+    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
+    "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
+    "- Understand before you change: grep for the symbol, read the file and its callers, then edit.",
+    "- When the user gives an open-ended request and the next step is obvious from the codebase, do it — don't ask for confirmation or offer a template. Explore first, then act. Only use ask_operator when the task is genuinely ambiguous and the wrong choice would waste significant effort.",
+  ].join("\n");
+}
+
 export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentInfo): string {
   const sections = [
     "You are Intercode, a senior engineer pairing with a teammate. Do real work with tools — read, search, edit, run — and answer directly and briefly when no action is needed.",
-    buildToolCallDiscipline(),
+    buildChatToolCallDiscipline(),
     buildOutputRenderingRules(),
     buildStyleRules(),
     buildBudgetRules(),
@@ -296,6 +333,8 @@ export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentIn
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
+    buildPlanModeRules(),
+    buildWorkflowSuggestionRules(),
     buildAvailableTools(CORE_TOOL_NAMES),
     buildDiscoverableCapabilities(),
     buildToolSearchGuidance(),
