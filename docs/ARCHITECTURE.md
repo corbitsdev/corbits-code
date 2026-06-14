@@ -87,6 +87,14 @@ Two directors, selected by front end:
 - **CodingDirector** (headless) — Extends `DefaultDirector` with stall detection and plan enforcement.
 - **ChatDirector** (TUI) — `DefaultDirector` plus the plan-approval gate: when a plan is submitted it pauses for approve/reject before continuing. There is a single, opinionated mode — no Manager/Teammate toggle. (`createChatDirector` retains a no-gate fallback to `DefaultDirector` as an implementation detail, but the product runs one mode with the gate present.)
 
+**ChatDirector** (TUI) operates in three modes, cycled by the user with SHIFT+TAB:
+
+- **Edit** — full tool access; the agent can read, write, and run shell commands.
+- **Auto** — same as Edit; the label signals that the agent runs continuously without per-action approval gates.
+- **Plan** — write-restricted; `write_file` and `edit_file` are stripped from the infer action set. The agent may only read, search, and reason. `submit_plan` is promoted into the active tool set exactly when the user enters Plan mode (not globally), so the chat model is never advertised a tool it cannot call. When the user cycles out of Plan mode, `exitPlanPhase()` on the director undoes the write restriction. The TUI resets to Edit when the director emits a `"plan-phase"` event signaling plan approval.
+
+Plan steps auto-show in the sidebar when `submit_plan` has been called — no manual `/plan` command is needed. The sidebar also auto-shows when a workflow is active.
+
 **CodingDirector** behavior:
 - **Idle cycle detection** — Counts consecutive turns without tool calls; after 3, checkpoints and aborts.
 - **Plan storage** — Captures `submit_plan` arguments into durable director state.
@@ -97,10 +105,12 @@ Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`
 
 ### Director-Layer Tools (`src/agent/director.ts`)
 
-- `submit_plan` — Ordered steps of `{ file, action, reason }`; declared on turn 1.
+- `submit_plan` — Ordered steps of `{ file, action, reason }` plus an optional `goal`; declared on turn 1. In the TUI, promoted into the active tool set only when the user enters Plan mode.
 - `ask_operator` — Pauses for a clarifying question with a list of options.
 - `submit_output` — The only clean termination signal; requires a prior plan.
 - `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
+- `suggest_workflow` — Proposes a named workflow to the user from within the chat loop. Always advertised to the chat model (in `CORE_TOOL_NAMES`) so the model can surface workflow suggestions without tool_search. The TUI intercepts the result and presents a confirmation before launching.
+- `plan_enter` — Signals the director to enter plan phase; advertised in `CORE_TOOL_NAMES` for the chat model to invoke when it decides to plan before acting.
 
 ### Workflows (`src/workflows/`)
 
@@ -192,7 +202,7 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
-- `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap, gate/scroll/diff state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner).
+- `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap, gate/scroll/diff state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). The active agent mode (`AgentMode`: `"edit" | "auto" | "plan"`) is owned here; SHIFT+TAB cycles through the three modes. Mode color cascades through the input separator and sidebar border (blue=Edit, orange=Auto, green=Plan). `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
 - `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost. **AgentStatus** is a 7-state machine: `"idle"` (not-yet-started or post-clear), `"running"`, `"stopping"`, `"stopped"`, `"blocked"` (awaiting operator), `"done"`, `"failed"`. Initial state and post-`/clear` state are both `"idle"` (not `"running"`), so the permission-gate refcount (`setGatePending`) correctly skips terminal and idle states.
 - Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
 - Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
