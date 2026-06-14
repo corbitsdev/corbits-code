@@ -84,8 +84,8 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
     return { display: "Render view", role: "accent", summary: "", full: "", isShell: false };
   }
   if (toolName === "run_shell") {
-    const obj = tryParseObject(rawArgs);
-    const command = obj !== null && typeof obj.command === "string" ? obj.command : rawArgs.trim();
+    const shellParsed = ShellArgSchema(tryParseObject(rawArgs));
+    const command = !(shellParsed instanceof type.errors) ? shellParsed.command : rawArgs.trim();
     return { display: "Shell", role: shellRole(command), summary: command, full: command, isShell: true };
   }
   const { summary, full } = summarizeToolArgs(toolName, rawArgs);
@@ -101,6 +101,7 @@ export type ToolResultSummary = {
 const ARG_VALUE_MAX = 48;
 
 const PathArgSchema = type({ path: "string" });
+const ShellArgSchema = type({ command: "string" });
 const WebSearchResultSchema = type({ results: "unknown[]" });
 const WebFetchResultSchema = type({ content: "string" });
 

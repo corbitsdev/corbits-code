@@ -1,23 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { type } from "arktype";
 
-export type ProfileConfig = {
-  profile?: string;
-  model?: string;
-  maxTurns?: number;
-  systemPromptExtensions?: string[];
-  // Name of a workflow to auto-start when a session begins on this profile.
-  workflow?: string;
-};
+const ProfileSchema = type({
+  "profile?": "string",
+  "model?": "string",
+  "maxTurns?": "number.integer >= 1",
+  "systemPromptExtensions?": "string[]",
+  "workflow?": "string",
+  "+": "reject",
+});
 
-const ALLOWED_KEYS: ReadonlySet<string> = new Set([
-  "profile",
-  "model",
-  "maxTurns",
-  "systemPromptExtensions",
-  "workflow",
-]);
+export type ProfileConfig = typeof ProfileSchema.infer;
 
 export function profilesDir(home: string = homedir()): string {
   return join(home, ".intercode", "profiles");
@@ -37,45 +32,11 @@ function isENOENT(err: unknown): boolean {
 }
 
 function validateProfileConfig(value: unknown, path: string): ProfileConfig {
-  if (typeof value !== "object" || value === null) {
-    throw new Error(`Invalid profile at ${path}: expected a JSON object.`);
+  const result = ProfileSchema(value);
+  if (result instanceof type.errors) {
+    throw new Error(`Invalid profile at ${path}: ${result.summary}`);
   }
-  const obj = value as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    if (!ALLOWED_KEYS.has(key)) {
-      throw new Error(
-        `Invalid profile at ${path}: unknown key "${key}". Allowed keys: ${[...ALLOWED_KEYS].join(", ")}.`,
-      );
-    }
-  }
-  if (obj.profile !== undefined && typeof obj.profile !== "string") {
-    throw new Error(`Invalid profile at ${path}: "profile" must be a string.`);
-  }
-  if (obj.model !== undefined && typeof obj.model !== "string") {
-    throw new Error(`Invalid profile at ${path}: "model" must be a string.`);
-  }
-  if (
-    obj.maxTurns !== undefined &&
-    (typeof obj.maxTurns !== "number" ||
-      !Number.isInteger(obj.maxTurns) ||
-      obj.maxTurns < 1)
-  ) {
-    throw new Error(`Invalid profile at ${path}: "maxTurns" must be a positive integer.`);
-  }
-  if (obj.systemPromptExtensions !== undefined) {
-    if (
-      !Array.isArray(obj.systemPromptExtensions) ||
-      !obj.systemPromptExtensions.every((e) => typeof e === "string")
-    ) {
-      throw new Error(
-        `Invalid profile at ${path}: "systemPromptExtensions" must be an array of strings.`,
-      );
-    }
-  }
-  if (obj.workflow !== undefined && typeof obj.workflow !== "string") {
-    throw new Error(`Invalid profile at ${path}: "workflow" must be a string.`);
-  }
-  return obj as unknown as ProfileConfig;
+  return result;
 }
 
 export async function loadProfile(path: string): Promise<ProfileConfig | null> {

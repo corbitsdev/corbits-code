@@ -415,7 +415,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       // not a terminal submit. Do not latch termination on it, so the two
       // meanings of submit_output cannot collide when a workflow is driving.
       const submitArgs = this.callIdToArgs.get(event.result.callId);
-      const isStepTagged = type({ step: "string" })(submitArgs) instanceof type.errors === false;
+      const isStepTagged = !(type({ step: "string" })(submitArgs) instanceof type.errors);
       if (name === "submit_output" && isSuccessfulToolResult(event.result) && !isStepTagged) {
         this.submitCalled = true;
         if (!this.planSubmitted && this._turnsUsed - 1 > 3) {

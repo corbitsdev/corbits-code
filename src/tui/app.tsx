@@ -669,6 +669,7 @@ export function App({
     }
     if (result.type === "overlay") {
       if (result.overlay === "permissions") {
+        refreshPermissions();
         setPermissionsOpen(true);
       } else {
         setHelpOpen(true);
@@ -685,11 +686,6 @@ export function App({
     void permissionsAdmin.list().then(setPermissionEntries);
   };
 
-  useEffect(() => {
-    if (!permissionsOpen) return;
-    refreshPermissions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [permissionsOpen]);
 
   const handleRevokePermission = (entry: ScopedApproval) => {
     if (permissionsAdmin === undefined) return;

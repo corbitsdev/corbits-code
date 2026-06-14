@@ -207,8 +207,9 @@ export async function runAgent(
     stringTool({
       definition: askOperatorDefinition,
       handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
-        const question = typeof args.question === "string" ? args.question : "";
-        const options = Array.isArray(args.options) ? args.options.map(String) : [];
+        const parsed = type({ "question?": "string", "options?": "unknown[]" })(args);
+        const question = !(parsed instanceof type.errors) && parsed.question !== undefined ? parsed.question : "";
+        const options = !(parsed instanceof type.errors) && parsed.options !== undefined ? parsed.options.map(String) : [];
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
@@ -230,7 +231,7 @@ export async function runAgent(
       handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
         // Step-tagged submit_output ({ step: "x" }) is a workflow step-advancement
         // signal, not a terminal submission. Do not require a plan for these.
-        if (typeof args.step === "string") {
+        if (!(type({ step: "string" })(args) instanceof type.errors)) {
           return "Step advanced.";
         }
         if (!directorHolder.instance?.getState().planSubmitted) {
