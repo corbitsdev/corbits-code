@@ -129,6 +129,8 @@ export interface CodingDirector extends ReactorDirector {
   getState(): DirectorPersistedState;
   setState(state: DirectorPersistedState): void;
   getFilesReadAtTurn(): ReadonlyMap<string, number>;
+  setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
+  updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
 }
 
 
@@ -176,21 +178,80 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   // Tracks whether this director has already emitted done() so that any
   // stray events delivered after termination do not produce a second done().
   private terminated = false;
+  // advance_workflow / submit_output calls, tracked by id so tool.done can ask
+  // the coordinator whether they advance the active workflow.
+  private readonly workflowCalls = new Map<string, { name: string; args: unknown }>();
+  private workflowCoordinator: WorkflowCoordinator | undefined;
+  // Counts consecutive turns with no tool calls while a workflow is active.
+  // After the threshold the director falls back to wait() so a stuck agent
+  // does not spin forever.
+  private workflowIdleTurns = 0;
+  private readonly _systemPrompt: string;
+  private _toolDefinitions: ToolDefinition[];
 
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     initialState?: DirectorPersistedState,
     maxTurns?: number,
+    workflowCoordinator?: WorkflowCoordinator,
   ) {
     super(systemPrompt, toolDefinitions, {});
+    this._systemPrompt = systemPrompt;
+    this._toolDefinitions = toolDefinitions;
     this.maxTurns = maxTurns;
+    this.workflowCoordinator = workflowCoordinator;
     if (initialState !== undefined) {
       this.setState(initialState);
     }
   }
 
+  // Attach or detach the workflow coordinator (set after construction once
+  // a workflow is started via slash command or auto-invoke).
+  setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
+    this.workflowCoordinator = coordinator;
+  }
+
+  // Replace the live tool set advertised to the model. MCP servers connect
+  // after the session is already running; any inference before they finish
+  // must learn about their tools on the next turn.
+  updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
+    this._toolDefinitions = toolDefinitions;
+  }
+
+  private withCurrentTools(
+    result: ReactorAction | ReactorAction[],
+  ): ReactorAction | ReactorAction[] {
+    // When a workflow is active, advertise the advance_workflow tool and append
+    // the current step's directive to the system prompt so the model sees the
+    // step instruction at the start of each turn.
+    const active = this.workflowCoordinator?.isActive() === true;
+    const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+      ? [...this._toolDefinitions, advanceWorkflowDefinition]
+      : this._toolDefinitions;
+    const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
+    const rewrite = (action: ReactorAction): ReactorAction => {
+      if (action.type !== "infer") return action;
+      const options = { ...action.options, tools };
+      if (directive !== null) {
+        const base = action.options?.systemPrompt ?? this._systemPrompt;
+        options.systemPrompt = `${base}\n\n${directive}`;
+      }
+      return { type: "infer", options };
+    };
+    return Array.isArray(result) ? result.map(rewrite) : rewrite(result);
+  }
+
   override async decide(
+    event: ReactorInboundEvent,
+    state: ReactorState,
+    capabilities: ReactorCapabilities,
+  ): Promise<ReactorAction | ReactorAction[]> {
+    const base = await this.decideInner(event, state, capabilities);
+    return this.withCurrentTools(base);
+  }
+
+  private async decideInner(
     event: ReactorInboundEvent,
     state: ReactorState,
     capabilities: ReactorCapabilities,
@@ -221,6 +282,13 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         this.idleCycles++;
       }
 
+      if (this.workflowCoordinator?.isActive()) {
+        if (hasToolCalls) {
+          this.workflowIdleTurns = 0;
+        } else {
+          this.workflowIdleTurns++;
+        }
+      }
       for (const block of event.turn.content) {
         if (block.type === "tool_call") {
           this.callIdToName.set(block.id, block.name);
@@ -230,6 +298,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
               this.plan = block.arguments.steps;
               this.planSubmitted = true;
             }
+          }
+          if (block.name === "advance_workflow" || block.name === "submit_output") {
+            this.workflowCalls.set(block.id, { name: block.name, args: block.arguments });
           }
         }
       }
@@ -250,7 +321,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         }
       }
 
-      if (this.idleCycles >= 3) {
+      if (this.idleCycles >= 3 && !this.workflowCoordinator?.isActive()) {
         this.terminated = true;
         return [
           capabilities.checkpoint("idle-abort"),
@@ -262,6 +333,17 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     }
 
     if (event.type === "tool.done") {
+      // A completed advance_workflow or step-tagged submit_output moves the
+      // workflow runtime to its next step. Handle this before any other
+      // tool.done processing so the coordinator advances before the downstream
+      // submit_output termination check.
+      if (this.workflowCalls.has(event.result.callId)) {
+        const call = this.workflowCalls.get(event.result.callId);
+        this.workflowCalls.delete(event.result.callId);
+        const advanced = this.workflowCoordinator?.handleToolDone(call?.name, call?.args, event.result.isError === true);
+        if (advanced) this.workflowIdleTurns = 0;
+      }
+
       if (isOperatorDeclinedToolResult(event.result)) {
         // Headless contract: the operator said no, so end the run cleanly and
         // record why in the transcript. (The interactive chat director instead
@@ -301,7 +383,41 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       }
     }
 
-    return super.decide(event, state, capabilities);
+    const base = await super.decide(event, state, capabilities);
+
+    // When a workflow is active and not at a gate, substitute terminal
+    // actions (wait / reply) with a fresh infer() so the agent keeps
+    // executing autonomously. After 3 consecutive tool-call-free turns
+    // the agent is stuck; fall back to wait() so the user can intervene.
+    const coordinator = this.workflowCoordinator;
+    if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
+      const actions = Array.isArray(base) ? base : [base];
+      const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
+      if (hasTerminal) {
+        if (this.workflowIdleTurns >= 3) {
+          return [
+            capabilities.reply(
+              "The workflow appears stuck on this step. Send a message to continue or advance manually.",
+            ),
+            capabilities.wait(),
+          ];
+        }
+        const nudge = "\n\nYou have not yet called advance_workflow. " +
+          "If this step is complete, call advance_workflow now. " +
+          "Otherwise continue working with tools.";
+        // Only add the nudge here; withCurrentTools() (applied in the outer
+        // decide()) injects the directive and the advance_workflow tool
+        // definition. Putting the directive here too would double it.
+        const systemPrompt = `${this._systemPrompt}${nudge}`;
+        const passThrough = actions.filter(
+          (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
+            a.type !== "wait" && a.type !== "reply",
+        );
+        return [...passThrough, capabilities.infer({ systemPrompt })];
+      }
+    }
+
+    return base;
   }
 
   getTurnsUsed(): number {
@@ -354,8 +470,9 @@ export function createCodingDirector(
   toolDefinitions: ToolDefinition[],
   initialState?: DirectorPersistedState,
   maxTurns?: number,
+  workflowCoordinator?: WorkflowCoordinator,
 ): CodingDirector {
-  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState, maxTurns);
+  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState, maxTurns, workflowCoordinator);
 }
 
 export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
@@ -600,18 +717,15 @@ class ChatDirectorImpl extends DefaultDirector {
         const nudge = "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
           "Otherwise continue working with tools.";
-        const directive = coordinator.directive();
-        const systemPrompt = directive !== null
-          ? `${this._systemPrompt}\n\n${directive}${nudge}`
-          : `${this._systemPrompt}${nudge}`;
-        const tools = this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
-          ? this._toolDefinitions
-          : [...this._toolDefinitions, advanceWorkflowDefinition];
+        // Only add the nudge here; withCurrentTools() (applied in the outer
+        // decide()) injects the directive and the advance_workflow tool
+        // definition. Putting the directive here too would double it.
+        const systemPrompt = `${this._systemPrompt}${nudge}`;
         const passThrough = actions.filter(
           (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
             a.type !== "wait" && a.type !== "reply",
         );
-        return [...passThrough, capabilities.infer({ systemPrompt, tools })];
+        return [...passThrough, capabilities.infer({ systemPrompt })];
       }
     }
 

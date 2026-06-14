@@ -20,7 +20,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 
 import { buildOpenAISource, type Config } from "../config/index.js";
-import { createCodingDirector, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
+import { createCodingDirector, advanceWorkflowDefinition, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "../plugins/re-read-block-plugin.js";
@@ -222,11 +222,25 @@ export async function runAgent(
     }),
     stringTool({
       definition: submitOutputDefinition,
-      handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+      handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        // Step-tagged submit_output ({ step: "x" }) is a workflow step-advancement
+        // signal, not a terminal submission. Do not require a plan for these.
+        if (typeof args.step === "string") {
+          return "Step advanced.";
+        }
         if (!directorHolder.instance?.getState().planSubmitted) {
           return "Error: You must call submit_plan before submit_output.";
         }
         return "Submission accepted. The task is now complete.";
+      },
+    }),
+    stringTool({
+      definition: advanceWorkflowDefinition,
+      handler: async (_args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+        // The coding director's tool.done handler dispatches to the workflow
+        // coordinator when advance_workflow completes. This handler is a
+        // pass-through — the coordinator read the args during tracking.
+        return "Advanced.";
       },
     }),
   ];
