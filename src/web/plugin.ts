@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import type { ToolPlugin, ExtraTool } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
@@ -56,22 +57,13 @@ function makeSuccessResult(callId: string, content: Record<string, unknown>): To
   return { callId, content };
 }
 
+const WebResultSchema = type({ title: "string", url: "string", snippet: "string" });
+
 function validateResults(raw: unknown[]): WebResult[] {
   const results: WebResult[] = [];
   for (const item of raw) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as Record<string, unknown>).title === "string" &&
-      typeof (item as Record<string, unknown>).url === "string" &&
-      typeof (item as Record<string, unknown>).snippet === "string"
-    ) {
-      results.push({
-        title: String((item as Record<string, unknown>).title),
-        url: String((item as Record<string, unknown>).url),
-        snippet: String((item as Record<string, unknown>).snippet),
-      });
-    }
+    const parsed = WebResultSchema(item);
+    if (!(parsed instanceof type.errors)) results.push(parsed);
   }
   return results;
 }
