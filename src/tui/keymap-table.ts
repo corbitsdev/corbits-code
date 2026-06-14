@@ -18,9 +18,9 @@ export const SHORTCUTS: ShortcutEntry[] = [
 
 export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/help", description: "Show the help overlay" },
-  { keys: "/workflows", description: "List and start coding workflows" },
-  { keys: "/workflows diff", description: "Show the working-tree diff" },
-  { keys: "/workflows plan", description: "Show the plan panel" },
+  { keys: "/diff", description: "Show the working-tree diff" },
+  { keys: "/plan", description: "Show the plan panel" },
+  { keys: "/workflows", description: "Pick and start a coding workflow" },
   { keys: "/agent", description: "Configure provider, model, tiers, and profiles" },
   { keys: "/permissions", description: "View and revoke remembered approvals" },
   { keys: "/auto", description: "Toggle auto-approve for writes/edits and safe shell" },

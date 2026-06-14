@@ -28,27 +28,15 @@ describe("/help command", () => {
   });
 });
 
-describe("/workflows command", () => {
-  it("routes 'diff' arg to the diff view", () => {
+describe("context view commands", () => {
+  it("/diff switches the context panel to the diff view", () => {
     const ctx = makeCtx();
-    expect(getCommand("workflows")!.handler("diff", ctx)).toEqual({ type: "view", view: "diff" });
+    expect(getCommand("diff")!.handler("", ctx)).toEqual({ type: "view", view: "diff" });
   });
 
-  it("routes 'plan' arg to the plan view", () => {
+  it("/plan switches the context panel to the plan view", () => {
     const ctx = makeCtx();
-    expect(getCommand("workflows")!.handler("plan", ctx)).toEqual({ type: "view", view: "plan" });
-  });
-
-  it("returns a usage message for an unknown sub-command", () => {
-    const ctx = makeCtx();
-    const result = getCommand("workflows")!.handler("unknown", ctx);
-    expect(result.type).toBe("message");
-  });
-
-  it("declares diff and plan as subcommands", () => {
-    const def = getCommand("workflows")!;
-    expect(def.subcommands?.map((s) => s.name)).toContain("diff");
-    expect(def.subcommands?.map((s) => s.name)).toContain("plan");
+    expect(getCommand("plan")!.handler("", ctx)).toEqual({ type: "view", view: "plan" });
   });
 });
 

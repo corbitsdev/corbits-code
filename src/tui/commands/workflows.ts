@@ -25,9 +25,9 @@ for (const workflow of WORKFLOWS) {
 
 registerCommand({
   name: "workflows",
-  description: "Open the workflow steps panel",
+  description: "Pick and start a coding workflow",
   handler: (_args, ctx) => {
-    ctx.openWorkflowPanel?.();
+    ctx.openWorkflowPicker?.();
     return { type: "noop" };
   },
 });

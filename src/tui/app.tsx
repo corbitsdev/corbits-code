@@ -38,8 +38,10 @@ import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink } from "node:fs/promises";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPanel } from "./components/workflow-panel.js";
+import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
 import type { WorkflowStatus } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
+import { WORKFLOWS } from "../workflows/index.js";
 import "./commands/built-in.js";
 import "./commands/workflows.js";
 
@@ -166,6 +168,7 @@ export function App({
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
+  const [workflowPickerOpen, setWorkflowPickerOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
@@ -363,6 +366,7 @@ export function App({
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
     openWorkflowPanel: () => setWorkflowPanelOpen(true),
+    openWorkflowPicker: () => setWorkflowPickerOpen(true),
   }), [verbose, auto, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
   // Track the last moment real progress was observed. Reset whenever new content
@@ -451,7 +455,7 @@ export function App({
       // like the help overlay, so block the global keymap the same way.
       helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
-      agentModalOpen,
+      agentModalOpen: agentModalOpen || workflowPickerOpen,
       hookPanelOpen,
       diffFullScreenOpen,
       planFullScreenOpen,
@@ -713,6 +717,23 @@ export function App({
         onResolvePermission={gates.resolvePermission}
         width={columns}
       />
+      {workflowPickerOpen && (
+        <WorkflowPickerModal
+          workflows={WORKFLOWS}
+          onSelect={(name) => {
+            setWorkflowPickerOpen(false);
+            if (onStartWorkflow !== undefined) {
+              const msg = onStartWorkflow(name);
+              if (msg.startsWith("Started")) {
+                sendMessage(`Begin the ${name} workflow.`);
+              } else {
+                setCommandMessage(msg);
+              }
+            }
+          }}
+          onClose={() => setWorkflowPickerOpen(false)}
+        />
+      )}
       {permissionsOpen && (
         <PermissionsManager
           entries={permissionEntries}

@@ -11,6 +11,8 @@ export type CommandContext = {
   listWorkflows?: () => Array<{ name: string; description: string }>;
   // Open the workflow panel (Ctrl+W surface).
   openWorkflowPanel?: () => void;
+  // Open the workflow picker modal (/workflows command).
+  openWorkflowPicker?: () => void;
 };
 
 export type CommandResult =
