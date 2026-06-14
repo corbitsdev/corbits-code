@@ -383,6 +383,10 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
   private workflowCoordinator: WorkflowCoordinator | undefined;
+  // Counts consecutive turns with no tool calls while a workflow is active.
+  // After the threshold the director falls back to wait() so a stuck agent
+  // does not spin forever.
+  private workflowIdleTurns = 0;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -499,6 +503,14 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (event.type === "inference.done") {
       this.turnCount++;
+      const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
+      if (this.workflowCoordinator?.isActive()) {
+        if (hasToolCalls) {
+          this.workflowIdleTurns = 0;
+        } else {
+          this.workflowIdleTurns++;
+        }
+      }
       for (const block of event.turn.content) {
         if (block.type !== "tool_call") continue;
         if (block.name === "submit_plan") {
@@ -518,7 +530,8 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "tool.done" && this.workflowCalls.has(event.result.callId)) {
       const call = this.workflowCalls.get(event.result.callId);
       this.workflowCalls.delete(event.result.callId);
-      this.workflowCoordinator?.handleToolDone(call?.name, call?.args, event.result.isError === true);
+      const advanced = this.workflowCoordinator?.handleToolDone(call?.name, call?.args, event.result.isError === true);
+      if (advanced) this.workflowIdleTurns = 0;
     }
 
     // Reading or editing a code file auto-loads the language server for the rest
@@ -554,7 +567,41 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
-    return super.decide(event, state, capabilities);
+    const base = await super.decide(event, state, capabilities);
+
+    // When a workflow is running and not at a gate step, substitute any wait()
+    // action with a fresh infer() so the agent keeps executing autonomously.
+    // After 3 consecutive tool-call-free turns the agent is stuck; fall back to
+    // wait() and show a message so the user can intervene.
+    const coordinator = this.workflowCoordinator;
+    if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
+      const actions = Array.isArray(base) ? base : [base];
+      if (actions.some((a) => a.type === "wait")) {
+        if (this.workflowIdleTurns >= 3) {
+          return [
+            capabilities.reply(
+              "The workflow appears stuck on this step. Send a message to continue or advance manually.",
+            ),
+            capabilities.wait(),
+          ];
+        }
+        // Build a continuation infer with a nudge appended to the directive.
+        const nudge = "\n\nYou have not yet called advance_workflow. " +
+          "If this step is complete, call advance_workflow now. " +
+          "Otherwise continue working with tools.";
+        const directive = coordinator.directive();
+        const systemPrompt = directive !== null
+          ? `${this._systemPrompt}\n\n${directive}${nudge}`
+          : `${this._systemPrompt}${nudge}`;
+        const tools = this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+          ? this._toolDefinitions
+          : [...this._toolDefinitions, advanceWorkflowDefinition];
+        const nonWait = actions.filter((a): a is Exclude<ReactorAction, { type: "wait" }> => a.type !== "wait");
+        return [...nonWait, capabilities.infer({ systemPrompt, tools })];
+      }
+    }
+
+    return base;
   }
 
   /** Called by the TUI to signal a task boundary (/clear or /new command). */

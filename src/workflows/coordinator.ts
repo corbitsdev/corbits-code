@@ -26,6 +26,13 @@ export class WorkflowCoordinator {
     return this.runtime.isComplete();
   }
 
+  // True when the current step is a gate — the agent must pause and wait for
+  // the operator. Used by the chat director to decide when to keep looping
+  // autonomously vs. when to hand back to the user.
+  currentStepIsGate(): boolean {
+    return this.runtime.currentStep()?.type === "gate";
+  }
+
   // The instruction block to append to the next turn's system prompt, or null
   // when no step is active. Includes the step ordinal, label, prompt, and the
   // delegation / completion guidance the step's fields imply.
