@@ -44,7 +44,7 @@ export type CapabilityOverrides = ReadonlySet<CapabilityName>;
 export type StepResolution = {
   runnable: boolean;
   skippedReason?: string;
-  tools: ToolDefinition[];
+  tools: ToolDefinition[] | undefined;
 };
 
 function tokenize(value: string): string[] {
@@ -97,14 +97,15 @@ export function resolveStep(
   capabilities: CapabilityMap,
 ): StepResolution {
   if (step.capability === undefined) {
-    return { runnable: true, tools: [] };
+    // No capability requirement — the step always runs and has no relevant tools.
+    return { runnable: true, tools: undefined };
   }
   const tools = capabilities.get(step.capability);
   if (tools === undefined || tools.length === 0) {
     return {
       runnable: false,
       skippedReason: `capability not satisfied: ${step.capability}`,
-      tools: [],
+      tools: undefined,
     };
   }
   return { runnable: true, tools };

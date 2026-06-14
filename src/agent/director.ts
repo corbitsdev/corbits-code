@@ -111,7 +111,8 @@ export const advanceWorkflowDefinition: ToolDefinition = {
 export const submitOutputDefinition: ToolDefinition = {
   name: "submit_output",
   description:
-    "Call this when the task is fully complete. Include a brief summary of what was done.",
+    "Call this when the task is fully complete (include summary) or to advance " +
+    "a workflow step (include step id).",
   inputSchema: {
     type: "object",
     properties: {
@@ -119,8 +120,12 @@ export const submitOutputDefinition: ToolDefinition = {
         type: "string",
         description: "Brief summary of the completed work",
       },
+      step: {
+        type: "string",
+        description: "Workflow step ID to advance. When present this is a " +
+          "step-advancement signal, not a terminal task submission.",
+      },
     },
-    required: ["summary"],
   },
 };
 
