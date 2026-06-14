@@ -74,7 +74,6 @@ class SubAgentDirector extends DefaultDirector {
         return [
           capabilities.checkpoint("subagent-complete"),
           capabilities.reply(lastText(event.turn.content)),
-          capabilities.done(),
         ];
       }
       if (this.turns >= this.maxTurns) {
@@ -83,7 +82,6 @@ class SubAgentDirector extends DefaultDirector {
           capabilities.reply(
             `Sub-agent stopped after reaching its ${this.maxTurns}-turn limit. Partial progress may have landed in the working tree.`,
           ),
-          capabilities.done(),
         ];
       }
     }
