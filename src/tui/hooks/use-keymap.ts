@@ -40,6 +40,7 @@ export type KeymapActions = {
   toggleHelp: () => void;
   copyMcpUrl: () => void;
   copyLastOutput: () => void;
+  cycleMode: () => void;
 };
 
 // Pure dispatch function — separated from the hook so it can be unit tested
@@ -155,6 +156,10 @@ export function handleKey(
   }
   if (key.ctrl && input === "y") {
     actions.copyLastOutput();
+    return lastEscMs;
+  }
+  if (key.tab && key.shift) {
+    actions.cycleMode();
     return lastEscMs;
   }
   return lastEscMs;

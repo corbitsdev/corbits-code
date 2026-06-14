@@ -16,6 +16,7 @@ export type StatusBarProps = {
   connectedMCPServers?: string[];
   reasoningEffort?: ReasoningEffort | undefined;
   auto?: boolean;
+  agentMode?: "edit" | "auto" | "plan";
 };
 
 
@@ -53,14 +54,16 @@ export function StatusBar({
   connectedMCPServers = [],
   reasoningEffort,
   auto = false,
+  agentMode,
 }: StatusBarProps): ReactNode {
+  const modeLabel = agentMode === "plan" ? "PLAN" : agentMode === "auto" ? "AUTO" : auto ? "AUTO" : null;
   return (
     <Box flexDirection="row" paddingX={1} overflow="hidden">
       <Text color={color("accent")} wrap="truncate-end">{provider} · {model}</Text>
-      {auto && (
+      {modeLabel !== null && (
         <>
           <Divider />
-          <Text bold color={color("warning")} wrap="truncate-end">AUTO</Text>
+          <Text bold color={color("warning")} wrap="truncate-end">{modeLabel}</Text>
         </>
       )}
       {reasoningEffort !== undefined && (

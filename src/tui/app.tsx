@@ -96,6 +96,8 @@ const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
 // before the watchdog fires and aborts the in-flight request.
 export const STALL_TIMEOUT_MS = 120_000;
 
+export type AgentMode = "edit" | "auto" | "plan";
+
 export type ShouldAbortForStallArgs = {
   status: AgentStatus;
   awaitingResponse: boolean;
@@ -193,7 +195,8 @@ export function App({
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
-  const [auto, setAuto] = useState(initialAuto);
+  const [agentMode, setAgentMode] = useState<AgentMode>(initialAuto ? "auto" : "edit");
+  const auto = agentMode === "auto";
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("plan");
@@ -257,6 +260,15 @@ export function App({
     const onWorkflow = (status: WorkflowStatus) => setWorkflowStatus(status);
     eventEmitter.on("workflow", onWorkflow);
     return () => { eventEmitter.off("workflow", onWorkflow); };
+  }, [eventEmitter]);
+
+  // When the director exits plan phase (submit_plan approved), revert to edit mode.
+  useEffect(() => {
+    const onPlanPhase = (active: boolean) => {
+      if (!active) setAgentMode("edit");
+    };
+    eventEmitter.on("plan-phase", onPlanPhase);
+    return () => { eventEmitter.off("plan-phase", onPlanPhase); };
   }, [eventEmitter]);
 
   const planSteps = useMemo(() => {
@@ -393,10 +405,10 @@ export function App({
       setVerbose(next);
       return next;
     },
-    getAuto: () => auto,
+    getAuto: () => agentMode === "auto",
     toggleAuto: () => {
-      const next = !auto;
-      setAuto(next);
+      const next = agentMode !== "auto";
+      setAgentMode(next ? "auto" : "edit");
       onToggleAuto?.(next);
       return next;
     },
@@ -407,7 +419,7 @@ export function App({
     ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
     openWorkflowPanel: () => setWorkflowPanelOpen(true),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, auto, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
+  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -599,6 +611,19 @@ export function App({
             setCommandMessage(`Copied ${b.name} output`);
             return;
           }
+        }
+      },
+      cycleMode: () => {
+        const order: AgentMode[] = ["edit", "auto", "plan"];
+        const next = order[(order.indexOf(agentMode) + 1) % order.length]!;
+        if (next === "plan") {
+          onEnterPlanMode?.();
+          onToggleAuto?.(false);
+          setAgentMode("plan");
+        } else {
+          const isAuto = next === "auto";
+          onToggleAuto?.(isAuto);
+          setAgentMode(next);
         }
       },
     },
@@ -833,6 +858,7 @@ export function App({
           connectedMCPServers={mcpStatus.connected}
           reasoningEffort={reasoningEffort}
           auto={auto}
+          agentMode={agentMode}
         />
         </Box>
       )}
