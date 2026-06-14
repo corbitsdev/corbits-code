@@ -13,7 +13,7 @@ test("addUsage accumulates tokens and cost", () => {
   expect(faremeter.getTotalTokens()).toBe(1500);
 });
 
-test("splits tokens into input (prompt + cache) and output (completion + thinking)", () => {
+test("getInputTokens returns last turn context size (input + cacheRead + cacheWrite)", () => {
   const faremeter = createFaremeter();
   faremeter.addUsage({ input: 1000, output: 500, cacheRead: 200, cacheWrite: 50, thinking: 80 });
   expect(faremeter.getInputTokens()).toBe(1250);
@@ -53,11 +53,14 @@ test("formatCost formats to 4 decimal places with dollar sign", () => {
   expect(formatCost(1.5)).toBe("$1.5000");
 });
 
-test("multiple addUsage calls accumulate", () => {
+test("multiple addUsage calls: cost accumulates, input reflects last turn context", () => {
   const faremeter = createFaremeter({ inputPricePerToken: 0.00001, outputPricePerToken: 0.00002 });
   faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
   faremeter.addUsage({ input: 2000, output: 1000, cacheRead: 0, cacheWrite: 0, thinking: 0 });
-  expect(faremeter.getTotalTokens()).toBe(4500);
+  // inputTokens = last turn context (2000), outputTokens = cumulative (1500)
+  expect(faremeter.getInputTokens()).toBe(2000);
+  expect(faremeter.getOutputTokens()).toBe(1500);
+  expect(faremeter.getTotalTokens()).toBe(3500);
   expect(faremeter.getTotalCost()).toBe(0.06);
 });
 
