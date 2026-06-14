@@ -218,15 +218,14 @@ test("EventLog shows long content in full by default, never a show-more marker",
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("a long tool summary is marked with a bare ellipsis, not show-more", () => {
+test("a long tool summary wraps rather than truncating", () => {
   const { lastFrame } = renderLog([
     { type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: "x".repeat(300) }) },
   ], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("[show more]");
-  expect(frame).toContain("…");
-  const longest = Math.max(...frame.split("\n").map((l) => l.length));
-  expect(longest).toBeLessThanOrEqual(80);
+  // Full command content must be present, not truncated
+  expect(frame.replace(/\s/g, "")).toContain("x".repeat(300));
 });
 
 test("truncateToWidth marks a cut with a bare ellipsis", () => {

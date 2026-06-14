@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useMemo } from "react";
 import type { ProviderCatalogEntry } from "../../config/index.js";
 
 export type GateContext = {
@@ -127,24 +127,7 @@ export function useLayoutGeometry({
     hookCount,
   ]);
 
-  // When a modal closes, overlayRows drops to 0 in the same render the modal
-  // unmounts. Hold the previous non-zero reservation for one extra render so
-  // the log only reclaims the rows once the modal region has been cleared.
-  const prevOverlayRowsRef = useRef(0);
-  const [deferredOverlayRows, setDeferredOverlayRows] = useState(0);
-  useEffect(() => {
-    const prev = prevOverlayRowsRef.current;
-    prevOverlayRowsRef.current = overlayRows;
-    if (overlayRows === 0 && prev > 0) {
-      setDeferredOverlayRows(prev);
-      const handle = setTimeout(() => setDeferredOverlayRows(0), 0);
-      return () => clearTimeout(handle);
-    }
-    setDeferredOverlayRows(0);
-    return undefined;
-  }, [overlayRows]);
-
-  const effectiveOverlayRows = Math.max(overlayRows, deferredOverlayRows);
+  const effectiveOverlayRows = overlayRows;
 
   const permissionsOverlayRows = modalContext.permissionsOpen
     ? Math.min(PERMISSIONS_OVERLAY_MAX, PERMISSIONS_OVERLAY_FIXED + modalContext.permissionEntryCount)
