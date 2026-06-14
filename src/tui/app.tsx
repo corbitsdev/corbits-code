@@ -411,6 +411,9 @@ export function App({
         if (diffActive) setDiffScroll(diffMaxOffset);
         else scroll.scrollToBottom();
       },
+      toggleVerbose: () => {
+        setVerbose((v) => !v);
+      },
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
         if (lastToolId !== null) {

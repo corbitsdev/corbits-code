@@ -136,7 +136,7 @@ function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, c
   const SHELL_PREFIX = "$ ";
 
   if (isShell) {
-    const command = expanded ? full : truncateToWidth(summary, width - SHELL_PREFIX.length);
+    const command = expanded ? full : summary;
     return [
       {
         key: `${id}-h`,
@@ -160,7 +160,7 @@ function toolCallUnits(block: Extract<RenderableBlock, { type: "tool_call" }>, c
     return full.length > 0 ? [headline, ...plainUnits(full, { color: color("muted") }, width, id)] : [headline];
   }
 
-  const summaryText = summary.length > 0 ? truncateToWidth(summary, width - display.length - 1) : "";
+  const summaryText = summary;
   return [
     {
       key: `${id}-h`,
@@ -179,9 +179,6 @@ function toolResultUnits(block: Extract<RenderableBlock, { type: "tool_result" }
   const id = block.id;
 
   if (block.isError) {
-    if (!expanded) {
-      return [{ key: id, node: <Text key={id} color={color("danger")}>error: {truncateLine(block.content, columns, false)}</Text>, rows: 1 }];
-    }
     return block.content.split("\n").map((line, i) => {
       const text = (i === 0 ? "error: " : "") + line;
       const key = `${id}-l${i}`;
@@ -209,7 +206,7 @@ function toolResultUnits(block: Extract<RenderableBlock, { type: "tool_result" }
   if (expanded) {
     return plainUnits(full, { color: color("muted") }, width, id);
   }
-  return [{ key: id, node: <Text key={id} color={color("muted")} dimColor>{truncateLine(preview, columns, false)}</Text>, rows: 1 }];
+  return plainUnits(preview, { color: color("muted"), dimColor: true }, width, id);
 }
 
 function blockToUnits(block: RenderableBlock, columns: number, expanded: boolean, thinkingExpanded: boolean): LineUnit[] {

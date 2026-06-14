@@ -32,6 +32,7 @@ export type KeymapActions = {
   scrollToBottom: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
+  toggleVerbose: () => void;
   togglePlanSidebar: () => void;
   toggleDiffFullScreen: () => void;
   toggleHelp: () => void;
@@ -122,6 +123,10 @@ export function handleKey(
   }
   if (key.ctrl && input === "t") {
     actions.toggleThinking();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "o") {
+    actions.toggleVerbose();
     return lastEscMs;
   }
   if (key.ctrl && input === "r") {
