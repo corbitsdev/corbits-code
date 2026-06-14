@@ -3,7 +3,14 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
-import { askOperatorDefinition, presentDefinition } from "../agent/director.js";
+import {
+  advanceWorkflowDefinition,
+  askOperatorDefinition,
+  planEnterDefinition,
+  presentDefinition,
+  suggestWorkflowDefinition,
+} from "../agent/director.js";
+import { findWorkflow, WORKFLOWS } from "../workflows/index.js";
 import { validateView } from "../tui/view/index.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
@@ -25,6 +32,13 @@ export type AgentToolsetArgs = {
   cwd: string;
   permissionGate: PermissionGate;
   onOperatorGate: (question: string, options: string[]) => Promise<number>;
+  // Called when the agent suggests a workflow and the operator approves. The
+  // TUI wires this to WorkflowController.start(). Returns false if the name is
+  // not found or already active (so the handler can report the failure).
+  onWorkflowSuggested?: (name: string) => boolean;
+  // Called when the agent invokes plan_enter. The TUI wires this to
+  // director.enterPlanPhase() so the director blocks write/edit tools.
+  onPlanEnter?: () => void;
   mcpServers?: MCPServerConfig[];
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
@@ -93,6 +107,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         ]
       : []),
     stringTool({
+      definition: planEnterDefinition,
+      handler: async (): Promise<string> => {
+        args.onPlanEnter?.();
+        return "Plan mode active. write_file and edit_file are now disabled. Explore the codebase and call submit_plan when you have a complete plan.";
+      },
+    }),
+    stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
         const question = typeof rawArgs.question === "string" ? rawArgs.question : "";
@@ -115,6 +136,43 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const result = validateView(rawArgs.view);
         if (result.ok) return "Rendered.";
         return `Invalid view spec at ${result.error}. Fix the spec and call present again.`;
+      },
+    }),
+    stringTool({
+      definition: suggestWorkflowDefinition,
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        const name = typeof rawArgs.workflow === "string" ? rawArgs.workflow : "";
+        const context = typeof rawArgs.context === "string" ? rawArgs.context : "";
+        const reason = typeof rawArgs.reason === "string" ? rawArgs.reason : "";
+
+        const workflow = findWorkflow(name);
+        if (workflow === undefined) {
+          const available = WORKFLOWS.map((w) => w.name).join(", ");
+          return `Error: unknown workflow "${name}". Available: ${available}.`;
+        }
+
+        const steps = workflow.steps.map((s, i) => `  ${i + 1}. ${s.label}`).join("\n");
+        const contextLine = context.length > 0 ? `\nContext: ${context}` : "";
+        const question =
+          `Launch workflow: ${name}\n` +
+          `Reason: ${reason}${contextLine}\n\n` +
+          `Steps:\n${steps}`;
+
+        const index = await onOperatorGate(question, ["Yes, launch it", "No, skip"]);
+        if (index !== 0) return "Workflow suggestion declined.";
+
+        const started = args.onWorkflowSuggested?.(name) ?? false;
+        if (!started) return `Could not start "${name}": already active or not found.`;
+        return `Started ${name} workflow.`;
+      },
+    }),
+    stringTool({
+      definition: advanceWorkflowDefinition,
+      // The director observes this call and advances the workflow runtime; the
+      // handler only needs to acknowledge so the model gets a clean tool result.
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        const note = typeof rawArgs.note === "string" && rawArgs.note.length > 0 ? ` (${rawArgs.note})` : "";
+        return `Workflow step marked complete${note}. Advancing to the next step.`;
       },
     }),
   ];

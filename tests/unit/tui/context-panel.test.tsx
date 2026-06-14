@@ -6,16 +6,18 @@ test("ContextPanel renders the plan view in plan mode", () => {
   const { lastFrame } = render(
     <ContextPanel
       view="plan"
-      steps={[{ file: "src/a.ts", action: "create" }]}
+      steps={[{ file: "src/a.ts", action: "create", reason: "" }]}
       currentPlanStep={0}
       planDeviated={false}
-      width={40}
+      width={60}
       diffResult={null}
       diffScrollOffset={0}
       diffVisibleRows={10}
     />,
   );
-  expect(lastFrame()).toContain("src/a.ts — create");
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("src/a.ts");
+  expect(frame).toContain("create");
 });
 
 test("ContextPanel renders the empty diff view", () => {

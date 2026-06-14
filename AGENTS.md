@@ -63,11 +63,29 @@ git config core.hooksPath .githooks
 
 The source is the truth; these docs guide you to it.
 
-- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, the mandatory `submit_plan`/`submit_output` tools, stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, or tools.**
-- `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags, state persistence, the eval harness.
+- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, the mandatory `submit_plan`/`submit_output` tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.**
+- `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags (incl. `--no-workflow`), state persistence, the eval harness.
 - `docs/PRODUCT.md` — what we're building and why.
 - `docs/HOOKS.md` — lifecycle hooks.
 - `PLAN.md` — phase breakdown and demo strategy.
+
+## Interchange as Standard Library
+
+Interchange is the standard library for this repo. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check the interchange submodule packages for an existing implementation.
+
+**Do not reimplement what interchange already provides. Lean on it.**
+
+Canonical packages and what each covers:
+
+- `@intx/authz` — grant-based policy engine (allow/ask/deny)
+- `@intx/inference` — reactor loop, `createAuthzExtension` (beforeTool hook), `DefaultDirector`
+- `@intx/agent` — agent lifecycle, send queue, stream
+- `@intx/tools-posix` — shell, file read/write/edit, grep, search
+- `@intx/storage-isogit` — git-backed state persistence
+- `@intx/log` — structured logging via LogTape
+- `@intx/types` — all shared runtime types
+
+If you find yourself writing something that sounds like one of these, stop and check the package first.
 
 ## Workspace Layout
 

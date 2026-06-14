@@ -2,11 +2,19 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
 
+export type HeaderWorkflow = {
+  name: string;
+  stepIndex: number;
+  total: number;
+  label: string;
+};
+
 export type HeaderProps = {
   sessionTitle: string;
   latestUserMessage: string;
   width: number;
   profile?: string;
+  workflow?: HeaderWorkflow;
 };
 
 const TITLE = "Intercode";
@@ -28,7 +36,7 @@ function formatPath(cwd: string): string {
 // title, the working directory, and the latest request. All live run telemetry
 // (status, turns, cost, tokens, elapsed) lives in the status bar so nothing is
 // shown twice.
-export function Header({ sessionTitle, latestUserMessage, width, profile }: HeaderProps): ReactNode {
+export function Header({ sessionTitle, latestUserMessage, width, profile, workflow }: HeaderProps): ReactNode {
   const cwd = process.cwd();
   const pathDisplay = formatPath(cwd);
 
@@ -44,6 +52,13 @@ export function Header({ sessionTitle, latestUserMessage, width, profile }: Head
         {sessionTitle.length > 0 && (
           <Box>
             <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>
+          </Box>
+        )}
+        {workflow !== undefined && (
+          <Box>
+            <Text color={color("accent")}>
+              ⟳ {truncate(`${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`, Math.max(16, Math.floor(width * 0.4)))}
+            </Text>
           </Box>
         )}
       </Box>

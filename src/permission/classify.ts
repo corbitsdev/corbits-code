@@ -25,7 +25,9 @@ const SAFE_SHELL_PROGRAMS = new Set([
   "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings",
 ]);
 
-const SHELL_METACHARACTERS = /[|&;<>`$(){}]|\\\n|\n/;
+// Non-pipe metacharacters that cannot appear anywhere in an auto-allowed command.
+// Pipes between safe programs are evaluated segment-by-segment (see below).
+const DANGEROUS_METACHARACTERS = /[&;<>`$(){}]|\\\n|\n/;
 const WRITE_FLAG = /^(-o|--output)(=|$)/;
 
 // Flags on grep/rg that run an arbitrary binary on each matched file or before
@@ -73,23 +75,31 @@ function argEscapesWorkspace(token: string, cwd: string): boolean {
   return value !== null && value.length > 0 && escapesWorkspace(value, cwd);
 }
 
-export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
-  if (call.name !== "run_shell") return false;
-  const command = stringArg(call, "command").trim();
-  if (command.length === 0) return false;
-  if (SHELL_METACHARACTERS.test(command)) return false;
-
-  const tokens = command.split(/\s+/);
+function isAutoAllowedSegment(segment: string, cwd: string): boolean {
+  const trimmed = segment.trim();
+  if (trimmed.length === 0) return false;
+  const tokens = trimmed.split(/\s+/);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
-
   const args = tokens.slice(1);
   if (args.some((token) => WRITE_FLAG.test(token))) return false;
   if (args.some((token) => EXEC_FLAG.test(token))) return false;
   if (args.some((token) => isSensitivePath(token))) return false;
   if (args.some((token) => argEscapesWorkspace(token, cwd))) return false;
-
   return true;
+}
+
+export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
+  if (call.name !== "run_shell") return false;
+  const command = stringArg(call, "command").trim();
+  if (command.length === 0) return false;
+  // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).
+  // Pipes are allowed between safe segments — evaluated below.
+  if (DANGEROUS_METACHARACTERS.test(command)) return false;
+
+  // Split on pipe and require every segment to be a safe read-only program.
+  const segments = command.split("|");
+  return segments.every((seg) => isAutoAllowedSegment(seg, cwd));
 }
 
 // File scopes intentionally stop at the directory level. There is no "every

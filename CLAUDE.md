@@ -51,6 +51,24 @@ If any step fails, report the failure and do not declare completion.
 - **Only `submitOutput` terminates.** A conversational "done" message does not end the loop.
 - **State is persisted.** `agent.stream()` events are saved atomically to `.agent-state/run.json`. Resume via the `resume` CLI verb.
 
+## Interchange as Standard Library
+
+Interchange is the standard library for this repo. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check the interchange submodule packages for an existing implementation.
+
+**Do not reimplement what interchange already provides. Lean on it.**
+
+Canonical packages and what each covers:
+
+- `@intx/authz` — grant-based policy engine (allow/ask/deny)
+- `@intx/inference` — reactor loop, `createAuthzExtension` (beforeTool hook), `DefaultDirector`
+- `@intx/agent` — agent lifecycle, send queue, stream
+- `@intx/tools-posix` — shell, file read/write/edit, grep, search
+- `@intx/storage-isogit` — git-backed state persistence
+- `@intx/log` — structured logging via LogTape
+- `@intx/types` — all shared runtime types
+
+If you find yourself writing something that sounds like one of these, stop and check the package first.
+
 ## Skill Locations
 
 - Shared skills: `.agents/skills/`
