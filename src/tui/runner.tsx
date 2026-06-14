@@ -160,9 +160,11 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
-  // Forward suggest_workflow approvals to the workflow controller. The controller
-  // is built after the toolset, so we use a holder to break the init cycle.
+  // Forward suggest_workflow approvals to the workflow controller, and
+  // plan_enter calls to the active director. Both are built after the toolset,
+  // so holders break the init cycle.
   const workflowControllerHolder: { instance?: { start: (name: string) => string } } = {};
+  const directorHolderForTools: { instance?: { enterPlanPhase: () => void } } = {};
 
   const toolset = await createAgentToolset({
     cwd: config.cwd,
@@ -175,6 +177,9 @@ export async function runTUI(config: Config): Promise<number> {
     onWorkflowSuggested: (name) => {
       const result = workflowControllerHolder.instance?.start(name);
       return result !== undefined && !result.startsWith("No workflow");
+    },
+    onPlanEnter: () => {
+      directorHolderForTools.instance?.enterPlanPhase();
     },
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
@@ -219,8 +224,11 @@ export async function runTUI(config: Config): Promise<number> {
         approvalGate,
         undefined,
         (names) => promoteTools(names),
+        undefined,
+        (active) => emitter.emit("plan-phase", active),
       );
       directorHolder.instance = d;
+      directorHolderForTools.instance = d;
       return d;
     },
   });
@@ -445,6 +453,7 @@ export async function runTUI(config: Config): Promise<number> {
       }}
       onStartWorkflow={(name) => workflowController.start(name)}
       listWorkflows={() => workflowController.list()}
+      onEnterPlanMode={() => directorHolder.instance?.enterPlanPhase()}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       initialWorkflowStatus={workflowController.status()}
     />,

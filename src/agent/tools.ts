@@ -6,6 +6,7 @@ import { createLSPPlugin } from "@intx/tools-lsp";
 import {
   advanceWorkflowDefinition,
   askOperatorDefinition,
+  planEnterDefinition,
   presentDefinition,
   suggestWorkflowDefinition,
 } from "../agent/director.js";
@@ -35,6 +36,9 @@ export type AgentToolsetArgs = {
   // TUI wires this to WorkflowController.start(). Returns false if the name is
   // not found or already active (so the handler can report the failure).
   onWorkflowSuggested?: (name: string) => boolean;
+  // Called when the agent invokes plan_enter. The TUI wires this to
+  // director.enterPlanPhase() so the director blocks write/edit tools.
+  onPlanEnter?: () => void;
   mcpServers?: MCPServerConfig[];
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
@@ -102,6 +106,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           }),
         ]
       : []),
+    stringTool({
+      definition: planEnterDefinition,
+      handler: async (): Promise<string> => {
+        args.onPlanEnter?.();
+        return "Plan mode active. write_file and edit_file are now disabled. Explore the codebase and call submit_plan when you have a complete plan.";
+      },
+    }),
     stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {

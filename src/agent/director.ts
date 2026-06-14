@@ -92,6 +92,21 @@ export const presentDefinition: ToolDefinition = {
   },
 };
 
+// Tools the agent cannot call while plan phase is active. The agent explores
+// and designs in read-only mode; editing unlocks only after the plan is approved.
+export const PLAN_PHASE_BLOCKED_TOOLS = new Set(["write_file", "edit_file"]);
+
+export const planEnterDefinition: ToolDefinition = {
+  name: "plan_enter",
+  description:
+    "Switch to plan mode before making any changes. In plan mode, write and edit " +
+    "tools are disabled — you can only read, explore, and call submit_plan. Use this " +
+    "when the task is non-trivial or you need to understand the codebase before acting. " +
+    "Call submit_plan to present your plan for user approval; the full toolset unlocks " +
+    "once the plan is approved.",
+  inputSchema: { type: "object", properties: {} },
+};
+
 export const suggestWorkflowDefinition: ToolDefinition = {
   name: "suggest_workflow",
   description:
@@ -538,6 +553,11 @@ class ChatDirectorImpl extends DefaultDirector {
   // legitimate request for free-form operator input, not workflow idling — let
   // it through instead of suppressing it with a forced re-inference.
   private operatorJustResponded = false;
+  // Plan phase: write/edit tools are blocked until the user approves the plan.
+  private planPhaseActive = false;
+  // Fired each time plan phase is entered or exited so the TUI can update its
+  // status display without polling.
+  private readonly onPlanPhaseChange: ((active: boolean) => void) | undefined;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -550,6 +570,7 @@ class ChatDirectorImpl extends DefaultDirector {
     taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
     onActivateTools?: (names: string[]) => void,
     workflowCoordinator?: WorkflowCoordinator,
+    onPlanPhaseChange?: (active: boolean) => void,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
@@ -558,12 +579,21 @@ class ChatDirectorImpl extends DefaultDirector {
     this.taskClassifier = taskClassifier;
     this.onActivateTools = onActivateTools;
     this.workflowCoordinator = workflowCoordinator;
+    this.onPlanPhaseChange = onPlanPhaseChange;
   }
 
   // The TUI builds the coordinator only once a workflow is started (via slash
   // command or auto-invoke), so it is wired in after construction.
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
     this.workflowCoordinator = coordinator;
+  }
+
+  // Enter plan phase: strip write/edit tools from infer actions until the user
+  // approves a submit_plan. Called by the /plan slash command and the plan_enter tool.
+  enterPlanPhase(): void {
+    if (this.planPhaseActive) return;
+    this.planPhaseActive = true;
+    this.onPlanPhaseChange?.(true);
   }
 
   // Replace the live tool set the model is advertised. MCP servers connect after
@@ -582,17 +612,31 @@ class ChatDirectorImpl extends DefaultDirector {
     // the current step's directive to the system prompt so the model sees the
     // step instruction at the start of each turn.
     const active = this.workflowCoordinator?.isActive() === true;
-    const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+    let tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
       ? [...this._toolDefinitions, advanceWorkflowDefinition]
       : this._toolDefinitions;
+
+    // During plan phase, strip tools that mutate the working tree so the agent
+    // is forced to explore and design before making changes.
+    if (this.planPhaseActive) {
+      tools = tools.filter((t) => !PLAN_PHASE_BLOCKED_TOOLS.has(t.name));
+    }
+
     const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
+    const planDirective = this.planPhaseActive
+      ? "\n\n[PLAN MODE ACTIVE] You are in read-only planning mode. " +
+        "write_file and edit_file are disabled. Explore the codebase, then call " +
+        "submit_plan with a structured plan. The full toolset unlocks once your plan is approved."
+      : null;
+
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
       const options = { ...action.options, tools };
-      if (directive !== null) {
-        const base = action.options?.systemPrompt ?? this._systemPrompt;
-        options.systemPrompt = `${base}\n\n${directive}`;
-      }
+      const base = action.options?.systemPrompt ?? this._systemPrompt;
+      let prompt = base;
+      if (directive !== null) prompt = `${prompt}\n\n${directive}`;
+      if (planDirective !== null) prompt = `${prompt}${planDirective}`;
+      if (prompt !== base) options.systemPrompt = prompt;
       return { type: "infer", options };
     };
     return Array.isArray(result) ? result.map(rewrite) : rewrite(result);
@@ -718,6 +762,11 @@ class ChatDirectorImpl extends DefaultDirector {
         if (!approved) {
           return capabilities.done();
         }
+        // Plan approved — exit plan phase and unlock the full toolset.
+        if (this.planPhaseActive) {
+          this.planPhaseActive = false;
+          this.onPlanPhaseChange?.(false);
+        }
       }
     }
 
@@ -798,6 +847,7 @@ export function createChatDirector(
   taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
   onActivateTools?: (names: string[]) => void,
   workflowCoordinator?: WorkflowCoordinator,
+  onPlanPhaseChange?: (active: boolean) => void,
 ): ChatDirectorWithClear {
   const gate = approvalGate ?? (async () => true);
   return new ChatDirectorImpl(
@@ -807,6 +857,7 @@ export function createChatDirector(
     taskClassifier,
     onActivateTools,
     workflowCoordinator,
+    onPlanPhaseChange,
   );
 }
 
@@ -814,4 +865,5 @@ export interface ChatDirectorWithClear extends ReactorDirector {
   signalNewTask(summary?: string): void;
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
+  enterPlanPhase(): void;
 }

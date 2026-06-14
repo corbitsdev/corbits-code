@@ -35,7 +35,8 @@ import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
-import { writeFile, mkdir, unlink } from "node:fs/promises";
+import { writeFile, mkdir, unlink, readFile } from "node:fs/promises";
+import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPanel } from "./components/workflow-panel.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
@@ -43,7 +44,43 @@ import type { WorkflowStatus } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { WORKFLOWS } from "../workflows/index.js";
 import "./commands/built-in.js";
+import "./commands/plan.js";
 import "./commands/workflows.js";
+
+// Resolve @path/to/file mentions in a user message. Each @mention is replaced
+// with the file's contents wrapped in a labelled fenced block so the agent gets
+// full context without having to call read_file. Mentions that cannot be read
+// are left as-is and a warning is appended so the agent knows.
+async function resolveAtMentions(message: string, cwd: string): Promise<string> {
+  // Match @word, @path/with/slashes, or @"quoted path" — stop at whitespace.
+  const pattern = /@("([^"]+)"|(\S+))/g;
+  const mentions: Array<{ full: string; path: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(message)) !== null) {
+    const path = m[2] ?? m[3] ?? "";
+    if (path.length > 0) mentions.push({ full: m[0], path });
+  }
+  if (mentions.length === 0) return message;
+
+  const replacements: Array<{ full: string; replacement: string }> = await Promise.all(
+    mentions.map(async ({ full, path }) => {
+      const abs = isAbsolute(path) ? path : resolve(cwd, path);
+      try {
+        const content = await readFile(abs, "utf-8");
+        const ext = abs.split(".").pop() ?? "";
+        return { full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` };
+      } catch {
+        return { full, replacement: `${full} (file not found)` };
+      }
+    }),
+  );
+
+  let result = message;
+  for (const { full, replacement } of replacements) {
+    result = result.replace(full, replacement);
+  }
+  return result;
+}
 
 const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
   active: false,
@@ -108,6 +145,7 @@ export type AppProps = {
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
   onStartWorkflow?: (name: string) => string;
   listWorkflows?: () => Array<{ name: string; description: string }>;
+  onEnterPlanMode?: () => void;
   onToggleCapability?: (name: CapabilityName) => void;
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
@@ -138,6 +176,7 @@ export function App({
   onSubAgentProviderChange,
   onStartWorkflow,
   listWorkflows,
+  onEnterPlanMode,
   onToggleCapability,
   initialWorkflowStatus,
   initialProfiles = [],
@@ -365,9 +404,10 @@ export function App({
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
+    ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
     openWorkflowPanel: () => setWorkflowPanelOpen(true),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, auto, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
+  }), [verbose, auto, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -430,13 +470,17 @@ export function App({
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    if (state.isProcessing) {
-      // Agent is mid-response — queue for delivery at the next connector.reply.
-      pendingQueueRef.current.push(message);
-      setQueuedCount((c) => c + 1);
-      return;
-    }
-    sendMessage(message);
+    // Resolve @file mentions before the message reaches the agent. This is
+    // async; we fire-and-forget here so the send is non-blocking, trusting
+    // that the message will be queued when processing is still ongoing.
+    void resolveAtMentions(message, cwd).then((resolved) => {
+      if (state.isProcessing) {
+        pendingQueueRef.current.push(resolved);
+        setQueuedCount((c) => c + 1);
+        return;
+      }
+      sendMessage(resolved);
+    });
   };
 
   // Spin for the full duration of a send cycle (markRunning → connector.reply):

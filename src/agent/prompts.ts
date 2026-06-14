@@ -165,6 +165,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   submit_plan: "record the plan; required before finishing",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  plan_enter: "switch to read-only plan mode before making changes",
   suggest_workflow: "propose launching a built-in workflow when the user's request matches one",
   present: "render structured data (lists, tables, status) to the user",
   tool_search: "load more tools by capability when you need them",
@@ -256,6 +257,16 @@ export function buildSystemPrompt(
   return joinSections(sections);
 }
 
+export function buildPlanModeRules(): string {
+  return [
+    "Plan mode:",
+    "- For non-trivial tasks — anything involving multiple files, risky edits, schema changes, or unclear scope — call plan_enter before making any changes.",
+    "- In plan mode, write_file and edit_file are disabled. Explore the codebase with read tools, then call submit_plan with an ordered list of steps.",
+    "- The user reviews and approves the plan before execution begins. Once approved, the full toolset unlocks and you execute the plan.",
+    "- Skip plan mode for small, local, obviously reversible changes (a one-line fix, a doc edit).",
+  ].join("\n");
+}
+
 export function buildWorkflowSuggestionRules(): string {
   const list = WORKFLOWS.map((w) => `  - ${w.name}: ${w.description}`).join("\n");
   return [
@@ -321,6 +332,7 @@ export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentIn
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
+    buildPlanModeRules(),
     buildWorkflowSuggestionRules(),
     buildAvailableTools(CORE_TOOL_NAMES),
     buildDiscoverableCapabilities(),

@@ -13,6 +13,8 @@ export type CommandContext = {
   openWorkflowPanel?: () => void;
   // Open the workflow picker modal (/workflows command).
   openWorkflowPicker?: () => void;
+  // Enter plan mode: strips write/edit tools until submit_plan is approved.
+  enterPlanMode?: () => void;
 };
 
 export type CommandResult =
