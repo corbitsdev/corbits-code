@@ -387,6 +387,7 @@ class ChatDirectorImpl extends DefaultDirector {
   // After the threshold the director falls back to wait() so a stuck agent
   // does not spin forever.
   private workflowIdleTurns = 0;
+  private lastInferenceTurnHadContent = false;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -504,6 +505,10 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "inference.done") {
       this.turnCount++;
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
+      const hasText = event.turn.content.some(
+        (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
+      );
+      this.lastInferenceTurnHadContent = hasToolCalls || hasText;
       if (this.workflowCoordinator?.isActive()) {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
@@ -576,7 +581,7 @@ class ChatDirectorImpl extends DefaultDirector {
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
       const actions = Array.isArray(base) ? base : [base];
-      if (actions.some((a) => a.type === "wait")) {
+      if (actions.some((a) => a.type === "wait") && this.lastInferenceTurnHadContent) {
         if (this.workflowIdleTurns >= 3) {
           return [
             capabilities.reply(
