@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { type } from "arktype";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
-export type PlanStep = { file: string; action: string };
+const PlanStepSchema = type({ file: "string", action: "string", "reason?": "string" });
+const PlanSchema = type({ "goal?": "string", steps: PlanStepSchema.array() });
+
+export type PlanStep = { file: string; action: string; reason: string };
 
 // The block payload by type. Blocks carry a stable `id` (see ContentBlock) so UI
 // state like "which tool is expanded" survives array mutations (plan/present
@@ -17,7 +21,7 @@ export type ContentBlockData =
   | { type: "tool_call"; name: string; arguments: string }
   | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { type: "reply"; content: string }
-  | { type: "plan"; steps: PlanStep[] }
+  | { type: "plan"; goal?: string; steps: PlanStep[] }
   | { type: "view"; node: ViewNode }
   | { type: "error"; message: string };
 
@@ -33,6 +37,7 @@ export type AgentStreamState = {
   totalTokens: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
@@ -55,27 +60,20 @@ export type AgentStreamState = {
   clear(): void;
 };
 
-function parsePlanSteps(rawArguments: string): PlanStep[] {
-  if (rawArguments.length === 0) return [];
-  let parsed: unknown;
+function parsePlan(rawArguments: string): { goal?: string; steps: PlanStep[] } {
+  if (rawArguments.length === 0) return { steps: [] };
+  let raw: unknown;
   try {
-    parsed = JSON.parse(rawArguments);
+    raw = JSON.parse(rawArguments);
   } catch {
-    return [];
+    return { steps: [] };
   }
-  if (typeof parsed !== "object" || parsed === null) return [];
-  const steps = (parsed as { steps?: unknown }).steps;
-  if (!Array.isArray(steps)) return [];
-  const out: PlanStep[] = [];
-  for (const raw of steps) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const s = raw as Record<string, unknown>;
-    const file = typeof s.file === "string" ? s.file : "";
-    const action = typeof s.action === "string" ? s.action : "";
-    if (file.length === 0 && action.length === 0) continue;
-    out.push({ file, action });
-  }
-  return out;
+  const result = PlanSchema(raw);
+  if (result instanceof type.errors) return { steps: [] };
+  const steps = result.steps
+    .filter((s) => s.file.length > 0 || s.action.length > 0)
+    .map((s) => ({ file: s.file, action: s.action, reason: s.reason ?? "" }));
+  return result.goal !== undefined ? { goal: result.goal, steps } : { steps };
 }
 
 const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
@@ -87,17 +85,18 @@ function nextFileStepIndex(steps: PlanStep[], from: number): number | null {
   return null;
 }
 
+const PathArgSchema = type({ path: "string>0" });
+
 function parsePathArgument(rawArguments: string): string | null {
   if (rawArguments.length === 0) return null;
-  let parsed: unknown;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(rawArguments);
+    raw = JSON.parse(rawArguments);
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const path = (parsed as { path?: unknown }).path;
-  return typeof path === "string" && path.length > 0 ? path : null;
+  const result = PathArgSchema(raw);
+  return result instanceof type.errors ? null : result.path;
 }
 
 function stringifyToolContent(content: unknown): string {
@@ -170,6 +169,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // resolving one gate while another is still open does not prematurely
   // flip status back to "running".
   let gateCount = 0;
+  let cacheReadTokens = 0;
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
@@ -203,6 +203,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     get outputTokens() {
       return faremeter.getOutputTokens();
+    },
+    get cacheReadTokens() {
+      return cacheReadTokens;
     },
     get formattedCost() {
       return formatCost(faremeter.getTotalCost());
@@ -391,15 +394,16 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
             // Read all needed values before deleting map entries (H4).
             callIdToName.delete(result.callId);
             callIdToArguments.delete(result.callId);
-            const steps = parsePlanSteps(planArgs);
+            const { goal, steps } = parsePlan(planArgs);
             if (planCallIndex >= 0) {
               spliceBlocks(planCallIndex, 1);
             }
             const existingPlanIndex = contentBlocks.findIndex((b) => b.type === "plan");
+            const planBlock = goal !== undefined ? { type: "plan" as const, goal, steps } : { type: "plan" as const, steps };
             if (existingPlanIndex >= 0) {
-              setBlock(existingPlanIndex, { type: "plan", steps });
+              setBlock(existingPlanIndex, planBlock);
             } else {
-              unshiftBlock({ type: "plan", steps });
+              unshiftBlock(planBlock);
             }
             planSteps = steps;
             planDeviated = false;
@@ -498,6 +502,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       if (event.type === "inference.usage") {
         const data = event.data as { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; thinking: number } };
         faremeter.addUsage(data.usage);
+        cacheReadTokens += data.usage.cacheRead;
       }
 
       if (event.type === "reactor.done") {

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
 import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
+import { PROVIDER_TIERS, type ProviderTier, type TierAssignment } from "../../config/settings.js";
+import type { AgentProfile } from "../../agent/profiles.js";
 
 // undefined is "no override" (omit the field); "none" is OpenAI's explicit
 // disable-reasoning value. Both read as "off", so label them distinctly.
@@ -24,7 +26,7 @@ export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission }
 
 export type ProviderFormField = "name" | "baseURL" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
-type Step = "provider" | "model" | "effort" | "form" | "delete";
+type Step = "provider" | "model" | "effort" | "form" | "delete" | "tiers" | "profiles" | "profile-form" | "profile-delete";
 
 const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "apiKey", "models", "defaultModel"];
 
@@ -68,6 +70,11 @@ export type AgentModalProps = {
   onSaveProvider: (provider: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
+  tiers: Partial<Record<ProviderTier, TierAssignment>>;
+  onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
+  profiles: AgentProfile[];
+  onSaveProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
+  onDeleteProfile: (id: string) => void;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -124,6 +131,31 @@ function maskInput(field: ProviderFormField, value: string): string {
   return field === "apiKey" ? "*".repeat(Math.min(value.length, 16)) : value;
 }
 
+type ProfileFormValues = { id: string; description: string; tier: ProviderTier | "" };
+
+const PROFILE_TIER_OPTIONS: ReadonlyArray<ProviderTier | ""> = ["", ...PROVIDER_TIERS];
+
+function initialProfileFormValues(profile: AgentProfile | undefined): ProfileFormValues {
+  return {
+    id: profile?.id ?? "",
+    description: profile?.description ?? "",
+    tier: profile?.tier ?? "",
+  };
+}
+
+type ProfileFormField = "id" | "description" | "tier";
+const PROFILE_FORM_FIELDS: readonly ProfileFormField[] = ["id", "description", "tier"];
+const PROFILE_FIELD_LABELS: Record<ProfileFormField, string> = {
+  id: "ID",
+  description: "Description",
+  tier: "Tier",
+};
+const PROFILE_FIELD_HINTS: Record<ProfileFormField, string> = {
+  id: "greybeard, fast-thinker, ...",
+  description: "optional label",
+  tier: "fast / standard / clever (optional)",
+};
+
 export function AgentModal({
   providers,
   activeProvider,
@@ -134,6 +166,11 @@ export function AgentModal({
   onSaveProvider,
   onDeleteProvider,
   onClose,
+  tiers,
+  onSaveTier,
+  profiles,
+  onSaveProfile,
+  onDeleteProfile,
 }: AgentModalProps): ReactNode {
   const initialProvider = Math.max(
     0,
@@ -149,6 +186,13 @@ export function AgentModal({
   const [formValues, setFormValues] = useState<ProviderFormValues>(() => initialFormValues(undefined));
   const [editingProvider, setEditingProvider] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
+  const [tierIndex, setTierIndex] = useState(0);
+  const [pendingTierAssign, setPendingTierAssign] = useState<ProviderTier | null>(null);
+  const [profileIndex, setProfileIndex] = useState(0);
+  const [profileFormIndex, setProfileFormIndex] = useState(0);
+  const [profileFormValues, setProfileFormValues] = useState<ProfileFormValues>(() => initialProfileFormValues(undefined));
+  const [editingProfileId, setEditingProfileId] = useState<string | undefined>(undefined);
+  const [profileFormError, setProfileFormError] = useState<string | null>(null);
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
@@ -206,7 +250,64 @@ export function AgentModal({
       setFormError(saved.error);
       return;
     }
-    setStep("provider");
+    if (pendingTierAssign !== null) {
+      setStep("tiers");
+    } else {
+      setStep("provider");
+    }
+  };
+
+  const enterTierModelStep = (tierName: ProviderTier): void => {
+    setPendingTierAssign(tierName);
+    const provider = providers[providerIndex];
+    if (provider === undefined) return;
+    const active = provider.name === activeProvider ? activeModel : provider.defaultModel;
+    const idx = active !== undefined ? provider.models.indexOf(active) : -1;
+    setModelIndex(idx >= 0 ? idx : 0);
+    setStep("model");
+  };
+
+  const enterAddProfileForm = (): void => {
+    setEditingProfileId(undefined);
+    setProfileFormValues(initialProfileFormValues(undefined));
+    setProfileFormIndex(0);
+    setProfileFormError(null);
+    setStep("profile-form");
+  };
+
+  const enterEditProfileForm = (): void => {
+    const profile = profiles[profileIndex];
+    if (profile === undefined) return;
+    setEditingProfileId(profile.id);
+    setProfileFormValues(initialProfileFormValues(profile));
+    setProfileFormIndex(0);
+    setProfileFormError(null);
+    setStep("profile-form");
+  };
+
+  const submitProfileForm = (): void => {
+    const id = profileFormValues.id.trim();
+    const description = profileFormValues.description.trim();
+    const tierValue = profileFormValues.tier.trim() as ProviderTier | "";
+    if (id.length === 0) {
+      setProfileFormError("ID is required");
+      return;
+    }
+    if (!/^[\w-]+$/.test(id)) {
+      setProfileFormError("ID must be alphanumeric with hyphens/underscores only");
+      return;
+    }
+    const profile: AgentProfile = {
+      id,
+      ...(description.length > 0 ? { description } : {}),
+      ...(tierValue.length > 0 ? { tier: tierValue as ProviderTier } : {}),
+    };
+    const result = onSaveProfile(profile);
+    if (!result.ok) {
+      setProfileFormError(result.error);
+      return;
+    }
+    setStep("profiles");
   };
 
   useInput((input, key) => {
@@ -235,7 +336,140 @@ export function AgentModal({
         if (selectedProvider !== undefined) setStep("delete");
         return;
       }
+      if (input === "t") {
+        setStep("tiers");
+        return;
+      }
+      if (input === "p") {
+        setProfileIndex(0);
+        setStep("profiles");
+        return;
+      }
       if (key.escape) onClose();
+      return;
+    }
+
+    if (step === "profiles") {
+      if (key.upArrow) {
+        setProfileIndex((i) => (i > 0 ? i - 1 : profiles.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setProfileIndex((i) => (i < profiles.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (input === "a") {
+        enterAddProfileForm();
+        return;
+      }
+      if (input === "e") {
+        if (profiles.length > 0) enterEditProfileForm();
+        return;
+      }
+      if (input === "x") {
+        if (profiles.length > 0) setStep("profile-delete");
+        return;
+      }
+      if (key.escape) {
+        setStep("provider");
+        return;
+      }
+      return;
+    }
+
+    if (step === "profile-delete") {
+      if (input === "y") {
+        const profile = profiles[profileIndex];
+        if (profile !== undefined) {
+          onDeleteProfile(profile.id);
+          setProfileIndex(0);
+        }
+        setStep("profiles");
+        return;
+      }
+      if (input === "n" || key.escape) {
+        setStep("profiles");
+        return;
+      }
+      return;
+    }
+
+    if (step === "profile-form") {
+      const currentProfileField = PROFILE_FORM_FIELDS[profileFormIndex] ?? "id";
+      if (currentProfileField === "tier") {
+        if (key.upArrow) {
+          setProfileFormValues((v) => {
+            const idx = PROFILE_TIER_OPTIONS.indexOf(v.tier);
+            const next = PROFILE_TIER_OPTIONS[idx > 0 ? idx - 1 : PROFILE_TIER_OPTIONS.length - 1] ?? "";
+            return { ...v, tier: next };
+          });
+          return;
+        }
+        if (key.downArrow) {
+          setProfileFormValues((v) => {
+            const idx = PROFILE_TIER_OPTIONS.indexOf(v.tier);
+            const next = PROFILE_TIER_OPTIONS[idx < PROFILE_TIER_OPTIONS.length - 1 ? idx + 1 : 0] ?? "";
+            return { ...v, tier: next };
+          });
+          return;
+        }
+      } else {
+        if (key.upArrow) {
+          setProfileFormIndex((i) => (i > 0 ? i - 1 : PROFILE_FORM_FIELDS.length - 1));
+          return;
+        }
+        if (key.downArrow || key.tab) {
+          setProfileFormIndex((i) => (i < PROFILE_FORM_FIELDS.length - 1 ? i + 1 : 0));
+          return;
+        }
+      }
+      if (key.return) {
+        if (profileFormIndex < PROFILE_FORM_FIELDS.length - 1) {
+          setProfileFormIndex((i) => i + 1);
+          return;
+        }
+        submitProfileForm();
+        return;
+      }
+      if (key.escape) {
+        setStep("profiles");
+        setProfileFormError(null);
+        return;
+      }
+      if (currentProfileField !== "tier") {
+        if (key.backspace || key.delete) {
+          setProfileFormValues((v) => ({ ...v, [currentProfileField]: v[currentProfileField].slice(0, -1) }));
+          setProfileFormError(null);
+          return;
+        }
+        if (!key.ctrl && !key.meta && input.length > 0) {
+          setProfileFormValues((v) => ({ ...v, [currentProfileField]: v[currentProfileField] + input }));
+          setProfileFormError(null);
+        }
+      }
+      return;
+    }
+
+    if (step === "tiers") {
+      if (key.upArrow) {
+        setTierIndex((i) => (i > 0 ? i - 1 : PROVIDER_TIERS.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setTierIndex((i) => (i < PROVIDER_TIERS.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (key.return) {
+        const tier = PROVIDER_TIERS[tierIndex];
+        if (tier !== undefined) {
+          enterTierModelStep(tier);
+        }
+        return;
+      }
+      if (key.escape) {
+        setStep("provider");
+        return;
+      }
       return;
     }
 
@@ -249,14 +483,25 @@ export function AgentModal({
         return;
       }
       if (key.escape) {
-        setStep("provider");
+        if (pendingTierAssign !== null) {
+          setPendingTierAssign(null);
+          setStep("tiers");
+        } else {
+          setStep("provider");
+        }
         return;
       }
       const provider = providers[providerIndex];
       const model = models[modelIndex];
       if (provider === undefined || model === undefined) return;
       if (key.return) {
-        enterEffortStep(provider.name, model);
+        if (pendingTierAssign !== null) {
+          onSaveTier(pendingTierAssign, provider.name, model);
+          setPendingTierAssign(null);
+          setStep("tiers");
+        } else {
+          enterEffortStep(provider.name, model);
+        }
       }
       return;
     }
@@ -321,6 +566,7 @@ export function AgentModal({
     if (key.escape) {
       setStep("provider");
       setFormError(null);
+      setPendingTierAssign(null);
       return;
     }
     if (key.backspace || key.delete) {
@@ -373,9 +619,39 @@ export function AgentModal({
         </Box>
       )}
 
+      {step === "tiers" && (
+        <Box marginTop={1} flexDirection="column">
+          {PROVIDER_TIERS.map((tier, i) => {
+            const assignment = tiers[tier];
+            const isCursor = i === tierIndex;
+            const assignmentLabel =
+              assignment !== undefined
+                ? `${assignment.provider} · ${assignment.model}`
+                : "unset";
+            return (
+              <Box key={tier} flexDirection="row" gap={2}>
+                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                  {isCursor ? ">" : " "}
+                </Text>
+                <Box width={10} flexShrink={0}>
+                  <Text color={isCursor ? color("accent") : color("text")}>{tier}</Text>
+                </Box>
+                <Text color={assignment !== undefined ? color("text") : color("muted")}>
+                  {assignmentLabel}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
       {step === "model" && (
         <Box marginTop={1} flexDirection="column">
-          <Text color={color("muted")}>{selectedProvider?.name}</Text>
+          <Text color={color("muted")}>
+            {pendingTierAssign !== null
+              ? `Assign provider for tier: ${pendingTierAssign}`
+              : selectedProvider?.name}
+          </Text>
           {models.map((m, i) => {
             const isActive = selectedProvider?.name === activeProvider && m === activeModel;
             const isCursor = i === modelIndex;
@@ -458,9 +734,84 @@ export function AgentModal({
         </Box>
       )}
 
+      {step === "profiles" && (
+        <Box marginTop={1} flexDirection="column">
+          {profiles.length === 0 && (
+            <Text color={color("muted")}>(no profiles — press a to add one)</Text>
+          )}
+          {profiles.map((p, i) => {
+            const isCursor = i === profileIndex;
+            return (
+              <Box key={p.id} flexDirection="row" gap={2}>
+                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                  {isCursor ? ">" : " "}
+                </Text>
+                <Box width={20} flexShrink={0}>
+                  <Text color={isCursor ? color("accent") : color("text")}>{p.id}</Text>
+                </Box>
+                <Text color={color("muted")}>
+                  {p.tier !== undefined ? `[${p.tier}]` : ""}
+                  {p.description !== undefined ? ` ${p.description}` : ""}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {step === "profile-delete" && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={color("danger")}>Remove agent profile {profiles[profileIndex]?.id}?</Text>
+          <Text color={color("muted")}>y remove · n cancel · Esc cancel</Text>
+        </Box>
+      )}
+
+      {step === "profile-form" && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={color("muted")}>
+            {editingProfileId === undefined ? "Add agent profile" : `Edit profile ${editingProfileId}`}
+          </Text>
+          {PROFILE_FORM_FIELDS.map((field, i) => {
+            const isCursor = i === profileFormIndex;
+            return (
+              <Box key={field} flexDirection="row" gap={1}>
+                <Box width={14} flexShrink={0}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {PROFILE_FIELD_LABELS[field]}
+                  </Text>
+                </Box>
+                {field === "tier" ? (
+                  <Text color={profileFormValues.tier.length > 0 ? color("text") : color("muted")}>
+                    {isCursor ? "< " : "  "}
+                    {profileFormValues.tier.length > 0 ? profileFormValues.tier : "none"}
+                    {isCursor ? " >" : ""}
+                  </Text>
+                ) : (
+                  <>
+                    <Text color={profileFormValues[field].length > 0 ? color("text") : color("muted")}>
+                      {profileFormValues[field].length > 0 ? profileFormValues[field] : PROFILE_FIELD_HINTS[field]}
+                    </Text>
+                    {isCursor && <Text color={color("accent")}>|</Text>}
+                  </>
+                )}
+              </Box>
+            );
+          })}
+          {profileFormError !== null && (
+            <Box marginTop={1}>
+              <Text color={color("danger")}>{profileFormError}</Text>
+            </Box>
+          )}
+        </Box>
+      )}
+
       <Box marginTop={1}>
         <Text dimColor>
-          {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · Esc close"}
+          {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · p profiles · Esc close"}
+          {step === "tiers" && "Up/Down navigate · Enter assign · Esc back"}
+          {step === "profiles" && "Up/Down navigate · a add · e edit · x remove · Esc back"}
+          {step === "profile-form" && "Up/Down fields · Left/Right for tier · Enter next/save · Esc cancel"}
+          {step === "profile-delete" && "y remove · n cancel · Esc back"}
           {step === "model" && "Up/Down navigate · Enter effort · Esc back"}
           {step === "effort" && "Up/Down navigate · Enter use now · d set as default · Esc back"}
           {step === "form" && "Up/Down fields · Enter next/save · Esc cancel"}

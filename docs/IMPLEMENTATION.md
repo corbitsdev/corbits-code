@@ -115,7 +115,8 @@ src/
     theme.ts              Colors
     commands/
       registry.ts         Extensible slash-command registry
-      built-in.ts         /help, /diff, /plan, /verbose, /agent (/model alias)
+      built-in.ts         /help, /diff, /verbose, /agent (/model alias)
+      plan.ts             /plan-mode slash command (cycles to Plan mode)
     components/
       header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx,
       plan-view.tsx, diff-view.tsx, context-panel.tsx,
@@ -129,6 +130,18 @@ src/
 docs/
   PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, HOOKS.md
 ```
+
+### Agent Mode
+
+`AgentMode = "edit" | "auto" | "plan"` (`src/tui/app.tsx`). SHIFT+TAB cycles the three modes; `/plan-mode` slash command also enters Plan mode directly. `modeColor` is derived once from the current mode and applied to the input separator border and the sidebar `borderColor` prop: `accent` (blue) for Edit, `warning` (orange) for Auto, `success` (green) for Plan.
+
+On Plan mode entry, `runner.tsx` calls `promoteTools(["submit_plan"])` so the chat model can call `submit_plan` without a prior `tool_search`. On exit (either SHIFT+TAB cycle or the director's `"plan-phase"` done event), `directorHolder.instance?.exitPlanPhase()` lifts the write restriction on the director side. `app.tsx` listens for `"plan-phase"` events from the runner's `EventEmitter` to reset `agentMode` to `"edit"` when the director independently exits plan phase after plan approval.
+
+Plan steps auto-render in the sidebar (`plan-view.tsx`) when `planSteps.length > 0`; the workflow panel auto-shows when a workflow is active. Neither requires a manual slash command. The sidebar visibility derives from `effectiveSidebarOpen = sidebarOpen || autoSidebarOpen || workflowPanelOpen`.
+
+### @file Mention Resolution
+
+`@<path>` tokens in chat input are resolved to file contents before delivery to the agent. The chat input component (`src/tui/components/chat-input.tsx`) scans the submitted text for `@<path>` patterns, reads each matching file, and inlines the content as a fenced code block. Unresolvable paths pass through as-is.
 
 ## Configuration
 
@@ -186,7 +199,7 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 }
 ```
 
-`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
+`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt; `workflow` names a workflow to auto-invoke on session start (unless `--no-workflow` is passed). CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
 
 ### Environment Variables (override)
 
@@ -212,6 +225,7 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 | `--headless`, `-h` | false | Headless CLI mode (default is the TUI) |
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
+| `--no-workflow` | false | Suppress auto-invoking the profile's `workflow` for this run |
 | `--help` | — | Show help |
 
 Positional arguments are joined into the task description. In headless mode a task is required.

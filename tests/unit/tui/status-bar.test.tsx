@@ -52,12 +52,12 @@ test("StatusBar formats elapsed time", () => {
   expect(lastFrame()).toContain("1:05");
 });
 
-test("StatusBar renders the reasoning-effort indicator", () => {
+test("StatusBar renders the reasoning-effort in the provider line", () => {
   const { lastFrame } = renderBar({ reasoningEffort: "high" });
-  expect(lastFrame()).toContain("EFFORT:HIGH");
+  expect(lastFrame()).toContain("· HIGH");
 });
 
-test("StatusBar hides the indicator when effort is unset", () => {
+test("StatusBar hides effort suffix when unset", () => {
   const { lastFrame } = renderBar();
-  expect(lastFrame()).not.toContain("EFFORT");
+  expect(lastFrame()).not.toContain("· HIGH");
 });
