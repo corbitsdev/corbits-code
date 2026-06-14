@@ -69,6 +69,24 @@ The source is the truth; these docs guide you to it.
 - `docs/HOOKS.md` — lifecycle hooks.
 - `PLAN.md` — phase breakdown and demo strategy.
 
+## Interchange as Standard Library
+
+Interchange is the standard library for this repo. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check the interchange submodule packages for an existing implementation.
+
+**Do not reimplement what interchange already provides. Lean on it.**
+
+Canonical packages and what each covers:
+
+- `@intx/authz` — grant-based policy engine (allow/ask/deny)
+- `@intx/inference` — reactor loop, `createAuthzExtension` (beforeTool hook), `DefaultDirector`
+- `@intx/agent` — agent lifecycle, send queue, stream
+- `@intx/tools-posix` — shell, file read/write/edit, grep, search
+- `@intx/storage-isogit` — git-backed state persistence
+- `@intx/log` — structured logging via LogTape
+- `@intx/types` — all shared runtime types
+
+If you find yourself writing something that sounds like one of these, stop and check the package first.
+
 ## Workspace Layout
 
 - `.agents/` — shared agent assets and skills (prefer this for cross-runtime guidance).
