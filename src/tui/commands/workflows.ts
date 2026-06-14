@@ -8,10 +8,18 @@ for (const workflow of WORKFLOWS) {
   registerCommand({
     name: workflow.name,
     description: workflow.description,
-    handler: (_args, ctx) => ({
-      type: "message",
-      text: ctx.startWorkflow?.(workflow.name) ?? "Workflows are unavailable in this session.",
-    }),
+    handler: (_args, ctx) => {
+      if (ctx.startWorkflow === undefined) {
+        return { type: "message", text: "Workflows are unavailable in this session." };
+      }
+      const msg = ctx.startWorkflow(workflow.name);
+      // If start() returned a confirmation prompt (e.g. "already active") surface
+      // it as a message without kicking the agent. Otherwise send a kickoff turn.
+      if (!msg.startsWith("Started")) {
+        return { type: "message", text: msg };
+      }
+      return { type: "send", text: `Begin the ${workflow.name} workflow.` };
+    },
   });
 }
 
