@@ -271,10 +271,12 @@ export function App({
     return () => { eventEmitter.off("plan-phase", onPlanPhase); };
   }, [eventEmitter]);
 
-  const planSteps = useMemo(() => {
+  const planBlock = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
-    return block?.type === "plan" ? block.steps : [];
+    return block?.type === "plan" ? block : undefined;
   }, [state.contentBlocks]);
+  const planSteps = planBlock?.steps ?? [];
+  const planGoal = planBlock?.goal;
 
   // Sidebar opens automatically when there's a plan or an active workflow.
   // Manual sidebarOpen still works for the diff view.
@@ -717,6 +719,7 @@ export function App({
             planDeviated={state.planDeviated}
             width={columns}
             borderColor={modeColor}
+            {...(planGoal !== undefined ? { goal: planGoal } : {})}
           />
         ) : diffFullScreenOpen ? (
           <DiffView
@@ -759,6 +762,7 @@ export function App({
                     diffScrollOffset={diffScroll}
                     diffVisibleRows={diffVisibleRows}
                     borderColor={modeColor}
+                    {...(planGoal !== undefined ? { goal: planGoal } : {})}
                   />
                 )}
               </Box>

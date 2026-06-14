@@ -8,6 +8,7 @@ export type ContextView = "plan" | "diff";
 
 export type ContextPanelProps = {
   view: ContextView;
+  goal?: string;
   steps: PlanStep[];
   currentPlanStep: number | null;
   planDeviated: boolean;
@@ -20,6 +21,7 @@ export type ContextPanelProps = {
 
 export function ContextPanel({
   view,
+  goal,
   steps,
   currentPlanStep,
   planDeviated,
@@ -46,6 +48,7 @@ export function ContextPanel({
       currentPlanStep={currentPlanStep}
       planDeviated={planDeviated}
       width={width}
+      {...(goal !== undefined ? { goal } : {})}
       {...(borderColor !== undefined ? { borderColor } : {})}
     />
   );

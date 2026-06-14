@@ -318,6 +318,7 @@ export function buildChatToolCallDiscipline(): string {
     "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
     "- Understand before you change: grep for the symbol, read the file and its callers, then edit.",
+    "- When the user gives an open-ended request and the next step is obvious from the codebase, do it — don't ask for confirmation or offer a template. Explore first, then act. Only use ask_operator when the task is genuinely ambiguous and the wrong choice would waste significant effort.",
   ].join("\n");
 }
 

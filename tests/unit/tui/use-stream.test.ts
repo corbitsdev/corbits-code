@@ -196,10 +196,10 @@ test("submit_plan promotes to pinned plan block at index 0", () => {
 
   expect(state.contentBlocks.length).toBe(1);
   expect(state.contentBlocks[0].type).toBe("plan");
-  const plan = state.contentBlocks[0] as { type: "plan"; steps: Array<{ file: string; action: string }> };
+  const plan = state.contentBlocks[0] as { type: "plan"; steps: Array<{ file: string; action: string; reason: string }> };
   expect(plan.steps).toEqual([
-    { file: "src/a.ts", action: "create" },
-    { file: "src/b.ts", action: "edit" },
+    { file: "src/a.ts", action: "create", reason: "x" },
+    { file: "src/b.ts", action: "edit", reason: "y" },
   ]);
 });
 

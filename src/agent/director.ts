@@ -20,21 +20,27 @@ export type PlanStep = {
   reason: string;
 };
 
+export type Plan = {
+  goal?: string;
+  steps: PlanStep[];
+};
+
 export const submitPlanDefinition: ToolDefinition = {
   name: "submit_plan",
   description:
-    "Call this on your first turn to declare a structured plan for the task.",
+    "Call this on your first turn to declare a structured plan for the task. Include a goal statement and ordered steps — each step should be actionable enough that another engineer could execute it without further context.",
   inputSchema: {
     type: "object",
     properties: {
+      goal: { type: "string", description: "One-sentence statement of what this plan accomplishes" },
       steps: {
         type: "array",
         description: "Ordered list of planned steps",
         items: {
           type: "object",
           properties: {
-            file: { type: "string", description: "File this step touches" },
-            action: { type: "string", description: "What to do with the file" },
+            file: { type: "string", description: "Primary file or path this step touches (empty string if not file-specific)" },
+            action: { type: "string", description: "Concrete action to take — specific enough to execute without asking questions" },
             reason: { type: "string", description: "Why this step is needed" },
           },
           required: ["file", "action", "reason"],
@@ -181,7 +187,7 @@ export interface CodingDirector extends ReactorDirector {
 }
 
 
-function isValidPlanArgs(args: unknown): args is { steps: PlanStep[] } {
+function isValidPlanArgs(args: unknown): args is { goal?: string; steps: PlanStep[] } {
   if (typeof args !== "object" || args === null) return false;
   const a = args as Record<string, unknown>;
   if (!Array.isArray(a.steps)) return false;
