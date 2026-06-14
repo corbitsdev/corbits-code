@@ -408,6 +408,7 @@ export async function runTUI(config: Config): Promise<number> {
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
       initialAuto={config.auto}
       onToggleAuto={(value) => permissionGate.setAuto(value)}
+      {...(config.tiers !== undefined ? { initialTiers: config.tiers } : {})}
       onSubAgentProviderChange={(provider) => {
         liveSubAgentProvider.current = provider;
       }}
