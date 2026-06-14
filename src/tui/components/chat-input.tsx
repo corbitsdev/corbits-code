@@ -234,10 +234,12 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
           {suggestions.map((cmd, i) => (
             <Box key={cmd.name} flexDirection="row" gap={1}>
-              <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx}>
-                {`/${cmd.name}`}
-              </Text>
-              <Text color="gray">{cmd.description}</Text>
+              <Box width={22} flexShrink={0}>
+                <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx} wrap="truncate-end">
+                  {`/${cmd.name}`}
+                </Text>
+              </Box>
+              <Text color="gray" wrap="truncate-end">{cmd.description}</Text>
             </Box>
           ))}
         </Box>

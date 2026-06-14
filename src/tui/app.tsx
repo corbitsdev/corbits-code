@@ -327,6 +327,7 @@ export function App({
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
+    openWorkflowPanel: () => setWorkflowPanelOpen(true),
   }), [verbose, auto, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
   // Track the last moment real progress was observed. Reset whenever new content

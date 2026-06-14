@@ -7,7 +7,7 @@ import { WORKFLOWS } from "../../workflows/index.js";
 for (const workflow of WORKFLOWS) {
   registerCommand({
     name: workflow.name,
-    description: `Start the ${workflow.name} workflow — ${workflow.description}`,
+    description: workflow.description,
     handler: (_args, ctx) => ({
       type: "message",
       text: ctx.startWorkflow?.(workflow.name) ?? "Workflows are unavailable in this session.",
@@ -17,13 +17,9 @@ for (const workflow of WORKFLOWS) {
 
 registerCommand({
   name: "workflows",
-  description: "List the available workflows",
+  description: "Open the workflow steps panel",
   handler: (_args, ctx) => {
-    const list = ctx.listWorkflows?.() ?? [];
-    if (list.length === 0) {
-      return { type: "message", text: "No workflows are registered." };
-    }
-    const lines = list.map((w) => `/${w.name} — ${w.description}`);
-    return { type: "message", text: lines.join("\n") };
+    ctx.openWorkflowPanel?.();
+    return { type: "noop" };
   },
 });

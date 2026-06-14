@@ -9,6 +9,8 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   // List available workflows for /workflows.
   listWorkflows?: () => Array<{ name: string; description: string }>;
+  // Open the workflow panel (Ctrl+W surface).
+  openWorkflowPanel?: () => void;
 };
 
 export type CommandResult =
