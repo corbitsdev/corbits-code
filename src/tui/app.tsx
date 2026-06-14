@@ -171,7 +171,7 @@ export function App({
     onMessage: setCommandMessage,
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
-  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider } = providerManager;
+  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment } = providerManager;
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
@@ -659,6 +659,8 @@ export function App({
         onAgentSaveProvider={upsertProvider}
         onAgentDeleteProvider={deleteProvider}
         onCloseAgentModal={() => setAgentModalOpen(false)}
+        agentTiers={tiers}
+        onSaveTier={saveTierAssignment}
         pendingPlan={gates.pendingPlan}
         onApprove={gates.approve}
         onReject={gates.reject}

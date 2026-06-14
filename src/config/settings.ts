@@ -19,11 +19,17 @@ export type ProviderSettings = {
   defaultModel?: string;
 };
 
+export type ProviderTier = "fast" | "standard" | "clever";
+export type TierAssignment = { provider: string; model: string };
+
+export const PROVIDER_TIERS: readonly ProviderTier[] = ["fast", "standard", "clever"];
+
 // Global settings: the set of providers plus which one to use by default.
 export type Settings = {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerConfig[];
+  tiers?: Partial<Record<ProviderTier, TierAssignment>>;
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
@@ -112,12 +118,24 @@ const ProviderSettingsSchema = type({
   "defaultModel?": "string",
 });
 
+const TierAssignmentSchema = type({
+  provider: "string",
+  model: "string",
+});
+
+const TiersSchema = type({
+  "fast?": TierAssignmentSchema,
+  "standard?": TierAssignmentSchema,
+  "clever?": TierAssignmentSchema,
+});
+
 const SettingsSchema = type({
   "defaultProvider?": "string",
   providers: type({ "[string]": ProviderSettingsSchema }),
   // mcpServers accepts both array and object forms, so it is validated by
   // normalizeMcpServers rather than expressed structurally here.
   "mcpServers?": "unknown",
+  "tiers?": TiersSchema,
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -233,6 +251,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     providers: s.providers as Settings["providers"],
     ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
+    ...(s.tiers !== undefined ? { tiers: s.tiers as Settings["tiers"] } : {}),
   } as Settings;
 }
 
@@ -368,4 +387,21 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   }
 
   return { providerName, baseURL: normalizeOpenAICompatibleBaseURL(baseURL), apiKey, model };
+}
+
+// Walk the fallback chain fast → standard → clever and return the first
+// TierAssignment that is configured and references an existing provider.
+// Returns null if no tier in the chain is configured.
+export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignment | null {
+  const chain: ProviderTier[] = ["fast", "standard", "clever"];
+  const start = chain.indexOf(tier);
+  if (start === -1) return null;
+  for (let i = start; i < chain.length; i++) {
+    const t = chain[i] as ProviderTier;
+    const assignment = settings.tiers?.[t];
+    if (assignment !== undefined && settings.providers[assignment.provider] !== undefined) {
+      return assignment;
+    }
+  }
+  return null;
 }

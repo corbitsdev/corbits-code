@@ -4,6 +4,7 @@ import { useState } from "react";
 import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
 import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
+import { PROVIDER_TIERS, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 
 // undefined is "no override" (omit the field); "none" is OpenAI's explicit
 // disable-reasoning value. Both read as "off", so label them distinctly.
@@ -24,7 +25,7 @@ export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission }
 
 export type ProviderFormField = "name" | "baseURL" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
-type Step = "provider" | "model" | "effort" | "form" | "delete";
+type Step = "provider" | "model" | "effort" | "form" | "delete" | "tiers";
 
 const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "apiKey", "models", "defaultModel"];
 
@@ -68,6 +69,8 @@ export type AgentModalProps = {
   onSaveProvider: (provider: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
+  tiers: Partial<Record<ProviderTier, TierAssignment>>;
+  onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -134,6 +137,8 @@ export function AgentModal({
   onSaveProvider,
   onDeleteProvider,
   onClose,
+  tiers,
+  onSaveTier,
 }: AgentModalProps): ReactNode {
   const initialProvider = Math.max(
     0,
@@ -149,6 +154,8 @@ export function AgentModal({
   const [formValues, setFormValues] = useState<ProviderFormValues>(() => initialFormValues(undefined));
   const [editingProvider, setEditingProvider] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
+  const [tierIndex, setTierIndex] = useState(0);
+  const [pendingTierAssign, setPendingTierAssign] = useState<ProviderTier | null>(null);
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
@@ -206,7 +213,21 @@ export function AgentModal({
       setFormError(saved.error);
       return;
     }
-    setStep("provider");
+    if (pendingTierAssign !== null) {
+      setStep("tiers");
+    } else {
+      setStep("provider");
+    }
+  };
+
+  const enterTierModelStep = (tierName: ProviderTier): void => {
+    setPendingTierAssign(tierName);
+    const provider = providers[providerIndex];
+    if (provider === undefined) return;
+    const active = provider.name === activeProvider ? activeModel : provider.defaultModel;
+    const idx = active !== undefined ? provider.models.indexOf(active) : -1;
+    setModelIndex(idx >= 0 ? idx : 0);
+    setStep("model");
   };
 
   useInput((input, key) => {
@@ -235,7 +256,34 @@ export function AgentModal({
         if (selectedProvider !== undefined) setStep("delete");
         return;
       }
+      if (input === "t") {
+        setStep("tiers");
+        return;
+      }
       if (key.escape) onClose();
+      return;
+    }
+
+    if (step === "tiers") {
+      if (key.upArrow) {
+        setTierIndex((i) => (i > 0 ? i - 1 : PROVIDER_TIERS.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setTierIndex((i) => (i < PROVIDER_TIERS.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (key.return) {
+        const tier = PROVIDER_TIERS[tierIndex];
+        if (tier !== undefined) {
+          enterTierModelStep(tier);
+        }
+        return;
+      }
+      if (key.escape) {
+        setStep("provider");
+        return;
+      }
       return;
     }
 
@@ -249,14 +297,25 @@ export function AgentModal({
         return;
       }
       if (key.escape) {
-        setStep("provider");
+        if (pendingTierAssign !== null) {
+          setPendingTierAssign(null);
+          setStep("tiers");
+        } else {
+          setStep("provider");
+        }
         return;
       }
       const provider = providers[providerIndex];
       const model = models[modelIndex];
       if (provider === undefined || model === undefined) return;
       if (key.return) {
-        enterEffortStep(provider.name, model);
+        if (pendingTierAssign !== null) {
+          onSaveTier(pendingTierAssign, provider.name, model);
+          setPendingTierAssign(null);
+          setStep("tiers");
+        } else {
+          enterEffortStep(provider.name, model);
+        }
       }
       return;
     }
@@ -321,6 +380,7 @@ export function AgentModal({
     if (key.escape) {
       setStep("provider");
       setFormError(null);
+      setPendingTierAssign(null);
       return;
     }
     if (key.backspace || key.delete) {
@@ -373,9 +433,39 @@ export function AgentModal({
         </Box>
       )}
 
+      {step === "tiers" && (
+        <Box marginTop={1} flexDirection="column">
+          {PROVIDER_TIERS.map((tier, i) => {
+            const assignment = tiers[tier];
+            const isCursor = i === tierIndex;
+            const assignmentLabel =
+              assignment !== undefined
+                ? `${assignment.provider} · ${assignment.model}`
+                : "unset";
+            return (
+              <Box key={tier} flexDirection="row" gap={2}>
+                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                  {isCursor ? ">" : " "}
+                </Text>
+                <Box width={10} flexShrink={0}>
+                  <Text color={isCursor ? color("accent") : color("text")}>{tier}</Text>
+                </Box>
+                <Text color={assignment !== undefined ? color("text") : color("muted")}>
+                  {assignmentLabel}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
       {step === "model" && (
         <Box marginTop={1} flexDirection="column">
-          <Text color={color("muted")}>{selectedProvider?.name}</Text>
+          <Text color={color("muted")}>
+            {pendingTierAssign !== null
+              ? `Assign provider for tier: ${pendingTierAssign}`
+              : selectedProvider?.name}
+          </Text>
           {models.map((m, i) => {
             const isActive = selectedProvider?.name === activeProvider && m === activeModel;
             const isCursor = i === modelIndex;
@@ -460,7 +550,8 @@ export function AgentModal({
 
       <Box marginTop={1}>
         <Text dimColor>
-          {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · Esc close"}
+          {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · Esc close"}
+          {step === "tiers" && "Up/Down navigate · Enter assign · Esc back"}
           {step === "model" && "Up/Down navigate · Enter effort · Esc back"}
           {step === "effort" && "Up/Down navigate · Enter use now · d set as default · Esc back"}
           {step === "form" && "Up/Down fields · Enter next/save · Esc cancel"}

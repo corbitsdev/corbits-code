@@ -13,6 +13,8 @@ import {
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerConfig,
+  type ProviderTier,
+  type TierAssignment,
   type ResolvedProvider,
   type Settings,
 } from "./settings.js";
@@ -86,6 +88,8 @@ export type Config = {
   workflow?: string;
   // Suppress auto-invoking the profile's workflow for this run (--no-workflow).
   noWorkflow: boolean;
+  tiers?: Partial<Record<ProviderTier, TierAssignment>>;
+  settings?: Settings;
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -322,6 +326,8 @@ export async function loadConfig(
       : settings?.mcpServers !== undefined
         ? { mcpServers: settings.mcpServers }
         : {}),
+    ...(settings?.tiers !== undefined ? { tiers: settings.tiers } : {}),
+    ...(settings !== null ? { settings } : {}),
   };
 }
 
