@@ -10,7 +10,7 @@ export type HelpOverlayProps = {
 function Row({ entry }: { entry: ShortcutEntry }): ReactNode {
   return (
     <Box flexDirection="row" gap={1}>
-      <Box width={12}>
+      <Box width={18}>
         <Text bold color={color("brand")}>{entry.keys}</Text>
       </Box>
       <Text color={color("text")}>{entry.description}</Text>

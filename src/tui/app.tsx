@@ -33,6 +33,9 @@ import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
+import { listCommands } from "./commands/registry.js";
+import type { AgentProfile } from "../agent/profiles.js";
+import { writeFile, mkdir, unlink } from "node:fs/promises";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import "./commands/built-in.js";
 
@@ -54,6 +57,15 @@ export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, 
   if (status !== "running") return false;
   if (!awaitingResponse) return false;
   return nowMs - lastActivityAt >= stallTimeoutMs;
+}
+
+async function writeProfileFile(dir: string, profile: AgentProfile): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  await writeFile(`${dir}/${profile.id}.json`, JSON.stringify(profile, null, 2), "utf8");
+}
+
+async function deleteProfileFile(dir: string, id: string): Promise<void> {
+  await unlink(`${dir}/${id}.json`).catch(() => {});
 }
 
 export type AppProps = {
@@ -78,6 +90,8 @@ export type AppProps = {
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
+  initialProfiles?: AgentProfile[];
+  profilesDir?: string;
 };
 
 export function App({
@@ -102,6 +116,8 @@ export function App({
   initialAuto = false,
   onToggleAuto,
   onSubAgentProviderChange,
+  initialProfiles = [],
+  profilesDir,
 }: AppProps): ReactNode {
   const state = useAgentStream(eventEmitter, initialHooks);
   const stateRef = useRef(state);
@@ -146,6 +162,25 @@ export function App({
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
   const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment } = providerManager;
+
+  const [profiles, setProfiles] = useState<AgentProfile[]>(initialProfiles);
+
+  const saveProfile = (profile: AgentProfile): { ok: true } | { ok: false; error: string } => {
+    if (profilesDir === undefined) return { ok: false, error: "No profiles directory configured" };
+    setProfiles((prev) => {
+      const next = prev.filter((p) => p.id !== profile.id);
+      next.push(profile);
+      return next.sort((a, b) => a.id.localeCompare(b.id));
+    });
+    void writeProfileFile(profilesDir, profile);
+    return { ok: true };
+  };
+
+  const deleteProfile = (id: string): void => {
+    if (profilesDir === undefined) return;
+    setProfiles((prev) => prev.filter((p) => p.id !== id));
+    void deleteProfileFile(profilesDir, id);
+  };
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
@@ -381,7 +416,12 @@ export function App({
       planFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
-      commandPaletteOpen: inputValue.startsWith("/") && !inputValue.includes(" "),
+      commandPaletteOpen: inputValue.startsWith("/") && (
+        !inputValue.includes(" ") ||
+        listCommands().some(
+          (c) => c.subcommands !== undefined && inputValue.startsWith(`/${c.name} `),
+        )
+      ),
       // "stopping" is deliberately excluded: a stop is already in flight, so the
       // next Ctrl+C / double-Esc should escalate to the exit path rather than
       // re-issuing a no-op stop and trapping the user while the run drains.
@@ -598,6 +638,9 @@ export function App({
         onCloseAgentModal={() => setAgentModalOpen(false)}
         agentTiers={tiers}
         onSaveTier={saveTierAssignment}
+        agentProfiles={profiles}
+        onSaveAgentProfile={saveProfile}
+        onDeleteAgentProfile={deleteProfile}
         pendingPlan={gates.pendingPlan}
         onApprove={gates.approve}
         onReject={gates.reject}
