@@ -574,14 +574,17 @@ class ChatDirectorImpl extends DefaultDirector {
 
     const base = await super.decide(event, state, capabilities);
 
-    // When a workflow is running and not at a gate step, substitute any wait()
-    // action with a fresh infer() so the agent keeps executing autonomously.
-    // After 3 consecutive tool-call-free turns the agent is stuck; fall back to
-    // wait() and show a message so the user can intervene.
+    // When a workflow is running and not at a gate step, substitute any terminal
+    // action (wait or reply) with a fresh infer() so the agent keeps executing
+    // autonomously. In conversational mode, a text-only turn produces reply() not
+    // wait(), so we must trigger on both. After 3 consecutive tool-call-free turns
+    // the agent is stuck; fall back to wait() and show a message so the user can
+    // intervene.
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
       const actions = Array.isArray(base) ? base : [base];
-      if (actions.some((a) => a.type === "wait") && this.lastInferenceTurnHadContent) {
+      const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
+      if (hasTerminal && this.lastInferenceTurnHadContent) {
         if (this.workflowIdleTurns >= 3) {
           return [
             capabilities.reply(
