@@ -194,7 +194,7 @@ export function buildActiveContext(date = new Date(), cwd = process.cwd()): stri
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
-    `Memory: ${cwd}/.intercode/MEMORY.md (scratch pad for agent)`,
+    `Memory: ${cwd}/.intercode/MEMORY.md (your scratch pad; read it if it exists, create it when you have something worth persisting)`,
   ].join("\n");
 }
 
@@ -218,7 +218,7 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
   }
   if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
-  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad across turns)`);
+  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad; read it if it exists, create it when you have something worth persisting)`);
   lines.push("</env>");
   return lines.join("\n");
 }
