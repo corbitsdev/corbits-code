@@ -585,7 +585,10 @@ class ChatDirectorImpl extends DefaultDirector {
             capabilities.wait(),
           ];
         }
-        // Build a continuation infer with a nudge appended to the directive.
+        // Strip both reply() and wait() — the reactor exits early after reply()
+        // and never processes subsequent actions, so infer() would be dropped.
+        // Text content is already rendered via inference.text.delta; we don't
+        // need reply() for display. Keep checkpoint() and other non-terminal actions.
         const nudge = "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
           "Otherwise continue working with tools.";
@@ -596,8 +599,11 @@ class ChatDirectorImpl extends DefaultDirector {
         const tools = this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
           ? this._toolDefinitions
           : [...this._toolDefinitions, advanceWorkflowDefinition];
-        const nonWait = actions.filter((a): a is Exclude<ReactorAction, { type: "wait" }> => a.type !== "wait");
-        return [...nonWait, capabilities.infer({ systemPrompt, tools })];
+        const passThrough = actions.filter(
+          (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
+            a.type !== "wait" && a.type !== "reply",
+        );
+        return [...passThrough, capabilities.infer({ systemPrompt, tools })];
       }
     }
 
