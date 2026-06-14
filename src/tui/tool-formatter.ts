@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import type { SemanticRole } from "./theme.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 import { formatMcpResult } from "./mcp-result-format.js";
@@ -83,8 +84,8 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
     return { display: "Render view", role: "accent", summary: "", full: "", isShell: false };
   }
   if (toolName === "run_shell") {
-    const obj = tryParseObject(rawArgs);
-    const command = obj !== null && typeof obj.command === "string" ? obj.command : rawArgs.trim();
+    const shellParsed = ShellArgSchema(tryParseObject(rawArgs));
+    const command = !(shellParsed instanceof type.errors) ? shellParsed.command : rawArgs.trim();
     return { display: "Shell", role: shellRole(command), summary: command, full: command, isShell: true };
   }
   const { summary, full } = summarizeToolArgs(toolName, rawArgs);
@@ -98,6 +99,11 @@ export type ToolResultSummary = {
 };
 
 const ARG_VALUE_MAX = 48;
+
+const PathArgSchema = type({ path: "string" });
+const ShellArgSchema = type({ command: "string" });
+const WebSearchResultSchema = type({ results: "unknown[]" });
+const WebFetchResultSchema = type({ content: "string" });
 
 function tryParseObject(raw: string): Record<string, unknown> | null {
   if (raw.length === 0) return null;
@@ -137,8 +143,9 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
     case "write_file":
     case "edit_file":
     case "read_file": {
-      if (obj !== null && typeof obj.path === "string") {
-        return { summary: obj.path, full: obj.path };
+      const parsed = PathArgSchema(obj);
+      if (!(parsed instanceof type.errors)) {
+        return { summary: parsed.path, full: parsed.path };
       }
       break;
     }
@@ -184,21 +191,21 @@ function pathFromResult(toolName: string, content: string): string | null {
   return null;
 }
 
+const WebSearchItemSchema = type({ "title?": "string", "url?": "string", "snippet?": "string" });
+
 function webSearchSummary(raw: string): ToolResultSummary | null {
-  const obj = tryParseObject(raw);
-  const results = obj?.results;
-  if (!Array.isArray(results)) return null;
+  const parsed = WebSearchResultSchema(tryParseObject(raw));
+  if (parsed instanceof type.errors) return null;
+  const { results } = parsed;
   if (results.length === 0) {
     return { preview: "No web results", full: "No web results", isJSONDocument: false };
   }
   const lines = results.flatMap((item, index) => {
-    if (typeof item !== "object" || item === null) {
-      return [`${index + 1}. ${scalarToString(item)}`];
-    }
-    const record = item as Record<string, unknown>;
-    const title = typeof record.title === "string" ? record.title : "Untitled";
-    const url = typeof record.url === "string" ? record.url : "";
-    const snippet = typeof record.snippet === "string" ? record.snippet : "";
+    const rec = WebSearchItemSchema(item);
+    if (rec instanceof type.errors) return [`${index + 1}. ${scalarToString(item)}`];
+    const title = rec.title ?? "Untitled";
+    const url = rec.url ?? "";
+    const snippet = rec.snippet ?? "";
     return [
       `${index + 1}. ${title}`,
       ...(url.length > 0 ? [`   ${url}`] : []),
@@ -214,11 +221,11 @@ function webSearchSummary(raw: string): ToolResultSummary | null {
 }
 
 function webFetchSummary(raw: string): ToolResultSummary | null {
-  const obj = tryParseObject(raw);
-  if (obj === null || typeof obj.content !== "string") return null;
+  const parsed = WebFetchResultSchema(tryParseObject(raw));
+  if (parsed instanceof type.errors) return null;
   return {
-    preview: `Fetched ${countLines(obj.content)} lines`,
-    full: obj.content,
+    preview: `Fetched ${countLines(parsed.content)} lines`,
+    full: parsed.content,
     isJSONDocument: false,
   };
 }

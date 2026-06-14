@@ -12,7 +12,7 @@ import {
 } from "../../../src/tui/components/event-log.js";
 import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
 import type { ContentBlock } from "../../../src/tui/use-stream.js";
-import { wrapCount } from "../../../src/tui/view/height.js";
+import { wrapCount, wrapLines } from "../../../src/tui/view/height.js";
 
 let blockSeq = 0;
 function block(data: Omit<ContentBlock, "id">): RenderableBlock {
@@ -218,15 +218,14 @@ test("EventLog shows long content in full by default, never a show-more marker",
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("a long tool summary is marked with a bare ellipsis, not show-more", () => {
+test("a long tool summary wraps rather than truncating", () => {
   const { lastFrame } = renderLog([
     { type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: "x".repeat(300) }) },
   ], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("[show more]");
-  expect(frame).toContain("…");
-  const longest = Math.max(...frame.split("\n").map((l) => l.length));
-  expect(longest).toBeLessThanOrEqual(80);
+  // Full command content must be present, not truncated
+  expect(frame.replace(/\s/g, "")).toContain("x".repeat(300));
 });
 
 test("truncateToWidth marks a cut with a bare ellipsis", () => {
@@ -340,6 +339,36 @@ test("a composed headline unit never claims fewer rows than it paints", () => {
   );
   const painted = (lastFrame() ?? "").split("\n").filter((r) => r.trim().length > 0).length;
   expect(headline.rows).toBeGreaterThanOrEqual(painted);
+});
+
+test("a wrapped line becomes one single-row unit per visual row", () => {
+  // One logical line far longer than the pane: every unit it produces must be a
+  // single row so the scroll window can step one terminal row at a time.
+  const long = Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ");
+  const units = buildLineUnits([block({ type: "text", content: long })], 24, false, () => false);
+  expect(units.length).toBeGreaterThan(1);
+  expect(units.every((u) => u.rows === 1)).toBe(true);
+});
+
+test("inline styling survives across a wrap boundary", () => {
+  // The bold span sits late in a line that must wrap, so it lands on a later
+  // visual row. Slicing segments per row must keep the styled text intact.
+  const content = "padding ".repeat(8) + "**emphasised**";
+  const { lastFrame } = renderLog([{ type: "text", content }], { columns: 30 });
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("emphasised");
+});
+
+test("wrapLines preserves leading indentation on the first row", () => {
+  const rows = wrapLines("    indented code line that is quite long here", 20);
+  expect(rows.length).toBeGreaterThan(1);
+  expect(rows[0]!.startsWith("    ")).toBe(true);
+});
+
+test("wrapLines hard-breaks a word longer than the width without losing characters", () => {
+  const rows = wrapLines("x".repeat(50), 20);
+  expect(rows.join("")).toBe("x".repeat(50));
+  expect(rows.every((r) => r.length <= 20)).toBe(true);
 });
 
 test("visibleLineWindow advances one line per scroll step", () => {

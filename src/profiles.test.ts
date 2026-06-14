@@ -51,7 +51,7 @@ test("loadProfile rejects unknown keys", async () => {
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
   await writeFile(path, JSON.stringify({ model: "x", unknownKey: true }));
-  await expect(loadProfile(path)).rejects.toThrow(/unknown key/);
+  await expect(loadProfile(path)).rejects.toThrow(/unknownKey must be removed/);
 });
 
 test("loadProfile rejects invalid maxTurns", async () => {
