@@ -8,6 +8,7 @@ export type PlanViewProps = {
   currentPlanStep: number | null;
   planDeviated: boolean;
   width: number;
+  borderColor?: string;
 };
 
 function formatPlanStep(step: PlanStep, index: number): string {
@@ -22,10 +23,10 @@ function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-export function PlanView({ steps, currentPlanStep, planDeviated, width }: PlanViewProps): ReactNode {
+export function PlanView({ steps, currentPlanStep, planDeviated, width, borderColor = color("brand") }: PlanViewProps): ReactNode {
   const contentWidth = Math.max(8, width - 4);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={color("brand")} paddingX={1} width={width} flexGrow={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={borderColor} paddingX={1} width={width} flexGrow={1}>
       <Text bold color={color("brand")}>
         Plan  {steps.length} {steps.length === 1 ? "step" : "steps"}
       </Text>

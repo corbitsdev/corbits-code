@@ -15,6 +15,7 @@ export type ContextPanelProps = {
   diffResult: DiffResult | null;
   diffScrollOffset: number;
   diffVisibleRows: number;
+  borderColor?: string;
 };
 
 export function ContextPanel({
@@ -26,6 +27,7 @@ export function ContextPanel({
   diffResult,
   diffScrollOffset,
   diffVisibleRows,
+  borderColor,
 }: ContextPanelProps): ReactNode {
   if (view === "diff") {
     return (
@@ -44,6 +46,7 @@ export function ContextPanel({
       currentPlanStep={currentPlanStep}
       planDeviated={planDeviated}
       width={width}
+      {...(borderColor !== undefined ? { borderColor } : {})}
     />
   );
 }

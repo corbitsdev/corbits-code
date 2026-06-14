@@ -36,12 +36,6 @@ registerCommand({
 });
 
 registerCommand({
-  name: "plan",
-  description: "Show the plan in the context panel",
-  handler: (_args, _ctx) => ({ type: "view", view: "plan" }),
-});
-
-registerCommand({
   name: "agent",
   description: "Open the agent configuration surface (provider, model)",
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),

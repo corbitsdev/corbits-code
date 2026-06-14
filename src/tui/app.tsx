@@ -276,6 +276,11 @@ export function App({
     return block?.type === "plan" ? block.steps : [];
   }, [state.contentBlocks]);
 
+  // Sidebar opens automatically when there's a plan or an active workflow.
+  // Manual sidebarOpen still works for the diff view.
+  const autoSidebarOpen = planSteps.length > 0 || workflowStatus.active;
+  const effectiveSidebarOpen = sidebarOpen || autoSidebarOpen || workflowPanelOpen;
+
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
   const extraChromeRows =
@@ -285,7 +290,7 @@ export function App({
   const layout = useLayoutGeometry({
     columns,
     rows,
-    sidebarOpen: sidebarOpen || workflowPanelOpen,
+    sidebarOpen: effectiveSidebarOpen,
     gateContext: {
       pendingPermission: gates.pendingPermission,
       pendingPlan: gates.pendingPlan,
@@ -325,6 +330,8 @@ export function App({
     block.type === "user" && block.content === state.latestUserMessage
   );
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
+
+  const modeColor = agentMode === "plan" ? color("success") : agentMode === "auto" ? color("warning") : color("accent");
 
   const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
   const diff = useDiff({ cwd: process.cwd(), active: diffActive });
@@ -709,6 +716,7 @@ export function App({
             currentPlanStep={state.currentPlanStep}
             planDeviated={state.planDeviated}
             width={columns}
+            borderColor={modeColor}
           />
         ) : diffFullScreenOpen ? (
           <DiffView
@@ -730,9 +738,9 @@ export function App({
                 verbose={verbose}
               />
             </Box>
-            {(workflowPanelOpen || sidebarOpen) && (
+            {effectiveSidebarOpen && (
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
-                {workflowPanelOpen ? (
+                {(workflowPanelOpen || (workflowStatus.active && contextView !== "diff" && planSteps.length === 0)) ? (
                   <WorkflowPanel
                     status={workflowStatus}
                     width={rightWidth}
@@ -750,6 +758,7 @@ export function App({
                     diffResult={diff.result}
                     diffScrollOffset={diffScroll}
                     diffVisibleRows={diffVisibleRows}
+                    borderColor={modeColor}
                   />
                 )}
               </Box>
@@ -827,7 +836,7 @@ export function App({
           />
           <Box
             borderStyle="single"
-            borderColor={color("muted")}
+            borderColor={modeColor}
             borderTop
             borderBottom={false}
             borderLeft={false}
@@ -855,7 +864,6 @@ export function App({
           cacheReadTokens={state.cacheReadTokens}
           elapsedMs={state.elapsedMs}
           status={state.status}
-          connectedMCPServers={mcpStatus.connected}
           reasoningEffort={reasoningEffort}
           auto={auto}
           agentMode={agentMode}

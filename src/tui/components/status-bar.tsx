@@ -13,7 +13,6 @@ export type StatusBarProps = {
   cacheReadTokens?: number;
   elapsedMs: number;
   status: AgentStatus;
-  connectedMCPServers?: string[];
   reasoningEffort?: ReasoningEffort | undefined;
   auto?: boolean;
   agentMode?: "edit" | "auto" | "plan";
@@ -51,27 +50,22 @@ export function StatusBar({
   cacheReadTokens = 0,
   elapsedMs,
   status,
-  connectedMCPServers = [],
   reasoningEffort,
   auto = false,
   agentMode,
 }: StatusBarProps): ReactNode {
   const modeLabel = agentMode === "plan" ? "PLAN" : agentMode === "auto" ? "AUTO" : auto ? "AUTO" : null;
+  const providerLine = reasoningEffort !== undefined
+    ? `${provider} · ${model} · ${reasoningEffort.toUpperCase()}`
+    : `${provider} · ${model}`;
+  const modeColor = agentMode === "plan" ? color("success") : agentMode === "auto" ? color("warning") : color("accent");
   return (
     <Box flexDirection="row" paddingX={1} overflow="hidden">
-      <Text color={color("accent")} wrap="truncate-end">{provider} · {model}</Text>
+      <Text color={modeColor} wrap="truncate-end">{providerLine}</Text>
       {modeLabel !== null && (
         <>
           <Divider />
-          <Text bold color={color("warning")} wrap="truncate-end">{modeLabel}</Text>
-        </>
-      )}
-      {reasoningEffort !== undefined && (
-        <>
-          <Divider />
-          <Text bold color={color("warning")} wrap="truncate-end">
-            EFFORT:{reasoningEffort.toUpperCase()}
-          </Text>
+          <Text bold color={modeColor} wrap="truncate-end">{modeLabel}</Text>
         </>
       )}
       <Divider />
@@ -82,12 +76,6 @@ export function StatusBar({
       </Text>
       <Divider />
       <Text color={color("muted")} wrap="truncate-end">{formatElapsed(elapsedMs)}</Text>
-      {connectedMCPServers.length > 0 && (
-        <>
-          <Divider />
-          <Text color={color("muted")} wrap="truncate-end">MCP: {connectedMCPServers.join(", ")}</Text>
-        </>
-      )}
       {status !== "running" && status !== "idle" && (
         <>
           <Divider />

@@ -34,10 +34,6 @@ describe("context view commands", () => {
     expect(getCommand("diff")!.handler("", ctx)).toEqual({ type: "view", view: "diff" });
   });
 
-  it("/plan switches the context panel to the plan view", () => {
-    const ctx = makeCtx();
-    expect(getCommand("plan")!.handler("", ctx)).toEqual({ type: "view", view: "plan" });
-  });
 });
 
 describe("/verbose command", () => {
