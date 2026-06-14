@@ -148,6 +148,7 @@ export type AppProps = {
   onStartWorkflow?: (name: string) => string;
   listWorkflows?: () => Array<{ name: string; description: string }>;
   onEnterPlanMode?: () => void;
+  onExitPlanMode?: () => void;
   onToggleCapability?: (name: CapabilityName) => void;
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
@@ -179,6 +180,7 @@ export function App({
   onStartWorkflow,
   listWorkflows,
   onEnterPlanMode,
+  onExitPlanMode,
   onToggleCapability,
   initialWorkflowStatus,
   initialProfiles = [],
@@ -457,6 +459,7 @@ export function App({
     };
     const handle = setInterval(check, 1000);
     return () => clearInterval(handle);
+  // `state` is a stable mutable object — only the reactive scalar fields matter here.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
 
@@ -578,16 +581,16 @@ export function App({
         }
       },
       togglePlanSidebar: () => {
-        setPlanFullScreenOpen((open) => !open);
-        if (planFullScreenOpen) {
-          setPlanScroll(0);
-        }
+        setPlanFullScreenOpen((open) => {
+          if (open) setPlanScroll(0);
+          return !open;
+        });
       },
       toggleDiffFullScreen: () => {
-        setDiffFullScreenOpen((open) => !open);
-        if (diffFullScreenOpen) {
-          setDiffScroll(0);
-        }
+        setDiffFullScreenOpen((open) => {
+          if (open) setDiffScroll(0);
+          return !open;
+        });
       },
       toggleWorkflowPanel: () => setWorkflowPanelOpen((open) => !open),
       toggleHelp: () => setHelpOpen((open) => !open),
@@ -630,6 +633,8 @@ export function App({
           onToggleAuto?.(false);
           setAgentMode("plan");
         } else {
+          // Leaving plan mode — tell the director to unlock write/edit tools.
+          if (agentMode === "plan") onExitPlanMode?.();
           const isAuto = next === "auto";
           onToggleAuto?.(isAuto);
           setAgentMode(next);

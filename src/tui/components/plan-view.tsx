@@ -13,20 +13,22 @@ export type PlanViewProps = {
 };
 
 function wrap(text: string, max: number, indent: number): string[] {
-  if (max <= 1) return [text];
+  if (max <= 2) return [text.slice(0, Math.max(1, max))];
   const words = text.split(" ");
   const lines: string[] = [];
   let line = "";
-  const pad = " ".repeat(indent);
+  const pad = " ".repeat(Math.min(indent, max - 1));
   for (const word of words) {
-    const limit = lines.length === 0 ? max : max - indent;
+    const limit = lines.length === 0 ? max : max - pad.length;
+    const prefix = lines.length === 0 ? "" : pad;
     if (line.length === 0) {
-      line = word;
-    } else if (line.length + 1 + word.length <= limit) {
+      // Long single word: hard-clip to limit
+      line = word.length > limit ? word.slice(0, limit) : word;
+    } else if (line.length - (lines.length === 0 ? 0 : pad.length) + 1 + word.length <= limit) {
       line += " " + word;
     } else {
       lines.push(line);
-      line = pad + word;
+      line = prefix + (word.length > limit ? word.slice(0, limit) : word);
     }
   }
   if (line.length > 0) lines.push(line);

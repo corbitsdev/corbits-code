@@ -600,6 +600,12 @@ class ChatDirectorImpl extends DefaultDirector {
     this.onPlanPhaseChange?.(true);
   }
 
+  exitPlanPhase(): void {
+    if (!this.planPhaseActive) return;
+    this.planPhaseActive = false;
+    this.onPlanPhaseChange?.(false);
+  }
+
   // Replace the live tool set the model is advertised. MCP servers connect after
   // the session is already running, so any inference issued before they finish
   // must learn about their tools on the next turn. The base director advertises
@@ -870,4 +876,5 @@ export interface ChatDirectorWithClear extends ReactorDirector {
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
   enterPlanPhase(): void;
+  exitPlanPhase(): void;
 }

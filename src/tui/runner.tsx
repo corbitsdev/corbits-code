@@ -453,7 +453,12 @@ export async function runTUI(config: Config): Promise<number> {
       }}
       onStartWorkflow={(name) => workflowController.start(name)}
       listWorkflows={() => workflowController.list()}
-      onEnterPlanMode={() => directorHolder.instance?.enterPlanPhase()}
+      onEnterPlanMode={() => {
+        directorHolder.instance?.enterPlanPhase();
+        // Promote submit_plan so the model can call it in plan mode.
+        promoteTools(["submit_plan"]);
+      }}
+      onExitPlanMode={() => directorHolder.instance?.exitPlanPhase()}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       initialWorkflowStatus={workflowController.status()}
     />,

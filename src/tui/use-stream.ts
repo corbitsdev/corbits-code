@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { type } from "arktype";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
+
+const PlanStepSchema = type({ file: "string", action: "string", "reason?": "string" });
+const PlanSchema = type({ "goal?": "string", steps: PlanStepSchema.array() });
 
 export type PlanStep = { file: string; action: string; reason: string };
 
@@ -58,27 +62,18 @@ export type AgentStreamState = {
 
 function parsePlan(rawArguments: string): { goal?: string; steps: PlanStep[] } {
   if (rawArguments.length === 0) return { steps: [] };
-  let parsed: unknown;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(rawArguments);
+    raw = JSON.parse(rawArguments);
   } catch {
     return { steps: [] };
   }
-  if (typeof parsed !== "object" || parsed === null) return { steps: [] };
-  const p = parsed as { goal?: unknown; steps?: unknown };
-  const goal = typeof p.goal === "string" && p.goal.length > 0 ? p.goal : undefined;
-  const steps = Array.isArray(p.steps) ? p.steps : [];
-  const out: PlanStep[] = [];
-  for (const raw of steps) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const s = raw as Record<string, unknown>;
-    const file = typeof s.file === "string" ? s.file : "";
-    const action = typeof s.action === "string" ? s.action : "";
-    const reason = typeof s.reason === "string" ? s.reason : "";
-    if (file.length === 0 && action.length === 0) continue;
-    out.push({ file, action, reason });
-  }
-  return goal !== undefined ? { goal, steps: out } : { steps: out };
+  const result = PlanSchema(raw);
+  if (result instanceof type.errors) return { steps: [] };
+  const steps = result.steps
+    .filter((s) => s.file.length > 0 || s.action.length > 0)
+    .map((s) => ({ file: s.file, action: s.action, reason: s.reason ?? "" }));
+  return result.goal !== undefined ? { goal: result.goal, steps } : { steps };
 }
 
 const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
@@ -90,17 +85,18 @@ function nextFileStepIndex(steps: PlanStep[], from: number): number | null {
   return null;
 }
 
+const PathArgSchema = type({ path: "string>0" });
+
 function parsePathArgument(rawArguments: string): string | null {
   if (rawArguments.length === 0) return null;
-  let parsed: unknown;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(rawArguments);
+    raw = JSON.parse(rawArguments);
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const path = (parsed as { path?: unknown }).path;
-  return typeof path === "string" && path.length > 0 ? path : null;
+  const result = PathArgSchema(raw);
+  return result instanceof type.errors ? null : result.path;
 }
 
 function stringifyToolContent(content: unknown): string {
