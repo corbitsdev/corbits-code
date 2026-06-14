@@ -13,12 +13,20 @@ import {
   type TaskBoundary,
 } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
+import { type } from "arktype";
 
-export type PlanStep = {
-  file: string;
-  action: string;
-  reason: string;
-};
+const PlanStepSchema = type({
+  file: "string",
+  action: "string",
+  reason: "string",
+});
+
+const PlanArgsSchema = type({
+  "goal?": "string",
+  steps: PlanStepSchema.array(),
+});
+
+export type PlanStep = typeof PlanStepSchema.infer;
 
 export type Plan = {
   goal?: string;
@@ -187,18 +195,9 @@ export interface CodingDirector extends ReactorDirector {
 }
 
 
-function isValidPlanArgs(args: unknown): args is { goal?: string; steps: PlanStep[] } {
-  if (typeof args !== "object" || args === null) return false;
-  const a = args as Record<string, unknown>;
-  if (!Array.isArray(a.steps)) return false;
-  for (const step of a.steps) {
-    if (typeof step !== "object" || step === null) return false;
-    const s = step as Record<string, unknown>;
-    if (typeof s.file !== "string") return false;
-    if (typeof s.action !== "string") return false;
-    if (typeof s.reason !== "string") return false;
-  }
-  return true;
+function parsePlanArgs(args: unknown): { goal?: string; steps: PlanStep[] } | null {
+  const result = PlanArgsSchema(args);
+  return result instanceof type.errors ? null : result;
 }
 
 function isSuccessfulToolResult(result: { content: unknown; isError?: boolean }): boolean {
@@ -347,8 +346,9 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
           this.callIdToName.set(block.id, block.name);
           this.callIdToArgs.set(block.id, block.arguments);
           if (block.name === "submit_plan") {
-            if (isValidPlanArgs(block.arguments)) {
-              this.plan = block.arguments.steps;
+            const planArgs = parsePlanArgs(block.arguments);
+            if (planArgs !== null) {
+              this.plan = planArgs.steps;
               this.planSubmitted = true;
             }
           }
@@ -415,10 +415,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       // not a terminal submit. Do not latch termination on it, so the two
       // meanings of submit_output cannot collide when a workflow is driving.
       const submitArgs = this.callIdToArgs.get(event.result.callId);
-      const isStepTagged =
-        typeof submitArgs === "object" &&
-        submitArgs !== null &&
-        typeof (submitArgs as Record<string, unknown>).step === "string";
+      const isStepTagged = type({ step: "string" })(submitArgs) instanceof type.errors === false;
       if (name === "submit_output" && isSuccessfulToolResult(event.result) && !isStepTagged) {
         this.submitCalled = true;
         if (!this.planSubmitted && this._turnsUsed - 1 > 3) {
@@ -429,7 +426,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       }
       if (name === "read_file" && !event.result.isError) {
         const args = this.callIdToArgs.get(event.result.callId);
-        const path = typeof args === "object" && args !== null ? String((args as Record<string, unknown>).path ?? "") : "";
+        const parsed = type({ path: "string" })(args);
+        const path = parsed instanceof type.errors ? "" : parsed.path;
         if (path.length > 0) {
           this.filesReadAtTurn.set(path, this._turnsUsed);
         }
@@ -763,7 +761,7 @@ class ChatDirectorImpl extends DefaultDirector {
       const args = this.submitPlanArgs.get(event.result.callId);
       this.submitPlanArgs.delete(event.result.callId);
       if (!event.result.isError) {
-        const plan = isValidPlanArgs(args) ? args.steps : [];
+        const plan = parsePlanArgs(args)?.steps ?? [];
         const approved = await this.approvalGate(plan);
         if (!approved) {
           return capabilities.done();
