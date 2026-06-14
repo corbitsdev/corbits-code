@@ -15,21 +15,19 @@ const request: PermissionRequest = {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-test("PermissionModal shows reject, accept-once, broad-scope options, and exact-match grants", () => {
+test("PermissionModal shows reject, accept-once, and broad-scope options", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
   expect(frame).toContain("Approval needed");
   expect(frame).toContain("npm test");
   expect(frame).toContain("Reject");
   expect(frame).toContain("Accept once");
-  // Broad prefix scope options (3 and 4)
+  // Broad prefix scope options (3, 4, 5)
   expect(frame).toContain("npm *");
   expect(frame).toContain("Allow npm *");
-  // Exact-command grant options are also shown
-  expect(frame).toContain("Auto-accept this session");
-  expect(frame).toContain("Auto-accept in this project");
-  expect(frame).toContain("Auto-accept globally");
-  expect(frame).toContain("Auto-accept for this provider/model");
+  // No exact-command auto-accept labels when prefix scope is present
+  expect(frame).not.toContain("Auto-accept this session");
+  expect(frame).not.toContain("Auto-accept for this provider/model");
 });
 
 test("multiplexer commands show the broad wildcard as explicit options", async () => {
@@ -56,8 +54,8 @@ test("multiplexer commands show the broad wildcard as explicit options", async (
 test("footer reflects the real option count and offers Ctrl+O to expand", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
-  // 2 fixed + 2 broad + 4 exact = 8 options when a prefix scope exists
-  expect(frame).toContain("1-8 select");
+  // 2 fixed + 3 broad (session/project/global) = 5 options when a prefix scope exists
+  expect(frame).toContain("1-5 select");
   expect(frame).toContain("Ctrl+O expand");
 });
 
@@ -106,14 +104,14 @@ test("option 3 saves the broad prefix scope for session", async () => {
   expect(outcome).toMatchObject({ allow: true, persist: { grant: "session", pattern: "npm *" } });
 });
 
-test("option 5 saves the exact command for session (first exact-match option)", async () => {
+test("option 5 saves the broad prefix scope globally", async () => {
   let outcome: ApprovalOutcome | null = null;
   const { stdin } = render(<PermissionModal request={request} onResolve={(o) => { outcome = o; }} />);
   await tick();
   stdin.write("5");
   await tick();
-  // Option 5 is "Auto-accept this session [npm test]"
-  expect(outcome).toMatchObject({ allow: true, persist: { grant: "session", pattern: "npm test" } });
+  // Option 5 is "Allow npm * · all projects"
+  expect(outcome).toMatchObject({ allow: true, persist: { grant: "global", pattern: "npm *" } });
 });
 
 test("Escape rejects", async () => {

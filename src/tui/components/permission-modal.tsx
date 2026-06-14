@@ -22,11 +22,10 @@ type Choice = {
   outcome: ApprovalOutcome;
 };
 
-const GRANT_OPTIONS: { grant: GrantScope; label: string; note: string }[] = [
-  { grant: "session", label: "Auto-accept this session", note: "this session" },
-  { grant: "project", label: "Auto-accept in this project", note: "persisted per repo" },
-  { grant: "global", label: "Auto-accept globally", note: "all projects" },
-  { grant: "provider-model", label: "Auto-accept for this provider/model", note: "scoped to active model" },
+const PERSISTENT_GRANTS: { grant: GrantScope; note: string }[] = [
+  { grant: "session", note: "this session" },
+  { grant: "project", note: "persisted per repo" },
+  { grant: "global", note: "all projects" },
 ];
 
 function buildChoices(request: PermissionRequest): Choice[] {
@@ -47,12 +46,9 @@ function buildChoices(request: PermissionRequest): Choice[] {
     },
   ];
 
-  // The scope ladder from deriveCommandScopes runs broadest-first (e.g.
-  // "git diff *") down to the exact command. Show the broadest prefix scope
-  // as explicit session + project choices so the user can approve a whole
-  // command family at once (e.g. approve "git diff *" → covers all git diff
-  // flags without repeated prompts). Only add these when a prefix scope
-  // actually exists (i.e. the exact command has at least one wildcard rung above it).
+  // If a prefix scope exists (e.g. "git branch *"), offer session / project / global
+  // for the wildcard pattern. This is the primary persistent path — three choices
+  // that cover the whole command family without repeated prompts.
   const exactPattern = request.subject;
   const prefixScope = request.scopes.find(
     (s) => s.pattern !== null && s.pattern !== exactPattern && s.pattern.endsWith("*"),
@@ -60,7 +56,7 @@ function buildChoices(request: PermissionRequest): Choice[] {
   if (prefixScope?.pattern) {
     const broadPattern = prefixScope.pattern;
     const broadHint = prefixScope.hint ?? broadPattern;
-    for (const option of [GRANT_OPTIONS[0]!, GRANT_OPTIONS[1]!]) {
+    for (const option of PERSISTENT_GRANTS) {
       choices.push({
         label: `Allow ${broadPattern}`,
         hint: `${broadHint} · ${option.note}`,
@@ -78,30 +74,30 @@ function buildChoices(request: PermissionRequest): Choice[] {
         },
       });
     }
-  }
-
-  // Exact-command persist options (session / project / global / provider-model).
-  const exactScope = request.scopes.find((s) => s.pattern === exactPattern)
-    ?? [...request.scopes].reverse().find((s) => s.pattern !== null);
-  if (exactScope?.pattern) {
-    const hint = exactScope.hint ?? exactScope.pattern;
-    for (const option of GRANT_OPTIONS) {
-      choices.push({
-        label: option.label,
-        hint: `${hint} · ${option.note}`,
-        hintStyle: "command",
-        messageable: false,
-        outcome: {
-          allow: true,
-          persist: {
-            id: option.grant,
-            label: option.label,
-            pattern: exactScope.pattern,
-            hint,
-            grant: option.grant,
+  } else {
+    // No prefix scope: fall back to exact-command persistent options.
+    const exactScope = request.scopes.find((s) => s.pattern === exactPattern)
+      ?? [...request.scopes].reverse().find((s) => s.pattern !== null);
+    if (exactScope?.pattern) {
+      const hint = exactScope.hint ?? exactScope.pattern;
+      for (const option of PERSISTENT_GRANTS) {
+        choices.push({
+          label: `Allow ${hint}`,
+          hint: `${hint} · ${option.note}`,
+          hintStyle: "command",
+          messageable: false,
+          outcome: {
+            allow: true,
+            persist: {
+              id: option.grant,
+              label: `Allow ${hint}`,
+              pattern: exactScope.pattern,
+              hint,
+              grant: option.grant,
+            },
           },
-        },
-      });
+        });
+      }
     }
   }
 
