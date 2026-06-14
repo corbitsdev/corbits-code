@@ -13,6 +13,8 @@ import {
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerConfig,
+  type ProviderTier,
+  type TierAssignment,
   type ResolvedProvider,
   type Settings,
 } from "./settings.js";
@@ -82,6 +84,8 @@ export type Config = {
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
+  tiers?: Partial<Record<ProviderTier, TierAssignment>>;
+  settings?: Settings;
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -311,6 +315,8 @@ export async function loadConfig(
       : settings?.mcpServers !== undefined
         ? { mcpServers: settings.mcpServers }
         : {}),
+    ...(settings?.tiers !== undefined ? { tiers: settings.tiers } : {}),
+    ...(settings !== null ? { settings } : {}),
   };
 }
 

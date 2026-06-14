@@ -6,6 +6,7 @@ import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
+import type { ProviderTier, TierAssignment } from "../../config/settings.js";
 import { ApprovalModal } from "./approval-modal.js";
 import { OperatorModal } from "./operator-modal.js";
 import { PermissionModal } from "./permission-modal.js";
@@ -27,6 +28,8 @@ export type ModalStackProps = {
   onAgentSaveProvider: (provider: ProviderFormSubmission) => { ok: true } | { ok: false; error: string };
   onAgentDeleteProvider: (provider: string) => void;
   onCloseAgentModal: () => void;
+  agentTiers: Partial<Record<ProviderTier, TierAssignment>>;
+  onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
 
   pendingPlan: PlanStep[] | null;
   onApprove: () => void;
@@ -56,6 +59,8 @@ export function ModalStack({
   onAgentSaveProvider,
   onAgentDeleteProvider,
   onCloseAgentModal,
+  agentTiers,
+  onSaveTier,
   pendingPlan,
   onApprove,
   onReject,
@@ -80,6 +85,8 @@ export function ModalStack({
           onSaveProvider={onAgentSaveProvider}
           onDeleteProvider={onAgentDeleteProvider}
           onClose={onCloseAgentModal}
+          tiers={agentTiers}
+          onSaveTier={onSaveTier}
         />
       )}
       {pendingPlan !== null && (
