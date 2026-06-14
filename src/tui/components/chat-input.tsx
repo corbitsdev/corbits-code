@@ -2,7 +2,7 @@ import { Box, Text, useInput } from "ink";
 import { useState, useMemo, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { getCommand, listCommands } from "../commands/registry.js";
-import type { CommandContext, CommandResult } from "../commands/registry.js";
+import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -102,6 +102,26 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
   };
 }
 
+type SlashState =
+  | { kind: "command"; prefix: string }
+  | { kind: "subcommand"; parentName: string; prefix: string };
+
+function parseSlashState(value: string): SlashState | null {
+  if (!value.startsWith("/")) return null;
+  const spaceIdx = value.indexOf(" ");
+  if (spaceIdx === -1) return { kind: "command", prefix: value.slice(1) };
+  const parentName = value.slice(1, spaceIdx);
+  const cmd = getCommand(parentName);
+  if (cmd?.subcommands !== undefined) {
+    return { kind: "subcommand", parentName, prefix: value.slice(spaceIdx + 1) };
+  }
+  return null;
+}
+
+type Suggestion =
+  | { kind: "command"; name: string; description: string }
+  | { kind: "subcommand"; parentName: string; sub: SubcommandDefinition };
+
 function slashPrefix(value: string): string | null {
   if (!value.startsWith("/")) return null;
   const spaceIdx = value.indexOf(" ");
@@ -123,11 +143,20 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
     setCursor(value.length);
   }, [value]);
 
-  const prefix = slashPrefix(value);
-  const suggestions = useMemo(() => {
-    if (prefix === null) return [];
-    return listCommands().filter((c) => c.name.startsWith(prefix));
-  }, [prefix]);
+  const slashState = useMemo(() => parseSlashState(value), [value]);
+  const suggestions = useMemo((): Suggestion[] => {
+    if (slashState === null) return [];
+    if (slashState.kind === "command") {
+      return listCommands()
+        .filter((c) => c.name.startsWith(slashState.prefix))
+        .map((c) => ({ kind: "command" as const, name: c.name, description: c.description }));
+    }
+    const cmd = getCommand(slashState.parentName);
+    if (cmd?.subcommands === undefined) return [];
+    return cmd.subcommands
+      .filter((s) => s.name.startsWith(slashState.prefix))
+      .map((s) => ({ kind: "subcommand" as const, parentName: slashState.parentName, sub: s }));
+  }, [slashState]);
 
   // Clamp selectedIdx whenever suggestions change.
   const clampedIdx = suggestions.length > 0 ? Math.min(selectedIdx, suggestions.length - 1) : 0;
@@ -163,13 +192,22 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       }
       if (key.tab) {
         const sel = suggestions[clampedIdx];
-        if (sel !== undefined) { onChange(`/${sel.name} `); }
+        if (sel !== undefined) {
+          if (sel.kind === "command") {
+            onChange(`/${sel.name} `);
+          } else {
+            onChange(`/${sel.parentName} ${sel.sub.name} `);
+          }
+        }
         setSelectedIdx(0);
         return;
       }
       if (key.return) {
         const sel = suggestions[clampedIdx];
-        const completed = sel !== undefined ? `/${sel.name}` : value;
+        let completed = value;
+        if (sel !== undefined) {
+          completed = sel.kind === "command" ? `/${sel.name}` : `/${sel.parentName} ${sel.sub.name}`;
+        }
         dispatchCommand(completed);
         resetField();
         return;
@@ -232,14 +270,18 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       )}
       {suggestions.length > 0 && (
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
-          {suggestions.map((cmd, i) => (
-            <Box key={cmd.name} flexDirection="row" gap={1}>
-              <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx}>
-                {`/${cmd.name}`}
-              </Text>
-              <Text color="gray">{cmd.description}</Text>
-            </Box>
-          ))}
+          {suggestions.map((s, i) => {
+            const label = s.kind === "command" ? `/${s.name}` : `/${s.parentName} ${s.sub.name}`;
+            const desc = s.kind === "command" ? s.description : s.sub.description;
+            return (
+              <Box key={label} flexDirection="row" gap={1}>
+                <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx}>
+                  {label}
+                </Text>
+                <Text color="gray">{desc}</Text>
+              </Box>
+            );
+          })}
         </Box>
       )}
       <Box flexDirection="column" paddingX={1} paddingY={1}>

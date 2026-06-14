@@ -30,15 +30,18 @@ registerCommand({
 });
 
 registerCommand({
-  name: "diff",
-  description: "Show the working-tree diff in the context panel",
-  handler: (_args, _ctx) => ({ type: "view", view: "diff" }),
-});
-
-registerCommand({
-  name: "plan",
-  description: "Show the plan in the context panel",
-  handler: (_args, _ctx) => ({ type: "view", view: "plan" }),
+  name: "workflows",
+  description: "Show a workflow artifact in the context panel",
+  subcommands: [
+    { name: "diff", description: "Show the working-tree diff" },
+    { name: "plan", description: "Show the current plan" },
+  ],
+  handler: (args, _ctx) => {
+    const sub = args.trim();
+    if (sub === "diff") return { type: "view", view: "diff" };
+    if (sub === "plan") return { type: "view", view: "plan" };
+    return { type: "message", text: "Usage: /workflows diff | plan" };
+  },
 });
 
 registerCommand({
@@ -73,14 +76,6 @@ registerCommand({
     ctx.signalClear();
     return { type: "message", text: "Started a fresh session." };
   },
-});
-
-// /model is retained as an alias so existing muscle memory still lands somewhere
-// sensible: it opens the same /agent surface where provider and model now live.
-registerCommand({
-  name: "model",
-  description: "Alias for /agent (provider and model configuration)",
-  handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
 registerCommand({

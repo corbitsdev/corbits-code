@@ -24,6 +24,7 @@ import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { loadAgentContextExtensions } from "../agent/run-agent.js";
+import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset } from "../agent/tools.js";
@@ -378,6 +379,9 @@ export async function runTUI(config: Config): Promise<number> {
     });
   };
 
+  const profilesDir = join(config.cwd, ".agents", "agents");
+  const initialProfiles = await loadAgentProfiles(profilesDir);
+
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
   // and restore it on exit (including abrupt process exit) so history returns.
@@ -409,6 +413,8 @@ export async function runTUI(config: Config): Promise<number> {
       initialAuto={config.auto}
       onToggleAuto={(value) => permissionGate.setAuto(value)}
       {...(config.tiers !== undefined ? { initialTiers: config.tiers } : {})}
+      initialProfiles={initialProfiles}
+      profilesDir={profilesDir}
       onSubAgentProviderChange={(provider) => {
         liveSubAgentProvider.current = provider;
       }}
