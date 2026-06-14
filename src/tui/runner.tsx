@@ -160,6 +160,10 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
+  // Forward suggest_workflow approvals to the workflow controller. The controller
+  // is built after the toolset, so we use a holder to break the init cycle.
+  const workflowControllerHolder: { instance?: { start: (name: string) => string } } = {};
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
@@ -168,6 +172,10 @@ export async function runTUI(config: Config): Promise<number> {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
+    onWorkflowSuggested: (name) => {
+      const result = workflowControllerHolder.instance?.start(name);
+      return result !== undefined && !result.startsWith("No workflow");
+    },
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
       provider: () => liveSubAgentProvider.current,
@@ -191,6 +199,7 @@ export async function runTUI(config: Config): Promise<number> {
     getToolDefinitions: () => toolset.dynamicRunner.currentDefinitions(),
     getDirector: () => directorHolder.instance,
   });
+  workflowControllerHolder.instance = workflowController;
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the core set plus any promoted via tool_search.

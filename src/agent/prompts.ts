@@ -1,5 +1,6 @@
 import type { EnvironmentInfo } from "./environment.js";
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
+import { WORKFLOWS } from "../workflows/index.js";
 
 const defaultAgentTools = [
   "read_file",
@@ -164,6 +165,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   submit_plan: "record the plan; required before finishing",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  suggest_workflow: "propose launching a built-in workflow when the user's request matches one",
   present: "render structured data (lists, tables, status) to the user",
   tool_search: "load more tools by capability when you need them",
 };
@@ -254,6 +256,18 @@ export function buildSystemPrompt(
   return joinSections(sections);
 }
 
+export function buildWorkflowSuggestionRules(): string {
+  const list = WORKFLOWS.map((w) => `  - ${w.name}: ${w.description}`).join("\n");
+  return [
+    "Suggesting workflows:",
+    "- When the user's message clearly maps to one of the built-in workflows below, call suggest_workflow with the workflow name, key context extracted from their message, and a one-sentence reason.",
+    "- Only suggest when intent is unambiguous — a direct bug report, feature request, or explicit ask for one of these recipes. Don't suggest for vague or conversational messages.",
+    "- Only call suggest_workflow once per message, and never when a workflow is already active.",
+    "Available workflows:",
+    list,
+  ].join("\n");
+}
+
 export function buildOutputRenderingRules(): string {
   return [
     "Output rendering:",
@@ -307,6 +321,7 @@ export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentIn
     buildGroundingRules(),
     buildSelfVerification(),
     buildPlanRules(),
+    buildWorkflowSuggestionRules(),
     buildAvailableTools(CORE_TOOL_NAMES),
     buildDiscoverableCapabilities(),
     buildToolSearchGuidance(),
