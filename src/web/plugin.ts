@@ -5,6 +5,7 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { ProviderResolutionOptions } from "./providers/index.js";
 import { getWebProvider, withRetry, resetWebProvider } from "./providers/index.js";
 import { scrubSecrets } from "./secret-scrub.js";
+import { WebResultValidator } from "./types.js";
 import type { WebResult } from "./types.js";
 import { isBlockedURL } from "./url-policy.js";
 
@@ -57,12 +58,10 @@ function makeSuccessResult(callId: string, content: Record<string, unknown>): To
   return { callId, content };
 }
 
-const WebResultSchema = type({ title: "string", url: "string", snippet: "string" });
-
 function validateResults(raw: unknown[]): WebResult[] {
   const results: WebResult[] = [];
   for (const item of raw) {
-    const parsed = WebResultSchema(item);
+    const parsed = WebResultValidator(item);
     if (!(parsed instanceof type.errors)) results.push(parsed);
   }
   return results;
@@ -76,8 +75,8 @@ export function webToolsPlugin(options: WebToolsPluginOptions = {}): ToolPlugin 
   const searchTool: ExtraTool = {
     definition: WEB_SEARCH_DEFINITION,
     handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
-      const query = typeof call.arguments.query === "string" ? call.arguments.query : "";
-      if (query.length === 0) {
+      const query = type("string>0")(call.arguments.query);
+      if (query instanceof type.errors) {
         return makeErrorResult(call.id, "web_search requires a non-empty query");
       }
 
@@ -99,8 +98,8 @@ export function webToolsPlugin(options: WebToolsPluginOptions = {}): ToolPlugin 
   const fetchTool: ExtraTool = {
     definition: WEB_FETCH_DEFINITION,
     handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
-      const url = typeof call.arguments.url === "string" ? call.arguments.url : "";
-      if (url.length === 0) {
+      const url = type("string>0")(call.arguments.url);
+      if (url instanceof type.errors) {
         return makeErrorResult(call.id, "web_fetch requires a non-empty url");
       }
 

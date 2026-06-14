@@ -198,6 +198,8 @@ export function App({
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
   const [agentMode, setAgentMode] = useState<AgentMode>(initialAuto ? "auto" : "edit");
+  const agentModeRef = useRef(agentMode);
+  agentModeRef.current = agentMode;
   const auto = agentMode === "auto";
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -264,14 +266,21 @@ export function App({
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
 
-  // When the director exits plan phase (submit_plan approved), revert to edit mode.
+  // Sync TUI mode with director plan phase transitions.
+  // active=true: agent called plan_enter — switch to Plan mode.
+  // active=false: plan approved — revert to Edit, but only if we were in Plan mode.
   useEffect(() => {
     const onPlanPhase = (active: boolean) => {
-      if (!active) setAgentMode("edit");
+      if (active) {
+        onEnterPlanMode?.();
+        setAgentMode("plan");
+      } else if (agentModeRef.current === "plan") {
+        setAgentMode("edit");
+      }
     };
     eventEmitter.on("plan-phase", onPlanPhase);
     return () => { eventEmitter.off("plan-phase", onPlanPhase); };
-  }, [eventEmitter]);
+  }, [eventEmitter, onEnterPlanMode]);
 
   const planBlock = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");

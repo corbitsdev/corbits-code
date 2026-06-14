@@ -557,8 +557,7 @@ class ChatDirectorImpl extends DefaultDirector {
   // legitimate request for free-form operator input, not workflow idling — let
   // it through instead of suppressing it with a forced re-inference.
   private operatorJustResponded = false;
-  // Plan phase: write/edit tools are blocked until the user approves the plan.
-  private planPhaseActive = false;
+  planPhaseActive = false;
   // Fired each time plan phase is entered or exited so the TUI can update its
   // status display without polling.
   private readonly onPlanPhaseChange: ((active: boolean) => void) | undefined;
@@ -872,6 +871,7 @@ export function createChatDirector(
 }
 
 export interface ChatDirectorWithClear extends ReactorDirector {
+  readonly planPhaseActive: boolean;
   signalNewTask(summary?: string): void;
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;

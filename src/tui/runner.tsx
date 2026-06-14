@@ -300,13 +300,16 @@ export async function runTUI(config: Config): Promise<number> {
     if (!pendingReload || inFlight > 0) return;
     pendingReload = false;
     void enqueueOp(async () => {
+      const wasPlanPhaseActive = directorHolder.instance?.planPhaseActive ?? false;
       const old = currentAgent;
       await old.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();
       streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
-      // The rebuild made a fresh director; re-attach the active workflow.
+      // The rebuild made a fresh director; re-attach the active workflow and
+      // restore plan phase so write tools stay blocked if the TUI is in Plan mode.
       workflowController.reattach();
+      if (wasPlanPhaseActive) directorHolder.instance?.enterPlanPhase();
     });
   };
 
