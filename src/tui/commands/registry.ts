@@ -22,7 +22,7 @@ export type CommandResult =
   | { type: "send"; text: string }
   | { type: "view"; view: "plan" | "diff" }
   | { type: "overlay"; overlay: "help" | "permissions" }
-  | { type: "modal"; modal: "agent" }
+  | { type: "modal"; modal: "agent" | "codex-login" }
   | { type: "noop" };
 
 export type SubcommandDefinition = {

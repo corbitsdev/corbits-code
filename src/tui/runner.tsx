@@ -13,6 +13,8 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildOpenAISource, type Config } from "../config/index.js";
+import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { getValidCodexToken } from "../auth/codex/session.js";
 import { loadWorkflowPlugins } from "../workflows/index.js";
 import { loadAgentPlugins } from "../agent/profiles.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
@@ -20,7 +22,7 @@ import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
 import type { SubAgentProvider } from "../subagent/index.js";
-import type { ToolDefinition } from "@intx/types/runtime";
+import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -338,6 +340,41 @@ export async function runTUI(config: Config): Promise<number> {
   };
   toolset.setToolPromoter(promoteTools);
 
+  // The active Codex source, tracked whenever a "codex/<profile>" source is
+  // selected so its access token can be refreshed before each send. Seeded from
+  // config when the session starts on a Codex profile (buildAgent sets that
+  // source directly, not through the proxy's setSource).
+  const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+  let activeCodexSource: { profile: string; source: InferenceSource } | undefined =
+    initialCodexProfile !== undefined
+      ? {
+          profile: initialCodexProfile,
+          source: buildOpenAISource({
+            id: config.providerName,
+            baseURL: config.baseURL,
+            apiKey: config.apiKey,
+            model: config.model,
+            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+          }),
+        }
+      : undefined;
+
+  // Refresh the active Codex access token (if any) and push it onto the live
+  // agent before a send. getValidCodexToken returns the stored token when still
+  // valid and refreshes transparently otherwise, so this satisfies "check
+  // before each inference call" without crashing the loop: a failure surfaces
+  // as a CodexAuthError naming the profile and rejects the send.
+  const refreshCodexBeforeSend = async (): Promise<void> => {
+    const active = activeCodexSource;
+    if (active === undefined) return;
+    const token = await getValidCodexToken(active.profile);
+    if (token !== active.source.apiKey) {
+      const refreshed: InferenceSource = { ...active.source, apiKey: token };
+      activeCodexSource = { profile: active.profile, source: refreshed };
+      currentAgent.setSource(refreshed);
+    }
+  };
+
   // Stable handle handed to the App so the underlying agent can be swapped out
   // from under it without a remount; method calls always target the live agent.
   const agentProxy: Agent = {
@@ -346,6 +383,7 @@ export async function runTUI(config: Config): Promise<number> {
       if (fatalBuildError !== null) throw fatalBuildError;
       inFlight++;
       try {
+        await refreshCodexBeforeSend();
         return await currentAgent.send(content, opts);
       } finally {
         inFlight--;
@@ -355,7 +393,11 @@ export async function runTUI(config: Config): Promise<number> {
     stream: () => currentAgent.stream(),
     deliver: (message) => currentAgent.deliver(message),
     close: () => currentAgent.close(),
-    setSource: (source) => currentAgent.setSource(source),
+    setSource: (source) => {
+      const profile = codexProfileFromProviderName(source.id);
+      activeCodexSource = profile !== undefined ? { profile, source } : undefined;
+      currentAgent.setSource(source);
+    },
     history: () => currentAgent.history(),
     checkpoints: (limit) => currentAgent.checkpoints(limit),
     readAt: (hash) => currentAgent.readAt(hash),

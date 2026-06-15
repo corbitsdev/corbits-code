@@ -4,6 +4,11 @@ import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
 import { setModelReasoningCapabilities, validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { readPricingCache } from "../cost/pricing-fetcher.js";
+import { listCodexProfiles } from "../auth/codex/store.js";
+import {
+  codexProfileFromProviderName,
+  codexProvidersAsSettings,
+} from "./codex-providers.js";
 
 import {
   globalSettingsPath,
@@ -59,6 +64,11 @@ export type ProviderCatalogEntry = {
   apiKey: string;
   models: string[];
   defaultModel?: string;
+  // Set when this entry is a Codex OAuth profile rather than an API-key
+  // provider. Holds the profile name; the send path uses it to refresh the
+  // access token before each turn. Such entries are never written to
+  // settings.json (their credentials live in the Codex auth store).
+  codexProfile?: string;
 };
 
 export type Config = {
@@ -233,6 +243,19 @@ export async function loadConfig(
         })
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
 
+  // Codex OAuth profiles live in the home-level auth store, not in any settings
+  // file. They are merged in only for the real default settings path: an
+  // explicit --config or a test override selects a controlled provider set that
+  // should not pull in home credentials. Profiles surface as "codex/<name>"
+  // providers so selection and the picker treat them like any other provider.
+  const useCodexProfiles = configPath === undefined && options.globalSettingsPath === undefined;
+  const codexProfiles = useCodexProfiles ? await listCodexProfiles() : [];
+  const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
+  const settingsForResolution: Settings | null =
+    codexProfiles.length > 0
+      ? { ...(settings ?? { providers: {} }), providers: { ...(settings?.providers ?? {}), ...codexProviderSettings } }
+      : settings;
+
   // The per-repo selection file still applies on top of a --config source: that
   // file supplies provider definitions, while .intercode/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
@@ -265,7 +288,7 @@ export async function loadConfig(
   let resolved: ResolvedProvider;
   try {
     resolved = resolveProvider({
-      settings,
+      settings: settingsForResolution,
       local: profileLocal,
       env: envProvider(),
       cli,
@@ -314,7 +337,7 @@ export async function loadConfig(
     noWorkflow,
     ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
-    providers: buildProviderCatalog(settings, resolved),
+    providers: buildProviderCatalog(settingsForResolution, resolved),
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
     ...(profile.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: profile.systemPromptExtensions }
@@ -340,13 +363,17 @@ export function buildProviderCatalog(
   resolved: ResolvedProvider,
 ): ProviderCatalogEntry[] {
   if (settings !== null && Object.keys(settings.providers).length > 0) {
-    return Object.entries(settings.providers).map(([name, p]) => ({
-      name,
-      baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
-      apiKey: p.apiKey,
-      models: p.models,
-      ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
-    }));
+    return Object.entries(settings.providers).map(([name, p]) => {
+      const codexProfile = codexProfileFromProviderName(name);
+      return {
+        name,
+        baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
+        apiKey: p.apiKey,
+        models: p.models,
+        ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+        ...(codexProfile !== undefined ? { codexProfile } : {}),
+      };
+    });
   }
   return [
     {
@@ -362,10 +389,14 @@ export function providerCatalogToSettings(
   catalog: readonly ProviderCatalogEntry[],
   defaultProvider: string | undefined,
 ): Settings {
+  // Codex OAuth entries are credential-backed by the home-level auth store, not
+  // by settings.json. Exclude them so a provider edit never persists a
+  // (short-lived) access token into the settings file.
+  const persistable = catalog.filter((p) => p.codexProfile === undefined);
   return {
     ...(defaultProvider !== undefined ? { defaultProvider } : {}),
     providers: Object.fromEntries(
-      catalog.map((p) => [
+      persistable.map((p) => [
         p.name,
         {
           baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),

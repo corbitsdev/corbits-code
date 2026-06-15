@@ -29,8 +29,14 @@ import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
+import { CodexLoginModal } from "./components/codex-login-modal.js";
 import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
+import { startCodexLogin } from "../auth/codex/login.js";
+import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
+import { removeCodexProfile } from "../auth/codex/store.js";
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import { codexProviderName } from "../config/codex-providers.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -299,6 +305,7 @@ export function App({
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [codexLoginOpen, setCodexLoginOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -325,7 +332,49 @@ export function App({
     onMessage: setCommandMessage,
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
-  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment } = providerManager;
+  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, removeCodexProvider } = providerManager;
+
+  // Codex profile names currently known, derived from the live catalog so the
+  // login modal stays in sync after a login or removal.
+  const codexProfileNames = useMemo(
+    () =>
+      providerCatalog
+        .map((p) => p.codexProfile)
+        .filter((name): name is string => name !== undefined),
+    [providerCatalog],
+  );
+
+  // Resolve a fresh access token for a Codex profile and make it the active
+  // provider. Surfaces a re-login hint if the profile can no longer be used.
+  const switchToCodexProfile = (name: string): void => {
+    void getValidCodexToken(name).then(
+      (token) => {
+        registerCodexProvider({
+          name: codexProviderName(name),
+          baseURL: CODEX_BASE_URL,
+          apiKey: token,
+          models: [...CODEX_DEFAULT_MODELS],
+          defaultModel: CODEX_DEFAULT_MODELS[0],
+          codexProfile: name,
+        });
+      },
+      (err: unknown) => {
+        setCommandMessage(
+          err instanceof CodexAuthError
+            ? err.message
+            : `Could not use Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+  };
+
+  const removeCodexProfileEverywhere = (name: string): void => {
+    removeCodexProvider(codexProviderName(name));
+    void removeCodexProfile(name).then(
+      () => setCommandMessage(`Removed Codex profile "${name}".`),
+      (err: unknown) => setCommandMessage(`Failed to remove Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`),
+    );
+  };
 
   const [profiles, setProfiles] = useState<AgentProfile[]>(initialProfiles);
 
@@ -451,6 +500,7 @@ export function App({
     gates.gateOpen ||
     hookPanelOpen ||
     agentModalOpen ||
+    codexLoginOpen ||
     permissionsOpen ||
     workflowPanelOpen
   );
@@ -621,7 +671,7 @@ export function App({
       // like the help overlay, so block the global keymap the same way.
       helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
-      agentModalOpen: agentModalOpen || workflowPickerOpen,
+      agentModalOpen: agentModalOpen || workflowPickerOpen || codexLoginOpen,
       hookPanelOpen,
       diffFullScreenOpen,
       planFullScreenOpen,
@@ -767,6 +817,9 @@ export function App({
     }
     if (result.type === "modal" && result.modal === "agent") {
       setAgentModalOpen(true);
+    }
+    if (result.type === "modal" && result.modal === "codex-login") {
+      setCodexLoginOpen(true);
     }
   };
 
@@ -921,6 +974,26 @@ export function App({
           onRevoke={handleRevokePermission}
           onClose={() => setPermissionsOpen(false)}
           maxHeight={permissionsOverlayRows}
+        />
+      )}
+      {codexLoginOpen && (
+        <CodexLoginModal
+          profiles={codexProfileNames}
+          activeProfile={provider}
+          onStartLogin={(name) => {
+            const controller = new AbortController();
+            return startCodexLogin({ profile: name, signal: controller.signal }).then((handle) => ({
+              authorizeUrl: handle.authorizeUrl,
+              completed: handle.completed,
+              cancel: () => {
+                controller.abort();
+                handle.cancel();
+              },
+            }));
+          }}
+          onSwitchProfile={switchToCodexProfile}
+          onRemoveProfile={removeCodexProfileEverywhere}
+          onClose={() => setCodexLoginOpen(false)}
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
