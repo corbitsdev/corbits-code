@@ -214,8 +214,8 @@ export function AgentModal({
   const models = selectedProvider?.models ?? [];
   // The leading `undefined` is the "no override" choice; the rest are the real
   // levels the model accepts.
-  const efforts: (ReasoningEffort | undefined)[] =
-    pendingModel !== undefined ? [undefined, ...supportedEfforts(pendingModel)] : [];
+  const efforts: ReasoningEffort[] =
+    pendingModel !== undefined ? supportedEfforts(pendingModel) : [];
   const currentField = FORM_FIELDS[formIndex] ?? "name";
 
   const enterModelStep = (): void => {
@@ -231,9 +231,10 @@ export function AgentModal({
     setPendingProvider(providerName);
     setPendingModel(modelName);
     const active = providerName === activeProvider && modelName === activeModel ? activeEffort : undefined;
-    const options: (ReasoningEffort | undefined)[] = [undefined, ...supportedEfforts(modelName)];
-    const idx = options.indexOf(active);
-    setEffortIndex(idx >= 0 ? idx : 0);
+    const options = supportedEfforts(modelName);
+    const idx = active !== undefined ? options.indexOf(active) : -1;
+    const fallback = options.indexOf("medium");
+    setEffortIndex(idx >= 0 ? idx : fallback >= 0 ? fallback : 0);
     setStep("effort");
   };
 
@@ -536,8 +537,6 @@ export function AgentModal({
         return;
       }
       if (pendingProvider === undefined || pendingModel === undefined) return;
-      // efforts[effortIndex] may be undefined — that is the "no override" choice,
-      // not an invalid index (the cursor is always within range).
       const effort = efforts[effortIndex];
       if (key.return) {
         onApply(pendingProvider, pendingModel, effort);
@@ -708,7 +707,7 @@ export function AgentModal({
             const isActive = e === activeEffort;
             const isCursor = i === effortIndex;
             return (
-              <Box key={e ?? "__default__"} flexDirection="row" gap={1}>
+              <Box key={e} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
                   {isCursor ? ">" : " "}
                 </Text>
@@ -716,7 +715,7 @@ export function AgentModal({
                   {isActive ? "* " : "  "}
                   {effortLabel(e)}
                 </Text>
-                {e !== undefined && EFFORT_DESCRIPTIONS[e] !== undefined && (
+                {EFFORT_DESCRIPTIONS[e] !== undefined && (
                   <Text color={color("muted")}>— {EFFORT_DESCRIPTIONS[e]}</Text>
                 )}
               </Box>
