@@ -18,21 +18,29 @@ function block(data: Omit<ContentBlock, "id">): RenderableBlock {
 
 const lineText = (line: { text: string }[]): string => line.map((s) => s.text).join("");
 
-type Overrides = Partial<Parameters<typeof EventLog>[0]>;
+type Overrides = {
+  scrollOffset?: number;
+  visibleRows?: number;
+  columns?: number;
+  thinkingExpanded?: boolean;
+  expandedTools?: ReadonlySet<string>;
+  verbose?: boolean;
+};
 
 function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
   const withIds = blocks.map((b, i) => ("id" in b ? b : { ...b, id: `fixture-${i}` })) as ContentBlock[];
+  const columns = overrides.columns ?? 200;
+  const expandedTools = overrides.expandedTools ?? new Set<string>();
+  const verbose = overrides.verbose ?? false;
+  const lines = buildLines(
+    renderableBlocks(withIds),
+    columns,
+    overrides.thinkingExpanded ?? false,
+    (b) => verbose || expandedTools.has(b.id),
+  );
   return render(
-    <EventLog
-      contentBlocks={withIds}
-      scrollOffset={overrides.scrollOffset ?? 0}
-      visibleRows={overrides.visibleRows ?? 100}
-      columns={overrides.columns ?? 200}
-      thinkingExpanded={overrides.thinkingExpanded ?? false}
-      expandedTools={overrides.expandedTools ?? new Set()}
-      verbose={overrides.verbose ?? false}
-    />,
-    { stdout: { columns: (overrides.columns ?? 200) + 20, rows: 200 } as unknown as NodeJS.WriteStream },
+    <EventLog lines={lines} scrollOffset={overrides.scrollOffset ?? 0} visibleRows={overrides.visibleRows ?? 100} />,
+    { stdout: { columns: columns + 20, rows: 200 } as unknown as NodeJS.WriteStream },
   );
 }
 
