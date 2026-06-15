@@ -221,11 +221,11 @@ describe("isUserFacingJSON", () => {
 });
 
 describe("describeToolCall for task tool", () => {
-  test("named agent call uses agent name as display with description in parens", () => {
+  test("named agent call uses agent name as display with description separate", () => {
     const args = JSON.stringify({ agent: "greybeard", description: "review the diff", prompt: "..." });
     const result = describeToolCall("task", args);
     expect(result.display).toBe("Greybeard");
-    expect(result.summary).toBe("Greybeard(review the diff)");
+    expect(result.summary).toBe("review the diff");
     expect(result.isShell).toBe(false);
   });
 
@@ -233,7 +233,7 @@ describe("describeToolCall for task tool", () => {
     const args = JSON.stringify({ description: "map all callers", prompt: "..." });
     const result = describeToolCall("task", args);
     expect(result.display).toBe("Task");
-    expect(result.summary).toBe("Task(map all callers)");
+    expect(result.summary).toBe("map all callers");
   });
 
   test("long description is abbreviated", () => {
@@ -241,6 +241,6 @@ describe("describeToolCall for task tool", () => {
     const args = JSON.stringify({ agent: "critique", description: long, prompt: "..." });
     const result = describeToolCall("task", args);
     expect(result.summary.length).toBeLessThan(long.length + 20);
-    expect(result.summary).toMatch(/^Critique\(/);
+    expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
   });
 });

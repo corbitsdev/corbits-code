@@ -97,7 +97,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
         agentName !== undefined
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
-      const summary = description.length > 0 ? `${display}(${abbreviate(description, ARG_VALUE_MAX)})` : display;
+      const summary = description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "";
       return { display, role: "accent", summary, full: summary, isShell: false };
     }
   }

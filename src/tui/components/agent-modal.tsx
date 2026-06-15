@@ -7,8 +7,8 @@ import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning
 import { PROVIDER_TIERS, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 
-// undefined is "no override" (omit the field); "none" is OpenAI's explicit
-// disable-reasoning value. Both read as "off", so label them distinctly.
+// Active-effort display: undefined means "no override" (field omitted);
+// "none" is OpenAI's explicit disable-reasoning value. Both read as "off".
 function effortLabel(effort: ReasoningEffort | undefined): string {
   if (effort === undefined) return "Default (no override)";
   if (effort === "none") return "None (disable reasoning)";
@@ -212,8 +212,8 @@ export function AgentModal({
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
-  // The leading `undefined` is the "no override" choice; the rest are the real
-  // levels the model accepts.
+  // Real effort levels the selected model accepts, from supportedEfforts().
+  // An empty array means no model is selected yet.
   const efforts: ReasoningEffort[] =
     pendingModel !== undefined ? supportedEfforts(pendingModel) : [];
   const currentField = FORM_FIELDS[formIndex] ?? "name";
