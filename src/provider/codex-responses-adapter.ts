@@ -19,7 +19,7 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "../auth/codex/constants.js";
 import { parseCodexRateLimitHeaders, recordCodexUsage } from "../auth/codex/usage.js";
-import { getCodexInstructions } from "../auth/codex/instructions.js";
+import { GPT_5_CODEX_PROMPT } from "../auth/codex/prompts/gpt-5-codex.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -128,21 +128,16 @@ function optionString(options: InferenceOptions, key: string): string | undefine
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-// The `instructions` field is pinned to the official Codex prompt (the backend
-// rejects anything else), so Intercode's own operating prompt rides as a leading
-// developer message. It must also neutralize the Codex prompt's references to
-// tools that do not exist here (apply_patch, update_plan, shell) — the function
-// tools sent with the request are authoritative.
+// `instructions` is pinned to the official Codex prompt (the backend rejects
+// anything else), so Intercode's operating prompt rides as a leading developer
+// message that also neutralizes the Codex prompt's references to tools that do
+// not exist here. The function tools sent with the request are authoritative.
 function bridgeMessage(systemPrompt: string): ResponsesInputItem {
-  const text =
-    "<intercode_environment priority=\"0\">\n" +
-    "You are NOT running in the Codex CLI. You are running in Intercode, a " +
-    "different harness. The base instructions above describe Codex CLI tools " +
-    "(apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool " +
-    "reference in the base instructions and use ONLY the function tools provided " +
-    "in this request. The following are your authoritative operating instructions:\n\n" +
-    systemPrompt +
-    "\n</intercode_environment>";
+  const text = `<intercode_environment priority="0">
+You are NOT running in the Codex CLI. You are running in Intercode, a different harness. The base instructions above describe Codex CLI tools (apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool reference in the base instructions and use ONLY the function tools provided in this request. The following are your authoritative operating instructions:
+
+${systemPrompt}
+</intercode_environment>`;
   return { type: "message", role: "developer", content: [{ type: "input_text", text }] };
 }
 
@@ -165,9 +160,7 @@ function buildRequest(
   const body: Record<string, unknown> = {
     model,
     input,
-    // The backend pins `instructions` to the official Codex prompt for the model
-    // family; sending anything else is rejected with HTTP 400.
-    instructions: getCodexInstructions(model),
+    instructions: GPT_5_CODEX_PROMPT,
     // The Codex backend requires server-side storage off and streaming on, and
     // asks for encrypted reasoning so it can be round-tripped across turns.
     store: false,
