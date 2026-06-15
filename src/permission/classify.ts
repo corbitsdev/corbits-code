@@ -22,8 +22,14 @@ const SAFE_SHELL_PROGRAMS = new Set([
   "cat", "head", "tail", "wc", "cut", "tr", "nl", "rev", "column", "uniq", "sort", "comm", "look",
   "ls", "tree", "stat", "file", "du", "df", "basename", "dirname", "realpath", "readlink",
   "echo", "printf", "date", "whoami", "hostname", "uname", "pwd", "which", "type", "id",
-  "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings",
+  "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings", "find",
 ]);
+
+// `find` traverses read-only unless an action flag runs a command (-exec/-ok and
+// their *dir variants), deletes matches (-delete), or writes results to a file
+// (-fprint*/-fls). Its own `-o` is logical OR, not an output flag, so `find`
+// gets this rule instead of the generic WRITE_FLAG/EXEC_FLAG checks below.
+const FIND_DANGEROUS_FLAG = /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fprint0|fls)$/;
 
 // Non-pipe metacharacters that cannot appear anywhere in an auto-allowed command.
 // Pipes between safe programs are evaluated segment-by-segment (see below).
@@ -82,24 +88,32 @@ function isAutoAllowedSegment(segment: string, cwd: string): boolean {
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
   const args = tokens.slice(1);
-  if (args.some((token) => WRITE_FLAG.test(token))) return false;
-  if (args.some((token) => EXEC_FLAG.test(token))) return false;
+  if (program === "find") {
+    if (args.some((token) => FIND_DANGEROUS_FLAG.test(token))) return false;
+  } else {
+    if (args.some((token) => WRITE_FLAG.test(token))) return false;
+    if (args.some((token) => EXEC_FLAG.test(token))) return false;
+  }
   if (args.some((token) => isSensitivePath(token))) return false;
   if (args.some((token) => argEscapesWorkspace(token, cwd))) return false;
   return true;
 }
 
-export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
-  if (call.name !== "run_shell") return false;
-  const command = stringArg(call, "command").trim();
-  if (command.length === 0) return false;
+export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).
   // Pipes are allowed between safe segments — evaluated below.
-  if (DANGEROUS_METACHARACTERS.test(command)) return false;
+  if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
 
   // Split on pipe and require every segment to be a safe read-only program.
-  const segments = command.split("|");
+  const segments = trimmed.split("|");
   return segments.every((seg) => isAutoAllowedSegment(seg, cwd));
+}
+
+export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
+  if (call.name !== "run_shell") return false;
+  return isAutoAllowedShellCommand(stringArg(call, "command"), cwd);
 }
 
 // File scopes intentionally stop at the directory level. There is no "every

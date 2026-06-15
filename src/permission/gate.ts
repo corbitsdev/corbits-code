@@ -1,6 +1,6 @@
 import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, GrantScope, RequestApproval } from "./types.js";
-import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
+import { classifyTool, buildRequests, isAutoAllowedShellCall, isAutoAllowedShellCommand } from "./classify.js";
 import { isApproved } from "./matcher.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
@@ -78,6 +78,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
     for (const request of buildRequests(call)) {
       if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;
+      // A pipeline that mixes a consequential segment (e.g. `find`) with an
+      // intrinsically safe one (e.g. `sort`) only needs approval for the unsafe
+      // segment. Skip prompting for any segment that auto-allows on its own.
+      if (request.tool === "run_shell" && isAutoAllowedShellCommand(request.subject, cwd)) continue;
 
       if (!interactive || requestApproval === undefined) {
         return {
