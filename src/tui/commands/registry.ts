@@ -15,6 +15,9 @@ export type CommandContext = {
   openWorkflowPicker?: () => void;
   // Enter plan mode: strips write/edit tools until submit_plan is approved.
   enterPlanMode?: () => void;
+  // Show live Codex usage/quota for the active Codex profile (async; the app
+  // fetches and surfaces the result). No-op / message when not on Codex.
+  showCodexUsage?: () => void;
 };
 
 export type CommandResult =

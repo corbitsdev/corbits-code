@@ -31,6 +31,12 @@ export const CODEX_SCOPES = ["openid", "profile", "email", "offline_access"] as 
 // accountId are the inputs it needs.
 export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 export const CODEX_RESPONSES_PATH = "/codex/responses";
+// Live usage/quota for the prepaid plan (window %, reset, credits) and the
+// account's available model catalog. The models endpoint requires a
+// client_version query param.
+export const CODEX_USAGE_PATH = "/codex/usage";
+export const CODEX_MODELS_PATH = "/codex/models";
+export const CODEX_CLIENT_VERSION = "0.50.0";
 
 // Extra authorize-request params the Codex flow requires.
 export const CODEX_AUTHORIZE_EXTRA_PARAMS: Record<string, string> = {
@@ -39,9 +45,13 @@ export const CODEX_AUTHORIZE_EXTRA_PARAMS: Record<string, string> = {
   originator: "codex_cli_rs",
 };
 
-// Models exposed by the Codex backend. Surfaced as the profile's model list so
-// the picker has something to select; kept conservative and overridable.
-export const CODEX_DEFAULT_MODELS = ["gpt-5-codex", "gpt-5"] as const;
+// Fallback model list, used only when the live catalog (GET /codex/models) is
+// unavailable — e.g. while rate-limited it returns an empty list. The Codex
+// backend rotates its serving set (codex-rs no longer hardcodes presets), so
+// the live fetch is authoritative and these are just a current-generation
+// default so the picker is never empty. gpt-5.3-codex is the coding-optimized
+// default.
+export const CODEX_DEFAULT_MODELS = ["gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "gpt-5.4-mini"] as const;
 
 // Refresh a token this many milliseconds before its stated expiry so a request
 // is never sent with a token about to lapse mid-flight.

@@ -36,7 +36,8 @@ import { startCodexLogin } from "../auth/codex/login.js";
 import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
 import { loadCodexProfile, removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
-import { codexProviderName } from "../config/codex-providers.js";
+import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage } from "../auth/codex/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -347,15 +348,19 @@ export function App({
   // Resolve a fresh access token for a Codex profile and make it the active
   // provider. Surfaces a re-login hint if the profile can no longer be used.
   const switchToCodexProfile = (name: string): void => {
-    void Promise.all([getValidCodexToken(name), loadCodexProfile(name)]).then(
-      ([token, profile]) => {
+    void Promise.all([getValidCodexToken(name), loadCodexProfile(name), fetchCodexModels(name).catch(() => [])]).then(
+      ([token, profile, liveModels]) => {
         const accountId = profile?.tokens.accountId;
+        // Prefer the account's live model catalog; fall back to the current
+        // default set when empty (e.g. while rate-limited the catalog is empty).
+        const models = liveModels.length > 0 ? liveModels : [...CODEX_DEFAULT_MODELS];
+        const defaultModel = models[0] ?? CODEX_DEFAULT_MODELS[0];
         registerCodexProvider({
           name: codexProviderName(name),
           baseURL: CODEX_BASE_URL,
           apiKey: token,
-          models: [...CODEX_DEFAULT_MODELS],
-          defaultModel: CODEX_DEFAULT_MODELS[0],
+          models,
+          defaultModel,
           codexProfile: name,
           ...(accountId !== undefined ? { codexAccountId: accountId } : {}),
         });
@@ -580,7 +585,18 @@ export function App({
     ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
     openWorkflowPanel: () => setWorkflowPanelOpen(true),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
+    showCodexUsage: () => {
+      const profileName = codexProfileFromProviderName(provider);
+      if (profileName === undefined) {
+        setCommandMessage("The active provider is not a Codex profile.");
+        return;
+      }
+      void fetchCodexUsage(profileName).then(
+        (usage) => setCommandMessage(formatCodexUsage(usage)),
+        (err: unknown) => setCommandMessage(`Could not fetch Codex usage: ${err instanceof Error ? err.message : String(err)}`),
+      );
+    },
+  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode, provider]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
