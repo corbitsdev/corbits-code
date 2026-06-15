@@ -128,8 +128,8 @@ Invocation: a `/<name>` slash command per workflow plus `/workflows` to list; au
 
 The agent's identity is **Intercode**, framed as a senior teammate who owns the outcome (not an assistant). The prompt is composed from small, individually-exported sections so they can be tested and reused.
 
-- `buildSystemPrompt` — Autonomous loop: identity + quality bar, tool-call discipline, completion rules, encoded code standards (the core `style`/`philosophy` rules — scope discipline, match surrounding code, delete superseded code, comment the why, validate at boundaries), efficiency/tool-layer limits, self-verification, authorization/escalation, plan contract, a risk-and-reversibility plan-decision rubric (not file counts), and a few-shot "locate → understand → change → verify → submit" sequence.
-- `buildChatSystemPrompt` — TUI chat: same Intercode identity and code standards, conversational, without the submit/plan-required loop mechanics.
+- `buildSystemPrompt` — Autonomous loop: identity + quality bar, tool-call discipline, completion rules, encoded code standards (the core `style`/`philosophy` rules — scope discipline, match surrounding code, delete superseded code, comment the why, validate at boundaries), instruction hierarchy and scoped project-guidance rules, efficiency/tool-layer limits, review-mode criteria, communication rules, self-verification, authorization/escalation, plan contract, a risk-and-reversibility plan-decision rubric (not file counts), and a few-shot "locate → understand → change → verify → submit" sequence.
+- `buildChatSystemPrompt` — TUI chat: same Intercode identity, code standards, instruction hierarchy, review-mode criteria, and communication rules, conversational, without the submit/plan-required loop mechanics.
 
 > The prompt rewrite (CL-1220) is in place; the "measured improvement vs the prior prompt" acceptance remains to be validated by running the eval harness (CL-1219) against a real provider.
 
