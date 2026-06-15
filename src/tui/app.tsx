@@ -49,6 +49,8 @@ import "./commands/plan.js";
 import "./commands/workflows.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
+const MAX_MENTION_TOTAL_BYTES = 400_000;
+const MAX_MENTION_COUNT = 5;
 const MAX_DIRECTORY_SUMMARY_ENTRIES = 200;
 const MAX_DIRECTORY_NAMES = 20;
 
@@ -117,32 +119,50 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
   }
   if (mentions.length === 0) return message;
 
-  const replacements: Array<{ full: string; replacement: string }> = await Promise.all(
-    mentions.map(async ({ full, path }) => {
-      if (isSensitivePath(path)) {
-        return { full, replacement: `${full} (blocked: sensitive path)` };
+  const replacements: Array<{ full: string; replacement: string }> = [];
+  let totalBytes = 0;
+
+  for (const [index, { full, path }] of mentions.entries()) {
+    if (index >= MAX_MENTION_COUNT) {
+      replacements.push({ full, replacement: `${full} (blocked: too many @mentions; max ${MAX_MENTION_COUNT})` });
+      continue;
+    }
+    if (isSensitivePath(path)) {
+      replacements.push({ full, replacement: `${full} (blocked: sensitive path)` });
+      continue;
+    }
+    const resolved = await resolveWorkspacePath(cwd, path);
+    if (!resolved.ok) {
+      replacements.push({ full, replacement: `${full} (blocked: ${resolved.reason})` });
+      continue;
+    }
+    if (isSensitivePath(resolved.abs)) {
+      replacements.push({ full, replacement: `${full} (blocked: sensitive path)` });
+      continue;
+    }
+    try {
+      const info = await stat(resolved.abs);
+      if (info.isDirectory()) {
+        const summary = await summarizeDir(resolved.abs);
+        replacements.push({ full, replacement: `\`${path}\` (directory - ${summary})` });
+        continue;
       }
-      const resolved = await resolveWorkspacePath(cwd, path);
-      if (!resolved.ok) {
-        return { full, replacement: `${full} (blocked: ${resolved.reason})` };
+      if (info.size > MAX_MENTION_FILE_BYTES) {
+        replacements.push({ full, replacement: `${full} (blocked: file is too large; max ${MAX_MENTION_FILE_BYTES} bytes)` });
+        continue;
       }
-      try {
-        const info = await stat(resolved.abs);
-        if (info.isDirectory()) {
-          const summary = await summarizeDir(resolved.abs);
-          return { full, replacement: `\`${path}\` (directory - ${summary})` };
-        }
-        if (info.size > MAX_MENTION_FILE_BYTES) {
-          return { full, replacement: `${full} (blocked: file is too large; max ${MAX_MENTION_FILE_BYTES} bytes)` };
-        }
-        const content = await readFile(resolved.abs, "utf-8");
-        const ext = resolved.abs.split(".").pop() ?? "";
-        return { full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` };
-      } catch {
-        return { full, replacement: `${full} (not found)` };
+      if (totalBytes + info.size > MAX_MENTION_TOTAL_BYTES) {
+        replacements.push({ full, replacement: `${full} (blocked: total @mention content is too large; max ${MAX_MENTION_TOTAL_BYTES} bytes)` });
+        continue;
       }
-    }),
-  );
+      const content = await readFile(resolved.abs, "utf-8");
+      totalBytes += info.size;
+      const ext = resolved.abs.split(".").pop() ?? "";
+      replacements.push({ full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` });
+    } catch {
+      replacements.push({ full, replacement: `${full} (not found)` });
+    }
+  }
 
   let result = message;
   for (const { full, replacement } of replacements) {

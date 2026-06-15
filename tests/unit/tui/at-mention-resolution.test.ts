@@ -47,6 +47,42 @@ describe("resolveAtMentions", () => {
     }
   });
 
+  test("does not exceed the cumulative mention content limit", async () => {
+    const dir = await fixture();
+    try {
+      await writeFile(join(dir, "one.txt"), "a".repeat(180_000));
+      await writeFile(join(dir, "two.txt"), "b".repeat(180_000));
+      await writeFile(join(dir, "three.txt"), "c".repeat(180_000));
+
+      const resolved = await resolveAtMentions("read @one.txt @two.txt @three.txt", dir);
+      expect(resolved).toContain("`one.txt`:");
+      expect(resolved).toContain("`two.txt`:");
+      expect(resolved).toContain("@three.txt (blocked: total @mention content is too large");
+      expect(resolved.length).toBeLessThan(400_500);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not resolve more than the maximum mention count", async () => {
+    const dir = await fixture();
+    try {
+      for (let i = 0; i < 6; i++) {
+        await writeFile(join(dir, `small-${i}.txt`), `file ${i}\n`);
+      }
+
+      const resolved = await resolveAtMentions(
+        "read @small-0.txt @small-1.txt @small-2.txt @small-3.txt @small-4.txt @small-5.txt",
+        dir,
+      );
+      expect(resolved).toContain("`small-4.txt`:");
+      expect(resolved).toContain("@small-5.txt (blocked: too many @mentions");
+      expect(resolved).not.toContain("file 5");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("does not inline absolute paths", async () => {
     const dir = await fixture();
     try {
@@ -71,6 +107,19 @@ describe("resolveAtMentions", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("does not inline sensitive files through workspace symlinks", async () => {
+    const dir = await fixture();
+    try {
+      await symlink(join(dir, ".env"), join(dir, "looks-safe.txt"));
+
+      const resolved = await resolveAtMentions("read @looks-safe.txt", dir);
+      expect(resolved).toContain("@looks-safe.txt (blocked: sensitive path)");
+      expect(resolved).not.toContain("API_KEY=secret");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   });
 });
