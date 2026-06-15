@@ -34,6 +34,7 @@ import { reReadBlockPlugin } from "../plugins/re-read-block-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
@@ -176,6 +177,7 @@ export async function runAgent(
       secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
+      ripgrepPlugin(config.cwd),
       verifyPlugin(),
       reReadBlockPlugin(() => directorHolder.instance),
       webToolsPlugin(),
