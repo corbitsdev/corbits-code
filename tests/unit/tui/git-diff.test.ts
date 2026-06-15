@@ -114,3 +114,25 @@ test("a fresh repo with no commits is available and shows untracked files", asyn
     await import("node:fs/promises").then((fs) => fs.rm(dir, { recursive: true, force: true }));
   }
 });
+
+test("many untracked files are capped instead of diffed exhaustively", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "diff-many-untracked-"));
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir });
+    await mkdir(join(dir, "generated"), { recursive: true });
+    for (let i = 0; i < 25; i++) {
+      await writeFile(join(dir, "generated", `file-${i}.txt`), `file ${i}\n`);
+    }
+
+    const result = await getWorkingTreeDiff(dir);
+    expect(result.available).toBe(true);
+    if (result.available) {
+      expect(result.files.length).toBe(21);
+      expect(result.files.at(-1)?.path).toBe("(5 more untracked files)");
+    }
+  } finally {
+    await import("node:fs/promises").then((fs) => fs.rm(dir, { recursive: true, force: true }));
+  }
+});

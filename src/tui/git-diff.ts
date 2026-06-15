@@ -92,18 +92,38 @@ async function hasHead(cwd: string): Promise<boolean> {
 // Cap on per-file untracked diffs. Scaffolding can leave hundreds of untracked
 // files; diffing every one floods the panel and the refresh cycle. Beyond this
 // we stop and surface the remainder as a count rather than spawning git per file.
-const MAX_UNTRACKED_DIFFS = 100;
+const MAX_UNTRACKED_DIFFS = 20;
+const UNTRACKED_DIFF_CONCURRENCY = 4;
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]!);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
 
 // Untracked files never appear in `git diff`. Render each as a new-file diff via
 // --no-index against /dev/null, which does not touch the index or working tree.
-// The per-file diffs run concurrently — a serial loop stalls the diff panel as
-// soon as there are more than a handful of new files.
+// Keep concurrency low: opening the panel on a scaffolded repo should not spawn
+// a process per generated file.
 async function untrackedDiff(cwd: string): Promise<string> {
   const listed = await runGit(cwd, ["ls-files", "--others", "--exclude-standard"]);
   const paths = listed.stdout.split("\n").map((p) => p.trim()).filter((p) => p.length > 0);
   const shown = paths.slice(0, MAX_UNTRACKED_DIFFS);
-  const results = await Promise.all(
-    shown.map((path) => runGit(cwd, ["diff", "--no-index", "--no-color", "--", "/dev/null", path])),
+  const results = await mapLimit(
+    shown,
+    UNTRACKED_DIFF_CONCURRENCY,
+    (path) => runGit(cwd, ["diff", "--no-index", "--no-color", "--", "/dev/null", path]),
   );
   const parts = results.map((r) => r.stdout).filter((s) => s.length > 0);
   const remaining = paths.length - shown.length;
