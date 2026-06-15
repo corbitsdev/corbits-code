@@ -4,6 +4,7 @@ export type CritiqueResult = {
 };
 
 const CRITIQUE_TIMEOUT_MS = 300_000;
+const FIND_PRUNED_DIRS = [".git", "node_modules", "dist", ".agent-state", ".intercode"];
 
 async function runCommand(
   cwd: string,
@@ -16,8 +17,9 @@ async function runCommand(
   });
 
   let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<number>((resolve) => {
-    setTimeout(() => {
+    timeoutId = setTimeout(() => {
       timedOut = true;
       try {
         proc.kill();
@@ -29,6 +31,7 @@ async function runCommand(
   });
 
   const exitCode = await Promise.race([proc.exited, timeout]);
+  if (timeoutId !== undefined) clearTimeout(timeoutId);
   const stdout = await new Response(proc.stdout).text();
   const stderr = await new Response(proc.stderr).text();
 
@@ -46,10 +49,40 @@ async function hasScript(cwd: string, name: string): Promise<boolean> {
   }
 }
 
-async function hasTestFiles(cwd: string): Promise<boolean> {
+export async function hasTestFiles(cwd: string): Promise<boolean> {
   try {
+    const pruneArgs = FIND_PRUNED_DIRS.flatMap((dir, index) => [
+      ...(index === 0 ? [] : ["-o"]),
+      "-path",
+      `${cwd}/${dir}`,
+    ]);
     const proc = Bun.spawn(
-      ["find", cwd, "-type", "f", "(", "-name", "*.test.*", "-o", "-name", "*.spec.*", "-o", "-name", "*_test_*", "-o", "-name", "*_spec_*", ")"],
+      [
+        "find",
+        cwd,
+        "(",
+        ...pruneArgs,
+        ")",
+        "-prune",
+        "-o",
+        "-type",
+        "f",
+        "(",
+        "-name",
+        "*.test.*",
+        "-o",
+        "-name",
+        "*.spec.*",
+        "-o",
+        "-name",
+        "*_test_*",
+        "-o",
+        "-name",
+        "*_spec_*",
+        ")",
+        "-print",
+        "-quit",
+      ],
       { stdout: "pipe", stderr: "pipe" },
     );
     const stdout = await new Response(proc.stdout).text();
