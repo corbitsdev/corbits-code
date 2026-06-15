@@ -48,7 +48,7 @@ If any step fails, report it and do not declare completion. Do not work around a
 - Separate refactors from feature additions into distinct commits.
 - Do not amend published commits — create a new commit for fixes.
 - After committing, remind the user to push.
-- Author: `Intercode <intercode@abklabs.com>`.
+- Commit with the user's local git identity. Do not override the author.
 
 ## Setup
 
