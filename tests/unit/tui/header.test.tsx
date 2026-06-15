@@ -9,6 +9,8 @@ function renderHeader(props: Partial<HeaderProps> = {}) {
       sessionTitle={props.sessionTitle ?? ""}
       latestUserMessage={props.latestUserMessage ?? ""}
       width={props.width ?? 160}
+      elapsedMs={props.elapsedMs ?? 0}
+      usage={props.usage}
     />,
   );
 }
@@ -33,10 +35,17 @@ test("Header shows the working directory at wide widths", () => {
   expect(lastFrame()).toContain("/");
 });
 
-test("Header does not render run telemetry", () => {
+test("Header renders the session clock", () => {
+  const { lastFrame } = renderHeader({ elapsedMs: 65000 });
+  expect(lastFrame()).toContain("1:05");
+});
+
+test("Header renders live usage when provided", () => {
+  const { lastFrame } = renderHeader({ usage: "Codex 5h 12%" });
+  expect(lastFrame()).toContain("Codex 5h 12%");
+});
+
+test("Header does not render the dollar cost", () => {
   const { lastFrame } = renderHeader({ sessionTitle: "x" });
-  const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("Running");
-  expect(frame).not.toContain("turns");
-  expect(frame).not.toContain("$");
+  expect(lastFrame() ?? "").not.toContain("$");
 });

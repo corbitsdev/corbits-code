@@ -19,6 +19,7 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import { formatContextUsage } from "../provider/context-window.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
@@ -306,6 +307,7 @@ export function App({
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [codexLoginOpen, setCodexLoginOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
@@ -353,8 +355,9 @@ export function App({
   const codexUsageDisplay = (() => {
     if (codexProfileFromProviderName(provider) === undefined) return undefined;
     const usage = getLatestCodexUsage();
-    return usage !== undefined ? formatCodexUsageCompact(usage) : "Codex";
+    return usage !== undefined ? formatCodexUsageCompact(usage) : undefined;
   })();
+  const isCodexProvider = codexProfileFromProviderName(provider) !== undefined;
 
   // Resolve a fresh access token for a Codex profile and make it the active
   // provider. Surfaces a re-login hint if the profile can no longer be used.
@@ -596,18 +599,7 @@ export function App({
     ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
     openWorkflowPanel: () => setWorkflowPanelOpen(true),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-    showCodexUsage: () => {
-      const profileName = codexProfileFromProviderName(provider);
-      if (profileName === undefined) {
-        setCommandMessage("The active provider is not a Codex profile.");
-        return;
-      }
-      void fetchCodexUsage(profileName).then(
-        (usage) => setCommandMessage(formatCodexUsage(usage)),
-        (err: unknown) => setCommandMessage(`Could not fetch Codex usage: ${err instanceof Error ? err.message : String(err)}`),
-      );
-    },
-  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode, provider]);
+  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
   // Track the last moment real progress was observed. Reset whenever new content
   // blocks arrive or the streaming type changes (both are signs the model is alive).
@@ -846,6 +838,16 @@ export function App({
     }
     if (result.type === "modal" && result.modal === "agent") {
       setAgentModalOpen(true);
+      const profileName = codexProfileFromProviderName(provider);
+      if (profileName === undefined) {
+        setAgentModalUsage(null);
+      } else {
+        setAgentModalUsage("Loading Codex usage…");
+        void fetchCodexUsage(profileName).then(
+          (usage) => setAgentModalUsage(formatCodexUsage(usage)),
+          () => setAgentModalUsage(null),
+        );
+      }
     }
     if (result.type === "modal" && result.modal === "codex-login") {
       setCodexLoginOpen(true);
@@ -879,6 +881,8 @@ export function App({
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
+          elapsedMs={state.elapsedMs}
+          usage={codexUsageDisplay}
           {...(profile !== undefined ? { profile } : {})}
           {...(workflowStatus.active && workflowStatus.name !== undefined
             ? {
@@ -971,6 +975,7 @@ export function App({
         agentProfiles={profiles}
         onSaveAgentProfile={saveProfile}
         onDeleteAgentProfile={deleteProfile}
+        codexUsage={agentModalUsage ?? undefined}
         pendingPlan={gates.pendingPlan}
         onApprove={gates.approve}
         onReject={gates.reject}
@@ -1064,11 +1069,11 @@ export function App({
         <StatusBar
           provider={provider}
           model={model}
-          cost={codexUsageDisplay ?? state.formattedCost}
+          cost={isCodexProvider ? undefined : state.formattedCost}
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
           cacheReadTokens={state.cacheReadTokens}
-          elapsedMs={state.elapsedMs}
+          contextUsage={state.contextTokens > 0 ? formatContextUsage(state.contextTokens, model) : undefined}
           status={state.status}
           reasoningEffort={reasoningEffort}
           auto={auto}

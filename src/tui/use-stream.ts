@@ -38,6 +38,7 @@ export type AgentStreamState = {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  contextTokens: number;
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
@@ -170,6 +171,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
   // flip status back to "running".
   let gateCount = 0;
   let cacheReadTokens = 0;
+  let contextTokens = 0;
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
@@ -206,6 +208,9 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
     },
     get cacheReadTokens() {
       return cacheReadTokens;
+    },
+    get contextTokens() {
+      return contextTokens;
     },
     get formattedCost() {
       return formatCost(faremeter.getTotalCost());
@@ -293,6 +298,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       startedAt = Date.now();
       finishedAt = null;
       openCallId = null;
+      contextTokens = 0;
       faremeter = createFaremeter();
     },
     addEvent(event: ReactorEmittedEvent): void {
@@ -503,6 +509,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
         const data = event.data as { usage: { input: number; output: number; cacheRead: number; cacheWrite: number; thinking: number } };
         faremeter.addUsage(data.usage);
         cacheReadTokens += data.usage.cacheRead;
+        contextTokens = data.usage.input + data.usage.output;
       }
 
       if (event.type === "reactor.done") {

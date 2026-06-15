@@ -48,18 +48,6 @@ registerCommand({
 });
 
 registerCommand({
-  name: "usage",
-  description: "Show live Codex plan usage (window %, reset, credits) for the active profile",
-  handler: (_args, ctx) => {
-    if (ctx.showCodexUsage === undefined) {
-      return { type: "message", text: "Usage tracking is only available for Codex profiles." };
-    }
-    ctx.showCodexUsage();
-    return { type: "message", text: "Fetching Codex usage…" };
-  },
-});
-
-registerCommand({
   name: "login",
   description: "Sign in with a Codex (ChatGPT Plus/Pro) subscription and manage profiles",
   handler: (_args, _ctx) => ({ type: "modal", modal: "codex-login" }),

@@ -75,6 +75,7 @@ export type AgentModalProps = {
   profiles: AgentProfile[];
   onSaveProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteProfile: (id: string) => void;
+  codexUsage?: string | undefined;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -171,6 +172,7 @@ export function AgentModal({
   profiles,
   onSaveProfile,
   onDeleteProfile,
+  codexUsage,
 }: AgentModalProps): ReactNode {
   const initialProvider = Math.max(
     0,
@@ -592,6 +594,13 @@ export function AgentModal({
       <Text bold color={color("accent")}>
         Agent Configuration
       </Text>
+      {codexUsage !== undefined && (
+        <Box marginTop={1} flexDirection="column">
+          {codexUsage.split("\n").map((line, i) => (
+            <Text key={i} color={color("warning")}>{line}</Text>
+          ))}
+        </Box>
+      )}
       <Box marginTop={1}>
         <Text color={color("muted")}>Provider / Model</Text>
       </Box>

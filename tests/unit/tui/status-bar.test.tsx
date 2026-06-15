@@ -8,11 +8,11 @@ function renderBar(props: Partial<StatusBarProps> = {}) {
     <StatusBar
       provider={props.provider ?? "zen"}
       model={props.model ?? "test-model"}
-      cost={props.cost ?? "$0.0000"}
+      cost={props.cost}
       inputTokens={props.inputTokens ?? 0}
       outputTokens={props.outputTokens ?? 0}
-      elapsedMs={props.elapsedMs ?? 0}
       status={props.status ?? "running"}
+      contextUsage={props.contextUsage}
       {...(props.reasoningEffort !== undefined ? { reasoningEffort: props.reasoningEffort } : {})}
     />,
   );
@@ -47,9 +47,14 @@ test("StatusBar does not render plan progress", () => {
   expect(lastFrame()).not.toContain("turns");
 });
 
-test("StatusBar formats elapsed time", () => {
-  const { lastFrame } = renderBar({ elapsedMs: 65000 });
-  expect(lastFrame()).toContain("1:05");
+test("StatusBar renders context-window usage when provided", () => {
+  const { lastFrame } = renderBar({ contextUsage: "ctx 42%" });
+  expect(lastFrame()).toContain("ctx 42%");
+});
+
+test("StatusBar omits the cost box when cost is undefined", () => {
+  const { lastFrame } = renderBar({ cost: undefined });
+  expect(lastFrame()).not.toContain("$");
 });
 
 test("StatusBar renders the reasoning-effort in the provider line", () => {
