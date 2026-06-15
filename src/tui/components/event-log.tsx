@@ -14,13 +14,11 @@ import { color } from "../theme.js";
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
 
 export type EventLogProps = {
-  contentBlocks: ContentBlock[];
+  // The prebuilt flat line buffer (see buildLines). Built once by the caller so
+  // the hot streaming path does not re-parse markdown on every render.
+  lines: StyledLine[];
   scrollOffset: number;
   visibleRows: number;
-  columns: number;
-  thinkingExpanded: boolean;
-  expandedTools: ReadonlySet<string>;
-  verbose: boolean;
 };
 
 const LINE_PADDING = 2;
@@ -249,17 +247,10 @@ export function lineWindow(lines: StyledLine[], scrollOffset: number, visibleRow
 }
 
 export function EventLog({
-  contentBlocks,
+  lines,
   scrollOffset,
   visibleRows,
-  columns,
-  thinkingExpanded,
-  expandedTools,
-  verbose,
 }: EventLogProps): ReactNode {
-  const isExpanded = (block: RenderableBlock): boolean => verbose || expandedTools.has(block.id);
-  const lines = buildLines(contentBlocks, columns, thinkingExpanded, isExpanded);
-
   if (lines.length === 0) {
     return <Box paddingX={1} />;
   }

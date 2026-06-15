@@ -495,18 +495,18 @@ export function App({
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
-  const scrollMaxOffset = useMemo(
-    () => maxLineOffset(
-      buildLines(
-        state.contentBlocks,
-        leftWidth,
-        thinkingExpanded,
-        (block) => verbose || expandedTools.has(block.id),
-      ),
-      visibleRows,
+  // The flat line buffer is the hot path during streaming — built once here and
+  // passed to EventLog so it is not re-parsed a second time in the component body.
+  const eventLogLines = useMemo(
+    () => buildLines(
+      state.contentBlocks,
+      leftWidth,
+      thinkingExpanded,
+      (block) => verbose || expandedTools.has(block.id),
     ),
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, visibleRows],
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools],
   );
+  const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
   const lastToolId = useMemo(() => {
     const blocks = state.contentBlocks;
@@ -923,13 +923,9 @@ export function App({
           <>
             <Box width={leftWidth} flexDirection="column" overflow="hidden">
               <EventLog
-                contentBlocks={state.contentBlocks}
+                lines={eventLogLines}
                 scrollOffset={scroll.scrollOffset}
                 visibleRows={visibleRows}
-                columns={leftWidth}
-                thinkingExpanded={thinkingExpanded}
-                expandedTools={expandedTools}
-                verbose={verbose}
               />
             </Box>
             {effectiveSidebarOpen && (
