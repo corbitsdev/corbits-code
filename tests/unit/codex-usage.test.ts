@@ -57,6 +57,30 @@ describe("formatCodexUsageCompact", () => {
     expect(formatCodexUsageCompact(usage)).toBe("Codex 5h 42% · wk 74%");
   });
 
+  test("derives the window label from the actual duration", () => {
+    const usage: CodexUsage = {
+      planType: "team",
+      allowed: true,
+      limitReached: false,
+      primary: { usedPercent: 10, windowSeconds: 10800, resetAfterSeconds: 0, resetAt: 0 },
+      secondary: { usedPercent: 5, windowSeconds: 86400, resetAfterSeconds: 0, resetAt: 0 },
+      hasCredits: true,
+    };
+    expect(formatCodexUsageCompact(usage)).toBe("Codex 3h 10% · 1d 5%");
+  });
+
+  test("falls back to default labels when the window duration is missing", () => {
+    const usage: CodexUsage = {
+      planType: "team",
+      allowed: true,
+      limitReached: false,
+      primary: { usedPercent: 10, windowSeconds: 0, resetAfterSeconds: 0, resetAt: 0 },
+      secondary: { usedPercent: 5, windowSeconds: 0, resetAfterSeconds: 0, resetAt: 0 },
+      hasCredits: true,
+    };
+    expect(formatCodexUsageCompact(usage)).toBe("Codex 5h 10% · wk 5%");
+  });
+
   test("marks the limit-reached state", () => {
     const usage: CodexUsage = {
       planType: "team",
