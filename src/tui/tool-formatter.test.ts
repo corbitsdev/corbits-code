@@ -219,3 +219,28 @@ describe("isUserFacingJSON", () => {
     expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(false);
   });
 });
+
+describe("describeToolCall for task tool", () => {
+  test("named agent call uses agent name as display with description in parens", () => {
+    const args = JSON.stringify({ agent: "greybeard", description: "review the diff", prompt: "..." });
+    const result = describeToolCall("task", args);
+    expect(result.display).toBe("Greybeard");
+    expect(result.summary).toBe("Greybeard(review the diff)");
+    expect(result.isShell).toBe(false);
+  });
+
+  test("task without agent uses generic Task display", () => {
+    const args = JSON.stringify({ description: "map all callers", prompt: "..." });
+    const result = describeToolCall("task", args);
+    expect(result.display).toBe("Task");
+    expect(result.summary).toBe("Task(map all callers)");
+  });
+
+  test("long description is abbreviated", () => {
+    const long = "a".repeat(100);
+    const args = JSON.stringify({ agent: "critique", description: long, prompt: "..." });
+    const result = describeToolCall("task", args);
+    expect(result.summary.length).toBeLessThan(long.length + 20);
+    expect(result.summary).toMatch(/^Critique\(/);
+  });
+});
