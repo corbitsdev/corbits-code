@@ -35,37 +35,79 @@ import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
-import { writeFile, mkdir, unlink, readFile, readdir, stat } from "node:fs/promises";
-import { resolve, isAbsolute } from "node:path";
+import { writeFile, mkdir, unlink, readFile, opendir, realpath, stat } from "node:fs/promises";
+import { resolve, isAbsolute, relative, sep } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPanel } from "./components/workflow-panel.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
 import type { WorkflowStatus } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { WORKFLOWS } from "../workflows/index.js";
+import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import "./commands/built-in.js";
 import "./commands/plan.js";
 import "./commands/workflows.js";
 
+const MAX_MENTION_FILE_BYTES = 200_000;
+const MAX_DIRECTORY_SUMMARY_ENTRIES = 200;
+const MAX_DIRECTORY_NAMES = 20;
+
+async function resolveWorkspacePath(cwd: string, path: string): Promise<{ ok: true; abs: string } | { ok: false; reason: string }> {
+  if (isAbsolute(path) || path === "~" || path.startsWith("~/")) {
+    return { ok: false, reason: "use a workspace-relative path" };
+  }
+
+  const abs = resolve(cwd, path);
+  const rel = relative(cwd, abs);
+  if (rel.startsWith("..") || rel === ".." || rel.startsWith(sep) || rel.startsWith("/")) {
+    return { ok: false, reason: "outside workspace" };
+  }
+
+  try {
+    const [realAbs, realCwd] = await Promise.all([realpath(abs), realpath(cwd)]);
+    const realRel = relative(realCwd, realAbs);
+    if (realRel.startsWith("..") || realRel === ".." || realRel.startsWith(sep) || realRel.startsWith("/")) {
+      return { ok: false, reason: "outside workspace" };
+    }
+    return { ok: true, abs: realAbs };
+  } catch {
+    return { ok: false, reason: "not found" };
+  }
+}
+
 // Resolve @path/to/file mentions in a user message. Each @mention is replaced
 // with the file's contents wrapped in a labelled fenced block so the agent gets
 // full context without having to call read_file. Mentions that cannot be read
-// are left as-is and a warning is appended so the agent knows.
+// safely are replaced with a short warning so the agent knows.
 // Summarize a directory as a single line: file/subdir counts + subdir names.
 // e.g. "47 files, 4 subdirectories (components/, hooks/, commands/, tui/)"
 async function summarizeDir(abs: string): Promise<string> {
-  const entries = await readdir(abs, { withFileTypes: true }).catch(() => []);
-  const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules");
-  const files = entries.filter((e) => e.isFile());
-  const dirList = dirs.map((e) => `${e.name}/`).join(", ");
+  let scanned = 0;
+  let files = 0;
+  let dirs = 0;
+  const dirNames: string[] = [];
+  const directory = await opendir(abs).catch(() => null);
+  if (directory === null) return "unreadable directory";
+
+  for await (const entry of directory) {
+    if (scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES) break;
+    scanned++;
+    if (entry.isFile()) files++;
+    if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
+      dirs++;
+      if (dirNames.length < MAX_DIRECTORY_NAMES) dirNames.push(`${entry.name}/`);
+    }
+  }
+
+  const dirList = dirNames.join(", ");
   const parts: string[] = [];
-  if (files.length > 0) parts.push(`${files.length} file${files.length === 1 ? "" : "s"}`);
-  if (dirs.length > 0) parts.push(`${dirs.length} subdirector${dirs.length === 1 ? "y" : "ies"}${dirList ? ` (${dirList})` : ""}`);
+  if (files > 0) parts.push(`${files}${scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES ? "+" : ""} file${files === 1 ? "" : "s"}`);
+  if (dirs > 0) parts.push(`${dirs}${scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES ? "+" : ""} subdirector${dirs === 1 ? "y" : "ies"}${dirList ? ` (${dirList})` : ""}`);
   return parts.length > 0 ? parts.join(", ") : "empty directory";
 }
 
-async function resolveAtMentions(message: string, cwd: string): Promise<string> {
-  // Match @word, @path/with/slashes, or @"quoted path" — stop at whitespace.
+export async function resolveAtMentions(message: string, cwd: string): Promise<string> {
+  // Match @word, @path/with/slashes, or @"quoted path" - stop at whitespace.
   const pattern = /@("([^"]+)"|(\S+))/g;
   const mentions: Array<{ full: string; path: string }> = [];
   let m: RegExpExecArray | null;
@@ -77,15 +119,24 @@ async function resolveAtMentions(message: string, cwd: string): Promise<string> 
 
   const replacements: Array<{ full: string; replacement: string }> = await Promise.all(
     mentions.map(async ({ full, path }) => {
-      const abs = isAbsolute(path) ? path : resolve(cwd, path);
+      if (isSensitivePath(path)) {
+        return { full, replacement: `${full} (blocked: sensitive path)` };
+      }
+      const resolved = await resolveWorkspacePath(cwd, path);
+      if (!resolved.ok) {
+        return { full, replacement: `${full} (blocked: ${resolved.reason})` };
+      }
       try {
-        const info = await stat(abs);
+        const info = await stat(resolved.abs);
         if (info.isDirectory()) {
-          const summary = await summarizeDir(abs);
-          return { full, replacement: `\`${path}\` (directory — ${summary})` };
+          const summary = await summarizeDir(resolved.abs);
+          return { full, replacement: `\`${path}\` (directory - ${summary})` };
         }
-        const content = await readFile(abs, "utf-8");
-        const ext = abs.split(".").pop() ?? "";
+        if (info.size > MAX_MENTION_FILE_BYTES) {
+          return { full, replacement: `${full} (blocked: file is too large; max ${MAX_MENTION_FILE_BYTES} bytes)` };
+        }
+        const content = await readFile(resolved.abs, "utf-8");
+        const ext = resolved.abs.split(".").pop() ?? "";
         return { full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` };
       } catch {
         return { full, replacement: `${full} (not found)` };
