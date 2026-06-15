@@ -46,14 +46,24 @@ describe("codex-responses buildRequest", () => {
     ]);
   });
 
-  test("maps system prompt to instructions and tools to flat function tools", () => {
+  test("pins instructions to the Codex prompt and carries the system prompt as a leading developer message", () => {
     const options: InferenceOptions = {
       ...baseOptions,
       systemPrompt: "be terse",
       tools: [{ name: "read_file", description: "read a file", inputSchema: { type: "object", properties: {} } }],
     };
     const body = JSON.parse(adapter().buildRequest([userTurn("x")], "gpt-5-codex", options).body) as Record<string, unknown>;
-    expect(body["instructions"]).toBe("be terse");
+    // The backend pins instructions to the official Codex prompt; the app prompt
+    // must not be sent here.
+    expect(typeof body["instructions"]).toBe("string");
+    expect(body["instructions"]).not.toBe("be terse");
+    expect(body["instructions"]).toContain("You are Codex");
+    const input = body["input"] as Array<Record<string, unknown>>;
+    expect(input[0]).toMatchObject({ type: "message", role: "developer" });
+    const leadText = (input[0]!["content"] as Array<{ text: string }>)[0]!.text;
+    expect(leadText).toContain("be terse");
+    expect(leadText).toContain("Intercode");
+    expect(input[1]).toMatchObject({ type: "message", role: "user", content: [{ type: "input_text", text: "x" }] });
     expect(body["tools"]).toEqual([
       { type: "function", name: "read_file", description: "read a file", parameters: { type: "object", properties: {} } },
     ]);
@@ -179,11 +189,11 @@ describe("codex-responses parseResponse", () => {
     expect(out[2]).toMatchObject({ type: "inference.thinking.delta", data: { index: 2 } });
   });
 
-  test("serializes max_output_tokens from options.maxTokens", () => {
+  test("omits max_output_tokens (the Codex backend rejects it)", () => {
     const body = JSON.parse(
       adapter().buildRequest([userTurn("x")], "gpt-5-codex", { maxTokens: 4096, providerOptions: { [CODEX_SESSION_ID_OPTION]: "s" } }).body,
     ) as Record<string, unknown>;
-    expect(body["max_output_tokens"]).toBe(4096);
+    expect(body["max_output_tokens"]).toBeUndefined();
   });
 
   test("ignores lifecycle envelopes", () => {

@@ -19,6 +19,7 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "../auth/codex/constants.js";
 import { parseCodexRateLimitHeaders, recordCodexUsage } from "../auth/codex/usage.js";
+import { getCodexInstructions } from "../auth/codex/instructions.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -50,7 +51,7 @@ type ResponsesContentPart =
   | { type: "output_text"; text: string };
 
 type ResponsesInputItem =
-  | { type: "message"; role: "user" | "assistant" | "system"; content: ResponsesContentPart[] }
+  | { type: "message"; role: "user" | "assistant" | "system" | "developer"; content: ResponsesContentPart[] }
   | { type: "function_call"; name: string; arguments: string; call_id: string }
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
@@ -127,12 +128,36 @@ function optionString(options: InferenceOptions, key: string): string | undefine
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+// The `instructions` field is pinned to the official Codex prompt (the backend
+// rejects anything else), so Intercode's own operating prompt rides as a leading
+// developer message. It must also neutralize the Codex prompt's references to
+// tools that do not exist here (apply_patch, update_plan, shell) — the function
+// tools sent with the request are authoritative.
+function bridgeMessage(systemPrompt: string): ResponsesInputItem {
+  const text =
+    "<intercode_environment priority=\"0\">\n" +
+    "You are NOT running in the Codex CLI. You are running in Intercode, a " +
+    "different harness. The base instructions above describe Codex CLI tools " +
+    "(apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool " +
+    "reference in the base instructions and use ONLY the function tools provided " +
+    "in this request. The following are your authoritative operating instructions:\n\n" +
+    systemPrompt +
+    "\n</intercode_environment>";
+  return { type: "message", role: "developer", content: [{ type: "input_text", text }] };
+}
+
 function buildRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
 ): BuiltRequest {
-  const input = messages.flatMap(toResponsesItems);
+  const conversation = messages.flatMap(toResponsesItems);
+  // Intercode's prompt cannot live in `instructions` (the backend pins that to
+  // the official Codex prompt), so it leads the input as a developer message.
+  const input =
+    options.systemPrompt !== undefined
+      ? [bridgeMessage(options.systemPrompt), ...conversation]
+      : conversation;
   const tools = toResponsesTools(options);
   const accountId = optionString(options, CODEX_ACCOUNT_ID_OPTION);
   const sessionId = optionString(options, CODEX_SESSION_ID_OPTION);
@@ -140,6 +165,9 @@ function buildRequest(
   const body: Record<string, unknown> = {
     model,
     input,
+    // The backend pins `instructions` to the official Codex prompt for the model
+    // family; sending anything else is rejected with HTTP 400.
+    instructions: getCodexInstructions(model),
     // The Codex backend requires server-side storage off and streaming on, and
     // asks for encrypted reasoning so it can be round-tripped across turns.
     store: false,
@@ -147,8 +175,7 @@ function buildRequest(
     include: ["reasoning.encrypted_content"],
     parallel_tool_calls: false,
   };
-  if (options.maxTokens !== undefined) body["max_output_tokens"] = options.maxTokens;
-  if (options.systemPrompt !== undefined) body["instructions"] = options.systemPrompt;
+  // The Codex backend rejects `max_output_tokens`; it is intentionally omitted.
   if (tools !== undefined) {
     body["tools"] = tools;
     body["tool_choice"] = "auto";
