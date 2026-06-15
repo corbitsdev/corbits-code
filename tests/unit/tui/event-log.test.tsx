@@ -1,14 +1,11 @@
 import { expect, test } from "bun:test";
-import { Box } from "ink";
 import { render } from "ink-testing-library";
 import {
   EventLog,
-  clampOffset,
-  buildLineUnits,
-  visibleLineWindow,
-  maxScrollOffset,
+  buildLines,
+  lineWindow,
+  maxLineOffset,
   renderableBlocks,
-  truncateLine,
 } from "../../../src/tui/components/event-log.js";
 import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
 import type { ContentBlock } from "../../../src/tui/use-stream.js";
@@ -18,6 +15,8 @@ let blockSeq = 0;
 function block(data: Omit<ContentBlock, "id">): RenderableBlock {
   return { ...data, id: `wb${(blockSeq += 1)}` } as RenderableBlock;
 }
+
+const lineText = (line: { text: string }[]): string => line.map((s) => s.text).join("");
 
 type Overrides = Partial<Parameters<typeof EventLog>[0]>;
 
@@ -193,14 +192,6 @@ test("EventLog filters out reply and plan blocks", () => {
   expect(frame).not.toContain("synthetic");
 });
 
-test("clampOffset bounds offset to [0, total - visibleRows]", () => {
-  expect(clampOffset(-5, 10, 4)).toBe(0);
-  expect(clampOffset(0, 10, 4)).toBe(0);
-  expect(clampOffset(100, 10, 4)).toBe(6);
-  expect(clampOffset(3, 10, 4)).toBe(3);
-  expect(clampOffset(5, 3, 4)).toBe(0);
-});
-
 test("renderableBlocks drops reply and plan blocks", () => {
   const blocks: ContentBlock[] = [
     { type: "plan", steps: [] },
@@ -228,22 +219,6 @@ test("a long tool summary wraps rather than truncating", () => {
   expect(frame.replace(/\s/g, "")).toContain("x".repeat(300));
 });
 
-test("truncateToWidth marks a cut with a bare ellipsis", () => {
-  const long = "abcdefghij".repeat(40);
-  for (const columns of [80, 120, 160]) {
-    const out = truncateLine(long, columns, false);
-    expect(out.endsWith("…")).toBe(true);
-    expect(out).not.toContain("[show more]");
-    expect(out.length).toBe(columns - 2);
-  }
-});
-
-test("truncateLine leaves short content untouched and respects expanded", () => {
-  expect(truncateLine("short", 80, false)).toBe("short");
-  const long = "y".repeat(300);
-  expect(truncateLine(long, 80, true)).toBe(long);
-});
-
 test("thinking stays hidden by default while other content shows in full", () => {
   const long = "z".repeat(300);
   const { lastFrame } = renderLog([
@@ -255,35 +230,50 @@ test("thinking stays hidden by default while other content shows in full", () =>
   expect(frame.replace(/\s/g, "")).toContain(long);
 });
 
-test("visibleLineWindow keeps the painted rows within the viewport budget", () => {
-  const blocks: ContentBlock[] = [
-    block({ type: "text", content: "old line that should scroll out of view entirely here" }),
-    block({ type: "text", content: "x".repeat(80) }),
-    block({ type: "text", content: "newest" }),
-  ];
-  const units = buildLineUnits(blocks, 20, false, () => false);
-  const { start, end } = visibleLineWindow(units, units.length, 4);
-  const rows = units.slice(start, end).reduce((n, u) => n + u.rows, 0);
-  expect(rows).toBeLessThanOrEqual(4);
-  expect(end).toBe(units.length);
-  expect(start).toBeGreaterThan(0);
-});
-
-test("the bottom is steady: every offset at or past maxScrollOffset shows the same full tail", () => {
-  const units = buildLineUnits(
+test("maxLineOffset leaves exactly the last visibleRows lines on screen", () => {
+  const lines = buildLines(
     Array.from({ length: 12 }, (_, i) => block({ type: "text", content: `line-${i}` })),
     200,
     false,
     () => false,
   );
   const visibleRows = 5;
-  const maxOffset = maxScrollOffset(units, visibleRows);
-  const atMax = visibleLineWindow(units, maxOffset, visibleRows);
-  expect(atMax.end).toBe(units.length);
-  // Scrolling past the max (or to the very last unit) does not move the window —
-  // the last line stays anchored at the bottom rather than drifting up.
-  for (const offset of [maxOffset + 1, units.length - 1, units.length + 5]) {
-    expect(visibleLineWindow(units, offset, visibleRows)).toEqual(atMax);
+  const maxOffset = maxLineOffset(lines, visibleRows);
+  expect(maxOffset).toBe(lines.length - visibleRows);
+  const { start, end } = lineWindow(lines, maxOffset, visibleRows);
+  expect(end).toBe(lines.length);
+  expect(end - start).toBe(visibleRows);
+});
+
+test("the bottom is steady: every offset at or past maxLineOffset shows the same full tail", () => {
+  const lines = buildLines(
+    Array.from({ length: 12 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 5;
+  const maxOffset = maxLineOffset(lines, visibleRows);
+  const atMax = lineWindow(lines, maxOffset, visibleRows);
+  expect(atMax.end).toBe(lines.length);
+  for (const offset of [maxOffset + 1, lines.length - 1, lines.length + 5]) {
+    expect(lineWindow(lines, offset, visibleRows)).toEqual(atMax);
+  }
+});
+
+test("the window never paints more than visibleRows for any offset", () => {
+  const lines = buildLines(
+    Array.from({ length: 30 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 6;
+  for (let offset = -3; offset <= lines.length + 3; offset++) {
+    const { start, end } = lineWindow(lines, offset, visibleRows);
+    expect(end - start).toBeLessThanOrEqual(visibleRows);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeLessThanOrEqual(lines.length);
   }
 });
 
@@ -294,7 +284,7 @@ test("EventLog windows visible blocks by scrollOffset", () => {
   }));
   const { lastFrame } = renderLog(blocks, { scrollOffset: 0, visibleRows: 3 });
   const frame = lastFrame() ?? "";
-  // Offset zero starts at the oldest block and paints forward within the row
+  // Offset zero starts at the oldest line and paints forward within the row
   // budget. The window is bounded — distant lines stay hidden.
   expect(frame).toContain("line-0");
   expect(frame).not.toContain("line-5");
@@ -308,46 +298,43 @@ test("wrapCount word-wraps greedily instead of packing characters", () => {
   expect(wrapCount("a\nb\nc", 10)).toBe(3);
 });
 
-test("buildLineUnits explodes a multi-line text block into one unit per line", () => {
-  const units = buildLineUnits([block({ type: "text", content: "a\nb\nc" })], 200, false, () => false);
-  expect(units.length).toBe(3);
-  expect(units.every((u) => u.rows === 1)).toBe(true);
+test("buildLines explodes a multi-line text block into one line per visual row", () => {
+  const lines = buildLines([block({ type: "text", content: "a\nb\nc" })], 200, false, () => false);
+  expect(lines.length).toBe(3);
 });
 
-test("buildLineUnits inserts a blank spacer unit between conversational turns", () => {
-  const units = buildLineUnits(
+test("buildLines inserts a blank spacer line between conversational turns", () => {
+  const lines = buildLines(
     [block({ type: "user", content: "hi" }), block({ type: "text", content: "reply" })],
     200,
     false,
     () => false,
   );
-  expect(units.length).toBe(3);
+  expect(lines.length).toBe(3);
+  expect(lineText(lines[1]!)).toBe("");
 });
 
-test("a composed headline unit never claims fewer rows than it paints", () => {
+test("an expanded shell command wraps into rows that each fit the width", () => {
   const cmd = "echo " + "y".repeat(60);
-  const units = buildLineUnits(
+  const columns = 30;
+  const lines = buildLines(
     [block({ type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: cmd }) })],
-    30,
+    columns,
     false,
     () => true,
   );
-  const headline = units[0]!;
-  const { lastFrame } = render(
-    <Box width={28}>{headline.node}</Box>,
-    { stdout: { columns: 28, rows: 80 } as unknown as NodeJS.WriteStream },
-  );
-  const painted = (lastFrame() ?? "").split("\n").filter((r) => r.trim().length > 0).length;
-  expect(headline.rows).toBeGreaterThanOrEqual(painted);
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) expect(lineText(line).length).toBeLessThanOrEqual(columns - 2);
 });
 
-test("a wrapped line becomes one single-row unit per visual row", () => {
-  // One logical line far longer than the pane: every unit it produces must be a
+test("a wrapped line becomes one single-row line per visual row", () => {
+  // One logical line far longer than the pane: every line it produces must be a
   // single row so the scroll window can step one terminal row at a time.
   const long = Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ");
-  const units = buildLineUnits([block({ type: "text", content: long })], 24, false, () => false);
-  expect(units.length).toBeGreaterThan(1);
-  expect(units.every((u) => u.rows === 1)).toBe(true);
+  const columns = 24;
+  const lines = buildLines([block({ type: "text", content: long })], columns, false, () => false);
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) expect(lineText(line).length).toBeLessThanOrEqual(columns - 2);
 });
 
 test("inline styling survives across a wrap boundary", () => {
@@ -371,14 +358,14 @@ test("wrapLines hard-breaks a word longer than the width without losing characte
   expect(rows.every((r) => r.length <= 20)).toBe(true);
 });
 
-test("visibleLineWindow advances one line per scroll step", () => {
-  const units = buildLineUnits(
+test("lineWindow advances one line per scroll step", () => {
+  const lines = buildLines(
     Array.from({ length: 6 }, (_, i) => block({ type: "text", content: `line-${i}` })),
     200,
     false,
     () => false,
   );
-  const w0 = visibleLineWindow(units, 0, 3);
-  const w1 = visibleLineWindow(units, 1, 3);
+  const w0 = lineWindow(lines, 0, 3);
+  const w1 = lineWindow(lines, 1, 3);
   expect(w1.start).toBe(w0.start + 1);
 });

@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLineUnits, maxScrollOffset } from "./components/event-log.js";
+import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
@@ -478,8 +478,8 @@ export function App({
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
   const scrollMaxOffset = useMemo(
-    () => maxScrollOffset(
-      buildLineUnits(
+    () => maxLineOffset(
+      buildLines(
         state.contentBlocks,
         leftWidth,
         thinkingExpanded,
