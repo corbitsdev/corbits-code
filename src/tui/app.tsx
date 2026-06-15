@@ -35,7 +35,7 @@ import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
-import { writeFile, mkdir, unlink, readFile } from "node:fs/promises";
+import { writeFile, mkdir, unlink, readFile, readdir, stat } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPanel } from "./components/workflow-panel.js";
@@ -51,6 +51,19 @@ import "./commands/workflows.js";
 // with the file's contents wrapped in a labelled fenced block so the agent gets
 // full context without having to call read_file. Mentions that cannot be read
 // are left as-is and a warning is appended so the agent knows.
+// Summarize a directory as a single line: file/subdir counts + subdir names.
+// e.g. "47 files, 4 subdirectories (components/, hooks/, commands/, tui/)"
+async function summarizeDir(abs: string): Promise<string> {
+  const entries = await readdir(abs, { withFileTypes: true }).catch(() => []);
+  const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules");
+  const files = entries.filter((e) => e.isFile());
+  const dirList = dirs.map((e) => `${e.name}/`).join(", ");
+  const parts: string[] = [];
+  if (files.length > 0) parts.push(`${files.length} file${files.length === 1 ? "" : "s"}`);
+  if (dirs.length > 0) parts.push(`${dirs.length} subdirector${dirs.length === 1 ? "y" : "ies"}${dirList ? ` (${dirList})` : ""}`);
+  return parts.length > 0 ? parts.join(", ") : "empty directory";
+}
+
 async function resolveAtMentions(message: string, cwd: string): Promise<string> {
   // Match @word, @path/with/slashes, or @"quoted path" — stop at whitespace.
   const pattern = /@("([^"]+)"|(\S+))/g;
@@ -66,18 +79,23 @@ async function resolveAtMentions(message: string, cwd: string): Promise<string> 
     mentions.map(async ({ full, path }) => {
       const abs = isAbsolute(path) ? path : resolve(cwd, path);
       try {
+        const info = await stat(abs);
+        if (info.isDirectory()) {
+          const summary = await summarizeDir(abs);
+          return { full, replacement: `\`${path}\` (directory — ${summary})` };
+        }
         const content = await readFile(abs, "utf-8");
         const ext = abs.split(".").pop() ?? "";
         return { full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` };
       } catch {
-        return { full, replacement: `${full} (file not found)` };
+        return { full, replacement: `${full} (not found)` };
       }
     }),
   );
 
   let result = message;
   for (const { full, replacement } of replacements) {
-    result = result.replace(full, replacement);
+    result = result.replace(full, () => replacement);
   }
   return result;
 }
@@ -865,6 +883,7 @@ export function App({
               commandContext={commandContext}
               value={inputValue}
               onChange={setInputValue}
+              cwd={cwd}
               active={inputActive}
               queuedCount={queuedCount}
             />
