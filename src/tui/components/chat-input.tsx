@@ -191,9 +191,12 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
   // Splice a completed @path into the input at the current atState position.
   const completeAtSelection = (selected: string) => {
     if (atMention.atState === null) return;
-    const { atStart } = atMention.atState;
+    const { atStart, prefix } = atMention.atState;
     const trailing = selected.endsWith("/") ? "" : " ";
-    const completed = value.slice(0, atStart) + "@" + selected + trailing + value.slice(cursor);
+    // Splice replaces the @token span (from atStart to the end of the typed
+    // prefix), not up to the cursor — the cursor may have been moved mid-token.
+    const tokenEnd = atStart + 1 + prefix.length;
+    const completed = value.slice(0, atStart) + "@" + selected + trailing + value.slice(tokenEnd);
     const newCursor = atStart + 1 + selected.length + trailing.length;
     selfSetValue.current = completed;
     onChange(completed);

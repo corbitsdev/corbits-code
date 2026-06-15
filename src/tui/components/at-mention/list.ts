@@ -6,7 +6,7 @@ const MAX_SUGGESTIONS = 20;
 
 // Expand ~ to the user's home directory.
 function expandHome(p: string): string {
-  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) {
+  if (p === "~" || p.startsWith("~/")) {
     return homedir() + p.slice(1);
   }
   return p;

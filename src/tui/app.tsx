@@ -95,7 +95,7 @@ async function resolveAtMentions(message: string, cwd: string): Promise<string> 
 
   let result = message;
   for (const { full, replacement } of replacements) {
-    result = result.replace(full, replacement);
+    result = result.replace(full, () => replacement);
   }
   return result;
 }

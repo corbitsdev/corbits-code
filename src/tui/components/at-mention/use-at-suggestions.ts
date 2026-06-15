@@ -55,46 +55,46 @@ export function useAtSuggestions(cwd: string): AtSuggestionsHook {
     fetchFor(next.prefix, gen);
   };
 
-  // Navigate up one directory level. When already at the top of the list (idx=0)
-  // and the current prefix contains a path separator, strip the last component to
-  // show the parent directory's contents.
+  // Navigate up. When already at idx=0 and inside a subpath, ascend to the
+  // parent directory. Side effects run in the function body, not inside a
+  // state updater, so they execute exactly once per call.
   const selectUp = () => {
-    setSelectedIdx((i) => {
-      if (i > 0) return i - 1;
-      // At the top — try to ascend if we're inside a subpath.
-      if (lastPrefix.current !== null && lastPrefix.current !== "") {
-        const p = lastPrefix.current;
-        // Strip trailing slash if present, then strip last component.
-        const stripped = p.endsWith("/") ? p.slice(0, -1) : p;
-        const lastSlash = stripped.lastIndexOf("/");
-        const parent = lastSlash === -1 ? "" : stripped.slice(0, lastSlash + 1);
-        if (parent !== lastPrefix.current) {
-          lastPrefix.current = parent;
-          setAtState((s) => s !== null ? { ...s, prefix: parent } : s);
-          const gen = ++generation.current;
-          fetchFor(parent, gen);
-        }
+    if (selectedIdx > 0) {
+      setSelectedIdx(selectedIdx - 1);
+      return;
+    }
+    if (lastPrefix.current !== null && lastPrefix.current !== "") {
+      const p = lastPrefix.current;
+      const stripped = p.endsWith("/") ? p.slice(0, -1) : p;
+      const lastSlash = stripped.lastIndexOf("/");
+      const parent = lastSlash === -1 ? "" : stripped.slice(0, lastSlash + 1);
+      if (parent !== lastPrefix.current) {
+        lastPrefix.current = parent;
+        setAtState((s) => s !== null ? { ...s, prefix: parent } : s);
+        const gen = ++generation.current;
+        fetchFor(parent, gen);
+        setSelectedIdx(0);
       }
-      return 0;
-    });
+    }
   };
 
-  // Navigate down one entry. When already at the bottom of the list and the
-  // selected entry is a directory, auto-enter it to show its contents.
+  // Navigate down. When already at the last entry and it is a directory,
+  // auto-enter it. Reads suggestions from the current render closure — correct
+  // because this is called synchronously from useInput.
   const selectDown = () => {
-    setSelectedIdx((i) => {
-      const last = Math.max(0, suggestions.length - 1);
-      if (i < last) return i + 1;
-      // At the bottom — auto-enter if the selected entry is a directory.
-      const sel = suggestions[i];
-      if (sel !== undefined && sel.endsWith("/")) {
-        lastPrefix.current = sel;
-        setAtState((s) => s !== null ? { ...s, prefix: sel } : s);
-        const gen = ++generation.current;
-        fetchFor(sel, gen);
-      }
-      return 0;
-    });
+    const last = Math.max(0, suggestions.length - 1);
+    if (selectedIdx < last) {
+      setSelectedIdx(selectedIdx + 1);
+      return;
+    }
+    const sel = suggestions[selectedIdx];
+    if (sel !== undefined && sel.endsWith("/")) {
+      lastPrefix.current = sel;
+      setAtState((s) => s !== null ? { ...s, prefix: sel } : s);
+      const gen = ++generation.current;
+      fetchFor(sel, gen);
+      setSelectedIdx(0);
+    }
   };
 
   const resetSelection = () => setSelectedIdx(0);
