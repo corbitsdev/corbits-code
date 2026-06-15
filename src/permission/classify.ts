@@ -2,7 +2,7 @@ import { resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
-import { splitChainedCommand, deriveCommandScopes } from "./command.js";
+import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 
@@ -84,7 +84,10 @@ function argEscapesWorkspace(token: string, cwd: string): boolean {
 function isAutoAllowedSegment(segment: string, cwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
-  const tokens = trimmed.split(/\s+/);
+  // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
+  // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
+  // token, defeating the anchored flag checks below.
+  const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
   const args = tokens.slice(1);
