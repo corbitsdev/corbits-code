@@ -3,22 +3,12 @@ import { join } from "node:path";
 
 import { type } from "arktype";
 
-import type { ProviderTier } from "../config/settings.js";
+import { plugin as defaultPlugin } from "@intercode/default-agents";
 
-export type CapabilityMode = "exclude" | "allow";
-
-export type CapabilityFilter = {
-  mode: CapabilityMode;
-  tools: string[];
-};
-
-export type AgentProfile = {
-  id: string;
-  description?: string;
-  tier?: ProviderTier;
-  capabilities?: CapabilityFilter;
-  systemPromptRole?: string;
-};
+// Public agent profile types live in @intercode/default-agents so plugin
+// authors can depend on that package without pulling in the full runtime.
+export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode } from "@intercode/default-agents";
+import type { AgentProfile, AgentPlugin } from "@intercode/default-agents";
 
 const CapabilityFilterSchema = type({
   mode: "'exclude' | 'allow'",
@@ -42,16 +32,61 @@ function isENOENT(err: unknown): boolean {
   );
 }
 
+// Mutable registry seeded with the default plugin. Plugin-provided profiles
+// are overridable: a profile with the same id loaded later (or from the local
+// .agents/agents/ directory) replaces the earlier one.
+const registry: AgentProfile[] = [...defaultPlugin.agents];
+
+// Load and register agent plugins listed in settings. Called once at startup.
+// Local .agents/agents/ profiles are merged separately via mergeLocalProfiles
+// and always win over plugin-provided ones.
+export async function loadAgentPlugins(pluginSpecifiers: string[]): Promise<void> {
+  for (const specifier of pluginSpecifiers) {
+    let mod: unknown;
+    try {
+      mod = await import(specifier);
+    } catch (err) {
+      throw new Error(`Failed to load agent plugin "${specifier}": ${String(err)}`);
+    }
+    const plugin =
+      mod != null &&
+      typeof mod === "object" &&
+      "default" in mod &&
+      mod.default != null &&
+      typeof mod.default === "object" &&
+      "agents" in mod.default
+        ? (mod.default as AgentPlugin)
+        : "plugin" in (mod as Record<string, unknown>)
+          ? ((mod as Record<string, unknown>).plugin as AgentPlugin)
+          : undefined;
+    if (plugin === undefined || !Array.isArray(plugin.agents)) {
+      throw new Error(
+        `Agent plugin "${specifier}" must export an AgentPlugin as "plugin" or as the default export.`,
+      );
+    }
+    for (const profile of plugin.agents) {
+      const idx = registry.findIndex((p) => p.id === profile.id);
+      if (idx >= 0) {
+        registry[idx] = profile;
+      } else {
+        registry.push(profile);
+      }
+    }
+  }
+}
+
+// Load JSON profiles from the local .agents/agents/ directory and merge them
+// into the registry. Local profiles override any same-id plugin-provided profile.
 export async function loadAgentProfiles(dir: string): Promise<AgentProfile[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch (err) {
-    if (isENOENT(err)) return [];
+    if (isENOENT(err)) return [...registry];
     throw err;
   }
 
-  const profiles: AgentProfile[] = [];
+  const local: AgentProfile[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     const filePath = join(dir, entry);
@@ -69,7 +104,18 @@ export async function loadAgentProfiles(dir: string): Promise<AgentProfile[]> {
     }
     const result = AgentProfileSchema(parsed);
     if (result instanceof type.errors) continue;
-    profiles.push(result as AgentProfile);
+    local.push(result as AgentProfile);
   }
-  return profiles;
+
+  // Build merged list: start from registry, override/append with local profiles.
+  const merged = [...registry];
+  for (const profile of local) {
+    const idx = merged.findIndex((p) => p.id === profile.id);
+    if (idx >= 0) {
+      merged[idx] = profile;
+    } else {
+      merged.push(profile);
+    }
+  }
+  return merged;
 }

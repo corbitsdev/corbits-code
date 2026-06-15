@@ -34,6 +34,10 @@ export type Settings = {
   // package specifier (npm package name or file path) that exports a
   // WorkflowPlugin as either "plugin" or as the default export.
   workflowPlugins?: string[];
+  // Additional agent plugin packages to load at startup. Each entry is a
+  // package specifier (npm package name or file path) that exports an
+  // AgentPlugin as either "plugin" or as the default export.
+  agentPlugins?: string[];
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
