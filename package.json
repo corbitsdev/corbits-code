@@ -26,12 +26,14 @@
     "./interchange/packages/mime",
     "./interchange/packages/log",
     "./interchange/packages/crypto-node",
-    "./interchange/packages/tools-lsp"
+    "./interchange/packages/tools-lsp",
+    "./packages/workflows"
   ],
   "catalog": {
     "arktype": "^2.1.29"
   },
   "dependencies": {
+    "@intercode/default-workflows": "workspace:*",
     "@intx/agent": "workspace:*",
     "@intx/inference": "workspace:*",
     "@intx/log": "workspace:*",
