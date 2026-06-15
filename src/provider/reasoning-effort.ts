@@ -25,6 +25,9 @@ const DEFAULT_EFFORTS: readonly ReasoningEffort[] = ["minimal", "low", "medium",
 // must not be assumed to take them.
 const FULL_EFFORT_MODELS: readonly string[] = ["gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-max"];
 
+// Codex backend models take low/medium/high/xhigh — no `minimal`, no `none`.
+const CODEX_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+
 // The safe subset offered for models we do not recognize. Conservative on
 // purpose: these are the levels the broadest range of reasoning models accept.
 const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"];
@@ -54,9 +57,13 @@ export function modelReasoningCapability(model: string): boolean | undefined {
 export function supportedEfforts(
   model: string,
   reasoningCapable: boolean | undefined = modelReasoningCapability(model),
+  isCodex = false,
 ): ReasoningEffort[] {
   if (reasoningCapable === false) {
     return [];
+  }
+  if (isCodex) {
+    return [...CODEX_EFFORTS];
   }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];
@@ -70,8 +77,9 @@ export function supportedEfforts(
 export function validateEffort(
   model: string,
   effort: ReasoningEffort,
+  isCodex = false,
 ): { ok: true } | { ok: false; error: string } {
-  const supported = supportedEfforts(model);
+  const supported = supportedEfforts(model, undefined, isCodex);
   if (supported.includes(effort)) {
     return { ok: true };
   }

@@ -1,11 +1,11 @@
 import { test, expect, describe } from "bun:test";
-import { render } from "ink-testing-library";
-import { View } from "../../../src/tui/view/index.js";
-import { viewHeight } from "../../../src/tui/view/height.js";
+import { viewToLines } from "../../../src/tui/view/index.js";
 import type { ViewNode } from "../../../src/tui/view/spec.js";
 
-const frameOf = (node: ViewNode, columns = 80): string =>
-  render(<View node={node} columns={columns} />).lastFrame() ?? "";
+const textLines = (node: ViewNode, columns = 80): string[] =>
+  viewToLines(node, columns).map((line) => line.map((s) => s.text).join(""));
+
+const frameOf = (node: ViewNode, columns = 80): string => textLines(node, columns).join("\n");
 
 describe("View rendering", () => {
   test("renders a table with headers, values, and colored-by-role cells, fitting width", () => {
@@ -54,7 +54,7 @@ describe("View rendering", () => {
     expect(frame).toContain("• two");
   });
 
-  test("painted height stays within the predicted viewHeight", () => {
+  test("every line is exactly one visual row that fits the width", () => {
     const node: ViewNode = {
       type: "stack",
       children: [
@@ -65,7 +65,8 @@ describe("View rendering", () => {
       ],
     };
     const columns = 80;
-    const painted = (frameOf(node, columns).match(/\n/g)?.length ?? 0) + 1;
-    expect(painted).toBeLessThanOrEqual(viewHeight(node, columns));
+    // The viewport cuts by line, so each produced line must paint as a single
+    // row no wider than the budget — otherwise it would overflow.
+    for (const line of textLines(node, columns)) expect(line.length).toBeLessThanOrEqual(columns - 2);
   });
 });

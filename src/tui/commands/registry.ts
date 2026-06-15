@@ -9,8 +9,6 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   // List available workflows for /workflows.
   listWorkflows?: () => Array<{ name: string; description: string }>;
-  // Open the workflow panel (Ctrl+W surface).
-  openWorkflowPanel?: () => void;
   // Open the workflow picker modal (/workflows command).
   openWorkflowPicker?: () => void;
   // Enter plan mode: strips write/edit tools until submit_plan is approved.
@@ -22,7 +20,7 @@ export type CommandResult =
   | { type: "send"; text: string }
   | { type: "view"; view: "plan" | "diff" }
   | { type: "overlay"; overlay: "help" | "permissions" }
-  | { type: "modal"; modal: "agent" }
+  | { type: "modal"; modal: "agent" | "codex-login" }
   | { type: "noop" };
 
 export type SubcommandDefinition = {

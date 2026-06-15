@@ -17,6 +17,10 @@ export type ProviderSettings = {
   apiKey: string;
   models: string[];
   defaultModel?: string;
+  // Manual override that suppresses the status-bar dollar cost for this
+  // provider regardless of model pricing — e.g. a prepaid coding plan or a
+  // gateway whose models.dev prices do not apply.
+  free?: boolean;
 };
 
 export type ProviderTier = "fast" | "standard" | "clever";
@@ -124,6 +128,7 @@ const ProviderSettingsSchema = type({
   apiKey: "string",
   models: "string[]",
   "defaultModel?": "string",
+  "free?": "boolean",
 });
 
 const TierAssignmentSchema = type({

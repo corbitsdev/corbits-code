@@ -1,8 +1,13 @@
 import { test, expect, describe } from "bun:test";
-import { render } from "ink-testing-library";
 import { extractMcpRecords, extractMcpRecord } from "../../../src/tui/mcp-result-format.js";
 import { mcpRecordsToView, mcpRecordToView } from "../../../src/tui/mcp-view.js";
-import { View } from "../../../src/tui/view/index.js";
+import { viewToLines } from "../../../src/tui/view/index.js";
+import type { ViewNode } from "../../../src/tui/view/spec.js";
+
+const frameOf = (node: ViewNode, columns: number): string =>
+  viewToLines(node, columns)
+    .map((line) => line.map((s) => s.text).join(""))
+    .join("\n");
 
 const projects = JSON.stringify({
   projects: [
@@ -36,7 +41,7 @@ describe("mcpRecordsToView", () => {
 
   test("renders through View, fitting the width", () => {
     const node = mcpRecordsToView(extractMcpRecords(projects)!);
-    const frame = render(<View node={node} columns={70} />).lastFrame() ?? "";
+    const frame = frameOf(node, 70);
     expect(frame).toContain("Mobile app launch");
     expect(frame).toContain("In Progress");
     for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(70);
@@ -68,7 +73,7 @@ describe("mcpRecordToView", () => {
 
   test("renders through View with the title and date", () => {
     const node = mcpRecordToView(extractMcpRecord(project)!);
-    const frame = render(<View node={node} columns={80} />).lastFrame() ?? "";
+    const frame = frameOf(node, 80);
     expect(frame).toContain("Mobile app launch");
     expect(frame).toContain("2026-06-17");
     expect(frame).not.toContain("abc-123");

@@ -7,11 +7,11 @@ import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 export type StatusBarProps = {
   provider: string;
   model: string;
-  cost: string;
+  cost?: string | undefined;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
-  elapsedMs: number;
+  contextUsage?: string | undefined;
   status: AgentStatus;
   reasoningEffort?: ReasoningEffort | undefined;
   auto?: boolean;
@@ -48,7 +48,7 @@ export function StatusBar({
   inputTokens,
   outputTokens,
   cacheReadTokens = 0,
-  elapsedMs,
+  contextUsage,
   status,
   reasoningEffort,
   auto = false,
@@ -68,14 +68,22 @@ export function StatusBar({
           <Text bold color={modeColor} wrap="truncate-end">{modeLabel}</Text>
         </>
       )}
-      <Divider />
-      <Text color={color("success")} wrap="truncate-end">{cost}</Text>
+      {cost !== undefined && cost.length > 0 && (
+        <>
+          <Divider />
+          <Text color={color("success")} wrap="truncate-end">{cost}</Text>
+        </>
+      )}
       <Divider />
       <Text color={color("muted")} wrap="truncate-end">
         ↑{inputTokens} ↓{outputTokens}{cacheReadTokens > 0 ? ` cR:${cacheReadTokens}` : ""}
       </Text>
-      <Divider />
-      <Text color={color("muted")} wrap="truncate-end">{formatElapsed(elapsedMs)}</Text>
+      {contextUsage !== undefined && (
+        <>
+          <Divider />
+          <Text color={color("muted")} wrap="truncate-end">{contextUsage}</Text>
+        </>
+      )}
       {status !== "running" && status !== "idle" && (
         <>
           <Divider />

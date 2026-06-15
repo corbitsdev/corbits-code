@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { validateView } from "../../../src/tui/view/validate.js";
-import { viewHeight } from "../../../src/tui/view/height.js";
+import { viewToLines } from "../../../src/tui/view/lines.js";
 import type { ViewNode } from "../../../src/tui/view/spec.js";
 
 describe("validateView", () => {
@@ -56,8 +56,8 @@ describe("validateView", () => {
   });
 });
 
-describe("viewHeight", () => {
-  const at = (node: ViewNode, cols = 80) => viewHeight(node, cols);
+describe("view line count", () => {
+  const at = (node: ViewNode, cols = 80) => viewToLines(node, cols).length;
 
   test("single-line nodes are one row", () => {
     expect(at({ type: "divider" })).toBe(1);

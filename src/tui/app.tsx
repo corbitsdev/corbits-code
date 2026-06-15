@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLineUnits, maxScrollOffset } from "./components/event-log.js";
+import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
@@ -19,6 +19,7 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import { formatContextUsage } from "../provider/context-window.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
@@ -29,8 +30,17 @@ import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
+import { CodexLoginModal } from "./components/codex-login-modal.js";
 import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
+import { startCodexLogin } from "../auth/codex/login.js";
+import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
+import { refreshCodexInstructions } from "../auth/codex/instructions.js";
+import { removeCodexProfile } from "../auth/codex/store.js";
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
+import { shouldHideCost, getActivePricingCache } from "../cost/cost-visibility.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -38,7 +48,6 @@ import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink, readFile, opendir, realpath, stat } from "node:fs/promises";
 import { resolve, isAbsolute, relative, sep } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
-import { WorkflowPanel } from "./components/workflow-panel.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
 import type { WorkflowStatus } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
@@ -275,7 +284,11 @@ export function App({
   initialProfiles = [],
   profilesDir,
 }: AppProps): ReactNode {
-  const state = useAgentStream(eventEmitter, initialHooks);
+  // Tracks the live model so the stream's cost meter prices each turn at the
+  // active model's rate even after a mid-session switch. Updated once model is
+  // resolved from the provider manager below.
+  const modelRef = useRef(initialModel);
+  const state = useAgentStream(eventEmitter, initialHooks, () => modelRef.current);
   const stateRef = useRef(state);
   stateRef.current = state;
   const mcpStatus = useMCPStatus(eventEmitter);
@@ -299,10 +312,11 @@ export function App({
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
+  const [codexLoginOpen, setCodexLoginOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
-  const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
   const [workflowPickerOpen, setWorkflowPickerOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
@@ -325,7 +339,84 @@ export function App({
     onMessage: setCommandMessage,
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
-  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment } = providerManager;
+  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, removeCodexProvider } = providerManager;
+  // Safe to mutate during render: the ref is only read later by the faremeter's
+  // pricing resolver at usage-event time, never during this render pass.
+  modelRef.current = model;
+
+  // Codex profile names currently known, derived from the live catalog so the
+  // login modal stays in sync after a login or removal.
+  const codexProfileNames = useMemo(
+    () =>
+      providerCatalog
+        .map((p) => p.codexProfile)
+        .filter((name): name is string => name !== undefined),
+    [providerCatalog],
+  );
+
+  // For a Codex profile, show live plan usage in the status bar instead of a
+  // dollar cost (the plan is prepaid). Derived on every render — the value is
+  // refreshed from the x-codex-* response headers captured after each turn, and
+  // stream events re-render this component, so it stays current without an
+  // effect or an extra request. undefined → fall back to the normal cost string.
+  const codexUsageDisplay = (() => {
+    if (codexProfileFromProviderName(provider) === undefined) return undefined;
+    const usage = getLatestCodexUsage();
+    return usage !== undefined ? formatCodexUsageCompact(usage) : undefined;
+  })();
+  const isCodexProvider = codexProfileFromProviderName(provider) !== undefined;
+
+  // Suppress the dollar cost for prepaid/free providers. Codex plans are
+  // prepaid; coding-plan endpoints and free models carry no meaningful
+  // per-token cost. Derived on render — the pricing cache is static after load.
+  const activeEntry = providerCatalog.find((p) => p.name === provider);
+  const hideCost =
+    isCodexProvider ||
+    shouldHideCost({
+      baseURL: activeEntry?.baseURL,
+      modelId: model,
+      providerFree: activeEntry?.free,
+      pricingCache: getActivePricingCache(),
+    });
+
+  // Resolve a fresh access token for a Codex profile and make it the active
+  // provider. Surfaces a re-login hint if the profile can no longer be used.
+  const switchToCodexProfile = (name: string): void => {
+    void refreshCodexInstructions().catch(() => {});
+    void Promise.all([getValidCodexToken(name), fetchCodexModels(name).catch(() => [])]).then(
+      ([token, liveModels]) => {
+        const accountId = token.accountId;
+        // Prefer the account's live model catalog; fall back to the current
+        // default set when empty (e.g. while rate-limited the catalog is empty).
+        const models = liveModels.length > 0 ? liveModels : [...CODEX_DEFAULT_MODELS];
+        const defaultModel = models[0] ?? CODEX_DEFAULT_MODELS[0];
+        registerCodexProvider({
+          name: codexProviderName(name),
+          baseURL: CODEX_BASE_URL,
+          apiKey: token.access,
+          models,
+          defaultModel,
+          codexProfile: name,
+          ...(accountId !== undefined ? { codexAccountId: accountId } : {}),
+        });
+      },
+      (err: unknown) => {
+        setCommandMessage(
+          err instanceof CodexAuthError
+            ? err.message
+            : `Could not use Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+  };
+
+  const removeCodexProfileEverywhere = (name: string): void => {
+    removeCodexProvider(codexProviderName(name));
+    void removeCodexProfile(name).then(
+      () => setCommandMessage(`Removed Codex profile "${name}".`),
+      (err: unknown) => setCommandMessage(`Failed to remove Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`),
+    );
+  };
 
   const [profiles, setProfiles] = useState<AgentProfile[]>(initialProfiles);
 
@@ -380,8 +471,7 @@ export function App({
 
   // Sidebar opens automatically when there's a plan or an active workflow.
   // Manual sidebarOpen still works for the diff view.
-  const autoSidebarOpen = planSteps.length > 0 || workflowStatus.active;
-  const effectiveSidebarOpen = sidebarOpen || autoSidebarOpen || workflowPanelOpen;
+  const effectiveSidebarOpen = sidebarOpen;
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
@@ -405,18 +495,18 @@ export function App({
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
-  const scrollMaxOffset = useMemo(
-    () => maxScrollOffset(
-      buildLineUnits(
-        state.contentBlocks,
-        leftWidth,
-        thinkingExpanded,
-        (block) => verbose || expandedTools.has(block.id),
-      ),
-      visibleRows,
+  // The flat line buffer is the hot path during streaming — built once here and
+  // passed to EventLog so it is not re-parsed a second time in the component body.
+  const eventLogLines = useMemo(
+    () => buildLines(
+      state.contentBlocks,
+      leftWidth,
+      thinkingExpanded,
+      (block) => verbose || expandedTools.has(block.id),
     ),
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, visibleRows],
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools],
   );
+  const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
   const lastToolId = useMemo(() => {
     const blocks = state.contentBlocks;
@@ -451,8 +541,8 @@ export function App({
     gates.gateOpen ||
     hookPanelOpen ||
     agentModalOpen ||
-    permissionsOpen ||
-    workflowPanelOpen
+    codexLoginOpen ||
+    permissionsOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -526,7 +616,6 @@ export function App({
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
     ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
-    openWorkflowPanel: () => setWorkflowPanelOpen(true),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
   }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
@@ -621,11 +710,10 @@ export function App({
       // like the help overlay, so block the global keymap the same way.
       helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
-      agentModalOpen: agentModalOpen || workflowPickerOpen,
+      agentModalOpen: agentModalOpen || workflowPickerOpen || codexLoginOpen,
       hookPanelOpen,
       diffFullScreenOpen,
       planFullScreenOpen,
-      workflowPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       commandPaletteOpen: inputValue.startsWith("/") && (
@@ -690,7 +778,6 @@ export function App({
           return !open;
         });
       },
-      toggleWorkflowPanel: () => setWorkflowPanelOpen((open) => !open),
       toggleHelp: () => setHelpOpen((open) => !open),
       copyMcpUrl: () => {
         const first = mcpStatus.needsAuth[0];
@@ -767,6 +854,19 @@ export function App({
     }
     if (result.type === "modal" && result.modal === "agent") {
       setAgentModalOpen(true);
+      const profileName = codexProfileFromProviderName(provider);
+      if (profileName === undefined) {
+        setAgentModalUsage(null);
+      } else {
+        setAgentModalUsage("Loading Codex usage…");
+        void fetchCodexUsage(profileName).then(
+          (usage) => setAgentModalUsage(formatCodexUsage(usage)),
+          () => setAgentModalUsage(null),
+        );
+      }
+    }
+    if (result.type === "modal" && result.modal === "codex-login") {
+      setCodexLoginOpen(true);
     }
   };
 
@@ -797,17 +897,9 @@ export function App({
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
+          elapsedMs={state.elapsedMs}
+          usage={codexUsageDisplay}
           {...(profile !== undefined ? { profile } : {})}
-          {...(workflowStatus.active && workflowStatus.name !== undefined
-            ? {
-                workflow: {
-                  name: workflowStatus.name,
-                  stepIndex: workflowStatus.stepIndex,
-                  total: workflowStatus.total,
-                  label: workflowStatus.label,
-                },
-              }
-            : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -831,39 +923,25 @@ export function App({
           <>
             <Box width={leftWidth} flexDirection="column" overflow="hidden">
               <EventLog
-                contentBlocks={state.contentBlocks}
+                lines={eventLogLines}
                 scrollOffset={scroll.scrollOffset}
                 visibleRows={visibleRows}
-                columns={leftWidth}
-                thinkingExpanded={thinkingExpanded}
-                expandedTools={expandedTools}
-                verbose={verbose}
               />
             </Box>
             {effectiveSidebarOpen && (
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
-                {(workflowPanelOpen || (workflowStatus.active && contextView !== "diff" && planSteps.length === 0)) ? (
-                  <WorkflowPanel
-                    status={workflowStatus}
-                    width={rightWidth}
-                    maxRows={visibleRows}
-                    onToggleCapability={(name) => onToggleCapability?.(name)}
-                    onClose={() => setWorkflowPanelOpen(false)}
-                  />
-                ) : (
-                  <ContextPanel
-                    view={contextView}
-                    steps={planSteps}
-                    currentPlanStep={state.currentPlanStep}
-                    planDeviated={state.planDeviated}
-                    width={rightWidth}
-                    diffResult={diff.result}
-                    diffScrollOffset={diffScroll}
-                    diffVisibleRows={diffVisibleRows}
-                    borderColor={modeColor}
-                    {...(planGoal !== undefined ? { goal: planGoal } : {})}
-                  />
-                )}
+                <ContextPanel
+                  view={contextView}
+                  steps={planSteps}
+                  currentPlanStep={state.currentPlanStep}
+                  planDeviated={state.planDeviated}
+                  width={rightWidth}
+                  diffResult={diff.result}
+                  diffScrollOffset={diffScroll}
+                  diffVisibleRows={diffVisibleRows}
+                  borderColor={modeColor}
+                  {...(planGoal !== undefined ? { goal: planGoal } : {})}
+                />
               </Box>
             )}
           </>
@@ -889,6 +967,7 @@ export function App({
         agentProfiles={profiles}
         onSaveAgentProfile={saveProfile}
         onDeleteAgentProfile={deleteProfile}
+        codexUsage={agentModalUsage ?? undefined}
         pendingPlan={gates.pendingPlan}
         onApprove={gates.approve}
         onReject={gates.reject}
@@ -923,6 +1002,26 @@ export function App({
           maxHeight={permissionsOverlayRows}
         />
       )}
+      {codexLoginOpen && (
+        <CodexLoginModal
+          profiles={codexProfileNames}
+          activeProfile={provider}
+          onStartLogin={(name) => {
+            const controller = new AbortController();
+            return startCodexLogin({ profile: name, signal: controller.signal }).then((handle) => ({
+              authorizeUrl: handle.authorizeUrl,
+              completed: handle.completed,
+              cancel: () => {
+                controller.abort();
+                handle.cancel();
+              },
+            }));
+          }}
+          onSwitchProfile={switchToCodexProfile}
+          onRemoveProfile={removeCodexProfileEverywhere}
+          onClose={() => setCodexLoginOpen(false)}
+        />
+      )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
         <Box paddingX={1}>
@@ -936,6 +1035,7 @@ export function App({
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
+            {...(workflowStatus.active && workflowStatus.name !== undefined ? { workflow: { name: workflowStatus.name, stepIndex: workflowStatus.stepIndex, total: workflowStatus.total, label: workflowStatus.label } } : {})}
           />
           <Box
             borderStyle="single"
@@ -962,11 +1062,11 @@ export function App({
         <StatusBar
           provider={provider}
           model={model}
-          cost={state.formattedCost}
+          cost={hideCost ? undefined : state.formattedCost}
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
           cacheReadTokens={state.cacheReadTokens}
-          elapsedMs={state.elapsedMs}
+          contextUsage={formatContextUsage(state.contextTokens, model)}
           status={state.status}
           reasoningEffort={reasoningEffort}
           auto={auto}

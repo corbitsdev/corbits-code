@@ -32,3 +32,28 @@ describe("openai-compatible adapter providerOptions passthrough", () => {
     expect(body["model"]).toBe("gpt-5.1");
   });
 });
+
+describe("openai-compatible adapter reasoning_content handling", () => {
+  const withThinking: ConversationTurn[] = [
+    { role: "user", content: [{ type: "text", text: "hi" }] },
+    { role: "assistant", model: "deepseek-v4", content: [{ type: "thinking", thinking: "ponder" }, { type: "text", text: "hello" }] },
+    { role: "user", content: [{ type: "text", text: "again" }] },
+  ] as unknown as ConversationTurn[];
+
+  function messagesFor(model: string): Array<Record<string, unknown>> {
+    const adapter = createOpenAICompatibleAdapter({ ...source, model } as typeof source);
+    const built = adapter.buildRequest(withThinking, model, {} as InferenceOptions);
+    return (JSON.parse(built.body) as { messages: Array<Record<string, unknown>> }).messages;
+  }
+
+  test("strips reasoning_content from input messages for DeepSeek models", () => {
+    const assistant = messagesFor("deepseek-v4").find((m) => m["role"] === "assistant");
+    expect(assistant).toBeDefined();
+    expect("reasoning_content" in assistant!).toBe(false);
+  });
+
+  test("keeps reasoning_content for non-DeepSeek models", () => {
+    const assistant = messagesFor("kimi-k2").find((m) => m["role"] === "assistant");
+    expect(assistant?.["reasoning_content"]).toBe("ponder");
+  });
+});
