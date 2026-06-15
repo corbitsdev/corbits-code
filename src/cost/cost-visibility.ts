@@ -9,14 +9,18 @@ export function isFreeModelId(modelId: string): boolean {
 }
 
 // A coding plan is a prepaid subscription rather than metered API usage. Such
-// endpoints carry "/coding" in the base URL path (e.g. Z.AI's coding plan), so
-// per-token dollar figures are meaningless and should be hidden.
+// endpoints carry a "coding" path segment in the base URL (e.g. Z.AI's coding
+// plan at /api/coding/...), so per-token dollar figures are meaningless and
+// should be hidden. Matched as a whole path segment so "/encoding" or a
+// "?x=/coding" query string never trips it.
+const CODING_PLAN_SEGMENT = /\/coding(\/|$)/i;
+
 export function isCodingPlanBaseURL(baseURL: string | undefined): boolean {
   if (baseURL === undefined) return false;
   try {
-    return new URL(baseURL).pathname.toLowerCase().includes("/coding");
+    return CODING_PLAN_SEGMENT.test(new URL(baseURL).pathname);
   } catch {
-    return baseURL.toLowerCase().includes("/coding");
+    return CODING_PLAN_SEGMENT.test(baseURL);
   }
 }
 

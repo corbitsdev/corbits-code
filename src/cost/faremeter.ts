@@ -28,6 +28,9 @@ export type Faremeter = {
   getOutputTokens(): number;
 };
 
+// Fallback rate for a model with no known pricing (absent from the models.dev
+// cache and no explicit override). A rough estimate so the figure is non-zero
+// rather than misleadingly free; real rates come from the resolver.
 const DEFAULT_CONFIG: FaremeterConfig = {
   inputPricePerToken: 0.000002,
   outputPricePerToken: 0.00001,

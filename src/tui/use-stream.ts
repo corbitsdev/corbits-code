@@ -187,7 +187,7 @@ export function createAgentStreamState(
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
-  let faremeter = createFaremeter();
+  let faremeter = makeFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
   }

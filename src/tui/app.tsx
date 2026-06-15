@@ -340,6 +340,8 @@ export function App({
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
   const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, removeCodexProvider } = providerManager;
+  // Safe to mutate during render: the ref is only read later by the faremeter's
+  // pricing resolver at usage-event time, never during this render pass.
   modelRef.current = model;
 
   // Codex profile names currently known, derived from the live catalog so the
