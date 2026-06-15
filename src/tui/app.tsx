@@ -35,8 +35,8 @@ import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
-import { writeFile, mkdir, unlink, readFile } from "node:fs/promises";
-import { resolve, isAbsolute } from "node:path";
+import { writeFile, mkdir, unlink, readFile, readdir, stat } from "node:fs/promises";
+import { resolve, isAbsolute, join } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPanel } from "./components/workflow-panel.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
@@ -51,6 +51,26 @@ import "./commands/workflows.js";
 // with the file's contents wrapped in a labelled fenced block so the agent gets
 // full context without having to call read_file. Mentions that cannot be read
 // are left as-is and a warning is appended so the agent knows.
+// Recursively collect relative paths under a directory, up to a reasonable
+// depth/count so the agent gets a useful map without token bloat.
+async function collectDirEntries(root: string, dir: string, depth: number): Promise<string[]> {
+  if (depth > 3) return [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const lines: string[] = [];
+  for (const e of entries) {
+    if (e.name.startsWith(".") || e.name === "node_modules") continue;
+    const rel = join(dir, e.name).slice(root.length + 1);
+    if (e.isDirectory()) {
+      lines.push(`  ${rel}/`);
+      lines.push(...await collectDirEntries(root, join(dir, e.name), depth + 1));
+    } else {
+      lines.push(`  ${rel}`);
+    }
+    if (lines.length >= 60) break;
+  }
+  return lines;
+}
+
 async function resolveAtMentions(message: string, cwd: string): Promise<string> {
   // Match @word, @path/with/slashes, or @"quoted path" — stop at whitespace.
   const pattern = /@("([^"]+)"|(\S+))/g;
@@ -66,11 +86,18 @@ async function resolveAtMentions(message: string, cwd: string): Promise<string> 
     mentions.map(async ({ full, path }) => {
       const abs = isAbsolute(path) ? path : resolve(cwd, path);
       try {
+        const info = await stat(abs);
+        if (info.isDirectory()) {
+          // For directories, give the agent a recursive file listing so it
+          // understands the general area the user is pointing at.
+          const entries = await collectDirEntries(abs, abs, 0);
+          return { full, replacement: `\`${path}\` (directory):\n${entries.join("\n")}` };
+        }
         const content = await readFile(abs, "utf-8");
         const ext = abs.split(".").pop() ?? "";
         return { full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` };
       } catch {
-        return { full, replacement: `${full} (file not found)` };
+        return { full, replacement: `${full} (not found)` };
       }
     }),
   );
