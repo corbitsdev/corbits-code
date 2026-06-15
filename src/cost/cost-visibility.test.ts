@@ -33,9 +33,21 @@ describe("isCodingPlanBaseURL", () => {
     expect(isCodingPlanBaseURL("https://api.z.ai/api/paas/v4")).toBe(false);
   });
 
-  it("handles undefined and malformed URLs", () => {
+  it("matches coding only as a whole path segment", () => {
+    expect(isCodingPlanBaseURL("https://api.z.ai/api/coding")).toBe(true);
+    expect(isCodingPlanBaseURL("https://api.example.com/v1/encoding/paas")).toBe(false);
+    expect(isCodingPlanBaseURL("https://api.example.com/decoding")).toBe(false);
+    expect(isCodingPlanBaseURL("https://api.example.com/coding-assistant/v1")).toBe(false);
+  });
+
+  it("does not match coding in a query string", () => {
+    expect(isCodingPlanBaseURL("https://api.example.com/v1?redirect=/coding")).toBe(false);
+  });
+
+  it("handles undefined and malformed URLs without over-matching", () => {
     expect(isCodingPlanBaseURL(undefined)).toBe(false);
-    expect(isCodingPlanBaseURL("not a url /coding")).toBe(true);
+    expect(isCodingPlanBaseURL("not a url /coding/paas")).toBe(true);
+    expect(isCodingPlanBaseURL("not a url /encoding")).toBe(false);
   });
 });
 
