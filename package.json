@@ -27,12 +27,14 @@
     "./interchange/packages/log",
     "./interchange/packages/crypto-node",
     "./interchange/packages/tools-lsp",
-    "./packages/workflows"
+    "./packages/workflows",
+    "./packages/agents"
   ],
   "catalog": {
     "arktype": "^2.1.29"
   },
   "dependencies": {
+    "@intercode/default-agents": "workspace:*",
     "@intercode/default-workflows": "workspace:*",
     "@intx/agent": "workspace:*",
     "@intx/inference": "workspace:*",

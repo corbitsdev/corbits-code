@@ -5,6 +5,7 @@
     "": {
       "name": "interchange-code",
       "dependencies": {
+        "@intercode/default-agents": "workspace:*",
         "@intercode/default-workflows": "workspace:*",
         "@intx/agent": "workspace:*",
         "@intx/inference": "workspace:*",
@@ -144,6 +145,10 @@
         "@types/semver": "^7.7.1",
       },
     },
+    "packages/agents": {
+      "name": "@intercode/default-agents",
+      "version": "0.1.0",
+    },
     "packages/workflows": {
       "name": "@intercode/default-workflows",
       "version": "0.1.0",
@@ -160,6 +165,8 @@
     "@ark/util": ["@ark/util@0.56.0", "", {}, "sha512-BghfRC8b9pNs3vBoDJhcta0/c1J1rsoS1+HgVUreMFPdhz/CRAKReAu57YEllNaSy98rWAdY1gE+gFup7OXpgA=="],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
+
+    "@intercode/default-agents": ["@intercode/default-agents@workspace:packages/agents"],
 
     "@intercode/default-workflows": ["@intercode/default-workflows@workspace:packages/workflows"],
 
