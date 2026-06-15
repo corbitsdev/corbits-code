@@ -71,6 +71,8 @@ export type ProviderCatalogEntry = {
   apiKey: string;
   models: string[];
   defaultModel?: string;
+  // Manual override suppressing the status-bar dollar cost for this provider.
+  free?: boolean;
   // Set when this entry is a Codex OAuth profile rather than an API-key
   // provider. Holds the profile name; the send path uses it to refresh the
   // access token before each turn. Such entries are never written to
@@ -353,7 +355,7 @@ export async function loadConfig(
   if (local?.reasoningEffort !== undefined) {
     const cached = await readPricingCache();
     setModelReasoningCapabilities(cached?.reasoning ?? {});
-    const verdict = validateEffort(resolved.model, local.reasoningEffort);
+    const verdict = validateEffort(resolved.model, local.reasoningEffort, isCodexProviderName(resolved.providerName));
     if (!verdict.ok) {
       throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
     }
@@ -408,6 +410,7 @@ export function buildProviderCatalog(
       apiKey: p.apiKey,
       models: p.models,
       ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+      ...(p.free !== undefined ? { free: p.free } : {}),
     }));
   }
   return [
@@ -438,6 +441,7 @@ export function providerCatalogToSettings(
           apiKey: p.apiKey,
           models: p.models,
           ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+          ...(p.free !== undefined ? { free: p.free } : {}),
         },
       ]),
     ),

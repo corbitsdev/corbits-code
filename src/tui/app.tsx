@@ -40,6 +40,7 @@ import { loadCodexProfile, removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
 import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
+import { shouldHideCost, getActivePricingCache } from "../cost/cost-visibility.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -357,6 +358,19 @@ export function App({
     return usage !== undefined ? formatCodexUsageCompact(usage) : undefined;
   })();
   const isCodexProvider = codexProfileFromProviderName(provider) !== undefined;
+
+  // Suppress the dollar cost for prepaid/free providers. Codex plans are
+  // prepaid; coding-plan endpoints and free models carry no meaningful
+  // per-token cost. Derived on render — the pricing cache is static after load.
+  const activeEntry = providerCatalog.find((p) => p.name === provider);
+  const hideCost =
+    isCodexProvider ||
+    shouldHideCost({
+      baseURL: activeEntry?.baseURL,
+      modelId: model,
+      providerFree: activeEntry?.free,
+      pricingCache: getActivePricingCache(),
+    });
 
   // Resolve a fresh access token for a Codex profile and make it the active
   // provider. Surfaces a re-login hint if the profile can no longer be used.
@@ -1045,7 +1059,7 @@ export function App({
         <StatusBar
           provider={provider}
           model={model}
-          cost={isCodexProvider ? undefined : state.formattedCost}
+          cost={hideCost ? undefined : state.formattedCost}
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
           cacheReadTokens={state.cacheReadTokens}

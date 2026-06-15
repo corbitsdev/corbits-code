@@ -22,6 +22,7 @@ import { loadAgentPlugins } from "../agent/profiles.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
+import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
@@ -87,10 +88,15 @@ export async function runTUI(config: Config): Promise<number> {
   // Seed reasoning capabilities from the cached models.dev metadata so the
   // /agent effort selector can gate non-reasoning models immediately, then
   // refresh from the network in the background (updates the cache for next run).
-  setModelReasoningCapabilities((await readPricingCache())?.reasoning ?? {});
+  const cachedPricing = await readPricingCache();
+  setModelReasoningCapabilities(cachedPricing?.reasoning ?? {});
+  setActivePricingCache(cachedPricing);
   void loadPricing()
     .then((cache) => {
-      if (cache !== null) setModelReasoningCapabilities(cache.reasoning ?? {});
+      if (cache !== null) {
+        setModelReasoningCapabilities(cache.reasoning ?? {});
+        setActivePricingCache(cache);
+      }
     })
     .catch(() => undefined);
   let sessionId = config.sessionId;
