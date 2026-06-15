@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import { resolve } from "node:path";
-
 import { loadConfig } from "./config/index.js";
 import { loadState, loadDirectorState } from "./session/state.js";
 import { runAgent } from "./agent/run-agent.js";
@@ -19,27 +17,6 @@ export type MainRunners = {
   runTUI(config: Config): Promise<number>;
   runOnboarding(config: UnconfiguredConfig): Promise<number>;
 };
-
-async function loadEnvFile(path: string): Promise<void> {
-  try {
-    const file = Bun.file(path);
-    const text = await file.text();
-    for (const line of text.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("#") || trimmed.length === 0) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq === -1) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const value = trimmed.slice(eq + 1).trim();
-      const unquoted = value.replace(/^["']|["']$/g, "");
-      if (process.env[key] === undefined) {
-        process.env[key] = unquoted;
-      }
-    }
-  } catch {
-    // File missing or unreadable — ignore
-  }
-}
 
 /* eslint-disable no-console */
 
@@ -61,7 +38,6 @@ function printHelp(): void {
   console.log("Configuration:");
   console.log("  Providers and credentials are read from ~/.intercode/settings.json");
   console.log("  (selection can be overridden per repo via .intercode/settings.json).");
-  console.log("  The OPENAI_COMPATIBLE_* env vars still override individual fields.");
 }
 
 export async function mainWithRunners(
@@ -133,10 +109,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   return mainWithRunners(argv, { runAgent, runTUI, runOnboarding });
 }
 
-const projectRoot = resolve(import.meta.dirname, "..");
 if (import.meta.main) {
-  await loadEnvFile(resolve(projectRoot, ".env"));
-
   void main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {

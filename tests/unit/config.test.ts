@@ -1,76 +1,74 @@
 import { test, expect } from "bun:test";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
 
-const envVars = {
-  OPENAI_COMPATIBLE_API_KEY: "test-key",
-  OPENAI_COMPATIBLE_BASE_URL: "http://localhost:1234",
-  OPENAI_COMPATIBLE_MODEL: "test-model",
-  OPENAI_COMPATIBLE_PROVIDER_NAME: "test-provider",
-};
-
-// A global settings path that does not exist, so the env vars above drive
-// resolution and the test stays independent of the dev machine.
-const NO_SETTINGS = join(tmpdir(), "intercode-tests-missing", ".interchange", "settings.json");
-
-async function withEnv(fn: () => void | Promise<void>): Promise<void> {
-  const original: Record<string, string | undefined> = {};
-  for (const [key, value] of Object.entries(envVars)) {
-    original[key] = process.env[key];
-    process.env[key] = value;
-  }
+// Writes a minimal valid global settings file with a single provider so that
+// provider resolution succeeds; these tests only exercise flag parsing.
+async function withSettings(
+  fn: (opts: { cwd: string; globalSettingsPath: string }) => void | Promise<void>,
+): Promise<void> {
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-"));
+  const globalSettingsPath = join(cwd, "global.json");
+  await writeFile(
+    globalSettingsPath,
+    JSON.stringify({
+      defaultProvider: "test-provider",
+      providers: {
+        "test-provider": {
+          baseURL: "http://localhost:1234",
+          apiKey: "test-key",
+          models: ["test-model"],
+        },
+      },
+    }),
+  );
   try {
-    await fn();
+    await fn({ cwd, globalSettingsPath });
   } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
+    await rm(cwd, { recursive: true, force: true });
   }
 }
 
 test("loadConfig defaults auto mode on", async () => {
-  await withEnv(async () => {
-    const config = await loadConfig(["do something"], { globalSettingsPath: NO_SETTINGS });
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const config = await loadConfig(["--cwd", cwd, "do something"], { globalSettingsPath });
     expect(config.auto).toBe(true);
   });
 });
 
 test("loadConfig --no-auto disables auto mode", async () => {
-  await withEnv(async () => {
-    const config = await loadConfig(["--no-auto", "do something"], { globalSettingsPath: NO_SETTINGS });
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const config = await loadConfig(["--cwd", cwd, "--no-auto", "do something"], { globalSettingsPath });
     expect(config.auto).toBe(false);
   });
 });
 
 test("loadConfig parses --headless flag", async () => {
-  await withEnv(async () => {
-    const config = await loadConfig(["--headless", "do something"], { globalSettingsPath: NO_SETTINGS });
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const config = await loadConfig(["--cwd", cwd, "--headless", "do something"], { globalSettingsPath });
     expect(config.headless).toBe(true);
   });
 });
 
 test("loadConfig parses -h flag", async () => {
-  await withEnv(async () => {
-    const config = await loadConfig(["-h", "do something"], { globalSettingsPath: NO_SETTINGS });
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const config = await loadConfig(["--cwd", cwd, "-h", "do something"], { globalSettingsPath });
     expect(config.headless).toBe(true);
   });
 });
 
 test("loadConfig defaults headless to false", async () => {
-  await withEnv(async () => {
-    const config = await loadConfig(["do something"], { globalSettingsPath: NO_SETTINGS });
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const config = await loadConfig(["--cwd", cwd, "do something"], { globalSettingsPath });
     expect(config.headless).toBe(false);
   });
 });
 
 test("loadConfig headless flag does not consume positional args", async () => {
-  await withEnv(async () => {
-    const config = await loadConfig(["--headless", "read", "file"], { globalSettingsPath: NO_SETTINGS });
+  await withSettings(async ({ cwd, globalSettingsPath }) => {
+    const config = await loadConfig(["--cwd", cwd, "--headless", "read", "file"], { globalSettingsPath });
     expect(config.headless).toBe(true);
     expect(config.task).toBe("read file");
   });

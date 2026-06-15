@@ -22,7 +22,7 @@ export async function resolveJudge(
   const cli: { provider?: string; model?: string } = {};
   if (provider !== undefined) cli.provider = provider;
   if (model !== undefined) cli.model = model;
-  const resolved = resolveProvider({ settings, local: null, env: {}, cli });
+  const resolved = resolveProvider({ settings, local: null, cli });
   return { apiKey: resolved.apiKey, baseURL: resolved.baseURL, model: resolved.model };
 }
 

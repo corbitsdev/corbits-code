@@ -42,14 +42,13 @@ Two tools exist only at the director layer and gate the loop:
 ### CLI Entry (`src/index.ts`)
 
 - Parses verbs (`run` (optional), `resume`) and `--help`
-- Auto-loads `.env` from the project root before dispatch (does not overwrite already-set env vars)
 - Dispatches to `runAgent` (headless) or `runTUI` (default)
 - Handles resume by loading previous `RunState` + `DirectorPersistedState` and re-running with the prior task
 
 ### Config Resolution (`src/config/index.ts`, `src/config/settings.ts`)
 
-- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > `OPENAI_COMPATIBLE_*` env > per-repo `.intercode/settings.json` (selection only) > global `~/.intercode/settings.json`.
-- `--config <path>` replaces the global settings file as the provider source (the eval harness's per-run injection seam). With no settings file, credentials come entirely from env, preserving the original `.env` workflow.
+- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > per-repo `.intercode/settings.json` (selection only) > global `~/.intercode/settings.json`. Credentials come only from the settings files — no environment-variable override, and `.env` is not loaded.
+- `--config <path>` replaces the global settings file as the provider source (the eval harness's per-run injection seam). A provider must be defined in a settings file; there is no env fallback.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.

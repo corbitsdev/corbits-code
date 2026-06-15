@@ -47,27 +47,19 @@ else
 fi
 echo ""
 
-# Required env vars
-echo "environment variables"
-REQUIRED_VARS=(
-  OPENAI_COMPATIBLE_API_KEY
-  OPENAI_COMPATIBLE_BASE_URL
-  OPENAI_COMPATIBLE_MODEL
-)
-
-ENV_FILE=".env"
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  set -o allexport; source "$ENV_FILE"; set +o allexport
-fi
-
-for var in "${REQUIRED_VARS[@]}"; do
-  if [[ -n "${!var:-}" ]]; then
-    ok "$var is set"
+# Provider settings — credentials come exclusively from the settings file;
+# environment variables and .env files are not used.
+echo "provider settings"
+SETTINGS_FILE="${HOME}/.intercode/settings.json"
+if [[ -f "$SETTINGS_FILE" ]]; then
+  if grep -q '"providers"' "$SETTINGS_FILE"; then
+    ok "$SETTINGS_FILE has a provider catalog"
   else
-    fail "$var not set (set in .env or environment)"
+    fail "$SETTINGS_FILE has no \"providers\" — configure one or run onboarding"
   fi
-done
+else
+  ok "$SETTINGS_FILE missing — onboarding will create it on first run"
+fi
 echo ""
 
 # Summary
