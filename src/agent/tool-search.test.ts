@@ -22,7 +22,12 @@ describe("createToolIndex", () => {
   });
 
   test("matches by capability words in the description", () => {
-    expect(index.search("find references")).toContain("lsp");
+    expect(index.search("pages")).toContain("web_search");
+  });
+
+  test("never returns lsp — it is a core tool", () => {
+    expect(CORE_TOOL_NAMES).toContain("lsp");
+    expect(index.search("find references")).not.toContain("lsp");
   });
 
   test("never returns a core tool (those are always loaded)", () => {
