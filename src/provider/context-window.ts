@@ -18,6 +18,6 @@ const CONTEXT_DISPLAY_THRESHOLD = 0.6;
 
 export function formatContextUsage(usedTokens: number, model: string): string | undefined {
   const window = contextWindowFor(model);
-  if (usedTokens / window <= CONTEXT_DISPLAY_THRESHOLD) return undefined;
+  if (!Number.isFinite(usedTokens) || usedTokens / window <= CONTEXT_DISPLAY_THRESHOLD) return undefined;
   return `Context: ${String(usedTokens)}/${String(window)}`;
 }
