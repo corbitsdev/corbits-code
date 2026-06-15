@@ -26,11 +26,17 @@ function resolvePath(prefix: string, cwd: string): string {
 export async function listAtSuggestions(prefix: string, cwd: string): Promise<string[]> {
   try {
     const abs = resolvePath(prefix, cwd);
-    // If prefix ends with a separator the user is asking to list that dir.
-    // Otherwise, split into dir + basename fragment to filter.
     const endsWithSep = prefix.endsWith("/");
-    const dir = endsWithSep ? abs : dirname(abs);
-    const fragment = endsWithSep ? "" : basename(abs);
+    // When prefix ends with / the user wants to list that directory.
+    // When prefix contains a slash but doesn't end with one, split on the last
+    // slash: the left side is the dir to list, the right side is the filter.
+    // When prefix has NO slash at all (including the empty string), list cwd
+    // and use the whole prefix as a filter — this is the `@` alone case which
+    // should behave like `ls` in the current directory.
+    const lastSlash = prefix.lastIndexOf("/");
+    const hasSlash = lastSlash !== -1;
+    const dir = endsWithSep ? abs : hasSlash ? dirname(abs) : cwd;
+    const fragment = endsWithSep ? "" : hasSlash ? basename(abs) : prefix;
 
     const entries = await readdir(dir, { withFileTypes: true });
     const matched = entries
@@ -38,10 +44,9 @@ export async function listAtSuggestions(prefix: string, cwd: string): Promise<st
       .slice(0, MAX_SUGGESTIONS);
 
     return matched.map((e) => {
-      // Build the path the user would type: preserve their original prefix style
-      // (absolute, home-relative, or cwd-relative) by re-joining from the prefix's
-      // directory portion.
-      const dirPrefix = endsWithSep ? prefix : prefix.slice(0, prefix.length - fragment.length);
+      // Reconstruct the path the user would type. For bare-fragment prefixes
+      // (no slash) entries are shown relative to cwd so dirPrefix is "".
+      const dirPrefix = endsWithSep ? prefix : hasSlash ? prefix.slice(0, prefix.length - fragment.length) : "";
       return dirPrefix + e.name + (e.isDirectory() ? "/" : "");
     });
   } catch {

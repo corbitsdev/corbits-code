@@ -41,8 +41,22 @@ describe("listAtSuggestions", () => {
     expect(dirs).toContain(fixture + "/src/");
   });
 
-  test("resolves bare path relative to cwd", async () => {
-    // prefix has no leading / or ~ — should resolve relative to cwd
+  test("empty prefix lists cwd (@ alone)", async () => {
+    const results = await listAtSuggestions("", fixture);
+    expect(results).toContain("src/");
+    expect(results).toContain("tests/");
+    expect(results).toContain("README.md");
+    // Results should NOT include parent-directory entries
+    expect(results.every((r) => !r.startsWith("/"))).toBe(true);
+  });
+
+  test("bare fragment filters cwd entries", async () => {
+    const results = await listAtSuggestions("RE", fixture);
+    expect(results).toContain("README.md");
+    expect(results.every((r) => r.startsWith("RE"))).toBe(true);
+  });
+
+  test("resolves bare path with slash relative to cwd", async () => {
     const results = await listAtSuggestions("src/", fixture);
     expect(results).toContain("src/index.ts");
     expect(results).toContain("src/index.test.ts");
