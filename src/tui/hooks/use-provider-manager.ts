@@ -1,6 +1,7 @@
 import type { Agent } from "@intx/agent";
+import { randomUUID } from "node:crypto";
 import { useState } from "react";
-import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
+import { buildCodexSource, buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
 import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../../subagent/index.js";
@@ -39,6 +40,14 @@ export type ProviderManagerController = {
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
   saveTierAssignment: (tier: ProviderTier, provider: string, model: string) => void;
+  // Inject (or replace) a Codex OAuth provider in the live catalog and switch to
+  // it. Codex entries are never persisted to settings.json — their credentials
+  // live in the home-level Codex auth store — so this only mutates in-memory
+  // catalog state, unlike upsertProvider.
+  registerCodexProvider: (entry: ProviderCatalogEntry) => void;
+  // Drop a Codex provider from the live catalog, falling back to another
+  // provider if the removed one was active.
+  removeCodexProvider: (providerName: string) => void;
 };
 
 // The selection writer omits reasoningEffort when there is no override so the
@@ -87,13 +96,22 @@ export function useProviderManager({
       return false;
     }
     agent.setSource(
-      buildOpenAISource({
-        id: entry.name,
-        baseURL: entry.baseURL,
-        apiKey: entry.apiKey,
-        model: nextModel,
-        ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
-      }),
+      entry.codexProfile !== undefined
+        ? buildCodexSource({
+            id: entry.name,
+            apiKey: entry.apiKey,
+            model: nextModel,
+            sessionId: randomUUID(),
+            ...(entry.codexAccountId !== undefined ? { accountId: entry.codexAccountId } : {}),
+            ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
+          })
+        : buildOpenAISource({
+            id: entry.name,
+            baseURL: entry.baseURL,
+            apiKey: entry.apiKey,
+            model: nextModel,
+            ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
+          }),
     );
     onSelectionChange?.({
       providerName,
@@ -222,6 +240,35 @@ export function useProviderManager({
     );
   };
 
+  const registerCodexProvider = (entry: ProviderCatalogEntry): void => {
+    const targetModel = entry.defaultModel ?? entry.models[0];
+    if (targetModel === undefined) {
+      onMessage(`Codex profile ${entry.name} has no model to select`);
+      return;
+    }
+    const catalog = providerCatalog.filter((p) => p.name !== entry.name).concat(entry);
+    setProviderCatalog(catalog);
+    if (applyCatalogSelection(catalog, entry.name, targetModel, reasoningEffort)) {
+      persistLocalSelection(entry.name, targetModel);
+      onMessage(`Now using ${entry.name} · ${targetModel}`);
+    }
+  };
+
+  const removeCodexProvider = (providerName: string): void => {
+    const catalog = providerCatalog.filter((p) => p.name !== providerName);
+    setProviderCatalog(catalog);
+    if (providerName !== provider) return;
+    const fallback = catalog[0];
+    const fallbackModel = fallback?.defaultModel ?? fallback?.models[0];
+    if (fallback === undefined || fallbackModel === undefined) {
+      onMessage("Removed the active Codex profile but no other provider is configured");
+      return;
+    }
+    if (applyCatalogSelection(catalog, fallback.name, fallbackModel, reasoningEffort)) {
+      persistLocalSelection(fallback.name, fallbackModel);
+    }
+  };
+
   return {
     provider,
     model,
@@ -234,5 +281,7 @@ export function useProviderManager({
     upsertProvider,
     deleteProvider,
     saveTierAssignment,
+    registerCodexProvider,
+    removeCodexProvider,
   };
 }

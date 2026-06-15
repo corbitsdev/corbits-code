@@ -47,6 +47,12 @@ registerCommand({
   handler: (_args, _ctx) => ({ type: "overlay", overlay: "permissions" }),
 });
 
+registerCommand({
+  name: "login",
+  description: "Sign in with a Codex (ChatGPT Plus/Pro) subscription and manage profiles",
+  handler: (_args, _ctx) => ({ type: "modal", modal: "codex-login" }),
+});
+
 // signalClear rotates to a fresh session: the on-screen transcript and run
 // telemetry are reset and the agent is rebuilt against a new state directory,
 // so the conversation starts empty. The prior session stays on disk under its

@@ -12,15 +12,20 @@ import {
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
-import { buildOpenAISource, type Config } from "../config/index.js";
+import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
+import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
+import { getValidCodexToken } from "../auth/codex/session.js";
+import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { loadWorkflowPlugins } from "../workflows/index.js";
 import { loadAgentPlugins } from "../agent/profiles.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
+import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
 import type { SubAgentProvider } from "../subagent/index.js";
-import type { ToolDefinition } from "@intx/types/runtime";
+import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
 import type { PlanStep } from "./use-stream.js";
 import { createChatDirector, type ApprovalGate } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -77,15 +82,21 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 
 export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
+  registerCodexResponsesAdapter();
   await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   // Seed reasoning capabilities from the cached models.dev metadata so the
   // /agent effort selector can gate non-reasoning models immediately, then
   // refresh from the network in the background (updates the cache for next run).
-  setModelReasoningCapabilities((await readPricingCache())?.reasoning ?? {});
+  const cachedPricing = await readPricingCache();
+  setModelReasoningCapabilities(cachedPricing?.reasoning ?? {});
+  setActivePricingCache(cachedPricing);
   void loadPricing()
     .then((cache) => {
-      if (cache !== null) setModelReasoningCapabilities(cache.reasoning ?? {});
+      if (cache !== null) {
+        setModelReasoningCapabilities(cache.reasoning ?? {});
+        setActivePricingCache(cache);
+      }
     })
     .catch(() => undefined);
   let sessionId = config.sessionId;
@@ -164,10 +175,8 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
-  // Forward suggest_workflow approvals to the workflow controller, and
-  // plan_enter calls to the active director. Both are built after the toolset,
-  // so holders break the init cycle.
-  const workflowControllerHolder: { instance?: { start: (name: string) => string } } = {};
+  // plan_enter calls are forwarded to the active director. Built after the
+  // toolset, so a holder breaks the init cycle.
   const directorHolderForTools: { instance?: { enterPlanPhase: () => void } } = {};
 
   const toolset = await createAgentToolset({
@@ -178,10 +187,6 @@ export async function runTUI(config: Config): Promise<number> {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
-    onWorkflowSuggested: (name) => {
-      const result = workflowControllerHolder.instance?.start(name);
-      return result !== undefined && !result.startsWith("No workflow");
-    },
     onPlanEnter: () => {
       directorHolderForTools.instance?.enterPlanPhase();
     },
@@ -208,7 +213,6 @@ export async function runTUI(config: Config): Promise<number> {
     getToolDefinitions: () => toolset.dynamicRunner.currentDefinitions(),
     getDirector: () => directorHolder.instance,
   });
-  workflowControllerHolder.instance = workflowController;
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the core set plus any promoted via tool_search.
@@ -257,16 +261,34 @@ export async function runTUI(config: Config): Promise<number> {
   // connect after startup are not callable until the agent is rebuilt. buildAgent
   // re-runs tool resolution against the (now-populated) dynamic runner and resumes
   // conversation from the same git-backed store, so a reload is transparent.
+  // When the session starts on a Codex profile, seed the agent with a Responses
+  // source (account id pulled from the resolved catalog entry, session id from
+  // the run) rather than the OpenAI-compatible one.
+  const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+  if (initialCodexProfile !== undefined) void refreshCodexInstructions().catch(() => {});
+  const initialCodexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
+  const buildInitialSource = (): InferenceSource =>
+    initialCodexProfile !== undefined
+      ? buildCodexSource({
+          id: config.providerName,
+          apiKey: config.apiKey,
+          model: config.model,
+          sessionId: config.sessionId,
+          ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
+          ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+        })
+      : buildOpenAISource({
+          id: config.providerName,
+          baseURL: config.baseURL,
+          apiKey: config.apiKey,
+          model: config.model,
+          ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+        });
+
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
     return createAgent(def, {
-      source: buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      }),
+      source: buildInitialSource(),
       storage,
       workdir,
       audit: noopAuditStore(),
@@ -338,6 +360,35 @@ export async function runTUI(config: Config): Promise<number> {
   };
   toolset.setToolPromoter(promoteTools);
 
+  // The active Codex source, tracked whenever a "codex/<profile>" source is
+  // selected so its access token can be refreshed before each send. Seeded from
+  // config when the session starts on a Codex profile (buildAgent sets that
+  // source directly, not through the proxy's setSource).
+  let activeCodexSource: { profile: string; source: InferenceSource } | undefined =
+    initialCodexProfile !== undefined
+      ? { profile: initialCodexProfile, source: buildInitialSource() }
+      : undefined;
+
+  // Refresh the active Codex access token (if any) and push it onto the live
+  // agent before a send. getValidCodexToken returns the stored token when still
+  // valid and refreshes transparently otherwise, so this satisfies "check
+  // before each inference call" without crashing the loop: a failure surfaces
+  // as a CodexAuthError naming the profile and rejects the send.
+  //
+  // The source is pushed on every send, not only when the token changed: an
+  // agent rebuild (tool promotion, interrupt, /clear) reseeds the source from
+  // the original login-time token, so unconditionally re-pushing the live token
+  // is what keeps the rebuilt agent from sending a stale credential.
+  const refreshCodexBeforeSend = async (): Promise<void> => {
+    const active = activeCodexSource;
+    if (active === undefined) return;
+    const { access } = await getValidCodexToken(active.profile);
+    const source: InferenceSource =
+      access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
+    activeCodexSource = { profile: active.profile, source };
+    currentAgent.setSource(source);
+  };
+
   // Stable handle handed to the App so the underlying agent can be swapped out
   // from under it without a remount; method calls always target the live agent.
   const agentProxy: Agent = {
@@ -346,6 +397,7 @@ export async function runTUI(config: Config): Promise<number> {
       if (fatalBuildError !== null) throw fatalBuildError;
       inFlight++;
       try {
+        await refreshCodexBeforeSend();
         return await currentAgent.send(content, opts);
       } finally {
         inFlight--;
@@ -355,7 +407,11 @@ export async function runTUI(config: Config): Promise<number> {
     stream: () => currentAgent.stream(),
     deliver: (message) => currentAgent.deliver(message),
     close: () => currentAgent.close(),
-    setSource: (source) => currentAgent.setSource(source),
+    setSource: (source) => {
+      const profile = codexProfileFromProviderName(source.id);
+      activeCodexSource = profile !== undefined ? { profile, source } : undefined;
+      currentAgent.setSource(source);
+    },
     history: () => currentAgent.history(),
     checkpoints: (limit) => currentAgent.checkpoints(limit),
     readAt: (hash) => currentAgent.readAt(hash),

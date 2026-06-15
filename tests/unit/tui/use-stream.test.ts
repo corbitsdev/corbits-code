@@ -1,6 +1,36 @@
 import { test, expect } from "bun:test";
 import { createAgentStreamState } from "../../../src/tui/use-stream.js";
+import { setActivePricingCache } from "../../../src/cost/cost-visibility.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
+
+const usageEvent = (input: number, output: number): ReactorEmittedEvent =>
+  ({
+    type: "inference.usage",
+    seq: 1,
+    data: { usage: { input, output, cacheRead: 0, cacheWrite: 0, thinking: 0 } },
+  }) as unknown as ReactorEmittedEvent;
+
+test("prices the first session at the live model rate", () => {
+  setActivePricingCache({
+    timestamp: 0,
+    models: {
+      "expensive-model": { inputPricePerToken: 0.001, outputPricePerToken: 0.002, cacheReadPricePerToken: 0 },
+    },
+  });
+  const state = createAgentStreamState([], () => "expensive-model");
+  // First session — no clear() — must already use the resolver, not the default rate.
+  state.addEvent(usageEvent(1000, 500));
+  expect(state.totalCost).toBeCloseTo(1000 * 0.001 + 500 * 0.002, 10);
+  setActivePricingCache(null);
+});
+
+test("an unknown model falls back to the default rate", () => {
+  setActivePricingCache({ timestamp: 0, models: {} });
+  const state = createAgentStreamState([], () => "mystery-model");
+  state.addEvent(usageEvent(1000, 0));
+  expect(state.totalCost).toBeCloseTo(1000 * 0.000002, 10);
+  setActivePricingCache(null);
+});
 
 test("createAgentStreamState initial state is empty", () => {
   const state = createAgentStreamState();

@@ -7,19 +7,34 @@ import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning
 import { PROVIDER_TIERS, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 
-// undefined is "no override" (omit the field); "none" is OpenAI's explicit
-// disable-reasoning value. Both read as "off", so label them distinctly.
+// Effort display: undefined means "no override" (field omitted); "none" is
+// OpenAI's explicit disable-reasoning value. Both read as "off".
 function effortLabel(effort: ReasoningEffort | undefined): string {
-  if (effort === undefined) return "default (no override)";
-  if (effort === "none") return "none (disable reasoning)";
-  return effort;
+  if (effort === undefined) return "Default (no override)";
+  if (effort === "none") return "None (disable reasoning)";
+  if (effort === "xhigh") return "Extra high";
+  return effort[0]!.toUpperCase() + effort.slice(1);
 }
+
+const EFFORT_DESCRIPTIONS: Partial<Record<ReasoningEffort, string>> = {
+  low: "Fast responses with lighter reasoning",
+  medium: "Balances speed and reasoning depth for everyday tasks",
+  high: "Greater reasoning depth for complex problems",
+  xhigh: "Extra high reasoning depth for complex problems",
+};
+
+const MODEL_DESCRIPTIONS: Record<string, string> = {
+  "gpt-5.5": "Frontier model for complex coding, research, and real-world work",
+  "gpt-5.4": "Strong model for everyday coding",
+  "gpt-5.4-mini": "Small, fast, and cost-efficient model for simpler coding tasks",
+};
 
 export type AgentProvider = {
   name: string;
   baseURL: string;
   models: string[];
   defaultModel?: string;
+  codexProfile?: string;
 };
 
 export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
@@ -50,13 +65,14 @@ const FIELD_HINTS: Record<ProviderFormField, string> = {
 // editable fields it must display plus model metadata, but never receives
 // provider API keys.
 export function toAgentProviders(
-  entries: ReadonlyArray<{ name: string; baseURL: string; apiKey?: string; models: string[]; defaultModel?: string }>,
+  entries: ReadonlyArray<{ name: string; baseURL: string; apiKey?: string; models: string[]; defaultModel?: string; codexProfile?: string }>,
 ): AgentProvider[] {
   return entries.map((p) => ({
     name: p.name,
     baseURL: p.baseURL,
     models: p.models,
     ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+    ...(p.codexProfile !== undefined ? { codexProfile: p.codexProfile } : {}),
   }));
 }
 
@@ -75,6 +91,7 @@ export type AgentModalProps = {
   profiles: AgentProfile[];
   onSaveProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteProfile: (id: string) => void;
+  codexUsage?: string | undefined;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -171,6 +188,7 @@ export function AgentModal({
   profiles,
   onSaveProfile,
   onDeleteProfile,
+  codexUsage,
 }: AgentModalProps): ReactNode {
   const initialProvider = Math.max(
     0,
@@ -196,10 +214,12 @@ export function AgentModal({
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
-  // The leading `undefined` is the "no override" choice; the rest are the real
-  // levels the model accepts.
-  const efforts: (ReasoningEffort | undefined)[] =
-    pendingModel !== undefined ? [undefined, ...supportedEfforts(pendingModel)] : [];
+  // Real effort levels the selected model accepts, from supportedEfforts().
+  // An empty array means no model is selected or the model has no reasoning capability.
+  const isCodexProvider = (name: string | undefined): boolean =>
+    providers.find((p) => p.name === name)?.codexProfile !== undefined;
+  const efforts: ReasoningEffort[] =
+    pendingModel !== undefined ? supportedEfforts(pendingModel, undefined, isCodexProvider(pendingProvider)) : [];
   const currentField = FORM_FIELDS[formIndex] ?? "name";
 
   const enterModelStep = (): void => {
@@ -215,9 +235,10 @@ export function AgentModal({
     setPendingProvider(providerName);
     setPendingModel(modelName);
     const active = providerName === activeProvider && modelName === activeModel ? activeEffort : undefined;
-    const options: (ReasoningEffort | undefined)[] = [undefined, ...supportedEfforts(modelName)];
-    const idx = options.indexOf(active);
-    setEffortIndex(idx >= 0 ? idx : 0);
+    const options = supportedEfforts(modelName, undefined, isCodexProvider(providerName));
+    const idx = active !== undefined ? options.indexOf(active) : -1;
+    const fallback = options.indexOf("medium");
+    setEffortIndex(idx >= 0 ? idx : fallback >= 0 ? fallback : 0);
     setStep("effort");
   };
 
@@ -520,8 +541,6 @@ export function AgentModal({
         return;
       }
       if (pendingProvider === undefined || pendingModel === undefined) return;
-      // efforts[effortIndex] may be undefined — that is the "no override" choice,
-      // not an invalid index (the cursor is always within range).
       const effort = efforts[effortIndex];
       if (key.return) {
         onApply(pendingProvider, pendingModel, effort);
@@ -592,6 +611,13 @@ export function AgentModal({
       <Text bold color={color("accent")}>
         Agent Configuration
       </Text>
+      {codexUsage !== undefined && (
+        <Box marginTop={1} flexDirection="column">
+          {codexUsage.split("\n").map((line, i) => (
+            <Text key={i} color={color("warning")}>{line}</Text>
+          ))}
+        </Box>
+      )}
       <Box marginTop={1}>
         <Text color={color("muted")}>Provider / Model</Text>
       </Box>
@@ -664,6 +690,9 @@ export function AgentModal({
                   {isActive ? "* " : "  "}
                   {m}
                 </Text>
+                {MODEL_DESCRIPTIONS[m] !== undefined && (
+                  <Text color={color("muted")}>— {MODEL_DESCRIPTIONS[m]}</Text>
+                )}
               </Box>
             );
           })}
@@ -682,7 +711,7 @@ export function AgentModal({
             const isActive = e === activeEffort;
             const isCursor = i === effortIndex;
             return (
-              <Box key={e ?? "__default__"} flexDirection="row" gap={1}>
+              <Box key={e} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
                   {isCursor ? ">" : " "}
                 </Text>
@@ -690,6 +719,9 @@ export function AgentModal({
                   {isActive ? "* " : "  "}
                   {effortLabel(e)}
                 </Text>
+                {EFFORT_DESCRIPTIONS[e] !== undefined && (
+                  <Text color={color("muted")}>— {EFFORT_DESCRIPTIONS[e]}</Text>
+                )}
               </Box>
             );
           })}

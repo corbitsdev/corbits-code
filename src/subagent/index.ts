@@ -30,6 +30,7 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
+import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
@@ -137,6 +138,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       pathEscapePlugin(params.cwd),
       secretGuardPlugin(),
       authzPlugin(),
+      ripgrepPlugin(params.cwd),
       verifyPlugin(),
       webToolsPlugin(),
       createLSPPlugin({ cwd: params.cwd, minSeverity: 1 }),

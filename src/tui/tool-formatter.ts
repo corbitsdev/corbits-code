@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { relative, isAbsolute } from "node:path";
 import type { SemanticRole } from "./theme.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 import { formatMcpResult } from "./mcp-result-format.js";
@@ -97,7 +98,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
         agentName !== undefined
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
-      const summary = description.length > 0 ? `${display}(${abbreviate(description, ARG_VALUE_MAX)})` : display;
+      const summary = description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "";
       return { display, role: "accent", summary, full: summary, isShell: false };
     }
   }
@@ -112,6 +113,12 @@ export type ToolResultSummary = {
 };
 
 const ARG_VALUE_MAX = 48;
+
+function shortenPath(p: string): string {
+  if (!isAbsolute(p)) return p;
+  const rel = relative(process.cwd(), p);
+  return rel.startsWith("..") ? p : rel;
+}
 
 const PathArgSchema = type({ path: "string" });
 const ShellArgSchema = type({ command: "string" });
@@ -159,7 +166,8 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
     case "read_file": {
       const parsed = PathArgSchema(obj);
       if (!(parsed instanceof type.errors)) {
-        return { summary: parsed.path, full: parsed.path };
+        const p = shortenPath(parsed.path);
+        return { summary: p, full: p };
       }
       break;
     }
@@ -285,12 +293,12 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
     }
     case "write_file": {
       const path = pathFromResult(toolName, content);
-      preview = path ? `Wrote ${path}` : content.trim() || "Wrote file";
+      preview = path ? `Wrote ${shortenPath(path)}` : content.trim() || "Wrote file";
       break;
     }
     case "edit_file": {
       const path = pathFromResult(toolName, content);
-      preview = path ? `Edited ${path}` : content.trim() || "Edited file";
+      preview = path ? `Edited ${shortenPath(path)}` : content.trim() || "Edited file";
       break;
     }
     case "run_shell": {

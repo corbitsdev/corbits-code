@@ -17,6 +17,7 @@ import { authzPlugin } from "../plugins/authz-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { connectMCPServer } from "../mcp/client.js";
@@ -87,6 +88,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
+      ripgrepPlugin(cwd),
       verifyPlugin(),
       webToolsPlugin(),
       createLSPPlugin({ cwd, minSeverity: 1 }),

@@ -162,9 +162,10 @@ test("AgentModal advances to the effort step and applies the chosen effort", asy
   stdin.write("\r"); // model -> effort
   await tick();
   expect(lastFrame()).toContain("reasoning effort");
-  stdin.write("\x1B[B"); // default -> none
+  expect(lastFrame()).not.toContain("Default (no override)");
+  stdin.write("\x1B[A"); // medium -> low
   await tick();
-  stdin.write("\x1B[B"); // none -> minimal
+  stdin.write("\x1B[A"); // low -> minimal
   await tick();
   stdin.write("\r"); // apply
   await tick();
@@ -188,13 +189,13 @@ test("AgentModal effort step 'd' persists the chosen effort as default", async (
   await tick();
   stdin.write("\r"); // provider -> model
   await tick();
-  stdin.write("\r"); // model -> effort (cursor starts on "default (no override)")
+  stdin.write("\r"); // model -> effort (cursor starts on medium)
   await tick();
-  stdin.write("[B"); // down once: "default" -> "none" (first real level for gpt-5.1)
+  stdin.write("[B"); // medium -> high
   await tick();
   stdin.write("d"); // persist the chosen effort
   await tick();
-  expect(persisted).toEqual({ effort: "none" });
+  expect(persisted).toEqual({ effort: "high" });
 });
 
 test("PermissionModal renders when pendingPermission is non-null", () => {
