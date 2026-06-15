@@ -36,7 +36,7 @@ import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { startCodexLogin } from "../auth/codex/login.js";
 import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { loadCodexProfile, removeCodexProfile } from "../auth/codex/store.js";
+import { removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
 import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
@@ -383,9 +383,9 @@ export function App({
   // provider. Surfaces a re-login hint if the profile can no longer be used.
   const switchToCodexProfile = (name: string): void => {
     void refreshCodexInstructions().catch(() => {});
-    void Promise.all([getValidCodexToken(name), loadCodexProfile(name), fetchCodexModels(name).catch(() => [])]).then(
-      ([token, profile, liveModels]) => {
-        const accountId = profile?.tokens.accountId;
+    void Promise.all([getValidCodexToken(name), fetchCodexModels(name).catch(() => [])]).then(
+      ([token, liveModels]) => {
+        const accountId = token.accountId;
         // Prefer the account's live model catalog; fall back to the current
         // default set when empty (e.g. while rate-limited the catalog is empty).
         const models = liveModels.length > 0 ? liveModels : [...CODEX_DEFAULT_MODELS];
@@ -393,7 +393,7 @@ export function App({
         registerCodexProvider({
           name: codexProviderName(name),
           baseURL: CODEX_BASE_URL,
-          apiKey: token,
+          apiKey: token.access,
           models,
           defaultModel,
           codexProfile: name,

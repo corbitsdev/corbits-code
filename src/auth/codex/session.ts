@@ -22,12 +22,18 @@ export function isCodexTokenExpired(tokens: CodexTokens, now: number): boolean {
   return now >= tokens.expiresAt - CODEX_REFRESH_SKEW_MS;
 }
 
+// A usable access token plus the account id that must ride alongside it in the
+// chatgpt-account-id header. Returned together so callers need a single load,
+// not a token fetch followed by a separate profile read (which could observe a
+// token and account id from two different points in a concurrent refresh).
+export type CodexAccess = { access: string; accountId?: string | undefined };
+
 // Per-profile mutex for token refreshes. When two callers both find the stored
 // token expired and both attempt to refresh, the second observes the same
 // in-flight promise instead of racing against the auth server's rotation
 // policy (which would invalidate one of the refresh attempts and trigger a
 // spurious CodexAuthError).
-const inflightRefresh = new Map<string, Promise<string>>();
+const inflightRefresh = new Map<string, Promise<CodexAccess>>();
 
 // Resolve a valid access token for a Codex profile, refreshing transparently
 // when the stored token is at or near expiry. Multiple concurrent calls for
@@ -39,14 +45,14 @@ export async function getValidCodexToken(
   name: string,
   now: number = Date.now(),
   home?: string,
-): Promise<string> {
+): Promise<CodexAccess> {
   // Fast path: check expiry without I/O when we already hold a fresh token.
   const existingProfile = await loadCodexProfile(name, home);
   if (existingProfile === undefined) {
     throw new CodexAuthError(name, "missing", `Codex profile "${name}" is not authorized. Log in again.`);
   }
   if (!isCodexTokenExpired(existingProfile.tokens, now)) {
-    return existingProfile.tokens.access;
+    return { access: existingProfile.tokens.access, accountId: existingProfile.tokens.accountId };
   }
 
   // Slow path: a refresh is needed. Deduplicate via the in-flight map so that
@@ -75,14 +81,14 @@ async function doRefresh(
   name: string,
   now: number,
   home?: string,
-): Promise<string> {
+): Promise<CodexAccess> {
   const profile = await loadCodexProfile(name, home);
   if (profile === undefined) {
     throw new CodexAuthError(name, "missing", `Codex profile "${name}" is not authorized. Log in again.`);
   }
   // Re-check expiry after the I/O; another caller may have refreshed already.
   if (!isCodexTokenExpired(profile.tokens, now)) {
-    return profile.tokens.access;
+    return { access: profile.tokens.access, accountId: profile.tokens.accountId };
   }
   let refreshed: CodexTokens;
   try {
@@ -101,5 +107,5 @@ async function doRefresh(
       ? { ...refreshed, accountId: profile.tokens.accountId }
       : refreshed;
   await updateCodexTokens(name, merged, home);
-  return merged.access;
+  return { access: merged.access, accountId: merged.accountId };
 }

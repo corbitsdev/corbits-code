@@ -382,9 +382,9 @@ export async function runTUI(config: Config): Promise<number> {
   const refreshCodexBeforeSend = async (): Promise<void> => {
     const active = activeCodexSource;
     if (active === undefined) return;
-    const token = await getValidCodexToken(active.profile);
+    const { access } = await getValidCodexToken(active.profile);
     const source: InferenceSource =
-      token === active.source.apiKey ? active.source : { ...active.source, apiKey: token };
+      access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
     activeCodexSource = { profile: active.profile, source };
     currentAgent.setSource(source);
   };

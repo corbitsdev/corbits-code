@@ -6,7 +6,6 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "./constants.js";
 import { getValidCodexToken } from "./session.js";
-import { loadCodexProfile } from "./store.js";
 
 // Live usage/quota for a prepaid Codex plan. Since the subscription is not
 // billed per token, dollar cost is meaningless — what matters is how much of
@@ -67,14 +66,13 @@ function parseUsage(payload: unknown): CodexUsage {
 }
 
 async function codexAuthHeaders(profileName: string): Promise<Record<string, string>> {
-  const token = await getValidCodexToken(profileName);
-  const profile = await loadCodexProfile(profileName);
+  const { access, accountId } = await getValidCodexToken(profileName);
   const headers: Record<string, string> = {
-    authorization: `Bearer ${token}`,
+    authorization: `Bearer ${access}`,
     originator: CODEX_AUTHORIZE_EXTRA_PARAMS["originator"] ?? "codex_cli_rs",
     "user-agent": `intercode (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
   };
-  if (profile?.tokens.accountId !== undefined) headers["chatgpt-account-id"] = profile.tokens.accountId;
+  if (accountId !== undefined) headers["chatgpt-account-id"] = accountId;
   return headers;
 }
 
