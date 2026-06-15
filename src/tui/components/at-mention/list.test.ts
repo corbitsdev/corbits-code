@@ -102,4 +102,16 @@ describe("listAtSuggestions", () => {
     const results = await listAtSuggestions("many/", fixture);
     expect(results.length).toBeLessThanOrEqual(20);
   });
+
+  test("finds a matching fragment after many non-matching entries", async () => {
+    const late = join(fixture, "late");
+    await mkdir(late, { recursive: true });
+    for (let i = 0; i < 250; i++) {
+      await writeFile(join(late, `aaa-${i}.ts`), "");
+    }
+    await writeFile(join(late, "zzz-target.ts"), "");
+
+    const results = await listAtSuggestions("late/zzz", fixture);
+    expect(results).toContain("late/zzz-target.ts");
+  });
 });
