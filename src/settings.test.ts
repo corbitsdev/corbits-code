@@ -92,33 +92,8 @@ describe("normalizeOpenAICompatibleBaseURL", () => {
 });
 
 describe("resolveProvider", () => {
-  test("env-only mode resolves entirely from env", () => {
-    const r = resolveProvider({
-      settings: null,
-      local: null,
-      env: { apiKey: "k", baseURL: "https://u/v1", model: "m", providerName: "p" },
-      cli: {},
-    });
-    expect(r).toEqual({ apiKey: "k", baseURL: "https://u/v1", model: "m", providerName: "p" });
-  });
-
-  test("env-only mode normalizes full chat completions endpoint", () => {
-    const r = resolveProvider({
-      settings: null,
-      local: null,
-      env: {
-        apiKey: "k",
-        baseURL: "https://u/v1/chat/completions",
-        model: "m",
-        providerName: "p",
-      },
-      cli: {},
-    });
-    expect(r.baseURL).toBe("https://u/v1");
-  });
-
   test("file mode uses defaultProvider and defaultModel", () => {
-    const r = resolveProvider({ settings: firepass, local: null, env: {}, cli: {} });
+    const r = resolveProvider({ settings: firepass, local: null, cli: {} });
     expect(r).toEqual({
       providerName: "firepass",
       baseURL: "https://firepass.example/v1",
@@ -137,7 +112,7 @@ describe("resolveProvider", () => {
         },
       },
     };
-    const r = resolveProvider({ settings, local: null, env: {}, cli: {} });
+    const r = resolveProvider({ settings, local: null, cli: {} });
     expect(r.baseURL).toBe("https://o/v1");
   });
 
@@ -145,7 +120,7 @@ describe("resolveProvider", () => {
     const settings: Settings = {
       providers: { only: { baseURL: "https://o/v1", apiKey: "o-key", models: ["first", "second"] } },
     };
-    const r = resolveProvider({ settings, local: null, env: {}, cli: {} });
+    const r = resolveProvider({ settings, local: null, cli: {} });
     expect(r.model).toBe("first");
     expect(r.providerName).toBe("only");
   });
@@ -154,74 +129,51 @@ describe("resolveProvider", () => {
     const settings: Settings = {
       providers: { solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] } },
     };
-    const r = resolveProvider({ settings, local: null, env: {}, cli: {} });
+    const r = resolveProvider({ settings, local: null, cli: {} });
     expect(r.providerName).toBe("solo");
   });
 
   test("local selection overrides defaultProvider", () => {
-    const r = resolveProvider({ settings: twoProviders, local: { provider: "b" }, env: {}, cli: {} });
+    const r = resolveProvider({ settings: twoProviders, local: { provider: "b" }, cli: {} });
     expect(r.providerName).toBe("b");
     expect(r.apiKey).toBe("b-key");
     expect(r.model).toBe("b-model");
   });
 
-  test("cli provider overrides local and env", () => {
+  test("cli provider overrides local selection", () => {
     const r = resolveProvider({
       settings: twoProviders,
       local: { provider: "a" },
-      env: { providerName: "a" },
       cli: { provider: "b" },
     });
     expect(r.providerName).toBe("b");
   });
 
-  test("model precedence: cli > env > local > defaultModel", () => {
+  test("model precedence: cli > local > defaultModel", () => {
     const cli = resolveProvider({
       settings: firepass,
       local: { model: "fp-small" },
-      env: { model: "env-model" },
       cli: { model: "cli-model" },
     });
     expect(cli.model).toBe("cli-model");
 
-    const env = resolveProvider({
-      settings: firepass,
-      local: { model: "fp-small" },
-      env: { model: "env-model" },
-      cli: {},
-    });
-    expect(env.model).toBe("env-model");
-
     const local = resolveProvider({
       settings: firepass,
       local: { model: "fp-small" },
-      env: {},
       cli: {},
     });
     expect(local.model).toBe("fp-small");
   });
 
-  test("env overrides file credentials", () => {
-    const r = resolveProvider({
-      settings: firepass,
-      local: null,
-      env: { apiKey: "override-key", baseURL: "https://override/v1" },
-      cli: {},
-    });
-    expect(r.apiKey).toBe("override-key");
-    expect(r.baseURL).toBe("https://override/v1");
-    expect(r.providerName).toBe("firepass");
-  });
-
   test("throws when cli provider is not configured", () => {
     expect(() =>
-      resolveProvider({ settings: twoProviders, local: null, env: {}, cli: { provider: "c" } }),
+      resolveProvider({ settings: twoProviders, local: null, cli: { provider: "c" } }),
     ).toThrow(/not found/);
   });
 
   test("names the offending provider when a local selection is not configured", () => {
     expect(() =>
-      resolveProvider({ settings: twoProviders, local: { provider: "zzz" }, env: {}, cli: {} }),
+      resolveProvider({ settings: twoProviders, local: { provider: "zzz" }, cli: {} }),
     ).toThrow(/Selected provider "zzz" is not configured/);
   });
 
@@ -230,26 +182,13 @@ describe("resolveProvider", () => {
       defaultProvider: "typo",
       providers: { solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] } },
     };
-    expect(() => resolveProvider({ settings, local: null, env: {}, cli: {} })).toThrow(
+    expect(() => resolveProvider({ settings, local: null, cli: {} })).toThrow(
       /Selected provider "typo" is not configured/,
     );
   });
 
-  test("env overrides a single field while the rest come from the file", () => {
-    const r = resolveProvider({
-      settings: firepass,
-      local: null,
-      env: { apiKey: "env-key" },
-      cli: {},
-    });
-    expect(r.apiKey).toBe("env-key");
-    expect(r.providerName).toBe("firepass");
-    expect(r.baseURL).toBe("https://firepass.example/v1");
-    expect(r.model).toBe("fp-large");
-  });
-
   test("throws listing every missing field", () => {
-    expect(() => resolveProvider({ settings: null, local: null, env: {}, cli: {} })).toThrow(
+    expect(() => resolveProvider({ settings: null, local: null, cli: {} })).toThrow(
       /missing: provider, baseURL, apiKey, model/,
     );
   });

@@ -166,23 +166,6 @@ export type LoadConfigOptions = {
   allowUnconfigured?: boolean;
 };
 
-function envProvider(): Partial<ResolvedProvider> {
-  const env = (name: string): string | undefined => {
-    const value = process.env[name];
-    return value !== undefined && value.length > 0 ? value : undefined;
-  };
-  const result: Partial<ResolvedProvider> = {};
-  const apiKey = env("OPENAI_COMPATIBLE_API_KEY");
-  const baseURL = env("OPENAI_COMPATIBLE_BASE_URL");
-  const model = env("OPENAI_COMPATIBLE_MODEL");
-  const providerName = env("OPENAI_COMPATIBLE_PROVIDER_NAME");
-  if (apiKey !== undefined) result.apiKey = apiKey;
-  if (baseURL !== undefined) result.baseURL = baseURL;
-  if (model !== undefined) result.model = model;
-  if (providerName !== undefined) result.providerName = providerName;
-  return result;
-}
-
 export async function loadConfig(
   argv: readonly string[],
   options?: LoadConfigOptions & { allowUnconfigured?: false },
@@ -328,7 +311,6 @@ export async function loadConfig(
     resolved = resolveProvider({
       settings: settingsForResolution,
       local: profileLocal,
-      env: envProvider(),
       cli,
     });
   } catch (err) {

@@ -98,7 +98,7 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 ## Configuration
 
-Providers and models are configured in `~/.intercode/settings.json` (holds providers + credentials), with a selection-only per-repo `.intercode/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. The `OPENAI_COMPATIBLE_*` env vars still override individual fields, so existing `.env` setups keep working. The agent is denied read access to both settings files.
+Providers and models are configured in `~/.intercode/settings.json` (holds providers + credentials), with a selection-only per-repo `.intercode/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. Credentials are read only from these settings files — there is no environment-variable override and `.env` files are not loaded, so a stale or exported key can't shadow the configured provider. The agent is denied read access to both settings files.
 
 ## Roadmap (planned, not yet shipped)
 
