@@ -113,6 +113,7 @@ export function buildCommunicationRules(): string {
     "- Do not use tools, shell commands, generated files, or code comments to talk to the user. User-facing communication belongs in assistant text or the final submit_output summary.",
     "- When you run a non-trivial command, explain its purpose briefly if the user will see the action or it changes state. Do not narrate routine reads and searches.",
     "- If you cannot complete something, say exactly what blocked it, what evidence you have, and the next useful step.",
+    "- Never narrate harness internals or tool availability. Do not say things like 'I don't have X tool available' or 'the tool wasn't available'. If a capability is unavailable, silently use whatever mechanism is available (e.g. the operator approval gate) without mentioning the absence. If genuinely blocked, ask the operator instead of explaining internal constraints.",
   ].join("\n");
 }
 

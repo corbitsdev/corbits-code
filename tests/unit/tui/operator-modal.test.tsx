@@ -73,3 +73,11 @@ test("Enter calls onSelect with currently selected index", async () => {
   await tick();
   expect(selected).toBe(0);
 });
+
+test("accepts a width prop without error", () => {
+  const { lastFrame } = render(
+    <OperatorModal question="A question?" options={OPTIONS} onSelect={() => {}} width={60} />,
+  );
+  expect(lastFrame()).toContain("A question?");
+  expect(lastFrame()).toContain("Option A");
+});

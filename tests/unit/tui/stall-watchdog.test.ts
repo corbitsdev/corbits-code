@@ -51,6 +51,18 @@ test("shouldAbortForStall: does not fire when status is stopping", () => {
   })).toBe(false);
 });
 
+test("shouldAbortForStall: recent activity prevents abort (simulating a token arriving)", () => {
+  // activityTick increments reset lastActivityAt in the app; simulate by
+  // passing a recent lastActivityAt to confirm the guard holds.
+  expect(shouldAbortForStall({
+    status: "running",
+    awaitingResponse: true,
+    lastActivityAt: 119999,
+    nowMs: 120000,
+    stallTimeoutMs: 120000,
+  })).toBe(false);
+});
+
 test("shouldAbortForStall: boundary — exactly at timeout fires", () => {
   expect(shouldAbortForStall({
     status: "running",
