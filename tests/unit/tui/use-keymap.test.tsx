@@ -65,6 +65,8 @@ function makeActions(): KeymapActions {
     toggleDiffFullScreen: mock(() => {}),
     toggleHelp: mock(() => {}),
     copyMcpUrl: mock(() => {}),
+    copyLastOutput: mock(() => {}),
+    cycleMode: mock(() => {}),
   };
 }
 
@@ -218,6 +220,36 @@ test("Ctrl+Down jumps to the bottom when input is focused", () => {
 test("Ctrl+Down jumps to the bottom when input is unfocused", () => {
   const { actions } = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true }, { inputFocused: false });
   expect(actions.scrollToBottom).toHaveBeenCalledTimes(1);
+  expect(actions.scrollDown).not.toHaveBeenCalled();
+});
+
+test("PageUp scrolls up while input is focused", () => {
+  const { actions } = dispatch("", { ...NO_KEY, pageUp: true }, { inputFocused: true });
+  expect(actions.scrollUp).toHaveBeenCalledTimes(1);
+});
+
+test("PageDown scrolls down while input is focused", () => {
+  const { actions } = dispatch("", { ...NO_KEY, pageDown: true }, { inputFocused: true });
+  expect(actions.scrollDown).toHaveBeenCalledTimes(1);
+});
+
+test("PageUp scrolls up while input is unfocused", () => {
+  const { actions } = dispatch("", { ...NO_KEY, pageUp: true }, { inputFocused: false });
+  expect(actions.scrollUp).toHaveBeenCalledTimes(1);
+});
+
+test("Ctrl+Up scrolls up while input is focused", () => {
+  const { actions } = dispatch("", { ...NO_KEY, ctrl: true, upArrow: true }, { inputFocused: true });
+  expect(actions.scrollUp).toHaveBeenCalledTimes(1);
+});
+
+test("plain Up does not scroll when input is focused", () => {
+  const { actions } = dispatch("", UP_KEY, { inputFocused: true });
+  expect(actions.scrollUp).not.toHaveBeenCalled();
+});
+
+test("plain Down does not scroll when input is focused", () => {
+  const { actions } = dispatch("", DOWN_KEY, { inputFocused: true });
   expect(actions.scrollDown).not.toHaveBeenCalled();
 });
 

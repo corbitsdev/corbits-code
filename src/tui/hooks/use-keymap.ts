@@ -107,9 +107,22 @@ export function handleKey(
     actions.scrollToBottom();
     return lastEscMs;
   }
-  // Plain arrow keys belong to the prompt box. When the input is focused (or
-  // the command palette is open), the ChatInput useInput handler owns them —
-  // do not also scroll the main pane from this handler.
+  // PageUp/PageDown scroll the log; they're never claimed by the prompt, so
+  // these bindings work even when the input is focused (the normal case).
+  if (key.pageUp) {
+    actions.scrollUp();
+    return lastEscMs;
+  }
+  if (key.pageDown) {
+    actions.scrollDown();
+    return lastEscMs;
+  }
+  if (key.ctrl && key.upArrow) {
+    actions.scrollUp();
+    return lastEscMs;
+  }
+  // Plain arrow keys belong to the prompt box. When the input is focused or the
+  // command palette is open, ChatInput's useInput handler owns them.
   if ((context.inputFocused || context.commandPaletteOpen) && (key.upArrow || key.downArrow)) {
     return lastEscMs;
   }

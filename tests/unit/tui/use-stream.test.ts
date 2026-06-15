@@ -949,3 +949,21 @@ test("CL-1692: a block keeps its stable id across a submit_plan splice that shif
   const indexAfter = after.findIndex((b) => b.id === trackedId);
   expect(indexAfter).not.toBe(indexBefore);
 });
+
+test("activityTick increments on thinking, text, and tool_call deltas", () => {
+  const state = createAgentStreamState();
+  expect(state.activityTick).toBe(0);
+
+  state.addEvent({ type: "inference.thinking.delta", seq: 1, data: { token: "a" } } as unknown as ReactorEmittedEvent);
+  expect(state.activityTick).toBe(1);
+
+  state.addEvent({ type: "inference.text.delta", seq: 2, data: { token: "b" } } as unknown as ReactorEmittedEvent);
+  expect(state.activityTick).toBe(2);
+
+  state.addEvent({ type: "inference.tool_call.start", seq: 3, data: { name: "read_file", callId: "c1" } } as unknown as ReactorEmittedEvent);
+  state.addEvent({ type: "inference.tool_call.delta", seq: 4, data: { argumentFragment: "{" } } as unknown as ReactorEmittedEvent);
+  expect(state.activityTick).toBe(3);
+
+  state.clear();
+  expect(state.activityTick).toBe(0);
+});

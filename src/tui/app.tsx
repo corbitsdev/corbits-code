@@ -619,13 +619,13 @@ export function App({
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
   }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
-  // Track the last moment real progress was observed. Reset whenever new content
-  // blocks arrive or the streaming type changes (both are signs the model is alive).
+  // Track the last moment real progress was observed. Reset on every streamed
+  // token (activityTick increments on each thinking/text/tool delta) so a long
+  // continuous reasoning stream never falsely triggers the stall watchdog.
   const lastActivityAtRef = useRef(Date.now());
-  const contentBlocksLength = state.contentBlocks.length;
   useEffect(() => {
     lastActivityAtRef.current = Date.now();
-  }, [contentBlocksLength, state.streamingType]);
+  }, [state.activityTick]);
 
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the

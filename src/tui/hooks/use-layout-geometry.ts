@@ -59,6 +59,7 @@ export type LayoutGeometry = {
   permissionsOverlayRows: number;
 };
 
+// 2-line header (worst case) + input row + padding; over-reserves by one row on a fresh session by design.
 const CHROME_ROWS = 10;
 
 export type ComputeOverlayRowsArgs = {
