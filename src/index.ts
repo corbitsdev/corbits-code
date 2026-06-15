@@ -38,7 +38,6 @@ function printHelp(): void {
   console.log("Configuration:");
   console.log("  Providers and credentials are read from ~/.intercode/settings.json");
   console.log("  (selection can be overridden per repo via .intercode/settings.json).");
-  console.log("  The OPENAI_COMPATIBLE_* env vars still override individual fields.");
 }
 
 export async function mainWithRunners(

@@ -333,20 +333,18 @@ export type ResolveInput = {
   settings: Settings | null;
   // Per-repo selection override.
   local: LocalSettings | null;
-  // Env override fields; each present value overrides the file-derived one.
-  env: Partial<ResolvedProvider>;
   // Highest-priority selection from CLI flags.
   cli: { provider?: string; model?: string };
 };
 
 // Resolve the active provider. Precedence per field (highest first):
-//   providerName: --provider > env > local > settings.defaultProvider > sole provider
-//   model:        --model    > env > local > provider.defaultModel    > provider.models[0]
-//   baseURL/apiKey: env > selected provider (no CLI flags for credentials)
-// When the resolved providerName is not a configured provider (e.g. pure env
-// mode with no settings file), credentials come entirely from env.
+//   providerName: --provider > local > settings.defaultProvider > sole provider
+//   model:        --model    > local > provider.defaultModel    > provider.models[0]
+//   baseURL/apiKey: from the selected provider only
+// Credentials and provider definitions come exclusively from the settings
+// catalog; environment variables have no influence on resolution.
 export function resolveProvider(input: ResolveInput): ResolvedProvider {
-  const { settings, local, env, cli } = input;
+  const { settings, local, cli } = input;
   const providers = settings?.providers ?? {};
   const providerKeys = Object.keys(providers);
   const soleKey = providerKeys.length === 1 ? providerKeys[0] : undefined;
@@ -357,14 +355,13 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   }
 
   const providerName =
-    cli.provider ?? env.providerName ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
+    cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
 
   const selected = providerName !== undefined ? providers[providerName] : undefined;
 
-  const baseURL = env.baseURL ?? selected?.baseURL;
-  const apiKey = env.apiKey ?? selected?.apiKey;
-  const model =
-    cli.model ?? env.model ?? local?.model ?? selected?.defaultModel ?? selected?.models[0];
+  const baseURL = selected?.baseURL;
+  const apiKey = selected?.apiKey;
+  const model = cli.model ?? local?.model ?? selected?.defaultModel ?? selected?.models[0];
 
   // A provider name was selected (from local file or defaultProvider) but is not
   // actually configured — distinguish this from "nothing configured at all" so
@@ -394,7 +391,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
       : "";
     throw new Error(
       `Could not resolve an inference provider (missing: ${missing.join(", ")}).${detail} ` +
-        `Configure ${globalSettingsPath()} or set the OPENAI_COMPATIBLE_* env vars. ` +
+        `Configure a provider in ${globalSettingsPath()}. ` +
         `See docs/IMPLEMENTATION.md.`,
     );
   }

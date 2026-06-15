@@ -45,23 +45,23 @@ Configure git hooks before the first commit:
 git config core.hooksPath .githooks
 ```
 
-Verify the environment (git hooks, bun install, interchange submodule, required env vars):
+Verify the environment (git hooks, bun install, interchange submodule, provider settings):
 
 ```bash
 ./bin/check-env
 ```
 
-`check-env` sources `.env` if present before checking env vars.
+`check-env` confirms a provider catalog exists in `~/.intercode/settings.json` (or that onboarding will create one).
 
 ## File Structure
 
 ```
 bin/
-  check-env               Environment check (git hooks, bun, submodule, env vars)
+  check-env               Environment check (git hooks, bun, submodule, provider settings)
 .githooks/
   pre-commit              Runs typecheck + build before every commit
 src/
-  index.ts                CLI entry: verbs, .env load, dispatch, help
+  index.ts                CLI entry: verbs, dispatch, help
   agent/
     director.ts           CodingDirector + ChatDirector; director-layer tool defs
     prompts.ts            System prompt builders (agent + chat)
@@ -80,7 +80,7 @@ src/
     index.ts              Subagent creation (was subagent.ts)
     inject.ts             Mid-run message injection queue (was mid-run-inject.ts)
   config/
-    index.ts              Config resolution (env vars + flags) (was config.ts)
+    index.ts              Config resolution (settings files + flags) (was config.ts)
     settings.ts           Settings schema, validators, loaders, resolveProvider
     providers.ts          ProviderCatalogEntry type + TUI provider list helpers
     profiles.ts           Profile-level selection logic
@@ -175,13 +175,15 @@ Provider and model configuration lives in JSON settings files. The global file h
 
 `loadConfig` resolves the active provider down to `{ apiKey, baseURL, model, providerName }` (the same struct the runtime consumes). Per field, highest wins:
 
-- providerName: `--provider` > `OPENAI_COMPATIBLE_PROVIDER_NAME` > local file > `defaultProvider` > sole provider
-- model: `--model` > `OPENAI_COMPATIBLE_MODEL` > local file > provider `defaultModel` > first model
-- baseURL / apiKey: `OPENAI_COMPATIBLE_BASE_URL` / `OPENAI_COMPATIBLE_API_KEY` > selected provider
+- providerName: `--provider` > local file > `defaultProvider` > sole provider
+- model: `--model` > local file > provider `defaultModel` > first model
+- baseURL / apiKey: the selected provider only
+
+Credentials and provider definitions come exclusively from the settings files. Environment variables (including `OPENAI_COMPATIBLE_*`) have no influence on provider resolution, and `.env` files are not loaded.
 
 OpenAI-compatible `baseURL` values are normalized during provider resolution. A plain base URL such as `https://provider.example.com/v1` is preserved, a trailing slash is removed, and a pasted full chat-completions endpoint such as `https://provider.example.com/v1/chat/completions` is reduced to `https://provider.example.com/v1` before the runtime appends `/chat/completions`. Invalid non-URL values fail with an explicit baseURL error.
 
-`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). When the resolved provider is not in any settings file, credentials come entirely from env — preserving the original `.env`-only workflow.
+`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). A provider must be defined in one of these settings files; there is no environment-variable fallback.
 
 ### Profiles (`src/config/profiles.ts`)
 
@@ -201,16 +203,9 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 
 `resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt; `workflow` names a workflow to auto-invoke on session start (unless `--no-workflow` is passed). CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
 
-### Environment Variables (override)
+### Provider Configuration
 
-| Variable | Description |
-|---|---|
-| `OPENAI_COMPATIBLE_API_KEY` | Overrides the resolved API key |
-| `OPENAI_COMPATIBLE_BASE_URL` | Overrides the resolved base URL |
-| `OPENAI_COMPATIBLE_MODEL` | Overrides the resolved model |
-| `OPENAI_COMPATIBLE_PROVIDER_NAME` | Overrides the resolved provider name |
-
-`.env` in the project root is auto-loaded by `index.ts` (existing env vars are not overwritten). Env vars are no longer required when a settings file is present.
+Providers and credentials are read exclusively from settings files: the global `~/.intercode/settings.json` (definitions + credentials) and the per-repo `.intercode/settings.json` (selection only). There are no `OPENAI_COMPATIBLE_*` environment-variable overrides, and `index.ts` does not load `.env` files — a deliberately stale or exported key can no longer shadow the configured provider.
 
 ### CLI Verbs and Flags
 
