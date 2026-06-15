@@ -49,9 +49,8 @@ export const CODEX_AUTHORIZE_EXTRA_PARAMS: Record<string, string> = {
 // unavailable — e.g. while rate-limited it returns an empty list. The Codex
 // backend rotates its serving set (codex-rs no longer hardcodes presets), so
 // the live fetch is authoritative and these are just a current-generation
-// default so the picker is never empty. gpt-5.3-codex is the coding-optimized
-// default.
-export const CODEX_DEFAULT_MODELS = ["gpt-5.3-codex", "gpt-5.4", "gpt-5.5", "gpt-5.4-mini"] as const;
+// default so the picker is never empty.
+export const CODEX_DEFAULT_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"] as const;
 
 // Refresh a token this many milliseconds before its stated expiry so a request
 // is never sent with a token about to lapse mid-flight.

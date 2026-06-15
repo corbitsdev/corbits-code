@@ -1,3 +1,5 @@
+import { CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+
 // OpenAI reasoning-effort is a provider-native request knob carried through
 // InferenceSource.defaults.providerOptions.reasoning_effort. It is not a
 // "variant" or a separate model — the same model accepts an effort level that
@@ -24,6 +26,13 @@ const DEFAULT_EFFORTS: readonly ReasoningEffort[] = ["minimal", "low", "medium",
 // Listed explicitly because neither is universally supported; an unknown model
 // must not be assumed to take them.
 const FULL_EFFORT_MODELS: readonly string[] = ["gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-max"];
+
+// Codex backend models take low/medium/high/xhigh — no `minimal`, no `none`.
+const CODEX_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+
+function isCodexModel(model: string): boolean {
+  return model.includes("codex") || (CODEX_DEFAULT_MODELS as readonly string[]).includes(model);
+}
 
 // The safe subset offered for models we do not recognize. Conservative on
 // purpose: these are the levels the broadest range of reasoning models accept.
@@ -60,6 +69,9 @@ export function supportedEfforts(
   }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];
+  }
+  if (isCodexModel(model)) {
+    return [...CODEX_EFFORTS];
   }
   if (isKnownOpenAIReasoningModel(model)) {
     return [...DEFAULT_EFFORTS];

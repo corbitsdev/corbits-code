@@ -33,6 +33,12 @@ describe("supportedEfforts", () => {
     expect(supportedEfforts("gpt-5.1")).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"]);
   });
 
+  test("codex models take low/medium/high/xhigh, no minimal or none", () => {
+    expect(supportedEfforts("gpt-5.5")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(supportedEfforts("gpt-5.4-mini")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(supportedEfforts("gpt-5.3-codex")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
   test("unknown model gets the safe subset", () => {
     expect(supportedEfforts("some-random-model")).toEqual(["low", "medium", "high"]);
   });

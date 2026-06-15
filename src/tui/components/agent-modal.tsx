@@ -10,10 +10,24 @@ import type { AgentProfile } from "../../agent/profiles.js";
 // undefined is "no override" (omit the field); "none" is OpenAI's explicit
 // disable-reasoning value. Both read as "off", so label them distinctly.
 function effortLabel(effort: ReasoningEffort | undefined): string {
-  if (effort === undefined) return "default (no override)";
-  if (effort === "none") return "none (disable reasoning)";
-  return effort;
+  if (effort === undefined) return "Default (no override)";
+  if (effort === "none") return "None (disable reasoning)";
+  if (effort === "xhigh") return "Extra high";
+  return effort[0]!.toUpperCase() + effort.slice(1);
 }
+
+const EFFORT_DESCRIPTIONS: Partial<Record<ReasoningEffort, string>> = {
+  low: "Fast responses with lighter reasoning",
+  medium: "Balances speed and reasoning depth for everyday tasks",
+  high: "Greater reasoning depth for complex problems",
+  xhigh: "Extra high reasoning depth for complex problems",
+};
+
+const MODEL_DESCRIPTIONS: Record<string, string> = {
+  "gpt-5.5": "Frontier model for complex coding, research, and real-world work",
+  "gpt-5.4": "Strong model for everyday coding",
+  "gpt-5.4-mini": "Small, fast, and cost-efficient model for simpler coding tasks",
+};
 
 export type AgentProvider = {
   name: string;
@@ -673,6 +687,9 @@ export function AgentModal({
                   {isActive ? "* " : "  "}
                   {m}
                 </Text>
+                {MODEL_DESCRIPTIONS[m] !== undefined && (
+                  <Text color={color("muted")}>— {MODEL_DESCRIPTIONS[m]}</Text>
+                )}
               </Box>
             );
           })}
@@ -699,6 +716,9 @@ export function AgentModal({
                   {isActive ? "* " : "  "}
                   {effortLabel(e)}
                 </Text>
+                {e !== undefined && EFFORT_DESCRIPTIONS[e] !== undefined && (
+                  <Text color={color("muted")}>— {EFFORT_DESCRIPTIONS[e]}</Text>
+                )}
               </Box>
             );
           })}
