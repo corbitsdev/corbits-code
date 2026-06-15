@@ -44,7 +44,22 @@ describe("getValidCodexToken", () => {
         { name: "p", createdAt: 0, tokens: { access: "live", refresh: "r", expiresAt: 10_000_000 } },
         home,
       );
-      expect(await getValidCodexToken("p", 1_000, home)).toBe("live");
+      expect((await getValidCodexToken("p", 1_000, home)).access).toBe("live");
+    });
+  });
+
+  test("returns the account id alongside the access token", async () => {
+    await withHome(async (home) => {
+      globalThis.fetch = (() => {
+        throw new Error("should not be called");
+      }) as typeof fetch;
+      await saveCodexProfile(
+        { name: "p", createdAt: 0, tokens: { access: "live", refresh: "r", expiresAt: 10_000_000, accountId: "acct-1" } },
+        home,
+      );
+      const access = await getValidCodexToken("p", 1_000, home);
+      expect(access.access).toBe("live");
+      expect(access.accountId).toBe("acct-1");
     });
   });
 
@@ -60,7 +75,7 @@ describe("getValidCodexToken", () => {
           headers: { "content-type": "application/json" },
         })) as typeof fetch;
       const token = await getValidCodexToken("p", 5_000, home);
-      expect(token).toBe("fresh");
+      expect(token.access).toBe("fresh");
       const stored = await loadCodexProfile("p", home);
       expect(stored?.tokens.access).toBe("fresh");
       expect(stored?.tokens.refresh).toBe("new-r");
