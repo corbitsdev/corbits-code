@@ -54,12 +54,12 @@ export async function startCodexLogin(opts: StartCodexLoginOptions): Promise<Cod
   const now = opts.now ?? Date.now;
   const pkce = generatePkce();
   const state = generateState();
-  const server = await startCodexCallbackServer();
+  const server = await startCodexCallbackServer(state);
   const authorizeUrl = buildAuthorizeUrl(pkce, state);
 
   const completed = (async (): Promise<{ profile: string }> => {
     try {
-      const code = await server.waitForCode(state, opts.signal);
+      const code = await server.waitForCode(opts.signal);
       const tokens = await exchangeCode(code, pkce.verifier, now());
       await saveCodexProfile(
         { name: opts.profile, tokens, createdAt: now() },

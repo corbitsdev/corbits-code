@@ -49,6 +49,12 @@ export async function getValidCodexToken(
       `Codex profile "${name}" could not be refreshed (${err instanceof Error ? err.message : String(err)}). Log in again.`,
     );
   }
-  await updateCodexTokens(name, refreshed, home);
-  return refreshed.access;
+  // The refresh response rarely re-issues an id_token, so carry the account id
+  // forward from the prior tokens when the refresh did not supply one.
+  const merged: CodexTokens =
+    refreshed.accountId === undefined && profile.tokens.accountId !== undefined
+      ? { ...refreshed, accountId: profile.tokens.accountId }
+      : refreshed;
+  await updateCodexTokens(name, merged, home);
+  return merged.access;
 }

@@ -364,15 +364,19 @@ export async function runTUI(config: Config): Promise<number> {
   // valid and refreshes transparently otherwise, so this satisfies "check
   // before each inference call" without crashing the loop: a failure surfaces
   // as a CodexAuthError naming the profile and rejects the send.
+  //
+  // The source is pushed on every send, not only when the token changed: an
+  // agent rebuild (tool promotion, interrupt, /clear) reseeds the source from
+  // the original login-time token, so unconditionally re-pushing the live token
+  // is what keeps the rebuilt agent from sending a stale credential.
   const refreshCodexBeforeSend = async (): Promise<void> => {
     const active = activeCodexSource;
     if (active === undefined) return;
     const token = await getValidCodexToken(active.profile);
-    if (token !== active.source.apiKey) {
-      const refreshed: InferenceSource = { ...active.source, apiKey: token };
-      activeCodexSource = { profile: active.profile, source: refreshed };
-      currentAgent.setSource(refreshed);
-    }
+    const source: InferenceSource =
+      token === active.source.apiKey ? active.source : { ...active.source, apiKey: token };
+    activeCodexSource = { profile: active.profile, source };
+    currentAgent.setSource(source);
   };
 
   // Stable handle handed to the App so the underlying agent can be swapped out

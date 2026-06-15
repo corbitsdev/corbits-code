@@ -18,8 +18,9 @@ export type CodexTokens = {
   refresh: string;
   // Absolute expiry of `access`, in epoch milliseconds.
   expiresAt: number;
-  // ID token returned by the authorization server, retained for account display.
-  idToken?: string;
+  // ChatGPT account id extracted from the id_token, required as the
+  // `chatgpt-account-id` header on every Codex inference request.
+  accountId?: string;
 };
 
 export type CodexProfile = {
@@ -44,7 +45,7 @@ function isCodexTokens(value: unknown): value is CodexTokens {
     typeof t.access === "string" &&
     typeof t.refresh === "string" &&
     typeof t.expiresAt === "number" &&
-    (t.idToken === undefined || typeof t.idToken === "string")
+    (t.accountId === undefined || typeof t.accountId === "string")
   );
 }
 

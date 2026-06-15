@@ -43,6 +43,32 @@ function isTokenResponse(value: unknown): value is TokenResponse {
   );
 }
 
+// Decode the ChatGPT account id from an id_token (a JWT). The claim lives at
+// `chatgpt_account_id` or nested under the `https://api.openai.com/auth` claim.
+// Only the payload segment is read; the signature is not verified here because
+// the token came straight from the authorization server over TLS and is used
+// solely to label the account, not to authorize anything.
+export function accountIdFromIdToken(idToken: string | undefined): string | undefined {
+  if (idToken === undefined) return undefined;
+  const payload = idToken.split(".")[1];
+  if (payload === undefined) return undefined;
+  try {
+    const json = Buffer.from(payload, "base64url").toString("utf8");
+    const claims = JSON.parse(json) as Record<string, unknown>;
+    const direct = claims["chatgpt_account_id"];
+    if (typeof direct === "string") return direct;
+    const nested = claims["https://api.openai.com/auth"];
+    if (typeof nested === "object" && nested !== null) {
+      const id = (nested as Record<string, unknown>)["chatgpt_account_id"];
+      if (typeof id === "string") return id;
+    }
+  } catch {
+    // A malformed id_token just means no account id; the caller may still
+    // function for flows that do not require the header.
+  }
+  return undefined;
+}
+
 // Default access-token lifetime when the server omits expires_in. Conservative
 // so the refresh path engages sooner rather than trusting a stale token.
 const DEFAULT_EXPIRES_IN_S = 3600;
@@ -60,11 +86,12 @@ export function tokensFromResponse(
   if (refresh === undefined) {
     throw new Error("Token response carried no refresh_token and none was previously stored.");
   }
+  const accountId = accountIdFromIdToken(response.id_token);
   return {
     access: response.access_token,
     refresh,
     expiresAt: now + expiresInMs,
-    ...(response.id_token !== undefined ? { idToken: response.id_token } : {}),
+    ...(accountId !== undefined ? { accountId } : {}),
   };
 }
 

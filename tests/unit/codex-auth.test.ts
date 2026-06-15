@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { generatePkce, generateState } from "../../src/auth/codex/pkce.js";
-import { buildAuthorizeUrl, tokensFromResponse } from "../../src/auth/codex/oauth.js";
+import { accountIdFromIdToken, buildAuthorizeUrl, tokensFromResponse } from "../../src/auth/codex/oauth.js";
 import {
   listCodexProfiles,
   loadCodexProfile,
@@ -81,6 +81,40 @@ describe("tokensFromResponse", () => {
   test("falls back to a default lifetime when expires_in is absent", () => {
     const tokens = tokensFromResponse({ access_token: "a", refresh_token: "r" }, 0);
     expect(tokens.expiresAt).toBeGreaterThan(0);
+  });
+
+  test("extracts accountId from a JWT id_token", () => {
+    const jwt = makeIdToken({ chatgpt_account_id: "acct-123" });
+    const tokens = tokensFromResponse({ access_token: "a", refresh_token: "r", id_token: jwt }, 0);
+    expect(tokens.accountId).toBe("acct-123");
+  });
+
+  test("omits accountId when the id_token is absent", () => {
+    const tokens = tokensFromResponse({ access_token: "a", refresh_token: "r" }, 0);
+    expect(tokens.accountId).toBeUndefined();
+  });
+});
+
+function makeIdToken(claims: Record<string, unknown>): string {
+  const segment = (obj: Record<string, unknown>): string =>
+    Buffer.from(JSON.stringify(obj), "utf8").toString("base64url");
+  return `${segment({ alg: "none" })}.${segment(claims)}.sig`;
+}
+
+describe("accountIdFromIdToken", () => {
+  test("reads the top-level chatgpt_account_id claim", () => {
+    expect(accountIdFromIdToken(makeIdToken({ chatgpt_account_id: "top" }))).toBe("top");
+  });
+
+  test("falls back to the nested OpenAI auth claim", () => {
+    const jwt = makeIdToken({ "https://api.openai.com/auth": { chatgpt_account_id: "nested" } });
+    expect(accountIdFromIdToken(jwt)).toBe("nested");
+  });
+
+  test("returns undefined for a missing or malformed token", () => {
+    expect(accountIdFromIdToken(undefined)).toBeUndefined();
+    expect(accountIdFromIdToken("not-a-jwt")).toBeUndefined();
+    expect(accountIdFromIdToken(makeIdToken({ sub: "x" }))).toBeUndefined();
   });
 });
 

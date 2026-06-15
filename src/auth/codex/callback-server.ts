@@ -6,7 +6,7 @@ export type CodexCallbackServer = {
   // Resolves with the validated authorization code once the browser redirects
   // back, or rejects if the server reports an error, the state mismatches, or
   // the signal aborts.
-  waitForCode: (expectedState: string, signal: AbortSignal) => Promise<string>;
+  waitForCode: (signal: AbortSignal) => Promise<string>;
   close: () => void;
 };
 
@@ -21,10 +21,13 @@ const DONE_HTML =
 // port would be rejected. A bind failure here means the port is already in use
 // (e.g. a concurrent login or the official Codex CLI), which is surfaced as a
 // clear error rather than silently picking another port.
-export async function startCodexCallbackServer(): Promise<CodexCallbackServer> {
+//
+// `expectedState` is bound at construction (before the server listens) so the
+// CSRF check is always armed: a redirect that arrives the instant the socket
+// opens is validated, never accepted unchecked.
+export async function startCodexCallbackServer(expectedState: string): Promise<CodexCallbackServer> {
   let resolveCode: ((code: string) => void) | undefined;
   let rejectCode: ((err: Error) => void) | undefined;
-  let expected: string | undefined;
   let settled = false;
 
   const finish = (outcome: { code: string } | { error: Error }): void => {
@@ -45,9 +48,10 @@ export async function startCodexCallbackServer(): Promise<CodexCallbackServer> {
     const error = url.searchParams.get("error");
     const state = url.searchParams.get("state");
 
-    // A state mismatch means this redirect does not belong to the flow we
-    // started; reject the request and the wait rather than trusting the code.
-    if (expected !== undefined && state !== expected) {
+    // A state mismatch (or absent state) means this redirect does not belong to
+    // the flow we started; reject the request and the wait rather than trusting
+    // the code. The check is armed from construction, so it never fails open.
+    if (state !== expectedState) {
       res.statusCode = 400;
       res.end("Authorization failed: state mismatch");
       finish({ error: new Error("Authorization state did not match; possible CSRF — login aborted.") });
@@ -79,9 +83,8 @@ export async function startCodexCallbackServer(): Promise<CodexCallbackServer> {
   });
 
   return {
-    waitForCode: (expectedState: string, signal: AbortSignal) =>
+    waitForCode: (signal: AbortSignal) =>
       new Promise<string>((resolve, reject) => {
-        expected = expectedState;
         resolveCode = resolve;
         rejectCode = reject;
         if (signal.aborted) {

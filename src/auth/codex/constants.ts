@@ -13,7 +13,6 @@ export const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 export const CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 export const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
-export const CODEX_DEVICE_URL = "https://auth.openai.com/codex/device";
 
 // The Codex CLI registers a fixed loopback redirect on port 1455; the
 // authorization server only accepts this exact redirect_uri for this client, so
@@ -24,8 +23,14 @@ export const CODEX_REDIRECT_URI = `http://localhost:${String(CODEX_CALLBACK_PORT
 
 export const CODEX_SCOPES = ["openid", "profile", "email", "offline_access"] as const;
 
-// OpenAI-compatible inference surface reached with the subscription token.
+// Inference surface reached with the subscription token. NOTE: the Codex
+// backend serves the OpenAI *Responses* API at `${CODEX_BASE_URL}/codex/
+// responses`, not Chat Completions, and requires a `chatgpt-account-id` header
+// (see CodexTokens.accountId) plus `OpenAI-Beta: responses=experimental`. The
+// Responses adapter is tracked as follow-up work; this base + the stored
+// accountId are the inputs it needs.
 export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
+export const CODEX_RESPONSES_PATH = "/codex/responses";
 
 // Extra authorize-request params the Codex flow requires.
 export const CODEX_AUTHORIZE_EXTRA_PARAMS: Record<string, string> = {
