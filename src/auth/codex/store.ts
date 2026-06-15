@@ -79,8 +79,11 @@ async function readAuthFile(home: string): Promise<CodexAuthFile> {
         return { profiles: valid };
       }
     }
-  } catch {
+  } catch (err) {
     // A corrupt file should not be fatal; treat it as no state.
+    // Re-throw unexpected errors (TypeError from a bug in the validator
+    // etc.) that are not JSON parse failures.
+    if (!(err instanceof SyntaxError)) throw err;
   }
   return { profiles: {} };
 }

@@ -241,13 +241,13 @@ export function useProviderManager({
   };
 
   const registerCodexProvider = (entry: ProviderCatalogEntry): void => {
-    const catalog = providerCatalog.filter((p) => p.name !== entry.name).concat(entry);
-    setProviderCatalog(catalog);
     const targetModel = entry.defaultModel ?? entry.models[0];
     if (targetModel === undefined) {
       onMessage(`Codex profile ${entry.name} has no model to select`);
       return;
     }
+    const catalog = providerCatalog.filter((p) => p.name !== entry.name).concat(entry);
+    setProviderCatalog(catalog);
     if (applyCatalogSelection(catalog, entry.name, targetModel, reasoningEffort)) {
       persistLocalSelection(entry.name, targetModel);
       onMessage(`Now using ${entry.name} · ${targetModel}`);

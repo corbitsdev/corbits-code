@@ -26,9 +26,16 @@ const DONE_HTML =
 // CSRF check is always armed: a redirect that arrives the instant the socket
 // opens is validated, never accepted unchecked.
 export async function startCodexCallbackServer(expectedState: string): Promise<CodexCallbackServer> {
+  // Wire the promise resolver before the server listens so a redirect that
+  // arrives the instant the socket opens has a closure to settle against.
   let resolveCode: ((code: string) => void) | undefined;
   let rejectCode: ((err: Error) => void) | undefined;
   let settled = false;
+
+  const codePromise = new Promise<string>((resolve, reject) => {
+    resolveCode = resolve;
+    rejectCode = reject;
+  });
 
   const finish = (outcome: { code: string } | { error: Error }): void => {
     if (settled) return;
@@ -83,16 +90,11 @@ export async function startCodexCallbackServer(expectedState: string): Promise<C
   });
 
   return {
-    waitForCode: (signal: AbortSignal) =>
-      new Promise<string>((resolve, reject) => {
-        resolveCode = resolve;
-        rejectCode = reject;
-        if (signal.aborted) {
-          finish({ error: new Error("aborted") });
-          return;
-        }
-        signal.addEventListener("abort", () => finish({ error: new Error("aborted") }), { once: true });
-      }),
+    waitForCode: (signal: AbortSignal) => {
+      if (signal.aborted) finish({ error: new Error("aborted") });
+      else signal.addEventListener("abort", () => finish({ error: new Error("aborted") }), { once: true });
+      return codePromise;
+    },
     close: () => server.close(),
   };
 }
