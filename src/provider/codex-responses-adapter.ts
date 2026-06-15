@@ -146,6 +146,7 @@ function buildRequest(
     include: ["reasoning.encrypted_content"],
     parallel_tool_calls: false,
   };
+  if (options.maxTokens !== undefined) body["max_output_tokens"] = options.maxTokens;
   if (options.systemPrompt !== undefined) body["instructions"] = options.systemPrompt;
   if (tools !== undefined) {
     body["tools"] = tools;
@@ -176,39 +177,26 @@ function buildRequest(
 // Response parsing — Responses SSE events → internal inference events
 // ---------------------------------------------------------------------------
 
-// Per-request block indexing. The Responses stream identifies streaming items
-// by `item_id`; we allocate one content-block index per distinct item id from
-// a shared counter so text, reasoning, and tool-call blocks never collide.
+// Per-request block indexing. The Responses stream tags every streaming item
+// with an `item_id`, so we allocate one content-block index per distinct item
+// id (regardless of kind). Keying by item id — rather than one sticky index per
+// kind — preserves true arrival order when reasoning, text, and tool calls
+// interleave, and lets `response.output_item.done` attach an encrypted-reasoning
+// signature to the exact thinking block it belongs to. `kind` is recorded so a
+// signature is only emitted against a real thinking block.
+type CodexBlockKind = "text" | "thinking" | "tool_call";
 type CodexBlockIndexer = {
   nextIndex: number;
-  textIndex: number | null;
-  thinkingIndex: number | null;
-  itemBlockIndex: Map<string, number>;
+  items: Map<string, { index: number; kind: CodexBlockKind }>;
 };
 
-function getOrAssignTextIndex(state: CodexBlockIndexer): number {
-  if (state.textIndex === null) {
-    state.textIndex = state.nextIndex;
-    state.nextIndex += 1;
-  }
-  return state.textIndex;
-}
-
-function getOrAssignThinkingIndex(state: CodexBlockIndexer): number {
-  if (state.thinkingIndex === null) {
-    state.thinkingIndex = state.nextIndex;
-    state.nextIndex += 1;
-  }
-  return state.thinkingIndex;
-}
-
-function getOrAssignItemIndex(state: CodexBlockIndexer, itemId: string): number {
-  const existing = state.itemBlockIndex.get(itemId);
-  if (existing !== undefined) return existing;
-  const assigned = state.nextIndex;
+function blockIndexFor(state: CodexBlockIndexer, itemId: string, kind: CodexBlockKind): number {
+  const existing = state.items.get(itemId);
+  if (existing !== undefined) return existing.index;
+  const index = state.nextIndex;
   state.nextIndex += 1;
-  state.itemBlockIndex.set(itemId, assigned);
-  return assigned;
+  state.items.set(itemId, { index, kind });
+  return index;
 }
 
 function usageFromResponse(response: Record<string, unknown>): TokenUsage | undefined {
@@ -252,11 +240,12 @@ function parseResponse(
   switch (eventType) {
     case "response.output_text.delta": {
       const token = event["delta"];
+      const itemId = typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__text__";
       if (typeof token === "string" && token.length > 0) {
         events.push({
           type: "inference.text.delta",
           seq,
-          data: { token, partial: EMPTY_PARTIAL, index: getOrAssignTextIndex(indexer) },
+          data: { token, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "text") },
         });
       }
       return events;
@@ -264,11 +253,12 @@ function parseResponse(
     case "response.reasoning_summary_text.delta":
     case "response.reasoning_text.delta": {
       const token = event["delta"];
+      const itemId = typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__thinking__";
       if (typeof token === "string" && token.length > 0) {
         events.push({
           type: "inference.thinking.delta",
           seq,
-          data: { token, partial: EMPTY_PARTIAL, index: getOrAssignThinkingIndex(indexer) },
+          data: { token, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "thinking") },
         });
       }
       return events;
@@ -285,9 +275,27 @@ function parseResponse(
             events.push({
               type: "inference.tool_call.start",
               seq,
-              data: { callId, name, partial: EMPTY_PARTIAL, index: getOrAssignItemIndex(indexer, itemId) },
+              data: { callId, name, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "tool_call") },
             });
           }
+        }
+      }
+      return events;
+    }
+    case "response.output_item.done": {
+      // Capture the encrypted reasoning blob so it can be echoed back on the
+      // next turn (required for multi-turn reasoning continuity with store:false).
+      // The harness attaches the signature to the thinking block already opened
+      // at this item's index by its summary/text deltas.
+      const item = event["item"] as Record<string, unknown> | undefined;
+      if (item?.["type"] === "reasoning" && typeof item["id"] === "string" && typeof item["encrypted_content"] === "string") {
+        const existing = indexer.items.get(item["id"]);
+        if (existing?.kind === "thinking") {
+          events.push({
+            type: "inference.thinking.signature",
+            seq,
+            data: { signature: item["encrypted_content"], index: existing.index },
+          });
         }
       }
       return events;
@@ -296,7 +304,7 @@ function parseResponse(
       const itemId = event["item_id"];
       const fragment = event["delta"];
       if (typeof itemId === "string" && typeof fragment === "string" && fragment.length > 0) {
-        const blockIndex = getOrAssignItemIndex(indexer, itemId);
+        const blockIndex = blockIndexFor(indexer, itemId, "tool_call");
         events.push({
           type: "inference.tool_call.delta",
           seq,
@@ -329,8 +337,8 @@ function parseResponse(
     }
     default:
       // Lifecycle envelopes (response.created, response.in_progress,
-      // response.output_item.done, content_part.*, *.done) carry no incremental
-      // payload the harness needs; ignore them.
+      // content_part.*, *_text.done) carry no incremental payload the harness
+      // needs; ignore them.
       return events;
   }
 }
@@ -338,9 +346,7 @@ function parseResponse(
 export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAdapter {
   const indexer: CodexBlockIndexer = {
     nextIndex: 0,
-    textIndex: null,
-    thinkingIndex: null,
-    itemBlockIndex: new Map<string, number>(),
+    items: new Map<string, { index: number; kind: CodexBlockKind }>(),
   };
   return {
     buildRequest,

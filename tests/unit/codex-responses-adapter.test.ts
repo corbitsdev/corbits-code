@@ -151,6 +151,41 @@ describe("codex-responses parseResponse", () => {
     });
   });
 
+  test("captures encrypted reasoning content as a thinking signature for round-trip", () => {
+    const out = parse([
+      { type: "response.reasoning_summary_text.delta", item_id: "rs_1", delta: "thinking..." },
+      { type: "response.output_item.done", item: { type: "reasoning", id: "rs_1", encrypted_content: "ENC_BLOB" } },
+    ]);
+    expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
+    expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC_BLOB", index: 0 } });
+  });
+
+  test("does not emit a signature when no thinking block was opened for the item", () => {
+    const out = parse([
+      { type: "response.output_item.done", item: { type: "reasoning", id: "rs_solo", encrypted_content: "ENC" } },
+    ]);
+    expect(out).toHaveLength(0);
+  });
+
+  test("keys blocks by item_id so interleaved reasoning and tool calls keep distinct indices", () => {
+    const out = parse([
+      { type: "response.reasoning_summary_text.delta", item_id: "rs_1", delta: "a" },
+      { type: "response.output_item.added", item: { type: "function_call", id: "fc_1", call_id: "c1", name: "t" } },
+      { type: "response.reasoning_summary_text.delta", item_id: "rs_2", delta: "b" },
+    ]);
+    expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
+    expect(out[1]).toMatchObject({ type: "inference.tool_call.start", data: { index: 1 } });
+    // A second distinct reasoning item gets its own index, not merged into the first.
+    expect(out[2]).toMatchObject({ type: "inference.thinking.delta", data: { index: 2 } });
+  });
+
+  test("serializes max_output_tokens from options.maxTokens", () => {
+    const body = JSON.parse(
+      adapter().buildRequest([userTurn("x")], "gpt-5-codex", { maxTokens: 4096, providerOptions: { [CODEX_SESSION_ID_OPTION]: "s" } }).body,
+    ) as Record<string, unknown>;
+    expect(body["max_output_tokens"]).toBe(4096);
+  });
+
   test("ignores lifecycle envelopes", () => {
     expect(parse([{ type: "response.created", response: {} }, { type: "response.in_progress" }])).toHaveLength(0);
   });
