@@ -1,6 +1,6 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
-import { lookupModelPricing, type PricingCache } from "./pricing-fetcher.js";
+import { lookupModelPricing, type ModelPricing, type PricingCache } from "./pricing-fetcher.js";
 
 export type FaremeterConfig = {
   inputPricePerToken: number;
@@ -11,6 +11,10 @@ export type FaremeterConfig = {
 export type CreateFaremeterConfig = Partial<FaremeterConfig> & {
   modelId?: string;
   pricingCache?: PricingCache | null;
+  // Resolves the active model's pricing at the moment usage is recorded, so a
+  // mid-session model switch prices each turn correctly. Consulted per
+  // addUsage; a null result falls back to the static config below.
+  resolvePricing?: () => ModelPricing | null;
 };
 
 export type Faremeter = {
@@ -31,21 +35,28 @@ const DEFAULT_CONFIG: FaremeterConfig = {
 };
 
 export function createFaremeter(config: CreateFaremeterConfig = {}): Faremeter {
-  const modelPricing = config.modelId === undefined ? null : lookupModelPricing(config.pricingCache ?? null, config.modelId);
+  const staticPricing = config.modelId === undefined ? null : lookupModelPricing(config.pricingCache ?? null, config.modelId);
   const explicitConfig = { ...config };
   delete explicitConfig.modelId;
   delete explicitConfig.pricingCache;
-  const { inputPricePerToken, outputPricePerToken, cacheReadPricePerToken } = {
+  delete explicitConfig.resolvePricing;
+  const { resolvePricing } = config;
+
+  // Explicit per-token overrides always win; otherwise the live resolver (if
+  // any) takes precedence over the static model pricing, then the default.
+  const pricesFor = (): FaremeterConfig => ({
     ...DEFAULT_CONFIG,
-    ...modelPricing,
+    ...(resolvePricing?.() ?? staticPricing),
     ...explicitConfig,
-  };
+  });
+
   let lastContextSize = 0;
   let outputTokens = 0;
   let totalCost = 0;
 
   return {
     addUsage(usage: TokenUsage): void {
+      const { inputPricePerToken, outputPricePerToken, cacheReadPricePerToken } = pricesFor();
       lastContextSize = usage.input + usage.cacheRead + usage.cacheWrite;
       outputTokens += usage.output + usage.thinking;
       totalCost += usage.input * inputPricePerToken + usage.output * outputPricePerToken + usage.cacheRead * cacheReadPricePerToken;

@@ -284,7 +284,11 @@ export function App({
   initialProfiles = [],
   profilesDir,
 }: AppProps): ReactNode {
-  const state = useAgentStream(eventEmitter, initialHooks);
+  // Tracks the live model so the stream's cost meter prices each turn at the
+  // active model's rate even after a mid-session switch. Updated once model is
+  // resolved from the provider manager below.
+  const modelRef = useRef(initialModel);
+  const state = useAgentStream(eventEmitter, initialHooks, () => modelRef.current);
   const stateRef = useRef(state);
   stateRef.current = state;
   const mcpStatus = useMCPStatus(eventEmitter);
@@ -336,6 +340,7 @@ export function App({
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
   const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, removeCodexProvider } = providerManager;
+  modelRef.current = model;
 
   // Codex profile names currently known, derived from the live catalog so the
   // login modal stays in sync after a login or removal.

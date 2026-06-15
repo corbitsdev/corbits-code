@@ -3,6 +3,8 @@ import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { type } from "arktype";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
+import { lookupModelPricing } from "../cost/pricing-fetcher.js";
+import { getActivePricingCache } from "../cost/cost-visibility.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
@@ -110,7 +112,17 @@ function stringifyToolContent(content: unknown): string {
   }
 }
 
-export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = []): AgentStreamState {
+export function createAgentStreamState(
+  initialHooks: LifecycleHookStatus[] = [],
+  getModelId?: () => string,
+): AgentStreamState {
+  // Price each turn at the active model's rate, resolved live so a mid-session
+  // provider/model switch is reflected without recreating the meter.
+  const makeFaremeter = () =>
+    createFaremeter({
+      resolvePricing: () =>
+        getModelId === undefined ? null : lookupModelPricing(getActivePricingCache(), getModelId()),
+    });
   const contentBlocks: ContentBlock[] = [];
   // Cached snapshot returned by the contentBlocks getter. Rebuilt lazily only
   // when the internal array is mutated, so repeated reads within one render
@@ -299,7 +311,7 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
       finishedAt = null;
       openCallId = null;
       contextTokens = 0;
-      faremeter = createFaremeter();
+      faremeter = makeFaremeter();
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
@@ -545,8 +557,11 @@ export function createAgentStreamState(initialHooks: LifecycleHookStatus[] = [])
 export function useAgentStream(
   emitter: EventEmitter,
   initialHooks: LifecycleHookStatus[] = [],
+  getModel?: () => string,
 ): AgentStreamState {
-  const [state] = useState(() => createAgentStreamState(initialHooks));
+  // getModel is read live by the faremeter's pricing resolver, so a
+  // mid-session model switch is priced correctly without recreating the state.
+  const [state] = useState(() => createAgentStreamState(initialHooks, getModel));
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
