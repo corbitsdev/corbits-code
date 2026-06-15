@@ -43,8 +43,8 @@ export type EditState = {
 
 // Pure function: given the current editor state, an input character, and the
 // key flags from Ink, return the next editor state. No side effects.
-// Up/down arrows are intentionally ignored here — they are consumed upstream
-// by suggestion-list navigation before this function is reached.
+// Up/down arrows are not handled here — the caller deals with them (suggestion
+// navigation or cursor-line movement) before reaching this function.
 export function applyKey(state: EditState, input: string, key: InputKey): EditState {
   const { value, cursor } = state;
 
@@ -256,6 +256,35 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
         resetField();
         return;
       }
+    }
+
+    if (key.upArrow || key.downArrow) {
+      const lineBreaks: number[] = [];
+      for (let i = 0; i < value.length; i++) {
+        if (value[i] === "\n") lineBreaks.push(i);
+      }
+      if (lineBreaks.length > 0) {
+        const lineStarts: number[] = [0, ...lineBreaks.map((p) => p + 1)];
+        const lineEnds: number[] = [...lineBreaks, value.length];
+        let li = 0;
+        for (let i = 0; i < lineStarts.length; i++) {
+          if (cursor >= lineStarts[i]! && cursor <= lineEnds[i]!) { li = i; break; }
+        }
+        const col = cursor - lineStarts[li]!;
+        if (key.upArrow && li > 0) {
+          const targetStart = lineStarts[li - 1]!;
+          const targetEnd = lineEnds[li - 1]!;
+          setCursor(Math.min(targetStart + col, targetEnd));
+          return;
+        }
+        if (key.downArrow && li < lineStarts.length - 1) {
+          const targetStart = lineStarts[li + 1]!;
+          const targetEnd = lineEnds[li + 1]!;
+          setCursor(Math.min(targetStart + col, targetEnd));
+          return;
+        }
+      }
+      return;
     }
 
     if (key.return && !key.shift && !key.meta) {

@@ -89,6 +89,39 @@ test("ChatInput renders its controlled value", () => {
 });
 
 
+test("Up/Down arrows move cursor between lines of a multi-line prompt", async () => {
+  let current = "";
+  let cursorPos = 0;
+  function Harness() {
+    const [v, setV] = useState("first\nsecond");
+    current = v;
+    return (
+      <ChatInput
+        onSubmit={() => {}}
+        onCommand={() => {}}
+        commandContext={noopContext}
+        value={v}
+        onChange={(val) => { setV(val); current = val; }}
+        cwd="."
+      />
+    );
+  }
+  const { lastFrame, stdin } = render(<Harness />);
+  await Promise.resolve();
+  const initialFrame = lastFrame() ?? "";
+  // Cursor starts at end of "second" (line 1)
+  expect(initialFrame).toContain("second");
+
+  // Up arrow should move cursor to "first" line — caret should appear there
+  stdin.write("\x1B[A");
+  await Promise.resolve();
+  await Promise.resolve();
+  const afterUp = lastFrame() ?? "";
+  expect(afterUp).toContain("first");
+  // The caret glyph should be on the first line now
+  expect(afterUp).toMatch(/first.*▏/s);
+});
+
 test("cursor stays mid-string across successive edits", async () => {
   let current = "";
   function Harness() {

@@ -189,18 +189,34 @@ test("ESC then >500ms gap: second ESC does NOT trigger double-ESC", () => {
 
 // --- Arrow keys ---
 
-test("up arrow with empty input calls scrollUp", () => {
-  const { actions } = dispatch("", UP_KEY, { hasInput: false });
-  expect(actions.scrollUp).toHaveBeenCalledTimes(1);
+test("up arrow does not scroll the log when input is focused", () => {
+  const { actions } = dispatch("", UP_KEY, { inputFocused: true });
+  expect(actions.scrollUp).not.toHaveBeenCalled();
 });
 
-test("down arrow with empty input calls scrollDown", () => {
-  const { actions } = dispatch("", DOWN_KEY, { hasInput: false });
-  expect(actions.scrollDown).toHaveBeenCalledTimes(1);
+test("down arrow does not scroll the log when input is focused", () => {
+  const { actions } = dispatch("", DOWN_KEY, { inputFocused: true });
+  expect(actions.scrollDown).not.toHaveBeenCalled();
 });
 
-test("Ctrl+Down jumps to the bottom instead of scrolling one line", () => {
-  const { actions } = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true });
+test("up arrow does not scroll when input is unfocused either (arrows belong to prompt)", () => {
+  const { actions } = dispatch("", UP_KEY, { inputFocused: false });
+  expect(actions.scrollUp).not.toHaveBeenCalled();
+});
+
+test("down arrow does not scroll when input is unfocused", () => {
+  const { actions } = dispatch("", DOWN_KEY, { inputFocused: false });
+  expect(actions.scrollDown).not.toHaveBeenCalled();
+});
+
+test("Ctrl+Down jumps to the bottom when input is focused", () => {
+  const { actions } = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true }, { inputFocused: true });
+  expect(actions.scrollToBottom).toHaveBeenCalledTimes(1);
+  expect(actions.scrollDown).not.toHaveBeenCalled();
+});
+
+test("Ctrl+Down jumps to the bottom when input is unfocused", () => {
+  const { actions } = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true }, { inputFocused: false });
   expect(actions.scrollToBottom).toHaveBeenCalledTimes(1);
   expect(actions.scrollDown).not.toHaveBeenCalled();
 });
@@ -210,18 +226,11 @@ test("arrows do not scroll while the command palette is open", () => {
   expect(up.actions.scrollUp).not.toHaveBeenCalled();
   const down = dispatch("", DOWN_KEY, { commandPaletteOpen: true });
   expect(down.actions.scrollDown).not.toHaveBeenCalled();
+});
+
+test("Ctrl+Down still scrolls to bottom while command palette is open (Ctrl is not an arrow-only key)", () => {
   const ctrlDown = dispatch("", { ...NO_KEY, ctrl: true, downArrow: true }, { commandPaletteOpen: true });
-  expect(ctrlDown.actions.scrollToBottom).not.toHaveBeenCalled();
-});
-
-test("up arrow with hasInput calls scrollUp", () => {
-  const { actions } = dispatch("", UP_KEY, { hasInput: true });
-  expect(actions.scrollUp).toHaveBeenCalledTimes(1);
-});
-
-test("down arrow with hasInput calls scrollDown", () => {
-  const { actions } = dispatch("", DOWN_KEY, { hasInput: true });
-  expect(actions.scrollDown).toHaveBeenCalledTimes(1);
+  expect(ctrlDown.actions.scrollToBottom).toHaveBeenCalledTimes(1);
 });
 
 // --- Other Ctrl shortcuts ---

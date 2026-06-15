@@ -217,7 +217,7 @@ test("App keeps header and footer visible after many events", async () => {
   expect(lastFrame()).toContain("test-model");
 });
 
-test("App scrolls the event log with arrow keys when the prompt is empty", async () => {
+test("App does not scroll the event log with arrow keys (arrows belong to the prompt box)", async () => {
   const emitter = new EventEmitter();
   const { lastFrame, stdin } = renderApp(emitter, { stdout: { columns: 100, rows: 20 } });
 
@@ -235,12 +235,7 @@ test("App scrolls the event log with arrow keys when the prompt is empty", async
     stdin.write("\x1B[A");
     await tick();
   }
-  expect(lastFrame()).toContain("prompt-0");
-
-  for (let i = 0; i < 60; i++) {
-    stdin.write("\x1B[B");
-    await tick();
-  }
+  // Arrow keys no longer scroll the log — pinned-to-bottom content stays visible.
   expect(lastFrame()).toContain("prompt-19");
 });
 

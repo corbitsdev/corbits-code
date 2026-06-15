@@ -59,7 +59,7 @@ export type LayoutGeometry = {
   permissionsOverlayRows: number;
 };
 
-const CHROME_ROWS = 9;
+const CHROME_ROWS = 10;
 
 export type ComputeOverlayRowsArgs = {
   gateContext: GateContext;
@@ -83,7 +83,10 @@ export function computeOverlayRows({
     const choices = 2 + persistable;
     return 11 + subjectLines + choices;
   }
-  if (gateContext.pendingPlan !== null) return 18;
+  if (gateContext.pendingPlan !== null) {
+    const steps = Array.isArray(gateContext.pendingPlan) ? (gateContext.pendingPlan as unknown[]).length : 0;
+    return 8 + steps * 2;
+  }
   if (gateContext.pendingOperator !== null) return 10 + gateContext.pendingOperator.options.length;
   if (modalContext.helpOpen) return 16;
   if (modalContext.hookPanelOpen) return 4 + hookCount;
