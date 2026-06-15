@@ -14,7 +14,6 @@ export type KeymapContext = {
   hookPanelOpen: boolean;
   diffFullScreenOpen: boolean;
   planFullScreenOpen: boolean;
-  workflowPanelOpen: boolean;
   hasInput: boolean;
   inputFocused: boolean;
   isRunning: boolean;
@@ -36,7 +35,6 @@ export type KeymapActions = {
   toggleVerbose: () => void;
   togglePlanSidebar: () => void;
   toggleDiffFullScreen: () => void;
-  toggleWorkflowPanel: () => void;
   toggleHelp: () => void;
   copyMcpUrl: () => void;
   copyLastOutput: () => void;
@@ -60,9 +58,6 @@ export function handleKey(
   if (context.helpOpen) return lastEscMs;
   if (context.gateOpen) return lastEscMs;
   if (context.agentModalOpen) return lastEscMs;
-  // The workflow panel owns input while open (Esc / Ctrl+W close from within).
-  if (context.workflowPanelOpen) return lastEscMs;
-
   if (key.ctrl && input === "c") {
     if (context.hasInput) {
       actions.clearInput();
@@ -144,10 +139,6 @@ export function handleKey(
   }
   if (key.ctrl && input === "d") {
     actions.toggleDiffFullScreen();
-    return lastEscMs;
-  }
-  if (key.ctrl && input === "w") {
-    actions.toggleWorkflowPanel();
     return lastEscMs;
   }
   if (key.ctrl && input === "g") {

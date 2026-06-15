@@ -169,10 +169,8 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
-  // Forward suggest_workflow approvals to the workflow controller, and
-  // plan_enter calls to the active director. Both are built after the toolset,
-  // so holders break the init cycle.
-  const workflowControllerHolder: { instance?: { start: (name: string) => string } } = {};
+  // plan_enter calls are forwarded to the active director. Built after the
+  // toolset, so a holder breaks the init cycle.
   const directorHolderForTools: { instance?: { enterPlanPhase: () => void } } = {};
 
   const toolset = await createAgentToolset({
@@ -183,10 +181,6 @@ export async function runTUI(config: Config): Promise<number> {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
-    onWorkflowSuggested: (name) => {
-      const result = workflowControllerHolder.instance?.start(name);
-      return result !== undefined && !result.startsWith("No workflow");
-    },
     onPlanEnter: () => {
       directorHolderForTools.instance?.enterPlanPhase();
     },
@@ -213,7 +207,6 @@ export async function runTUI(config: Config): Promise<number> {
     getToolDefinitions: () => toolset.dynamicRunner.currentDefinitions(),
     getDirector: () => directorHolder.instance,
   });
-  workflowControllerHolder.instance = workflowController;
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the core set plus any promoted via tool_search.

@@ -9,8 +9,6 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   // List available workflows for /workflows.
   listWorkflows?: () => Array<{ name: string; description: string }>;
-  // Open the workflow panel (Ctrl+W surface).
-  openWorkflowPanel?: () => void;
   // Open the workflow picker modal (/workflows command).
   openWorkflowPicker?: () => void;
   // Enter plan mode: strips write/edit tools until submit_plan is approved.

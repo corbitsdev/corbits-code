@@ -47,7 +47,6 @@ import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink, readFile, opendir, realpath, stat } from "node:fs/promises";
 import { resolve, isAbsolute, relative, sep } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
-import { WorkflowPanel } from "./components/workflow-panel.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
 import type { WorkflowStatus } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
@@ -313,7 +312,6 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
-  const [workflowPanelOpen, setWorkflowPanelOpen] = useState(false);
   const [workflowPickerOpen, setWorkflowPickerOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
@@ -452,8 +450,7 @@ export function App({
 
   // Sidebar opens automatically when there's a plan or an active workflow.
   // Manual sidebarOpen still works for the diff view.
-  const autoSidebarOpen = planSteps.length > 0 || workflowStatus.active;
-  const effectiveSidebarOpen = sidebarOpen || autoSidebarOpen || workflowPanelOpen;
+  const effectiveSidebarOpen = sidebarOpen;
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
@@ -524,8 +521,7 @@ export function App({
     hookPanelOpen ||
     agentModalOpen ||
     codexLoginOpen ||
-    permissionsOpen ||
-    workflowPanelOpen
+    permissionsOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -599,7 +595,6 @@ export function App({
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
     ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
-    openWorkflowPanel: () => setWorkflowPanelOpen(true),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
   }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
 
@@ -698,7 +693,6 @@ export function App({
       hookPanelOpen,
       diffFullScreenOpen,
       planFullScreenOpen,
-      workflowPanelOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       commandPaletteOpen: inputValue.startsWith("/") && (
@@ -763,7 +757,6 @@ export function App({
           return !open;
         });
       },
-      toggleWorkflowPanel: () => setWorkflowPanelOpen((open) => !open),
       toggleHelp: () => setHelpOpen((open) => !open),
       copyMcpUrl: () => {
         const first = mcpStatus.needsAuth[0];
@@ -886,16 +879,6 @@ export function App({
           elapsedMs={state.elapsedMs}
           usage={codexUsageDisplay}
           {...(profile !== undefined ? { profile } : {})}
-          {...(workflowStatus.active && workflowStatus.name !== undefined
-            ? {
-                workflow: {
-                  name: workflowStatus.name,
-                  stepIndex: workflowStatus.stepIndex,
-                  total: workflowStatus.total,
-                  label: workflowStatus.label,
-                },
-              }
-            : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -930,28 +913,18 @@ export function App({
             </Box>
             {effectiveSidebarOpen && (
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
-                {(workflowPanelOpen || (workflowStatus.active && contextView !== "diff" && planSteps.length === 0)) ? (
-                  <WorkflowPanel
-                    status={workflowStatus}
-                    width={rightWidth}
-                    maxRows={visibleRows}
-                    onToggleCapability={(name) => onToggleCapability?.(name)}
-                    onClose={() => setWorkflowPanelOpen(false)}
-                  />
-                ) : (
-                  <ContextPanel
-                    view={contextView}
-                    steps={planSteps}
-                    currentPlanStep={state.currentPlanStep}
-                    planDeviated={state.planDeviated}
-                    width={rightWidth}
-                    diffResult={diff.result}
-                    diffScrollOffset={diffScroll}
-                    diffVisibleRows={diffVisibleRows}
-                    borderColor={modeColor}
-                    {...(planGoal !== undefined ? { goal: planGoal } : {})}
-                  />
-                )}
+                <ContextPanel
+                  view={contextView}
+                  steps={planSteps}
+                  currentPlanStep={state.currentPlanStep}
+                  planDeviated={state.planDeviated}
+                  width={rightWidth}
+                  diffResult={diff.result}
+                  diffScrollOffset={diffScroll}
+                  diffVisibleRows={diffVisibleRows}
+                  borderColor={modeColor}
+                  {...(planGoal !== undefined ? { goal: planGoal } : {})}
+                />
               </Box>
             )}
           </>
@@ -1045,6 +1018,7 @@ export function App({
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
+            {...(workflowStatus.active && workflowStatus.name !== undefined ? { workflow: { name: workflowStatus.name, stepIndex: workflowStatus.stepIndex, total: workflowStatus.total, label: workflowStatus.label } } : {})}
           />
           <Box
             borderStyle="single"
