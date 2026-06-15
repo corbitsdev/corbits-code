@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "@intx/types/runtime";
 
-import type { CapabilityName, WorkflowStep } from "./types.js";
+import type { CapabilityName, WorkflowStep } from "@intercode/default-workflows";
 
 // The capability registry. Each abstract capability lists the tool-name
 // patterns that satisfy it. Detection is name-based and defensive: a capability
