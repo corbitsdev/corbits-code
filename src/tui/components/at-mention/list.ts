@@ -2,7 +2,7 @@ import { opendir, realpath } from "node:fs/promises";
 import { resolve, dirname, basename, relative, sep } from "node:path";
 
 const MAX_SUGGESTIONS = 20;
-const MAX_SCANNED_ENTRIES = 200;
+const MAX_SCANNED_ENTRIES = 2_000;
 
 async function resolveWorkspaceDirectory(dir: string, cwd: string): Promise<string | null> {
   const abs = resolve(cwd, dir);
