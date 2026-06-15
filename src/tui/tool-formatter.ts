@@ -88,6 +88,19 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
     const command = !(shellParsed instanceof type.errors) ? shellParsed.command : rawArgs.trim();
     return { display: "Shell", role: shellRole(command), summary: command, full: command, isShell: true };
   }
+  if (toolName === "task") {
+    const taskParsed = TaskArgSchema(tryParseObject(rawArgs));
+    if (!(taskParsed instanceof type.errors)) {
+      const agentName = taskParsed.agent;
+      const description = taskParsed.description ?? "";
+      const display =
+        agentName !== undefined
+          ? agentName[0]!.toUpperCase() + agentName.slice(1)
+          : "Task";
+      const summary = description.length > 0 ? `${display}(${abbreviate(description, ARG_VALUE_MAX)})` : display;
+      return { display, role: "accent", summary, full: summary, isShell: false };
+    }
+  }
   const { summary, full } = summarizeToolArgs(toolName, rawArgs);
   return { display: humanizeToolName(toolName), role: toolRole(toolName), summary, full, isShell: false };
 }
@@ -102,6 +115,7 @@ const ARG_VALUE_MAX = 48;
 
 const PathArgSchema = type({ path: "string" });
 const ShellArgSchema = type({ command: "string" });
+const TaskArgSchema = type({ "agent?": "string", "description?": "string" });
 const WebSearchResultSchema = type({ results: "unknown[]" });
 const WebFetchResultSchema = type({ content: "string" });
 
