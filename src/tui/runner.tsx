@@ -16,6 +16,7 @@ import { buildCodexSource, buildOpenAISource, type Config } from "../config/inde
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
+import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { loadWorkflowPlugins } from "../workflows/index.js";
 import { loadAgentPlugins } from "../agent/profiles.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
@@ -265,6 +266,7 @@ export async function runTUI(config: Config): Promise<number> {
   // source (account id pulled from the resolved catalog entry, session id from
   // the run) rather than the OpenAI-compatible one.
   const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+  if (initialCodexProfile !== undefined) void refreshCodexInstructions().catch(() => {});
   const initialCodexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
   const buildInitialSource = (): InferenceSource =>
     initialCodexProfile !== undefined

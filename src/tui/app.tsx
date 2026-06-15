@@ -35,6 +35,7 @@ import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { startCodexLogin } from "../auth/codex/login.js";
 import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
+import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { loadCodexProfile, removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
@@ -362,6 +363,7 @@ export function App({
   // Resolve a fresh access token for a Codex profile and make it the active
   // provider. Surfaces a re-login hint if the profile can no longer be used.
   const switchToCodexProfile = (name: string): void => {
+    void refreshCodexInstructions().catch(() => {});
     void Promise.all([getValidCodexToken(name), loadCodexProfile(name), fetchCodexModels(name).catch(() => [])]).then(
       ([token, profile, liveModels]) => {
         const accountId = profile?.tokens.accountId;
@@ -1073,7 +1075,7 @@ export function App({
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
           cacheReadTokens={state.cacheReadTokens}
-          contextUsage={state.contextTokens > 0 ? formatContextUsage(state.contextTokens, model) : undefined}
+          contextUsage={formatContextUsage(state.contextTokens, model)}
           status={state.status}
           reasoningEffort={reasoningEffort}
           auto={auto}

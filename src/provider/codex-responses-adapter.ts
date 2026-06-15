@@ -19,7 +19,7 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "../auth/codex/constants.js";
 import { parseCodexRateLimitHeaders, recordCodexUsage } from "../auth/codex/usage.js";
-import { GPT_5_CODEX_PROMPT } from "../auth/codex/prompts/gpt-5-codex.js";
+import { codexInstructions } from "../auth/codex/instructions.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -160,7 +160,7 @@ function buildRequest(
   const body: Record<string, unknown> = {
     model,
     input,
-    instructions: GPT_5_CODEX_PROMPT,
+    instructions: codexInstructions(),
     // The Codex backend requires server-side storage off and streaming on, and
     // asks for encrypted reasoning so it can be round-tripped across turns.
     store: false,
