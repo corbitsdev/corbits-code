@@ -103,13 +103,14 @@ export function ModalStack({
         />
       )}
       {pendingPlan !== null && (
-        <ApprovalModal plan={pendingPlan} onApprove={onApprove} onReject={onReject} />
+        <ApprovalModal plan={pendingPlan} onApprove={onApprove} onReject={onReject} {...(width !== undefined ? { width } : {})} />
       )}
       {pendingOperator !== null && (
         <OperatorModal
           question={pendingOperator.question}
           options={pendingOperator.options}
           onSelect={onSelectOperator}
+          {...(width !== undefined ? { width } : {})}
         />
       )}
       {pendingPermission !== null && (

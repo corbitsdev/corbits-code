@@ -112,7 +112,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       definition: planEnterDefinition,
       handler: async (): Promise<string> => {
         args.onPlanEnter?.();
-        return "Plan mode active. write_file and edit_file are now disabled. Explore the codebase and call submit_plan when you have a complete plan.";
+        return "Plan mode entered.";
       },
     }),
     stringTool({

@@ -28,3 +28,8 @@ test("computeVisibleRows: both mcpAuth and commandMessage visible", () => {
 test("computeVisibleRows: clamps to minimum of 1", () => {
   expect(computeVisibleRows({ rows: 10, chromeRows: 12, effectiveOverlayRows: 20, extraChromeRows: 5 })).toBe(1);
 });
+
+test("computeVisibleRows: CHROME_ROWS=10 reserves room for header second line", () => {
+  // 24 rows terminal - 10 chrome - 0 overlay - 0 extra = 14 visible rows
+  expect(computeVisibleRows({ rows: 24, chromeRows: 10, effectiveOverlayRows: 0, extraChromeRows: 0 })).toBe(14);
+});
