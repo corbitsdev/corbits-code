@@ -18,6 +18,7 @@ import {
   CODEX_RESPONSES_PATH,
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "../auth/codex/constants.js";
+import { parseCodexRateLimitHeaders, recordCodexUsage } from "../auth/codex/usage.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -351,6 +352,15 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
   return {
     buildRequest,
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
+    // Not a real pacing hook — this is the adapter interface's per-response
+    // headers callback (invoked on every response), which we use to capture the
+    // x-codex-* rate-limit headers for the live usage indicator. No pacing delay
+    // is imposed; the prepaid windows are surfaced, not throttled on.
+    extractPacingDelayMs: (headers) => {
+      const usage = parseCodexRateLimitHeaders(headers);
+      if (usage !== undefined) recordCodexUsage(usage);
+      return undefined;
+    },
   };
 }
 

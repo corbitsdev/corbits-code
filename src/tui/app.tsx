@@ -37,7 +37,7 @@ import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
 import { loadCodexProfile, removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
-import { fetchCodexUsage, fetchCodexModels, formatCodexUsage } from "../auth/codex/usage.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -344,6 +344,17 @@ export function App({
         .filter((name): name is string => name !== undefined),
     [providerCatalog],
   );
+
+  // For a Codex profile, show live plan usage in the status bar instead of a
+  // dollar cost (the plan is prepaid). Derived on every render — the value is
+  // refreshed from the x-codex-* response headers captured after each turn, and
+  // stream events re-render this component, so it stays current without an
+  // effect or an extra request. undefined → fall back to the normal cost string.
+  const codexUsageDisplay = (() => {
+    if (codexProfileFromProviderName(provider) === undefined) return undefined;
+    const usage = getLatestCodexUsage();
+    return usage !== undefined ? formatCodexUsageCompact(usage) : "Codex";
+  })();
 
   // Resolve a fresh access token for a Codex profile and make it the active
   // provider. Surfaces a re-login hint if the profile can no longer be used.
@@ -1053,7 +1064,7 @@ export function App({
         <StatusBar
           provider={provider}
           model={model}
-          cost={state.formattedCost}
+          cost={codexUsageDisplay ?? state.formattedCost}
           inputTokens={state.inputTokens}
           outputTokens={state.outputTokens}
           cacheReadTokens={state.cacheReadTokens}
