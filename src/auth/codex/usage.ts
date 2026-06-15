@@ -121,12 +121,28 @@ export function formatCodexUsage(usage: CodexUsage): string {
   return lines.join("\n");
 }
 
+// Label a rate-limit window from its actual duration so the status bar stays
+// correct if the backend changes window lengths. Falls back to the supplied
+// default when the duration is missing (older header sets omit it).
+function windowLabel(windowSeconds: number, fallback: string): string {
+  if (windowSeconds <= 0) return fallback;
+  const hours = windowSeconds / 3600;
+  if (hours < 24) return `${String(Math.round(hours))}h`;
+  const days = hours / 24;
+  if (days === 7) return "wk";
+  return `${String(Math.round(days))}d`;
+}
+
 // Compact one-line form for the status bar (replaces the dollar cost for Codex
 // profiles): "Codex 5h 100% · wk 74%".
 export function formatCodexUsageCompact(usage: CodexUsage): string {
   const parts: string[] = ["Codex"];
-  if (usage.primary !== undefined) parts.push(`5h ${String(Math.round(usage.primary.usedPercent))}%`);
-  if (usage.secondary !== undefined) parts.push(`wk ${String(Math.round(usage.secondary.usedPercent))}%`);
+  if (usage.primary !== undefined) {
+    parts.push(`${windowLabel(usage.primary.windowSeconds, "5h")} ${String(Math.round(usage.primary.usedPercent))}%`);
+  }
+  if (usage.secondary !== undefined) {
+    parts.push(`${windowLabel(usage.secondary.windowSeconds, "wk")} ${String(Math.round(usage.secondary.usedPercent))}%`);
+  }
   if (!usage.allowed) parts.push("(limit reached)");
   return parts.length === 1 ? "Codex" : `${parts[0]} ${parts.slice(1).join(" · ")}`;
 }

@@ -48,7 +48,7 @@ async function latestReleaseTag(): Promise<string> {
 
 export async function refreshCodexInstructions(): Promise<void> {
   const tag = await latestReleaseTag();
-  const res = await fetch(`https://raw.githubusercontent.com/openai/codex/${tag}/${PROMPT_PATH}`);
+  const res = await fetch(`https://raw.githubusercontent.com/openai/codex/${encodeURIComponent(tag)}/${PROMPT_PATH}`);
   if (!res.ok) throw new Error(`Codex prompt fetch failed (HTTP ${String(res.status)}).`);
   const text = await res.text();
   if (!isValidCodexPrompt(text)) throw new Error("Codex prompt fetch returned an unexpected body.");
