@@ -661,3 +661,66 @@ describe("isAutoAllowedShellCall", () => {
     expect(asked).toBe(1);
   });
 });
+
+describe("createPermissionGate restricted paths", () => {
+  const cwd = process.cwd();
+  const restrictedGate = (onAsk: () => void) =>
+    createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { onAsk(); return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+  test("reading a normal source file stays allow-tier", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "src/index.ts" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("reading an .agent-state file asks for approval", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("reading a gitignored file asks for approval", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "node_modules/foo/index.js" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("declining a restricted read denies it", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => ({ allow: false }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
+    expect(verdict.allowed).toBe(false);
+  });
+
+  test("a shell read of an .agent-state file is no longer auto-allowed", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    expect((await gate.evaluate(shellCall("cat .agent-state/run.json"))).allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("a whole-workspace grep with no path stays allow-tier", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "grep", arguments: { pattern: "foo" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+});

@@ -12,10 +12,48 @@ import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 // here.
 const ALLOW_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir"]);
 
+// Allow-tier tools that take a `path` argument. When that path is restricted
+// (gitignored or under .agent-state) the gate drops them from allow to ask.
+const READ_PATH_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir"]);
+
 export type Tier = "allow" | "ask";
 
 export function classifyTool(toolName: string): Tier {
   return ALLOW_TOOLS.has(toolName) ? "allow" : "ask";
+}
+
+// The restricted `path` argument of a read-path tool call, or undefined when the
+// call has no path or the path is not restricted. grep/search_files without a
+// path scan the whole workspace and are not treated as restricted — ripgrep
+// already skips gitignored files, so a workspace-wide search stays allow-tier.
+export function restrictedReadPath(
+  call: ToolCall,
+  isRestricted: (path: string) => boolean,
+): string | undefined {
+  if (!READ_PATH_TOOLS.has(call.name)) return undefined;
+  const path = stringArg(call, "path");
+  if (path.length === 0) return undefined;
+  return isRestricted(path) ? path : undefined;
+}
+
+// Whether a shell command reads through a restricted path. Tokenised so a bare
+// `cat .agent-state/run.json` is caught; flags are ignored since they are not
+// path arguments.
+export function commandTargetsRestricted(
+  command: string,
+  isRestricted: (path: string) => boolean,
+): boolean {
+  return tokenize(command)
+    .filter((token) => !token.startsWith("-"))
+    .some((token) => isRestricted(token));
+}
+
+export function callTargetsRestricted(
+  call: ToolCall,
+  isRestricted: (path: string) => boolean,
+): boolean {
+  if (call.name === "run_shell") return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
+  return restrictedReadPath(call, isRestricted) !== undefined;
 }
 
 const SAFE_SHELL_PROGRAMS = new Set([
@@ -155,6 +193,13 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
     const path = stringArg(call, "path");
     const action = call.name === "write_file" ? "Write file" : "Edit file";
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
+  }
+  // A read-path tool only reaches here when its target is restricted (gitignored
+  // or under .agent-state). Key the request on the path so approving it grants
+  // that path or directory, not every future read.
+  if (READ_PATH_TOOLS.has(call.name)) {
+    const path = stringArg(call, "path");
+    return [{ tool: call.name, action: "Read restricted path", subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
   // Any other consequential tool: approve as a whole, remember by tool name.
   // MCP tools are presented by their human label; the raw mcp__ identifier stays
