@@ -314,6 +314,48 @@ describe("multi-line", () => {
     expect(allText(lines[1] ?? [])).toBe("Game 3 | June 7 | Vegas   ");
     expect(allText(lines[2] ?? [])).toBe("Game 4 | June 9 | Vegas   ");
   });
+
+  test("inline markdown inside table cells is parsed, not left literal", () => {
+    const lines = parseMarkdown("| Item | Status |\n| --- | --- |\n| name | **done** |");
+    for (const line of lines) {
+      expect(allText(line)).not.toContain("**");
+    }
+    const statusCell = (lines[1] ?? []).find((s) => s.text === "done");
+    expect(statusCell?.bold).toBe(true);
+  });
+
+  test("table within width renders aligned grid, no row exceeds width", () => {
+    const lines = parseMarkdown(
+      "| Game | Date | Location |\n| --- | --- | --- |\n| Game 3 | June 7 | Vegas |",
+      40,
+    );
+    for (const line of lines) {
+      expect(allText(line).length).toBeLessThanOrEqual(40);
+    }
+    expect(allText(lines[0] ?? [])).toContain(" | ");
+  });
+
+  test("wide table shrinks columns proportionally to fit the budget", () => {
+    const wide =
+      "| Suggestion | Status |\n| --- | --- |\n" +
+      "| this is a fairly long suggestion cell that needs wrapping | fixed it |";
+    const lines = parseMarkdown(wide, 40);
+    for (const line of lines) {
+      expect(allText(line).length).toBeLessThanOrEqual(40);
+    }
+    // A single logical row wraps into multiple aligned visual rows.
+    expect(lines.length).toBeGreaterThan(2);
+  });
+
+  test("table too narrow to shrink falls back to stacked key-value lines", () => {
+    const wide =
+      "| Suggestion | Status |\n| --- | --- |\n" +
+      "| an imprecise display label | needs a clearer name |";
+    const lines = parseMarkdown(wide, 14);
+    const texts = lines.map(allText);
+    expect(texts.some((t) => t.startsWith("Suggestion: "))).toBe(true);
+    expect(texts.some((t) => t.startsWith("Status: "))).toBe(true);
+  });
 });
 
 test("link with an empty URL still renders as styled text, not raw characters", () => {
