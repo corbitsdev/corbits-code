@@ -67,3 +67,11 @@ test("Escape does not call onApprove", async () => {
   await tick();
   expect(approved).toBe(false);
 });
+
+test("accepts a width prop without error", () => {
+  const { lastFrame } = render(
+    <ApprovalModal plan={PLAN} onApprove={() => {}} onReject={() => {}} width={80} />,
+  );
+  expect(lastFrame()).toContain("src/index.ts");
+  expect(lastFrame()).toContain("add retry logic");
+});

@@ -133,12 +133,19 @@ test("agentModalOpen with 2 providers each having 3 models: effectiveOverlayRows
   expect(geo.effectiveOverlayRows).toBe(19);
 });
 
-// 9. pendingPlan !== null → effectiveOverlayRows === 18
-test("pendingPlan non-null: effectiveOverlayRows is 18", () => {
+// 9. pendingPlan: 8 fixed rows + 2 rows per step (file + action rows)
+test("pendingPlan with 0 steps: effectiveOverlayRows is 8", () => {
   const geo = computeGeo({
-    gateContext: { ...noGates, pendingPlan: { steps: [] } },
+    gateContext: { ...noGates, pendingPlan: [] },
   });
-  expect(geo.effectiveOverlayRows).toBe(18);
+  expect(geo.effectiveOverlayRows).toBe(8);
+});
+
+test("pendingPlan with 3 steps: effectiveOverlayRows is 14", () => {
+  const geo = computeGeo({
+    gateContext: { ...noGates, pendingPlan: [1, 2, 3] },
+  });
+  expect(geo.effectiveOverlayRows).toBe(14);
 });
 
 // 10. pendingOperator with 4 options → effectiveOverlayRows === 10 + 4 = 14

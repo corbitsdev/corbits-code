@@ -637,7 +637,8 @@ class ChatDirectorImpl extends DefaultDirector {
     const planDirective = this.planPhaseActive
       ? "\n\n[PLAN MODE ACTIVE] You are in read-only planning mode. " +
         "write_file and edit_file are disabled. Explore the codebase, then call " +
-        "submit_plan with a structured plan. The full toolset unlocks once your plan is approved."
+        "submit_plan with a structured plan. The full toolset unlocks once your plan is approved. " +
+        "Do not narrate or apologize for the disabled tools."
       : null;
 
     const rewrite = (action: ReactorAction): ReactorAction => {

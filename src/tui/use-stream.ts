@@ -55,6 +55,7 @@ export type AgentStreamState = {
   isProcessing: boolean;
   currentToolName: string | null;
   streamingType: "text" | "thinking" | "tool" | null;
+  activityTick: number;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -187,6 +188,7 @@ export function createAgentStreamState(
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
+  let activityTick = 0;
   let faremeter = makeFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
@@ -257,6 +259,9 @@ export function createAgentStreamState(
     get streamingType() {
       return streamingType;
     },
+    get activityTick() {
+      return activityTick;
+    },
     setGatePending(pending: boolean): void {
       // Always balance the count, even when the run is terminal/stopping — a gate
       // that opened while running can still resolve after a stop, and if the
@@ -310,6 +315,7 @@ export function createAgentStreamState(
       startedAt = Date.now();
       finishedAt = null;
       openCallId = null;
+      activityTick = 0;
       contextTokens = 0;
       faremeter = makeFaremeter();
     },
@@ -324,6 +330,7 @@ export function createAgentStreamState(
         case "inference.thinking.delta": {
           awaitingResponse = false;
           streamingType = "thinking";
+          activityTick += 1;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
@@ -338,6 +345,7 @@ export function createAgentStreamState(
           awaitingResponse = false;
           streamingType = "text";
           hadTextDeltaSinceLastReply = true;
+          activityTick += 1;
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
@@ -360,6 +368,7 @@ export function createAgentStreamState(
           break;
         }
         case "inference.tool_call.delta": {
+          activityTick += 1;
           const fragment = (event.data as { argumentFragment: string }).argumentFragment;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "tool_call") {

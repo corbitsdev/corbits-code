@@ -103,22 +103,27 @@ export function handleKey(
     }
     return now;
   }
-  // While the slash-command palette is open, arrow keys navigate its list (the
-  // input component owns them). Ink broadcasts every keypress to all useInput
-  // handlers, so without this guard the same arrow would also scroll the log.
-  if (context.commandPaletteOpen && (key.upArrow || key.downArrow)) {
-    return lastEscMs;
-  }
   if (key.ctrl && key.downArrow) {
     actions.scrollToBottom();
     return lastEscMs;
   }
-  if (key.upArrow) {
+  // PageUp/PageDown scroll the log; they're never claimed by the prompt, so
+  // these bindings work even when the input is focused (the normal case).
+  if (key.pageUp) {
     actions.scrollUp();
     return lastEscMs;
   }
-  if (key.downArrow) {
+  if (key.pageDown) {
     actions.scrollDown();
+    return lastEscMs;
+  }
+  if (key.ctrl && key.upArrow) {
+    actions.scrollUp();
+    return lastEscMs;
+  }
+  // Plain arrow keys belong to the prompt box. When the input is focused or the
+  // command palette is open, ChatInput's useInput handler owns them.
+  if ((context.inputFocused || context.commandPaletteOpen) && (key.upArrow || key.downArrow)) {
     return lastEscMs;
   }
   if (key.ctrl && input === "t") {
