@@ -23,6 +23,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { CODEX_HEADLESS_REFRESH_INTERVAL_MS } from "../auth/codex/constants.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 
 import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
@@ -299,28 +300,33 @@ export async function runAgent(
   const storage = await createIsogitStore(workdir);
 
   const codexProfile = codexProfileFromProviderName(config.providerName);
-  const codexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
-  // Headless runs have no per-send refresh hook, so refresh once up front; the
-  // seeded token (from the catalog) may already be stale.
-  const codexToken = codexProfile !== undefined ? await getValidCodexToken(codexProfile) : config.apiKey;
+  // Refresh once up front; the seeded catalog token may already be stale. The
+  // fresh account id rides along, avoiding a second profile read.
+  const codexAccess = codexProfile !== undefined ? await getValidCodexToken(codexProfile) : undefined;
+  const codexToken = codexAccess?.access ?? config.apiKey;
+  const codexAccountId =
+    codexAccess?.accountId ?? config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
+  const codexSource =
+    codexProfile !== undefined
+      ? buildCodexSource({
+          id: config.providerName,
+          apiKey: codexToken,
+          model: config.model,
+          sessionId: config.sessionId,
+          ...(codexAccountId !== undefined ? { accountId: codexAccountId } : {}),
+          ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+        })
+      : undefined;
   const agent = await createAgent(def, {
     source:
-      codexProfile !== undefined
-        ? buildCodexSource({
-            id: config.providerName,
-            apiKey: codexToken,
-            model: config.model,
-            sessionId: config.sessionId,
-            ...(codexAccountId !== undefined ? { accountId: codexAccountId } : {}),
-            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-          })
-        : buildOpenAISource({
-            id: config.providerName,
-            baseURL: config.baseURL,
-            apiKey: config.apiKey,
-            model: config.model,
-            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-          }),
+      codexSource ??
+      buildOpenAISource({
+        id: config.providerName,
+        baseURL: config.baseURL,
+        apiKey: config.apiKey,
+        model: config.model,
+        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+      }),
     storage,
     workdir,
     audit: noopAuditStore(),
@@ -346,6 +352,24 @@ export async function runAgent(
   const turnCollector = createTurnContextCollector((ctx) => {
     hookManager.dispatchPostTurn(ctx);
   });
+  // A headless run can outlive a Codex access token (≈1h). With no per-send
+  // refresh hook, reseed the source from a fresh token on an interval so a
+  // long run does not start sending a dead credential mid-flight.
+  let codexAccessToken = codexToken;
+  const codexRefresh =
+    codexProfile !== undefined && codexSource !== undefined
+      ? setInterval(() => {
+          void getValidCodexToken(codexProfile)
+            .then(({ access }) => {
+              if (access !== codexAccessToken) {
+                codexAccessToken = access;
+                agent.setSource({ ...codexSource, apiKey: access });
+              }
+            })
+            .catch(() => {});
+        }, CODEX_HEADLESS_REFRESH_INTERVAL_MS)
+      : undefined;
+
   const sendPromise = agent.send(config.task);
 
   const streamPromise = consumeStream(agent.stream(), (event) => {
@@ -369,6 +393,7 @@ export async function runAgent(
       // ignore
     }
     clearInterval(pricingRefresh);
+    if (codexRefresh !== undefined) clearInterval(codexRefresh);
     await posixTools.dispose();
   }
 

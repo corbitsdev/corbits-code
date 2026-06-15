@@ -55,3 +55,7 @@ export const CODEX_DEFAULT_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"] as co
 // Refresh a token this many milliseconds before its stated expiry so a request
 // is never sent with a token about to lapse mid-flight.
 export const CODEX_REFRESH_SKEW_MS = 60_000;
+
+// How often a headless run re-checks its Codex token and reseeds the source.
+// Half the skew so the refresh window is never missed between ticks.
+export const CODEX_HEADLESS_REFRESH_INTERVAL_MS = 30_000;
