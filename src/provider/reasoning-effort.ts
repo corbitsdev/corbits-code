@@ -1,5 +1,3 @@
-import { CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
-
 // OpenAI reasoning-effort is a provider-native request knob carried through
 // InferenceSource.defaults.providerOptions.reasoning_effort. It is not a
 // "variant" or a separate model — the same model accepts an effort level that
@@ -30,10 +28,6 @@ const FULL_EFFORT_MODELS: readonly string[] = ["gpt-5.1", "gpt-5.1-codex", "gpt-
 // Codex backend models take low/medium/high/xhigh — no `minimal`, no `none`.
 const CODEX_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 
-function isCodexModel(model: string): boolean {
-  return model.includes("codex") || (CODEX_DEFAULT_MODELS as readonly string[]).includes(model);
-}
-
 // The safe subset offered for models we do not recognize. Conservative on
 // purpose: these are the levels the broadest range of reasoning models accept.
 const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"];
@@ -63,15 +57,16 @@ export function modelReasoningCapability(model: string): boolean | undefined {
 export function supportedEfforts(
   model: string,
   reasoningCapable: boolean | undefined = modelReasoningCapability(model),
+  isCodex = false,
 ): ReasoningEffort[] {
   if (reasoningCapable === false) {
     return [];
   }
+  if (isCodex) {
+    return [...CODEX_EFFORTS];
+  }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];
-  }
-  if (isCodexModel(model)) {
-    return [...CODEX_EFFORTS];
   }
   if (isKnownOpenAIReasoningModel(model)) {
     return [...DEFAULT_EFFORTS];
@@ -82,8 +77,9 @@ export function supportedEfforts(
 export function validateEffort(
   model: string,
   effort: ReasoningEffort,
+  isCodex = false,
 ): { ok: true } | { ok: false; error: string } {
-  const supported = supportedEfforts(model);
+  const supported = supportedEfforts(model, undefined, isCodex);
   if (supported.includes(effort)) {
     return { ok: true };
   }

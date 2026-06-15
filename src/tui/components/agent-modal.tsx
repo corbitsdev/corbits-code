@@ -7,8 +7,8 @@ import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning
 import { PROVIDER_TIERS, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 
-// Active-effort display: undefined means "no override" (field omitted);
-// "none" is OpenAI's explicit disable-reasoning value. Both read as "off".
+// Effort display: undefined means "no override" (field omitted); "none" is
+// OpenAI's explicit disable-reasoning value. Both read as "off".
 function effortLabel(effort: ReasoningEffort | undefined): string {
   if (effort === undefined) return "Default (no override)";
   if (effort === "none") return "None (disable reasoning)";
@@ -34,6 +34,7 @@ export type AgentProvider = {
   baseURL: string;
   models: string[];
   defaultModel?: string;
+  codexProfile?: string;
 };
 
 export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
@@ -64,13 +65,14 @@ const FIELD_HINTS: Record<ProviderFormField, string> = {
 // editable fields it must display plus model metadata, but never receives
 // provider API keys.
 export function toAgentProviders(
-  entries: ReadonlyArray<{ name: string; baseURL: string; apiKey?: string; models: string[]; defaultModel?: string }>,
+  entries: ReadonlyArray<{ name: string; baseURL: string; apiKey?: string; models: string[]; defaultModel?: string; codexProfile?: string }>,
 ): AgentProvider[] {
   return entries.map((p) => ({
     name: p.name,
     baseURL: p.baseURL,
     models: p.models,
     ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+    ...(p.codexProfile !== undefined ? { codexProfile: p.codexProfile } : {}),
   }));
 }
 
@@ -213,9 +215,11 @@ export function AgentModal({
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
   // Real effort levels the selected model accepts, from supportedEfforts().
-  // An empty array means no model is selected yet.
+  // An empty array means no model is selected or the model has no reasoning capability.
+  const isCodexProvider = (name: string | undefined): boolean =>
+    providers.find((p) => p.name === name)?.codexProfile !== undefined;
   const efforts: ReasoningEffort[] =
-    pendingModel !== undefined ? supportedEfforts(pendingModel) : [];
+    pendingModel !== undefined ? supportedEfforts(pendingModel, undefined, isCodexProvider(pendingProvider)) : [];
   const currentField = FORM_FIELDS[formIndex] ?? "name";
 
   const enterModelStep = (): void => {
@@ -231,7 +235,7 @@ export function AgentModal({
     setPendingProvider(providerName);
     setPendingModel(modelName);
     const active = providerName === activeProvider && modelName === activeModel ? activeEffort : undefined;
-    const options = supportedEfforts(modelName);
+    const options = supportedEfforts(modelName, undefined, isCodexProvider(providerName));
     const idx = active !== undefined ? options.indexOf(active) : -1;
     const fallback = options.indexOf("medium");
     setEffortIndex(idx >= 0 ? idx : fallback >= 0 ? fallback : 0);
