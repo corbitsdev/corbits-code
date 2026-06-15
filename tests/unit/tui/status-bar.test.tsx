@@ -48,8 +48,8 @@ test("StatusBar does not render plan progress", () => {
 });
 
 test("StatusBar renders context-window usage when provided", () => {
-  const { lastFrame } = renderBar({ contextUsage: "ctx 42%" });
-  expect(lastFrame()).toContain("ctx 42%");
+  const { lastFrame } = renderBar({ contextUsage: "Context: 280000/400000" });
+  expect(lastFrame()).toContain("Context: 280000/400000");
 });
 
 test("StatusBar omits the cost box when cost is undefined", () => {

@@ -14,8 +14,10 @@ export function contextWindowFor(model: string): number {
   return DEFAULT_CONTEXT_WINDOW;
 }
 
-export function formatContextUsage(usedTokens: number, model: string): string {
+const CONTEXT_DISPLAY_THRESHOLD = 0.6;
+
+export function formatContextUsage(usedTokens: number, model: string): string | undefined {
   const window = contextWindowFor(model);
-  const percent = Math.min(100, Math.round((usedTokens / window) * 100));
-  return `ctx ${String(percent)}%`;
+  if (usedTokens / window <= CONTEXT_DISPLAY_THRESHOLD) return undefined;
+  return `Context: ${String(usedTokens)}/${String(window)}`;
 }
