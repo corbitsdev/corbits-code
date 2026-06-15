@@ -148,6 +148,7 @@ export function buildAuthorizationRules(): string {
   return [
     "Boundaries and escalation:",
     "- The tool layer hard-denies destructive commands and reads of secret files; a blocked call did not run.",
+    "- Treat gitignored paths and the .agent-state directory as off-limits: don't read, grep, or open them. grep and search already skip gitignored files. Only reach into a gitignored path when it is genuinely required for the task, and expect an approval prompt. Only inspect .agent-state when the user explicitly asks you to self-reflect, trace, or investigate why you or another agent did something.",
     "- If a blocked action is genuinely needed, ask_operator — say what and why. Don't work around the block.",
     "- If the task is ambiguous enough that you might build the wrong thing, ask_operator before committing to an approach.",
   ].join("\n");

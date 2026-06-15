@@ -8,7 +8,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+R", description: "Expand/collapse last tool" },
   { keys: "Ctrl+P", description: "Toggle plan full-screen" },
   { keys: "Ctrl+D", description: "Toggle diff full-screen" },
-  { keys: "Ctrl+W", description: "Toggle workflow steps panel (c for capabilities)" },
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
   { keys: "Ctrl+Y", description: "Copy last output to clipboard" },
   { keys: "↑ / ↓", description: "Scroll active pane when prompt is empty" },

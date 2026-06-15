@@ -9,6 +9,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
   "edit_file",
+  "lsp",
   "run_shell",
   "ask_operator",
   "plan_enter",
@@ -25,7 +26,6 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "search_files",
   "grep",
   "list_dir",
-  "lsp",
   "web_search",
   "web_fetch",
   "task",
@@ -34,7 +34,7 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover and load additional tools by capability. Most tools — file search, web access, the language server, sub-agents, and any connected integrations — are not loaded by default. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find references', 'issue tracker') to load the matching tools, then call them on the next turn.",
+    "Discover and load additional tools by capability. Most tools — file search, web access, sub-agents, and any connected integrations — are not loaded by default. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to load the matching tools, then call them on the next turn.",
   inputSchema: {
     type: "object",
     properties: {

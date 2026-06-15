@@ -4,6 +4,18 @@ import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
 import { setModelReasoningCapabilities, validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { readPricingCache } from "../cost/pricing-fetcher.js";
+import { listCodexProfiles } from "../auth/codex/store.js";
+import {
+  codexProfilesToCatalogEntries,
+  codexProvidersAsSettings,
+  isCodexProviderName,
+} from "./codex-providers.js";
+import { CODEX_BASE_URL } from "../auth/codex/constants.js";
+import {
+  CODEX_RESPONSES_PROVIDER,
+  CODEX_ACCOUNT_ID_OPTION,
+  CODEX_SESSION_ID_OPTION,
+} from "../provider/codex-responses-adapter.js";
 
 import {
   globalSettingsPath,
@@ -59,7 +71,43 @@ export type ProviderCatalogEntry = {
   apiKey: string;
   models: string[];
   defaultModel?: string;
+  // Manual override suppressing the status-bar dollar cost for this provider.
+  free?: boolean;
+  // Set when this entry is a Codex OAuth profile rather than an API-key
+  // provider. Holds the profile name; the send path uses it to refresh the
+  // access token before each turn. Such entries are never written to
+  // settings.json (their credentials live in the Codex auth store).
+  codexProfile?: string;
+  // ChatGPT account id for a Codex profile, sent as the chatgpt-account-id
+  // header by the Responses adapter. Present only on Codex entries.
+  codexAccountId?: string;
 };
+
+// Build the InferenceSource for a Codex OAuth profile. Routes to the
+// "codex-responses" adapter (the Codex backend speaks the Responses API, not
+// Chat Completions) and carries the account id + a session id through
+// providerOptions, where the adapter lifts them into request headers. The
+// access token is the apiKey; the harness injects it as the bearer credential.
+export function buildCodexSource(fields: {
+  id: string;
+  apiKey: string;
+  model: string;
+  sessionId: string;
+  accountId?: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const providerOptions: Record<string, unknown> = { [CODEX_SESSION_ID_OPTION]: fields.sessionId };
+  if (fields.accountId !== undefined) providerOptions[CODEX_ACCOUNT_ID_OPTION] = fields.accountId;
+  if (fields.reasoningEffort !== undefined) providerOptions["reasoning_effort"] = fields.reasoningEffort;
+  return {
+    id: fields.id,
+    provider: CODEX_RESPONSES_PROVIDER,
+    baseURL: CODEX_BASE_URL,
+    apiKey: fields.apiKey,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
+  };
+}
 
 export type Config = {
   configured: true;
@@ -233,6 +281,19 @@ export async function loadConfig(
         })
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
 
+  // Codex OAuth profiles live in the home-level auth store, not in any settings
+  // file. They are merged in only for the real default settings path: an
+  // explicit --config or a test override selects a controlled provider set that
+  // should not pull in home credentials. Profiles surface as "codex/<name>"
+  // providers so selection and the picker treat them like any other provider.
+  const useCodexProfiles = configPath === undefined && options.globalSettingsPath === undefined;
+  const codexProfiles = useCodexProfiles ? await listCodexProfiles() : [];
+  const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
+  const settingsForResolution: Settings | null =
+    codexProfiles.length > 0
+      ? { ...(settings ?? { providers: {} }), providers: { ...(settings?.providers ?? {}), ...codexProviderSettings } }
+      : settings;
+
   // The per-repo selection file still applies on top of a --config source: that
   // file supplies provider definitions, while .intercode/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
@@ -265,7 +326,7 @@ export async function loadConfig(
   let resolved: ResolvedProvider;
   try {
     resolved = resolveProvider({
-      settings,
+      settings: settingsForResolution,
       local: profileLocal,
       env: envProvider(),
       cli,
@@ -294,7 +355,7 @@ export async function loadConfig(
   if (local?.reasoningEffort !== undefined) {
     const cached = await readPricingCache();
     setModelReasoningCapabilities(cached?.reasoning ?? {});
-    const verdict = validateEffort(resolved.model, local.reasoningEffort);
+    const verdict = validateEffort(resolved.model, local.reasoningEffort, isCodexProviderName(resolved.providerName));
     if (!verdict.ok) {
       throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
     }
@@ -314,7 +375,10 @@ export async function loadConfig(
     noWorkflow,
     ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
-    providers: buildProviderCatalog(settings, resolved),
+    providers: [
+      ...buildProviderCatalog(settings, resolved).filter((e) => !isCodexProviderName(e.name)),
+      ...codexProfilesToCatalogEntries(codexProfiles),
+    ],
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
     ...(profile.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: profile.systemPromptExtensions }
@@ -346,6 +410,7 @@ export function buildProviderCatalog(
       apiKey: p.apiKey,
       models: p.models,
       ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+      ...(p.free !== undefined ? { free: p.free } : {}),
     }));
   }
   return [
@@ -362,16 +427,21 @@ export function providerCatalogToSettings(
   catalog: readonly ProviderCatalogEntry[],
   defaultProvider: string | undefined,
 ): Settings {
+  // Codex OAuth entries are credential-backed by the home-level auth store, not
+  // by settings.json. Exclude them so a provider edit never persists a
+  // (short-lived) access token into the settings file.
+  const persistable = catalog.filter((p) => p.codexProfile === undefined);
   return {
     ...(defaultProvider !== undefined ? { defaultProvider } : {}),
     providers: Object.fromEntries(
-      catalog.map((p) => [
+      persistable.map((p) => [
         p.name,
         {
           baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
           apiKey: p.apiKey,
           models: p.models,
           ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+          ...(p.free !== undefined ? { free: p.free } : {}),
         },
       ]),
     ),

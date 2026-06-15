@@ -1,7 +1,3 @@
-import { type ViewNode, VIEW_TABLE_MAX_ROWS } from "./spec.js";
-
-const LINE_PADDING = 2;
-
 export type RowRange = { start: number; end: number };
 
 // Greedy word-wrap for a single logical line (no embedded newlines). Returns the
@@ -49,36 +45,4 @@ export function wrapLines(line: string, width: number): string[] {
 export function wrapCount(text: string, width: number): number {
   const w = Math.max(1, width);
   return text.split("\n").reduce((n, line) => n + wrapRanges(line, w).length, 0);
-}
-
-export function viewHeight(node: ViewNode, columns: number): number {
-  const width = Math.max(8, columns - LINE_PADDING);
-  switch (node.type) {
-    case "divider":
-    case "badge":
-    case "progress":
-      return 1;
-    case "text":
-    case "heading":
-      return wrapCount(node.value, width);
-    case "keyValue":
-      return Math.max(1, node.pairs.length);
-    case "list":
-      return Math.max(1, node.items.length);
-    case "table": {
-      const shown = Math.min(node.rows.length, VIEW_TABLE_MAX_ROWS);
-      return 1 + shown + (node.rows.length > shown ? 1 : 0);
-    }
-    case "card": {
-      const title = node.title !== undefined ? 1 : 0;
-      const subtitle = node.subtitle !== undefined ? 1 : 0;
-      const badges = node.badges !== undefined && node.badges.length > 0 ? 1 : 0;
-      return Math.max(1, title + subtitle + node.fields.length + badges);
-    }
-    case "stack": {
-      const sum = node.children.reduce((n, c) => n + viewHeight(c, columns), 0);
-      const gaps = (node.gap ?? 0) > 0 && node.children.length > 1 ? node.children.length - 1 : 0;
-      return Math.max(1, sum + gaps);
-    }
-  }
 }

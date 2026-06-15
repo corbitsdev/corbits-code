@@ -1,0 +1,61 @@
+import { lookupModelPricing, type PricingCache } from "./pricing-fetcher.js";
+
+// Free-model naming conventions: OpenRouter appends ":free", some gateways use
+// a "-free" suffix. Either, at the end of the id, marks a no-cost model.
+const FREE_MODEL_SUFFIX = /[:\-]free$/i;
+
+export function isFreeModelId(modelId: string): boolean {
+  return FREE_MODEL_SUFFIX.test(modelId.trim());
+}
+
+// A coding plan is a prepaid subscription rather than metered API usage. Such
+// endpoints carry a "coding" path segment in the base URL (e.g. Z.AI's coding
+// plan at /api/coding/...), so per-token dollar figures are meaningless and
+// should be hidden. Matched as a whole path segment so "/encoding" or a
+// "?x=/coding" query string never trips it.
+const CODING_PLAN_SEGMENT = /\/coding(\/|$)/i;
+
+export function isCodingPlanBaseURL(baseURL: string | undefined): boolean {
+  if (baseURL === undefined) return false;
+  try {
+    return CODING_PLAN_SEGMENT.test(new URL(baseURL).pathname);
+  } catch {
+    return CODING_PLAN_SEGMENT.test(baseURL);
+  }
+}
+
+export function isFreeModelByPricing(cache: PricingCache | null, modelId: string): boolean {
+  const pricing = lookupModelPricing(cache, modelId);
+  if (pricing === null) return false;
+  return pricing.inputPricePerToken === 0 && pricing.outputPricePerToken === 0;
+}
+
+export type CostVisibilityInput = {
+  baseURL?: string | undefined;
+  modelId: string;
+  providerFree?: boolean | undefined;
+  pricingCache: PricingCache | null;
+};
+
+// True when the status bar should suppress the dollar cost: a manual provider
+// override, a coding-plan endpoint, a free-named model, or a model the pricing
+// registry reports as zero-cost.
+export function shouldHideCost(input: CostVisibilityInput): boolean {
+  if (input.providerFree === true) return true;
+  if (isCodingPlanBaseURL(input.baseURL)) return true;
+  if (isFreeModelId(input.modelId)) return true;
+  return isFreeModelByPricing(input.pricingCache, input.modelId);
+}
+
+// The pricing cache loaded at startup. Held as a module global so the render
+// path can consult it without an effect (it is effectively static after load),
+// mirroring the reasoning-capabilities registry.
+let activePricingCache: PricingCache | null = null;
+
+export function setActivePricingCache(cache: PricingCache | null): void {
+  activePricingCache = cache;
+}
+
+export function getActivePricingCache(): PricingCache | null {
+  return activePricingCache;
+}

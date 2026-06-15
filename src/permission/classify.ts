@@ -2,7 +2,7 @@ import { resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
-import { splitChainedCommand, deriveCommandScopes } from "./command.js";
+import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 
@@ -12,18 +12,62 @@ import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 // here.
 const ALLOW_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir"]);
 
+// Allow-tier tools that take a `path` argument. When that path is restricted
+// (gitignored or under .agent-state) the gate drops them from allow to ask.
+const READ_PATH_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir"]);
+
 export type Tier = "allow" | "ask";
 
 export function classifyTool(toolName: string): Tier {
   return ALLOW_TOOLS.has(toolName) ? "allow" : "ask";
 }
 
+// The restricted `path` argument of a read-path tool call, or undefined when the
+// call has no path or the path is not restricted. grep/search_files without a
+// path scan the whole workspace and are not treated as restricted — ripgrep
+// already skips gitignored files, so a workspace-wide search stays allow-tier.
+export function restrictedReadPath(
+  call: ToolCall,
+  isRestricted: (path: string) => boolean,
+): string | undefined {
+  if (!READ_PATH_TOOLS.has(call.name)) return undefined;
+  const path = stringArg(call, "path");
+  if (path.length === 0) return undefined;
+  return isRestricted(path) ? path : undefined;
+}
+
+// Whether a shell command reads through a restricted path. Tokenised so a bare
+// `cat .agent-state/run.json` is caught; flags are ignored since they are not
+// path arguments.
+export function commandTargetsRestricted(
+  command: string,
+  isRestricted: (path: string) => boolean,
+): boolean {
+  return tokenize(command)
+    .filter((token) => !token.startsWith("-"))
+    .some((token) => isRestricted(token));
+}
+
+export function callTargetsRestricted(
+  call: ToolCall,
+  isRestricted: (path: string) => boolean,
+): boolean {
+  if (call.name === "run_shell") return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
+  return restrictedReadPath(call, isRestricted) !== undefined;
+}
+
 const SAFE_SHELL_PROGRAMS = new Set([
   "cat", "head", "tail", "wc", "cut", "tr", "nl", "rev", "column", "uniq", "sort", "comm", "look",
   "ls", "tree", "stat", "file", "du", "df", "basename", "dirname", "realpath", "readlink",
   "echo", "printf", "date", "whoami", "hostname", "uname", "pwd", "which", "type", "id",
-  "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings",
+  "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings", "find",
 ]);
+
+// `find` traverses read-only unless an action flag runs a command (-exec/-ok and
+// their *dir variants), deletes matches (-delete), or writes results to a file
+// (-fprint*/-fls). Its own `-o` is logical OR, not an output flag, so `find`
+// gets this rule instead of the generic WRITE_FLAG/EXEC_FLAG checks below.
+const FIND_DANGEROUS_FLAG = /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fprint0|fls)$/;
 
 // Non-pipe metacharacters that cannot appear anywhere in an auto-allowed command.
 // Pipes between safe programs are evaluated segment-by-segment (see below).
@@ -78,28 +122,39 @@ function argEscapesWorkspace(token: string, cwd: string): boolean {
 function isAutoAllowedSegment(segment: string, cwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
-  const tokens = trimmed.split(/\s+/);
+  // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
+  // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
+  // token, defeating the anchored flag checks below.
+  const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
   const args = tokens.slice(1);
-  if (args.some((token) => WRITE_FLAG.test(token))) return false;
-  if (args.some((token) => EXEC_FLAG.test(token))) return false;
+  if (program === "find") {
+    if (args.some((token) => FIND_DANGEROUS_FLAG.test(token))) return false;
+  } else {
+    if (args.some((token) => WRITE_FLAG.test(token))) return false;
+    if (args.some((token) => EXEC_FLAG.test(token))) return false;
+  }
   if (args.some((token) => isSensitivePath(token))) return false;
   if (args.some((token) => argEscapesWorkspace(token, cwd))) return false;
   return true;
 }
 
-export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
-  if (call.name !== "run_shell") return false;
-  const command = stringArg(call, "command").trim();
-  if (command.length === 0) return false;
+export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).
   // Pipes are allowed between safe segments — evaluated below.
-  if (DANGEROUS_METACHARACTERS.test(command)) return false;
+  if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
 
   // Split on pipe and require every segment to be a safe read-only program.
-  const segments = command.split("|");
+  const segments = trimmed.split("|");
   return segments.every((seg) => isAutoAllowedSegment(seg, cwd));
+}
+
+export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
+  if (call.name !== "run_shell") return false;
+  return isAutoAllowedShellCommand(stringArg(call, "command"), cwd);
 }
 
 // File scopes intentionally stop at the directory level. There is no "every
@@ -138,6 +193,13 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
     const path = stringArg(call, "path");
     const action = call.name === "write_file" ? "Write file" : "Edit file";
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
+  }
+  // A read-path tool only reaches here when its target is restricted (gitignored
+  // or under .agent-state). Key the request on the path so approving it grants
+  // that path or directory, not every future read.
+  if (READ_PATH_TOOLS.has(call.name)) {
+    const path = stringArg(call, "path");
+    return [{ tool: call.name, action: "Read restricted path", subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
   // Any other consequential tool: approve as a whole, remember by tool name.
   // MCP tools are presented by their human label; the raw mcp__ identifier stays

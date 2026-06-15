@@ -34,11 +34,19 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
       : messages;
     const built = base.buildRequest(sanitized, model, options);
     const providerOptions = options.providerOptions;
-    if (providerOptions === undefined || Object.keys(providerOptions).length === 0) {
-      return built;
-    }
+    const hasProviderOptions = providerOptions !== undefined && Object.keys(providerOptions).length > 0;
+    // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
+    // whereas the base adapter emits it for any model with thinking enabled.
+    const stripReasoning = model.toLowerCase().includes("deepseek");
+    if (!hasProviderOptions && !stripReasoning) return built;
+
     const body = JSON.parse(built.body) as Record<string, unknown>;
-    Object.assign(body, providerOptions);
+    if (hasProviderOptions) Object.assign(body, providerOptions);
+    if (stripReasoning && Array.isArray(body["messages"])) {
+      for (const msg of body["messages"]) {
+        if (msg !== null && typeof msg === "object") delete (msg as Record<string, unknown>)["reasoning_content"];
+      }
+    }
     const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
     return merged;
   };

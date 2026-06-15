@@ -1,7 +1,15 @@
 import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, GrantScope, RequestApproval } from "./types.js";
-import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
+import {
+  classifyTool,
+  buildRequests,
+  isAutoAllowedShellCall,
+  isAutoAllowedShellCommand,
+  callTargetsRestricted,
+  commandTargetsRestricted,
+} from "./classify.js";
 import { isApproved } from "./matcher.js";
+import { createPathRestriction } from "./path-restriction.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
@@ -58,6 +66,8 @@ export type PermissionGate = {
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
+  const pathRestriction = createPathRestriction(cwd ?? process.cwd());
+  const isRestricted = pathRestriction.isRestricted;
   let auto = options.auto;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
@@ -69,8 +79,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
-    if (classifyTool(call.name) === "allow") return { allowed: true };
-    if (isAutoAllowedShellCall(call, cwd)) return { allowed: true };
+    // A read targeting a restricted path (gitignored or .agent-state) drops from
+    // allow to ask, so it never auto-allows on tier or shell-safety below.
+    const restricted = callTargetsRestricted(call, isRestricted);
+    if (!restricted && classifyTool(call.name) === "allow") return { allowed: true };
+    if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
     // In AUTO mode the authz and secret-guard plugins have already hard-denied
     // destructive commands and credential reads upstream, so everything that
     // reaches here is safe to allow without a prompt.
@@ -78,6 +91,16 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
     for (const request of buildRequests(call)) {
       if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;
+      // A pipeline that mixes a consequential segment (e.g. `find`) with an
+      // intrinsically safe one (e.g. `sort`) only needs approval for the unsafe
+      // segment. Skip prompting for any segment that auto-allows on its own.
+      if (
+        request.tool === "run_shell" &&
+        isAutoAllowedShellCommand(request.subject, cwd) &&
+        !commandTargetsRestricted(request.subject, isRestricted)
+      ) {
+        continue;
+      }
 
       if (!interactive || requestApproval === undefined) {
         return {

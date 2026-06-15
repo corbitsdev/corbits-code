@@ -34,6 +34,7 @@ export type ModalStackProps = {
   agentProfiles: AgentProfile[];
   onSaveAgentProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteAgentProfile: (id: string) => void;
+  codexUsage?: string | undefined;
 
   pendingPlan: PlanStep[] | null;
   onApprove: () => void;
@@ -68,6 +69,7 @@ export function ModalStack({
   agentProfiles,
   onSaveAgentProfile,
   onDeleteAgentProfile,
+  codexUsage,
   pendingPlan,
   onApprove,
   onReject,
@@ -97,6 +99,7 @@ export function ModalStack({
           profiles={agentProfiles}
           onSaveProfile={onSaveAgentProfile}
           onDeleteProfile={onDeleteAgentProfile}
+          codexUsage={codexUsage}
         />
       )}
       {pendingPlan !== null && (

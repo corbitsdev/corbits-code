@@ -1,3 +1,5 @@
+import { wrapRanges } from "./view/height.js";
+
 export type StyledSegment = {
   text: string;
   bold?: boolean;
@@ -10,6 +12,7 @@ export type StyledSegment = {
   blockquote?: boolean;
   rule?: boolean;
   color?: string;
+  dim?: boolean;
 };
 
 function parseSegments(text: string): StyledSegment[] {
@@ -159,7 +162,10 @@ function parseLine(line: string): StyledSegment[] {
   return parseSegments(line);
 }
 
-export function parseMarkdown(text: string): StyledSegment[][] {
+// `width` is the column budget the rendered output must fit within (the same
+// width the event log wraps to). Tables use it to decide their layout; default
+// Infinity lays them out at natural width.
+export function parseMarkdown(text: string, width = Infinity): StyledSegment[][] {
   const lines: StyledSegment[][] = [];
   let inFence = false;
   const input = text.split("\n");
@@ -180,7 +186,7 @@ export function parseMarkdown(text: string): StyledSegment[][] {
       continue;
     }
 
-    const table = parseTableBlock(input, i);
+    const table = parseTableBlock(input, i, width);
     if (table !== null) {
       lines.push(...table.lines);
       i += table.consumed - 1;
@@ -198,37 +204,147 @@ type ParsedTable = {
   consumed: number;
 };
 
-function parseTableBlock(lines: string[], startIndex: number): ParsedTable | null {
+const TABLE_SEP = " | ";
+const MIN_COL_WIDTH = 6;
+
+function renderedLength(segments: StyledSegment[]): number {
+  return segments.reduce((sum, seg) => sum + seg.text.length, 0);
+}
+
+// Slice a styled cell's segments to the character range [start, end), preserving
+// each surviving segment's styling, so a cell that wraps across visual rows keeps
+// its inline markdown.
+function sliceCellSegments(segments: StyledSegment[], start: number, end: number): StyledSegment[] {
+  const out: StyledSegment[] = [];
+  let pos = 0;
+  for (const seg of segments) {
+    const segStart = pos;
+    const segEnd = pos + seg.text.length;
+    pos = segEnd;
+    const from = Math.max(start, segStart);
+    const to = Math.min(end, segEnd);
+    if (to > from) out.push({ ...seg, text: seg.text.slice(from - segStart, to - segStart) });
+  }
+  return out;
+}
+
+function padCell(segments: StyledSegment[], width: number): StyledSegment[] {
+  const gap = width - renderedLength(segments);
+  return gap > 0 ? [...segments, { text: " ".repeat(gap) }] : segments;
+}
+
+function parseTableBlock(lines: string[], startIndex: number, width: number): ParsedTable | null {
   const header = lines[startIndex];
   const separator = lines[startIndex + 1];
   if (header === undefined || separator === undefined) return null;
   if (!isTableRow(header) || !isTableSeparator(separator)) return null;
 
-  const rows: string[][] = [extractTableCells(header)];
+  const rawRows: string[][] = [extractTableCells(header)];
   let consumed = 2;
 
   for (let i = startIndex + 2; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined || !isTableRow(line)) break;
-    rows.push(extractTableCells(line));
+    rawRows.push(extractTableCells(line));
     consumed++;
   }
 
-  const width = Math.max(...rows.map((row) => row.length));
-  const padded = rows.map((row) => row.concat(Array(width - row.length).fill("")));
-  const colWidths = Array.from({ length: width }, (_, col) =>
-    Math.max(...padded.map((row) => row[col]?.length ?? 0)),
+  const cols = Math.max(...rawRows.map((row) => row.length));
+  // Parse each cell's inline markdown up front so column widths reflect the
+  // rendered text (markers stripped), not the raw source.
+  const cells: StyledSegment[][][] = rawRows.map((row) =>
+    Array.from({ length: cols }, (_, col) => parseSegments(row[col] ?? "")),
+  );
+  const naturalWidths = Array.from({ length: cols }, (_, col) =>
+    Math.max(...cells.map((row) => renderedLength(row[col] ?? []))),
   );
 
-  const rendered = padded.map((row) => [
-    {
-      text: row
-        .map((cell, col) => cell.padEnd(colWidths[col] ?? 0, " "))
-        .join(" | "),
-    },
-  ]);
+  const sepTotal = TABLE_SEP.length * (cols - 1);
+  const naturalWidth = naturalWidths.reduce((a, b) => a + b, 0) + sepTotal;
 
-  return { lines: rendered, consumed };
+  if (!Number.isFinite(width) || naturalWidth <= width) {
+    return { lines: renderGrid(cells, naturalWidths), consumed };
+  }
+
+  const targetContent = width - sepTotal;
+  if (targetContent < cols * MIN_COL_WIDTH) {
+    return { lines: renderKeyValue(cells), consumed };
+  }
+
+  return { lines: renderGrid(cells, fitColumnWidths(naturalWidths, targetContent)), consumed };
+}
+
+// Shrink columns proportionally to their natural width so the row fits the
+// budget, never below MIN_COL_WIDTH and never wider than the content needs.
+function fitColumnWidths(naturalWidths: number[], targetContent: number): number[] {
+  const sumNatural = naturalWidths.reduce((a, b) => a + b, 0) || 1;
+  const widths = naturalWidths.map((natural) =>
+    Math.min(natural, Math.max(MIN_COL_WIDTH, Math.floor((natural / sumNatural) * targetContent))),
+  );
+
+  let overflow = widths.reduce((a, b) => a + b, 0) - targetContent;
+  while (overflow > 0) {
+    let widest = -1;
+    for (let col = 0; col < widths.length; col++) {
+      if ((widths[col] ?? 0) > MIN_COL_WIDTH && (widest < 0 || (widths[col] ?? 0) > (widths[widest] ?? 0))) {
+        widest = col;
+      }
+    }
+    if (widest < 0) break;
+    widths[widest]!--;
+    overflow--;
+  }
+
+  return widths;
+}
+
+// Lay cells into an aligned grid, wrapping each cell to its column width and
+// stacking the wrapped lines so columns stay aligned across visual rows.
+function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegment[][] {
+  const out: StyledSegment[][] = [];
+
+  for (const row of cells) {
+    const wrapped = row.map((cell, col) => {
+      const colWidth = colWidths[col] ?? 0;
+      const text = cell.map((s) => s.text).join("");
+      return wrapRanges(text, colWidth).map((range) =>
+        padCell(sliceCellSegments(cell, range.start, range.end), colWidth),
+      );
+    });
+
+    const height = Math.max(1, ...wrapped.map((lines) => lines.length));
+    for (let r = 0; r < height; r++) {
+      const line: StyledSegment[] = [];
+      for (let col = 0; col < colWidths.length; col++) {
+        const colWidth = colWidths[col] ?? 0;
+        const cellLine = wrapped[col]?.[r] ?? [{ text: " ".repeat(colWidth) }];
+        line.push(...cellLine);
+        if (col < colWidths.length - 1) line.push({ text: TABLE_SEP });
+      }
+      out.push(line);
+    }
+  }
+
+  return out;
+}
+
+// Fallback for tables too wide to shrink: stack each data row as "Header: value"
+// lines, with the header keys in bold and a blank line between rows. Each line is
+// left for the event log to wrap as ordinary text.
+function renderKeyValue(cells: StyledSegment[][][]): StyledSegment[][] {
+  const [headers, ...dataRows] = cells;
+  if (headers === undefined) return [];
+
+  const out: StyledSegment[][] = [];
+  dataRows.forEach((row, ri) => {
+    if (ri > 0) out.push([]);
+    for (let col = 0; col < headers.length; col++) {
+      const key = applyFlag(headers[col] ?? [], { bold: true });
+      out.push([...key, { text: ": " }, ...(row[col] ?? [])]);
+    }
+  });
+
+  return out;
 }
 
 function isTableRow(line: string): boolean {
