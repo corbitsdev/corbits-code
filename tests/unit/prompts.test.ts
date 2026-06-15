@@ -94,6 +94,12 @@ test("chat system prompt includes LSP guidance", () => {
   expect(prompt).toContain(buildLSPGuidance());
 });
 
+test("system prompt restricts gitignored and agent-state paths", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain(".agent-state");
+  expect(prompt).toContain("gitignored");
+});
+
 test("chat system prompt includes hierarchy, review, and communication guidance", () => {
   const prompt = buildChatSystemPrompt();
 
