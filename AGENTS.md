@@ -67,6 +67,7 @@ The source is the truth; these docs guide you to it.
 - `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags (incl. `--no-workflow`), state persistence, the eval harness.
 - `docs/PRODUCT.md` — what we're building and why.
 - `docs/HOOKS.md` — lifecycle hooks.
+- `docs/MCP.md` — connecting MCP servers (stdio and OAuth-authorized http), with Linear as a worked example.
 - `PLAN.md` — phase breakdown and demo strategy.
 
 ## Interchange as Standard Library
