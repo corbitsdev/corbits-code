@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+import { loadWorkflowPlugins } from "../workflows/index.js";
+
 import {
   createAgent,
   defineAgent,
@@ -123,6 +125,7 @@ export async function runAgent(
   onEvent?: (event: ReactorEmittedEvent) => void,
 ): Promise<number> {
   registerOpenAICompatibleAdapter();
+  await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await initSessionDir(config.cwd, config.sessionId);
   const state = await loadState(config.cwd, config.sessionId);
   if (state !== null && state.status === "running" && !config.force) {
