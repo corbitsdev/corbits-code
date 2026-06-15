@@ -34,7 +34,7 @@ import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { startCodexLogin } from "../auth/codex/login.js";
 import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
-import { removeCodexProfile } from "../auth/codex/store.js";
+import { loadCodexProfile, removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { codexProviderName } from "../config/codex-providers.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
@@ -347,8 +347,9 @@ export function App({
   // Resolve a fresh access token for a Codex profile and make it the active
   // provider. Surfaces a re-login hint if the profile can no longer be used.
   const switchToCodexProfile = (name: string): void => {
-    void getValidCodexToken(name).then(
-      (token) => {
+    void Promise.all([getValidCodexToken(name), loadCodexProfile(name)]).then(
+      ([token, profile]) => {
+        const accountId = profile?.tokens.accountId;
         registerCodexProvider({
           name: codexProviderName(name),
           baseURL: CODEX_BASE_URL,
@@ -356,6 +357,7 @@ export function App({
           models: [...CODEX_DEFAULT_MODELS],
           defaultModel: CODEX_DEFAULT_MODELS[0],
           codexProfile: name,
+          ...(accountId !== undefined ? { codexAccountId: accountId } : {}),
         });
       },
       (err: unknown) => {

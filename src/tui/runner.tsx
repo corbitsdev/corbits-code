@@ -12,8 +12,9 @@ import {
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
-import { buildOpenAISource, type Config } from "../config/index.js";
+import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { loadWorkflowPlugins } from "../workflows/index.js";
 import { loadAgentPlugins } from "../agent/profiles.js";
@@ -79,6 +80,7 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 
 export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
+  registerCodexResponsesAdapter();
   await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   // Seed reasoning capabilities from the cached models.dev metadata so the
@@ -259,16 +261,33 @@ export async function runTUI(config: Config): Promise<number> {
   // connect after startup are not callable until the agent is rebuilt. buildAgent
   // re-runs tool resolution against the (now-populated) dynamic runner and resumes
   // conversation from the same git-backed store, so a reload is transparent.
+  // When the session starts on a Codex profile, seed the agent with a Responses
+  // source (account id pulled from the resolved catalog entry, session id from
+  // the run) rather than the OpenAI-compatible one.
+  const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+  const initialCodexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
+  const buildInitialSource = (): InferenceSource =>
+    initialCodexProfile !== undefined
+      ? buildCodexSource({
+          id: config.providerName,
+          apiKey: config.apiKey,
+          model: config.model,
+          sessionId: config.sessionId,
+          ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
+          ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+        })
+      : buildOpenAISource({
+          id: config.providerName,
+          baseURL: config.baseURL,
+          apiKey: config.apiKey,
+          model: config.model,
+          ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+        });
+
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
     return createAgent(def, {
-      source: buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      }),
+      source: buildInitialSource(),
       storage,
       workdir,
       audit: noopAuditStore(),
@@ -344,19 +363,9 @@ export async function runTUI(config: Config): Promise<number> {
   // selected so its access token can be refreshed before each send. Seeded from
   // config when the session starts on a Codex profile (buildAgent sets that
   // source directly, not through the proxy's setSource).
-  const initialCodexProfile = codexProfileFromProviderName(config.providerName);
   let activeCodexSource: { profile: string; source: InferenceSource } | undefined =
     initialCodexProfile !== undefined
-      ? {
-          profile: initialCodexProfile,
-          source: buildOpenAISource({
-            id: config.providerName,
-            baseURL: config.baseURL,
-            apiKey: config.apiKey,
-            model: config.model,
-            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-          }),
-        }
+      ? { profile: initialCodexProfile, source: buildInitialSource() }
       : undefined;
 
   // Refresh the active Codex access token (if any) and push it onto the live

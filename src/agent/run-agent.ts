@@ -21,8 +21,11 @@ import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
+import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
+import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { getValidCodexToken } from "../auth/codex/session.js";
 
-import { buildOpenAISource, type Config } from "../config/index.js";
+import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
 import { createCodingDirector, advanceWorkflowDefinition, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
@@ -126,6 +129,7 @@ export async function runAgent(
   onEvent?: (event: ReactorEmittedEvent) => void,
 ): Promise<number> {
   registerOpenAICompatibleAdapter();
+  registerCodexResponsesAdapter();
   await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   await initSessionDir(config.cwd, config.sessionId);
@@ -294,14 +298,29 @@ export async function runAgent(
 
   const storage = await createIsogitStore(workdir);
 
+  const codexProfile = codexProfileFromProviderName(config.providerName);
+  const codexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
+  // Headless runs have no per-send refresh hook, so refresh once up front; the
+  // seeded token (from the catalog) may already be stale.
+  const codexToken = codexProfile !== undefined ? await getValidCodexToken(codexProfile) : config.apiKey;
   const agent = await createAgent(def, {
-    source: buildOpenAISource({
-      id: config.providerName,
-      baseURL: config.baseURL,
-      apiKey: config.apiKey,
-      model: config.model,
-      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-    }),
+    source:
+      codexProfile !== undefined
+        ? buildCodexSource({
+            id: config.providerName,
+            apiKey: codexToken,
+            model: config.model,
+            sessionId: config.sessionId,
+            ...(codexAccountId !== undefined ? { accountId: codexAccountId } : {}),
+            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+          })
+        : buildOpenAISource({
+            id: config.providerName,
+            baseURL: config.baseURL,
+            apiKey: config.apiKey,
+            model: config.model,
+            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+          }),
     storage,
     workdir,
     audit: noopAuditStore(),

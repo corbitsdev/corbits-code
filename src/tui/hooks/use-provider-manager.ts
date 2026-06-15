@@ -1,6 +1,7 @@
 import type { Agent } from "@intx/agent";
+import { randomUUID } from "node:crypto";
 import { useState } from "react";
-import { buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
+import { buildCodexSource, buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
 import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type TierAssignment } from "../../config/settings.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../../subagent/index.js";
@@ -95,13 +96,22 @@ export function useProviderManager({
       return false;
     }
     agent.setSource(
-      buildOpenAISource({
-        id: entry.name,
-        baseURL: entry.baseURL,
-        apiKey: entry.apiKey,
-        model: nextModel,
-        ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
-      }),
+      entry.codexProfile !== undefined
+        ? buildCodexSource({
+            id: entry.name,
+            apiKey: entry.apiKey,
+            model: nextModel,
+            sessionId: randomUUID(),
+            ...(entry.codexAccountId !== undefined ? { accountId: entry.codexAccountId } : {}),
+            ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
+          })
+        : buildOpenAISource({
+            id: entry.name,
+            baseURL: entry.baseURL,
+            apiKey: entry.apiKey,
+            model: nextModel,
+            ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
+          }),
     );
     onSelectionChange?.({
       providerName,

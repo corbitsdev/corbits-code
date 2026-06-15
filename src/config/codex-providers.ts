@@ -1,5 +1,6 @@
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import type { CodexProfile } from "../auth/codex/store.js";
+import type { ProviderCatalogEntry } from "./index.js";
 import type { ProviderSettings } from "./settings.js";
 
 // Codex OAuth profiles surface through the same provider catalog as API-key
@@ -39,4 +40,23 @@ export function codexProvidersAsSettings(profiles: readonly CodexProfile[]): Rec
     };
   }
   return entries;
+}
+
+// Build provider catalog entries for Codex profiles. Unlike the settings
+// projection above, these carry the `codexProfile` marker and `codexAccountId`
+// so the runtime can route them to the Responses adapter and supply the
+// chatgpt-account-id header. The seeded `apiKey` is the stored access token;
+// the send path refreshes it before use.
+export function codexProfilesToCatalogEntries(
+  profiles: readonly CodexProfile[],
+): ProviderCatalogEntry[] {
+  return profiles.map((profile) => ({
+    name: codexProviderName(profile.name),
+    baseURL: CODEX_BASE_URL,
+    apiKey: profile.tokens.access,
+    models: [...CODEX_DEFAULT_MODELS],
+    defaultModel: CODEX_DEFAULT_MODELS[0],
+    codexProfile: profile.name,
+    ...(profile.tokens.accountId !== undefined ? { codexAccountId: profile.tokens.accountId } : {}),
+  }));
 }
