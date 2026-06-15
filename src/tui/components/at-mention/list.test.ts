@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, symlink, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listAtSuggestions } from "./list.js";
@@ -20,25 +20,25 @@ afterAll(async () => {
 });
 
 describe("listAtSuggestions", () => {
-  test("lists entries in a directory when prefix is a dir path with trailing slash", async () => {
-    const results = await listAtSuggestions(fixture + "/", fixture);
-    expect(results).toContain(fixture + "/src/");
-    expect(results).toContain(fixture + "/tests/");
-    expect(results).toContain(fixture + "/README.md");
+  test("lists entries in a workspace-relative directory when prefix is a dir path with trailing slash", async () => {
+    const results = await listAtSuggestions("src/", fixture);
+    expect(results).toContain("src/index.ts");
+    expect(results).toContain("src/index.test.ts");
+    expect(results).toContain("src/utils/");
   });
 
   test("filters by basename fragment", async () => {
-    const results = await listAtSuggestions(fixture + "/src/index", fixture);
-    expect(results).toContain(fixture + "/src/index.ts");
-    expect(results).toContain(fixture + "/src/index.test.ts");
+    const results = await listAtSuggestions("src/index", fixture);
+    expect(results).toContain("src/index.ts");
+    expect(results).toContain("src/index.test.ts");
     expect(results.every((r) => r.includes("index"))).toBe(true);
   });
 
   test("appends / to directories", async () => {
-    const results = await listAtSuggestions(fixture + "/", fixture);
+    const results = await listAtSuggestions("", fixture);
     const dirs = results.filter((r) => r.endsWith("/"));
     expect(dirs.length).toBeGreaterThan(0);
-    expect(dirs).toContain(fixture + "/src/");
+    expect(dirs).toContain("src/");
   });
 
   test("empty prefix lists cwd (@ alone)", async () => {
@@ -67,8 +67,29 @@ describe("listAtSuggestions", () => {
     expect(await listAtSuggestions("/nonexistent-path-12345/", fixture)).toEqual([]);
   });
 
+  test("does not browse absolute paths", async () => {
+    expect(await listAtSuggestions(fixture + "/", fixture)).toEqual([]);
+  });
+
+  test("does not browse home-relative paths", async () => {
+    expect(await listAtSuggestions("~/", fixture)).toEqual([]);
+  });
+
+  test("does not follow symlinked directories outside the workspace", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-list-outside-"));
+    try {
+      await writeFile(join(outside, "secret.txt"), "");
+      await symlink(outside, join(fixture, "escape"));
+
+      expect(await listAtSuggestions("escape/", fixture)).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+      await rm(join(fixture, "escape"), { force: true });
+    }
+  });
+
   test("returns [] for a path with no matching entries", async () => {
-    expect(await listAtSuggestions(fixture + "/src/zzz", fixture)).toEqual([]);
+    expect(await listAtSuggestions("src/zzz", fixture)).toEqual([]);
   });
 
   test("caps results at 20", async () => {
@@ -78,7 +99,7 @@ describe("listAtSuggestions", () => {
     for (let i = 0; i < 25; i++) {
       await writeFile(join(many, `file${i}.ts`), "");
     }
-    const results = await listAtSuggestions(many + "/", fixture);
+    const results = await listAtSuggestions("many/", fixture);
     expect(results.length).toBeLessThanOrEqual(20);
   });
 });
