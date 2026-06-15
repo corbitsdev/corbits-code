@@ -36,7 +36,7 @@ import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink, readFile, readdir, stat } from "node:fs/promises";
-import { resolve, isAbsolute, join } from "node:path";
+import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPanel } from "./components/workflow-panel.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
@@ -51,24 +51,17 @@ import "./commands/workflows.js";
 // with the file's contents wrapped in a labelled fenced block so the agent gets
 // full context without having to call read_file. Mentions that cannot be read
 // are left as-is and a warning is appended so the agent knows.
-// Recursively collect relative paths under a directory, up to a reasonable
-// depth/count so the agent gets a useful map without token bloat.
-async function collectDirEntries(root: string, dir: string, depth: number): Promise<string[]> {
-  if (depth > 3) return [];
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  const lines: string[] = [];
-  for (const e of entries) {
-    if (e.name.startsWith(".") || e.name === "node_modules") continue;
-    const rel = join(dir, e.name).slice(root.length + 1);
-    if (e.isDirectory()) {
-      lines.push(`  ${rel}/`);
-      lines.push(...await collectDirEntries(root, join(dir, e.name), depth + 1));
-    } else {
-      lines.push(`  ${rel}`);
-    }
-    if (lines.length >= 60) break;
-  }
-  return lines;
+// Summarize a directory as a single line: file/subdir counts + subdir names.
+// e.g. "47 files, 4 subdirectories (components/, hooks/, commands/, tui/)"
+async function summarizeDir(abs: string): Promise<string> {
+  const entries = await readdir(abs, { withFileTypes: true }).catch(() => []);
+  const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules");
+  const files = entries.filter((e) => e.isFile());
+  const dirList = dirs.map((e) => `${e.name}/`).join(", ");
+  const parts: string[] = [];
+  if (files.length > 0) parts.push(`${files.length} file${files.length === 1 ? "" : "s"}`);
+  if (dirs.length > 0) parts.push(`${dirs.length} subdirector${dirs.length === 1 ? "y" : "ies"}${dirList ? ` (${dirList})` : ""}`);
+  return parts.length > 0 ? parts.join(", ") : "empty directory";
 }
 
 async function resolveAtMentions(message: string, cwd: string): Promise<string> {
@@ -88,10 +81,8 @@ async function resolveAtMentions(message: string, cwd: string): Promise<string> 
       try {
         const info = await stat(abs);
         if (info.isDirectory()) {
-          // For directories, give the agent a recursive file listing so it
-          // understands the general area the user is pointing at.
-          const entries = await collectDirEntries(abs, abs, 0);
-          return { full, replacement: `\`${path}\` (directory):\n${entries.join("\n")}` };
+          const summary = await summarizeDir(abs);
+          return { full, replacement: `\`${path}\` (directory — ${summary})` };
         }
         const content = await readFile(abs, "utf-8");
         const ext = abs.split(".").pop() ?? "";
