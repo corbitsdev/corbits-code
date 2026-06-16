@@ -1,8 +1,11 @@
+import { type } from "arktype";
 import { readdir, realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
+
+const ListDirArgs = type({ "path?": "string" });
 
 export const listDirDefinition: ToolDefinition = {
   name: "list_dir",
@@ -64,7 +67,11 @@ export function createListDirTool(cwd: string): AgentTool {
   return stringTool({
     definition: listDirDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-      const path = typeof rawArgs.path === "string" ? rawArgs.path : "";
+      const parsed = ListDirArgs(rawArgs);
+      if (parsed instanceof type.errors) {
+        return "Error: list_dir requires path (string) if provided.";
+      }
+      const path = parsed.path ?? "";
       return listDirectory(cwd, path);
     },
   });
