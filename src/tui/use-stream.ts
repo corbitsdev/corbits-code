@@ -74,6 +74,12 @@ export type AgentStreamState = {
   currentToolName: string | null;
   streamingType: "text" | "thinking" | "tool" | null;
   activityTick: number;
+  // Wall-clock ms of the last moment real progress was observed: any streamed
+  // token, or the run (re)entering the awaiting-response gap (a fresh send or
+  // the gap after a tool completes). The stall watchdog measures silence from
+  // here. Tracked in the store — the single source of truth that mutates on
+  // every event — rather than mirrored into a ref via an effect.
+  lastActivityAt: number;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -207,6 +213,13 @@ export function createAgentStreamState(
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
   let activityTick = 0;
+  let lastActivityAt = Date.now();
+  // Bump on every streamed token: advances the render tick and resets the
+  // stall clock in one place so the two never drift.
+  const markActivity = (): void => {
+    activityTick += 1;
+    lastActivityAt = Date.now();
+  };
   let faremeter = makeFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
@@ -280,6 +293,9 @@ export function createAgentStreamState(
     get activityTick() {
       return activityTick;
     },
+    get lastActivityAt() {
+      return lastActivityAt;
+    },
     setGatePending(pending: boolean): void {
       // Always balance the count, even when the run is terminal/stopping — a gate
       // that opened while running can still resolve after a stop, and if the
@@ -310,6 +326,10 @@ export function createAgentStreamState(
       finishedAt = null;
       awaitingResponse = true;
       isProcessing = true;
+      // A fresh send (re)enters the awaiting-response gap; restart the stall
+      // clock so a send following a long idle stretch is not aborted on the
+      // watchdog's first tick against a stale timestamp.
+      lastActivityAt = Date.now();
     },
     clear(): void {
       contentBlocks.length = 0;
@@ -334,6 +354,7 @@ export function createAgentStreamState(
       finishedAt = null;
       openCallId = null;
       activityTick = 0;
+      lastActivityAt = Date.now();
       contextTokens = 0;
       faremeter = makeFaremeter();
     },
@@ -348,7 +369,7 @@ export function createAgentStreamState(
         case "inference.thinking.delta": {
           awaitingResponse = false;
           streamingType = "thinking";
-          activityTick += 1;
+          markActivity();
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
@@ -363,7 +384,7 @@ export function createAgentStreamState(
           awaitingResponse = false;
           streamingType = "text";
           hadTextDeltaSinceLastReply = true;
-          activityTick += 1;
+          markActivity();
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
@@ -386,7 +407,7 @@ export function createAgentStreamState(
           break;
         }
         case "inference.tool_call.delta": {
-          activityTick += 1;
+          markActivity();
           const fragment = (event.data as { argumentFragment: string }).argumentFragment;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "tool_call") {
@@ -419,6 +440,9 @@ export function createAgentStreamState(
           // A tool finished; the model is now deciding its next move with nothing
           // streaming, so re-arm the indicator until the next token arrives.
           awaitingResponse = true;
+          // Re-entering the awaiting-response gap; restart the stall clock so
+          // the wait for the model's next move is measured from now.
+          lastActivityAt = Date.now();
           currentToolName = null;
           streamingType = null;
           const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
