@@ -123,13 +123,13 @@ test("OperatorModal does not render when pendingOperator is null", () => {
   expect(lastFrame()).not.toContain("Operator Question");
 });
 
-test("OperatorModal Enter calls onSelectOperator with selected index", async () => {
+test("OperatorModal Enter calls onSelectOperator with the selected option", async () => {
   let selected: number | null = null;
   const { stdin } = render(
     <ModalStack
       {...base()}
       pendingOperator={OPERATOR}
-      onSelectOperator={(i) => { selected = i; }}
+      onSelectOperator={(result) => { selected = result.kind === "option" ? result.index : -1; }}
     />
   );
   await tick();

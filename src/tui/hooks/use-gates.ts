@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { EventEmitter } from "node:events";
 import type { PlanStep } from "../use-stream.js";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
+import type { OperatorResult } from "../../agent/tools.js";
 
 export type PlanGateEvent = {
   plan: PlanStep[];
@@ -11,7 +12,7 @@ export type PlanGateEvent = {
 export type OperatorGateEvent = {
   question: string;
   options: string[];
-  resolve: (index: number) => void;
+  resolve: (result: OperatorResult) => void;
 };
 
 export type PermissionGateEvent = {
@@ -28,7 +29,7 @@ export type GateController = {
   gateOpen: boolean;
   approve: () => void;
   reject: () => void;
-  selectOperator: (index: number) => void;
+  selectOperator: (result: OperatorResult) => void;
   resolvePermission: (outcome: ApprovalOutcome) => void;
   // Drain all queued gates, resolving each with a safe default, and clear
   // visible state. Called on session rotation so stale modals do not persist.
@@ -43,7 +44,7 @@ export type UseGatesArgs = {
 // Each queued entry bundles the display payload with its resolve callback so
 // we can advance to the next item after the head is resolved.
 type PlanQueueEntry = { plan: PlanStep[]; resolve: (approved: boolean) => void };
-type OperatorQueueEntry = { question: string; options: string[]; resolve: (index: number) => void };
+type OperatorQueueEntry = { question: string; options: string[]; resolve: (result: OperatorResult) => void };
 type PermissionQueueEntry = { request: PermissionRequest; resolve: (outcome: ApprovalOutcome) => void };
 
 export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateController {
@@ -112,7 +113,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
   const resetGates = () => {
     for (const entry of planQueue.current) entry.resolve(false);
     planQueue.current = [];
-    for (const entry of operatorQueue.current) entry.resolve(0);
+    for (const entry of operatorQueue.current) entry.resolve({ kind: "cancel" });
     operatorQueue.current = [];
     for (const entry of permissionQueue.current) entry.resolve({ allow: false });
     permissionQueue.current = [];
@@ -129,12 +130,12 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     gateOpen: pendingPlan !== null || pendingOperator !== null || pendingPermission !== null,
     approve: () => resolvePlan(true),
     reject: () => resolvePlan(false),
-    selectOperator: (index: number) => {
+    selectOperator: (result: OperatorResult) => {
       const head = operatorQueue.current.shift();
       const next = operatorQueue.current[0] ?? null;
       setPendingOperator(next ? { question: next.question, options: next.options } : null);
       setGatePending(false);
-      head?.resolve(index);
+      head?.resolve(result);
     },
     resolvePermission: (outcome: ApprovalOutcome) => {
       const head = permissionQueue.current.shift();

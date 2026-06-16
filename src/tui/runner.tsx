@@ -35,7 +35,7 @@ import { loadAgentContextExtensions } from "../agent/run-agent.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
-import { createAgentToolset } from "../agent/tools.js";
+import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
 import { resolveWebProviderFromSettings } from "../web/providers/index.js";
 import {
   loadApprovals,
@@ -195,7 +195,7 @@ export async function runTUI(config: Config): Promise<number> {
     permissionGate,
     ...(webProvider !== undefined ? { webProvider } : {}),
     onOperatorGate: (question, options) =>
-      new Promise<number>((resolve) => {
+      new Promise<OperatorResult>((resolve) => {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
