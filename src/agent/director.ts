@@ -117,9 +117,9 @@ export const planEnterDefinition: ToolDefinition = {
   name: "plan_enter",
   description:
     "Switch to plan mode before making any changes. In plan mode, write and edit " +
-    "tools are disabled — you can only read, explore, and call submit_plan. Use this " +
+    "tools are disabled — you can only read and explore. Use this " +
     "when the task is non-trivial or you need to understand the codebase before acting. " +
-    "Call submit_plan to present your plan for user approval; the full toolset unlocks " +
+    "Present your plan to the user for approval; the full toolset unlocks " +
     "once the plan is approved.",
   inputSchema: { type: "object", properties: {} },
 };

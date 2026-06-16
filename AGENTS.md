@@ -63,8 +63,8 @@ git config core.hooksPath .githooks
 
 The source is the truth; these docs guide you to it.
 
-- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, the mandatory `submit_plan`/`submit_output` tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.**
-  - **Note for developers of Intercode itself:** `submit_plan`/`submit_output`/`advance_workflow` are tools exposed to the *agent being run by* Intercode, not available to you the developer. When you need a plan for changes to Intercode, call `plan_enter` to explore, then present your plan to the user.
+- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, mandatory workflow/plan/output tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.**
+  - **Note for developers of Intercode itself:** the workflow/plan/output tools (`submit_plan`, `submit_output`, `advance_workflow`) are exposed to the *agent being run by* Intercode, not available to you the developer. When you need a plan for changes to Intercode, call `plan_enter` to explore, then present your plan to the user.
 - `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags (incl. `--no-workflow`), state persistence, the eval harness.
 - `docs/PRODUCT.md` — what we're building and why.
 - `docs/HOOKS.md` — lifecycle hooks.
