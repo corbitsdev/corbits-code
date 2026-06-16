@@ -49,7 +49,7 @@ import { writeFile, mkdir, unlink, readFile, opendir, realpath, stat } from "nod
 import { resolve, isAbsolute, relative, sep } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
-import type { WorkflowStatus } from "./workflow-controller.js";
+import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { WORKFLOWS } from "../workflows/index.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
@@ -317,6 +317,7 @@ export function App({
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
+  const [workflowHistory, setWorkflowHistory] = useState<WorkflowStatus[]>([]);
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
@@ -437,7 +438,10 @@ export function App({
 
   // Live workflow status published by the WorkflowController in the runner.
   useEffect(() => {
-    const onWorkflow = (status: WorkflowStatus) => setWorkflowStatus(status);
+    const onWorkflow = (state: WorkflowControllerState) => {
+      setWorkflowStatus(state.current);
+      setWorkflowHistory(state.history);
+    };
     eventEmitter.on("workflow", onWorkflow);
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
@@ -571,6 +575,7 @@ export function App({
     setExpandedTools(new Set());
     pendingQueueRef.current.length = 0;
     setQueuedCount(0);
+    setWorkflowHistory([]);
     onNewSession?.();
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
@@ -962,6 +967,7 @@ export function App({
       {workflowPickerOpen && (
         <WorkflowPickerModal
           workflows={WORKFLOWS}
+          history={workflowHistory}
           onSelect={(name) => {
             setWorkflowPickerOpen(false);
             if (onStartWorkflow !== undefined) {
@@ -1017,7 +1023,16 @@ export function App({
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
-            {...(workflowStatus.active && workflowStatus.name !== undefined ? { workflow: { name: workflowStatus.name, stepIndex: workflowStatus.stepIndex, total: workflowStatus.total, label: workflowStatus.label } } : {})}
+            {...(() => {
+              if (workflowStatus.active && workflowStatus.name !== undefined) {
+                return { workflow: { name: workflowStatus.name, stepIndex: workflowStatus.stepIndex, total: workflowStatus.total, label: workflowStatus.label } };
+              }
+              const last = workflowHistory[workflowHistory.length - 1];
+              if (last !== undefined && last.name !== undefined) {
+                return { workflow: { name: last.name, stepIndex: last.total - 1, total: last.total, label: "done" } };
+              }
+              return {};
+            })()}
           />
           <Box
             borderStyle="single"

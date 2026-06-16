@@ -3,14 +3,16 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
 import type { Workflow } from "../../workflows/types.js";
+import type { WorkflowStatus } from "../workflow-controller.js";
 
 export type WorkflowPickerModalProps = {
   workflows: Workflow[];
+  history?: WorkflowStatus[];
   onSelect: (name: string) => void;
   onClose: () => void;
 };
 
-export function WorkflowPickerModal({ workflows, onSelect, onClose }: WorkflowPickerModalProps): ReactNode {
+export function WorkflowPickerModal({ workflows, history = [], onSelect, onClose }: WorkflowPickerModalProps): ReactNode {
   const [index, setIndex] = useState(0);
 
   useInput((input, key) => {
@@ -59,6 +61,20 @@ export function WorkflowPickerModal({ workflows, onSelect, onClose }: WorkflowPi
           );
         })}
       </Box>
+      {history.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Text dimColor>Completed this session:</Text>
+          {history.map((h, i) => (
+            <Box key={`${h.name ?? "?"}-${i}`} flexDirection="row" gap={1}>
+              <Text color={color("success")}>✓</Text>
+              <Box width={20} flexShrink={0}>
+                <Text color={color("muted")}>{h.name ?? "unknown"}</Text>
+              </Box>
+              <Text color={color("muted")} dimColor>{h.total} steps</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
       <Box marginTop={1}>
         <Text dimColor>Up/Down navigate · Enter start · Esc close</Text>
       </Box>
