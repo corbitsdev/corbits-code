@@ -843,7 +843,9 @@ export function App({
       setCodexLoginOpen(true);
     }
     if (result.type === "workflow") {
-      if (onStartWorkflow !== undefined) {
+      if (onStartWorkflow === undefined) {
+        setCommandMessage("Workflows are not available in this context.");
+      } else {
         const msg = onStartWorkflow(result.name);
         if (msg.startsWith("Started") || msg.startsWith("Auto-started")) {
           const task = result.args !== undefined && result.args.length > 0
@@ -972,7 +974,7 @@ export function App({
             setWorkflowPickerOpen(false);
             if (onStartWorkflow !== undefined) {
               const msg = onStartWorkflow(name);
-              if (msg.startsWith("Started")) {
+              if (msg.startsWith("Started") || msg.startsWith("Auto-started")) {
                 sendMessage(`Begin the ${name} workflow.`);
               } else {
                 setCommandMessage(msg);

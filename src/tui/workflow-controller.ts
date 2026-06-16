@@ -60,6 +60,9 @@ export class WorkflowController {
   private overrides = new Set<CapabilityName>();
   private pendingReplace: string | undefined;
   private completedWorkflows: WorkflowStatus[] = [];
+  // Last status snapshot seen while the workflow was active. Used to populate
+  // history on workflow-complete, where isActive() is already false.
+  private lastActiveStatus: WorkflowStatus | undefined;
 
   constructor(private readonly args: WorkflowControllerArgs) {}
 
@@ -76,6 +79,7 @@ export class WorkflowController {
     this.coordinator = undefined;
     this.pendingReplace = undefined;
     this.completedWorkflows = [];
+    this.lastActiveStatus = undefined;
     this.args.getDirector()?.setWorkflowCoordinator(undefined);
     this.publish();
   }
@@ -97,7 +101,9 @@ export class WorkflowController {
   }
 
   private publish(): void {
-    this.args.emitter.emit("workflow", { current: this.status(), history: this.completedWorkflows });
+    const current = this.status();
+    if (current.active) this.lastActiveStatus = current;
+    this.args.emitter.emit("workflow", { current, history: this.completedWorkflows });
   }
 
   private persist(): void {
@@ -115,11 +121,17 @@ export class WorkflowController {
         this.publish();
       },
       workflow.stepThrough === true,
+      workflow.autoAdvance === true,
     );
     runtime.on((event: WorkflowEvent) => {
       if (event.type === "workflow-complete") {
-        const snapshot = this.status();
-        this.completedWorkflows.push({ ...snapshot, active: false, completedAt: Date.now() });
+        // status() returns an empty shell here because runtime.done is already
+        // true when the event fires. Use the last snapshot captured while the
+        // workflow was still active.
+        const snapshot = this.lastActiveStatus;
+        if (snapshot !== undefined) {
+          this.completedWorkflows.push({ ...snapshot, active: false, completedAt: Date.now() });
+        }
       }
       this.persist();
       this.publish();
@@ -152,10 +164,11 @@ export class WorkflowController {
   // exists. Returns a status message or null when nothing happened.
   autoInvoke(name: string): string | null {
     if (this.isActive()) return null;
-    if (findWorkflow(name) === undefined) {
+    const workflow = findWorkflow(name);
+    if (workflow === undefined) {
       return `Profile requested workflow "${name}" but it is not registered; skipping.`;
     }
-    this.attach(findWorkflow(name)!);
+    this.attach(workflow);
     return `Auto-started ${name} workflow.`;
   }
 

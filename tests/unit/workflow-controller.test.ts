@@ -89,3 +89,32 @@ test("reset detaches the workflow", async () => {
     expect(director.coordinator).toBeUndefined();
   });
 });
+
+test("attach() passes autoAdvance to coordinator — directive uses submit_output step tag", async () => {
+  await withController([], async (controller, director) => {
+    controller.start("build"); // build has autoAdvance: true
+    const coordinator = director.coordinator!;
+    expect(coordinator).toBeDefined();
+    const directive = coordinator.directive();
+    expect(directive).not.toBeNull();
+    // autoAdvance=true: directive must use step-tagged submit_output only, not advance_workflow.
+    expect(directive).toContain("submit_output");
+    expect(directive).not.toContain("advance_workflow");
+  });
+});
+
+test("history() entry after workflow completion contains the workflow name and steps", async () => {
+  await withController([], async (controller) => {
+    controller.start("review"); // review has 3 steps
+    const coordinator = (controller as unknown as { coordinator: WorkflowCoordinator }).coordinator!;
+    // Advance through all steps to trigger workflow-complete.
+    coordinator.handleToolDone("advance_workflow", {}, false);
+    coordinator.handleToolDone("advance_workflow", {}, false);
+    coordinator.handleToolDone("advance_workflow", {}, false);
+    expect(controller.isActive()).toBe(false);
+    const history = controller.history();
+    expect(history).toHaveLength(1);
+    expect(history[0]!.name).toBe("review");
+    expect(history[0]!.steps.length).toBeGreaterThan(0);
+  });
+});
