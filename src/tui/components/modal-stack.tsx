@@ -10,6 +10,7 @@ import type { ProviderTier, TierAssignment } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 import { ApprovalModal } from "./approval-modal.js";
 import { OperatorModal } from "./operator-modal.js";
+import type { OperatorResult } from "../../agent/tools.js";
 import { PermissionModal } from "./permission-modal.js";
 
 export type ModalStackProps = {
@@ -41,7 +42,7 @@ export type ModalStackProps = {
   onReject: () => void;
 
   pendingOperator: { question: string; options: string[] } | null;
-  onSelectOperator: (index: number) => void;
+  onSelectOperator: (result: OperatorResult) => void;
 
   pendingPermission: PermissionRequest | null;
   onResolvePermission: (outcome: ApprovalOutcome) => void;

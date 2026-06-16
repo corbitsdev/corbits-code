@@ -86,7 +86,7 @@ test("present validates the view spec and gives self-correcting errors", async (
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
-    onOperatorGate: async () => 0,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
   expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain("present");
   expect(await callPresent(toolset, { type: "heading", value: "Hi" })).toBe("Rendered.");
@@ -97,7 +97,7 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
-    onOperatorGate: async () => 0,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
@@ -116,7 +116,7 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
     onOperatorGate: async (question, options) => {
       capturedQuestion = question;
       capturedOptions = options;
-      return 1;
+      return { kind: "option", index: 1 };
     },
   });
 
@@ -127,11 +127,33 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
   expect(result).toBe("B");
 });
 
+test("operator tool returns the operator's free-form answer", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "custom", text: "use the second one but tweak the tone" }),
+  });
+
+  const result = await callOperator(toolset, { question: "Which approach?", options: ["A", "B"] });
+  expect(result).toBe("use the second one but tweak the tone");
+});
+
+test("operator tool tells the agent to proceed when the operator dismisses the question", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+  });
+
+  const result = await callOperator(toolset, { question: "Which approach?", options: ["A", "B"] });
+  expect(result).toMatch(/dismissed the question/);
+});
+
 test("operator tool returns error when no options are provided", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
-    onOperatorGate: async () => 0,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
   expect(await callOperator(toolset, { question: "Empty?", options: [] })).toMatch(/requires at least one option/);
@@ -141,7 +163,7 @@ test("operator tool returns error for out-of-range index", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
-    onOperatorGate: async () => 99,
+    onOperatorGate: async () => ({ kind: "option", index: 99 }),
   });
 
   expect(await callOperator(toolset, { question: "Pick one", options: ["X"] })).toMatch(/invalid selection/);
@@ -153,7 +175,7 @@ test("dispose calls posixTools.dispose", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
-    onOperatorGate: async () => 0,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
   await toolset.dispose();

@@ -47,10 +47,18 @@ const AdvanceWorkflowArgs = type({
   "note?": "string",
 });
 
+// The operator can pick one of the offered options, type a free-form answer, or
+// dismiss the question without answering. The gate owns this distinction so the
+// tool layer can translate each outcome into the right tool result.
+export type OperatorResult =
+  | { kind: "option"; index: number }
+  | { kind: "custom"; text: string }
+  | { kind: "cancel" };
+
 export type AgentToolsetArgs = {
   cwd: string;
   permissionGate: PermissionGate;
-  onOperatorGate: (question: string, options: string[]) => Promise<number>;
+  onOperatorGate: (question: string, options: string[]) => Promise<OperatorResult>;
   // Called when the agent suggests a workflow and the operator approves. The
   // TUI wires this to WorkflowController.start(). Returns false if the name is
   // not found or already active (so the handler can report the failure).
@@ -147,7 +155,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
-        const index = await onOperatorGate(question, options);
+        const result = await onOperatorGate(question, options);
+        if (result.kind === "cancel") {
+          return "The operator dismissed the question without answering. Do not ask it again; proceed with your best judgment or continue with other work.";
+        }
+        if (result.kind === "custom") {
+          return result.text;
+        }
+        const { index } = result;
         if (index < 0 || index >= options.length) {
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
@@ -186,8 +201,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           `Reason: ${reason}${contextLine}\n\n` +
           `Steps:\n${steps}`;
 
-        const index = await onOperatorGate(question, ["Yes, launch it", "No, skip"]);
-        if (index !== 0) return "Workflow suggestion declined.";
+        const result = await onOperatorGate(question, ["Yes, launch it", "No, skip"]);
+        if (result.kind !== "option" || result.index !== 0) return "Workflow suggestion declined.";
 
         const started = args.onWorkflowSuggested?.(name) ?? false;
         if (!started) return `Could not start "${name}": already active or not found.`;
