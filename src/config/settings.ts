@@ -48,6 +48,14 @@ export type Settings = {
   // Each workflow step may declare a `profile` field; at execution time the
   // runtime resolves the model by looking up workflowProfiles[activeProfile][step.profile].
   workflowProfiles?: Record<string, Record<string, string>>;
+  // Module specifier for a web-search/fetch provider. Loaded dynamically at
+  // startup; the module must export a factory (default export or named
+  // `createWebProvider`) that returns a WebProvider. When unset, the built-in
+  // local provider is used.
+  webProvider?: string;
+  // Options passed to the web provider factory. Shape is provider-defined and
+  // validated by the provider module, not by core.
+  webProviderOptions?: Record<string, unknown>;
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
@@ -158,6 +166,8 @@ const SettingsSchema = type({
   "workflowPlugins?": "string[]",
   "agentPlugins?": "string[]",
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
+  "webProvider?": "string",
+  "webProviderOptions?": type({ "[string]": "unknown" }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -274,6 +284,11 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
     ...(s.tiers !== undefined ? { tiers: s.tiers as Settings["tiers"] } : {}),
+    ...(s.workflowPlugins !== undefined ? { workflowPlugins: s.workflowPlugins as string[] } : {}),
+    ...(s.agentPlugins !== undefined ? { agentPlugins: s.agentPlugins as string[] } : {}),
+    ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
+    ...(s.webProvider !== undefined ? { webProvider: s.webProvider as string } : {}),
+    ...(s.webProviderOptions !== undefined ? { webProviderOptions: s.webProviderOptions as Record<string, unknown> } : {}),
   } as Settings;
 }
 

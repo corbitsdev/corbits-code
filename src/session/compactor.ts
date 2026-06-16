@@ -312,7 +312,7 @@ export function createPruningCompactor(
  * Future versions may use LLM summarization for richer summaries while
  * keeping the deterministic fallback for prompt-cache friendliness.
  */
-function buildTurnSummary(turns: ConversationTurn[], maxChars: number): string {
+export function buildTurnSummary(turns: ConversationTurn[], maxChars: number): string {
   const toolNames = new Set<string>();
   let totalTokens = 0;
   let lastUserMessage = "";
