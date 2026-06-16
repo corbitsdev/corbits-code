@@ -560,6 +560,7 @@ export function App({
     sendAbortRef.current?.abort();
     onInterrupt?.();
     state.requestStop();
+    gates.resetGates();
     // Discard queued messages — a stopped run should not silently replay them
     // into the next session's first turn when connector.reply eventually fires.
     pendingQueueRef.current.length = 0;
