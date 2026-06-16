@@ -239,7 +239,7 @@ test("App does not scroll the event log with arrow keys (arrows belong to the pr
   expect(lastFrame()).toContain("prompt-19");
 });
 
-test("/agent editing a non-default provider preserves the global default", async () => {
+test("/model editing a non-default provider preserves the global default", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ic-agent-settings-"));
   try {
     const emitter = new EventEmitter();
@@ -264,7 +264,7 @@ test("/agent editing a non-default provider preserves the global default", async
 
     settleRun(emitter);
     await tick();
-    await writeKeys(stdin, ["/agent", "\r", "e", "\r", "\r", "\r", "\r", "\r"]);
+    await writeKeys(stdin, ["/model", "\r", "e", "\r", "\r", "\r", "\r", "\r"]);
 
     expect((await loadSettings(globalSettingsPath))?.defaultProvider).toBe("a");
   } finally {
@@ -272,7 +272,7 @@ test("/agent editing a non-default provider preserves the global default", async
   }
 });
 
-test("/agent deleting a non-default provider preserves the global default", async () => {
+test("/model deleting a non-default provider preserves the global default", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ic-agent-settings-"));
   try {
     const emitter = new EventEmitter();
@@ -297,7 +297,7 @@ test("/agent deleting a non-default provider preserves the global default", asyn
 
     settleRun(emitter);
     await tick();
-    await writeKeys(stdin, ["/agent", "\r", "x", "y"]);
+    await writeKeys(stdin, ["/model", "\r", "x", "y"]);
 
     const settings = await loadSettings(globalSettingsPath);
     expect(settings?.defaultProvider).toBe("a");
