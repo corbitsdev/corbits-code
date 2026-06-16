@@ -76,20 +76,17 @@ describe("/auto command", () => {
   });
 });
 
-describe("/agent command", () => {
+describe("/model command", () => {
   it("is registered", () => {
-    expect(getCommand("agent")).toBeDefined();
+    expect(getCommand("model")).toBeDefined();
   });
 
   it("opens the agent configuration modal", () => {
-    const ctx = makeCtx();
-    expect(getCommand("agent")!.handler("", ctx)).toEqual({ type: "modal", modal: "agent" });
+    expect(getCommand("model")!.handler("", makeCtx())).toEqual({ type: "modal", modal: "agent" });
   });
-});
 
-describe("/model alias", () => {
-  it("is no longer registered", () => {
-    expect(getCommand("model")).toBeUndefined();
+  it("/agent alias is not registered", () => {
+    expect(getCommand("agent")).toBeUndefined();
   });
 });
 

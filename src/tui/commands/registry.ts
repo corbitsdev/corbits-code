@@ -11,8 +11,6 @@ export type CommandContext = {
   listWorkflows?: () => Array<{ name: string; description: string }>;
   // Open the workflow picker modal (/workflows command).
   openWorkflowPicker?: () => void;
-  // Enter plan mode: strips write/edit tools until submit_plan is approved.
-  enterPlanMode?: () => void;
 };
 
 export type CommandResult =
@@ -21,6 +19,7 @@ export type CommandResult =
   | { type: "view"; view: "plan" | "diff" }
   | { type: "overlay"; overlay: "help" | "permissions" }
   | { type: "modal"; modal: "agent" | "codex-login" }
+  | { type: "workflow"; name: string; args?: string }
   | { type: "noop" };
 
 export type SubcommandDefinition = {

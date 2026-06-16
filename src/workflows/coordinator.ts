@@ -16,6 +16,10 @@ export class WorkflowCoordinator {
     // When true the workflow pauses after each step for user confirmation; the
     // directive tells the agent to gate via ask_operator before advancing.
     private readonly stepThrough: boolean = false,
+    // When true the directive instructs the agent to use step-tagged
+    // submit_output rather than advance_workflow, so workflows drive themselves
+    // to completion without requiring explicit tool call selection.
+    private readonly autoAdvance: boolean = false,
   ) {}
 
   isActive(): boolean {
@@ -50,10 +54,16 @@ export class WorkflowCoordinator {
           ` ask_operator to confirm before you advance.`,
       );
     }
-    lines.push(
-      `When this step is complete, call advance_workflow to continue` +
-        ` (or submit_output with { "step": "${step.id}" }).`,
-    );
+    if (this.autoAdvance) {
+      lines.push(
+        `When this step is complete, call submit_output with { "step": "${step.id}" } to advance to the next step.`,
+      );
+    } else {
+      lines.push(
+        `When this step is complete, call advance_workflow to continue` +
+          ` (or submit_output with { "step": "${step.id}" }).`,
+      );
+    }
     return lines.join("\n");
   }
 
