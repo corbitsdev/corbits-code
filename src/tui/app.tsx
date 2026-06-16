@@ -725,12 +725,12 @@ export function App({
       },
       closeHookPanel: () => setHookPanelOpen(false),
       scrollUp: () => {
-        if (diffActive) setDiffScroll((o) => Math.max(0, o - 1));
-        else scroll.scrollUp();
+        if (diffActive) setDiffScroll((o) => Math.max(0, o - diffVisibleRows));
+        else scroll.scrollUp(visibleRows);
       },
       scrollDown: () => {
-        if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 1));
-        else scroll.scrollDown();
+        if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + diffVisibleRows));
+        else scroll.scrollDown(visibleRows);
       },
       scrollToBottom: () => {
         if (diffActive) setDiffScroll(diffMaxOffset);
