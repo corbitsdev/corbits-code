@@ -1,0 +1,15 @@
+{
+  "provider": "zen",
+  "model": "north-mini-code-free",
+  "mcpServers": [
+    {
+      "name": "linear",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@linear/mcp-server"],
+      "env": {
+        "LINEAR_API_KEY": "YOUR_LINEAR_API_KEY_HERE"
+      }
+    }
+  ]
+}
