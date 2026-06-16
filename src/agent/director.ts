@@ -588,9 +588,6 @@ class ChatDirectorImpl extends DefaultDirector {
   // to re-enter the loop; this flag tells the next message.received to infer
   // immediately instead of running task-boundary classification.
   private postCompactInfer = false;
-  // Cumulative input tokens at the last compaction. Prevents re-compacting
-  // too frequently.
-  private lastCompactedAtTokens = 0;
   // Re-enters the reactor loop after a compact cycle (which otherwise leaves the
   // loop idle with no pending event). Wired by the host to deliver an empty
   // inbound message so the director can issue the follow-up infer.
@@ -846,28 +843,30 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
-    // Compaction scheduling: on inference.done, check token threshold and mark
-    // compaction pending. The actual compact action is emitted on the next
-    // tool.done (after the current tool batch completes), replacing the infer()
-    // that would normally follow. This avoids the validator's compact+infer ban.
+    // Compaction scheduling: on inference.done, check whether the CURRENT context
+    // occupancy crosses the threshold and mark compaction pending. The actual
+    // compact action is emitted on the next tool.done (after the current tool
+    // batch completes), replacing the infer() that would normally follow. This
+    // avoids the validator's compact+infer ban.
+    //
+    // The metric is the just-completed cycle's input tokens (event.usage.input) —
+    // i.e. the size of the context actually sent — NOT cumulative session tokens.
+    // Cumulative input grows monotonically and is never reset by compaction, so it
+    // would cross the threshold once and stay crossed forever; per-cycle input
+    // falls back below the threshold after a compaction truncates history, which
+    // makes the trigger self-regulating and removes any need for a cooldown (and
+    // the reload-fragile state a cooldown required).
     //
     // The threshold is sized to the active model's real context window (~60% of
-    // it, via models.dev metadata) so small-window models compact early enough
-    // to avoid provider context-overflow, while large-window models do not
-    // compact prematurely. The cooldown is half the threshold to avoid
-    // re-compacting every turn once crossed.
-    const model = state.lastCycleSource?.model;
-    const compactThreshold = compactionThresholdFor(model);
-    const compactCooldown = Math.floor(compactThreshold / 2);
-    const cumulativeInputTokens = state.tokenUsage?.input ?? 0;
-    const tokensSinceLastCompact = cumulativeInputTokens - this.lastCompactedAtTokens;
-    if (
-      event.type === "inference.done" &&
-      cumulativeInputTokens > compactThreshold &&
-      tokensSinceLastCompact > compactCooldown &&
-      state.turns.length > 6
-    ) {
-      this.compactionPending = true;
+    // it, via models.dev metadata) so small-window models compact early enough to
+    // avoid provider context-overflow, while large-window models do not compact
+    // prematurely.
+    if (event.type === "inference.done") {
+      const currentContextTokens = event.usage?.input ?? 0;
+      const compactThreshold = compactionThresholdFor(event.source?.model);
+      if (currentContextTokens > compactThreshold && state.turns.length > 6) {
+        this.compactionPending = true;
+      }
     }
 
     const base = await super.decide(event, state, capabilities);
@@ -890,7 +889,6 @@ class ChatDirectorImpl extends DefaultDirector {
       const hasInfer = actions.some((a) => a.type === "infer");
       if (hasInfer) {
         this.compactionPending = false;
-        this.lastCompactedAtTokens = cumulativeInputTokens;
         this.postCompactInfer = true;
         this.requestContinuation?.();
         // Replace infer with compact, keeping checkpoint and any other actions.

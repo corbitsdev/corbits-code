@@ -278,9 +278,25 @@ function emptyMessageReceived(): ReactorInboundEvent {
   } as ReactorInboundEvent;
 }
 
-// State whose cumulative input tokens are over the 80k compaction threshold,
-// with enough turns to satisfy the >6 turn guard.
-const overThresholdState: ReactorState = {
+// An inference.done whose current-cycle input usage is `inputTokens` (the metric
+// the compaction trigger reads), carrying a tool call so the default director
+// re-infers on the following tool.done.
+function inferenceDoneWithInput(inputTokens: number): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      content: [{ type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "x.ts" } }],
+      model: "test-model",
+      timestamp: 0,
+    },
+    usage: { ...usage, input: inputTokens },
+    source,
+  };
+}
+
+// Enough turns to satisfy the >6 turn guard.
+const manyTurnsState: ReactorState = {
   ...state,
   turns: Array.from({ length: 8 }, () => ({
     role: "assistant" as const,
@@ -288,31 +304,25 @@ const overThresholdState: ReactorState = {
     model: "test-model",
     timestamp: 0,
   })),
-  tokenUsage: { ...usage, input: 100_000 },
 };
 
-test("crossing the token threshold emits compact and a continuation request, not a dead loop", async () => {
-  let continuations = 0;
-  const director = createChatDirector(
-    "sys",
-    [],
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    () => { continuations++; },
+function makeChatDirectorWithContinuation(onContinue: () => void) {
+  return createChatDirector(
+    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined, onContinue,
   );
+}
 
-  // inference.done over the threshold arms compaction.
-  await director.decide(activeTurn(), overThresholdState, makeCapabilities());
+test("current context over threshold emits compact and a continuation request, not a dead loop", async () => {
+  let continuations = 0;
+  const director = makeChatDirectorWithContinuation(() => { continuations++; });
+
+  // A cycle whose input usage exceeds ~60% of the default 128k window arms compaction.
+  await director.decide(inferenceDoneWithInput(100_000), manyTurnsState, makeCapabilities());
 
   // The next tool.done would normally re-infer; instead it compacts and asks
   // the host to re-enter the loop.
   const caps = makeCapabilities();
-  const result = await director.decide(toolDoneTurn("call-1"), overThresholdState, caps);
+  const result = await director.decide(toolDoneTurn("call-1"), manyTurnsState, caps);
   const arr = Array.isArray(result) ? result : [result];
 
   expect(arr.some((a) => a.type === "compact")).toBe(true);
@@ -324,4 +334,20 @@ test("crossing the token threshold emits compact and a continuation request, not
   const resume = await director.decide(emptyMessageReceived(), state, resumeCaps);
   const resumeArr = Array.isArray(resume) ? resume : [resume];
   expect(resumeArr.some((a) => a.type === "infer")).toBe(true);
+});
+
+test("compaction is self-regulating: a cycle back under threshold does not re-compact", async () => {
+  let continuations = 0;
+  const director = makeChatDirectorWithContinuation(() => { continuations++; });
+
+  // After a compaction truncates history, the next cycle's input usage falls
+  // back under the threshold — so no further compaction is armed. This is the
+  // behavior that makes a (reload-fragile) cooldown unnecessary.
+  await director.decide(inferenceDoneWithInput(5_000), manyTurnsState, makeCapabilities());
+  const result = await director.decide(toolDoneTurn("call-1"), manyTurnsState, makeCapabilities());
+  const arr = Array.isArray(result) ? result : [result];
+
+  expect(arr.some((a) => a.type === "compact")).toBe(false);
+  expect(arr.some((a) => a.type === "infer")).toBe(true);
+  expect(continuations).toBe(0);
 });
