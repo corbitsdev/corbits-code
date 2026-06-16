@@ -1,6 +1,7 @@
 import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
+import { type } from "arktype";
 
 // Tools whose full schema is always advertised to the model. Everything else is
 // registered and dispatchable but discovered on demand via tool_search, keeping
@@ -94,11 +95,17 @@ export type ToolSearchDeps = {
   promote: (names: string[]) => void;
 };
 
+const ToolSearchArgs = type({ query: "string" });
+
 export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
   return stringTool({
     definition: toolSearchDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-      const query = typeof rawArgs.query === "string" ? rawArgs.query.trim() : "";
+      const parsed = ToolSearchArgs(rawArgs);
+      if (parsed instanceof type.errors) {
+        return "Error: tool_search requires query (string).";
+      }
+      const query = parsed.query.trim();
       if (query.length === 0) return "Error: tool_search requires a non-empty query.";
       const names = deps.search(query);
       if (names.length === 0) {

@@ -1,6 +1,7 @@
 import { fromToolRunner, stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
+import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import {
@@ -30,6 +31,21 @@ import { createTaskTool, type SubAgentProvider } from "../subagent/index.js";
 import { createListDirTool } from "../util/list-dir.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
+
+const AskOperatorArgs = type({
+  question: "string",
+  options: "string[]",
+});
+
+const SuggestWorkflowArgs = type({
+  workflow: "string",
+  reason: "string",
+  "context?": "string",
+});
+
+const AdvanceWorkflowArgs = type({
+  "note?": "string",
+});
 
 export type AgentToolsetArgs = {
   cwd: string;
@@ -123,8 +139,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
-        const question = typeof rawArgs.question === "string" ? rawArgs.question : "";
-        const options = Array.isArray(rawArgs.options) ? rawArgs.options.map(String) : [];
+        const parsed = AskOperatorArgs(rawArgs);
+        if (parsed instanceof type.errors) {
+          return "Error: ask_operator requires question (string) and options (array of strings).";
+        }
+        const { question, options } = parsed;
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
@@ -132,7 +151,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (index < 0 || index >= options.length) {
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
-        return options[index] as string;
+        return options[index]!;
       },
     }),
     stringTool({
@@ -148,9 +167,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     stringTool({
       definition: suggestWorkflowDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        const name = typeof rawArgs.workflow === "string" ? rawArgs.workflow : "";
-        const context = typeof rawArgs.context === "string" ? rawArgs.context : "";
-        const reason = typeof rawArgs.reason === "string" ? rawArgs.reason : "";
+        const parsed = SuggestWorkflowArgs(rawArgs);
+        if (parsed instanceof type.errors) {
+          return "Error: suggest_workflow requires workflow (string) and reason (string).";
+        }
+        const { workflow: name, reason, context } = parsed;
 
         const workflow = findWorkflow(name);
         if (workflow === undefined) {
@@ -159,7 +180,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         }
 
         const steps = workflow.steps.map((s, i) => `  ${i + 1}. ${s.label}`).join("\n");
-        const contextLine = context.length > 0 ? `\nContext: ${context}` : "";
+        const contextLine = context !== undefined && context.length > 0 ? `\nContext: ${context}` : "";
         const question =
           `Launch workflow: ${name}\n` +
           `Reason: ${reason}${contextLine}\n\n` +
@@ -178,7 +199,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       // The director observes this call and advances the workflow runtime; the
       // handler only needs to acknowledge so the model gets a clean tool result.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        const note = typeof rawArgs.note === "string" && rawArgs.note.length > 0 ? ` (${rawArgs.note})` : "";
+        const parsed = AdvanceWorkflowArgs(rawArgs);
+        if (parsed instanceof type.errors) {
+          return "Acknowledged.";
+        }
+        const note = parsed.note !== undefined ? ` (${parsed.note})` : "";
         return `Workflow step marked complete${note}. Advancing to the next step.`;
       },
     }),
