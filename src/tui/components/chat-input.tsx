@@ -217,6 +217,14 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
   };
 
   useInput((input, key) => {
+    // SGR mouse sequences (scroll wheel events like [<64;20;44M) are parsed
+    // by Ink as single CSI events and broadcast to all active useInput handlers.
+    // useMouseScroll's handler handles the scroll action, but we must consume
+    // the sequence here to prevent it from leaking into the prompt as literal text.
+    if (/^\[<\d+;\d+;\d+[Mm]$/.test(input)) {
+      return;
+    }
+
     // @ picker takes priority over slash suggestions (they are mutually exclusive
     // by construction: slash state only fires when value starts with /).
     if (atMention.suggestions.length > 0) {
