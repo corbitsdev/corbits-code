@@ -284,7 +284,13 @@ export function App({
   // active model's rate even after a mid-session switch. Updated once model is
   // resolved from the provider manager below.
   const modelRef = useRef(initialModel);
-  const state = useAgentStream(eventEmitter, initialHooks, () => modelRef.current);
+  const requestStopRef = useRef<() => void>(() => undefined);
+  const state = useAgentStream(
+    eventEmitter,
+    initialHooks,
+    () => modelRef.current,
+    () => requestStopRef.current(),
+  );
   const stateRef = useRef(state);
   stateRef.current = state;
   const mcpStatus = useMCPStatus(eventEmitter);
@@ -567,6 +573,8 @@ export function App({
     setQueuedCount(0);
     forceRender((n) => n + 1);
   };
+
+  requestStopRef.current = requestStop;
 
   const startNewSessionRef = useRef<() => void>(() => undefined);
   startNewSessionRef.current = () => {

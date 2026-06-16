@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { type } from "arktype";
@@ -567,16 +567,25 @@ export function useAgentStream(
   emitter: EventEmitter,
   initialHooks: LifecycleHookStatus[] = [],
   getModel?: () => string,
+  onInferenceTimeout?: () => void,
 ): AgentStreamState {
   // getModel is read live by the faremeter's pricing resolver, so a
   // mid-session model switch is priced correctly without recreating the state.
   const [state] = useState(() => createAgentStreamState(initialHooks, getModel));
   const [tick, setTick] = useState(0);
+  const onInferenceTimeoutRef = useRef(onInferenceTimeout);
+  onInferenceTimeoutRef.current = onInferenceTimeout;
 
   useEffect(() => {
     const handler = (event: ReactorEmittedEvent) => {
       state.addEvent(event);
       setTick((t) => t + 1);
+      if (
+        event.type === "inference.error" &&
+        (event.data as { error: { category: string } }).error.category === "timeout"
+      ) {
+        onInferenceTimeoutRef.current?.();
+      }
     };
     const hookHandler = (event: LifecycleHookEvent) => {
       state.addHookEvent(event);
