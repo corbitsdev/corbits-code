@@ -28,6 +28,9 @@ export type WorkflowStep = {
   parallel?: boolean;
   // Step kind. Defaults to "standard" when omitted.
   type?: StepType;
+  // Model profile key for this step. When set, the runtime resolves the model
+  // from workflowProfiles[activeProfile][profile] in settings before executing.
+  profile?: string;
 };
 
 export type Workflow = {
@@ -39,6 +42,11 @@ export type Workflow = {
   autoInvoke?: string;
   // Pause after every step and wait for the user before advancing.
   stepThrough?: boolean;
+  // When true, the agent advances to the next step by calling
+  // submit_output({ step: "<id>" }) rather than advance_workflow. The
+  // coordinator directive is reworded accordingly. Use for self-driving
+  // workflows where each step should complete autonomously.
+  autoAdvance?: boolean;
   steps: WorkflowStep[];
 };
 

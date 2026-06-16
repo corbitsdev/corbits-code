@@ -175,6 +175,7 @@ export class WorkflowController {
         this.publish();
       },
       workflow.stepThrough === true,
+      workflow.autoAdvance === true,
     );
     runtime.on(() => {
       this.persist();
