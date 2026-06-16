@@ -235,6 +235,13 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   }
 }
 
+const TaskToolArgs = type({
+  description: "string",
+  prompt: "string",
+  "context?": "string",
+  "agent?": "string",
+});
+
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
@@ -286,10 +293,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   return stringTool({
     definition: taskToolDefinition,
     handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
-      const description = typeof args.description === "string" ? args.description.trim() : "";
-      const context = typeof args.context === "string" ? args.context.trim() : undefined;
-      const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
-      const agentId = typeof args.agent === "string" ? args.agent.trim() : undefined;
+      const parsed = TaskToolArgs(args);
+      if (parsed instanceof type.errors) {
+        return "Error: task requires description (string) and prompt (string).";
+      }
+      const { description: rawDesc, context: rawCtx, prompt: rawPrompt, agent: agentId } = parsed;
+      const description = rawDesc.trim();
+      const context = rawCtx?.trim();
+      const prompt = rawPrompt.trim();
       if (description.length === 0 || prompt.length === 0) {
         return "Error: task requires a non-empty description and prompt.";
       }
