@@ -73,6 +73,7 @@ src/
     index.ts              Session lifecycle (was session.ts)
     state.ts              RunState / DirectorPersistedState JSON save/load
     compactor.ts          Context compactor (was context-compactor.ts)
+    summarizer.ts         Model-backed structured compaction summary (+ deterministic fallback)
     run-sink.ts           Run-level event sink
     stream-consumer.ts    Async stream consumer with error handling
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
@@ -267,6 +268,12 @@ The TUI `EventEmitter` (bridging runner → React) also carries:
 
 - Pricing fetched from models.dev, cached, refreshed on a background interval
 - `faremeter` converts `inference.usage` counts into a formatted `$X.XXXX` cost
+- The same models.dev payload also yields per-model context windows (`limit.context`), captured into the pricing cache (`contextWindows`) and loaded into `src/provider/context-window.ts`. `compactionThresholdFor(model)` returns ~60% of that window (falling back to per-family heuristics, then 128k) to size proactive compaction. Unknown/family-only models still get a sane default.
+
+### Web provider plugin
+
+- `settings.webProvider` is a module specifier and `settings.webProviderOptions` an opaque options object. At startup `resolveWebProviderFromSettings` dynamically imports the specifier and calls its `createWebProvider(options)` (default or named export), validating the returned shape. Core contains no provider-specific code; concrete providers live under top-level `plugins/` (e.g. `plugins/exa`). On load failure it logs to stderr and falls back to the local provider rather than crashing.
+- Enable example: `{ "webProvider": "./plugins/exa/src/index.ts", "webProviderOptions": { "apiKey": "..." } }`.
 
 ## Build and Validation
 

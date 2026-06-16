@@ -8,6 +8,24 @@ import { getActivePricingCache } from "../cost/cost-visibility.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
+// Provider-agnostic detection of context-window-overflow error text. The
+// upstream classifier only tags a 400 with specific English phrases as
+// context_overflow; providers that return a 429 or differently-worded body
+// (e.g. z.ai) slip through mislabeled, so we re-check the message here.
+function looksLikeContextOverflow(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("context_length_exceeded") ||
+    lower.includes("context length") ||
+    lower.includes("context window") ||
+    lower.includes("maximum context") ||
+    lower.includes("too many tokens") ||
+    lower.includes("input is too long") ||
+    lower.includes("exceeds the maximum") ||
+    lower.includes("reduce the length")
+  );
+}
+
 const PlanStepSchema = type({ file: "string", action: "string", "reason?": "string" });
 const PlanSchema = type({ "goal?": "string", steps: PlanStepSchema.array() });
 
@@ -506,13 +524,19 @@ export function createAgentStreamState(
           const friendly: Record<string, string> = {
             credential_failure: "Authentication failed — check your API key.",
             quota_exhausted: "Quota exhausted — usage limit reached.",
-            context_overflow: "Context window full — start a new session.",
+            context_overflow: "Context window full — compaction could not keep up. Try /clear to start fresh.",
             retryable: "Request failed — will retry.",
             aborted: "Request aborted.",
             timeout: "Request timed out.",
             protocol_mismatch: "Unexpected response from inference API.",
           };
-          const msg = friendly[err.category] ?? err.message;
+          // Some providers (e.g. z.ai) report a context-window overflow as a 429
+          // or a 400 whose wording the upstream classifier does not recognize, so
+          // it arrives mislabeled as quota_exhausted/fatal. Trust the message text
+          // over the category when it clearly describes a context overflow, so the
+          // user gets the right guidance instead of a misleading "quota" error.
+          const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
+          const msg = friendly[category] ?? err.message;
           pushBlock({ type: "error", message: msg });
           break;
         }

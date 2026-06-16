@@ -4,6 +4,9 @@ import { createLocalProvider, type LocalProviderOptions } from "./local.js";
 
 export type ProviderResolutionOptions = {
   localOptions?: LocalProviderOptions;
+  // A pre-resolved provider injected by the caller. When set, it is used
+  // verbatim; otherwise the built-in local provider is used.
+  provider?: WebProvider;
 };
 
 // Lazy provider holder. Resolved on first use so we don't pay a startup network
@@ -18,9 +21,80 @@ const holder: ProviderHolder = {
   resolved: false,
 };
 
+function isWebProvider(value: unknown): value is WebProvider {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { name?: unknown }).name === "string" &&
+    typeof (value as { search?: unknown }).search === "function" &&
+    typeof (value as { fetch?: unknown }).fetch === "function"
+  );
+}
+
+// Dynamically load a web provider from a module specifier. The module must
+// export a factory as either its default export or a named `createWebProvider`
+// export: `(options: unknown) => WebProvider | Promise<WebProvider>`. This
+// loader has no knowledge of any specific provider implementation.
+export async function loadWebProvider(specifier: string, options: unknown): Promise<WebProvider> {
+  let mod: unknown;
+  try {
+    mod = await import(specifier);
+  } catch (err) {
+    throw new Error(`Failed to load web provider "${specifier}"`, { cause: err });
+  }
+
+  const record = mod as Record<string, unknown>;
+  const factory =
+    typeof record.default === "function"
+      ? record.default
+      : typeof record.createWebProvider === "function"
+        ? record.createWebProvider
+        : undefined;
+
+  if (factory === undefined) {
+    throw new Error(
+      `Web provider "${specifier}" must export a factory as "createWebProvider" or as the default export.`,
+    );
+  }
+
+  const provider = await (factory as (options: unknown) => WebProvider | Promise<WebProvider>)(
+    options,
+  );
+
+  if (!isWebProvider(provider)) {
+    throw new Error(
+      `Web provider "${specifier}" did not return a WebProvider (expected { name, search, fetch }).`,
+    );
+  }
+
+  return provider;
+}
+
+// Resolve a web provider from optional settings. Loads the configured provider
+// module when a specifier is given; on failure logs to stderr and returns
+// undefined so the caller falls back to the built-in local provider rather than
+// crashing the run.
+export async function resolveWebProviderFromSettings(
+  specifier: string | undefined,
+  options: unknown,
+): Promise<WebProvider | undefined> {
+  if (specifier === undefined || specifier.length === 0) return undefined;
+  try {
+    return await loadWebProvider(specifier, options);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `web-provider: failed to load "${specifier}", falling back to local: ${scrubSecrets(message)}\n`,
+    );
+    return undefined;
+  }
+}
+
 function resolveProvider(options: ProviderResolutionOptions = {}): WebProvider {
-  // For v1, the only implemented backend is local. Future providers (Exa,
-  // Tavily, Firecrawl) will be probed here in priority order.
+  if (options.provider !== undefined) {
+    process.stderr.write(`web-provider: resolved to "${options.provider.name}"\n`);
+    return options.provider;
+  }
   const provider = createLocalProvider(options.localOptions);
   process.stderr.write(`web-provider: resolved to "${provider.name}"\n`);
   return provider;

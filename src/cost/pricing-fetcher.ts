@@ -16,6 +16,10 @@ export type PricingCache = {
   // the /agent reasoning-effort selector can hide options for non-reasoning
   // models. Optional for backward compatibility with caches written before it.
   reasoning?: Record<string, boolean>;
+  // models.dev publishes a per-model `limit.context` token count. Captured so
+  // compaction can target a fraction of the real window instead of a fixed
+  // constant. Optional for backward compatibility with older caches.
+  contextWindows?: Record<string, number>;
 };
 
 export type PricingFetcherOptions = {
@@ -111,6 +115,29 @@ export function parseModelsDevReasoning(payload: unknown): Record<string, boolea
   return reasoning;
 }
 
+function collectModelContextWindows(value: unknown, windows: Record<string, number>): void {
+  if (!isRecord(value)) {
+    if (Array.isArray(value)) for (const item of value) collectModelContextWindows(item, windows);
+    return;
+  }
+  const id = typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
+  // models.dev nests the window under `limit.context`.
+  const limit = isRecord(value.limit) ? value.limit : undefined;
+  const context = limit !== undefined && typeof limit.context === "number" ? limit.context : undefined;
+  if (id !== null && context !== undefined && Number.isFinite(context) && context > 0) {
+    windows[id] = context;
+  }
+  for (const child of Object.values(value)) {
+    if (isRecord(child) || Array.isArray(child)) collectModelContextWindows(child, windows);
+  }
+}
+
+export function parseModelsDevContextWindows(payload: unknown): Record<string, number> {
+  const windows: Record<string, number> = {};
+  collectModelContextWindows(payload, windows);
+  return windows;
+}
+
 export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<PricingCache | null> {
   try {
     const payload = JSON.parse(await Bun.file(cachePath).text());
@@ -128,10 +155,19 @@ export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<
         if (typeof flag === "boolean") reasoning[modelId] = flag;
       }
     }
+    const contextWindows: Record<string, number> = {};
+    if (isRecord(payload) && isRecord(payload.contextWindows)) {
+      for (const [modelId, window] of Object.entries(payload.contextWindows)) {
+        if (typeof window === "number" && Number.isFinite(window) && window > 0) {
+          contextWindows[modelId] = window;
+        }
+      }
+    }
     return {
       timestamp: parsed.timestamp,
       models,
       ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
+      ...(Object.keys(contextWindows).length > 0 ? { contextWindows } : {}),
     };
   } catch {
     return null;
@@ -165,10 +201,12 @@ export async function fetchPricing(options: PricingFetcherOptions = {}): Promise
     throw new Error("models.dev pricing response did not include model prices");
   }
   const reasoning = parseModelsDevReasoning(payload);
+  const contextWindows = parseModelsDevContextWindows(payload);
   return {
     timestamp: now(),
     models,
     ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
+    ...(Object.keys(contextWindows).length > 0 ? { contextWindows } : {}),
   };
 }
 

@@ -36,6 +36,7 @@ import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
+import { resolveWebProviderFromSettings } from "../web/providers/index.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -48,6 +49,7 @@ import { saveState, loadState, saveDirectorState, loadDirectorState, type Direct
 import { runCritique } from "./critic.js";
 import { loadPricing, startPricingRefresh } from "../cost/pricing-fetcher.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
+import { setModelContextWindows } from "../provider/context-window.js";
 import { createRenderer } from "./renderer.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import {
@@ -144,6 +146,7 @@ export async function runAgent(
   const startedAt = initialStartedAt ?? Date.now();
   const pricingCache = await loadPricing();
   setModelReasoningCapabilities(pricingCache?.reasoning ?? {});
+  setModelContextWindows(pricingCache?.contextWindows);
   const pricingRefresh = startPricingRefresh();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
@@ -170,6 +173,11 @@ export async function runAgent(
   );
   const { plugin: mcpPlugin } = createMCPPlugin(mcpClients);
 
+  const webProvider = await resolveWebProviderFromSettings(
+    config.settings?.webProvider,
+    config.settings?.webProviderOptions,
+  );
+
   const posixTools = createPosixTools({
     cwd: config.cwd,
     plugins: [
@@ -180,7 +188,7 @@ export async function runAgent(
       ripgrepPlugin(config.cwd),
       verifyPlugin(),
       reReadBlockPlugin(() => directorHolder.instance),
-      webToolsPlugin(),
+      webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
       createLSPPlugin({ cwd: config.cwd, minSeverity: 1 }),
       mcpPlugin,
     ],

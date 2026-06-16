@@ -21,6 +21,7 @@ import { loadWorkflowPlugins } from "../workflows/index.js";
 import { loadAgentPlugins } from "../agent/profiles.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
+import { setModelContextWindows } from "../provider/context-window.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
 import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
@@ -35,6 +36,7 @@ import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset } from "../agent/tools.js";
+import { resolveWebProviderFromSettings } from "../web/providers/index.js";
 import {
   loadApprovals,
   loadProjectApprovals,
@@ -60,6 +62,7 @@ import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
+import { createModelSummarizer } from "../session/summarizer.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -91,11 +94,13 @@ export async function runTUI(config: Config): Promise<number> {
   // refresh from the network in the background (updates the cache for next run).
   const cachedPricing = await readPricingCache();
   setModelReasoningCapabilities(cachedPricing?.reasoning ?? {});
+  setModelContextWindows(cachedPricing?.contextWindows);
   setActivePricingCache(cachedPricing);
   void loadPricing()
     .then((cache) => {
       if (cache !== null) {
         setModelReasoningCapabilities(cache.reasoning ?? {});
+        setModelContextWindows(cache.contextWindows);
         setActivePricingCache(cache);
       }
     })
@@ -180,9 +185,15 @@ export async function runTUI(config: Config): Promise<number> {
   // toolset, so a holder breaks the init cycle.
   const directorHolderForTools: { instance?: { enterPlanPhase: () => void } } = {};
 
+  const webProvider = await resolveWebProviderFromSettings(
+    config.settings?.webProvider,
+    config.settings?.webProviderOptions,
+  );
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
+    ...(webProvider !== undefined ? { webProvider } : {}),
     onOperatorGate: (question, options) =>
       new Promise<number>((resolve) => {
         const event: OperatorGateEvent = { question, options, resolve };
@@ -237,6 +248,28 @@ export async function runTUI(config: Config): Promise<number> {
         (active) => emitter.emit("plan-phase", active),
         config.inactivityTimeoutMs ?? 750_000,
         config.totalTimeoutMs,
+        // After a compact cycle the reactor delivers no event, so the director
+        // asks us to re-enter the loop. An empty body means createInboundTurn
+        // returns null — no turn is appended; the delivery only wakes decide()
+        // so it can issue the follow-up infer against the truncated history.
+        () => {
+          try {
+            currentAgent.deliver({
+              ref: { uid: 0, mailbox: "system" },
+              headers: {
+                from: "user@local",
+                to: ["agent@local"],
+                date: new Date().toISOString(),
+                messageId: `compact-continue-${Date.now()}@local`,
+              },
+              flags: [],
+              content: "",
+              signatureStatus: "missing",
+            });
+          } catch {
+            // Agent may be mid-reload or closing; a dropped continuation is harmless.
+          }
+        },
       );
       directorHolder.instance = d;
       directorHolderForTools.instance = d;
@@ -288,6 +321,33 @@ export async function runTUI(config: Config): Promise<number> {
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
         });
 
+  // The source the next inference will use, tracked live so the compaction
+  // summarizer always summarizes with the current model (model switches and
+  // Codex token refreshes update it below).
+  let liveSource: InferenceSource = buildInitialSource();
+
+  // Compaction summarizer: produces a structured, workflow-aware handoff via a
+  // one-shot call on the live model, falling back to the deterministic summary
+  // on any failure. The workflow context is read at call time so a compaction
+  // mid-/build or mid-/plan preserves which step we are on.
+  const compactionSummarize = createModelSummarizer({ getSource: () => liveSource });
+  const summarizeForCompaction = (turns: Parameters<typeof compactionSummarize>[0]): Promise<string> => {
+    const status = workflowController.status();
+    return compactionSummarize(
+      turns,
+      status.active
+        ? {
+            workflow: {
+              ...(status.name !== undefined ? { name: status.name } : {}),
+              stepLabel: status.label,
+              stepIndex: status.stepIndex,
+              total: status.total,
+            },
+          }
+        : undefined,
+    );
+  };
+
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
     return createAgent(def, {
@@ -297,7 +357,13 @@ export async function runTUI(config: Config): Promise<number> {
       audit: noopAuditStore(),
       authorize: permissiveAuthorize(),
       directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "intercode/chat" }),
-      compactors: { "pruning-compactor": createPruningCompactor() },
+      compactors: {
+        "pruning-compactor": createPruningCompactor({
+          keepRecentTurns: 6,
+          summaryMaxChars: 2500,
+          summarize: summarizeForCompaction,
+        }),
+      },
     });
   };
 
@@ -390,6 +456,7 @@ export async function runTUI(config: Config): Promise<number> {
     const source: InferenceSource =
       access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
     activeCodexSource = { profile: active.profile, source };
+    liveSource = source;
     currentAgent.setSource(source);
   };
 
@@ -414,6 +481,7 @@ export async function runTUI(config: Config): Promise<number> {
     setSource: (source) => {
       const profile = codexProfileFromProviderName(source.id);
       activeCodexSource = profile !== undefined ? { profile, source } : undefined;
+      liveSource = source;
       currentAgent.setSource(source);
     },
     history: () => currentAgent.history(),

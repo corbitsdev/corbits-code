@@ -11,9 +11,9 @@ import type { DirectorPersistedState } from "../session/state.js";
 import {
   type SessionMetadata,
   type TaskBoundary,
-  createPruningCompactor,
 } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
+import { compactionThresholdFor } from "../provider/context-window.js";
 import { type } from "arktype";
 
 const PathArgSchema = type({ path: "string" });
@@ -580,12 +580,18 @@ class ChatDirectorImpl extends DefaultDirector {
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
   private startedAt = Date.now();
-  // Inline compaction: built when token usage crosses the threshold and injected
-  // into the next infer's system prompt so older turns don't bloat the context.
-  private compactionEnvelope: string | undefined;
-  // Cumulative input tokens at the last inline compaction. Prevents re-compacting
-  // on every turn after the threshold is first crossed.
-  private lastCompactedAtTokens = 0;
+  // Compaction pending flag: set on inference.done when token threshold is crossed.
+  // Cleared when the compact action is emitted (on the next tool.done batch).
+  private compactionPending = false;
+  // Set when a compact action is emitted. The reactor delivers no event after a
+  // compact cycle, so we self-deliver an empty message (via requestContinuation)
+  // to re-enter the loop; this flag tells the next message.received to infer
+  // immediately instead of running task-boundary classification.
+  private postCompactInfer = false;
+  // Re-enters the reactor loop after a compact cycle (which otherwise leaves the
+  // loop idle with no pending event). Wired by the host to deliver an empty
+  // inbound message so the director can issue the follow-up infer.
+  private readonly requestContinuation: (() => void) | undefined;
 
   constructor(
     systemPrompt: string,
@@ -597,6 +603,7 @@ class ChatDirectorImpl extends DefaultDirector {
     totalTimeoutMs?: number,
     workflowCoordinator?: WorkflowCoordinator,
     onPlanPhaseChange?: (active: boolean) => void,
+    requestContinuation?: () => void,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
@@ -608,6 +615,7 @@ class ChatDirectorImpl extends DefaultDirector {
     this.onActivateTools = onActivateTools;
     this.workflowCoordinator = workflowCoordinator;
     this.onPlanPhaseChange = onPlanPhaseChange;
+    this.requestContinuation = requestContinuation;
   }
 
   // The TUI builds the coordinator only once a workflow is started (via slash
@@ -664,8 +672,6 @@ class ChatDirectorImpl extends DefaultDirector {
         "Do not narrate or apologize for the disabled tools."
       : null;
 
-    const compactionNote = this.compactionEnvelope ?? null;
-
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
       const options = { ...action.options, tools };
@@ -673,7 +679,6 @@ class ChatDirectorImpl extends DefaultDirector {
       if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       const base = action.options?.systemPrompt ?? this._systemPrompt;
       let prompt = base;
-      if (compactionNote !== null) prompt = `${prompt}\n\n${compactionNote}`;
       if (directive !== null) prompt = `${prompt}\n\n${directive}`;
       if (planDirective !== null) prompt = `${prompt}${planDirective}`;
       if (prompt !== base) options.systemPrompt = prompt;
@@ -695,6 +700,19 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    // Post-compaction continuation: the empty message we self-delivered after a
+    // compact cycle (see the compact-emission block below). It carries no content,
+    // so the reactor adds no turn for it; we simply resume inference against the
+    // freshly truncated history. This must precede task classification so the
+    // empty message is never mistaken for a new task.
+    if (event.type === "message.received" && this.postCompactInfer) {
+      const content = typeof event.message.content === "string" ? event.message.content : "";
+      if (content.length === 0) {
+        this.postCompactInfer = false;
+        return capabilities.infer();
+      }
+    }
+
     // Intercept message.received for task boundary detection.
     // When a new task is detected, build a context envelope with a compacted
     // summary of prior work and pass it as part of the system prompt. This
@@ -825,47 +843,62 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
-    // Inline compaction: when cumulative input tokens exceed the threshold and we
-    // haven't compacted recently, summarize older turns into a system prompt envelope.
-    // This keeps individual requests from growing unboundedly without requiring the
-    // reactor's compact action (which stalls inference until a new user message).
-    const COMPACT_THRESHOLD_TOKENS = 80_000;
-    const COMPACT_COOLDOWN_TOKENS = 40_000;
-    const cumulativeInputTokens = state.tokenUsage?.input ?? 0;
-    const tokensSinceLastCompact = cumulativeInputTokens - this.lastCompactedAtTokens;
-    if (
-      event.type === "inference.done" &&
-      cumulativeInputTokens > COMPACT_THRESHOLD_TOKENS &&
-      tokensSinceLastCompact > COMPACT_COOLDOWN_TOKENS &&
-      state.turns.length > 6
-    ) {
-      const compactor = createPruningCompactor({ keepRecentTurns: 6, summaryMaxChars: 2500 });
-      try {
-        const result = await compactor.apply(state.turns, {
-          state,
-          trigger: "director:token-threshold",
-        });
-        const summaryTurn = result.output[0];
-        const summaryText =
-          summaryTurn !== undefined &&
-          summaryTurn.role === "system" &&
-          summaryTurn.content[0] !== undefined &&
-          summaryTurn.content[0].type === "text"
-            ? summaryTurn.content[0].text
-            : undefined;
-        if (summaryText !== undefined) {
-          this.compactionEnvelope =
-            `--- Context compacted (${Math.round(state.tokenUsage.input / 1000)}k tokens) ---\n` +
-            summaryText +
-            `\n--- End compacted context ---`;
-          this.lastCompactedAtTokens = state.tokenUsage.input;
-        }
-      } catch {
-        // Compaction failure should not break the session.
+    // Compaction scheduling: on inference.done, check whether the CURRENT context
+    // occupancy crosses the threshold and mark compaction pending. The actual
+    // compact action is emitted on the next tool.done (after the current tool
+    // batch completes), replacing the infer() that would normally follow. This
+    // avoids the validator's compact+infer ban.
+    //
+    // The metric is the just-completed cycle's input tokens (event.usage.input) —
+    // i.e. the size of the context actually sent — NOT cumulative session tokens.
+    // Cumulative input grows monotonically and is never reset by compaction, so it
+    // would cross the threshold once and stay crossed forever; per-cycle input
+    // falls back below the threshold after a compaction truncates history, which
+    // makes the trigger self-regulating and removes any need for a cooldown (and
+    // the reload-fragile state a cooldown required).
+    //
+    // The threshold is sized to the active model's real context window (~60% of
+    // it, via models.dev metadata) so small-window models compact early enough to
+    // avoid provider context-overflow, while large-window models do not compact
+    // prematurely.
+    if (event.type === "inference.done") {
+      const currentContextTokens = event.usage?.input ?? 0;
+      const compactThreshold = compactionThresholdFor(event.source?.model);
+      if (currentContextTokens > compactThreshold && state.turns.length > 6) {
+        this.compactionPending = true;
       }
     }
 
     const base = await super.decide(event, state, capabilities);
+
+    // Emit compact action on the last tool.done of a batch when compaction is pending.
+    // The default director returns [checkpoint, infer] on the final tool.done; we
+    // replace the infer with compact. Since compact cannot be paired with infer,
+    // it runs in its own cycle — and the reactor delivers no follow-up event after
+    // a compact cycle (see interchange reactor.test.ts "compact alone, then infer
+    // on the next cycle"). Without a nudge the loop would idle here forever, which
+    // is the stall this replaces. We set postCompactInfer and ask the host to
+    // self-deliver an empty message; that re-enters the loop and the early-return
+    // at the top of decideInner issues the follow-up infer against the truncated
+    // history.
+    if (
+      this.compactionPending &&
+      event.type === "tool.done"
+    ) {
+      const actions = Array.isArray(base) ? base : [base];
+      const hasInfer = actions.some((a) => a.type === "infer");
+      if (hasInfer) {
+        this.compactionPending = false;
+        this.postCompactInfer = true;
+        this.requestContinuation?.();
+        // Replace infer with compact, keeping checkpoint and any other actions.
+        const filtered = actions.filter((a) => a.type !== "infer");
+        return [
+          ...filtered,
+          capabilities.compact("pruning-compactor", "context-threshold"),
+        ];
+      }
+    }
 
     // When a workflow is running and not at a gate step, substitute any terminal
     // action (wait or reply) with a fresh infer() so the agent keeps executing
@@ -931,6 +964,7 @@ export function createChatDirector(
   onPlanPhaseChange?: (active: boolean) => void,
   inactivityTimeoutMs?: number,
   totalTimeoutMs?: number,
+  requestContinuation?: () => void,
 ): ChatDirectorWithClear {
   const gate = approvalGate ?? (async () => true);
   return new ChatDirectorImpl(
@@ -943,6 +977,7 @@ export function createChatDirector(
     totalTimeoutMs,
     workflowCoordinator,
     onPlanPhaseChange,
+    requestContinuation,
   );
 }
 

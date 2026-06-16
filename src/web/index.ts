@@ -4,4 +4,10 @@ export { htmlToMarkdown } from "./markdown.js";
 export { scrubSecrets } from "./secret-scrub.js";
 export type { WebProvider, WebResult } from "./types.js";
 export { createLocalProvider, type LocalProviderOptions } from "./providers/local.js";
-export { getWebProvider, resetWebProvider, withRetry } from "./providers/index.js";
+export {
+  getWebProvider,
+  loadWebProvider,
+  resolveWebProviderFromSettings,
+  resetWebProvider,
+  withRetry,
+} from "./providers/index.js";

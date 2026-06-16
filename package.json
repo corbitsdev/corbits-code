@@ -28,7 +28,8 @@
     "./interchange/packages/crypto-node",
     "./interchange/packages/tools-lsp",
     "./packages/workflows",
-    "./packages/agents"
+    "./packages/agents",
+    "./plugins/exa"
   ],
   "catalog": {
     "arktype": "^2.1.29"
