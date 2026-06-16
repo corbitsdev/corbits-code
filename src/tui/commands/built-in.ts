@@ -42,12 +42,6 @@ registerCommand({
 });
 
 registerCommand({
-  name: "agent",
-  description: "Alias for /model",
-  handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
-});
-
-registerCommand({
   name: "permissions",
   description: "View and revoke remembered approvals across scopes",
   handler: (_args, _ctx) => ({ type: "overlay", overlay: "permissions" }),
