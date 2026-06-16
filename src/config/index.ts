@@ -129,6 +129,11 @@ export type Config = {
   profile?: string;
   systemPromptExtensions?: string[];
   maxTurns?: number;
+  // Per-call inactivity timeout in ms (default 120_000 in the harness). Tune
+  // higher for reasoning models with long silent-thinking stretches.
+  inactivityTimeoutMs?: number;
+  // Per-call total wall-clock cap in ms (default 600_000 in the harness).
+  totalTimeoutMs?: number;
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
@@ -366,6 +371,8 @@ export async function loadConfig(
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
     ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
+    ...(profile.inactivityTimeoutMs !== undefined ? { inactivityTimeoutMs: profile.inactivityTimeoutMs } : {}),
+    ...(profile.totalTimeoutMs !== undefined ? { totalTimeoutMs: profile.totalTimeoutMs } : {}),
     ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
     ...(local?.mcpServers !== undefined
       ? { mcpServers: local.mcpServers }
