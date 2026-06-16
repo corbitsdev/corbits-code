@@ -272,6 +272,8 @@ export async function runAgent(
         [...agentCtx.toolDefinitions],
         initialDirectorState,
         config.maxTurns,
+        config.inactivityTimeoutMs,
+        config.totalTimeoutMs,
       );
       directorHolder.instance = d;
       return d;
