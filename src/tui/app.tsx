@@ -28,6 +28,7 @@ import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
 import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
+import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
 import { CodexLoginModal } from "./components/codex-login-modal.js";
@@ -192,7 +193,7 @@ const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
 
 // How long the run can be continuously awaiting a response with no new content
 // before the watchdog fires and aborts the in-flight request.
-export const STALL_TIMEOUT_MS = 120_000;
+export const STALL_TIMEOUT_MS = 900_000;
 
 export type AgentMode = "edit" | "auto";
 
@@ -808,6 +809,17 @@ export function App({
         onToggleAuto?.(next === "auto");
         setAgentMode(next);
       },
+    },
+  );
+
+  useMouseScroll(
+    () => {
+      if (diffActive) setDiffScroll((o) => Math.max(0, o - 3));
+      else scroll.scrollUp(3);
+    },
+    () => {
+      if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 3));
+      else scroll.scrollDown(3);
     },
   );
 
