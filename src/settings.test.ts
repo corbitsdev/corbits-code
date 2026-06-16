@@ -245,6 +245,32 @@ describe("loaders", () => {
     }
   });
 
+  test("loadSettings preserves plugin and web-provider fields through a round trip", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          providers: { a: { baseURL: "https://a/v1", apiKey: "k", models: ["m"] } },
+          workflowPlugins: ["./wf.js"],
+          agentPlugins: ["./agent.js"],
+          workflowProfiles: { fast: { implement: "m" } },
+          webProvider: "./plugins/exa/src/index.ts",
+          webProviderOptions: { apiKey: "exa-key" },
+        }),
+      );
+      const loaded = await loadSettings(path);
+      expect(loaded?.workflowPlugins).toEqual(["./wf.js"]);
+      expect(loaded?.agentPlugins).toEqual(["./agent.js"]);
+      expect(loaded?.workflowProfiles).toEqual({ fast: { implement: "m" } });
+      expect(loaded?.webProvider).toBe("./plugins/exa/src/index.ts");
+      expect(loaded?.webProviderOptions).toEqual({ apiKey: "exa-key" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("loadLocalSettings rejects credentials", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {

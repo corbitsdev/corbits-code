@@ -284,6 +284,11 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
     ...(s.tiers !== undefined ? { tiers: s.tiers as Settings["tiers"] } : {}),
+    ...(s.workflowPlugins !== undefined ? { workflowPlugins: s.workflowPlugins as string[] } : {}),
+    ...(s.agentPlugins !== undefined ? { agentPlugins: s.agentPlugins as string[] } : {}),
+    ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
+    ...(s.webProvider !== undefined ? { webProvider: s.webProvider as string } : {}),
+    ...(s.webProviderOptions !== undefined ? { webProviderOptions: s.webProviderOptions as Record<string, unknown> } : {}),
   } as Settings;
 }
 
