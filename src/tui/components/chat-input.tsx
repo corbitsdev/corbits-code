@@ -1,4 +1,4 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, usePaste } from "ink";
 import { useState, useMemo, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { getCommand, listCommands } from "../commands/registry.js";
@@ -41,11 +41,23 @@ export type EditState = {
   cursor: number;
 };
 
-// Pure function: given the current editor state, an input character, and the
-// key flags from Ink, return the next editor state. No side effects.
-// Up/down arrows are not handled here — the caller deals with them (suggestion
-// navigation or cursor-line movement) before reaching this function.
+// Pure function: given the current editor state and pasted text, return the
+// next editor state. Mirrors the paste-handler logic without the component
+// side effects (usePaste, onChange, atMention.refresh).
+export function applyPaste(state: EditState, text: string): EditState {
+  if (text.length === 0) return state;
+  const { value, cursor } = state;
+  return {
+    value: value.slice(0, cursor) + text + value.slice(cursor),
+    cursor: cursor + text.length,
+  };
+}
+
 export function applyKey(state: EditState, input: string, key: InputKey): EditState {
+  // Pure function: given the current editor state, an input character, and the
+  // key flags from Ink, return the next editor state. No side effects.
+  // Up/down arrows are not handled here — the caller deals with them (suggestion
+  // navigation or cursor-line movement) before reaching this function.
   const { value, cursor } = state;
 
   if (key.leftArrow) {
@@ -313,6 +325,20 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       atMention.refresh(next.value, next.cursor);
     }
   }, { isActive: active });
+
+  // Paste handler: receives the full pasted string as one event (bracketed paste
+  // mode from the terminal). Ink's usePaste operates on a separate event channel
+  // from useInput, so paste characters never trickle in one-by-one through
+  // useInput — this avoids 10K+ individual re-renders on a large paste.
+  usePaste((text) => {
+    if (!active) return;
+    const next = applyPaste({ value, cursor }, text);
+    if (next.value === value) return; // empty text — nothing changed
+    selfSetValue.current = next.value;
+    onChange(next.value);
+    setCursor(next.cursor);
+    atMention.refresh(next.value, next.cursor);
+  });
 
   // Split the value into display lines and locate the cursor's line and column,
   // so a multi-line prompt (Shift+Enter) renders the caret on the right line.

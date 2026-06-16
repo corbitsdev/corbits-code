@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { applyKey, type EditState, type InputKey } from "./chat-input.js";
+import { applyKey, applyPaste, type EditState, type InputKey } from "./chat-input.js";
 
 const state = (value: string, cursor: number): EditState => ({ value, cursor });
 
@@ -146,3 +146,49 @@ describe("applyKey — keys that should not mutate state", () => {
     expect(applyKey(state("hello", 2), "", key({ downArrow: true }))).toEqual(state("hello", 2));
   });
 });
+
+describe("applyPaste — insertion at cursor", () => {
+  test("empty text is a no-op", () => {
+    expect(applyPaste(state("hello", 3), "")).toEqual(state("hello", 3));
+  });
+
+  test("inserts at the start of input", () => {
+    expect(applyPaste(state("world", 0), "hello ")).toEqual(state("hello world", 6));
+  });
+
+  test("appends at the end of input", () => {
+    expect(applyPaste(state("hello", 5), " world")).toEqual(state("hello world", 11));
+  });
+
+  test("inserts in the middle of input", () => {
+    expect(applyPaste(state("helorld", 3), "lo w")).toEqual(state("hello world", 7));
+  });
+
+  test("preserves cursor when paste text is multi-line (newlines)", () => {
+    const result = applyPaste(state("ab", 1), "\nline2\nline3");
+    expect(result.value).toBe("a\nline2\nline3b");
+    expect(result.cursor).toBe(13); // 1 + len("\nline2\nline3") = 1 + 12
+  });
+
+  test("paste with @ symbols updates state the caller feeds to atMention.refresh", () => {
+    // The paste handler's atMention.refresh(newValue, newCursor) call receives
+    // the same value/cursor that applyPaste returns — verify the contract.
+    const result = applyPaste(state("hello ", 6), "@user/project");
+    expect(result.value).toBe("hello @user/project");
+    expect(result.cursor).toBe(19);
+  });
+
+  test("paste at cursor 0 on empty input", () => {
+    expect(applyPaste(state("", 0), "pasted")).toEqual(state("pasted", 6));
+  });
+
+  test("paste at cursor past end is clamped by slice semantics (same as appending)", () => {
+    // Cursor past value.length: slice are forgiving and treat it like end.
+    expect(applyPaste(state("hi", 10), "!")).toEqual(state("hi!", 11));
+  });
+});
+
+// Integration-test note:  Inactive-guard tests (paste ignored when active=false)
+// require rendering ChatInput inside an Ink <Box> test harness or mocking Ink's
+// usePaste to capture the callback and verify it short-circuits on !active.
+// This cannot be done purely — it lives in a future e2e / integration test file.
