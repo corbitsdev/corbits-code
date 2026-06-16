@@ -59,6 +59,7 @@ import {
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
 import { WorkflowController } from "./workflow-controller.js";
+import { createPruningCompactor } from "../session/compactor.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -234,7 +235,7 @@ export async function runTUI(config: Config): Promise<number> {
         (names) => promoteTools(names),
         undefined,
         (active) => emitter.emit("plan-phase", active),
-        config.inactivityTimeoutMs ?? 300_000,
+        config.inactivityTimeoutMs ?? 750_000,
         config.totalTimeoutMs,
       );
       directorHolder.instance = d;
@@ -296,6 +297,7 @@ export async function runTUI(config: Config): Promise<number> {
       audit: noopAuditStore(),
       authorize: permissiveAuthorize(),
       directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "intercode/chat" }),
+      compactors: { "pruning-compactor": createPruningCompactor() },
     });
   };
 
