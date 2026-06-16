@@ -36,8 +36,14 @@ registerCommand({
 });
 
 registerCommand({
+  name: "model",
+  description: "Open the model configuration surface (provider, model)",
+  handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
+});
+
+registerCommand({
   name: "agent",
-  description: "Open the agent configuration surface (provider, model)",
+  description: "Alias for /model",
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
 });
 
