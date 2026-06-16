@@ -53,7 +53,22 @@ export function handleKey(
   lastEscMs: number,
   now: number,
 ): number {
-  // Exit-confirm, help, and any open gate/modal own input entirely while shown.
+  // Scroll keys work unconditionally — the user must always be able to read
+  // the log, including while a gate modal is blocking other input.
+  if (key.ctrl && key.downArrow) {
+    actions.scrollToBottom();
+    return lastEscMs;
+  }
+  if (key.pageUp || (key.ctrl && key.upArrow)) {
+    actions.scrollUp();
+    return lastEscMs;
+  }
+  if (key.pageDown) {
+    actions.scrollDown();
+    return lastEscMs;
+  }
+
+  // Exit-confirm, help, and any open gate/modal own all remaining input.
   if (context.exitConfirmOpen) return lastEscMs;
   if (context.helpOpen) return lastEscMs;
   if (context.gateOpen) return lastEscMs;
@@ -102,24 +117,6 @@ export function handleKey(
       }
     }
     return now;
-  }
-  if (key.ctrl && key.downArrow) {
-    actions.scrollToBottom();
-    return lastEscMs;
-  }
-  // PageUp/PageDown scroll the log; they're never claimed by the prompt, so
-  // these bindings work even when the input is focused (the normal case).
-  if (key.pageUp) {
-    actions.scrollUp();
-    return lastEscMs;
-  }
-  if (key.pageDown) {
-    actions.scrollDown();
-    return lastEscMs;
-  }
-  if (key.ctrl && key.upArrow) {
-    actions.scrollUp();
-    return lastEscMs;
   }
   // Plain arrow keys belong to the prompt box. When the input is focused or the
   // command palette is open, ChatInput's useInput handler owns them.
