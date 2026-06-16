@@ -8,8 +8,42 @@ export type GateContext = {
     scopes: Array<{ pattern: string | null }>;
   } | null;
   pendingPlan: unknown | null;
-  pendingOperator: { options: unknown[] } | null;
+  pendingOperator: { question: string; options: unknown[] } | null;
 };
+
+// Count the lines a string occupies when word-wrapped to `width` columns,
+// mirroring Ink's wrap="wrap" behaviour (hard breaks on "\n", greedy word
+// packing, long words split across lines). Used to reserve enough overlay rows
+// for variable-length modal text so the event log never overpaints into it.
+export function wrappedLineCount(text: string, width: number): number {
+  const safeWidth = Math.max(1, width);
+  let lines = 0;
+  for (const paragraph of text.split("\n")) {
+    if (paragraph.length === 0) {
+      lines += 1;
+      continue;
+    }
+    let col = 0;
+    let lineCount = 1;
+    for (const word of paragraph.split(/\s+/).filter((w) => w.length > 0)) {
+      if (word.length > safeWidth) {
+        if (col > 0) lineCount += 1;
+        lineCount += Math.floor(word.length / safeWidth);
+        col = word.length % safeWidth;
+        continue;
+      }
+      const needed = col === 0 ? word.length : col + 1 + word.length;
+      if (needed > safeWidth) {
+        lineCount += 1;
+        col = word.length;
+      } else {
+        col = needed;
+      }
+    }
+    lines += lineCount;
+  }
+  return Math.max(1, lines);
+}
 
 export type ModalContext = {
   helpOpen: boolean;
@@ -88,7 +122,20 @@ export function computeOverlayRows({
     const steps = Array.isArray(gateContext.pendingPlan) ? (gateContext.pendingPlan as unknown[]).length : 0;
     return 8 + steps * 2;
   }
-  if (gateContext.pendingOperator !== null) return 10 + gateContext.pendingOperator.options.length;
+  if (gateContext.pendingOperator !== null) {
+    // Fixed chrome: border (2) + paddingY (2) + marginY (2) + title (1) +
+    // marginTop before the question, options, and footer (3) + footer hint (1).
+    const FIXED = 11;
+    const questionLines = wrappedLineCount(gateContext.pendingOperator.question, innerWidth);
+    // Each option is prefixed by an arrow + gap (2 cols) and may wrap. The
+    // "Other" and "Close" entries always sit below the offered options.
+    const optionWidth = Math.max(1, innerWidth - 2);
+    const optionLines = gateContext.pendingOperator.options.reduce<number>(
+      (n, opt) => n + wrappedLineCount(String(opt), optionWidth),
+      0,
+    );
+    return FIXED + questionLines + optionLines + 2;
+  }
   if (modalContext.helpOpen) return 16;
   if (modalContext.hookPanelOpen) return 4 + hookCount;
   if (modalContext.exitConfirmOpen) return 6;
