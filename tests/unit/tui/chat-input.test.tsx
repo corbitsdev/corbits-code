@@ -122,6 +122,36 @@ test("Up/Down arrows move cursor between lines of a multi-line prompt", async ()
   expect(afterUp).toMatch(/first.*▏/s);
 });
 
+test("ChatInput silently consumes SGR mouse scroll sequences", async () => {
+  let current = "";
+  const seq = "\x1B[<64;20;44M";  // scroll up event
+  function Harness() {
+    const [v, setV] = useState("");
+    current = v;
+    return (
+      <ChatInput
+        onSubmit={() => {}}
+        onCommand={() => {}}
+        commandContext={noopContext}
+        value={v}
+        onChange={setV}
+      />
+    );
+  }
+  const { stdin } = render(<Harness />);
+  await Promise.resolve();
+  // Send the SGR mouse sequence — it should be consumed, not added to the prompt
+  stdin.write(seq);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(current).toBe("");
+  // Verify regular typing still works after the mouse event
+  stdin.write("a");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(current).toBe("a");
+});
+
 test("cursor stays mid-string across successive edits", async () => {
   let current = "";
   function Harness() {
