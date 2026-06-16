@@ -194,7 +194,7 @@ const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
 // before the watchdog fires and aborts the in-flight request.
 export const STALL_TIMEOUT_MS = 120_000;
 
-export type AgentMode = "edit" | "auto" | "plan";
+export type AgentMode = "edit" | "auto";
 
 export type ShouldAbortForStallArgs = {
   status: AgentStatus;
@@ -245,8 +245,6 @@ export type AppProps = {
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
   onStartWorkflow?: (name: string) => string;
   listWorkflows?: () => Array<{ name: string; description: string }>;
-  onEnterPlanMode?: () => void;
-  onExitPlanMode?: () => void;
   onToggleCapability?: (name: CapabilityName) => void;
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
@@ -277,8 +275,6 @@ export function App({
   onSubAgentProviderChange,
   onStartWorkflow,
   listWorkflows,
-  onEnterPlanMode,
-  onExitPlanMode,
   onToggleCapability,
   initialWorkflowStatus,
   initialProfiles = [],
@@ -446,22 +442,6 @@ export function App({
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
 
-  // Sync TUI mode with director plan phase transitions.
-  // active=true: agent called plan_enter — switch to Plan mode.
-  // active=false: plan approved — revert to Edit, but only if we were in Plan mode.
-  useEffect(() => {
-    const onPlanPhase = (active: boolean) => {
-      if (active) {
-        onEnterPlanMode?.();
-        setAgentMode("plan");
-      } else if (agentModeRef.current === "plan") {
-        setAgentMode("edit");
-      }
-    };
-    eventEmitter.on("plan-phase", onPlanPhase);
-    return () => { eventEmitter.off("plan-phase", onPlanPhase); };
-  }, [eventEmitter, onEnterPlanMode]);
-
   const planBlock = useMemo(() => {
     const block = state.contentBlocks.find((b) => b.type === "plan");
     return block?.type === "plan" ? block : undefined;
@@ -523,7 +503,7 @@ export function App({
   );
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
-  const modeColor = agentMode === "plan" ? color("success") : agentMode === "auto" ? color("warning") : color("accent");
+  const modeColor = agentMode === "auto" ? color("warning") : color("accent");
 
   const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
   const diff = useDiff({ cwd: process.cwd(), active: diffActive });
@@ -615,9 +595,8 @@ export function App({
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
-    ...(onEnterPlanMode !== undefined ? { enterPlanMode: onEnterPlanMode } : {}),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows, onEnterPlanMode]);
+  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
   // Track the last moment real progress was observed. Reset on every streamed
   // token (activityTick increments on each thinking/text/tool delta) so a long
@@ -811,19 +790,9 @@ export function App({
         }
       },
       cycleMode: () => {
-        const order: AgentMode[] = ["edit", "auto", "plan"];
-        const next = order[(order.indexOf(agentMode) + 1) % order.length]!;
-        if (next === "plan") {
-          onEnterPlanMode?.();
-          onToggleAuto?.(false);
-          setAgentMode("plan");
-        } else {
-          // Leaving plan mode — tell the director to unlock write/edit tools.
-          if (agentMode === "plan") onExitPlanMode?.();
-          const isAuto = next === "auto";
-          onToggleAuto?.(isAuto);
-          setAgentMode(next);
-        }
+        const next: AgentMode = agentMode === "edit" ? "auto" : "edit";
+        onToggleAuto?.(next === "auto");
+        setAgentMode(next);
       },
     },
   );
@@ -867,6 +836,19 @@ export function App({
     }
     if (result.type === "modal" && result.modal === "codex-login") {
       setCodexLoginOpen(true);
+    }
+    if (result.type === "workflow") {
+      if (onStartWorkflow !== undefined) {
+        const msg = onStartWorkflow(result.name);
+        if (msg.startsWith("Started") || msg.startsWith("Auto-started")) {
+          const task = result.args !== undefined && result.args.length > 0
+            ? `Begin the ${result.name} workflow for: ${result.args}`
+            : `Begin the ${result.name} workflow.`;
+          sendMessage(task);
+        } else {
+          setCommandMessage(msg);
+        }
+      }
     }
   };
 

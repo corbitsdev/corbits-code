@@ -15,7 +15,7 @@ export type StatusBarProps = {
   status: AgentStatus;
   reasoningEffort?: ReasoningEffort | undefined;
   auto?: boolean;
-  agentMode?: "edit" | "auto" | "plan";
+  agentMode?: "edit" | "auto";
 };
 
 
@@ -54,11 +54,11 @@ export function StatusBar({
   auto = false,
   agentMode,
 }: StatusBarProps): ReactNode {
-  const modeLabel = agentMode === "plan" ? "PLAN" : agentMode === "auto" ? "AUTO" : auto ? "AUTO" : null;
+  const modeLabel = agentMode === "auto" || auto ? "AUTO" : null;
   const providerLine = reasoningEffort !== undefined
     ? `${provider} · ${model} · ${reasoningEffort.toUpperCase()}`
     : `${provider} · ${model}`;
-  const modeColor = agentMode === "plan" ? color("success") : agentMode === "auto" ? color("warning") : color("accent");
+  const modeColor = agentMode === "auto" ? color("warning") : color("accent");
   return (
     <Box flexDirection="row" paddingX={1} overflow="hidden">
       <Text color={modeColor} wrap="truncate-end">{providerLine}</Text>
