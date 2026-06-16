@@ -234,7 +234,7 @@ export async function runTUI(config: Config): Promise<number> {
         (names) => promoteTools(names),
         undefined,
         (active) => emitter.emit("plan-phase", active),
-        config.inactivityTimeoutMs,
+        config.inactivityTimeoutMs ?? 300_000,
         config.totalTimeoutMs,
       );
       directorHolder.instance = d;
