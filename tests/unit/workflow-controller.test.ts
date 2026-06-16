@@ -37,8 +37,8 @@ async function withController(
 
 test("starting a workflow attaches a coordinator to the director", async () => {
   await withController([], async (controller, director) => {
-    const msg = controller.start("write-tests");
-    expect(msg).toBe("Started write-tests workflow.");
+    const msg = controller.start("review");
+    expect(msg).toBe("Started review workflow.");
     expect(controller.isActive()).toBe(true);
     expect(director.coordinator).toBeInstanceOf(WorkflowCoordinator);
   });
@@ -53,20 +53,20 @@ test("starting an unknown workflow reports an error and stays inactive", async (
 
 test("replacing an active workflow requires a confirming second call", async () => {
   await withController([], async (controller) => {
-    controller.start("write-tests");
-    const first = controller.start("code-review");
+    controller.start("review");
+    const first = controller.start("build");
     expect(first).toContain("again to replace");
-    expect(controller.status().name).toBe("write-tests");
-    const second = controller.start("code-review");
-    expect(second).toBe("Started code-review workflow.");
-    expect(controller.status().name).toBe("code-review");
+    expect(controller.status().name).toBe("review");
+    const second = controller.start("build");
+    expect(second).toBe("Started build workflow.");
+    expect(controller.status().name).toBe("build");
   });
 });
 
 test("autoInvoke starts only when nothing is active", async () => {
   await withController([], async (controller) => {
-    expect(controller.autoInvoke("build-feature")).toContain("Auto-started");
-    expect(controller.autoInvoke("write-tests")).toBeNull();
+    expect(controller.autoInvoke("build")).toContain("Auto-started");
+    expect(controller.autoInvoke("review")).toBeNull();
   });
 });
 
@@ -83,7 +83,7 @@ test("status reports capability connection and override state", async () => {
 
 test("reset detaches the workflow", async () => {
   await withController([], async (controller, director) => {
-    controller.start("write-tests");
+    controller.start("review");
     controller.reset();
     expect(controller.isActive()).toBe(false);
     expect(director.coordinator).toBeUndefined();

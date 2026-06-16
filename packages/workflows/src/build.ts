@@ -37,9 +37,6 @@ export const build = {
       label: "Update docs",
       workflow: "scribe",
       optional: true,
-      prompt:
-        "Update any documentation that is affected by this change: README, architecture docs, " +
-        "inline comments, or API docs. Commit doc changes in a separate commit.",
     },
     {
       id: "review",

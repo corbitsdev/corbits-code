@@ -87,9 +87,13 @@ describe("/agent command", () => {
   });
 });
 
-describe("/model alias", () => {
-  it("is no longer registered", () => {
-    expect(getCommand("model")).toBeUndefined();
+describe("/model command", () => {
+  it("opens the agent configuration modal", () => {
+    expect(getCommand("model")!.handler("", makeCtx())).toEqual({ type: "modal", modal: "agent" });
+  });
+
+  it("/agent alias also opens the agent configuration modal", () => {
+    expect(getCommand("agent")!.handler("", makeCtx())).toEqual({ type: "modal", modal: "agent" });
   });
 });
 
