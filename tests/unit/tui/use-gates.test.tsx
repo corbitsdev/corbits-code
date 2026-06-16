@@ -11,7 +11,7 @@ function Harness({ emitter, onGate, onReset }: { emitter: EventEmitter; onGate: 
   useInput((input) => {
     if (input === "a") gates.approve();
     if (input === "r") gates.reject();
-    if (input === "0") gates.selectOperator(0);
+    if (input === "0") gates.selectOperator({ kind: "option", index: 0 });
     if (input === "p") gates.resolvePermission({ allow: true });
     if (input === "x") gates.resetGates();
   });
@@ -69,7 +69,7 @@ test("operator gate surfaces and resolves the selected index", async () => {
   const event: OperatorGateEvent = {
     question: "pick",
     options: ["one", "two"],
-    resolve: (i) => { chosen = i; },
+    resolve: (result) => { chosen = result.kind === "option" ? result.index : -1; },
   };
   emitter.emit("operator.gate", event);
   await tick();
@@ -222,7 +222,7 @@ test("resetGates resolves all pending gates and clears visible state", async () 
   const emitter = new EventEmitter();
   const gateCalls: boolean[] = [];
   let planResolved: boolean | null = null;
-  let opResolved: number | null = null;
+  let opResolved: string | null = null;
   let permResolved: { allow: boolean } | null = null;
 
   const { lastFrame, stdin } = render(
@@ -239,7 +239,7 @@ test("resetGates resolves all pending gates and clears visible state", async () 
   emitter.emit("operator.gate", {
     question: "continue?",
     options: ["yes"],
-    resolve: (i: number) => { opResolved = i; },
+    resolve: (result) => { opResolved = result.kind; },
   } satisfies OperatorGateEvent);
 
   emitter.emit("permission.gate", {
@@ -256,7 +256,7 @@ test("resetGates resolves all pending gates and clears visible state", async () 
 
   // All gates resolved with safe defaults.
   expect(planResolved).toBe(false);
-  expect(opResolved).toBe(0);
+  expect(opResolved).toBe("cancel");
   expect(permResolved).toEqual({ allow: false });
 
   // UI reflects cleared state.

@@ -21,7 +21,7 @@ test("createAgentToolset calls createLSPPlugin with correct args", async () => {
   await createAgentToolset({
     cwd: "/test/cwd",
     permissionGate,
-    onOperatorGate: async () => 0,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
   expect(createLSPPluginSpy).toHaveBeenCalledWith({ cwd: "/test/cwd", minSeverity: 1 });

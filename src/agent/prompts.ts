@@ -152,7 +152,7 @@ export function buildAuthorizationRules(): string {
     "- The tool layer hard-denies destructive commands and reads of secret files; a blocked call did not run.",
     "- Treat gitignored paths and the .agent-state directory as off-limits: don't read, grep, or open them. grep and search already skip gitignored files. Only reach into a gitignored path when it is genuinely required for the task, and expect an approval prompt. Only inspect .agent-state when the user explicitly asks you to self-reflect, trace, or investigate why you or another agent did something.",
     "- If a blocked action is genuinely needed, ask_operator — say what and why. Don't work around the block.",
-    "- If the task is ambiguous enough that you might build the wrong thing, ask_operator before committing to an approach.",
+    "- If the task is ambiguous enough that you might build the wrong thing, ask_operator before committing to an approach. Offer the most likely choices as options, but treat the reply as open-ended: the user may pick an option, type a different answer, or dismiss without answering. Honor whatever comes back rather than forcing it into one of your options, and if the question is dismissed, proceed with your best judgment instead of re-asking.",
   ].join("\n");
 }
 
@@ -197,7 +197,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   task: "delegate a self-contained subtask to a sub-agent",
   submit_plan: "record the plan; required before finishing",
   submit_output: "signal the task is complete — the only way to finish",
-  ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
+  ask_operator: "pause and ask the user when blocked or genuinely ambiguous; the options you give are suggestions — the user may answer in their own words or dismiss the question entirely",
   plan_enter: "switch to read-only plan mode before making changes",
   suggest_workflow: "propose launching a built-in workflow when the user's request matches one",
   present: "render structured data (lists, tables, status) to the user",
