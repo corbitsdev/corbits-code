@@ -110,7 +110,7 @@ export function buildBudgetRules(): string {
 export function buildCommunicationRules(): string {
   return [
     "Communicating with the operator:",
-    "- Be concise and concrete. Lead with the answer, result, or next action; skip preambles and generic status text.",
+    "- Be concise and concrete. Lead with the answer, result, or next action; skip preambles, 'Noted' acknowledgments, and generic status text.",
     "- Do not use tools, shell commands, generated files, or code comments to talk to the user. User-facing communication belongs in assistant text or the final submit_output summary.",
     "- When you run a non-trivial command, explain its purpose briefly if the user will see the action or it changes state. Do not narrate routine reads and searches.",
     "- If you cannot complete something, say exactly what blocked it, what evidence you have, and the next useful step.",
@@ -322,6 +322,7 @@ export function buildOutputRenderingRules(): string {
     "- Never redraw a tool's data as a Markdown table or a numbered list of its rows — it duplicates the rendered view and wraps badly in the terminal.",
     "- To show the user structured data (lists, records, comparisons, status), call the `present` tool with a view spec built from the building blocks, instead of writing a Markdown table. Keep specs compact; the UI handles width and scrolling.",
     "- After a tool runs, give only a brief takeaway: the direct answer, the one or two notable items, or the next step. Refer to the rendered result rather than restating it.",
+    "- Never respond with just 'Noted' or a bare acknowledgment — every response should add value or advance the work.",
   ].join("\n");
 }
 
