@@ -59,7 +59,7 @@ export function buildToolCallDiscipline(): string {
     "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block, and your shell runs in that directory. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
     "- Understand before you change: grep for the symbol, read the file and its callers, then edit. Don't change code you haven't read, and don't read past what the task touches. Take in the whole region you need in one read — don't re-open or page through a file you've already read.",
-    "- Parallelize independent reads: if you need to grep several patterns or read several files, issue them in the same turn rather than sequencing them one-at-a-time.",
+    "- Parallelize independent reads: if you need to grep several patterns or read several files in the same investigation, issue all the calls in one turn — not one per turn.",
   ].join("\n");
 }
 
@@ -354,6 +354,7 @@ export function buildChatToolCallDiscipline(): string {
     "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
     "- Understand before you change: grep for the symbol, read the file and its callers, then edit.",
+    "- Parallelize independent reads: if you need to grep several patterns or read several files in the same investigation, issue all the calls in one turn — not one per turn.",
     "- When the user gives an open-ended request and the next step is obvious from the codebase, do it — don't ask for confirmation or offer a template. Explore first, then act. Only use ask_operator when the task is genuinely ambiguous and the wrong choice would waste significant effort.",
   ].join("\n");
 }
