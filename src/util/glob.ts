@@ -9,9 +9,7 @@ import { matchGlob as matchGlobBase } from "../../interchange/packages/tools-pos
 export function matchGlob(pattern: string, filePath: string): boolean {
   const braceMatch = pattern.match(/^(.*)\{([^}]+)\}(.*)$/);
   if (braceMatch) {
-    const prefix = braceMatch[1] ?? "";
-    const alts = braceMatch[2] ?? "";
-    const suffix = braceMatch[3] ?? "";
+    const [, prefix, alts, suffix] = braceMatch as [string, string, string, string];
     return alts.split(",").some((alt) => matchGlob(`${prefix}${alt}${suffix}`, filePath));
   }
   return matchGlobBase(pattern, filePath);
