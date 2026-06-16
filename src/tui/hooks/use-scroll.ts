@@ -2,8 +2,8 @@ import { useState } from "react";
 
 export type ScrollController = {
   scrollOffset: number;
-  scrollUp: () => void;
-  scrollDown: () => void;
+  scrollUp: (by?: number) => void;
+  scrollDown: (by?: number) => void;
   scrollToBottom: () => void;
   atBottom: boolean;
 };
@@ -22,12 +22,12 @@ export function useScroll({ maxOffset }: UseScrollArgs): ScrollController {
   return {
     scrollOffset,
     atBottom,
-    scrollUp: () => {
+    scrollUp: (by = 1) => {
       setPinnedToBottom(false);
-      setStoredOffset(Math.max(0, scrollOffset - 1));
+      setStoredOffset(Math.max(0, scrollOffset - by));
     },
-    scrollDown: () => {
-      const next = Math.min(maxOffset, scrollOffset + 1);
+    scrollDown: (by = 1) => {
+      const next = Math.min(maxOffset, scrollOffset + by);
       setPinnedToBottom(next >= maxOffset);
       setStoredOffset(next);
     },
