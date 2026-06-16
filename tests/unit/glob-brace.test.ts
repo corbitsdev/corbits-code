@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { matchGlob } from "../../interchange/packages/tools-posix/src/glob-match";
+import { matchGlob } from "../../src/util/glob.js";
 
 describe("brace expansion in glob patterns", () => {
   test("single brace group: *.{ts,tsx} matches .ts files", () => {

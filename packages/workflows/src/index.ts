@@ -1,33 +1,19 @@
 export type { Workflow, WorkflowStep, WorkflowPlugin, CapabilityName, StepType } from "./types.js";
 
-export { buildFeature } from "./build-feature.js";
-export { codeReview } from "./code-review.js";
-export { improveDocs } from "./improve-docs.js";
-export { scopeProject } from "./scope-project.js";
-export { triageBug } from "./triage-bug.js";
-export { updateTicket } from "./update-ticket.js";
-export { writeTests } from "./write-tests.js";
+export { plan } from "./plan.js";
+export { scribe } from "./scribe.js";
+export { build } from "./build.js";
+export { review } from "./review.js";
 
-import { buildFeature } from "./build-feature.js";
-import { codeReview } from "./code-review.js";
-import { improveDocs } from "./improve-docs.js";
-import { scopeProject } from "./scope-project.js";
-import { triageBug } from "./triage-bug.js";
-import { updateTicket } from "./update-ticket.js";
-import { writeTests } from "./write-tests.js";
+import { plan } from "./plan.js";
+import { scribe } from "./scribe.js";
+import { build } from "./build.js";
+import { review } from "./review.js";
 import type { WorkflowPlugin } from "./types.js";
 
 // The default workflow set shipped with intercode. Atomic workflows are listed
-// before the composites that reference them so sub-workflow references resolve
-// at registry load time.
+// before composites that reference them so sub-workflow references resolve at
+// registry load time (review is referenced by build).
 export const plugin: WorkflowPlugin = {
-  workflows: [
-    updateTicket,
-    improveDocs,
-    writeTests,
-    triageBug,
-    codeReview,
-    scopeProject,
-    buildFeature,
-  ],
+  workflows: [plan, scribe, review, build],
 };
