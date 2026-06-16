@@ -613,14 +613,6 @@ export function App({
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
   }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
-  // Track the last moment real progress was observed. Reset on every streamed
-  // token (activityTick increments on each thinking/text/tool delta) so a long
-  // continuous reasoning stream never falsely triggers the stall watchdog.
-  const lastActivityAtRef = useRef(Date.now());
-  useEffect(() => {
-    lastActivityAtRef.current = Date.now();
-  }, [state.activityTick]);
-
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the
   // user knows they need to retry rather than waiting indefinitely.
@@ -628,9 +620,9 @@ export function App({
     if (state.status !== "running") return;
     const check = () => {
       if (shouldAbortForStall({
-        status: state.status,
-        awaitingResponse: state.awaitingResponse,
-        lastActivityAt: lastActivityAtRef.current,
+        status: stateRef.current.status,
+        awaitingResponse: stateRef.current.awaitingResponse,
+        lastActivityAt: stateRef.current.lastActivityAt,
         nowMs: Date.now(),
         stallTimeoutMs: STALL_TIMEOUT_MS,
       })) {
