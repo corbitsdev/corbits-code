@@ -9,6 +9,16 @@ const ProfileSchema = type({
   "maxTurns?": "number.integer >= 1",
   "systemPromptExtensions?": "string[]",
   "workflow?": "string",
+  // Per-call inactivity timeout in milliseconds. If the provider yields no
+  // inference event for this many ms, the call is aborted and the user sees
+  // "Request timed out". Default in the inference harness is 120_000 (2 min).
+  // Tune higher for reasoning models that exhibit long silent-thinking
+  // stretches between token bursts.
+  "inactivityTimeoutMs?": "number >= 1",
+  // Per-call total wall-clock cap in milliseconds. Starts at fetch.
+  // Default in the inference harness is 600_000 (10 min). Backstop for
+  // streams that keep emitting forever without terminating.
+  "totalTimeoutMs?": "number >= 1",
   "+": "reject",
 });
 
@@ -80,6 +90,8 @@ export async function resolveProfile(cwd: string, profileName?: string): Promise
     if (projectProfile.systemPromptExtensions !== undefined) {
       merged.systemPromptExtensions = projectProfile.systemPromptExtensions;
     }
+    if (projectProfile.inactivityTimeoutMs !== undefined) merged.inactivityTimeoutMs = projectProfile.inactivityTimeoutMs;
+    if (projectProfile.totalTimeoutMs !== undefined) merged.totalTimeoutMs = projectProfile.totalTimeoutMs;
   }
 
   const resolvedName = profileName ?? projectProfile?.profile;

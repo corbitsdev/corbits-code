@@ -229,6 +229,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private planSubmitted = false;
   private plan: PlanStep[] = [];
   private readonly maxTurns: number | undefined;
+  private readonly inactivityTimeoutMs: number | undefined;
+  private readonly totalTimeoutMs: number | undefined;
   // Tracks whether this director has already emitted done() so that any
   // stray events delivered after termination do not produce a second done().
   private terminated = false;
@@ -248,12 +250,16 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     toolDefinitions: ToolDefinition[],
     initialState?: DirectorPersistedState,
     maxTurns?: number,
+    inactivityTimeoutMs?: number,
+    totalTimeoutMs?: number,
     workflowCoordinator?: WorkflowCoordinator,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
     this.maxTurns = maxTurns;
+    this.inactivityTimeoutMs = inactivityTimeoutMs;
+    this.totalTimeoutMs = totalTimeoutMs;
     this.workflowCoordinator = workflowCoordinator;
     if (initialState !== undefined) {
       this.setState(initialState);
@@ -287,6 +293,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
       const options = { ...action.options, tools };
+      if (this.inactivityTimeoutMs !== undefined) options.inactivityTimeoutMs = this.inactivityTimeoutMs;
+      if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       if (directive !== null) {
         const base = action.options?.systemPrompt ?? this._systemPrompt;
         options.systemPrompt = `${base}\n\n${directive}`;
@@ -519,9 +527,11 @@ export function createCodingDirector(
   toolDefinitions: ToolDefinition[],
   initialState?: DirectorPersistedState,
   maxTurns?: number,
+  inactivityTimeoutMs?: number,
+  totalTimeoutMs?: number,
   workflowCoordinator?: WorkflowCoordinator,
 ): CodingDirector {
-  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState, maxTurns, workflowCoordinator);
+  return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState, maxTurns, inactivityTimeoutMs, totalTimeoutMs, workflowCoordinator);
 }
 
 export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
@@ -549,6 +559,8 @@ class ChatDirectorImpl extends DefaultDirector {
     | undefined;
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
+  private inactivityTimeoutMs: number | undefined;
+  private totalTimeoutMs: number | undefined;
   private workflowCoordinator: WorkflowCoordinator | undefined;
   // Counts consecutive turns with no tool calls while a workflow is active.
   // After the threshold the director falls back to wait() so a stuck agent
@@ -574,12 +586,16 @@ class ChatDirectorImpl extends DefaultDirector {
     approvalGate: ApprovalGate,
     taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
     onActivateTools?: (names: string[]) => void,
+    inactivityTimeoutMs?: number,
+    totalTimeoutMs?: number,
     workflowCoordinator?: WorkflowCoordinator,
     onPlanPhaseChange?: (active: boolean) => void,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
+    this.inactivityTimeoutMs = inactivityTimeoutMs;
+    this.totalTimeoutMs = totalTimeoutMs;
     this.approvalGate = approvalGate;
     this.taskClassifier = taskClassifier;
     this.onActivateTools = onActivateTools;
@@ -644,6 +660,8 @@ class ChatDirectorImpl extends DefaultDirector {
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
       const options = { ...action.options, tools };
+      if (this.inactivityTimeoutMs !== undefined) options.inactivityTimeoutMs = this.inactivityTimeoutMs;
+      if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       const base = action.options?.systemPrompt ?? this._systemPrompt;
       let prompt = base;
       if (directive !== null) prompt = `${prompt}\n\n${directive}`;
@@ -861,6 +879,8 @@ export function createChatDirector(
   onActivateTools?: (names: string[]) => void,
   workflowCoordinator?: WorkflowCoordinator,
   onPlanPhaseChange?: (active: boolean) => void,
+  inactivityTimeoutMs?: number,
+  totalTimeoutMs?: number,
 ): ChatDirectorWithClear {
   const gate = approvalGate ?? (async () => true);
   return new ChatDirectorImpl(
@@ -869,6 +889,8 @@ export function createChatDirector(
     gate,
     taskClassifier,
     onActivateTools,
+    inactivityTimeoutMs,
+    totalTimeoutMs,
     workflowCoordinator,
     onPlanPhaseChange,
   );
