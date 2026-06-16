@@ -20,6 +20,7 @@ import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
+import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { connectMCPServer } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
@@ -42,6 +43,8 @@ export type AgentToolsetArgs = {
   // director.enterPlanPhase() so the director blocks write/edit tools.
   onPlanEnter?: () => void;
   mcpServers?: MCPServerConfig[];
+  // Pre-resolved web provider. When omitted, the built-in local provider is used.
+  webProvider?: WebProvider;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -80,7 +83,7 @@ export type AgentToolset = {
 };
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
-  const { cwd, permissionGate, onOperatorGate, mcpServers = [] } = args;
+  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider } = args;
 
   const posixTools = createPosixTools({
     cwd,
@@ -91,7 +94,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       permissionPlugin(permissionGate),
       ripgrepPlugin(cwd),
       verifyPlugin(),
-      webToolsPlugin(),
+      webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
       createLSPPlugin({ cwd, minSeverity: 1 }),
       resultTruncationPlugin(),
     ],

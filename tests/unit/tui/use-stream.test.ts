@@ -631,7 +631,15 @@ test("inference.error context_overflow maps to friendly message", () => {
   state.addEvent(inferenceErrorEvent("context_overflow", "raw"));
   const last = state.contentBlocks.at(-1);
   if (last?.type !== "error") throw new Error("expected error block");
-  expect(last.message).toBe("Context window full — start a new session.");
+  expect(last.message).toBe("Context window full — compaction could not keep up. Try /clear to start fresh.");
+});
+
+test("a quota_exhausted error whose message describes a context overflow is reclassified", () => {
+  const state = createAgentStreamState();
+  state.addEvent(inferenceErrorEvent("quota_exhausted", "This model's maximum context length is 32768 tokens"));
+  const last = state.contentBlocks.at(-1);
+  if (last?.type !== "error") throw new Error("expected error block");
+  expect(last.message).toContain("Context window full");
 });
 
 test("inference.error retryable maps to friendly message", () => {

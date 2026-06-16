@@ -102,6 +102,18 @@ Plan steps auto-show in the sidebar when `submit_plan` has been called — no ma
 
 Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`, `idleCycles`, `planSubmitted`, `plan` steps, and `filesRead` (path → turn).
 
+#### Context compaction (ChatDirector)
+
+When cumulative input tokens cross a threshold, the ChatDirector compacts the inference-facing history (the full run is always retained in the context store). The threshold is **model-aware** — roughly 60% of the active model's real context window — so small-window models compact early enough to avoid provider context-overflow while large-window models do not compact prematurely.
+
+The compaction control flow is shaped by a reactor invariant: a `compact` action runs in its own cycle (it cannot be paired with `infer`), and **the reactor delivers no event after a compact cycle**. A director that simply emitted `compact` in place of the follow-up `infer` would leave the loop idle forever — the cause of an earlier stall. Instead the director, after emitting `compact`, self-delivers a content-less inbound message (a host-supplied `requestContinuation` callback). That message adds no turn (`createInboundTurn` returns `null` for empty content) but re-enters the loop, where the director issues the follow-up `infer` against the freshly truncated history.
+
+Compaction replaces older turns with a structured, workflow-aware summary rather than a stats blob: sections for **What Happened / What We're Doing / Relevant Links / Action Items / Next Steps**, with the active workflow and step woven in so compacting mid-`/build` or mid-`/plan` preserves the contract. The summary is produced by a one-shot model call; on any failure it falls back to a deterministic summary so a compaction cycle never breaks the session.
+
+### Web Tools and Providers (`src/web/`)
+
+`web_search` and `web_fetch` resolve a single `WebProvider` (one backend implements both, avoiding duplicate tool names). The backend is a **generic, core-agnostic plugin hook**: settings name a `webProvider` module specifier (plus opaque `webProviderOptions`), which is dynamically imported at startup — the same pattern as `agentPlugins`/`workflowPlugins`. Core has no knowledge of any specific provider. When no specifier is set, a local (DuckDuckGo) provider is used. Concrete providers (e.g. Exa) live in top-level `plugins/`, outside core.
+
 ### Director-Layer Tools (`src/agent/director.ts`)
 
 - `submit_plan` — Ordered steps of `{ file, action, reason }` plus an optional `goal`; declared on turn 1. In the TUI, promoted into the active tool set only when the user enters Plan mode.

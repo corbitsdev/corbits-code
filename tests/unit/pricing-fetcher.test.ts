@@ -4,7 +4,26 @@ import { tmpdir } from "node:os";
 
 import { expect, test } from "bun:test";
 
-import { fetchPricing, loadPricing, parseModelsDevPricing, readPricingCache, writePricingCache } from "../../src/cost/pricing-fetcher.js";
+import { fetchPricing, loadPricing, parseModelsDevPricing, parseModelsDevContextWindows, readPricingCache, writePricingCache } from "../../src/cost/pricing-fetcher.js";
+
+test("parseModelsDevContextWindows reads limit.context per model", () => {
+  const windows = parseModelsDevContextWindows({
+    "z-ai": {
+      models: {
+        "glm-4.6": { id: "z-ai/glm-4.6", limit: { context: 64_000, output: 8_000 } },
+      },
+    },
+    openai: {
+      models: {
+        "gpt-4.1": { id: "openai/gpt-4.1", limit: { context: 1_000_000 } },
+        "no-limit": { id: "openai/no-limit" },
+      },
+    },
+  });
+  expect(windows["z-ai/glm-4.6"]).toBe(64_000);
+  expect(windows["openai/gpt-4.1"]).toBe(1_000_000);
+  expect(windows["openai/no-limit"]).toBeUndefined();
+});
 
 function response(body: unknown, ok = true, status = 200): Response {
   return new Response(JSON.stringify(body), { status: ok ? status : status });
