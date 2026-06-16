@@ -11,6 +11,7 @@ import type { DirectorPersistedState } from "../session/state.js";
 import {
   type SessionMetadata,
   type TaskBoundary,
+  createPruningCompactor,
 } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { type } from "arktype";
@@ -579,6 +580,12 @@ class ChatDirectorImpl extends DefaultDirector {
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
   private startedAt = Date.now();
+  // Inline compaction: built when token usage crosses the threshold and injected
+  // into the next infer's system prompt so older turns don't bloat the context.
+  private compactionEnvelope: string | undefined;
+  // Cumulative input tokens at the last inline compaction. Prevents re-compacting
+  // on every turn after the threshold is first crossed.
+  private lastCompactedAtTokens = 0;
 
   constructor(
     systemPrompt: string,
@@ -657,6 +664,8 @@ class ChatDirectorImpl extends DefaultDirector {
         "Do not narrate or apologize for the disabled tools."
       : null;
 
+    const compactionNote = this.compactionEnvelope ?? null;
+
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
       const options = { ...action.options, tools };
@@ -664,6 +673,7 @@ class ChatDirectorImpl extends DefaultDirector {
       if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       const base = action.options?.systemPrompt ?? this._systemPrompt;
       let prompt = base;
+      if (compactionNote !== null) prompt = `${prompt}\n\n${compactionNote}`;
       if (directive !== null) prompt = `${prompt}\n\n${directive}`;
       if (planDirective !== null) prompt = `${prompt}${planDirective}`;
       if (prompt !== base) options.systemPrompt = prompt;
@@ -813,6 +823,46 @@ class ChatDirectorImpl extends DefaultDirector {
         capabilities.checkpoint("operator-declined"),
         capabilities.reply("Tool call rejected by operator."),
       ];
+    }
+
+    // Inline compaction: when cumulative input tokens exceed the threshold and we
+    // haven't compacted recently, summarize older turns into a system prompt envelope.
+    // This keeps individual requests from growing unboundedly without requiring the
+    // reactor's compact action (which stalls inference until a new user message).
+    const COMPACT_THRESHOLD_TOKENS = 80_000;
+    const COMPACT_COOLDOWN_TOKENS = 40_000;
+    const cumulativeInputTokens = state.tokenUsage?.input ?? 0;
+    const tokensSinceLastCompact = cumulativeInputTokens - this.lastCompactedAtTokens;
+    if (
+      event.type === "inference.done" &&
+      cumulativeInputTokens > COMPACT_THRESHOLD_TOKENS &&
+      tokensSinceLastCompact > COMPACT_COOLDOWN_TOKENS &&
+      state.turns.length > 6
+    ) {
+      const compactor = createPruningCompactor({ keepRecentTurns: 6, summaryMaxChars: 2500 });
+      try {
+        const result = await compactor.apply(state.turns, {
+          state,
+          trigger: "director:token-threshold",
+        });
+        const summaryTurn = result.output[0];
+        const summaryText =
+          summaryTurn !== undefined &&
+          summaryTurn.role === "system" &&
+          summaryTurn.content[0] !== undefined &&
+          summaryTurn.content[0].type === "text"
+            ? summaryTurn.content[0].text
+            : undefined;
+        if (summaryText !== undefined) {
+          this.compactionEnvelope =
+            `--- Context compacted (${Math.round(state.tokenUsage.input / 1000)}k tokens) ---\n` +
+            summaryText +
+            `\n--- End compacted context ---`;
+          this.lastCompactedAtTokens = state.tokenUsage.input;
+        }
+      } catch {
+        // Compaction failure should not break the session.
+      }
     }
 
     const base = await super.decide(event, state, capabilities);
