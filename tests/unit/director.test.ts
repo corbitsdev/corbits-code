@@ -7,7 +7,7 @@ import type {
   TokenUsage,
   LastCycleSource,
 } from "@intx/types/runtime";
-import { createCodingDirector } from "../../src/agent/director.js";
+import { createCodingDirector, createChatDirector } from "../../src/agent/director.js";
 
 // ---------------------------------------------------------------------------
 // Minimal stubs
@@ -256,4 +256,72 @@ test("setState restores the terminated guard so a resumed terminal run stays ter
   const caps = makeCapabilities();
   const after = await resumed.decide(idleTurn(), state, caps);
   expect(after).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Chat director compaction: a compact cycle must not strand the reactor loop.
+// The reactor delivers no event after compact, so the director self-delivers an
+// empty message (requestContinuation) and infers on the next message.received.
+// ---------------------------------------------------------------------------
+
+function toolDoneTurn(callId: string): ReactorInboundEvent {
+  return {
+    type: "tool.done",
+    result: { callId, content: "ok", isError: false },
+  } as ReactorInboundEvent;
+}
+
+function emptyMessageReceived(): ReactorInboundEvent {
+  return {
+    type: "message.received",
+    message: { content: "" },
+  } as ReactorInboundEvent;
+}
+
+// State whose cumulative input tokens are over the 80k compaction threshold,
+// with enough turns to satisfy the >6 turn guard.
+const overThresholdState: ReactorState = {
+  ...state,
+  turns: Array.from({ length: 8 }, () => ({
+    role: "assistant" as const,
+    content: [],
+    model: "test-model",
+    timestamp: 0,
+  })),
+  tokenUsage: { ...usage, input: 100_000 },
+};
+
+test("crossing the token threshold emits compact and a continuation request, not a dead loop", async () => {
+  let continuations = 0;
+  const director = createChatDirector(
+    "sys",
+    [],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => { continuations++; },
+  );
+
+  // inference.done over the threshold arms compaction.
+  await director.decide(activeTurn(), overThresholdState, makeCapabilities());
+
+  // The next tool.done would normally re-infer; instead it compacts and asks
+  // the host to re-enter the loop.
+  const caps = makeCapabilities();
+  const result = await director.decide(toolDoneTurn("call-1"), overThresholdState, caps);
+  const arr = Array.isArray(result) ? result : [result];
+
+  expect(arr.some((a) => a.type === "compact")).toBe(true);
+  expect(arr.some((a) => a.type === "infer")).toBe(false);
+  expect(continuations).toBe(1);
+
+  // The self-delivered empty message resumes inference against truncated history.
+  const resumeCaps = makeCapabilities();
+  const resume = await director.decide(emptyMessageReceived(), state, resumeCaps);
+  const resumeArr = Array.isArray(resume) ? resume : [resume];
+  expect(resumeArr.some((a) => a.type === "infer")).toBe(true);
 });
