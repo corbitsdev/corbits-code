@@ -148,18 +148,33 @@ test("pendingPlan with 3 steps: effectiveOverlayRows is 14", () => {
   expect(geo.effectiveOverlayRows).toBe(14);
 });
 
-// 10. pendingOperator with 4 options → effectiveOverlayRows === 10 + 4 = 14
-test("pendingOperator with 4 options: effectiveOverlayRows is 14", () => {
+// 10. pendingOperator with a short question and 4 short options → fixed (11) +
+// 1 question line + 4 option lines + 2 (Other/Close) = 18.
+test("pendingOperator with a short question and 4 options: effectiveOverlayRows is 18", () => {
   const geo = computeGeo({
     gateContext: {
       ...noGates,
-      pendingOperator: { options: ["a", "b", "c", "d"] },
+      pendingOperator: { question: "Pick one", options: ["a", "b", "c", "d"] },
     },
   });
-  expect(geo.effectiveOverlayRows).toBe(14);
+  expect(geo.effectiveOverlayRows).toBe(18);
 });
 
-// 11. diffVisibleRows === max(1, visibleRows - 2)
+// 11. A long question that wraps across many lines must reserve those rows so
+// the event log does not overpaint the modal (the original overflow bug).
+test("pendingOperator with a long wrapping question reserves the wrapped rows", () => {
+  const longQuestion = Array.from({ length: 20 }, () => "word").join(" ").repeat(20);
+  const geo = computeGeo({
+    columns: 40,
+    gateContext: {
+      ...noGates,
+      pendingOperator: { question: longQuestion, options: ["yes", "no"] },
+    },
+  });
+  expect(geo.effectiveOverlayRows).toBeGreaterThan(20);
+});
+
+// 12. diffVisibleRows === max(1, visibleRows - 2)
 test("diffVisibleRows is max(1, visibleRows - 2)", () => {
   const geo = computeGeo({ rows: 40 });
   expect(geo.diffVisibleRows).toBe(Math.max(1, geo.visibleRows - 2));
