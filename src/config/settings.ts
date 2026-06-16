@@ -42,6 +42,12 @@ export type Settings = {
   // package specifier (npm package name or file path) that exports an
   // AgentPlugin as either "plugin" or as the default export.
   agentPlugins?: string[];
+  // Per-phase model overrides for workflows. Keyed by profile name, then by
+  // workflow step profile key. Example:
+  //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
+  // Each workflow step may declare a `profile` field; at execution time the
+  // runtime resolves the model by looking up workflowProfiles[activeProfile][step.profile].
+  workflowProfiles?: Record<string, Record<string, string>>;
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
@@ -149,6 +155,9 @@ const SettingsSchema = type({
   // normalizeMcpServers rather than expressed structurally here.
   "mcpServers?": "unknown",
   "tiers?": TiersSchema,
+  "workflowPlugins?": "string[]",
+  "agentPlugins?": "string[]",
+  "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is

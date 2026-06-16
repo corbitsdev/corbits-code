@@ -30,34 +30,31 @@ function drive(name: string, caps: CapabilityMap): string[] {
   return ids;
 }
 
-test("build-feature chains its atomic sub-workflows with full capabilities", () => {
-  const ids = drive("build-feature", fullCaps);
-  // Descends into scope-project (fetch-ticket), write-tests (baseline), the
-  // inline implement step, code-review (get-diff), improve-docs, update-ticket,
-  // and finally the human-approval gate.
+test("build workflow chains review as a sub-workflow with full capabilities", () => {
+  const ids = drive("build", fullCaps);
+  // Descends into review (core-review, synthesize), and the gate at the end.
   expect(ids).toContain("fetch-ticket");
-  expect(ids).toContain("baseline");
   expect(ids).toContain("implement");
-  expect(ids).toContain("get-diff");
-  expect(ids).toContain("identify-docs");
-  expect(ids).toContain("human-approval");
-  expect(ids[ids.length - 1]).toBe("human-approval");
+  expect(ids).toContain("core-review");
+  expect(ids).toContain("synthesize");
+  expect(ids).toContain("gate");
+  expect(ids[ids.length - 1]).toBe("gate");
 });
 
-test("build-feature still completes with no capabilities, skipping ticket steps", () => {
-  const ids = drive("build-feature", new Map());
-  // The inline implement step and the tests/review atomics still run.
+test("build workflow completes with no capabilities, skipping ticket steps", () => {
+  const ids = drive("build", new Map());
   expect(ids).toContain("implement");
-  expect(ids).toContain("baseline");
-  expect(ids).toContain("human-approval");
+  expect(ids).toContain("gate");
 });
 
-test("autoInvoke is set on build-feature for the coding profile", () => {
-  expect(findWorkflow("build-feature")?.autoInvoke).toBe("coding");
+test("autoAdvance is set on all four core workflows", () => {
+  for (const name of ["plan", "scribe", "build", "review"]) {
+    expect(findWorkflow(name)?.autoAdvance).toBe(true);
+  }
 });
 
 test("every workflow drains to completion under full capabilities", () => {
-  for (const name of ["update-ticket", "improve-docs", "write-tests", "triage-bug", "code-review", "scope-project", "build-feature"]) {
+  for (const name of ["plan", "scribe", "review", "build"]) {
     expect(() => drive(name, fullCaps)).not.toThrow();
   }
 });
