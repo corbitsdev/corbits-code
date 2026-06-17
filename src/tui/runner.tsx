@@ -557,6 +557,7 @@ export async function runTUI(config: Config): Promise<number> {
       initialAuto={config.auto}
       onToggleAuto={(value) => permissionGate.setAuto(value)}
       {...(config.tiers !== undefined ? { initialTiers: config.tiers } : {})}
+      {...(config.settings !== undefined ? { initialSettings: config.settings } : {})}
       initialProfiles={initialProfiles}
       profilesDir={profilesDir}
       onSubAgentProviderChange={(provider) => {

@@ -346,7 +346,7 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
     onChange(next.value);
     setCursor(next.cursor);
     atMention.refresh(next.value, next.cursor);
-  });
+  }, { isActive: active });
 
   // Split the value into display lines and locate the cursor's line and column,
   // so a multi-line prompt (Shift+Enter) renders the caret on the right line.

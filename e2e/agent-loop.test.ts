@@ -3,7 +3,7 @@ import { describe, test, expect } from "bun:test";
 import { createCapabilities } from "@intx/inference";
 import { setupHarness } from "@intx/inference-testing";
 
-import { createCodingDirector, submitOutputDefinition, submitPlanDefinition } from "../src/agent/director.js";
+import { createCodingDirector, submitOutputDefinition } from "../src/agent/director.js";
 import { buildSystemPrompt } from "../src/agent/prompts.js";
 
 describe("agent loop", () => {
@@ -18,8 +18,7 @@ describe("agent loop", () => {
           submitCalled: false,
           callIdToName: {},
           idleCycles: 0,
-          planSubmitted: true,
-          plan: [],
+          tasks: [],
           filesRead: [],
         },
       );
@@ -188,12 +187,12 @@ describe("agent loop", () => {
     }
   });
 
-  test("director rejects submitOutput before submitPlan", async () => {
+  test("director accepts submitOutput without a plan", async () => {
     const harness = setupHarness();
     try {
       const director = createCodingDirector(
         buildSystemPrompt(),
-        [submitPlanDefinition, submitOutputDefinition],
+        [submitOutputDefinition],
       );
 
       const capabilities = createCapabilities();
@@ -208,114 +207,8 @@ describe("agent loop", () => {
         sessionId: "test",
       };
 
-      // Turn 1: model calls submitOutput without a plan
+      // Turn 1: model calls submitOutput
       const actions1 = await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [
-              {
-                type: "tool_call",
-                id: "call-1",
-                name: "submit_output",
-                arguments: { summary: "Done" },
-              },
-            ],
-          },
-          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          source: { id: "xai", model: "test" },
-        },
-        emptyState,
-        capabilities,
-      );
-      expect(Array.isArray(actions1)).toBe(true);
-
-      // Tool result comes back (handler would have rejected)
-      const actions2 = await director.decide(
-        {
-          type: "tool.done",
-          result: { callId: "call-1", content: "Error: You must call submit_plan before submit_output." },
-        },
-        emptyState,
-        capabilities,
-      );
-      const arr2 = Array.isArray(actions2) ? actions2 : [actions2];
-      // Director should not treat it as a real submit; it should ask to infer again
-      expect(arr2.some((a) => a.type === "reply")).toBe(false);
-      expect(director.getState().submitCalled).toBe(false);
-    } finally {
-      harness.dispose();
-    }
-  });
-
-  test("director accepts submitOutput after submitPlan", async () => {
-    const harness = setupHarness();
-    try {
-      const director = createCodingDirector(
-        buildSystemPrompt(),
-        [submitPlanDefinition, submitOutputDefinition],
-      );
-
-      const capabilities = createCapabilities();
-      const emptyState = {
-        turns: [],
-        activeForks: [],
-        pendingOperations: [],
-        activeGates: [],
-        tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-        lastCycleUsage: null,
-        lastCycleSource: null,
-        sessionId: "test",
-      };
-
-      // Turn 1: model calls submitPlan
-      const actions1 = await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [
-              {
-                type: "tool_call",
-                id: "plan-1",
-                name: "submit_plan",
-                arguments: {
-                  steps: [
-                    { file: "src/index.ts", action: "edit", reason: "Add plan tracking" },
-                  ],
-                },
-              },
-            ],
-          },
-          usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-          source: { id: "xai", model: "test" },
-        },
-        emptyState,
-        capabilities,
-      );
-      expect(Array.isArray(actions1)).toBe(true);
-      expect(director.getState().planSubmitted).toBe(true);
-      expect(director.getState().plan).toHaveLength(1);
-
-      // Tool result for submitPlan
-      const actions2 = await director.decide(
-        {
-          type: "tool.done",
-          result: { callId: "plan-1", content: "Plan accepted." },
-        },
-        emptyState,
-        capabilities,
-      );
-      const arr2 = Array.isArray(actions2) ? actions2 : [actions2];
-      expect(arr2.some((a) => a.type === "infer")).toBe(true);
-
-      // Turn 2: model calls submitOutput
-      const actions3 = await director.decide(
         {
           type: "inference.done",
           turn: {
@@ -337,10 +230,10 @@ describe("agent loop", () => {
         emptyState,
         capabilities,
       );
-      expect(Array.isArray(actions3)).toBe(true);
+      expect(Array.isArray(actions1)).toBe(true);
 
       // Tool result for submitOutput
-      const actions4 = await director.decide(
+      const actions2 = await director.decide(
         {
           type: "tool.done",
           result: { callId: "out-1", content: "Submission accepted." },
@@ -348,11 +241,11 @@ describe("agent loop", () => {
         emptyState,
         capabilities,
       );
-      const arr4 = Array.isArray(actions4) ? actions4 : [actions4];
-      expect(arr4.some((a) => a.type === "infer")).toBe(true);
+      const arr2 = Array.isArray(actions2) ? actions2 : [actions2];
+      expect(arr2.some((a) => a.type === "infer")).toBe(true);
 
-      // Turn 3: empty text after seeing tool result
-      const actions5 = await director.decide(
+      // Turn 2: empty text after seeing tool result
+      const actions3 = await director.decide(
         {
           type: "inference.done",
           turn: {
@@ -367,8 +260,8 @@ describe("agent loop", () => {
         emptyState,
         capabilities,
       );
-      const arr5 = Array.isArray(actions5) ? actions5 : [actions5];
-      expect(arr5.some((a) => a.type === "reply")).toBe(true);
+      const arr3 = Array.isArray(actions3) ? actions3 : [actions3];
+      expect(arr3.some((a) => a.type === "reply")).toBe(true);
       expect(director.getState().submitCalled).toBe(true);
     } finally {
       harness.dispose();

@@ -126,10 +126,6 @@ describe("submit_output without plan", () => {
     expect(hasWarning(result)).toBe(false);
   });
 
-  test("warning when task ran more than 3 turns without a plan", async () => {
-    const result = await submitWithoutPlan(4);
-    expect(hasWarning(result)).toBe(true);
-  });
 });
 
 describe("operator declined tool calls", () => {
