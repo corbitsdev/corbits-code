@@ -193,3 +193,23 @@ test("sidebar open with odd columns: widths sum to columns", () => {
   expect(geo.leftWidth + geo.rightWidth).toBe(133);
   expect(geo.leftWidth).toBe(Math.floor(133 * 0.65));
 });
+
+// 13. pendingPermission with a multi-line shell subject (heredoc / script) must
+// reserve the wrapped lines so the event log never overpaints the modal.
+test("pendingPermission with multi-line shell script reserves wrapped rows", () => {
+  const script = "cat << 'EOF'\n#!/usr/bin/env bash\necho 'hello world'\nEOF";
+  const geo = computeGeo({
+    columns: 80,
+    gateContext: {
+      ...noGates,
+      pendingPermission: {
+        action: "Run shell command",
+        subject: script,
+        scopes: [{ pattern: null }],
+      },
+    },
+  });
+  // A multi-line script wrapped to ~72 cols needs 4+ subject lines; the old
+  // naive ceil(length/width) gave 1. 13 fixed + choices + subject lines.
+  expect(geo.effectiveOverlayRows).toBeGreaterThan(16);
+});

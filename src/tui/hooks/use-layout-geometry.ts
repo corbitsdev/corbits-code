@@ -28,8 +28,9 @@ export function wrappedLineCount(text: string, width: number): number {
     for (const word of paragraph.split(/\s+/).filter((w) => w.length > 0)) {
       if (word.length > safeWidth) {
         if (col > 0) lineCount += 1;
-        lineCount += Math.floor(word.length / safeWidth);
+        lineCount += Math.ceil(word.length / safeWidth) - 1;
         col = word.length % safeWidth;
+        if (col === 0) col = safeWidth;
         continue;
       }
       const needed = col === 0 ? word.length : col + 1 + word.length;
@@ -113,7 +114,7 @@ export function computeOverlayRows({
 }: ComputeOverlayRowsArgs): number {
   if (gateContext.pendingPermission !== null) {
     const head = `${gateContext.pendingPermission.action}: ${gateContext.pendingPermission.subject}`;
-    const subjectLines = Math.max(1, Math.ceil(head.length / Math.max(8, innerWidth)));
+    const subjectLines = wrappedLineCount(head, innerWidth);
     const persistable = gateContext.pendingPermission.scopes.filter((s) => s.pattern !== null).length;
     const choices = 2 + persistable;
     return 11 + subjectLines + choices;
