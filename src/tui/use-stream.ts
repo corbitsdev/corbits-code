@@ -7,7 +7,7 @@ import { lookupModelPricing } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
-import type { Task } from "../agent/tasks.js";
+import { parseManageTasksArgs, applyManageTasks, type Task } from "../agent/tasks.js";
 
 // Provider-agnostic detection of context-window-overflow error text. The
 // upstream classifier only tags a 400 with specific English phrases as
@@ -74,6 +74,7 @@ export type AgentStreamState = {
   // here. Tracked in the store — the single source of truth that mutates on
   // every event — rather than mirrored into a ref via an effect.
   lastActivityAt: number;
+  quotaError: { retryAfterMs: number; retryAt: number } | null;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -81,38 +82,6 @@ export type AgentStreamState = {
   markRunning(): void;
   clear(): void;
 };
-
-function parseManageTasks(rawArguments: string): Task[] {
-  if (rawArguments.length === 0) return [];
-  let raw: unknown;
-  try {
-    raw = JSON.parse(rawArguments);
-  } catch {
-    return [];
-  }
-  if (typeof raw !== "object" || raw === null || !Array.isArray((raw as Record<string, unknown>).tasks)) return [];
-  const tasks = (raw as Record<string, unknown>).tasks as Array<{ id?: string; title?: string; status?: string }>;
-  return tasks
-    .filter((t) => typeof t.id === "string" && typeof t.title === "string" && t.id.length > 0 && t.title.length > 0)
-    .map((t) => ({
-      id: t.id as string,
-      title: t.title as string,
-      status: ["todo", "doing", "done"].includes(t.status ?? "") ? (t.status as "todo" | "doing" | "done") : "todo",
-    }));
-}
-
-function parseManageTasksFromArgs(args: unknown): Task[] | null {
-  if (typeof args !== "object" || args === null) return null;
-  const raw = args as Record<string, unknown>;
-  if (raw.action !== "create" || !Array.isArray(raw.tasks)) return null;
-  return (raw.tasks as Array<{ id?: string; title?: string; status?: string }>)
-    .filter((t) => typeof t.id === "string" && typeof t.title === "string" && t.id.length > 0 && t.title.length > 0)
-    .map((t) => ({
-      id: t.id as string,
-      title: t.title as string,
-      status: ["todo", "doing", "done"].includes(t.status ?? "") ? (t.status as "todo" | "doing" | "done") : "todo",
-    }));
-}
 
 function stringifyToolContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -186,6 +155,7 @@ export function createAgentStreamState(
   let isProcessing = false;
   let latestUserMessage = "";
   let tasks: Task[] = [];
+  let quotaError: { retryAfterMs: number; retryAt: number } | null = null;
   let currentToolName: string | null = null;
   let streamingType: "text" | "thinking" | "tool" | null = null;
   // Refcount of open gates. Status is "blocked" while this is > 0, so
@@ -275,6 +245,9 @@ export function createAgentStreamState(
     get lastActivityAt() {
       return lastActivityAt;
     },
+    get quotaError() {
+      return quotaError;
+    },
     setGatePending(pending: boolean): void {
       // Always balance the count, even when the run is terminal/stopping — a gate
       // that opened while running can still resolve after a stop, and if the
@@ -301,6 +274,7 @@ export function createAgentStreamState(
       // the new run never starts wedged in "blocked".
       stopRequested = false;
       gateCount = 0;
+      quotaError = null;
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
@@ -324,6 +298,7 @@ export function createAgentStreamState(
       isProcessing = false;
       latestUserMessage = "";
       tasks = [];
+      quotaError = null;
       currentToolName = null;
       streamingType = null;
       gateCount = 0;
@@ -439,7 +414,12 @@ export function createAgentStreamState(
             const taskArgs = callIdToArguments.get(result.callId) ?? "";
             callIdToName.delete(result.callId);
             callIdToArguments.delete(result.callId);
-            const newTasks = parseManageTasks(taskArgs);
+            const newTasks = (() => {
+              let raw: unknown;
+              try { raw = JSON.parse(taskArgs as string); } catch { return tasks; }
+              const parsed = parseManageTasksArgs(raw);
+              return parsed !== null ? applyManageTasks(tasks, parsed) : tasks;
+            })();
             if (taskCallIndex >= 0) {
               spliceBlocks(taskCallIndex, 1);
             }
@@ -501,7 +481,7 @@ export function createAgentStreamState(
           break;
         }
         case "inference.error": {
-          const err = (event.data as { error: { category: string; message: string } }).error;
+          const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
           const friendly: Record<string, string> = {
             credential_failure: "Authentication failed — check your API key.",
             quota_exhausted: "Quota exhausted — usage limit reached.",
@@ -519,6 +499,9 @@ export function createAgentStreamState(
           const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
           const msg = friendly[category] ?? err.message;
           pushBlock({ type: "error", message: msg });
+          if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
+            quotaError = { retryAfterMs: err.retryAfterMs, retryAt: Date.now() + err.retryAfterMs };
+          }
           break;
         }
         default:
@@ -605,14 +588,14 @@ export function useAgentStream(
   }, [emitter, state]);
 
   useEffect(() => {
-    if (state.status !== "running" && state.status !== "blocked") return;
+    if (state.status !== "running" && state.status !== "blocked" && state.quotaError === null) return;
     const interval = setInterval(() => {
       setTick((t) => t + 1);
     }, 1000);
     return () => {
       clearInterval(interval);
     };
-  }, [state, state.status]);
+  }, [state, state.status, state.quotaError]);
 
   // Force re-render by reading tick
   void tick;
