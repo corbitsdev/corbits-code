@@ -6,24 +6,17 @@ import type { StatusBarProps } from "../../../src/tui/components/status-bar.js";
 function renderBar(props: Partial<StatusBarProps> = {}) {
   return render(
     <StatusBar
-      provider={props.provider ?? "zen"}
       model={props.model ?? "test-model"}
-      cost={props.cost}
-      inputTokens={props.inputTokens ?? 0}
-      outputTokens={props.outputTokens ?? 0}
       status={props.status ?? "running"}
-      contextUsage={props.contextUsage}
       {...(props.reasoningEffort !== undefined ? { reasoningEffort: props.reasoningEffort } : {})}
+      {...(props.agentMode !== undefined ? { agentMode: props.agentMode } : {})}
     />,
   );
 }
 
-test("StatusBar renders provider, model and split token telemetry", () => {
-  const { lastFrame } = renderBar({ inputTokens: 4200, outputTokens: 318, cost: "$0.12" });
-  expect(lastFrame()).toContain("zen · test-model");
-  expect(lastFrame()).toContain("↑4200");
-  expect(lastFrame()).toContain("↓318");
-  expect(lastFrame()).toContain("$0.12");
+test("StatusBar renders the model name", () => {
+  const { lastFrame } = renderBar({ model: "test-model" });
+  expect(lastFrame()).toContain("test-model");
 });
 
 test("StatusBar does not render the keyboard hint row", () => {
@@ -41,28 +34,20 @@ test("StatusBar renders the blocked status label", () => {
   expect(lastFrame()).toContain("Blocked");
 });
 
-test("StatusBar does not render plan progress", () => {
+test("StatusBar does not render token counts or cost", () => {
   const { lastFrame } = renderBar();
-  expect(lastFrame()).not.toContain("Plan:");
-  expect(lastFrame()).not.toContain("turns");
-});
-
-test("StatusBar renders context-window usage when provided", () => {
-  const { lastFrame } = renderBar({ contextUsage: "Context: 280000/400000" });
-  expect(lastFrame()).toContain("Context: 280000/400000");
-});
-
-test("StatusBar omits the cost box when cost is undefined", () => {
-  const { lastFrame } = renderBar({ cost: undefined });
+  expect(lastFrame()).not.toContain("↑");
+  expect(lastFrame()).not.toContain("↓");
   expect(lastFrame()).not.toContain("$");
 });
 
-test("StatusBar renders the reasoning-effort in the provider line", () => {
+test("StatusBar renders the reasoning-effort suffix", () => {
   const { lastFrame } = renderBar({ reasoningEffort: "high" });
-  expect(lastFrame()).toContain("· HIGH");
+  expect(lastFrame()).toContain("· high");
 });
 
 test("StatusBar hides effort suffix when unset", () => {
   const { lastFrame } = renderBar();
   expect(lastFrame()).not.toContain("· HIGH");
+  expect(lastFrame()).not.toContain("· high");
 });

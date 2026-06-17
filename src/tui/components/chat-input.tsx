@@ -17,6 +17,11 @@ export type ChatInputProps = {
   active?: boolean;
   // Number of messages queued for delivery at the next inference boundary.
   queuedCount?: number;
+  // When true, Enter interrupts the running agent with the current input.
+  // Alt+Enter queues the message as a follow-up instead.
+  isProcessing?: boolean;
+  // Called when the user presses Enter while isProcessing is true.
+  onInterrupt?: (message: string) => void;
 };
 
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
@@ -142,7 +147,7 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, cwd, active = true, queuedCount = 0 }: ChatInputProps): ReactNode {
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, cwd, active = true, queuedCount = 0, isProcessing = false, onInterrupt }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // The last value this component produced itself. Used to tell an external
@@ -310,11 +315,25 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
     if (key.return && !key.shift && !key.meta) {
       const trimmed = value.trim();
       if (trimmed.length > 0) {
-        if (trimmed.startsWith("/")) {
+        if (isProcessing && onInterrupt !== undefined) {
+          // Interrupt the running agent and redirect with this message.
+          onInterrupt(trimmed);
+        } else if (trimmed.startsWith("/")) {
           dispatchCommand(trimmed);
         } else {
           onSubmit(trimmed);
         }
+        resetField();
+      }
+      return;
+    }
+
+    // Alt+Enter while processing queues the message as a follow-up rather than
+    // inserting a newline, which is the usual meta+return behaviour.
+    if (key.return && key.meta && !key.shift && isProcessing) {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        onSubmit(trimmed);
         resetField();
       }
       return;
@@ -373,6 +392,11 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
 
   return (
     <Box flexDirection="column">
+      {isProcessing && queuedCount === 0 && (
+        <Box paddingX={1}>
+          <Text dimColor>↵ interrupt  ·  Alt+↵ queue</Text>
+        </Box>
+      )}
       {queuedCount > 0 && (
         <Box paddingX={1}>
           <Text color="yellow">{queuedCount === 1 ? "(1 message queued)" : `(${queuedCount} messages queued)`}</Text>

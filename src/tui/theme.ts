@@ -7,6 +7,8 @@ export type SemanticRole =
   | "danger"
   | "warning"
   | "muted"
+  | "dim"
+  | "live"
   | "text"
   | "surface";
 
@@ -17,6 +19,8 @@ const bedrockCharcoal: ColorValue = { hex: "#2b2627", ansi256: 235 };
 const canvasCream: ColorValue = { hex: "#f7ead5", ansi256: 230 };
 const dangerRed: ColorValue = { hex: "#c4453a", ansi256: 167 };
 const mutedGray: ColorValue = { hex: "#8a8079", ansi256: 245 };
+// One step dimmer than muted — used for tool args, collapsed results, thinking gutter.
+const dimGray: ColorValue = { hex: "#5a5450", ansi256: 240 };
 
 export const palette: Record<SemanticRole, ColorValue> = {
   brand: breakthroughOrange,
@@ -25,6 +29,9 @@ export const palette: Record<SemanticRole, ColorValue> = {
   danger: dangerRed,
   warning: breakthroughOrange,
   muted: mutedGray,
+  dim: dimGray,
+  // Spinner/streaming indicator color — calm blue rather than brand orange.
+  live: summitBlue,
   text: canvasCream,
   surface: bedrockCharcoal,
 };

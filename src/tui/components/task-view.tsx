@@ -3,8 +3,6 @@ import { Box, Text } from "ink";
 import type { Task } from "../../agent/tasks.js";
 import { color } from "../theme.js";
 
-const MAX_VISIBLE = 5;
-
 export type TaskViewProps = {
   tasks: Task[];
   compact?: boolean;
@@ -23,24 +21,29 @@ export function TaskView({ tasks, compact }: TaskViewProps) {
 
   // Priority order: doing first, then todo, then done.
   const sorted = [...tasks].sort(byPriority);
-  const visible = compact ? sorted.slice(0, MAX_VISIBLE) : sorted;
-  const overflow = sorted.length - MAX_VISIBLE;
 
   if (compact) {
+    const doing = sorted.find((t) => t.status === "doing");
+    const doneCount = tasks.filter((t) => t.status === "done").length;
+    const todoCount = tasks.filter((t) => t.status === "todo").length;
+
     return (
-      <Box flexDirection="column" paddingX={1} paddingTop={1}>
-        {visible.map((task) => (
-          <Box key={task.id} flexDirection="row" gap={1}>
-            <Text color={statusColor(task.status, pulse)}>
-              {statusIcon(task.status, pulse)}
-            </Text>
-            <Text dimColor={task.status === "done"}>{task.title}</Text>
+      <Box paddingX={1}>
+        {doing !== undefined ? (
+          <Box flexDirection="row" gap={1}>
+            <Text color={statusColor(doing.status, pulse)}>{statusIcon(doing.status, pulse)}</Text>
+            <Text>{doing.title}</Text>
+            {(doneCount > 0 || todoCount > 0) && (
+              <Text dimColor>
+                ({[doneCount > 0 ? `${doneCount} done` : "", todoCount > 0 ? `${todoCount} todo` : ""].filter(Boolean).join(", ")})
+              </Text>
+            )}
           </Box>
-        ))}
-        {overflow > 0 && (
-          <Text dimColor>
-            + {overflow} more task{overflow > 1 ? "s" : ""}
-          </Text>
+        ) : (
+          <Box flexDirection="row" gap={1}>
+            <Text color={color("success")}>●</Text>
+            <Text dimColor>{tasks.length} task{tasks.length !== 1 ? "s" : ""} complete</Text>
+          </Box>
         )}
       </Box>
     );

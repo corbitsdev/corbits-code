@@ -1,7 +1,6 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
-import { formatElapsed } from "./status-bar.js";
 
 export type HeaderWorkflow = {
   name: string;
@@ -16,7 +15,7 @@ export type HeaderProps = {
   width: number;
   profile?: string;
   workflow?: HeaderWorkflow;
-  elapsedMs: number;
+  // Codex plan usage (e.g. "50% used") — shown only for prepaid Codex accounts.
   usage?: string | undefined;
 };
 
@@ -38,7 +37,7 @@ function formatPath(cwd: string): string {
 // The header carries identity and context (product name, path, session title,
 // latest request) on the left, and live session telemetry (plan usage, clock)
 // on the right.
-export function Header({ sessionTitle, latestUserMessage, width, profile, workflow, elapsedMs, usage }: HeaderProps): ReactNode {
+export function Header({ sessionTitle, latestUserMessage, width, profile, workflow, usage }: HeaderProps): ReactNode {
   const cwd = process.cwd();
   const pathDisplay = formatPath(cwd);
 
@@ -48,13 +47,13 @@ export function Header({ sessionTitle, latestUserMessage, width, profile, workfl
         <Box flexDirection="row" gap={1} flexWrap="wrap" flexGrow={1}>
           <Text bold color={color("brand")}>{TITLE}</Text>
           <Text color={color("muted")}>·</Text>
-          <Text color={color("muted")}>{pathDisplay}</Text>
+          <Text color={color("muted")} dimColor>{pathDisplay}</Text>
           {profile !== undefined && (
-            <Text color={color("muted")}>[{profile}]</Text>
+            <Text color={color("muted")} dimColor>[{profile}]</Text>
           )}
           {sessionTitle.length > 0 && (
             <Box>
-              <Text color={color("muted")}>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>
+              <Text color={color("muted")} dimColor>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>
             </Box>
           )}
           {workflow !== undefined && (
@@ -65,13 +64,14 @@ export function Header({ sessionTitle, latestUserMessage, width, profile, workfl
             </Box>
           )}
         </Box>
-        <Box flexDirection="row" gap={1} flexShrink={0}>
-          {usage !== undefined && <Text color={color("warning")}>{usage}</Text>}
-          <Text color={color("muted")}>{formatElapsed(elapsedMs)}</Text>
-        </Box>
+        {usage !== undefined && (
+          <Box flexShrink={0}>
+            <Text color={color("warning")}>{usage}</Text>
+          </Box>
+        )}
       </Box>
       {latestUserMessage.length > 0 && (
-        <Text color={color("muted")}>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
+        <Text color={color("muted")} dimColor>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
       )}
     </Box>
   );
