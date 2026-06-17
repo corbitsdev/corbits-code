@@ -4,10 +4,25 @@ import { color } from "../theme.js";
 
 export type TaskViewProps = {
   tasks: Task[];
+  compact?: boolean;
 };
 
-export function TaskView({ tasks }: TaskViewProps) {
+export function TaskView({ tasks, compact }: TaskViewProps) {
   if (tasks.length === 0) return null;
+  if (compact) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        {tasks.map((task) => (
+          <Box key={task.id} flexDirection="row" gap={1}>
+            <Text color={statusColor(task.status)}>
+              {statusIcon(task.status)}
+            </Text>
+            <Text dimColor={task.status === "done"}>{task.title}</Text>
+          </Box>
+        ))}
+      </Box>
+    );
+  }
   return (
     <Box flexDirection="column" gap={1}>
       <Text bold color={color("accent")}>
