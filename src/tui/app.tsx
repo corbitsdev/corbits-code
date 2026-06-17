@@ -1032,6 +1032,9 @@ export function App({
               return {};
             })()}
           />
+          {state.tasks.length > 0 && (
+            <TaskView tasks={state.tasks} compact />
+          )}
           <Box
             borderStyle="single"
             borderColor={modeColor}
@@ -1040,9 +1043,6 @@ export function App({
             borderLeft={false}
             borderRight={false}
           />
-          {state.tasks.length > 0 && (
-            <TaskView tasks={state.tasks} compact />
-          )}
           {exitConfirmOpen ? (
             <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
           ) : (
