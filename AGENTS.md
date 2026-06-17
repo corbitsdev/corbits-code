@@ -1,38 +1,40 @@
 # Agent Instructions — Intercode
 
-**Intercode** is a single-process coding agent CLI built on the Interchange runtime. This file is your operating manual: how to work here and what bar to hold. For how the system itself is built, read `/docs` — do not re-derive it from source.
+**Intercode** is a single-process coding agent CLI built on the Interchange runtime. For how the system is built, read `/docs` — do not re-derive it from source.
 
 ## Before You Start
 
-1. Load the `style` and `philosophy` skills.
-2. Read this file.
-3. Before making changes, confirm working-tree status (`git status`) and run `git log --oneline -5` to understand recent context.
-4. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` first (see Reference). Explore before coding.
+Load the `style` and `philosophy` skills. Confirm working-tree status (`git status`) and run `git log --oneline -5`. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` before writing code.
+
+New contributors: configure git hooks and verify the environment before the first commit.
+
+```bash
+git config core.hooksPath .githooks
+./bin/check-env
+```
 
 ## Conventions
 
 - **Runtime:** Bun + TypeScript, ES modules only. No CommonJS.
 - **Paradigm:** Functional. No classes, no OOP.
-- **Types:** Full type safety. Avoid `any`; prefer `unknown`. Validate all external input (config, tool args, file contents, env) at the boundary with arktype (`type({...})`) — do not hand-roll `typeof` guards for structured data.
+- **Types:** Full type safety. Avoid `any`; prefer `unknown`. Validate all external input at the boundary with arktype — do not hand-roll `typeof` guards for structured data.
 - **Files:** Small functions, small files, clear names. Acronyms keep their case (`URL`, `JSON`, `API`).
-- **Comments:** Code is self-documenting. Comment *why*, never *what*. If a comment describes what the code does, fix the names instead.
+- **Comments:** Comment *why*, never *what*. If a comment describes what the code does, fix the names instead.
 - **No emojis** in code or docs.
 
 ## Scope Discipline
 
-Touch only code directly related to the task. No drive-by renames, reformatting, import reordering, or "while I'm here" refactors in files you pass through — they pollute diffs and risk breakage. Raise unrelated fixes as separate work.
+Touch only code directly related to the task. No drive-by renames, reformatting, import reordering, or "while I'm here" refactors — they pollute diffs and risk breakage. Raise unrelated fixes as separate work.
 
-When refactoring replaces an old path, **delete the old one**. No back-compat shims, re-exports, or `_unused` renames for callers you own. If everyone who calls it is internal and updated, the old path should not survive.
+When refactoring replaces an old path, delete the old one. No back-compat shims, re-exports, or `_unused` renames for callers you own.
 
 ## Tests
 
 - Add or update tests with every behavior change.
-- Fixing a bug starts with a failing test that reproduces it — then the fix, proven by that test passing. Do not start by patching.
+- Bug fixes start with a failing test that reproduces the bug. Do not start by patching.
 - `tests/unit/` isolated logic · `tests/integration/` agent-loop harness · `tests/e2e/` fixture repos.
 
 ## Build & Validation
-
-Run the full suite before declaring any task complete:
 
 ```bash
 bun run typecheck
@@ -40,57 +42,30 @@ bun run build
 bun test
 ```
 
-If any step fails, report it and do not declare completion. Do not work around a failing build by running individual targets and treating their success as equivalent. If a failure is pre-existing and unrelated to your change, say so explicitly.
+Run the full suite before declaring any task complete. Do not substitute individual targets. If a failure is pre-existing and unrelated to your change, say so explicitly.
 
 ## Commits
 
-- Commit as you go, following the `style` skill's message format (plain-English summary, no `feat:`/`fix:` prefixes, no filename in the summary).
-- Separate refactors from feature additions into distinct commits.
-- Do not amend published commits — create a new commit for fixes.
-- After committing, remind the user to push.
-- Commit with the user's local git identity. Do not override the author.
+Follow the `style` skill's message format: plain-English summary, no `feat:`/`fix:` prefixes, no filename in the summary. Separate refactors from feature additions. Commit with the user's local git identity.
 
-## Setup
+## Building on Interchange
 
-New contributors configure git hooks before their first commit, then verify the environment:
+Interchange is the standard library for this repo. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check the interchange submodule packages.
 
-```bash
-git config core.hooksPath .githooks
-./bin/check-env
-```
+| Package | Covers |
+|---|---|
+| `@intx/authz` | Grant-based policy engine (allow/ask/deny) |
+| `@intx/inference` | Reactor loop, `createAuthzExtension`, `DefaultDirector` |
+| `@intx/agent` | Agent lifecycle, send queue, stream |
+| `@intx/tools-posix` | Shell, file read/write/edit, grep, search |
+| `@intx/storage-isogit` | Git-backed state persistence |
+| `@intx/log` | Structured logging via LogTape |
+| `@intx/types` | All shared runtime types |
 
-## Reference (`/docs`)
+## Reference
 
-The source is the truth; these docs guide you to it.
-
-- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, mandatory workflow/plan/output tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.** Note: `submit_plan`, `submit_output`, and `advance_workflow` are tools the *agent Intercode runs* uses — they are not available to you. To plan your own changes, use `plan_enter`.
-- `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags (incl. `--no-workflow`), state persistence, the eval harness.
-- `docs/PRODUCT.md` — what we're building and why.
-- `docs/HOOKS.md` — lifecycle hooks.
-- `docs/MCP.md` — connecting MCP servers (stdio and OAuth-authorized http), with Linear as a worked example.
-- `PLAN.md` — phase breakdown and demo strategy.
-
-## Interchange as Standard Library
-
-Interchange is the standard library for this repo. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check the interchange submodule packages for an existing implementation.
-
-**Do not reimplement what interchange already provides. Lean on it.**
-
-Canonical packages and what each covers:
-
-- `@intx/authz` — grant-based policy engine (allow/ask/deny)
-- `@intx/inference` — reactor loop, `createAuthzExtension` (beforeTool hook), `DefaultDirector`
-- `@intx/agent` — agent lifecycle, send queue, stream
-- `@intx/tools-posix` — shell, file read/write/edit, grep, search
-- `@intx/storage-isogit` — git-backed state persistence
-- `@intx/log` — structured logging via LogTape
-- `@intx/types` — all shared runtime types
-
-If you find yourself writing something that sounds like one of these, stop and check the package first.
-
-## Workspace Layout
-
-- `.agents/` — shared agent assets and skills (prefer this for cross-runtime guidance).
-- `.intercode/` — Intercode's own workspace state: settings, profiles, memory, hooks, and permissions.
-
-Do not duplicate shared content between these folders.
+- `docs/ARCHITECTURE.md` — reactor loop, events, directors, workflows, plugin chain, permission system
+- `docs/IMPLEMENTATION.md` — runtime, dependencies, config resolution, settings precedence, CLI flags, state persistence, eval harness
+- `docs/PRODUCT.md` — what we're building and why
+- `docs/HOOKS.md` — lifecycle hooks
+- `docs/MCP.md` — connecting MCP servers

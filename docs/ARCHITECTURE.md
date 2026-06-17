@@ -214,12 +214,37 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
 - `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap, gate/scroll/diff state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). The active agent mode (`AgentMode`: `"edit" | "auto" | "plan"`) is owned here; SHIFT+TAB cycles through the three modes. Mode color cascades through the input separator and sidebar border (blue=Edit, orange=Auto, green=Plan). `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
+
+  **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLines`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLines` evicts entries for block IDs not in the current block list on every call, so manage_tasks/present splices do not accumulate orphaned entries.
+
 - `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost. **AgentStatus** is a 7-state machine: `"idle"` (not-yet-started or post-clear), `"running"`, `"stopping"`, `"stopped"`, `"blocked"` (awaiting operator), `"done"`, `"failed"`. Initial state and post-`/clear` state are both `"idle"` (not `"running"`), so the permission-gate refcount (`setGatePending`) correctly skips terminal and idle states.
+
+  **Rate-limited renders** — Token events (`inference.text.delta`, `inference.thinking.delta`, `inference.tool_call.delta`) set a `pendingRenderRef` flag rather than calling `setTick` directly. A 33ms `setInterval` drains the flag, batching token renders to ~30fps. Structural events (status changes, turn boundaries, tool completions) bypass the drain and call `setTick` immediately so state transitions are never delayed.
+
+- **Interrupt and queue steering** (`chat-input.tsx`) — When `isProcessing` is true:
+  - **Enter** calls `onInterrupt(message)`, which synchronously calls `requestStop()` (aborting the in-flight HTTP request) before resolving `@file` mentions and sending. The abort-before-async ordering ensures no stale `connector.reply` can race the new turn.
+  - **Alt+Enter** calls `onSubmit(message)` immediately, queuing the message for delivery after the current response cycle completes.
+  - A hint line (`↵ interrupt · Alt+↵ queue`) is shown in the input area while processing and the queue is empty.
+
+- **Status bar** — Simplified to model name, optional reasoning-effort suffix, AUTO label, and terminal status. Token counts and cost display removed.
+
+- **Task view** — Compact rendering: shows only the current in-progress task plus a `(N done, M todo)` count suffix. No scrolling task list.
+
+- **In-flight indicator** — Spinner uses the `"live"` semantic color (calm blue) rather than the brand orange, reducing visual noise during long runs.
+
 - Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
 - Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
-- Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts`.
+- Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
 - Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/agent`; `/model` aliases `/agent`).
 - `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.intercode/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
+
+#### Event log rendering
+
+`event-log.tsx` renders the content block list to a flat `StyledLine[]` buffer; the viewport slices it by index. Notable rendering behaviors:
+
+- **Collapsed tool calls** — Non-danger tools render dimmed with a muted summary suffix. Danger-role tools (destructive shell, writes under risk paths) retain their role color when collapsed so they remain visually salient.
+- **Thinking gutter** — When `thinkingExpanded` is true, thinking content lines are prefixed with `│ ` in the `dim` color, separating them visually from model output without requiring a header.
+- **Block-level cache** — `buildLines` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick.
 
 ### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
 
