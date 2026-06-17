@@ -1,9 +1,9 @@
 import { registerCommand } from "./registry.js";
 
 registerCommand({
-  name: "plan",
-  description: "Plan a feature or task — creates a Linear issue/project or a local plan file",
-  handler: (args, _ctx) => ({ type: "workflow", name: "plan", args }),
+  name: "scope",
+  description: "Scope a feature or task — creates a Linear issue/project or a local scope file",
+  handler: (args, _ctx) => ({ type: "workflow", name: "scope", args }),
 });
 
 registerCommand({

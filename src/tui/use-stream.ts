@@ -7,6 +7,7 @@ import { lookupModelPricing } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
+import type { Task } from "../agent/tasks.js";
 
 // Provider-agnostic detection of context-window-overflow error text. The
 // upstream classifier only tags a 400 with specific English phrases as
@@ -26,14 +27,9 @@ function looksLikeContextOverflow(message: string): boolean {
   );
 }
 
-const PlanStepSchema = type({ file: "string", action: "string", "reason?": "string" });
-const PlanSchema = type({ "goal?": "string", steps: PlanStepSchema.array() });
-
-export type PlanStep = { file: string; action: string; reason: string };
-
 // The block payload by type. Blocks carry a stable `id` (see ContentBlock) so UI
-// state like "which tool is expanded" survives array mutations (plan/present
-// splices) that would otherwise renumber positional indices.
+// state like "which tool is expanded" survives array mutations (present splices)
+// that would otherwise renumber positional indices.
 export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
@@ -41,7 +37,7 @@ export type ContentBlockData =
   | { type: "tool_call"; name: string; arguments: string }
   | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { type: "reply"; content: string }
-  | { type: "plan"; goal?: string; steps: PlanStep[] }
+  | { type: "tasks"; tasks: Task[] }
   | { type: "view"; node: ViewNode }
   | { type: "error"; message: string };
 
@@ -62,9 +58,7 @@ export type AgentStreamState = {
   formattedCost: string;
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
-  currentPlanStep: number | null;
-  planTotal: number;
-  planDeviated: boolean;
+  tasks: Task[];
   elapsedMs: number;
   awaitingResponse: boolean;
   // True from the moment agent.send() is called until connector.reply fires.
@@ -88,43 +82,36 @@ export type AgentStreamState = {
   clear(): void;
 };
 
-function parsePlan(rawArguments: string): { goal?: string; steps: PlanStep[] } {
-  if (rawArguments.length === 0) return { steps: [] };
+function parseManageTasks(rawArguments: string): Task[] {
+  if (rawArguments.length === 0) return [];
   let raw: unknown;
   try {
     raw = JSON.parse(rawArguments);
   } catch {
-    return { steps: [] };
+    return [];
   }
-  const result = PlanSchema(raw);
-  if (result instanceof type.errors) return { steps: [] };
-  const steps = result.steps
-    .filter((s) => s.file.length > 0 || s.action.length > 0)
-    .map((s) => ({ file: s.file, action: s.action, reason: s.reason ?? "" }));
-  return result.goal !== undefined ? { goal: result.goal, steps } : { steps };
+  if (typeof raw !== "object" || raw === null || !Array.isArray((raw as Record<string, unknown>).tasks)) return [];
+  const tasks = (raw as Record<string, unknown>).tasks as Array<{ id?: string; title?: string; status?: string }>;
+  return tasks
+    .filter((t) => typeof t.id === "string" && typeof t.title === "string" && t.id.length > 0 && t.title.length > 0)
+    .map((t) => ({
+      id: t.id as string,
+      title: t.title as string,
+      status: ["todo", "doing", "done"].includes(t.status ?? "") ? (t.status as "todo" | "doing" | "done") : "todo",
+    }));
 }
 
-const WRITE_TOOLS = new Set(["write_file", "edit_file"]);
-
-function nextFileStepIndex(steps: PlanStep[], from: number): number | null {
-  for (let i = from; i < steps.length; i++) {
-    if ((steps[i]?.file ?? "").length > 0) return i;
-  }
-  return null;
-}
-
-const PathArgSchema = type({ path: "string>0" });
-
-function parsePathArgument(rawArguments: string): string | null {
-  if (rawArguments.length === 0) return null;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(rawArguments);
-  } catch {
-    return null;
-  }
-  const result = PathArgSchema(raw);
-  return result instanceof type.errors ? null : result.path;
+function parseManageTasksFromArgs(args: unknown): Task[] | null {
+  if (typeof args !== "object" || args === null) return null;
+  const raw = args as Record<string, unknown>;
+  if (raw.action !== "create" || !Array.isArray(raw.tasks)) return null;
+  return (raw.tasks as Array<{ id?: string; title?: string; status?: string }>)
+    .filter((t) => typeof t.id === "string" && typeof t.title === "string" && t.id.length > 0 && t.title.length > 0)
+    .map((t) => ({
+      id: t.id as string,
+      title: t.title as string,
+      status: ["todo", "doing", "done"].includes(t.status ?? "") ? (t.status as "todo" | "doing" | "done") : "todo",
+    }));
 }
 
 function stringifyToolContent(content: unknown): string {
@@ -198,9 +185,7 @@ export function createAgentStreamState(
   // Stays true across all streaming and tool-execution phases within a cycle.
   let isProcessing = false;
   let latestUserMessage = "";
-  let planSteps: PlanStep[] = [];
-  let currentPlanStep: number | null = null;
-  let planDeviated = false;
+  let tasks: Task[] = [];
   let currentToolName: string | null = null;
   let streamingType: "text" | "thinking" | "tool" | null = null;
   // Refcount of open gates. Status is "blocked" while this is > 0, so
@@ -266,14 +251,8 @@ export function createAgentStreamState(
     get hooks() {
       return [...hooksById.values()].map((hook) => ({ ...hook }));
     },
-    get currentPlanStep() {
-      return currentPlanStep;
-    },
-    get planTotal() {
-      return planSteps.length;
-    },
-    get planDeviated() {
-      return planDeviated;
+    get tasks() {
+      return tasks;
     },
     get elapsedMs() {
       return (finishedAt ?? Date.now()) - startedAt;
@@ -344,9 +323,7 @@ export function createAgentStreamState(
       awaitingResponse = false;
       isProcessing = false;
       latestUserMessage = "";
-      planSteps = [];
-      currentPlanStep = null;
-      planDeviated = false;
+      tasks = [];
       currentToolName = null;
       streamingType = null;
       gateCount = 0;
@@ -450,51 +427,31 @@ export function createAgentStreamState(
           const name = trackedName ?? result.callId;
           const content = stringifyToolContent(result.content);
 
-          if (name === "submit_plan" && !result.isError) {
-            let planCallIndex = -1;
+          if (name === "manage_tasks" && !result.isError) {
+            let taskCallIndex = -1;
             for (let i = contentBlocks.length - 1; i >= 0; i--) {
               const b = contentBlocks[i];
-              if (b?.type === "tool_call" && b.name === "submit_plan") {
-                planCallIndex = i;
+              if (b?.type === "tool_call" && b.name === "manage_tasks") {
+                taskCallIndex = i;
                 break;
               }
             }
-            const planArgs = callIdToArguments.get(result.callId) ?? "";
-            // Read all needed values before deleting map entries (H4).
+            const taskArgs = callIdToArguments.get(result.callId) ?? "";
             callIdToName.delete(result.callId);
             callIdToArguments.delete(result.callId);
-            const { goal, steps } = parsePlan(planArgs);
-            if (planCallIndex >= 0) {
-              spliceBlocks(planCallIndex, 1);
+            const newTasks = parseManageTasks(taskArgs);
+            if (taskCallIndex >= 0) {
+              spliceBlocks(taskCallIndex, 1);
             }
-            const existingPlanIndex = contentBlocks.findIndex((b) => b.type === "plan");
-            const planBlock = goal !== undefined ? { type: "plan" as const, goal, steps } : { type: "plan" as const, steps };
-            if (existingPlanIndex >= 0) {
-              setBlock(existingPlanIndex, planBlock);
+            const existingTaskIndex = contentBlocks.findIndex((b) => b.type === "tasks");
+            const taskBlock = { type: "tasks" as const, tasks: newTasks };
+            if (existingTaskIndex >= 0) {
+              setBlock(existingTaskIndex, taskBlock);
             } else {
-              unshiftBlock(planBlock);
+              unshiftBlock(taskBlock);
             }
-            planSteps = steps;
-            planDeviated = false;
-            currentPlanStep = steps.length > 0 ? 0 : null;
+            tasks = newTasks;
             break;
-          }
-
-          if (WRITE_TOOLS.has(name) && !result.isError && currentPlanStep !== null) {
-            const path = parsePathArgument(callIdToArguments.get(result.callId) ?? "");
-            if (path !== null) {
-              // Skip fileless steps (e.g. "investigate the bug") — they carry no
-              // path to match against, so a write during them is not a deviation.
-              const targetIdx = nextFileStepIndex(planSteps, currentPlanStep);
-              if (targetIdx !== null) {
-                if (path === planSteps[targetIdx]?.file) {
-                  currentPlanStep = targetIdx + 1 < planSteps.length ? targetIdx + 1 : null;
-                  planDeviated = false;
-                } else {
-                  planDeviated = true;
-                }
-              }
-            }
           }
 
           // `present` renders a view spec. On success, swap the tool result for the

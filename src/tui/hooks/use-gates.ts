@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { EventEmitter } from "node:events";
-import type { PlanStep } from "../use-stream.js";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
 import type { OperatorResult } from "../../agent/tools.js";
-
-export type PlanGateEvent = {
-  plan: PlanStep[];
-  resolve: (approved: boolean) => void;
-};
 
 export type OperatorGateEvent = {
   question: string;
@@ -23,12 +17,9 @@ export type PermissionGateEvent = {
 export type PendingOperator = { question: string; options: string[] };
 
 export type GateController = {
-  pendingPlan: PlanStep[] | null;
   pendingOperator: PendingOperator | null;
   pendingPermission: PermissionRequest | null;
   gateOpen: boolean;
-  approve: () => void;
-  reject: () => void;
   selectOperator: (result: OperatorResult) => void;
   resolvePermission: (outcome: ApprovalOutcome) => void;
   // Drain all queued gates, resolving each with a safe default, and clear
@@ -43,35 +34,16 @@ export type UseGatesArgs = {
 
 // Each queued entry bundles the display payload with its resolve callback so
 // we can advance to the next item after the head is resolved.
-type PlanQueueEntry = { plan: PlanStep[]; resolve: (approved: boolean) => void };
 type OperatorQueueEntry = { question: string; options: string[]; resolve: (result: OperatorResult) => void };
 type PermissionQueueEntry = { request: PermissionRequest; resolve: (outcome: ApprovalOutcome) => void };
 
 export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateController {
-  const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const [pendingOperator, setPendingOperator] = useState<PendingOperator | null>(null);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
 
   // FIFO queues — one per gate type. The head entry is what's currently shown.
-  const planQueue = useRef<PlanQueueEntry[]>([]);
   const operatorQueue = useRef<OperatorQueueEntry[]>([]);
   const permissionQueue = useRef<PermissionQueueEntry[]>([]);
-
-  useEffect(() => {
-    const handler = ({ plan, resolve }: PlanGateEvent) => {
-      planQueue.current.push({ plan, resolve });
-      // Only update visible state when this is the first (head) entry; later
-      // entries stay invisible until the head resolves.
-      if (planQueue.current.length === 1) {
-        setPendingPlan(plan);
-      }
-      setGatePending(true);
-    };
-    eventEmitter.on("plan.gate", handler);
-    return () => {
-      eventEmitter.off("plan.gate", handler);
-    };
-  }, [eventEmitter, setGatePending]);
 
   useEffect(() => {
     const handler = ({ question, options, resolve }: OperatorGateEvent) => {
@@ -101,35 +73,20 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     };
   }, [eventEmitter, setGatePending]);
 
-  const resolvePlan = (approved: boolean) => {
-    const head = planQueue.current.shift();
-    const next = planQueue.current[0] ?? null;
-    // Advance display to the next queued gate, or clear when the queue empties.
-    setPendingPlan(next ? next.plan : null);
-    setGatePending(false);
-    head?.resolve(approved);
-  };
-
   const resetGates = () => {
-    for (const entry of planQueue.current) entry.resolve(false);
-    planQueue.current = [];
     for (const entry of operatorQueue.current) entry.resolve({ kind: "cancel" });
     operatorQueue.current = [];
     for (const entry of permissionQueue.current) entry.resolve({ allow: false });
     permissionQueue.current = [];
-    setPendingPlan(null);
     setPendingOperator(null);
     setPendingPermission(null);
     setGatePending(false);
   };
 
   return {
-    pendingPlan,
     pendingOperator,
     pendingPermission,
-    gateOpen: pendingPlan !== null || pendingOperator !== null || pendingPermission !== null,
-    approve: () => resolvePlan(true),
-    reject: () => resolvePlan(false),
+    gateOpen: pendingOperator !== null || pendingPermission !== null,
     selectOperator: (result: OperatorResult) => {
       const head = operatorQueue.current.shift();
       const next = operatorQueue.current[0] ?? null;

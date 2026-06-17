@@ -15,52 +15,9 @@ import {
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { compactionThresholdFor } from "../provider/context-window.js";
 import { type } from "arktype";
+import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 
 const PathArgSchema = type({ path: "string" });
-
-const PlanStepSchema = type({
-  file: "string",
-  action: "string",
-  reason: "string",
-});
-
-const PlanArgsSchema = type({
-  "goal?": "string",
-  steps: PlanStepSchema.array(),
-});
-
-export type PlanStep = typeof PlanStepSchema.infer;
-
-export type Plan = {
-  goal?: string;
-  steps: PlanStep[];
-};
-
-export const submitPlanDefinition: ToolDefinition = {
-  name: "submit_plan",
-  description:
-    "Call this on your first turn to declare a structured plan for the task. Include a goal statement and ordered steps — each step should be actionable enough that another engineer could execute it without further context.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      goal: { type: "string", description: "One-sentence statement of what this plan accomplishes" },
-      steps: {
-        type: "array",
-        description: "Ordered list of planned steps",
-        items: {
-          type: "object",
-          properties: {
-            file: { type: "string", description: "Primary file or path this step touches (empty string if not file-specific)" },
-            action: { type: "string", description: "Concrete action to take — specific enough to execute without asking questions" },
-            reason: { type: "string", description: "Why this step is needed" },
-          },
-          required: ["file", "action", "reason"],
-        },
-      },
-    },
-    required: ["steps"],
-  },
-};
 
 export const askOperatorDefinition: ToolDefinition = {
   name: "ask_operator",
@@ -107,21 +64,6 @@ export const presentDefinition: ToolDefinition = {
     },
     required: ["view"],
   },
-};
-
-// Tools the agent cannot call while plan phase is active. The agent explores
-// and designs in read-only mode; editing unlocks only after the plan is approved.
-export const PLAN_PHASE_BLOCKED_TOOLS = new Set(["write_file", "edit_file"]);
-
-export const planEnterDefinition: ToolDefinition = {
-  name: "plan_enter",
-  description:
-    "Switch to plan mode before making any changes. In plan mode, write and edit " +
-    "tools are disabled — you can only read and explore. Use this " +
-    "when the task is non-trivial or you need to understand the codebase before acting. " +
-    "Present your plan to the user for approval; the full toolset unlocks " +
-    "once the plan is approved.",
-  inputSchema: { type: "object", properties: {} },
 };
 
 export const suggestWorkflowDefinition: ToolDefinition = {
@@ -195,12 +137,7 @@ export interface CodingDirector extends ReactorDirector {
   getFilesReadAtTurn(): ReadonlyMap<string, number>;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
-}
-
-
-function parsePlanArgs(args: unknown): { goal?: string; steps: PlanStep[] } | null {
-  const result = PlanArgsSchema(args);
-  return result instanceof type.errors ? null : result;
+  getTasks(): Task[];
 }
 
 function isSuccessfulToolResult(result: { content: unknown; isError?: boolean }): boolean {
@@ -227,21 +164,13 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private readonly callIdToArgs = new Map<string, unknown>();
   private readonly filesReadAtTurn = new Map<string, number>();
   private idleCycles = 0;
-  private planSubmitted = false;
-  private plan: PlanStep[] = [];
+  private tasks: Task[] = [];
   private readonly maxTurns: number | undefined;
   private readonly inactivityTimeoutMs: number | undefined;
   private readonly totalTimeoutMs: number | undefined;
-  // Tracks whether this director has already emitted done() so that any
-  // stray events delivered after termination do not produce a second done().
   private terminated = false;
-  // advance_workflow / submit_output calls, tracked by id so tool.done can ask
-  // the coordinator whether they advance the active workflow.
   private readonly workflowCalls = new Map<string, { name: string; args: unknown }>();
   private workflowCoordinator: WorkflowCoordinator | undefined;
-  // Counts consecutive turns with no tool calls while a workflow is active.
-  // After the threshold the director falls back to wait() so a stuck agent
-  // does not spin forever.
   private workflowIdleTurns = 0;
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
@@ -267,25 +196,21 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     }
   }
 
-  // Attach or detach the workflow coordinator (set after construction once
-  // a workflow is started via slash command or auto-invoke).
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
     this.workflowCoordinator = coordinator;
   }
 
-  // Replace the live tool set advertised to the model. MCP servers connect
-  // after the session is already running; any inference before they finish
-  // must learn about their tools on the next turn.
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
     this._toolDefinitions = toolDefinitions;
+  }
+
+  getTasks(): Task[] {
+    return [...this.tasks];
   }
 
   private withCurrentTools(
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
-    // When a workflow is active, advertise the advance_workflow tool and append
-    // the current step's directive to the system prompt so the model sees the
-    // step instruction at the start of each turn.
     const active = this.workflowCoordinator?.isActive() === true;
     const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
       ? [...this._toolDefinitions, advanceWorkflowDefinition]
@@ -320,7 +245,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
     if (this.terminated) {
-      // The loop is over; swallow stray events rather than double-firing done().
       return [];
     }
 
@@ -356,11 +280,10 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         if (block.type === "tool_call") {
           this.callIdToName.set(block.id, block.name);
           this.callIdToArgs.set(block.id, block.arguments);
-          if (block.name === "submit_plan") {
-            const planArgs = parsePlanArgs(block.arguments);
-            if (planArgs !== null) {
-              this.plan = planArgs.steps;
-              this.planSubmitted = true;
+          if (block.name === "manage_tasks") {
+            const taskArgs = parseManageTasksArgs(block.arguments);
+            if (taskArgs !== null) {
+              this.tasks = applyManageTasks(this.tasks, taskArgs);
             }
           }
           if (block.name === "advance_workflow" || block.name === "submit_output") {
@@ -371,11 +294,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
       if (this.submitCalled) {
         if (!hasToolCalls) {
-          // submit_output is the clean termination signal. Once it has succeeded
-          // and the model produces a turn with no further tool calls, end the
-          // run — emitting done() and latching terminated so a stray later event
-          // cannot reopen the loop (without this, the run only stops at the
-          // maxTurns backstop).
           this.terminated = true;
           return [
             capabilities.checkpoint("submit-accepted"),
@@ -397,10 +315,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     }
 
     if (event.type === "tool.done") {
-      // A completed advance_workflow or step-tagged submit_output moves the
-      // workflow runtime to its next step. Handle this before any other
-      // tool.done processing so the coordinator advances before the downstream
-      // submit_output termination check.
       if (this.workflowCalls.has(event.result.callId)) {
         const call = this.workflowCalls.get(event.result.callId);
         this.workflowCalls.delete(event.result.callId);
@@ -409,11 +323,6 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       }
 
       if (isOperatorDeclinedToolResult(event.result)) {
-        // Headless contract: the operator said no, so end the run cleanly and
-        // record why in the transcript. (The interactive chat director instead
-        // keeps the reactor alive — see ChatDirectorImpl — because done() there
-        // would kill further sends.) Mark terminal so a stray later event cannot
-        // re-enter decide() and emit a second done().
         this.terminated = true;
         return [
           capabilities.checkpoint("operator-declined"),
@@ -422,18 +331,10 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         ];
       }
       const name = this.callIdToName.get(event.result.callId);
-      // A step-tagged submit_output ({ step }) is a workflow step-advance signal,
-      // not a terminal submit. Do not latch termination on it, so the two
-      // meanings of submit_output cannot collide when a workflow is driving.
       const submitArgs = this.callIdToArgs.get(event.result.callId);
       const isStepTagged = !(type({ step: "string" })(submitArgs) instanceof type.errors);
       if (name === "submit_output" && isSuccessfulToolResult(event.result) && !isStepTagged) {
         this.submitCalled = true;
-        if (!this.planSubmitted && this._turnsUsed - 1 > 3) {
-          const base = await super.decide(event, state, capabilities);
-          const baseActions = Array.isArray(base) ? base : [base];
-          return [...baseActions, capabilities.reply("Warning: task completed without a plan. Consider calling submit_plan on turn 1 for multi-step tasks.")];
-        }
       }
       if (name === "read_file" && !event.result.isError) {
         const args = this.callIdToArgs.get(event.result.callId);
@@ -447,25 +348,17 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
 
     const base = await super.decide(event, state, capabilities);
 
-    // When a workflow is active and not at a gate, substitute terminal
-    // actions (wait / reply) with a fresh infer() so the agent keeps
-    // executing autonomously. After 3 consecutive tool-call-free turns
-    // the agent is stuck; fall back to wait() so the user can intervene.
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
       const actions = Array.isArray(base) ? base : [base];
       const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
       if (hasTerminal) {
         if (this.workflowIdleTurns >= 3) {
-          // Headless mode: wait() is the only valid terminal — do not pair with reply().
           return [capabilities.wait()];
         }
         const nudge = "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
           "Otherwise continue working with tools.";
-        // Only add the nudge here; withCurrentTools() (applied in the outer
-        // decide()) injects the directive and the advance_workflow tool
-        // definition. Putting the directive here too would double it.
         const systemPrompt = `${this._systemPrompt}${nudge}`;
         const passThrough = actions.filter(
           (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
@@ -492,8 +385,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       submitCalled: this.submitCalled,
       callIdToName,
       idleCycles: this.idleCycles,
-      planSubmitted: this.planSubmitted,
-      plan: this.plan,
+      tasks: this.tasks,
       terminated: this.terminated,
       filesRead: [...this.filesReadAtTurn.entries()].map(([path, turn]) => ({ path, turn })),
     };
@@ -507,10 +399,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       this.callIdToName.set(k, v);
     }
     this.idleCycles = state.idleCycles ?? 0;
-    this.planSubmitted = state.planSubmitted ?? false;
-    this.plan = state.plan ?? [];
-    // Restore the terminal latch so a run resumed from a terminal checkpoint
-    // does not re-enter the loop with the guard reset to false.
+    this.tasks = state.tasks ?? [];
     this.terminated = state.terminated ?? false;
     this.filesReadAtTurn.clear();
     for (const { path, turn } of state.filesRead ?? []) {
@@ -535,8 +424,6 @@ export function createCodingDirector(
   return new CodingDirectorImpl(systemPrompt, toolDefinitions, initialState, maxTurns, inactivityTimeoutMs, totalTimeoutMs, workflowCoordinator);
 }
 
-export type ApprovalGate = (plan: PlanStep[]) => Promise<boolean>;
-
 const CODE_FILE_EXT =
   /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cc|cpp|h|hpp|rb|php|cs|swift|kt|kts|scala)$/i;
 
@@ -545,16 +432,10 @@ function isCodeFile(path: string): boolean {
 }
 
 class ChatDirectorImpl extends DefaultDirector {
-  private readonly submitPlanArgs = new Map<string, unknown>();
-  // advance_workflow / submit_output calls, tracked by id so tool.done can ask
-  // the coordinator whether they advance the active workflow.
   private readonly workflowCalls = new Map<string, { name: string; args: unknown }>();
-  // read_file/edit_file calls targeting a code file; on success they auto-load
-  // the language server so LSP is enabled "at that point in time".
   private readonly lspTriggerCalls = new Set<string>();
   private readonly askOperatorCalls = new Set<string>();
   private readonly onActivateTools: ((names: string[]) => void) | undefined;
-  private readonly approvalGate: ApprovalGate;
   private readonly taskClassifier:
     | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
     | undefined;
@@ -563,46 +444,28 @@ class ChatDirectorImpl extends DefaultDirector {
   private inactivityTimeoutMs: number | undefined;
   private totalTimeoutMs: number | undefined;
   private workflowCoordinator: WorkflowCoordinator | undefined;
-  // Counts consecutive turns with no tool calls while a workflow is active.
-  // After the threshold the director falls back to wait() so a stuck agent
-  // does not spin forever.
   private workflowIdleTurns = 0;
   private lastInferenceTurnHadContent = false;
-  // Set when ask_operator completes successfully. The agent's next reply is a
-  // legitimate request for free-form operator input, not workflow idling — let
-  // it through instead of suppressing it with a forced re-inference.
   private operatorJustResponded = false;
-  planPhaseActive = false;
-  // Fired each time plan phase is entered or exited so the TUI can update its
-  // status display without polling.
-  private readonly onPlanPhaseChange: ((active: boolean) => void) | undefined;
+  private tasks: Task[] = [];
+  private readonly onTasksChange: ((tasks: Task[]) => void) | undefined;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
   private startedAt = Date.now();
-  // Compaction pending flag: set on inference.done when token threshold is crossed.
-  // Cleared when the compact action is emitted (on the next tool.done batch).
   private compactionPending = false;
-  // Set when a compact action is emitted. The reactor delivers no event after a
-  // compact cycle, so we self-deliver an empty message (via requestContinuation)
-  // to re-enter the loop; this flag tells the next message.received to infer
-  // immediately instead of running task-boundary classification.
   private postCompactInfer = false;
-  // Re-enters the reactor loop after a compact cycle (which otherwise leaves the
-  // loop idle with no pending event). Wired by the host to deliver an empty
-  // inbound message so the director can issue the follow-up infer.
   private readonly requestContinuation: (() => void) | undefined;
 
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
-    approvalGate: ApprovalGate,
     taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
     onActivateTools?: (names: string[]) => void,
     inactivityTimeoutMs?: number,
     totalTimeoutMs?: number,
     workflowCoordinator?: WorkflowCoordinator,
-    onPlanPhaseChange?: (active: boolean) => void,
+    onTasksChange?: (tasks: Task[]) => void,
     requestContinuation?: () => void,
   ) {
     super(systemPrompt, toolDefinitions, {});
@@ -610,67 +473,34 @@ class ChatDirectorImpl extends DefaultDirector {
     this._toolDefinitions = toolDefinitions;
     this.inactivityTimeoutMs = inactivityTimeoutMs;
     this.totalTimeoutMs = totalTimeoutMs;
-    this.approvalGate = approvalGate;
     this.taskClassifier = taskClassifier;
     this.onActivateTools = onActivateTools;
     this.workflowCoordinator = workflowCoordinator;
-    this.onPlanPhaseChange = onPlanPhaseChange;
+    this.onTasksChange = onTasksChange;
     this.requestContinuation = requestContinuation;
   }
 
-  // The TUI builds the coordinator only once a workflow is started (via slash
-  // command or auto-invoke), so it is wired in after construction.
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
     this.workflowCoordinator = coordinator;
   }
 
-  // Enter plan phase: strip write/edit tools from infer actions until the user
-  // approves a submit_plan. Called by the /plan slash command and the plan_enter tool.
-  enterPlanPhase(): void {
-    if (this.planPhaseActive) return;
-    this.planPhaseActive = true;
-    this.onPlanPhaseChange?.(true);
-  }
-
-  exitPlanPhase(): void {
-    if (!this.planPhaseActive) return;
-    this.planPhaseActive = false;
-    this.onPlanPhaseChange?.(false);
-  }
-
-  // Replace the live tool set the model is advertised. MCP servers connect after
-  // the session is already running, so any inference issued before they finish
-  // must learn about their tools on the next turn. The base director advertises
-  // its own (construction-time) tool list, so we override the tools on every
-  // infer action this director emits with the current set.
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
     this._toolDefinitions = toolDefinitions;
+  }
+
+  getTasks(): Task[] {
+    return [...this.tasks];
   }
 
   private withCurrentTools(
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
-    // When a workflow is active, advertise the advance_workflow tool and append
-    // the current step's directive to the system prompt so the model sees the
-    // step instruction at the start of each turn.
     const active = this.workflowCoordinator?.isActive() === true;
-    let tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+    const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
       ? [...this._toolDefinitions, advanceWorkflowDefinition]
       : this._toolDefinitions;
 
-    // During plan phase, strip tools that mutate the working tree so the agent
-    // is forced to explore and design before making changes.
-    if (this.planPhaseActive) {
-      tools = tools.filter((t) => !PLAN_PHASE_BLOCKED_TOOLS.has(t.name));
-    }
-
     const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
-    const planDirective = this.planPhaseActive
-      ? "\n\n[PLAN MODE ACTIVE] You are in read-only planning mode. " +
-        "write_file and edit_file are disabled. Explore the codebase, then call " +
-        "submit_plan with a structured plan. The full toolset unlocks once your plan is approved. " +
-        "Do not narrate or apologize for the disabled tools."
-      : null;
 
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
@@ -680,7 +510,6 @@ class ChatDirectorImpl extends DefaultDirector {
       const base = action.options?.systemPrompt ?? this._systemPrompt;
       let prompt = base;
       if (directive !== null) prompt = `${prompt}\n\n${directive}`;
-      if (planDirective !== null) prompt = `${prompt}${planDirective}`;
       if (prompt !== base) options.systemPrompt = prompt;
       return { type: "infer", options };
     };
@@ -700,11 +529,6 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
-    // Post-compaction continuation: the empty message we self-delivered after a
-    // compact cycle (see the compact-emission block below). It carries no content,
-    // so the reactor adds no turn for it; we simply resume inference against the
-    // freshly truncated history. This must precede task classification so the
-    // empty message is never mistaken for a new task.
     if (event.type === "message.received" && this.postCompactInfer) {
       const content = typeof event.message.content === "string" ? event.message.content : "";
       if (content.length === 0) {
@@ -713,11 +537,6 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    // Intercept message.received for task boundary detection.
-    // When a new task is detected, build a context envelope with a compacted
-    // summary of prior work and pass it as part of the system prompt. This
-    // avoids pairing compact + infer (which the action validator forbids)
-    // while still curating what the model sees.
     if (event.type === "message.received" && this.taskClassifier !== undefined) {
       const message = event.message;
       const content = typeof message.content === "string" ? message.content : "";
@@ -734,8 +553,6 @@ class ChatDirectorImpl extends DefaultDirector {
         if (boundary.kind === "new_task") {
           this.currentTaskLabel = undefined;
 
-          // Build a compacted context envelope. For v1 this uses a simple
-          // deterministic summary; future iterations can add LLM summarization.
           const envelope = this.lastTaskSummary !== undefined
             ? `\n--- Compacted prior context ---\n${this.lastTaskSummary}\n---` +
               `\n\nNew task starting now. Prior context summarized above.\n`
@@ -770,8 +587,12 @@ class ChatDirectorImpl extends DefaultDirector {
       }
       for (const block of event.turn.content) {
         if (block.type !== "tool_call") continue;
-        if (block.name === "submit_plan") {
-          this.submitPlanArgs.set(block.id, block.arguments);
+        if (block.name === "manage_tasks") {
+          const taskArgs = parseManageTasksArgs(block.arguments);
+          if (taskArgs !== null) {
+            this.tasks = applyManageTasks(this.tasks, taskArgs);
+            this.onTasksChange?.(this.tasks);
+          }
         } else if (block.name === "read_file" || block.name === "edit_file") {
           const pathResult = PathArgSchema(block.arguments);
           const path = pathResult instanceof type.errors ? "" : pathResult.path;
@@ -786,8 +607,6 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    // A completed advance_workflow or step-tagged submit_output moves the
-    // workflow runtime to its next step.
     if (event.type === "tool.done" && this.workflowCalls.has(event.result.callId)) {
       const call = this.workflowCalls.get(event.result.callId);
       this.workflowCalls.delete(event.result.callId);
@@ -795,9 +614,6 @@ class ChatDirectorImpl extends DefaultDirector {
       if (advanced) this.workflowIdleTurns = 0;
     }
 
-    // When ask_operator completes, the agent's next turn may legitimately reply
-    // asking for free-form input rather than making tool calls. Flag this so the
-    // terminal-substitution logic below lets that reply pass through.
     if (event.type === "tool.done" && this.askOperatorCalls.has(event.result.callId)) {
       this.askOperatorCalls.delete(event.result.callId);
       if (!event.result.isError) {
@@ -805,62 +621,21 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    // Reading or editing a code file auto-loads the language server for the rest
-    // of the session, so the model gets LSP without having to discover it.
     if (event.type === "tool.done" && this.lspTriggerCalls.has(event.result.callId)) {
       this.lspTriggerCalls.delete(event.result.callId);
       if (!event.result.isError) this.onActivateTools?.(["lsp"]);
     }
 
-    if (event.type === "tool.done" && this.submitPlanArgs.has(event.result.callId)) {
-      const args = this.submitPlanArgs.get(event.result.callId);
-      this.submitPlanArgs.delete(event.result.callId);
-      if (!event.result.isError) {
-        const plan = parsePlanArgs(args)?.steps ?? [];
-        const approved = await this.approvalGate(plan);
-        if (!approved) {
-          return capabilities.done();
-        }
-        // Plan approved — exit plan phase and unlock the full toolset.
-        if (this.planPhaseActive) {
-          this.planPhaseActive = false;
-          this.onPlanPhaseChange?.(false);
-        }
-      }
-    }
-
     if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
       if (operatorDeclinedHasMessage(event.result)) {
-        // Operator provided a reason — let the model see the rejection and continue.
         return super.decide(event, state, capabilities);
       }
-      // Reject without message: end this turn but keep the reactor alive so
-      // the user can send another message. reply() resolves the send cycle;
-      // done() would permanently kill the reactor, breaking further sends.
       return [
         capabilities.checkpoint("operator-declined"),
         capabilities.reply("Tool call rejected by operator."),
       ];
     }
 
-    // Compaction scheduling: on inference.done, check whether the CURRENT context
-    // occupancy crosses the threshold and mark compaction pending. The actual
-    // compact action is emitted on the next tool.done (after the current tool
-    // batch completes), replacing the infer() that would normally follow. This
-    // avoids the validator's compact+infer ban.
-    //
-    // The metric is the just-completed cycle's input tokens (event.usage.input) —
-    // i.e. the size of the context actually sent — NOT cumulative session tokens.
-    // Cumulative input grows monotonically and is never reset by compaction, so it
-    // would cross the threshold once and stay crossed forever; per-cycle input
-    // falls back below the threshold after a compaction truncates history, which
-    // makes the trigger self-regulating and removes any need for a cooldown (and
-    // the reload-fragile state a cooldown required).
-    //
-    // The threshold is sized to the active model's real context window (~60% of
-    // it, via models.dev metadata) so small-window models compact early enough to
-    // avoid provider context-overflow, while large-window models do not compact
-    // prematurely.
     if (event.type === "inference.done") {
       const currentContextTokens = event.usage?.input ?? 0;
       const compactThreshold = compactionThresholdFor(event.source?.model);
@@ -871,16 +646,6 @@ class ChatDirectorImpl extends DefaultDirector {
 
     const base = await super.decide(event, state, capabilities);
 
-    // Emit compact action on the last tool.done of a batch when compaction is pending.
-    // The default director returns [checkpoint, infer] on the final tool.done; we
-    // replace the infer with compact. Since compact cannot be paired with infer,
-    // it runs in its own cycle — and the reactor delivers no follow-up event after
-    // a compact cycle (see interchange reactor.test.ts "compact alone, then infer
-    // on the next cycle"). Without a nudge the loop would idle here forever, which
-    // is the stall this replaces. We set postCompactInfer and ask the host to
-    // self-deliver an empty message; that re-enters the loop and the early-return
-    // at the top of decideInner issues the follow-up infer against the truncated
-    // history.
     if (
       this.compactionPending &&
       event.type === "tool.done"
@@ -891,7 +656,6 @@ class ChatDirectorImpl extends DefaultDirector {
         this.compactionPending = false;
         this.postCompactInfer = true;
         this.requestContinuation?.();
-        // Replace infer with compact, keeping checkpoint and any other actions.
         const filtered = actions.filter((a) => a.type !== "infer");
         return [
           ...filtered,
@@ -900,41 +664,25 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    // When a workflow is running and not at a gate step, substitute any terminal
-    // action (wait or reply) with a fresh infer() so the agent keeps executing
-    // autonomously. In conversational mode, a text-only turn produces reply() not
-    // wait(), so we must trigger on both. After 3 consecutive tool-call-free turns
-    // the agent is stuck; fall back to wait() and show a message so the user can
-    // intervene.
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
       const actions = Array.isArray(base) ? base : [base];
       const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
       if (hasTerminal && this.lastInferenceTurnHadContent) {
-        // ask_operator just completed: the agent is legitimately waiting for
-        // free-form operator input, not idling. Let the reply through.
         if (this.operatorJustResponded) {
           this.operatorJustResponded = false;
           return base;
         }
         if (this.workflowIdleTurns >= 3) {
-          // reply() in chat mode keeps the reactor alive — do not pair with wait().
           return [
             capabilities.reply(
               "The workflow appears stuck on this step. Send a message to continue or advance manually.",
             ),
           ];
         }
-        // Strip both reply() and wait() — the reactor exits early after reply()
-        // and never processes subsequent actions, so infer() would be dropped.
-        // Text content is already rendered via inference.text.delta; we don't
-        // need reply() for display. Keep checkpoint() and other non-terminal actions.
         const nudge = "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
           "Otherwise continue working with tools.";
-        // Only add the nudge here; withCurrentTools() (applied in the outer
-        // decide()) injects the directive and the advance_workflow tool
-        // definition. Putting the directive here too would double it.
         const systemPrompt = `${this._systemPrompt}${nudge}`;
         const passThrough = actions.filter(
           (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
@@ -947,45 +695,41 @@ class ChatDirectorImpl extends DefaultDirector {
     return base;
   }
 
-  /** Called by the TUI to signal a task boundary (/clear or /new command). */
   signalNewTask(summary?: string): void {
     this.currentTaskLabel = undefined;
     this.lastTaskSummary = summary;
+    this.tasks = [];
+    this.onTasksChange?.(this.tasks);
   }
 }
 
 export function createChatDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
-  approvalGate?: ApprovalGate,
   taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
   onActivateTools?: (names: string[]) => void,
   workflowCoordinator?: WorkflowCoordinator,
-  onPlanPhaseChange?: (active: boolean) => void,
   inactivityTimeoutMs?: number,
   totalTimeoutMs?: number,
+  onTasksChange?: (tasks: Task[]) => void,
   requestContinuation?: () => void,
 ): ChatDirectorWithClear {
-  const gate = approvalGate ?? (async () => true);
   return new ChatDirectorImpl(
     systemPrompt,
     toolDefinitions,
-    gate,
     taskClassifier,
     onActivateTools,
     inactivityTimeoutMs,
     totalTimeoutMs,
     workflowCoordinator,
-    onPlanPhaseChange,
+    onTasksChange,
     requestContinuation,
   );
 }
 
 export interface ChatDirectorWithClear extends ReactorDirector {
-  readonly planPhaseActive: boolean;
   signalNewTask(summary?: string): void;
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
-  enterPlanPhase(): void;
-  exitPlanPhase(): void;
+  getTasks(): Task[];
 }

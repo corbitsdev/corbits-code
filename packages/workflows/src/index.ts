@@ -1,11 +1,11 @@
 export type { Workflow, WorkflowStep, WorkflowPlugin, CapabilityName, StepType } from "./types.js";
 
-export { plan } from "./plan.js";
+export { scope } from "./scope.js";
 export { scribe } from "./scribe.js";
 export { build } from "./build.js";
 export { review } from "./review.js";
 
-import { plan } from "./plan.js";
+import { scope } from "./scope.js";
 import { scribe } from "./scribe.js";
 import { build } from "./build.js";
 import { review } from "./review.js";
@@ -15,5 +15,5 @@ import type { WorkflowPlugin } from "./types.js";
 // before composites that reference them so sub-workflow references resolve at
 // registry load time (review is referenced by build).
 export const plugin: WorkflowPlugin = {
-  workflows: [plan, scribe, review, build],
+  workflows: [scope, scribe, review, build],
 };

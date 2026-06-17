@@ -13,7 +13,6 @@ const CHROME_ROWS = 9;
 // Default empty modal and gate contexts
 const noGates: GateContext = {
   pendingPermission: null,
-  pendingPlan: null,
   pendingOperator: null,
 };
 
@@ -133,22 +132,7 @@ test("agentModalOpen with 2 providers each having 3 models: effectiveOverlayRows
   expect(geo.effectiveOverlayRows).toBe(19);
 });
 
-// 9. pendingPlan: 8 fixed rows + 2 rows per step (file + action rows)
-test("pendingPlan with 0 steps: effectiveOverlayRows is 8", () => {
-  const geo = computeGeo({
-    gateContext: { ...noGates, pendingPlan: [] },
-  });
-  expect(geo.effectiveOverlayRows).toBe(8);
-});
-
-test("pendingPlan with 3 steps: effectiveOverlayRows is 14", () => {
-  const geo = computeGeo({
-    gateContext: { ...noGates, pendingPlan: [1, 2, 3] },
-  });
-  expect(geo.effectiveOverlayRows).toBe(14);
-});
-
-// 10. pendingOperator with a short question and 4 short options → fixed (11) +
+// 9. pendingOperator with a short question and 4 short options → fixed (11) +
 // 1 question line + 4 option lines + 2 (Other/Close) = 18.
 test("pendingOperator with a short question and 4 options: effectiveOverlayRows is 18", () => {
   const geo = computeGeo({

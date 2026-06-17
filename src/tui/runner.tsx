@@ -27,8 +27,7 @@ import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
-import type { PlanStep } from "./use-stream.js";
-import { createChatDirector, type ApprovalGate } from "../agent/director.js";
+import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { loadAgentContextExtensions } from "../agent/run-agent.js";
@@ -50,7 +49,7 @@ import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { App } from "./app.js";
-import type { OperatorGateEvent, PermissionGateEvent, PlanGateEvent } from "./hooks/use-gates.js";
+import type { OperatorGateEvent, PermissionGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -120,13 +119,6 @@ export async function runTUI(config: Config): Promise<number> {
     runError = err instanceof Error ? err.message : String(err);
   };
 
-  const approvalGate: ApprovalGate = (plan: PlanStep[]) => {
-    return new Promise<boolean>((resolve) => {
-      const event: PlanGateEvent = { plan, resolve };
-      emitter.emit("plan.gate", event);
-    });
-  };
-
   const activeProviderModel = `${config.providerName}:${config.model}`;
   const sessionApprovals = await loadApprovals(config.cwd, sessionId);
   const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
@@ -181,10 +173,6 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
-  // plan_enter calls are forwarded to the active director. Built after the
-  // toolset, so a holder breaks the init cycle.
-  const directorHolderForTools: { instance?: { enterPlanPhase: () => void } } = {};
-
   const webProvider = await resolveWebProviderFromSettings(
     config.settings?.webProvider,
     config.settings?.webProviderOptions,
@@ -199,9 +187,6 @@ export async function runTUI(config: Config): Promise<number> {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
-    onPlanEnter: () => {
-      directorHolderForTools.instance?.enterPlanPhase();
-    },
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
       provider: () => liveSubAgentProvider.current,
@@ -228,10 +213,10 @@ export async function runTUI(config: Config): Promise<number> {
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the core set plus any promoted via tool_search.
-  // `activeNames` persists across agent reloads, so `computeAdvertised` — run
-  // inside the director factory on every (re)build — keeps the gate stable.
-  const activeNames = new Set<string>();
-  const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
+      // `activeNames` persists across agent reloads, so `computeAdvertised` — run
+      // inside the director factory on every (re)build — keeps the advertised set stable.
+      const activeNames = new Set<string>();
+      const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
     all.filter((d) => CORE_TOOL_NAMES.includes(d.name) || activeNames.has(d.name));
 
   const chatDirectorDef = defineDirector({
@@ -241,17 +226,12 @@ export async function runTUI(config: Config): Promise<number> {
       const d = createChatDirector(
         agentCtx.systemPrompt,
         computeAdvertised([...agentCtx.toolDefinitions]),
-        approvalGate,
         undefined,
         (names) => promoteTools(names),
         undefined,
-        (active) => emitter.emit("plan-phase", active),
         config.inactivityTimeoutMs ?? 750_000,
         config.totalTimeoutMs,
-        // After a compact cycle the reactor delivers no event, so the director
-        // asks us to re-enter the loop. An empty body means createInboundTurn
-        // returns null — no turn is appended; the delivery only wakes decide()
-        // so it can issue the follow-up infer against the truncated history.
+        undefined,
         () => {
           try {
             currentAgent.deliver({
@@ -272,7 +252,6 @@ export async function runTUI(config: Config): Promise<number> {
         },
       );
       directorHolder.instance = d;
-      directorHolderForTools.instance = d;
       return d;
     },
   });
@@ -396,16 +375,13 @@ export async function runTUI(config: Config): Promise<number> {
     if (!pendingReload || inFlight > 0) return;
     pendingReload = false;
     void enqueueOp(async () => {
-      const wasPlanPhaseActive = directorHolder.instance?.planPhaseActive ?? false;
       const old = currentAgent;
       await old.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();
       streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
-      // The rebuild made a fresh director; re-attach the active workflow and
-      // restore plan phase so write tools stay blocked if the TUI is in Plan mode.
+      // The rebuild made a fresh director; re-attach the active workflow.
       workflowController.reattach();
-      if (wasPlanPhaseActive) directorHolder.instance?.enterPlanPhase();
     });
   };
 

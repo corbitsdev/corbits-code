@@ -10,7 +10,7 @@ import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
 import { DiffView } from "./components/diff-view.js";
-import { PlanView } from "./components/plan-view.js";
+import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
@@ -55,7 +55,7 @@ import type { CapabilityName } from "../workflows/types.js";
 import { WORKFLOWS } from "../workflows/index.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import "./commands/built-in.js";
-import "./commands/plan.js";
+import "./commands/scope.js";
 import "./commands/workflows.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
@@ -308,12 +308,11 @@ export function App({
   const auto = agentMode === "auto";
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [contextView, setContextView] = useState<ContextView>("plan");
+  const [contextView, setContextView] = useState<ContextView>("tasks");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [diffScroll, setDiffScroll] = useState(0);
-  const [planScroll, setPlanScroll] = useState(0);
   const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
-  const [planFullScreenOpen, setPlanFullScreenOpen] = useState(false);
+  const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [codexLoginOpen, setCodexLoginOpen] = useState(false);
@@ -453,14 +452,7 @@ export function App({
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
 
-  const planBlock = useMemo(() => {
-    const block = state.contentBlocks.find((b) => b.type === "plan");
-    return block?.type === "plan" ? block : undefined;
-  }, [state.contentBlocks]);
-  const planSteps = planBlock?.steps ?? [];
-  const planGoal = planBlock?.goal;
-
-  // Sidebar opens automatically when there's a plan or an active workflow.
+  // Sidebar opens automatically when there's an active workflow.
   // Manual sidebarOpen still works for the diff view.
   const effectiveSidebarOpen = sidebarOpen;
 
@@ -476,7 +468,6 @@ export function App({
     sidebarOpen: effectiveSidebarOpen,
     gateContext: {
       pendingPermission: gates.pendingPermission,
-      pendingPlan: gates.pendingPlan,
       pendingOperator: gates.pendingOperator,
     },
     modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen, permissionEntryCount: permissionEntries.length },
@@ -699,7 +690,7 @@ export function App({
       agentModalOpen: agentModalOpen || workflowPickerOpen || codexLoginOpen,
       hookPanelOpen,
       diffFullScreenOpen,
-      planFullScreenOpen,
+      taskFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       commandPaletteOpen: inputValue.startsWith("/") && (
@@ -752,11 +743,8 @@ export function App({
           });
         }
       },
-      togglePlanSidebar: () => {
-        setPlanFullScreenOpen((open) => {
-          if (open) setPlanScroll(0);
-          return !open;
-        });
+      toggleTaskSidebar: () => {
+        setTaskFullScreenOpen((open) => !open);
       },
       toggleDiffFullScreen: () => {
         setDiffFullScreenOpen((open) => {
@@ -905,14 +893,9 @@ export function App({
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
-        {planFullScreenOpen ? (
-          <PlanView
-            steps={planSteps}
-            currentPlanStep={state.currentPlanStep}
-            planDeviated={state.planDeviated}
-            width={columns}
-            borderColor={modeColor}
-            {...(planGoal !== undefined ? { goal: planGoal } : {})}
+        {taskFullScreenOpen ? (
+          <TaskView
+            tasks={state.tasks}
           />
         ) : diffFullScreenOpen ? (
           <DiffView
@@ -934,15 +917,12 @@ export function App({
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
                 <ContextPanel
                   view={contextView}
-                  steps={planSteps}
-                  currentPlanStep={state.currentPlanStep}
-                  planDeviated={state.planDeviated}
+                  tasks={state.tasks}
                   width={rightWidth}
                   diffResult={diff.result}
                   diffScrollOffset={diffScroll}
                   diffVisibleRows={diffVisibleRows}
                   borderColor={modeColor}
-                  {...(planGoal !== undefined ? { goal: planGoal } : {})}
                 />
               </Box>
             )}
@@ -970,9 +950,6 @@ export function App({
         onSaveAgentProfile={saveProfile}
         onDeleteAgentProfile={deleteProfile}
         codexUsage={agentModalUsage ?? undefined}
-        pendingPlan={gates.pendingPlan}
-        onApprove={gates.approve}
-        onReject={gates.reject}
         pendingOperator={gates.pendingOperator}
         onSelectOperator={gates.selectOperator}
         pendingPermission={gates.pendingPermission}
@@ -1031,7 +1008,7 @@ export function App({
           <Text color="cyan">{commandMessage}</Text>
         </Box>
       )}
-      {!planFullScreenOpen && !diffFullScreenOpen && (
+      {!taskFullScreenOpen && !diffFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
           <InFlightIndicator
             active={state.isProcessing}

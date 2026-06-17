@@ -17,8 +17,7 @@ export type DirectorPersistedState = {
   submitCalled: boolean;
   callIdToName: Record<string, string>;
   idleCycles: number;
-  planSubmitted: boolean;
-  plan: Array<{ file: string; action: string; reason: string }>;
+  tasks: Array<{ id: string; title: string; status: "todo" | "doing" | "done" }>;
   terminated?: boolean;
   filesRead?: Array<{ path: string; turn: number }>;
 };
@@ -33,14 +32,14 @@ function isValidDirectorState(data: unknown): data is DirectorPersistedState {
     if (typeof v !== "string") return false;
   }
   if (typeof s.idleCycles !== "number") return false;
-  if (typeof s.planSubmitted !== "boolean") return false;
-  if (!Array.isArray(s.plan)) return false;
-  for (const step of s.plan) {
-    if (typeof step !== "object" || step === null) return false;
-    const st = step as Record<string, unknown>;
-    if (typeof st.file !== "string") return false;
-    if (typeof st.action !== "string") return false;
-    if (typeof st.reason !== "string") return false;
+  if (!Array.isArray(s.tasks)) return false;
+  for (const task of s.tasks) {
+    if (typeof task !== "object" || task === null) return false;
+    const t = task as Record<string, unknown>;
+    if (typeof t.id !== "string") return false;
+    if (typeof t.title !== "string") return false;
+    if (typeof t.status !== "string") return false;
+    if (!["todo", "doing", "done"].includes(t.status)) return false;
   }
   return true;
 }

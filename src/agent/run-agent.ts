@@ -27,7 +27,7 @@ import { CODEX_HEADLESS_REFRESH_INTERVAL_MS } from "../auth/codex/constants.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 
 import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
-import { createCodingDirector, advanceWorkflowDefinition, askOperatorDefinition, submitOutputDefinition, submitPlanDefinition } from "./director.js";
+import { createCodingDirector, advanceWorkflowDefinition, askOperatorDefinition, submitOutputDefinition } from "./director.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "../plugins/re-read-block-plugin.js";
@@ -215,16 +215,6 @@ export async function runAgent(
       ...(agentProfiles.length > 0 ? { profiles: agentProfiles } : {}),
     }),
     stringTool({
-      definition: submitPlanDefinition,
-      handler: async (args: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
-        const steps = args.steps;
-        if (!Array.isArray(steps) || steps.length === 0) {
-          return "Error: submit_plan requires a non-empty steps array.";
-        }
-        return "Plan accepted.";
-      },
-    }),
-    stringTool({
       definition: askOperatorDefinition,
       handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
         const parsed = type({ "question?": "string", "options?": "unknown[]" })(args);
@@ -253,9 +243,6 @@ export async function runAgent(
         // signal, not a terminal submission. Do not require a plan for these.
         if (!(type({ step: "string" })(args) instanceof type.errors)) {
           return "Step advanced.";
-        }
-        if (!directorHolder.instance?.getState().planSubmitted) {
-          return "Error: You must call submit_plan before submit_output.";
         }
         return "Submission accepted. The task is now complete.";
       },
