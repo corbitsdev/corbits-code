@@ -19,6 +19,7 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { Settings } from "../config/settings.js";
 import { formatContextUsage } from "../provider/context-window.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
@@ -250,6 +251,9 @@ export type AppProps = {
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
   profilesDir?: string;
+  // The original settings from disk, used to preserve non-provider fields
+  // when the provider catalog is persisted.
+  initialSettings?: Settings;
 };
 
 export function App({
@@ -280,6 +284,7 @@ export function App({
   initialWorkflowStatus,
   initialProfiles = [],
   profilesDir,
+  initialSettings,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -336,6 +341,7 @@ export function App({
     ...(initialReasoningEffort !== undefined ? { initialReasoningEffort } : {}),
     initialCatalog: providers,
     initialGlobalDefaultProvider,
+    ...(initialSettings !== undefined ? { initialSettings } : {}),
     cwd,
     globalSettingsPath,
     agent,
@@ -1034,6 +1040,9 @@ export function App({
             borderLeft={false}
             borderRight={false}
           />
+          {state.tasks.length > 0 && (
+            <TaskView tasks={state.tasks} compact />
+          )}
           {exitConfirmOpen ? (
             <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
           ) : (
