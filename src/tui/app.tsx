@@ -223,6 +223,34 @@ async function deleteProfileFile(dir: string, id: string): Promise<void> {
   await unlink(`${dir}/${id}.json`).catch(() => {});
 }
 
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "now";
+  const totalSeconds = Math.ceil(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${String(days)}d ${String(hours)}h`;
+  if (hours > 0) return `${String(hours)}h ${String(minutes)}m`;
+  if (minutes > 0) return `${String(minutes)}m ${String(seconds)}s`;
+  return `${String(seconds)}s`;
+}
+
+function QuotaErrorBanner({ retryAt }: { retryAt: number }): ReactNode {
+  const remaining = retryAt - Date.now();
+  const expired = remaining <= 0;
+  return (
+    <Box flexDirection="column" paddingX={1} paddingY={0}>
+      <Text color="yellow">
+        {expired
+          ? "Rate limit reached — retrying…"
+          : `Rate limit reached — auto-retry in ${formatCountdown(remaining)}`}
+      </Text>
+      <Text color="cyan">{"[/agent] Switch provider"}</Text>
+    </Box>
+  );
+}
+
 export type AppProps = {
   eventEmitter: EventEmitter;
   agent: Agent;
@@ -541,9 +569,13 @@ export function App({
   const didSendInitial = useRef(false);
   // Incremented on every send so useSpinner can reset its elapsed clock per turn.
   const sendCounterRef = useRef(0);
+  const lastSentMessageRef = useRef<string>("");
+  const quotaAutoRetryFiredRef = useRef(false);
 
   const sendMessageRef = useRef<(message: string) => void>(null!);
   sendMessageRef.current = (message: string) => {
+    lastSentMessageRef.current = message;
+    quotaAutoRetryFiredRef.current = false;
     sendCounterRef.current += 1;
     state.markRunning();
     scroll.scrollToBottom();
@@ -632,6 +664,22 @@ export function App({
   // `state` is a stable mutable object — only the reactive scalar fields matter here.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
+
+  // When a quota error is active, poll once per second and auto-resubmit the
+  // last prompt as soon as the provider's retry-after window expires.
+  useEffect(() => {
+    if (state.quotaError === null) return;
+    const interval = setInterval(() => {
+      const qe = stateRef.current.quotaError;
+      if (qe === null || quotaAutoRetryFiredRef.current) return;
+      if (Date.now() < qe.retryAt) return;
+      quotaAutoRetryFiredRef.current = true;
+      sendMessageRef.current(lastSentMessageRef.current);
+    }, 1000);
+    return () => clearInterval(interval);
+  // `state` is a stable mutable object — only `quotaError` drives re-subscription.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.quotaError]);
 
   // Drain one queued message when the agent finishes a response cycle.
   // Uses a ref for sendMessage so the closure never goes stale. Guards on
@@ -1034,6 +1082,9 @@ export function App({
           />
           {state.tasks.length > 0 && (
             <TaskView tasks={state.tasks} compact />
+          )}
+          {state.quotaError !== null && (
+            <QuotaErrorBanner retryAt={state.quotaError.retryAt} />
           )}
           <Box
             borderStyle="single"
