@@ -14,8 +14,6 @@ import { color } from "../theme.js";
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
 
 export type EventLogProps = {
-  // The prebuilt flat line buffer (see buildLines). Built once by the caller so
-  // the hot streaming path does not re-parse markdown on every render.
   lines: StyledLine[];
   scrollOffset: number;
   visibleRows: number;
@@ -85,17 +83,12 @@ function renderLine(line: StyledLine, key: string): ReactNode {
   );
 }
 
-// Wrap a styled line into the visual rows it occupies, carrying each segment's
-// styling across the soft breaks. This is how a tall logical line becomes many
-// one-row lines, so the viewport can cut it anywhere.
 function wrapStyledLine(segments: StyledSegment[], width: number): StyledLine[] {
   if (segments.length === 0) return [[]];
   const text = segments.map((s) => s.text).join("");
   return wrapRanges(text, width).map((range) => sliceSegments(segments, range.start, range.end));
 }
 
-// Slice a styled line's segments to the character range [start, end), preserving
-// each surviving segment's styling.
 function sliceSegments(segments: StyledSegment[], start: number, end: number): StyledSegment[] {
   const out: StyledSegment[] = [];
   let pos = 0;
@@ -148,10 +141,13 @@ function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, w
     return full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
   }
 
+  // Collapsed non-shell tool calls are subordinate — danger stays loud, everything
+  // else recedes so the model's actual text output draws the eye instead.
+  const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
-      { text: display, color: roleColor },
-      ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("muted"), dim: true }] : []),
+      { text: display, color: collapsedColor, dim: role !== "danger" },
+      ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
     width,
   );
@@ -188,9 +184,15 @@ function blockToLines(block: RenderableBlock, columns: number, expanded: boolean
   switch (block.type) {
     case "thinking": {
       if (!thinkingExpanded) return [[{ text: "▸ thinking…", color: color("muted"), dim: true }]];
+      const thinkingContentLines = plainLines(block.content, { color: color("muted"), dim: true }, width);
+      // Gutter prefix distinguishes thinking from model output at a glance.
+      const prefixedLines: StyledLine[] = thinkingContentLines.map((line) => [
+        { text: "│ ", color: color("dim"), dim: true },
+        ...line,
+      ]);
       return [
         [{ text: "▾ thinking", color: color("muted"), dim: true }],
-        ...plainLines(block.content, { color: color("muted") }, width),
+        ...prefixedLines,
       ];
     }
     case "user":
@@ -217,21 +219,45 @@ function blockToLines(block: RenderableBlock, columns: number, expanded: boolean
   }
 }
 
-// Render the whole event log to a flat array of styled lines, each exactly one
-// visual row. The viewport slices this array by line index, so a tall block is
-// cut at the viewport edge and can never overpaint past it.
 export function buildLines(
   contentBlocks: ContentBlock[],
   columns: number,
   thinkingExpanded: boolean,
   isExpanded: (block: RenderableBlock) => boolean,
+  cache?: Map<string, StyledLine[]>,
 ): StyledLine[] {
   const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
+  if (cache !== undefined) {
+    const activeIds = new Set(blocks.map((b) => b.id));
+    for (const key of cache.keys()) {
+      if (!activeIds.has(key.slice(0, key.lastIndexOf(":")))) cache.delete(key);
+    }
+  }
   const lines: StyledLine[] = [];
-  for (const block of blocks) {
+  const lastIdx = blocks.length - 1;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
     const startsTurn = block.type === "user" || block.type === "text";
     if (startsTurn && lines.length > 0) lines.push([]);
-    lines.push(...blockToLines(block, columns, isExpanded(block), thinkingExpanded));
+
+    const expanded = isExpanded(block);
+    // Last block is always recomputed — it may still be receiving tokens.
+    const isStreaming = i === lastIdx;
+    let blockLines: StyledLine[];
+
+    if (cache !== undefined && !isStreaming) {
+      const key = `${block.id}:${expanded ? "1" : "0"}`;
+      const cached = cache.get(key);
+      if (cached !== undefined) {
+        blockLines = cached;
+      } else {
+        blockLines = blockToLines(block, columns, expanded, thinkingExpanded);
+        cache.set(key, blockLines);
+      }
+    } else {
+      blockLines = blockToLines(block, columns, expanded, thinkingExpanded);
+    }
+    lines.push(...blockLines);
   }
   return lines;
 }

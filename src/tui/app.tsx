@@ -6,6 +6,7 @@ import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
+import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
 import { ContextPanel, type ContextView } from "./components/context-panel.js";
@@ -20,7 +21,6 @@ import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { Settings } from "../config/settings.js";
-import { formatContextUsage } from "../provider/context-window.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
@@ -42,7 +42,6 @@ import { removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
 import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
-import { shouldHideCost, getActivePricingCache } from "../cost/cost-visibility.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -88,12 +87,6 @@ async function resolveWorkspacePath(cwd: string, path: string): Promise<{ ok: tr
   }
 }
 
-// Resolve @path/to/file mentions in a user message. Each @mention is replaced
-// with the file's contents wrapped in a labelled fenced block so the agent gets
-// full context without having to call read_file. Mentions that cannot be read
-// safely are replaced with a short warning so the agent knows.
-// Summarize a directory as a single line: file/subdir counts + subdir names.
-// e.g. "47 files, 4 subdirectories (components/, hooks/, commands/, tui/)"
 async function summarizeDir(abs: string): Promise<string> {
   let scanned = 0;
   let files = 0;
@@ -120,7 +113,6 @@ async function summarizeDir(abs: string): Promise<string> {
 }
 
 export async function resolveAtMentions(message: string, cwd: string): Promise<string> {
-  // Match @word, @path/with/slashes, or @"quoted path" - stop at whitespace.
   const pattern = /@("([^"]+)"|(\S+))/g;
   const mentions: Array<{ full: string; path: string }> = [];
   let m: RegExpExecArray | null;
@@ -381,8 +373,6 @@ export function App({
   // pricing resolver at usage-event time, never during this render pass.
   modelRef.current = model;
 
-  // Codex profile names currently known, derived from the live catalog so the
-  // login modal stays in sync after a login or removal.
   const codexProfileNames = useMemo(
     () =>
       providerCatalog
@@ -391,33 +381,13 @@ export function App({
     [providerCatalog],
   );
 
-  // For a Codex profile, show live plan usage in the status bar instead of a
-  // dollar cost (the plan is prepaid). Derived on every render — the value is
-  // refreshed from the x-codex-* response headers captured after each turn, and
-  // stream events re-render this component, so it stays current without an
-  // effect or an extra request. undefined → fall back to the normal cost string.
+  // Derived on every render — stream events re-render this component, so it
+  // stays current without an extra request. undefined → fall back to cost string.
   const codexUsageDisplay = (() => {
     if (codexProfileFromProviderName(provider) === undefined) return undefined;
     const usage = getLatestCodexUsage();
     return usage !== undefined ? formatCodexUsageCompact(usage) : undefined;
   })();
-  const isCodexProvider = codexProfileFromProviderName(provider) !== undefined;
-
-  // Suppress the dollar cost for prepaid/free providers. Codex plans are
-  // prepaid; coding-plan endpoints and free models carry no meaningful
-  // per-token cost. Derived on render — the pricing cache is static after load.
-  const activeEntry = providerCatalog.find((p) => p.name === provider);
-  const hideCost =
-    isCodexProvider ||
-    shouldHideCost({
-      baseURL: activeEntry?.baseURL,
-      modelId: model,
-      providerFree: activeEntry?.free,
-      pricingCache: getActivePricingCache(),
-    });
-
-  // Resolve a fresh access token for a Codex profile and make it the active
-  // provider. Surfaces a re-login hint if the profile can no longer be used.
   const switchToCodexProfile = (name: string): void => {
     void refreshCodexInstructions().catch(() => {});
     void Promise.all([getValidCodexToken(name), fetchCodexModels(name).catch(() => [])]).then(
@@ -476,7 +446,6 @@ export function App({
 
   const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
 
-  // Live workflow status published by the WorkflowController in the runner.
   useEffect(() => {
     const onWorkflow = (state: WorkflowControllerState) => {
       setWorkflowStatus(state.current);
@@ -486,8 +455,6 @@ export function App({
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
 
-  // Sidebar opens automatically when there's an active workflow.
-  // Manual sidebarOpen still works for the diff view.
   const effectiveSidebarOpen = sidebarOpen;
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
@@ -511,15 +478,28 @@ export function App({
   });
   const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
-  // The flat line buffer is the hot path during streaming — built once here and
-  // passed to EventLog so it is not re-parsed a second time in the component body.
+  // Cleared when layout width or display options change — those affect all blocks.
+  const lineCacheRef = useRef(new Map<string, StyledLine[]>());
+  const lineCacheKeysRef = useRef({ leftWidth, thinkingExpanded, verbose });
+  if (
+    lineCacheKeysRef.current.leftWidth !== leftWidth ||
+    lineCacheKeysRef.current.thinkingExpanded !== thinkingExpanded ||
+    lineCacheKeysRef.current.verbose !== verbose
+  ) {
+    lineCacheRef.current.clear();
+    lineCacheKeysRef.current = { leftWidth, thinkingExpanded, verbose };
+  }
+
   const eventLogLines = useMemo(
     () => buildLines(
       state.contentBlocks,
       leftWidth,
       thinkingExpanded,
       (block) => verbose || expandedTools.has(block.id),
+      lineCacheRef.current,
     ),
+    // lineCacheRef is a stable ref — intentionally not in the dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
@@ -712,15 +692,24 @@ export function App({
 
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    // Resolve @file mentions before the message reaches the agent. This is
-    // async; we fire-and-forget here so the send is non-blocking, trusting
-    // that the message will be queued when processing is still ongoing.
     void resolveAtMentions(message, cwd).then((resolved) => {
       if (state.isProcessing) {
         pendingQueueRef.current.push(resolved);
         setQueuedCount((c) => c + 1);
         return;
       }
+      sendMessage(resolved);
+    });
+  };
+
+  const handleInterrupt = (message: string) => {
+    setCommandMessage(null);
+    // requestStop must fire synchronously before any async work so the abort
+    // signal reaches the in-flight HTTP request before at-mention resolution
+    // has a chance to yield, preventing a stale connector.reply from racing
+    // the new turn's state.
+    requestStop();
+    void resolveAtMentions(message, cwd).then((resolved) => {
       sendMessage(resolved);
     });
   };
@@ -941,7 +930,6 @@ export function App({
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
-          elapsedMs={state.elapsedMs}
           usage={codexUsageDisplay}
           {...(profile !== undefined ? { profile } : {})}
         />
@@ -1106,16 +1094,12 @@ export function App({
               cwd={cwd}
               active={inputActive}
               queuedCount={queuedCount}
+              isProcessing={state.isProcessing}
+              onInterrupt={handleInterrupt}
             />
           )}
         <StatusBar
-          provider={provider}
           model={model}
-          cost={hideCost ? undefined : state.formattedCost}
-          inputTokens={state.inputTokens}
-          outputTokens={state.outputTokens}
-          cacheReadTokens={state.cacheReadTokens}
-          contextUsage={formatContextUsage(state.contextTokens, model)}
           status={state.status}
           reasoningEffort={reasoningEffort}
           auto={auto}

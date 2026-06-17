@@ -27,9 +27,6 @@ function looksLikeContextOverflow(message: string): boolean {
   );
 }
 
-// The block payload by type. Blocks carry a stable `id` (see ContentBlock) so UI
-// state like "which tool is expanded" survives array mutations (present splices)
-// that would otherwise renumber positional indices.
 export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
@@ -61,18 +58,13 @@ export type AgentStreamState = {
   tasks: Task[];
   elapsedMs: number;
   awaitingResponse: boolean;
-  // True from the moment agent.send() is called until connector.reply fires.
-  // Covers the full response window including streaming and tool execution.
   // Use this (not status === "running") to decide whether to queue a new message.
   isProcessing: boolean;
   currentToolName: string | null;
   streamingType: "text" | "thinking" | "tool" | null;
   activityTick: number;
-  // Wall-clock ms of the last moment real progress was observed: any streamed
-  // token, or the run (re)entering the awaiting-response gap (a fresh send or
-  // the gap after a tool completes). The stall watchdog measures silence from
-  // here. Tracked in the store — the single source of truth that mutates on
-  // every event — rather than mirrored into a ref via an effect.
+  // Tracked in the store rather than mirrored into a ref via an effect, so it
+  // stays in sync with every event without an extra subscription.
   lastActivityAt: number;
   quotaError: { retryAfterMs: number; retryAt: number } | null;
   addEvent(event: ReactorEmittedEvent): void;
@@ -116,8 +108,6 @@ export function createAgentStreamState(
   let blockSeq = 0;
   const nextBlockId = (): string => `b${(blockSeq += 1)}`;
 
-  // Wrappers that assign a stable id and mark the snapshot dirty so the getter
-  // rebuilds on next read.
   const pushBlock = (block: ContentBlockData): void => {
     contentBlocks.push({ ...block, id: nextBlockId() });
     contentBlocksDirty = true;
@@ -141,17 +131,10 @@ export function createAgentStreamState(
   let turnsUsed = 0;
   let status: AgentStatus = "idle";
   let stopRequested = false;
-  // True when at least one inference.text.delta fired since the last connector.reply.
-  // Used to distinguish model-generated replies (already accumulated via deltas —
-  // connector.reply would double the content) from director-generated replies
-  // (no deltas — connector.reply is the only carrier).
+  // Distinguishes model-generated replies (accumulated via deltas — connector.reply
+  // would double the content) from director-generated replies (no deltas).
   let hadTextDeltaSinceLastReply = false;
-  // True while the model is working but nothing is streaming yet — the gap
-  // between a send (or a tool result) and the first token of the next reply.
-  // Drives the in-flight indicator; cleared the moment real content arrives.
   let awaitingResponse = false;
-  // True from markRunning() until connector.reply (or clear/requestStop).
-  // Stays true across all streaming and tool-execution phases within a cycle.
   let isProcessing = false;
   let latestUserMessage = "";
   let tasks: Task[] = [];
@@ -374,7 +357,6 @@ export function createAgentStreamState(
         case "connector.reply": {
           const replyData = event.data as { content: string };
           if (!hadTextDeltaSinceLastReply && replyData.content.length > 0) {
-            // Director-generated reply (no inference deltas this cycle) — render it.
             const last = contentBlocks[contentBlocks.length - 1];
             if (last && last.type === "text") {
               last.content += replyData.content;
@@ -389,11 +371,9 @@ export function createAgentStreamState(
           break;
         }
         case "tool.done": {
-          // A tool finished; the model is now deciding its next move with nothing
-          // streaming, so re-arm the indicator until the next token arrives.
           awaitingResponse = true;
-          // Re-entering the awaiting-response gap; restart the stall clock so
-          // the wait for the model's next move is measured from now.
+          // Restart the stall clock so the wait for the model's next move is
+          // measured from now, not from the previous token.
           lastActivityAt = Date.now();
           currentToolName = null;
           streamingType = null;
@@ -434,12 +414,8 @@ export function createAgentStreamState(
             break;
           }
 
-          // `present` renders a view spec. On success, swap the tool result for the
-          // rendered view block; on an invalid spec, fall through so the validation
-          // error surfaces and the model can self-correct.
           if (name === "present" && !result.isError) {
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
-            // Read args before deleting (H4).
             callIdToName.delete(result.callId);
             callIdToArguments.delete(result.callId);
             let view: unknown;
@@ -468,7 +444,6 @@ export function createAgentStreamState(
             }
           }
 
-          // Delete map entries now that all special-case handling is done (H4).
           callIdToName.delete(result.callId);
           callIdToArguments.delete(result.callId);
 
@@ -551,6 +526,14 @@ export function createAgentStreamState(
   };
 }
 
+// Token events arrive at high frequency; structural events (status changes,
+// turn boundaries) bypass pending-render batching so they're never delayed.
+const TOKEN_EVENTS = new Set([
+  "inference.text.delta",
+  "inference.thinking.delta",
+  "inference.tool_call.delta",
+]);
+
 export function useAgentStream(
   emitter: EventEmitter,
   initialHooks: LifecycleHookStatus[] = [],
@@ -563,11 +546,27 @@ export function useAgentStream(
   const [tick, setTick] = useState(0);
   const onInferenceTimeoutRef = useRef(onInferenceTimeout);
   onInferenceTimeoutRef.current = onInferenceTimeout;
+  const pendingRenderRef = useRef(false);
+
+  // ~30fps drain makes streaming feel metronomic rather than bursty.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (pendingRenderRef.current) {
+        pendingRenderRef.current = false;
+        setTick((t) => t + 1);
+      }
+    }, 33);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const handler = (event: ReactorEmittedEvent) => {
       state.addEvent(event);
-      setTick((t) => t + 1);
+      if (TOKEN_EVENTS.has(event.type)) {
+        pendingRenderRef.current = true;
+      } else {
+        setTick((t) => t + 1);
+      }
       if (
         event.type === "inference.error" &&
         (event.data as { error: { category: string } }).error.category === "timeout"
@@ -597,7 +596,6 @@ export function useAgentStream(
     };
   }, [state, state.status, state.quotaError]);
 
-  // Force re-render by reading tick
   void tick;
 
   return state;

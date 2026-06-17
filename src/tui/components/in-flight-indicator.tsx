@@ -50,7 +50,7 @@ export function InFlightIndicator({ active, frame, elapsedMs, label, workflow }:
   const displayLabel = resolveLabel(label);
   return (
     <Box paddingX={1}>
-      <Text color={color("brand")}>{frame}</Text>
+      <Text color={color("live")}>{frame}</Text>
       <Text color={color("muted")} dimColor>{` ${displayLabel}${suffix}`}</Text>
       {workflowText !== undefined && (
         <Box flexGrow={1} justifyContent="flex-end">
