@@ -10,3 +10,6 @@ dist/
 .claude/worktrees
 tmp/
 *.tsbuildinfo
+.claire
+.worktrees
+.tmp*
