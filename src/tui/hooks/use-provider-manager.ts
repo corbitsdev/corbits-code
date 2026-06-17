@@ -2,7 +2,7 @@ import type { Agent } from "@intx/agent";
 import { randomUUID } from "node:crypto";
 import { useState } from "react";
 import { buildCodexSource, buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
-import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type TierAssignment } from "../../config/settings.js";
+import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type Settings, type TierAssignment } from "../../config/settings.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../../subagent/index.js";
 import {
@@ -19,6 +19,9 @@ export type UseProviderManagerArgs = {
   initialCatalog: ProviderCatalogEntry[];
   initialGlobalDefaultProvider: string | undefined;
   initialTiers?: Partial<Record<ProviderTier, TierAssignment>>;
+  // The original settings from disk, used to preserve non-provider fields
+  // (mcpServers, workflow plugins, etc.) when saving the provider catalog back.
+  initialSettings?: Settings;
   cwd: string;
   globalSettingsPath: string;
   agent: Agent;
@@ -71,6 +74,7 @@ export function useProviderManager({
   initialCatalog,
   initialGlobalDefaultProvider,
   initialTiers,
+  initialSettings,
   cwd,
   globalSettingsPath,
   agent,
@@ -170,7 +174,7 @@ export function useProviderManager({
   ): void => {
     let settings: ReturnType<typeof providerCatalogToSettings>;
     try {
-      settings = providerCatalogToSettings(catalog, defaultProvider);
+      settings = providerCatalogToSettings(catalog, defaultProvider, initialSettings);
     } catch (err) {
       onMessage(
         `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -229,7 +233,7 @@ export function useProviderManager({
   const saveTierAssignment = (tier: ProviderTier, tierProvider: string, tierModel: string): void => {
     const nextTiers = { ...tiers, [tier]: { provider: tierProvider, model: tierModel } };
     setTiers(nextTiers);
-    const settings = { ...providerCatalogToSettings(providerCatalog, globalDefaultProvider), tiers: nextTiers };
+    const settings = { ...providerCatalogToSettings(providerCatalog, globalDefaultProvider, initialSettings), tiers: nextTiers };
     void saveGlobalSettings(globalSettingsPath, settings).then(
       () => onMessage(`Saved tier ${tier}: ${tierProvider} · ${tierModel}`),
       (err: unknown) => {

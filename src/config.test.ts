@@ -454,4 +454,32 @@ describe("buildProviderCatalog", () => {
       },
     });
   });
+
+  test("preserves non-provider fields from existing settings", () => {
+    const existing: Settings = {
+      defaultProvider: "fp",
+      providers: { fp: { baseURL: "https://fp/v1", apiKey: "old-key", models: ["fp-small"] } },
+      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      workflowPlugins: ["./plugins/my-flow"],
+      tiers: { fast: { provider: "fp", model: "fp-large" } },
+    };
+    const settings = providerCatalogToSettings(
+      [
+        { name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+        { name: "oa", baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+      ],
+      "oa",
+      existing,
+    );
+    expect(settings).toEqual({
+      defaultProvider: "oa",
+      providers: {
+        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+        oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+      },
+      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      workflowPlugins: ["./plugins/my-flow"],
+      tiers: { fast: { provider: "fp", model: "fp-large" } },
+    });
+  });
 });

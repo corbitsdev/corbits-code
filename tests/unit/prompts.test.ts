@@ -8,8 +8,7 @@ import {
   buildCommunicationRules,
   buildInstructionHierarchyRules,
   buildLSPGuidance,
-  buildPlanDecisionRules,
-  buildPlanRules,
+  buildTaskRules,
   buildReviewRules,
   buildSubmitRules,
   buildSystemPrompt,
@@ -24,8 +23,7 @@ const sections = [
   buildInstructionHierarchyRules,
   buildReviewRules,
   buildCommunicationRules,
-  buildPlanRules,
-  buildPlanDecisionRules,
+  buildTaskRules,
   buildAvailableTools,
 ];
 
@@ -45,8 +43,7 @@ test("system prompt includes every section", () => {
   expect(prompt).toContain(buildInstructionHierarchyRules());
   expect(prompt).toContain(buildReviewRules());
   expect(prompt).toContain(buildCommunicationRules());
-  expect(prompt).toContain(buildPlanRules());
-  expect(prompt).toContain(buildPlanDecisionRules());
+  expect(prompt).toContain(buildTaskRules());
   expect(prompt).toContain(buildAvailableTools());
 });
 
@@ -64,15 +61,11 @@ test("full system prompt contains provided tool names", () => {
   expect(prompt).toContain("second_tool");
 });
 
-test("plan decision always requires a plan, scaled by risk not file count", () => {
-  const rules = buildPlanDecisionRules();
+test("task rules guide the agent to register and update tasks", () => {
+  const rules = buildTaskRules();
 
-  expect(rules.toLowerCase()).toContain("submit a plan before you start");
-  expect(rules.toLowerCase()).toContain("scale its depth to risk");
-  expect(rules.toLowerCase()).toContain("blast radius");
-  // The old rigid file-count thresholds must be gone.
-  expect(rules).not.toContain("3 or fewer");
-  expect(rules).not.toContain("4 or more");
+  expect(rules.toLowerCase()).toContain("manage_tasks");
+  expect(rules.toLowerCase()).toContain("task");
 });
 
 test("system prompt tells the agent to escalate blocked commands to the operator", () => {

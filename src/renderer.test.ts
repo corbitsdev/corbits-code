@@ -53,30 +53,23 @@ describe("renderer — status bar", () => {
   });
 });
 
-describe("renderer — submit_plan journal block", () => {
-  test("submit_plan tool.done writes a plan block to stdout", () => {
+describe("renderer — manage_tasks journal block", () => {
+  test("manage_tasks tool.done writes nothing to stdout", () => {
     const cap = captureOutput();
     const renderer = createRenderer(Date.now());
     renderer.render(event("inference.tool_call.end", {
-      callId: "c1", name: "submit_plan",
+      callId: "c1", name: "manage_tasks",
       arguments: {
-        steps: [
-          { file: "src/foo.ts", action: "add function", reason: "needed" },
-          { file: "src/bar.ts", action: "update types", reason: "needed" },
+        tasks: [
+          { id: "1", title: "Add function", status: "in_progress" },
         ],
       },
     }));
     renderer.render(event("tool.done", { result: { callId: "c1", content: "ok" } }));
     cap.restore();
-    const out = cap.stdout.join("");
-    expect(out).toContain("plan");
-    expect(out).toContain("src/foo.ts");
-    expect(out).toContain("src/bar.ts");
-    expect(out).toContain("1.");
-    expect(out).toContain("2.");
+    expect(cap.stdout.join("")).toBe("");
   });
 });
-
 describe("renderer — write_file journal block", () => {
   test("write_file tool.done writes a write block with line count to stdout", () => {
     const cap = captureOutput();
