@@ -36,6 +36,12 @@ registerCommand({
 });
 
 registerCommand({
+  name: "tasks",
+  description: "Show the agent's task list in the context panel",
+  handler: (_args, _ctx) => ({ type: "view", view: "tasks" }),
+});
+
+registerCommand({
   name: "model",
   description: "Open the model configuration surface (provider, model)",
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
