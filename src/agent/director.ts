@@ -16,6 +16,9 @@ import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { compactionThresholdFor } from "../provider/context-window.js";
 import { type } from "arktype";
 import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
+import { createIntercodeRetryPolicy } from "./retry-policy.js";
+
+const RETRY_POLICY = createIntercodeRetryPolicy();
 
 const PathArgSchema = type({ path: "string" });
 
@@ -218,7 +221,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
-      const options = { ...action.options, tools };
+      const options = { ...action.options, tools, retryPolicy: action.options?.retryPolicy ?? RETRY_POLICY };
       if (this.inactivityTimeoutMs !== undefined) options.inactivityTimeoutMs = this.inactivityTimeoutMs;
       if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       if (directive !== null) {
@@ -504,7 +507,7 @@ class ChatDirectorImpl extends DefaultDirector {
 
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
-      const options = { ...action.options, tools };
+      const options = { ...action.options, tools, retryPolicy: action.options?.retryPolicy ?? RETRY_POLICY };
       if (this.inactivityTimeoutMs !== undefined) options.inactivityTimeoutMs = this.inactivityTimeoutMs;
       if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       const base = action.options?.systemPrompt ?? this._systemPrompt;
