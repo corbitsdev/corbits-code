@@ -6,8 +6,8 @@
 
 1. Load the `style` and `philosophy` skills.
 2. Read this file.
-3. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` first (see Reference).
-4. Confirm the working-tree status before editing.
+3. Before making changes, confirm working-tree status (`git status`) and run `git log --oneline -5` to understand recent context.
+4. When the task touches the agent loop, directors, tools, or prompts, read the relevant doc in `/docs` first (see Reference). Explore before coding.
 
 ## Conventions
 
@@ -63,8 +63,7 @@ git config core.hooksPath .githooks
 
 The source is the truth; these docs guide you to it.
 
-- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, mandatory workflow/plan/output tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.**
-  - **Note for developers of Intercode itself:** the workflow/plan/output tools (`submit_plan`, `submit_output`, `advance_workflow`) are exposed to the *agent being run by* Intercode, not available to you the developer. When you need a plan for changes to Intercode, call `plan_enter` to explore, then present your plan to the user.
+- `docs/ARCHITECTURE.md` — the reactor loop, events and `ReactorAction`s, directors, mandatory workflow/plan/output tools, the workflow engine (`src/workflows/`), stall detection, the plugin chain, and the permission system. **Read this before working on the loop, directors, tools, or workflows.** Note: `submit_plan`, `submit_output`, and `advance_workflow` are tools the *agent Intercode runs* uses — they are not available to you. To plan your own changes, use `plan_enter`.
 - `docs/IMPLEMENTATION.md` — runtime, dependencies, config and profile resolution, settings precedence, CLI flags (incl. `--no-workflow`), state persistence, the eval harness.
 - `docs/PRODUCT.md` — what we're building and why.
 - `docs/HOOKS.md` — lifecycle hooks.
