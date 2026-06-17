@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { computeVisibleRows } from "../../../src/tui/hooks/use-layout-geometry.js";
+import { computeVisibleRows, wrappedLineCount, computeOverlayRows } from "../../../src/tui/hooks/use-layout-geometry.js";
 
 test("computeVisibleRows: no extra chrome", () => {
   // 40 rows - 12 chrome - 0 overlay - 0 extra = 28
@@ -32,4 +32,100 @@ test("computeVisibleRows: clamps to minimum of 1", () => {
 test("computeVisibleRows: CHROME_ROWS=10 reserves room for header second line", () => {
   // 24 rows terminal - 10 chrome - 0 overlay - 0 extra = 14 visible rows
   expect(computeVisibleRows({ rows: 24, chromeRows: 10, effectiveOverlayRows: 0, extraChromeRows: 0 })).toBe(14);
+});
+
+test("wrappedLineCount: single line fits width", () => {
+  expect(wrappedLineCount("hello world", 80)).toBe(1);
+});
+
+test("wrappedLineCount: line wraps to multiple", () => {
+  expect(wrappedLineCount("a".repeat(100), 80)).toBe(2);
+});
+
+test("wrappedLineCount: explicit newlines count as separate lines", () => {
+  expect(wrappedLineCount("line one\nline two\nline three", 80)).toBe(3);
+});
+
+test("wrappedLineCount: mixed wrapping and newlines", () => {
+  const text = "first paragraph\n" + "a".repeat(120) + "\nlast paragraph";
+  expect(wrappedLineCount(text, 80)).toBe(4);
+});
+
+test("wrappedLineCount: long word splits across lines", () => {
+  expect(wrappedLineCount("a".repeat(200), 80)).toBe(3);
+});
+
+test("wrappedLineCount: exact-multiple long word does not overcount", () => {
+  expect(wrappedLineCount("a".repeat(160), 80)).toBe(2);
+});
+
+test("wrappedLineCount: empty string returns 1", () => {
+  expect(wrappedLineCount("", 80)).toBe(1);
+});
+
+test("wrappedLineCount: whitespace-only returns 1", () => {
+  expect(wrappedLineCount("   \n  \n  ", 80)).toBe(3);
+});
+
+test("wrappedLineCount: respects the actual width limit", () => {
+  expect(wrappedLineCount("hello world", 5)).toBe(2);
+});
+
+test("computeOverlayRows: multi-line permission subject returns exact expected rows", () => {
+  // Compute independently: 11 fixed + 2 choices (reject + accept once) + line count
+  const script = "cat << 'EOF'\n#!/usr/bin/env bash\necho 'hello world'\nEOF";
+  const expectedSubjectLines = wrappedLineCount(`Run shell command: ${script}`, 60);
+  const rows = computeOverlayRows({
+    gateContext: {
+      pendingPermission: {
+        action: "Run shell command",
+        subject: script,
+        scopes: [{ pattern: null }],
+      },
+      pendingPlan: null,
+      pendingOperator: null,
+    },
+    modalContext: {
+      helpOpen: false,
+      hookPanelOpen: false,
+      exitConfirmOpen: false,
+      agentModalOpen: false,
+      permissionsOpen: false,
+      permissionEntryCount: 0,
+    },
+    hookCount: 0,
+    providerCatalog: [],
+    innerWidth: 60,
+  });
+  expect(rows).toBe(13 + expectedSubjectLines);
+  expect(expectedSubjectLines).toBeGreaterThan(3);
+});
+
+test("computeOverlayRows: exact-multiple word subject returns correct rows", () => {
+  const exactWord = "a".repeat(160);
+  const rows = computeOverlayRows({
+    gateContext: {
+      pendingPermission: {
+        action: "Run shell command",
+        subject: exactWord,
+        scopes: [{ pattern: null }],
+      },
+      pendingPlan: null,
+      pendingOperator: null,
+    },
+    modalContext: {
+      helpOpen: false,
+      hookPanelOpen: false,
+      exitConfirmOpen: false,
+      agentModalOpen: false,
+      permissionsOpen: false,
+      permissionEntryCount: 0,
+    },
+    hookCount: 0,
+    providerCatalog: [],
+    innerWidth: 80,
+  });
+  // 11 fixed + 2 choices (no persistable) + 3 subject lines
+  // ("Run shell command:" = 18 chars on line 1, then 160 chars = 2 more lines)
+  expect(rows).toBe(16);
 });
