@@ -1,14 +1,12 @@
 import type { ReactNode } from "react";
 import type { LifecycleHookStatus } from "../../session/hooks.js";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
-import type { PlanStep } from "../use-stream.js";
 import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { ProviderTier, TierAssignment } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
-import { ApprovalModal } from "./approval-modal.js";
 import { OperatorModal } from "./operator-modal.js";
 import type { OperatorResult } from "../../agent/tools.js";
 import { PermissionModal } from "./permission-modal.js";
@@ -36,10 +34,6 @@ export type ModalStackProps = {
   onSaveAgentProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteAgentProfile: (id: string) => void;
   codexUsage?: string | undefined;
-
-  pendingPlan: PlanStep[] | null;
-  onApprove: () => void;
-  onReject: () => void;
 
   pendingOperator: { question: string; options: string[] } | null;
   onSelectOperator: (result: OperatorResult) => void;
@@ -71,9 +65,6 @@ export function ModalStack({
   onSaveAgentProfile,
   onDeleteAgentProfile,
   codexUsage,
-  pendingPlan,
-  onApprove,
-  onReject,
   pendingOperator,
   onSelectOperator,
   pendingPermission,
@@ -102,9 +93,6 @@ export function ModalStack({
           onDeleteProfile={onDeleteAgentProfile}
           codexUsage={codexUsage}
         />
-      )}
-      {pendingPlan !== null && (
-        <ApprovalModal plan={pendingPlan} onApprove={onApprove} onReject={onReject} {...(width !== undefined ? { width } : {})} />
       )}
       {pendingOperator !== null && (
         <OperatorModal

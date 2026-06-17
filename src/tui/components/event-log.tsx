@@ -11,7 +11,7 @@ import { viewToLines, type StyledLine } from "../view/index.js";
 import { wrapLines, wrapRanges } from "../view/height.js";
 import { color } from "../theme.js";
 
-export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "plan" }>;
+export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
 
 export type EventLogProps = {
   // The prebuilt flat line buffer (see buildLines). Built once by the caller so
@@ -25,7 +25,7 @@ const LINE_PADDING = 2;
 const SHELL_PREFIX = "$ ";
 
 export function isRenderable(block: ContentBlock): block is RenderableBlock {
-  return block.type !== "reply" && block.type !== "plan";
+  return block.type !== "reply" && block.type !== "tasks";
 }
 
 export function renderableBlocks(blocks: ContentBlock[]): RenderableBlock[] {

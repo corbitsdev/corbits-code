@@ -16,7 +16,7 @@ export type CommandContext = {
 export type CommandResult =
   | { type: "message"; text: string }
   | { type: "send"; text: string }
-  | { type: "view"; view: "plan" | "diff" }
+  | { type: "view"; view: "tasks" | "diff" }
   | { type: "overlay"; overlay: "help" | "permissions" }
   | { type: "modal"; modal: "agent" | "codex-login" }
   | { type: "workflow"; name: string; args?: string }

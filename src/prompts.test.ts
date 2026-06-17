@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { createCodingDirector, submitPlanDefinition, submitOutputDefinition } from "./agent/director.js";
+import { createCodingDirector, submitOutputDefinition } from "./agent/director.js";
+import { manageTasksDefinition } from "./agent/tasks.js";
 import {
   buildActiveContext,
   buildAgentRole,
@@ -12,8 +13,7 @@ import {
   buildFewShot,
   buildGroundingRules,
   buildInstructionHierarchyRules,
-  buildPlanDecisionRules,
-  buildPlanRules,
+  buildTaskRules,
   buildReviewRules,
   buildSelfVerification,
   buildStyleRules,
@@ -22,7 +22,7 @@ import {
   buildToolCallDiscipline,
 } from "./agent/prompts.js";
 
-const minimalToolDefinitions = [submitPlanDefinition, submitOutputDefinition];
+const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
 
 test("buildSystemPrompt wires into createCodingDirector without error", () => {
   const prompt = buildSystemPrompt();
@@ -38,7 +38,7 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   const prompt = buildSystemPrompt();
   const role = buildAgentRole();
   const discipline = buildToolCallDiscipline();
-  const planDecision = buildPlanDecisionRules();
+  const taskRules = buildTaskRules();
   const hierarchy = buildInstructionHierarchyRules();
   const budget = buildBudgetRules();
   const grounding = buildGroundingRules();
@@ -47,10 +47,10 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   const tools = buildAvailableTools();
   const activeContext = "Active context:";
 
-  // Planning is a turn-1 action, so it precedes the working/finishing rules.
+  // Task rules come after discipline, before working/finishing rules.
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf(discipline));
-  expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(planDecision));
-  expect(prompt.indexOf(planDecision)).toBeLessThan(prompt.indexOf(hierarchy));
+  expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(taskRules));
+  expect(prompt.indexOf(taskRules)).toBeLessThan(prompt.indexOf(hierarchy));
   expect(prompt.indexOf(hierarchy)).toBeLessThan(prompt.indexOf(budget));
   expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(grounding));
   expect(prompt.indexOf(grounding)).toBeLessThan(prompt.indexOf(review));
@@ -63,12 +63,12 @@ test("buildSystemPrompt separates sections with double newlines", () => {
   const prompt = buildSystemPrompt();
   // Sections are joined with \n\n — verify at least one boundary exists
   expect(prompt).toContain(buildAgentRole() + "\n\n" + buildToolCallDiscipline());
-  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildPlanDecisionRules());
+  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildTaskRules());
 });
 
-test("buildSystemPrompt includes submit_plan and submit_output in tool list", () => {
+test("buildSystemPrompt includes manage_tasks and submit_output in tool list", () => {
   const prompt = buildSystemPrompt();
-  expect(prompt).toContain("submit_plan");
+  expect(prompt).toContain("manage_tasks");
   expect(prompt).toContain("submit_output");
 });
 
@@ -215,15 +215,12 @@ test("system prompt encodes style, self-verification, and a few-shot sequence", 
   expect(prompt).toContain("delete the old path");
 });
 
-test("planning always submits a plan, scaled by risk not file count", () => {
-  const decision = buildPlanDecisionRules();
-  // A plan is always required (the runtime gates submit_output on it); the
-  // rubric scales plan depth by risk rather than choosing whether to plan.
-  expect(decision.toLowerCase()).toContain("submit a plan before you start");
-  expect(decision.toLowerCase()).toContain("blast radius");
-  // The old rigid thresholds must be gone.
-  expect(decision).not.toContain("3 or fewer");
-  expect(decision).not.toContain("4 or more");
+test("task rules guide the agent to register and update tasks", () => {
+  const rules = buildTaskRules();
+  expect(rules.toLowerCase()).toContain("manage_tasks");
+  expect(rules.toLowerCase()).toContain("todo");
+  expect(rules.toLowerCase()).toContain("doing");
+  expect(rules.toLowerCase()).toContain("done");
 });
 
 test("chat prompt is Intercode and holds the same code standards", () => {

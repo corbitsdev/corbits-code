@@ -29,8 +29,7 @@ const baseDirectorState: DirectorPersistedState = {
   submitCalled: false,
   callIdToName: { "call-1": "readFile", "call-2": "writeFile" },
   idleCycles: 0,
-  planSubmitted: true,
-  plan: [{ file: "src/login.ts", action: "edit", reason: "Fix null dereference" }],
+  tasks: [{ id: "t1", title: "Fix login bug", status: "doing" as const }],
   filesRead: [{ path: "src/login.ts", turn: 1 }],
 };
 
@@ -213,8 +212,7 @@ describe("state persistence", () => {
       submitCalled: false,
       callIdToName: {},
       idleCycles: 0,
-      planSubmitted: false,
-      plan: [],
+      tasks: [],
     };
     await writeFile(join(stateDir, "director.json"), JSON.stringify(minimal));
 

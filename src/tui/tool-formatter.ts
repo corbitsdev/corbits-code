@@ -31,7 +31,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   list_dir: "List",
   web_search: "Web Search",
   web_fetch: "Web Fetch",
-  submit_plan: "Plan",
+  manage_tasks: "Manage tasks",
   submit_output: "Submit",
   ask_operator: "Ask operator",
 };

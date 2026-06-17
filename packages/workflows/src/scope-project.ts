@@ -38,7 +38,7 @@ export const scopeProject = {
       label: "Write plan",
       prompt:
         "Produce a structured implementation plan with discrete steps and call " +
-        "submit_plan.",
+        "manage_tasks to register them.",
     },
     {
       id: "greybeard-review",

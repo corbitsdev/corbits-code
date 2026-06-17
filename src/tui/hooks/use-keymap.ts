@@ -13,7 +13,7 @@ export type KeymapContext = {
   agentModalOpen: boolean;
   hookPanelOpen: boolean;
   diffFullScreenOpen: boolean;
-  planFullScreenOpen: boolean;
+  taskFullScreenOpen: boolean;
   hasInput: boolean;
   inputFocused: boolean;
   isRunning: boolean;
@@ -33,7 +33,7 @@ export type KeymapActions = {
   toggleThinking: () => void;
   toggleLastTool: () => void;
   toggleVerbose: () => void;
-  togglePlanSidebar: () => void;
+  toggleTaskSidebar: () => void;
   toggleDiffFullScreen: () => void;
   toggleHelp: () => void;
   copyMcpUrl: () => void;
@@ -94,8 +94,8 @@ export function handleKey(
     return lastEscMs;
   }
   if (key.escape) {
-    if (context.planFullScreenOpen) {
-      actions.togglePlanSidebar();
+    if (context.taskFullScreenOpen) {
+      actions.toggleTaskSidebar();
       return 0;
     }
     if (context.diffFullScreenOpen) {
@@ -136,7 +136,7 @@ export function handleKey(
     return lastEscMs;
   }
   if (key.ctrl && input === "p") {
-    actions.togglePlanSidebar();
+    actions.toggleTaskSidebar();
     return lastEscMs;
   }
   if (key.ctrl && input === "d") {
