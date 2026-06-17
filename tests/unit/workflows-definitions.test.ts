@@ -48,13 +48,13 @@ test("build workflow completes with no capabilities, skipping ticket steps", () 
 });
 
 test("autoAdvance is set on all four core workflows", () => {
-  for (const name of ["plan", "scribe", "build", "review"]) {
+  for (const name of ["scope", "scribe", "build", "review"]) {
     expect(findWorkflow(name)?.autoAdvance).toBe(true);
   }
 });
 
 test("every workflow drains to completion under full capabilities", () => {
-  for (const name of ["plan", "scribe", "review", "build"]) {
+  for (const name of ["scope", "scribe", "review", "build"]) {
     expect(() => drive(name, fullCaps)).not.toThrow();
   }
 });

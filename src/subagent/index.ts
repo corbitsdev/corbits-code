@@ -43,8 +43,8 @@ import { resolveTier } from "../config/settings.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
-// the dispatcher. It has no submit_plan/submit_output and never blocks on the
-// operator — autonomy is the whole point of delegation.
+  // the dispatcher. It has no submit_output and never blocks on the
+  // operator — autonomy is the whole point of delegation.
 const SUBAGENT_DEFAULT_MAX_TURNS = 25;
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {

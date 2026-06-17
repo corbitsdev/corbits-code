@@ -72,7 +72,6 @@ test("wrappedLineCount: respects the actual width limit", () => {
 });
 
 test("computeOverlayRows: multi-line permission subject returns exact expected rows", () => {
-  // Compute independently: 11 fixed + 2 choices (reject + accept once) + line count
   const script = "cat << 'EOF'\n#!/usr/bin/env bash\necho 'hello world'\nEOF";
   const expectedSubjectLines = wrappedLineCount(`Run shell command: ${script}`, 60);
   const rows = computeOverlayRows({
@@ -82,7 +81,6 @@ test("computeOverlayRows: multi-line permission subject returns exact expected r
         subject: script,
         scopes: [{ pattern: null }],
       },
-      pendingPlan: null,
       pendingOperator: null,
     },
     modalContext: {
@@ -110,7 +108,6 @@ test("computeOverlayRows: exact-multiple word subject returns correct rows", () 
         subject: exactWord,
         scopes: [{ pattern: null }],
       },
-      pendingPlan: null,
       pendingOperator: null,
     },
     modalContext: {
@@ -125,7 +122,5 @@ test("computeOverlayRows: exact-multiple word subject returns correct rows", () 
     providerCatalog: [],
     innerWidth: 80,
   });
-  // 11 fixed + 2 choices (no persistable) + 3 subject lines
-  // ("Run shell command:" = 18 chars on line 1, then 160 chars = 2 more lines)
   expect(rows).toBe(16);
 });

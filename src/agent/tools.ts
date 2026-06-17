@@ -7,10 +7,10 @@ import { createLSPPlugin } from "@intx/tools-lsp";
 import {
   advanceWorkflowDefinition,
   askOperatorDefinition,
-  planEnterDefinition,
   presentDefinition,
   suggestWorkflowDefinition,
 } from "../agent/director.js";
+import { manageTasksDefinition } from "./tasks.js";
 import { findWorkflow, WORKFLOWS } from "../workflows/index.js";
 import { validateView } from "../tui/view/index.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
@@ -28,6 +28,7 @@ import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig } from "../config/settings.js";
 import { createTaskTool, type SubAgentProvider } from "../subagent/index.js";
+import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -63,9 +64,6 @@ export type AgentToolsetArgs = {
   // TUI wires this to WorkflowController.start(). Returns false if the name is
   // not found or already active (so the handler can report the failure).
   onWorkflowSuggested?: (name: string) => boolean;
-  // Called when the agent invokes plan_enter. The TUI wires this to
-  // director.enterPlanPhase() so the director blocks write/edit tools.
-  onPlanEnter?: () => void;
   mcpServers?: MCPServerConfig[];
   // Pre-resolved web provider. When omitted, the built-in local provider is used.
   webProvider?: WebProvider;
@@ -138,10 +136,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         ]
       : []),
     stringTool({
-      definition: planEnterDefinition,
-      handler: async (): Promise<string> => {
-        args.onPlanEnter?.();
-        return "Plan mode entered.";
+      definition: manageTasksDefinition,
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        const parsed = parseManageTasksArgs(rawArgs);
+        if (parsed === null) {
+          return "Error: manage_tasks requires action ('create' or 'update').";
+        }
+        return "Tasks updated.";
       },
     }),
     stringTool({

@@ -14,7 +14,7 @@ const defaultAgentTools = [
   "web_search",
   "web_fetch",
   "task",
-  "submit_plan",
+  "manage_tasks",
   "submit_output",
   "ask_operator",
 ];
@@ -63,16 +63,12 @@ export function buildToolCallDiscipline(): string {
   ].join("\n");
 }
 
-export function buildPlanDecisionRules(): string {
+export function buildTaskRules(): string {
   return [
-    "Planning (turn 1):",
-    "- Submit a plan before you start changing things — it is required before you can finish. Scale its depth to risk: a terse step or two for small, local, reversible work; a thorough, ordered plan when the work is risky or hard to undo (new structure or interfaces, schema/migration/config changes, behavior other code relies on) or when the path needs exploration first.",
-    "- Judge by blast radius, not diff size: a one-line migration edit changes data you can't easily undo, so plan it carefully; a large mechanical rename you can revert in one command needs little.",
+    "Task tracking:",
+    "- For multi-step work, call manage_tasks to register a short ordered list of what you intend to do. Update statuses as you progress (todo → doing → done).",
+    "- Skip it for trivial single-step changes. The tool is optional and self-owned — no hard gate on completion.",
   ].join("\n");
-}
-
-export function buildPlanRules(): string {
-  return "A submitted plan is a contract: keep your work aligned with it, and update it if the approach changes rather than drifting silently.";
 }
 
 export function buildStyleRules(): string {
@@ -177,8 +173,8 @@ export function buildLSPGuidance(): string {
 export function buildFewShot(): string {
   return [
     "The shape of a turn — locate, understand, change, verify, finish:",
-    "- Fixing a bug: submit_plan -> grep the failing symbol -> read just that region -> write a failing test that reproduces it -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
-    "- Adding a feature: submit_plan -> grep/list_dir to find where similar code lives -> read that file and the module it sits in -> edit_file or write_file following the patterns you saw -> grep the callers you affected -> run the build and tests -> submit_output.",
+    "- Fixing a bug: grep the failing symbol -> read just that region -> write a failing test that reproduces it -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
+    "- Adding a feature: grep/list_dir to find where similar code lives -> read that file and the module it sits in -> edit_file or write_file following the patterns you saw -> grep the callers you affected -> run the build and tests -> submit_output.",
     "Don't read everything first; don't finish before verifying. One tool call per turn minimum, always.",
   ].join("\n");
 }
@@ -195,10 +191,9 @@ const TOOL_SUMMARIES: Record<string, string> = {
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
   task: "delegate a self-contained subtask to a sub-agent",
-  submit_plan: "record the plan; required before finishing",
+  manage_tasks: "maintain your own task list (create/update status)",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous; the options you give are suggestions — the user may answer in their own words or dismiss the question entirely",
-  plan_enter: "switch to read-only plan mode before making changes",
   suggest_workflow: "propose launching a built-in workflow when the user's request matches one",
   present: "render structured data (lists, tables, status) to the user",
   tool_search: "load more tools by capability when you need them",
@@ -271,8 +266,7 @@ export function buildSystemPrompt(
   const sections = [
     buildAgentRole(),
     buildToolCallDiscipline(),
-    buildPlanDecisionRules(),
-    buildPlanRules(),
+    buildTaskRules(),
     buildStyleRules(),
     buildInstructionHierarchyRules(),
     buildBudgetRules(),
@@ -291,16 +285,6 @@ export function buildSystemPrompt(
     sections.push(...extensions);
   }
   return joinSections(sections);
-}
-
-export function buildPlanModeRules(): string {
-  return [
-    "Plan mode:",
-    "- For non-trivial tasks — anything involving multiple files, risky edits, schema changes, or unclear scope — call plan_enter before making any changes.",
-    "- In plan mode, write_file and edit_file are disabled. Explore the codebase with read tools, then call submit_plan with an ordered list of steps.",
-    "- The user reviews and approves the plan before execution begins. Once approved, the full toolset unlocks and you execute the plan.",
-    "- Skip plan mode for small, local, obviously reversible changes (a one-line fix, a doc edit).",
-  ].join("\n");
 }
 
 export function buildWorkflowSuggestionRules(): string {
@@ -373,8 +357,7 @@ export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentIn
     buildReviewRules(),
     buildSelfVerification(),
     buildCommunicationRules(),
-    buildPlanRules(),
-    buildPlanModeRules(),
+    buildTaskRules(),
     buildWorkflowSuggestionRules(),
     buildAvailableTools(CORE_TOOL_NAMES),
     buildDiscoverableCapabilities(),

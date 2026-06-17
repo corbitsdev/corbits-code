@@ -1,17 +1,14 @@
 import type { ReactNode } from "react";
-import type { PlanStep } from "../use-stream.js";
+import type { Task } from "../../agent/tasks.js";
 import type { DiffResult } from "../git-diff.js";
-import { PlanView } from "./plan-view.js";
+import { TaskView } from "./task-view.js";
 import { DiffView } from "./diff-view.js";
 
-export type ContextView = "plan" | "diff";
+export type ContextView = "tasks" | "diff";
 
 export type ContextPanelProps = {
   view: ContextView;
-  goal?: string;
-  steps: PlanStep[];
-  currentPlanStep: number | null;
-  planDeviated: boolean;
+  tasks: Task[];
   width: number;
   diffResult: DiffResult | null;
   diffScrollOffset: number;
@@ -21,10 +18,7 @@ export type ContextPanelProps = {
 
 export function ContextPanel({
   view,
-  goal,
-  steps,
-  currentPlanStep,
-  planDeviated,
+  tasks,
   width,
   diffResult,
   diffScrollOffset,
@@ -43,13 +37,8 @@ export function ContextPanel({
   }
 
   return (
-    <PlanView
-      steps={steps}
-      currentPlanStep={currentPlanStep}
-      planDeviated={planDeviated}
-      width={width}
-      {...(goal !== undefined ? { goal } : {})}
-      {...(borderColor !== undefined ? { borderColor } : {})}
+    <TaskView
+      tasks={tasks}
     />
   );
 }

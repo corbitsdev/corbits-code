@@ -7,7 +7,6 @@ export type GateContext = {
     subject: string;
     scopes: Array<{ pattern: string | null }>;
   } | null;
-  pendingPlan: unknown | null;
   pendingOperator: { question: string; options: unknown[] } | null;
 };
 
@@ -119,10 +118,6 @@ export function computeOverlayRows({
     const choices = 2 + persistable;
     return 11 + subjectLines + choices;
   }
-  if (gateContext.pendingPlan !== null) {
-    const steps = Array.isArray(gateContext.pendingPlan) ? (gateContext.pendingPlan as unknown[]).length : 0;
-    return 8 + steps * 2;
-  }
   if (gateContext.pendingOperator !== null) {
     // Fixed chrome: border (2) + paddingY (2) + marginY (2) + title (1) +
     // marginTop before the question, options, and footer (3) + footer hint (1).
@@ -168,7 +163,6 @@ export function useLayoutGeometry({
     innerWidth: leftWidth - 8,
   }), [
     gateContext.pendingPermission,
-    gateContext.pendingPlan,
     gateContext.pendingOperator,
     modalContext.helpOpen,
     modalContext.hookPanelOpen,

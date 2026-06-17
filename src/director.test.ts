@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector, createCodingDirector } from "./agent/director.js";
+import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
@@ -83,8 +84,7 @@ describe("filesRead tracking", () => {
       submitCalled: false,
       callIdToName: {},
       idleCycles: 0,
-      planSubmitted: false,
-      plan: [],
+      tasks: [],
       filesRead: [{ path: "src/foo.ts", turn: 1 }],
     });
     expect(director.getState().filesRead!.some((e) => e.path === "src/foo.ts")).toBe(true);
@@ -107,7 +107,7 @@ describe("filesRead tracking", () => {
 describe("submit_output without plan", () => {
   async function submitWithoutPlan(turnsUsed: number) {
     const director = createCodingDirector("", []);
-    director.setState({ turnsUsed, submitCalled: false, callIdToName: {}, idleCycles: 0, planSubmitted: false, plan: [], filesRead: [] });
+    director.setState({ turnsUsed, submitCalled: false, callIdToName: {}, idleCycles: 0, tasks: [], filesRead: [] });
     await director.decide(makeInferenceDoneEvent([{ id: "s", name: "submit_output", args: { summary: "done" } }]), mockState, mockCapabilities);
     return director.decide(makeToolDoneEvent("s"), mockState, mockCapabilities);
   }
@@ -157,7 +157,7 @@ describe("operator declined tool calls", () => {
   });
 
   test("chat director surfaces the decline and waits, keeping the reactor alive", async () => {
-    const director = createChatDirector("", [], async () => true);
+    const director = createChatDirector("", []);
     const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
     expect(hasCheckpoint(actions)).toBe(true);
     expect(hasDeclineReply(actions)).toBe(true);
@@ -201,8 +201,8 @@ describe("chatDirector.signalNewTask", () => {
     String((action?.options as Record<string, unknown> | undefined)?.systemPrompt);
 
   test("summary is included in system prompt when next task boundary is detected", async () => {
-    const classifier = async (_msg: string, _meta: unknown) => ({ kind: "new_task" as const, reason: "pivot" });
-    const director = createChatDirector("base-prompt", [], async () => true, classifier);
+    const classifier = async (_msg: string, _meta: SessionMetadata) => ({ kind: "new_task" as const, reason: "pivot" } as TaskBoundary);
+    const director = createChatDirector("base-prompt", [], classifier);
 
     director.signalNewTask("prior task: fixed the auth bug");
 
@@ -214,8 +214,8 @@ describe("chatDirector.signalNewTask", () => {
   });
 
   test("no summary means context-cleared envelope is used", async () => {
-    const classifier = async (_msg: string, _meta: unknown) => ({ kind: "new_task" as const, reason: "pivot" });
-    const director = createChatDirector("base-prompt", [], async () => true, classifier);
+    const classifier = async (_msg: string, _meta: SessionMetadata) => ({ kind: "new_task" as const, reason: "pivot" } as TaskBoundary);
+    const director = createChatDirector("base-prompt", [], classifier);
 
     director.signalNewTask(undefined);
 
@@ -230,7 +230,7 @@ describe("chatDirector.signalNewTask", () => {
 describe("chatDirector LSP auto-activation", () => {
   test("reading a code file activates the lsp tool on success", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([["lsp"]]);
@@ -238,7 +238,7 @@ describe("chatDirector LSP auto-activation", () => {
 
   test("editing a code file activates lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "edit_file", args: { path: "lib/bar.rs" } }]), mockState, mockCapabilities);
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([["lsp"]]);
@@ -246,7 +246,7 @@ describe("chatDirector LSP auto-activation", () => {
 
   test("a non-code file does not activate lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "README.md" } }]), mockState, mockCapabilities);
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([]);
@@ -254,7 +254,7 @@ describe("chatDirector LSP auto-activation", () => {
 
   test("a failed read does not activate lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], async () => true, undefined, (names) => activated.push(names));
+    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
     await director.decide(makeToolErrorEvent("c", "Error: not found"), mockState, mockCapabilities);
     expect(activated).toEqual([]);
@@ -273,7 +273,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     (action?.options as Record<string, unknown> | undefined)?.tools;
 
   test("a tool registered after construction is advertised on the next inference", async () => {
-    const director = createChatDirector("base-prompt", [], async () => true);
+    const director = createChatDirector("base-prompt", []);
     director.updateToolDefinitions([lateTool]);
 
     const result = await director.decide(makeMessageReceivedEvent("hello"), mockState, capabilitiesWithInferArgs);
@@ -284,8 +284,8 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   });
 
   test("the new-task path also carries the current tools", async () => {
-    const classifier = async (_msg: string, _meta: unknown) => ({ kind: "new_task" as const, reason: "pivot" });
-    const director = createChatDirector("base-prompt", [], async () => true, classifier);
+    const classifier = async (_msg: string, _meta: SessionMetadata) => ({ kind: "new_task" as const, reason: "pivot" } as TaskBoundary);
+    const director = createChatDirector("base-prompt", [], classifier);
     director.updateToolDefinitions([lateTool]);
 
     const result = await director.decide(makeMessageReceivedEvent("new thing"), mockState, capabilitiesWithInferArgs);

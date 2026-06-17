@@ -13,7 +13,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "lsp",
   "run_shell",
   "ask_operator",
-  "plan_enter",
+  "manage_tasks",
   "suggest_workflow",
   "present",
   "tool_search",

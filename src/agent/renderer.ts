@@ -13,7 +13,7 @@ const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
 
-const JOURNAL_TOOLS = new Set(["submit_plan", "write_file", "edit_file", "run_shell", "submit_output"]);
+const JOURNAL_TOOLS = new Set(["write_file", "edit_file", "run_shell", "submit_output"]);
 const SILENT_TOOLS = new Set(["read_file", "list_dir", "search_files", "grep"]);
 
 function verb(label: string): string {
@@ -49,7 +49,6 @@ function formatOp(name: string): string {
   if (name === "run_shell") return "running";
   if (name === "write_file") return "writing";
   if (name === "edit_file") return "editing";
-  if (name === "submit_plan") return "planning";
   if (name === "submit_output") return "submitting";
   return name;
 }
@@ -73,14 +72,6 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
       : "";
     const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${formatCost(faremeter.getTotalCost())}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
     process.stderr.write(bar);
-  }
-
-  function writePlanBlock(steps: Array<{ file: string; action: string }>): void {
-    const lines = [`${verb("plan")}${steps.length} steps`];
-    for (let i = 0; i < steps.length; i++) {
-      lines.push(`        ${i + 1}. ${steps[i]!.file} — ${steps[i]!.action}`);
-    }
-    process.stdout.write(lines.join("\n") + "\n\n");
   }
 
   function writeWriteBlock(path: string, content: string): void {
@@ -175,12 +166,7 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
           break;
         }
 
-        if (name === "submit_plan" && !isError) {
-          const steps = Array.isArray(args.steps)
-            ? (args.steps as Array<{ file: string; action: string }>)
-            : [];
-          writePlanBlock(steps);
-        } else if (name === "write_file" && !isError) {
+        if (name === "write_file" && !isError) {
           writeWriteBlock(String(args.path ?? ""), String(args.content ?? ""));
         } else if (name === "edit_file" && !isError) {
           writeEditBlock(
