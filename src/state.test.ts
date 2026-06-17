@@ -139,8 +139,7 @@ describe("state persistence", () => {
         submitCalled: false,
         callIdToName: {},
         idleCycles: 0,
-        planSubmitted: false,
-        plan: [],
+        tasks: [],
       }),
     );
 
