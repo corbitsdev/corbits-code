@@ -188,21 +188,21 @@ test("EventLog reveals full tool result content when the block is expanded", () 
   expect(lastFrame()).toContain("hidden text");
 });
 
-test("EventLog filters out reply and plan blocks", () => {
+test("EventLog filters out reply and task blocks", () => {
   const { lastFrame } = renderLog([
-    { type: "plan", steps: [{ file: "src/a.ts", action: "create" }] },
+    { type: "tasks", tasks: [{ id: "1", title: "create", status: "todo" }] },
     { type: "reply", content: "synthetic" },
     { type: "user", content: "go" },
   ]);
   const frame = lastFrame() ?? "";
   expect(frame).toContain("> go");
-  expect(frame).not.toContain("src/a.ts");
+  expect(frame).not.toContain("create");
   expect(frame).not.toContain("synthetic");
 });
 
-test("renderableBlocks drops reply and plan blocks", () => {
+test("renderableBlocks drops reply and task blocks", () => {
   const blocks: ContentBlock[] = [
-    { type: "plan", steps: [] },
+    { type: "tasks", tasks: [] },
     { type: "reply", content: "x" },
     { type: "text", content: "keep" },
   ];
@@ -214,7 +214,8 @@ test("EventLog shows long content in full by default, never a show-more marker",
   const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("[show more]");
-  expect(frame.replace(/\s/g, "")).toContain(long);
+  const stripped = frame.replace(/\u001b\[\d+(;\d+)*m/g, "").replace(/\s/g, "");
+  expect(stripped).toContain(long);
 });
 
 test("a long tool summary wraps rather than truncating", () => {
@@ -224,7 +225,8 @@ test("a long tool summary wraps rather than truncating", () => {
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("[show more]");
   // Full command content must be present, not truncated
-  expect(frame.replace(/\s/g, "")).toContain("x".repeat(300));
+  const stripped = frame.replace(/\u001b\[\d+(;\d+)*m/g, "").replace(/\s/g, "");
+  expect(stripped).toContain("x".repeat(300));
 });
 
 test("thinking stays hidden by default while other content shows in full", () => {
@@ -235,7 +237,8 @@ test("thinking stays hidden by default while other content shows in full", () =>
   ], { columns: 80 });
   const frame = lastFrame() ?? "";
   expect(frame).not.toContain("hidden reasoning");
-  expect(frame.replace(/\s/g, "")).toContain(long);
+  const stripped = frame.replace(/\u001b\[\d+(;\d+)*m/g, "").replace(/\s/g, "");
+  expect(stripped).toContain(long);
 });
 
 test("maxLineOffset leaves exactly the last visibleRows lines on screen", () => {

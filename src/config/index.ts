@@ -415,13 +415,28 @@ export function buildProviderCatalog(
 export function providerCatalogToSettings(
   catalog: readonly ProviderCatalogEntry[],
   defaultProvider: string | undefined,
+  existing?: Settings,
 ): Settings {
   // Codex OAuth entries are credential-backed by the home-level auth store, not
   // by settings.json. Exclude them so a provider edit never persists a
   // (short-lived) access token into the settings file.
   const persistable = catalog.filter((p) => p.codexProfile === undefined);
+  // Preserve existing non-provider fields (mcpServers, workflow plugins, etc.)
+  // so they are never silently dropped when the provider catalog is saved.
+  const existingFields = existing !== undefined
+    ? {
+        ...(existing.mcpServers !== undefined ? { mcpServers: existing.mcpServers } : {}),
+        ...(existing.tiers !== undefined ? { tiers: existing.tiers } : {}),
+        ...(existing.workflowPlugins !== undefined ? { workflowPlugins: existing.workflowPlugins } : {}),
+        ...(existing.agentPlugins !== undefined ? { agentPlugins: existing.agentPlugins } : {}),
+        ...(existing.workflowProfiles !== undefined ? { workflowProfiles: existing.workflowProfiles } : {}),
+        ...(existing.webProvider !== undefined ? { webProvider: existing.webProvider } : {}),
+        ...(existing.webProviderOptions !== undefined ? { webProviderOptions: existing.webProviderOptions } : {}),
+      }
+    : {};
   return {
     ...(defaultProvider !== undefined ? { defaultProvider } : {}),
+    ...existingFields,
     providers: Object.fromEntries(
       persistable.map((p) => [
         p.name,

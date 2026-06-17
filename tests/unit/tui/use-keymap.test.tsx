@@ -38,7 +38,7 @@ const DEFAULT_CTX: KeymapContext = {
   agentModalOpen: false,
   hookPanelOpen: false,
   diffFullScreenOpen: false,
-  planFullScreenOpen: false,
+  taskFullScreenOpen: false,
   hasInput: false,
   inputFocused: false,
   isRunning: false,
@@ -61,7 +61,7 @@ function makeActions(): KeymapActions {
     toggleThinking: mock(() => {}),
     toggleLastTool: mock(() => {}),
     toggleVerbose: mock(() => {}),
-    togglePlanSidebar: mock(() => {}),
+    toggleTaskSidebar: mock(() => {}),
     toggleDiffFullScreen: mock(() => {}),
     toggleHelp: mock(() => {}),
     copyMcpUrl: mock(() => {}),
@@ -150,9 +150,9 @@ test("number key ignored when hookPanelOpen is false", () => {
 
 // --- Escape — fullscreen and panel ---
 
-test("Escape while planFullScreenOpen calls togglePlanSidebar and resets lastEsc", () => {
-  const { actions, returned } = dispatch("", ESC_KEY, { planFullScreenOpen: true });
-  expect(actions.togglePlanSidebar).toHaveBeenCalledTimes(1);
+test("Escape while taskFullScreenOpen calls toggleTaskSidebar and resets lastEsc", () => {
+  const { actions, returned } = dispatch("", ESC_KEY, { taskFullScreenOpen: true });
+  expect(actions.toggleTaskSidebar).toHaveBeenCalledTimes(1);
   expect(returned).toBe(0);
 });
 
@@ -282,9 +282,9 @@ test("Ctrl+O calls toggleVerbose", () => {
   expect(actions.toggleVerbose).toHaveBeenCalledTimes(1);
 });
 
-test("Ctrl+P calls togglePlanSidebar", () => {
+test("Ctrl+P calls toggleTaskSidebar", () => {
   const { actions } = dispatch("p", CTRL);
-  expect(actions.togglePlanSidebar).toHaveBeenCalledTimes(1);
+  expect(actions.toggleTaskSidebar).toHaveBeenCalledTimes(1);
 });
 
 test("Ctrl+D calls toggleDiffFullScreen", () => {

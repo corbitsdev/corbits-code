@@ -308,7 +308,7 @@ const manyTurnsState: ReactorState = {
 
 function makeChatDirectorWithContinuation(onContinue: () => void) {
   return createChatDirector(
-    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined, onContinue,
+    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, onContinue,
   );
 }
 
