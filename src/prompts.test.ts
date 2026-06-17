@@ -172,7 +172,7 @@ test("buildChatSystemPrompt excludes agent-mode sections", () => {
   const prompt = buildChatSystemPrompt();
   expect(prompt).not.toContain(buildAgentRole());
   expect(prompt).not.toContain(buildSubmitRules());
-  // submit_plan may appear in plan-mode guidance; check the agent-only finish rule is absent
+  // submit_output is agent-only, not exposed in chat mode
   expect(prompt).not.toContain("submit_output is the only way to signal the task is complete");
 });
 
