@@ -24,7 +24,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 6. **Post-submit critique** — Build, type-check, and tests run before a result is accepted.
 7. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
 8. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
-9. **Mid-run steering** — Type a follow-up message while the agent is running; it queues automatically and is delivered at the next turn boundary, without stopping the current run. A badge on the input shows the count of queued messages.
+9. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
 
 ## User Experience
 

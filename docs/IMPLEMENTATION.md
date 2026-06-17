@@ -138,11 +138,20 @@ docs/
 
 On Plan mode entry, `runner.tsx` calls `promoteTools(["submit_plan"])` so the chat model can call `submit_plan` without a prior `tool_search`. On exit (either SHIFT+TAB cycle or the director's `"plan-phase"` done event), `directorHolder.instance?.exitPlanPhase()` lifts the write restriction on the director side. `app.tsx` listens for `"plan-phase"` events from the runner's `EventEmitter` to reset `agentMode` to `"edit"` when the director independently exits plan phase after plan approval.
 
-Plan steps auto-render in the sidebar (`plan-view.tsx`) when `planSteps.length > 0`; the workflow panel auto-shows when a workflow is active. Neither requires a manual slash command. The sidebar visibility derives from `effectiveSidebarOpen = sidebarOpen || autoSidebarOpen || workflowPanelOpen`.
+Plan steps auto-render in the sidebar (`plan-view.tsx`) when `planSteps.length > 0`; the workflow panel auto-shows when a workflow is active. Neither requires a manual slash command.
+
+### Interrupt and Queue Steering
+
+`ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true:
+
+- **Enter** calls `onInterrupt`. `App.handleInterrupt` calls `requestStop()` synchronously — which calls `sendAbortRef.current.abort()` — before `resolveAtMentions` yields, ensuring the abort signal reaches the in-flight HTTP request before any async work begins.
+- **Alt+Enter** calls `onSubmit` immediately, pushing the message onto `pendingQueueRef` for drain at the next `connector.reply`.
+
+Token event batching in `use-stream.ts`: `TOKEN_EVENTS` (`inference.text.delta`, `inference.thinking.delta`, `inference.tool_call.delta`) set `pendingRenderRef.current = true`; a 33ms `setInterval` converts pending flags into `setTick` calls. All other events call `setTick` directly.
 
 ### @file Mention Resolution
 
-`@<path>` tokens in chat input are resolved to file contents before delivery to the agent. The chat input component (`src/tui/components/chat-input.tsx`) scans the submitted text for `@<path>` patterns, reads each matching file, and inlines the content as a fenced code block. Unresolvable paths pass through as-is.
+`@<path>` tokens in chat input are resolved to file contents before delivery to the agent. `resolveAtMentions` (in `app.tsx`) scans the submitted text for `@<path>` patterns, resolves each against the workspace (blocking absolute paths, `..` escapes, and sensitive files), and inlines file contents as fenced code blocks or directory summaries. Unresolvable paths pass through as a short inline warning so the agent knows the mention could not be expanded. Limits: 5 mentions per message, 200 kB per file, 400 kB total.
 
 ## Configuration
 
