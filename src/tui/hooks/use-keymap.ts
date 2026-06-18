@@ -12,7 +12,6 @@ export type KeymapContext = {
   gateOpen: boolean;
   agentModalOpen: boolean;
   hookPanelOpen: boolean;
-  diffFullScreenOpen: boolean;
   taskFullScreenOpen: boolean;
   hasInput: boolean;
   inputFocused: boolean;
@@ -34,7 +33,6 @@ export type KeymapActions = {
   toggleLastTool: () => void;
   toggleVerbose: () => void;
   toggleTaskSidebar: () => void;
-  toggleDiffFullScreen: () => void;
   toggleHelp: () => void;
   copyMcpUrl: () => void;
   copyLastOutput: () => void;
@@ -98,10 +96,6 @@ export function handleKey(
       actions.toggleTaskSidebar();
       return 0;
     }
-    if (context.diffFullScreenOpen) {
-      actions.toggleDiffFullScreen();
-      return 0;
-    }
     if (context.hookPanelOpen) {
       actions.closeHookPanel();
       return 0;
@@ -137,10 +131,6 @@ export function handleKey(
   }
   if (key.ctrl && input === "p") {
     actions.toggleTaskSidebar();
-    return lastEscMs;
-  }
-  if (key.ctrl && input === "d") {
-    actions.toggleDiffFullScreen();
     return lastEscMs;
   }
   if (key.ctrl && input === "g") {

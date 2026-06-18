@@ -6,8 +6,6 @@ import { registerCommand, getCommand, listCommands } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
 const ctx: CommandContext = {
-  getVerbose: () => false,
-  toggleVerbose: () => false,
   signalClear: () => {},
 };
 
@@ -50,18 +48,18 @@ describe("command registry", () => {
 
   it("invokes handler with args and context", () => {
     let receivedArgs = "";
-    let receivedVerbose = true;
+    let clearCalled = false;
     registerCommand({
       name: "test-handler",
       description: "handler test",
       handler: (args, c) => {
         receivedArgs = args;
-        receivedVerbose = c.getVerbose();
+        c.signalClear();
         return { type: "noop" };
       },
     });
-    getCommand("test-handler")?.handler("hello world", ctx);
+    getCommand("test-handler")?.handler("hello world", { signalClear: () => { clearCalled = true; } });
     expect(receivedArgs).toBe("hello world");
-    expect(receivedVerbose).toBe(false);
+    expect(clearCalled).toBe(true);
   });
 });

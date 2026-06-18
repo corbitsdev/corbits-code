@@ -4,15 +4,9 @@ import "./workflows.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
-const makeCtx = (): CommandContext & { verbose: boolean } => {
-  const state = { verbose: false };
-  return {
-    verbose: state.verbose,
-    getVerbose: () => state.verbose,
-    toggleVerbose: () => { state.verbose = !state.verbose; return state.verbose; },
-    signalClear: () => {},
-  };
-};
+const makeCtx = (): CommandContext => ({
+  signalClear: () => {},
+});
 
 describe("/help command", () => {
   it("is registered", () => {
@@ -41,19 +35,10 @@ describe("/workflows command", () => {
   });
 });
 
-describe("/verbose command", () => {
-  it("is registered", () => {
-    expect(getCommand("verbose")).toBeDefined();
-  });
-
-  it("toggles verbose state and reports it", () => {
-    const ctx = makeCtx();
-    const on = getCommand("verbose")!.handler("", ctx);
-    expect(ctx.getVerbose()).toBe(true);
-    if (on.type === "message") expect(on.text).toContain("on");
-    const off = getCommand("verbose")!.handler("", ctx);
-    expect(ctx.getVerbose()).toBe(false);
-    if (off.type === "message") expect(off.text).toContain("off");
+describe("removed output commands", () => {
+  it("does not register verbose or diff", () => {
+    expect(getCommand("verbose")).toBeUndefined();
+    expect(getCommand("diff")).toBeUndefined();
   });
 });
 

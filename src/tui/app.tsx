@@ -9,8 +9,7 @@ import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
-import { ContextPanel, type ContextView } from "./components/context-panel.js";
-import { DiffView } from "./components/diff-view.js";
+import { ContextPanel } from "./components/context-panel.js";
 import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
@@ -27,7 +26,6 @@ import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
-import { useDiff } from "./hooks/use-diff.js";
 import { useKeymap } from "./hooks/use-keymap.js";
 import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
@@ -317,10 +315,7 @@ export function App({
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [contextView, setContextView] = useState<ContextView>("tasks");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [diffScroll, setDiffScroll] = useState(0);
-  const [diffFullScreenOpen, setDiffFullScreenOpen] = useState(false);
   const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
@@ -460,7 +455,7 @@ export function App({
     providerCatalog,
     extraChromeRows,
   });
-  const { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
+  const { leftWidth, rightWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
   // Cleared when layout width or display options change — those affect all blocks.
   const lineCacheRef = useRef(new Map<string, StyledLine[]>());
@@ -504,14 +499,6 @@ export function App({
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
   const modeColor = color("warning");
-
-  const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
-  const diff = useDiff({ cwd: process.cwd(), active: diffActive });
-  const diffLineCount = useMemo(
-    () => (diff.result?.available ? diff.result.files.reduce((n, f) => n + f.lines.length, 0) : 0),
-    [diff.result],
-  );
-  const diffMaxOffset = Math.max(0, diffLineCount - diffVisibleRows);
 
   // Input is inert while any overlay, modal, or gate is capturing keys, so
   // keystrokes (and Enter) never leak into the prompt underneath.
@@ -586,18 +573,12 @@ export function App({
   const startNewSession = () => startNewSessionRef.current();
 
   const commandContext = useMemo(() => ({
-    getVerbose: () => verbose,
-    toggleVerbose: () => {
-      const next = !verbose;
-      setVerbose(next);
-      return next;
-    },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, mcpStatus.servers, onStartWorkflow, listWorkflows]);
+  }), [mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -713,7 +694,6 @@ export function App({
       gateOpen: gates.gateOpen,
       agentModalOpen: agentModalOpen || workflowPickerOpen || codexLoginOpen,
       hookPanelOpen,
-      diffFullScreenOpen,
       taskFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
@@ -740,18 +720,9 @@ export function App({
         }
       },
       closeHookPanel: () => setHookPanelOpen(false),
-      scrollUp: () => {
-        if (diffActive) setDiffScroll((o) => Math.max(0, o - diffVisibleRows));
-        else scroll.scrollUp(visibleRows);
-      },
-      scrollDown: () => {
-        if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + diffVisibleRows));
-        else scroll.scrollDown(visibleRows);
-      },
-      scrollToBottom: () => {
-        if (diffActive) setDiffScroll(diffMaxOffset);
-        else scroll.scrollToBottom();
-      },
+      scrollUp: () => scroll.scrollUp(visibleRows),
+      scrollDown: () => scroll.scrollDown(visibleRows),
+      scrollToBottom: () => scroll.scrollToBottom(),
       toggleVerbose: () => {
         setVerbose((v) => !v);
       },
@@ -769,12 +740,6 @@ export function App({
       },
       toggleTaskSidebar: () => {
         setTaskFullScreenOpen((open) => !open);
-      },
-      toggleDiffFullScreen: () => {
-        setDiffFullScreenOpen((open) => {
-          if (open) setDiffScroll(0);
-          return !open;
-        });
       },
       toggleHelp: () => setHelpOpen((open) => !open),
       copyMcpUrl: () => {
@@ -815,14 +780,8 @@ export function App({
   );
 
   useMouseScroll(
-    () => {
-      if (diffActive) setDiffScroll((o) => Math.max(0, o - 3));
-      else scroll.scrollUp(3);
-    },
-    () => {
-      if (diffActive) setDiffScroll((o) => Math.min(diffMaxOffset, o + 3));
-      else scroll.scrollDown(3);
-    },
+    () => scroll.scrollUp(3),
+    () => scroll.scrollDown(3),
   );
 
   const handleCommand = (result: CommandResult) => {
@@ -835,8 +794,6 @@ export function App({
       return;
     }
     if (result.type === "view") {
-      setDiffScroll(0);
-      setContextView(result.view);
       setSidebarOpen(true);
       return;
     }
@@ -918,13 +875,6 @@ export function App({
           <TaskView
             tasks={state.tasks}
           />
-        ) : diffFullScreenOpen ? (
-          <DiffView
-            result={diff.result}
-            scrollOffset={diffScroll}
-            visibleRows={visibleRows}
-            width={columns}
-          />
         ) : (
           <>
             <Box width={leftWidth} flexDirection="column" overflow="hidden">
@@ -937,12 +887,8 @@ export function App({
             {effectiveSidebarOpen && (
               <Box width={rightWidth} flexDirection="column" overflow="hidden">
                 <ContextPanel
-                  view={contextView}
                   tasks={state.tasks}
                   width={rightWidth}
-                  diffResult={diff.result}
-                  diffScrollOffset={diffScroll}
-                  diffVisibleRows={diffVisibleRows}
                   borderColor={modeColor}
                 />
               </Box>
@@ -1029,7 +975,7 @@ export function App({
           <Text color="cyan">{commandMessage}</Text>
         </Box>
       )}
-      {!taskFullScreenOpen && !diffFullScreenOpen && (
+      {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
           <InFlightIndicator
             active={state.isProcessing}

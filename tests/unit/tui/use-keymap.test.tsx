@@ -37,7 +37,6 @@ const DEFAULT_CTX: KeymapContext = {
   gateOpen: false,
   agentModalOpen: false,
   hookPanelOpen: false,
-  diffFullScreenOpen: false,
   taskFullScreenOpen: false,
   hasInput: false,
   inputFocused: false,
@@ -62,7 +61,6 @@ function makeActions(): KeymapActions {
     toggleLastTool: mock(() => {}),
     toggleVerbose: mock(() => {}),
     toggleTaskSidebar: mock(() => {}),
-    toggleDiffFullScreen: mock(() => {}),
     toggleHelp: mock(() => {}),
     copyMcpUrl: mock(() => {}),
     copyLastOutput: mock(() => {}),
@@ -154,11 +152,6 @@ test("Escape while taskFullScreenOpen calls toggleTaskSidebar and resets lastEsc
   const { actions, returned } = dispatch("", ESC_KEY, { taskFullScreenOpen: true });
   expect(actions.toggleTaskSidebar).toHaveBeenCalledTimes(1);
   expect(returned).toBe(0);
-});
-
-test("Escape while diffFullScreenOpen calls toggleDiffFullScreen", () => {
-  const { actions } = dispatch("", ESC_KEY, { diffFullScreenOpen: true });
-  expect(actions.toggleDiffFullScreen).toHaveBeenCalledTimes(1);
 });
 
 test("Escape while hookPanelOpen calls closeHookPanel", () => {
@@ -285,11 +278,6 @@ test("Ctrl+O calls toggleVerbose", () => {
 test("Ctrl+P calls toggleTaskSidebar", () => {
   const { actions } = dispatch("p", CTRL);
   expect(actions.toggleTaskSidebar).toHaveBeenCalledTimes(1);
-});
-
-test("Ctrl+D calls toggleDiffFullScreen", () => {
-  const { actions } = dispatch("d", CTRL);
-  expect(actions.toggleDiffFullScreen).toHaveBeenCalledTimes(1);
 });
 
 test("Ctrl+G calls toggleHelp", () => {
