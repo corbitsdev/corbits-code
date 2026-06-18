@@ -312,6 +312,17 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       return;
     }
 
+    if (isProcessing && input.includes("\u001B") && (input.includes("\r") || input.includes("\n"))) {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        onSubmit(trimmed);
+        resetField();
+      }
+      return;
+    }
+
+    if (input === "\u001B") return;
+
     if (key.return && !key.shift && !key.meta) {
       const trimmed = value.trim();
       if (trimmed.length > 0) {

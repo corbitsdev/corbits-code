@@ -59,8 +59,7 @@ function computeGeo({
     effectiveOverlayRows,
     extraChromeRows: 0,
   });
-  const diffVisibleRows = Math.max(1, visibleRows - 2);
-  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows };
+  return { leftWidth, rightWidth, visibleRows, effectiveOverlayRows };
 }
 
 // 1. Sidebar closed: leftWidth === columns, rightWidth === 0
@@ -158,17 +157,10 @@ test("pendingOperator with a long wrapping question reserves the wrapped rows", 
   expect(geo.effectiveOverlayRows).toBeGreaterThan(20);
 });
 
-// 12. diffVisibleRows === max(1, visibleRows - 2)
-test("diffVisibleRows is max(1, visibleRows - 2)", () => {
-  const geo = computeGeo({ rows: 40 });
-  expect(geo.diffVisibleRows).toBe(Math.max(1, geo.visibleRows - 2));
-});
-
-// Edge: very small rows → visibleRows and diffVisibleRows floor at 1
-test("very small rows: visibleRows and diffVisibleRows floor at 1", () => {
+// Edge: very small rows → visibleRows floors at 1
+test("very small rows: visibleRows floors at 1", () => {
   const geo = computeGeo({ rows: 5 });
   expect(geo.visibleRows).toBe(1);
-  expect(geo.diffVisibleRows).toBe(1);
 });
 
 // Sidebar open with non-round columns

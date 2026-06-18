@@ -88,7 +88,6 @@ export type LayoutGeometry = {
   leftWidth: number;
   rightWidth: number;
   visibleRows: number;
-  diffVisibleRows: number;
   effectiveOverlayRows: number;
   permissionsOverlayRows: number;
 };
@@ -185,7 +184,5 @@ export function useLayoutGeometry({
     effectiveOverlayRows: effectiveOverlayRows + permissionsOverlayRows,
     extraChromeRows,
   });
-  const diffVisibleRows = Math.max(1, visibleRows - 2);
-
-  return { leftWidth, rightWidth, visibleRows, diffVisibleRows, effectiveOverlayRows, permissionsOverlayRows };
+  return { leftWidth, rightWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows };
 }

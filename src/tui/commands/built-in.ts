@@ -7,21 +7,6 @@ registerCommand({
 });
 
 registerCommand({
-  name: "verbose",
-  description: "Toggle full tool argument and result output",
-  handler: (_args, ctx) => {
-    const enabled = ctx.toggleVerbose();
-    return { type: "message", text: `Verbose mode ${enabled ? "on" : "off"}` };
-  },
-});
-
-registerCommand({
-  name: "diff",
-  description: "Show the working-tree diff in the context panel",
-  handler: (_args, _ctx) => ({ type: "view", view: "diff" }),
-});
-
-registerCommand({
   name: "model",
   description: "Open the model configuration surface (provider, model)",
   handler: (_args, _ctx) => ({ type: "modal", modal: "agent" }),
