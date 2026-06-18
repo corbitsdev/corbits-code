@@ -20,8 +20,17 @@ registerCommand({
 
 registerCommand({
   name: "login",
-  description: "Sign in with a Codex (ChatGPT Plus/Pro) subscription and manage profiles",
-  handler: (_args, _ctx) => ({ type: "modal", modal: "codex-login" }),
+  description: "Sign in with Codex or xAI OAuth and manage profiles",
+  handler: (args, _ctx) => {
+    const provider = args.trim().toLowerCase();
+    return { type: "modal", modal: provider === "xai" || provider === "grok" ? "xai-login" : "codex-login" };
+  },
+});
+
+registerCommand({
+  name: "grok-login",
+  description: "Sign in with an xAI/Grok (SuperGrok or X Premium+) subscription",
+  handler: (_args, _ctx) => ({ type: "modal", modal: "xai-login" }),
 });
 
 // signalClear rotates to a fresh session: the on-screen transcript and run
