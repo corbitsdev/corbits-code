@@ -389,19 +389,11 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
   // starts with /, @ picker fires for any other @ token in the input.
   const showSlash = suggestions.length > 0;
   const showAt = !showSlash && atMention.suggestions.length > 0;
+  const hasPrompt = value.trim().length > 0;
+  const showSteerHint = isProcessing && hasPrompt;
 
   return (
     <Box flexDirection="column">
-      {isProcessing && queuedCount === 0 && (
-        <Box paddingX={1}>
-          <Text dimColor>↵ interrupt  ·  Alt+↵ queue</Text>
-        </Box>
-      )}
-      {queuedCount > 0 && (
-        <Box paddingX={1}>
-          <Text color="yellow">{queuedCount === 1 ? "(1 message queued)" : `(${queuedCount} messages queued)`}</Text>
-        </Box>
-      )}
       {showSlash && (
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
           {suggestions.map((s, i) => {
@@ -423,7 +415,12 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       {showAt && (
         <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
-      <Box flexDirection="column" paddingX={1} paddingY={1}>
+      <Box flexDirection="column" paddingX={1} paddingTop={showSteerHint ? 0 : 1} paddingBottom={1}>
+        {showSteerHint && (
+          <Text dimColor>
+            {queuedCount > 0 ? `${queuedCount} queued · Enter steer · Alt+Enter queue` : "Enter steer · Alt+Enter queue"}
+          </Text>
+        )}
         {lines.map((line, i) => {
           const prefix = i === 0 ? "> " : "  ";
           if (i !== cursorLine) {
