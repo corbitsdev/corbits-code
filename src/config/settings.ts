@@ -34,14 +34,6 @@ export type Settings = {
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerConfig[];
   tiers?: Partial<Record<ProviderTier, TierAssignment>>;
-  // Additional workflow plugin packages to load at startup. Each entry is a
-  // package specifier (npm package name or file path) that exports a
-  // WorkflowPlugin as either "plugin" or as the default export.
-  workflowPlugins?: string[];
-  // Additional agent plugin packages to load at startup. Each entry is a
-  // package specifier (npm package name or file path) that exports an
-  // AgentPlugin as either "plugin" or as the default export.
-  agentPlugins?: string[];
   // Per-phase model overrides for workflows. Keyed by profile name, then by
   // workflow step profile key. Example:
   //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
@@ -177,8 +169,6 @@ const SettingsSchema = type({
   // normalizeMcpServers rather than expressed structurally here.
   "mcpServers?": "unknown",
   "tiers?": TiersSchema,
-  "workflowPlugins?": "string[]",
-  "agentPlugins?": "string[]",
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "plugins?": type({ "[string]": type({ "enabled?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
   "pluginPaths?": "string[]",
@@ -300,8 +290,6 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
     ...(s.tiers !== undefined ? { tiers: s.tiers as Settings["tiers"] } : {}),
-    ...(s.workflowPlugins !== undefined ? { workflowPlugins: s.workflowPlugins as string[] } : {}),
-    ...(s.agentPlugins !== undefined ? { agentPlugins: s.agentPlugins as string[] } : {}),
     ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
     ...(s.plugins !== undefined ? { plugins: s.plugins as Settings["plugins"] } : {}),
     ...(s.pluginPaths !== undefined ? { pluginPaths: s.pluginPaths as string[] } : {}),

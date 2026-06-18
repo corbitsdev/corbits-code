@@ -23,9 +23,8 @@ import { registerGrokResponsesAdapter } from "../provider/grok-responses-adapter
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { loadWorkflowPlugins } from "../workflows/index.js";
-import { loadAgentPlugins } from "../agent/profiles.js";
 import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths } from "../plugins/loader.js";
+import { registerCommandPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
@@ -96,8 +95,6 @@ export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
-  await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
-  await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
   const pluginModules = [
@@ -105,9 +102,8 @@ export async function runTUI(config: Config): Promise<number> {
     ...(await discoverUserPlugins(config.cwd)),
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
   ];
-  for (const mod of pluginModules) {
-    if (mod.commandPlugin !== undefined) registerCommandPlugin(mod.commandPlugin);
-  }
+  // Command plugins are wired in only when explicitly enabled in settings.
+  registerCommandPlugins(pluginModules, config.settings?.plugins ?? {});
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
   // Seed reasoning capabilities from the cached models.dev metadata so the
   // /agent effort selector can gate non-reasoning models immediately, then
@@ -240,6 +236,12 @@ export async function runTUI(config: Config): Promise<number> {
     getWebOverride: () => liveWebOverride,
     saveConfig: async (id, cfg) => {
       livePluginConfig = { ...livePluginConfig, [id]: cfg };
+      // Live-wire a command plugin the moment it is enabled (no restart needed);
+      // disabling takes effect on the next launch.
+      const mod = pluginModules.find((m) => m.manifest?.id === id);
+      if (mod !== undefined && isEnabledCommandPlugin(mod, livePluginConfig)) {
+        registerCommandPlugin(mod.commandPlugin!);
+      }
       await persistPluginSettings();
     },
     setWebOverride: async (id) => {
