@@ -253,19 +253,17 @@ describe("loaders", () => {
         path,
         JSON.stringify({
           providers: { a: { baseURL: "https://a/v1", apiKey: "k", models: ["m"] } },
-          workflowPlugins: ["./wf.js"],
-          agentPlugins: ["./agent.js"],
           workflowProfiles: { fast: { implement: "m" } },
-          webProvider: "./plugins/exa/src/index.ts",
-          webProviderOptions: { apiKey: "exa-key" },
+          web: "exa",
+          plugins: { exa: { enabled: true, credentials: { apiKey: "exa-key" } } },
+          pluginPaths: ["/abs/plugins/exa", "./local-plugin"],
         }),
       );
       const loaded = await loadSettings(path);
-      expect(loaded?.workflowPlugins).toEqual(["./wf.js"]);
-      expect(loaded?.agentPlugins).toEqual(["./agent.js"]);
       expect(loaded?.workflowProfiles).toEqual({ fast: { implement: "m" } });
-      expect(loaded?.webProvider).toBe("./plugins/exa/src/index.ts");
-      expect(loaded?.webProviderOptions).toEqual({ apiKey: "exa-key" });
+      expect(loaded?.web).toBe("exa");
+      expect(loaded?.plugins).toEqual({ exa: { enabled: true, credentials: { apiKey: "exa-key" } } });
+      expect(loaded?.pluginPaths).toEqual(["/abs/plugins/exa", "./local-plugin"]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

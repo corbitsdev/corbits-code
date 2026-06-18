@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
 import {
@@ -16,14 +16,16 @@ import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from
 import { globalSettingsPath, loadSettings } from "../config/settings.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
+import { loadSettings, saveGlobalSettings, type Settings, type PluginConfig } from "../config/settings.js";
+import type { PluginsAdmin, PluginDescriptor } from "./components/plugins-manager.js";
+import type { PluginManifest } from "../plugins/manifest.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
 import { registerGrokResponsesAdapter } from "../provider/grok-responses-adapter.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { loadWorkflowPlugins } from "../workflows/index.js";
-import { loadAgentPlugins } from "../agent/profiles.js";
-import { discoverRepoPlugins, discoverUserPlugins } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import { registerCommandPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
@@ -41,7 +43,10 @@ import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
-import { resolveWebProviderFromSettings } from "../web/providers/index.js";
+import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
+import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
+import { scrubSecrets } from "../web/secret-scrub.js";
+import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import {
   loadApprovals,
   loadProjectApprovals,
@@ -93,16 +98,15 @@ export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
-  await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
-  await loadAgentPlugins(config.settings?.agentPlugins ?? []);
-  // Auto-discover plugins from the repo's plugins/ directory and user plugin dirs.
-  const pluginModules = [
+  // Auto-discover plugins from the repo's plugins/ directory and user plugin
+  // dirs, plus any explicit paths registered through the /plugins UI.
+  const pluginModules = dedupePluginModules([
     ...(await discoverRepoPlugins()),
     ...(await discoverUserPlugins(config.cwd)),
-  ];
-  for (const mod of pluginModules) {
-    if (mod.commandPlugin !== undefined) registerCommandPlugin(mod.commandPlugin);
-  }
+    ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
+  ]);
+  // Command plugins are wired in only when explicitly enabled in settings.
+  registerCommandPlugins(pluginModules, config.settings?.plugins ?? {});
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
   // Seed reasoning capabilities from the cached models.dev metadata so the
   // /agent effort selector can gate non-reasoning models immediately, then
@@ -189,15 +193,139 @@ export async function runTUI(config: Config): Promise<number> {
     },
   };
 
-  const webProvider = await resolveWebProviderFromSettings(
-    config.settings?.webProvider,
-    config.settings?.webProviderOptions,
-  );
+  const webPluginCandidates = collectWebPlugins(pluginModules);
+  const activeWeb = await resolveWebProviderFromPlugins({
+    candidates: webPluginCandidates,
+    pluginConfig: config.settings?.plugins ?? {},
+    webOverride: config.settings?.web,
+  });
+  if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
+  const webProvider = activeWeb?.provider;
+
+  // Tool plugins are wired in only when enabled AND consented.
+  const toolPluginCandidates = collectToolPlugins(pluginModules);
+  const extraToolPlugins = await resolveToolPlugins({
+    candidates: toolPluginCandidates,
+    pluginConfig: config.settings?.plugins ?? {},
+  });
+
+  // /plugins UI backend: discovered plugin descriptors plus live, persisted
+  // config (enabled flag, credentials, web override, extra paths) written to the
+  // global settings file. Verify runs a real trial search through the web
+  // candidate. The descriptor/candidate lists are mutable so plugins added by
+  // path mid-session appear without a restart.
+  const toDescriptor = (m: PluginManifest | undefined): PluginDescriptor | undefined =>
+    m === undefined
+      ? undefined
+      : {
+          id: m.id,
+          name: m.name,
+          ...(m.kind !== undefined ? { kind: m.kind } : {}),
+          ...(m.description !== undefined ? { description: m.description } : {}),
+          credentials: m.credentials ?? [],
+        };
+  const pluginDescriptors: PluginDescriptor[] = pluginModules
+    .map((m) => toDescriptor(m.manifest))
+    .filter((d): d is PluginDescriptor => d !== undefined);
+  let livePluginConfig: Record<string, PluginConfig> = { ...(config.settings?.plugins ?? {}) };
+  let liveWebOverride: string | undefined = config.settings?.web;
+  const livePluginPaths: string[] = [...(config.settings?.pluginPaths ?? [])];
+  const persistPluginSettings = async (): Promise<void> => {
+    const current = await loadSettings(config.globalSettingsPath).catch(() => null);
+    const base: Settings = current ?? { providers: {} };
+    const next: Settings = { ...base, plugins: livePluginConfig };
+    if (livePluginPaths.length > 0) next.pluginPaths = livePluginPaths;
+    else delete next.pluginPaths;
+    if (liveWebOverride !== undefined) next.web = liveWebOverride;
+    else delete next.web;
+    await saveGlobalSettings(config.globalSettingsPath, next);
+  };
+  const pluginsAdmin: PluginsAdmin = {
+    list: () => pluginDescriptors,
+    getConfig: () => livePluginConfig,
+    getWebOverride: () => liveWebOverride,
+    saveConfig: async (id, cfg) => {
+      livePluginConfig = { ...livePluginConfig, [id]: cfg };
+      // Live-wire a command plugin the moment it is enabled (no restart needed);
+      // disabling takes effect on the next launch.
+      const mod = pluginModules.find((m) => m.manifest?.id === id);
+      if (mod !== undefined && isEnabledCommandPlugin(mod, livePluginConfig)) {
+        registerCommandPlugin(mod.commandPlugin!);
+      }
+      await persistPluginSettings();
+    },
+    setWebOverride: async (id) => {
+      liveWebOverride = id;
+      await persistPluginSettings();
+    },
+    verify: async (id, credentials) => {
+      // Tool plugins verify by loading (the factory must construct without
+      // error and yield at least one tool).
+      const toolCand = toolPluginCandidates.find((c) => c.id === id);
+      if (toolCand !== undefined) {
+        try {
+          const plugin = await toolCand.factory(credentials);
+          const count = plugin.tools?.length ?? 0;
+          return { ok: true, message: `loaded — ${count} tool${count === 1 ? "" : "s"}` };
+        } catch (err) {
+          return { ok: false, message: scrubSecrets(err instanceof Error ? err.message : String(err)) };
+        }
+      }
+      const candidate = webPluginCandidates.find((c) => c.id === id);
+      if (candidate === undefined) return { ok: false, message: "Nothing to verify for this plugin" };
+      try {
+        const provider = await candidate.factory(credentials);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
+        try {
+          const results = await provider.search("intercode connectivity test", controller.signal);
+          return { ok: true, message: `connected — ${results.length} results` };
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (err) {
+        return { ok: false, message: scrubSecrets(err instanceof Error ? err.message : String(err)) };
+      }
+    },
+    addPath: async (rawPath) => {
+      const path = rawPath.trim();
+      if (path.length === 0) return { ok: false, message: "Enter a path" };
+      const abs = isAbsolute(path) ? path : resolvePath(config.cwd, path);
+      const mod = await loadPluginEntry(abs);
+      if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
+      if (mod.manifest === undefined) {
+        return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
+      }
+      const descriptor = toDescriptor(mod.manifest);
+      if (descriptor === undefined) return { ok: false, message: "Invalid plugin manifest" };
+      // Replace any existing descriptor/candidate with the same id so re-adding
+      // refreshes rather than duplicates.
+      const existingIdx = pluginDescriptors.findIndex((d) => d.id === descriptor.id);
+      if (existingIdx >= 0) pluginDescriptors.splice(existingIdx, 1, descriptor);
+      else pluginDescriptors.push(descriptor);
+      for (const cand of collectWebPlugins([mod])) {
+        const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
+        if (ci >= 0) webPluginCandidates.splice(ci, 1, cand);
+        else webPluginCandidates.push(cand);
+      }
+      for (const cand of collectToolPlugins([mod])) {
+        const ci = toolPluginCandidates.findIndex((c) => c.id === cand.id);
+        if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
+        else toolPluginCandidates.push(cand);
+      }
+      // Persist the resolved absolute path so it reloads regardless of the cwd
+      // the next session starts from.
+      if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
+      await persistPluginSettings();
+      return { ok: true, message: `Added ${descriptor.name}`, id: descriptor.id };
+    },
+  };
 
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
     ...(webProvider !== undefined ? { webProvider } : {}),
+    ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
         const event: OperatorGateEvent = { question, options, resolve };
@@ -606,6 +734,7 @@ export async function runTUI(config: Config): Promise<number> {
       onInterrupt={interrupt}
       onNewSession={newSession}
       permissionsAdmin={permissionsAdmin}
+      pluginsAdmin={pluginsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
       initialAuto={config.auto}
       onToggleAuto={(value) => permissionGate.setAuto(value)}

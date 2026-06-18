@@ -1,20 +1,28 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
+import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 
 export type PluginModule = {
+  // Self-description (id, name, kind, credential fields), when the module
+  // exports a valid `manifest`. Drives the /plugins UI and web-provider wiring.
+  manifest?: PluginManifest;
   workflowPlugin?: WorkflowPlugin;
   commandPlugin?: CommandPlugin;
   // A web provider factory: (options: unknown) => WebProvider | Promise<WebProvider>.
   // Typed as unknown here so this module doesn't pull in the full web type graph.
   createWebProvider?: unknown;
+  // A tool plugin factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>.
+  // Typed as unknown so this module doesn't pull in the tools-posix type graph.
+  createToolPlugin?: unknown;
 };
 
 // Attempt to load a single plugin directory entry (a file or a directory with
 // an index file). Returns null if the entry cannot be resolved to a module.
-async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> {
+// Exported so the /plugins UI can register a plugin from an arbitrary path.
+export async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> {
   let target = entryPath;
   try {
     const info = await stat(entryPath);
@@ -37,18 +45,30 @@ async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> 
   }
 
   try {
-    const mod = await import(target) as Record<string, unknown>;
+    // Dynamic import resolves relative specifiers against this module, not cwd,
+    // so resolve to an absolute path first (callers may pass a relative path).
+    const importTarget = isAbsolute(target) ? target : resolve(target);
+    const mod = await import(importTarget) as Record<string, unknown>;
     const result: PluginModule = {};
+    const manifest = parsePluginManifest(mod.manifest);
+    if (manifest !== null) result.manifest = manifest;
     if (mod.workflowPlugin != null && typeof mod.workflowPlugin === "object" && "workflows" in mod.workflowPlugin) {
       result.workflowPlugin = mod.workflowPlugin as WorkflowPlugin;
     }
     if (mod.commandPlugin != null && typeof mod.commandPlugin === "object" && "commands" in mod.commandPlugin) {
       result.commandPlugin = mod.commandPlugin as CommandPlugin;
     }
-    if (typeof mod.createWebProvider === "function") {
-      result.createWebProvider = mod.createWebProvider;
-    } else if (mod.default != null && typeof mod.default === "function") {
-      result.createWebProvider = mod.default;
+    if (typeof mod.createWebProvider === "function") result.createWebProvider = mod.createWebProvider;
+    if (typeof mod.createToolPlugin === "function") result.createToolPlugin = mod.createToolPlugin;
+    // A default-exported factory maps strictly to the factory for the manifest's
+    // kind, so web and tool plugins can both just `export default` — and a tool
+    // plugin's default never leaks into the web slot (or vice versa).
+    if (typeof mod.default === "function") {
+      if (manifest?.kind === "web" && result.createWebProvider === undefined) {
+        result.createWebProvider = mod.default;
+      } else if (manifest?.kind === "tool" && result.createToolPlugin === undefined) {
+        result.createToolPlugin = mod.default;
+      }
     }
     return result;
   } catch (err) {
@@ -84,6 +104,40 @@ export async function discoverUserPlugins(cwd: string): Promise<PluginModule[]> 
   ];
   const batches = await Promise.all(dirs.map(scanPluginsDir));
   return batches.flat();
+}
+
+// Collapse modules sharing a manifest id, keeping the last occurrence. Callers
+// concatenate sources in precedence order (repo, then user, then explicit
+// paths), so "last wins" means an explicit path overrides a user plugin, which
+// overrides a bundled one. Modules without a manifest carry no id and are kept
+// as-is.
+export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
+  const indexById = new Map<string, number>();
+  const result: PluginModule[] = [];
+  for (const mod of modules) {
+    const id = mod.manifest?.id;
+    if (id === undefined) {
+      result.push(mod);
+      continue;
+    }
+    const existing = indexById.get(id);
+    if (existing !== undefined) {
+      result[existing] = mod;
+    } else {
+      indexById.set(id, result.length);
+      result.push(mod);
+    }
+  }
+  return result;
+}
+
+// Load plugins from explicit file/directory paths (from settings.pluginPaths).
+// Relative paths resolve against cwd. Unresolvable entries are skipped.
+export async function loadPluginsFromPaths(paths: string[], cwd: string): Promise<PluginModule[]> {
+  const loaded = await Promise.all(
+    paths.map((p) => loadPluginEntry(isAbsolute(p) ? p : join(cwd, p))),
+  );
+  return loaded.filter((m): m is PluginModule => m !== null);
 }
 
 // Discover built-in repo plugins from the plugins/ directory that lives

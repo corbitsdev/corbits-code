@@ -34,34 +34,41 @@ export type Settings = {
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerConfig[];
   tiers?: Partial<Record<ProviderTier, TierAssignment>>;
-  // Additional workflow plugin packages to load at startup. Each entry is a
-  // package specifier (npm package name or file path) that exports a
-  // WorkflowPlugin as either "plugin" or as the default export.
-  workflowPlugins?: string[];
-  // Additional agent plugin packages to load at startup. Each entry is a
-  // package specifier (npm package name or file path) that exports an
-  // AgentPlugin as either "plugin" or as the default export.
-  agentPlugins?: string[];
   // Per-phase model overrides for workflows. Keyed by profile name, then by
   // workflow step profile key. Example:
   //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
   // Each workflow step may declare a `profile` field; at execution time the
   // runtime resolves the model by looking up workflowProfiles[activeProfile][step.profile].
   workflowProfiles?: Record<string, Record<string, string>>;
-  // Module specifier for a web-search/fetch provider. Loaded dynamically at
-  // startup; the module must export a factory (default export or named
-  // `createWebProvider`) that returns a WebProvider. When unset, the built-in
-  // local provider is used.
-  webProvider?: string;
-  // Options passed to the web provider factory. Shape is provider-defined and
-  // validated by the provider module, not by core.
-  webProviderOptions?: Record<string, unknown>;
+  // Per-plugin configuration, keyed by plugin id. Holds the enabled flag and any
+  // credentials the plugin's manifest declares (e.g. an Exa API key). Lives in
+  // the global settings file because it carries secrets; the /plugins UI writes
+  // it. Plugins themselves are auto-discovered from the plugins directories.
+  plugins?: Record<string, PluginConfig>;
+  // Explicit plugin paths (file or directory) to load in addition to the
+  // auto-discovered plugin directories. Added through the /plugins UI so a
+  // plugin can be registered from anywhere on disk, not just by dropping it
+  // into .intercode/plugins/.
+  pluginPaths?: string[];
+  // Id of the plugin (kind "web") to use as the web_search/web_fetch backend.
+  // When unset, the single enabled web plugin is used; when no web plugin is
+  // enabled, the built-in local provider is used.
+  web?: string;
   // Slash commands to suppress from the command palette and completions.
   // The commands still work if typed in full; they are just not listed.
   hiddenCommands?: string[];
   // Set after the first launch's welcome animation + provider modal has been
   // shown. Controls whether subsequent launches show "Welcome to" vs "Welcome back".
   onboarded?: boolean;
+};
+
+export type PluginConfig = {
+  enabled?: boolean;
+  // One-time consent for a tool plugin (kind "tool"). Its tools add in-process
+  // capabilities to the agent, so they are only wired in once the user has
+  // consented in the /plugins UI. Ignored for other kinds.
+  consented?: boolean;
+  credentials?: Record<string, string>;
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
@@ -169,11 +176,10 @@ const SettingsSchema = type({
   // normalizeMcpServers rather than expressed structurally here.
   "mcpServers?": "unknown",
   "tiers?": TiersSchema,
-  "workflowPlugins?": "string[]",
-  "agentPlugins?": "string[]",
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
-  "webProvider?": "string",
-  "webProviderOptions?": type({ "[string]": "unknown" }),
+  "plugins?": type({ "[string]": type({ "enabled?": "boolean", "consented?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
+  "pluginPaths?": "string[]",
+  "web?": "string",
   "hiddenCommands?": "string[]",
   "onboarded?": "boolean",
 });
@@ -287,16 +293,24 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     );
   }
   const s = parsed as Record<string, unknown>;
+  // These keys were removed when plugins moved to discovery; they are now
+  // silently dropped on the next save. Warn so a user who relied on them knows
+  // to re-enable the equivalent plugins in /plugins instead of losing the
+  // feature without a trace.
+  if (s.workflowPlugins !== undefined || s.agentPlugins !== undefined) {
+    process.stderr.write(
+      `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .intercode/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
+    );
+  }
   return {
     providers: s.providers as Settings["providers"],
     ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
     ...(s.tiers !== undefined ? { tiers: s.tiers as Settings["tiers"] } : {}),
-    ...(s.workflowPlugins !== undefined ? { workflowPlugins: s.workflowPlugins as string[] } : {}),
-    ...(s.agentPlugins !== undefined ? { agentPlugins: s.agentPlugins as string[] } : {}),
     ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
-    ...(s.webProvider !== undefined ? { webProvider: s.webProvider as string } : {}),
-    ...(s.webProviderOptions !== undefined ? { webProviderOptions: s.webProviderOptions as Record<string, unknown> } : {}),
+    ...(s.plugins !== undefined ? { plugins: s.plugins as Settings["plugins"] } : {}),
+    ...(s.pluginPaths !== undefined ? { pluginPaths: s.pluginPaths as string[] } : {}),
+    ...(s.web !== undefined ? { web: s.web as string } : {}),
     ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
     ...(s.onboarded !== undefined ? { onboarded: Boolean(s.onboarded) } : {}),
   } as Settings;
