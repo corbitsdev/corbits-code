@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { Task } from "../../agent/tasks.js";
+import type { Task, TaskStatus } from "../../agent/tasks.js";
 import { color } from "../theme.js";
 
 export type TaskViewProps = {
@@ -7,33 +7,53 @@ export type TaskViewProps = {
   compact?: boolean;
 };
 
-export function TaskView({ tasks, compact }: TaskViewProps) {
-  const activeTasks = tasks.filter((task) => task.status !== "done");
-  if (activeTasks.length === 0) return null;
+// Checkbox glyphs make task state legible at a glance: an empty box for pending
+// work, a half-filled box for the item in flight, and a checked box once done.
+const GLYPH: Record<TaskStatus, string> = {
+  todo: "☐",
+  doing: "◐",
+  done: "☑",
+};
 
-  const sorted = [...activeTasks].sort(byPriority);
+export function TaskView({ tasks, compact }: TaskViewProps) {
+  if (tasks.length === 0) return null;
+
+  const sorted = [...tasks].sort(byPriority);
 
   if (compact) {
-    const doing = sorted.find((t) => t.status === "doing");
-    const todoCount = sorted.filter((t) => t.status === "todo").length;
-    const current = doing ?? sorted[0]!;
+    const active = sorted.filter((t) => t.status !== "done");
+    if (active.length === 0) return null;
+    const doing = active.find((t) => t.status === "doing");
+    const current = doing ?? active[0]!;
+    const remaining = active.length - 1;
 
     return (
-      <Box paddingX={1}>
-        <Text color={color("accent")}>task </Text>
+      <Box paddingX={1} gap={1}>
+        <Text color={statusColor(current.status)}>{GLYPH[current.status]}</Text>
         <Text wrap="truncate-end">{current.title}</Text>
-        {todoCount > 0 && <Text dimColor>{` +${todoCount}`}</Text>}
+        {remaining > 0 && <Text color={color("dim")} dimColor>{`+${remaining}`}</Text>}
       </Box>
     );
   }
 
+  const doneCount = sorted.filter((t) => t.status === "done").length;
+
   return (
-    <Box flexDirection="column" gap={1} paddingX={1}>
-      <Text bold color={color("accent")}>Tasks</Text>
+    <Box flexDirection="column" paddingX={1}>
+      <Box gap={1}>
+        <Text bold color={color("accent")}>Tasks</Text>
+        <Text color={color("dim")} dimColor>{`${doneCount}/${sorted.length}`}</Text>
+      </Box>
       {sorted.map((task) => (
-        <Box key={task.id} flexDirection="row" gap={1}>
-          <Text color={statusColor(task.status)}>{statusLabel(task.status)}</Text>
-          <Text wrap="truncate-end">{task.title}</Text>
+        <Box key={task.id} gap={1}>
+          <Text color={statusColor(task.status)}>{GLYPH[task.status]}</Text>
+          <Text
+            {...(task.status === "done" ? { color: color("dim"), strikethrough: true } : {})}
+            bold={task.status === "doing"}
+            wrap="truncate-end"
+          >
+            {task.title}
+          </Text>
         </Box>
       ))}
     </Box>
@@ -41,22 +61,11 @@ export function TaskView({ tasks, compact }: TaskViewProps) {
 }
 
 function byPriority(a: Task, b: Task): number {
-  const rank: Record<Task["status"], number> = { doing: 0, todo: 1, done: 2 };
+  const rank: Record<TaskStatus, number> = { doing: 0, todo: 1, done: 2 };
   return rank[a.status] - rank[b.status];
 }
 
-function statusLabel(status: Task["status"]): string {
-  switch (status) {
-    case "done":
-      return "done";
-    case "doing":
-      return "now ";
-    case "todo":
-      return "next";
-  }
-}
-
-function statusColor(status: Task["status"]): string {
+function statusColor(status: TaskStatus): string {
   switch (status) {
     case "done":
       return color("success");

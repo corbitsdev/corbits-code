@@ -29,9 +29,9 @@ test("Header renders the latest user message", () => {
   expect(lastFrame()).toContain("do the thing");
 });
 
-test("Header shows the working directory at wide widths", () => {
+test("Header no longer renders the working directory — it lives in the status bar", () => {
   const { lastFrame } = renderHeader({ width: 160 });
-  expect(lastFrame()).toContain("/");
+  expect(lastFrame()).toContain("Intercode");
 });
 
 test("Header does not render the session clock", () => {

@@ -17,11 +17,14 @@ import {
   xaiProvidersAsSettings,
 } from "./xai-providers.js";
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
+import { XAI_BASE_URL } from "../auth/xai/constants.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
 } from "../provider/codex-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER, GROK_USER_ID_OPTION } from "../provider/grok-responses-adapter.js";
+import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 
 import {
   globalSettingsPath,
@@ -112,6 +115,28 @@ export function buildCodexSource(fields: {
     id: fields.id,
     provider: CODEX_RESPONSES_PROVIDER,
     baseURL: CODEX_BASE_URL,
+    apiKey: fields.apiKey,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
+  };
+}
+
+// Build the InferenceSource for an xAI/Grok OAuth profile. Routes to the
+// "grok-responses" adapter (the grok-cli proxy speaks the Responses API, not
+// Chat Completions). The access token is the apiKey; the caller's user id is
+// decoded from it and lifted into the x-grok-user-id header by the adapter.
+export function buildXaiSource(fields: {
+  id: string;
+  apiKey: string;
+  model: string;
+}): InferenceSource {
+  const userId = xaiUserIdFromAccessToken(fields.apiKey);
+  const providerOptions: Record<string, unknown> = {};
+  if (userId !== undefined) providerOptions[GROK_USER_ID_OPTION] = userId;
+  return {
+    id: fields.id,
+    provider: GROK_RESPONSES_PROVIDER,
+    baseURL: XAI_BASE_URL,
     apiKey: fields.apiKey,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },

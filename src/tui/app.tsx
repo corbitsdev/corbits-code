@@ -9,7 +9,6 @@ import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { ChatInput } from "./components/chat-input.js";
-import { ContextPanel } from "./components/context-panel.js";
 import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
@@ -31,6 +30,7 @@ import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
 import { CodexLoginModal } from "./components/codex-login-modal.js";
+import { LoginProviderPicker } from "./components/login-provider-picker.js";
 import { writeClipboard } from "./util/clipboard.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { startCodexLogin } from "../auth/codex/login.js";
@@ -314,11 +314,11 @@ export function App({
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [tasksExpanded, setTasksExpanded] = useState(false);
   const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
-  const [loginModal, setLoginModal] = useState<"codex" | "xai" | null>(null);
+  const [loginModal, setLoginModal] = useState<"codex" | "xai" | "choose" | null>(null);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -470,18 +470,24 @@ export function App({
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
 
-  const effectiveSidebarOpen = sidebarOpen;
+  // The task strip renders above the in-flight indicator: one line when compact,
+  // the full checklist (plus heading and surrounding margins) when expanded.
+  const taskChromeRows =
+    state.tasks.length === 0
+      ? 0
+      : (tasksExpanded ? state.tasks.length + 1 : 1) + 2;
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
-    (commandMessage !== null ? 1 : 0);
+    (commandMessage !== null ? 1 : 0) +
+    taskChromeRows;
 
   const layout = useLayoutGeometry({
     columns,
     rows,
-    sidebarOpen: effectiveSidebarOpen,
+    sidebarOpen: false,
     gateContext: {
       pendingPermission: gates.pendingPermission,
       pendingOperator: gates.pendingOperator,
@@ -491,7 +497,7 @@ export function App({
     providerCatalog,
     extraChromeRows,
   });
-  const { leftWidth, rightWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
+  const { leftWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
 
   // Cleared when layout width or display options change — those affect all blocks.
   const lineCacheRef = useRef(new Map<string, StyledLine[]>());
@@ -760,7 +766,7 @@ export function App({
       toggleVerbose: () => {
         setVerbose((v) => !v);
       },
-      toggleTaskPanel: () => setSidebarOpen((open) => !open),
+      toggleTaskPanel: () => setTasksExpanded((open) => !open),
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
         if (lastToolId !== null) {
@@ -829,7 +835,7 @@ export function App({
       return;
     }
     if (result.type === "view") {
-      setSidebarOpen(true);
+      setTasksExpanded(true);
       return;
     }
     if (result.type === "overlay") {
@@ -854,8 +860,9 @@ export function App({
         );
       }
     }
-    if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login")) {
-      setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
+    if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login" || result.modal === "login")) {
+      if (result.modal === "login") setLoginModal("choose");
+      else setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
     }
     if (result.type === "workflow") {
       if (onStartWorkflow === undefined) {
@@ -887,16 +894,7 @@ export function App({
 
   return (
     <Box flexDirection="column" height={rows}>
-      <Box
-        flexShrink={0}
-        flexDirection="column"
-        borderStyle="single"
-        borderColor={color("muted")}
-        borderTop={false}
-        borderBottom
-        borderLeft={false}
-        borderRight={false}
-      >
+      <Box flexShrink={0} flexDirection="column">
         <Header
           sessionTitle={sessionTitle}
           latestUserMessage={headerLatestUserMessage}
@@ -911,24 +909,13 @@ export function App({
             tasks={state.tasks}
           />
         ) : (
-          <>
-            <Box width={leftWidth} flexDirection="column" overflow="hidden">
-              <EventLog
-                lines={eventLogLines}
-                scrollOffset={scroll.scrollOffset}
-                visibleRows={visibleRows}
-              />
-            </Box>
-            {effectiveSidebarOpen && (
-              <Box width={rightWidth} flexDirection="column" overflow="hidden">
-                <ContextPanel
-                  tasks={state.tasks}
-                  width={rightWidth}
-                  borderColor={modeColor}
-                />
-              </Box>
-            )}
-          </>
+          <Box width={leftWidth} flexDirection="column" overflow="hidden">
+            <EventLog
+              lines={eventLogLines}
+              scrollOffset={scroll.scrollOffset}
+              visibleRows={visibleRows}
+            />
+          </Box>
         )}
       </Box>
       <ModalStack
@@ -966,7 +953,13 @@ export function App({
           maxHeight={permissionsOverlayRows}
         />
       )}
-      {loginModal !== null && (
+      {loginModal === "choose" && (
+        <LoginProviderPicker
+          onSelect={(provider) => setLoginModal(provider)}
+          onClose={() => setLoginModal(null)}
+        />
+      )}
+      {(loginModal === "codex" || loginModal === "xai") && (
         <CodexLoginModal
           profiles={loginModal === "xai" ? xaiProfileNames : codexProfileNames}
           activeProfile={provider}
@@ -999,6 +992,11 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
+          {state.tasks.length > 0 && (
+            <Box flexDirection="column" marginTop={1} marginBottom={1}>
+              <TaskView tasks={state.tasks} compact={!tasksExpanded} />
+            </Box>
+          )}
           <InFlightIndicator
             active={state.isProcessing}
             frame={spinner.frame}
@@ -1016,20 +1014,9 @@ export function App({
               return {};
             })()}
           />
-          {state.tasks.length > 0 && (
-            <TaskView tasks={state.tasks} compact />
-          )}
           {state.quotaError !== null && (
             <QuotaErrorBanner retryAt={state.quotaError.retryAt} />
           )}
-          <Box
-            borderStyle="single"
-            borderColor={modeColor}
-            borderTop
-            borderBottom={false}
-            borderLeft={false}
-            borderRight={false}
-          />
           {exitConfirmOpen ? (
             <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
           ) : (
@@ -1050,6 +1037,7 @@ export function App({
           model={model}
           status={state.status}
           reasoningEffort={reasoningEffort}
+          cwd={cwd}
         />
         </Box>
       )}

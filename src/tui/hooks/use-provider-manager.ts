@@ -1,7 +1,7 @@
 import type { Agent } from "@intx/agent";
 import { randomUUID } from "node:crypto";
 import { useState } from "react";
-import { buildCodexSource, buildOpenAISource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
+import { buildCodexSource, buildOpenAISource, buildXaiSource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
 import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type Settings, type TierAssignment } from "../../config/settings.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../../subagent/index.js";
@@ -110,6 +110,12 @@ export function useProviderManager({
             sessionId: randomUUID(),
             ...(entry.codexAccountId !== undefined ? { accountId: entry.codexAccountId } : {}),
             ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
+          })
+        : entry.xaiProfile !== undefined
+        ? buildXaiSource({
+            id: entry.name,
+            apiKey: entry.apiKey,
+            model: nextModel,
           })
         : buildOpenAISource({
             id: entry.name,

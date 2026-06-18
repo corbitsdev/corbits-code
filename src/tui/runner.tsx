@@ -12,10 +12,11 @@ import {
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
-import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
+import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
+import { registerGrokResponsesAdapter } from "../provider/grok-responses-adapter.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
@@ -90,6 +91,7 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
+  registerGrokResponsesAdapter();
   await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   // Auto-discover plugins from the repo's plugins/ directory and user plugin dirs.
@@ -313,6 +315,12 @@ export async function runTUI(config: Config): Promise<number> {
           sessionId: config.sessionId,
           ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+        })
+      : initialXaiProfile !== undefined
+      ? buildXaiSource({
+          id: config.providerName,
+          apiKey: config.apiKey,
+          model: config.model,
         })
       : buildOpenAICompatibleInitialSource();
 

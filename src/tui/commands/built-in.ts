@@ -21,16 +21,20 @@ registerCommand({
 registerCommand({
   name: "login",
   description: "Sign in with Codex or xAI OAuth and manage profiles",
+  subcommands: [
+    { name: "codex", description: "Sign in with a ChatGPT Plus/Pro subscription" },
+    { name: "xai", description: "Sign in with a SuperGrok or X Premium+ subscription" },
+    { name: "grok", description: "Alias for xai" },
+  ],
   handler: (args, _ctx) => {
+    // With no argument, the bare command opens a provider picker so the user
+    // can choose Codex or xAI before naming the profile. An explicit argument
+    // skips the picker and goes straight to that provider's login modal.
     const provider = args.trim().toLowerCase();
-    return { type: "modal", modal: provider === "xai" || provider === "grok" ? "xai-login" : "codex-login" };
+    if (provider === "") return { type: "modal", modal: "login" };
+    if (provider === "xai" || provider === "grok") return { type: "modal", modal: "xai-login" };
+    return { type: "modal", modal: "codex-login" };
   },
-});
-
-registerCommand({
-  name: "grok-login",
-  description: "Sign in with an xAI/Grok (SuperGrok or X Premium+) subscription",
-  handler: (_args, _ctx) => ({ type: "modal", modal: "xai-login" }),
 });
 
 // signalClear rotates to a fresh session: the on-screen transcript and run

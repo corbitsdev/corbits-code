@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
 import { useAtSuggestions, AtSuggestions } from "./at-mention/index.js";
+import { color } from "../theme.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -12,6 +13,8 @@ export type ChatInputProps = {
   value: string;
   onChange: (value: string) => void;
   cwd: string;
+  // Border color for the input box. The slash/@ pickers render above the box.
+  borderColor?: string;
   // When false, the input ignores all keystrokes. Set while an overlay or modal
   // is capturing input so keys do not leak into the prompt underneath it.
   active?: boolean;
@@ -147,7 +150,7 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, cwd, active = true, queuedCount = 0, isProcessing = false, onInterrupt }: ChatInputProps): ReactNode {
+export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, cwd, active = true, queuedCount = 0, isProcessing = false, onInterrupt, borderColor = color("dim") }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // The last value this component produced itself. Used to tell an external
@@ -426,12 +429,24 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       {showAt && (
         <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
-      <Box flexDirection="column" paddingX={1} paddingTop={showSteerHint ? 0 : 1} paddingBottom={1}>
-        {showSteerHint && (
+      {showSteerHint && (
+        <Box paddingX={1}>
           <Text dimColor>
             {queuedCount > 0 ? `${queuedCount} queued · Enter steer · Alt+Enter queue` : "Enter steer · Alt+Enter queue"}
           </Text>
-        )}
+        </Box>
+      )}
+      {!showSlash && !showAt && (
+        <Box
+          borderStyle="single"
+          borderColor={borderColor}
+          borderTop
+          borderBottom={false}
+          borderLeft={false}
+          borderRight={false}
+        />
+      )}
+      <Box flexDirection="column" paddingX={1} marginBottom={1}>
         {lines.map((line, i) => {
           const prefix = i === 0 ? "> " : "  ";
           if (i !== cursorLine) {
