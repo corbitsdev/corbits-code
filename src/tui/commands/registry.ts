@@ -3,10 +3,6 @@ export type CommandContext = {
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
   // Start a workflow by name; returns a status message to surface to the user.
   startWorkflow?: (name: string) => string;
-  // List available workflows for /workflows.
-  listWorkflows?: () => Array<{ name: string; description: string }>;
-  // Open the workflow picker modal (/workflows command).
-  openWorkflowPicker?: () => void;
 };
 
 export type CommandResult =
@@ -14,7 +10,7 @@ export type CommandResult =
   | { type: "send"; text: string }
   | { type: "view"; view: "tasks" }
   | { type: "overlay"; overlay: "help" | "permissions" }
-  | { type: "modal"; modal: "agent" | "codex-login" }
+  | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "noop" };
 
@@ -30,10 +26,26 @@ export type CommandDefinition = {
   handler: (args: string, ctx: CommandContext) => CommandResult;
 };
 
+export type CommandPlugin = {
+  commands: CommandDefinition[];
+};
+
 const registry = new Map<string, CommandDefinition>();
+const hidden = new Set<string>();
 
 export function registerCommand(def: CommandDefinition): void {
   registry.set(def.name, def);
+}
+
+export function registerCommandPlugin(plugin: CommandPlugin): void {
+  for (const cmd of plugin.commands) {
+    registerCommand(cmd);
+  }
+}
+
+export function setHiddenCommands(names: string[]): void {
+  hidden.clear();
+  for (const n of names) hidden.add(n);
 }
 
 export function getCommand(name: string): CommandDefinition | undefined {
@@ -41,5 +53,7 @@ export function getCommand(name: string): CommandDefinition | undefined {
 }
 
 export function listCommands(): CommandDefinition[] {
-  return [...registry.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...registry.values()]
+    .filter((c) => !hidden.has(c.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
