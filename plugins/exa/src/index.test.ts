@@ -34,7 +34,7 @@ describe("search", () => {
             title: "Result One",
             url: "https://example.com/1",
             text: "Snippet one",
-            published_date: "2024-01-01",
+            publishedDate: "2024-01-01",
             author: "Author A",
             score: 0.9,
           },

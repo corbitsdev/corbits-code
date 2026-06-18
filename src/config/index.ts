@@ -469,8 +469,9 @@ export function providerCatalogToSettings(
         ...(existing.workflowPlugins !== undefined ? { workflowPlugins: existing.workflowPlugins } : {}),
         ...(existing.agentPlugins !== undefined ? { agentPlugins: existing.agentPlugins } : {}),
         ...(existing.workflowProfiles !== undefined ? { workflowProfiles: existing.workflowProfiles } : {}),
-        ...(existing.webProvider !== undefined ? { webProvider: existing.webProvider } : {}),
-        ...(existing.webProviderOptions !== undefined ? { webProviderOptions: existing.webProviderOptions } : {}),
+        ...(existing.plugins !== undefined ? { plugins: existing.plugins } : {}),
+        ...(existing.pluginPaths !== undefined ? { pluginPaths: existing.pluginPaths } : {}),
+        ...(existing.web !== undefined ? { web: existing.web } : {}),
         ...(existing.hiddenCommands !== undefined ? { hiddenCommands: existing.hiddenCommands } : {}),
       }
     : {};

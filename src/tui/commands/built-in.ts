@@ -19,6 +19,12 @@ registerCommand({
 });
 
 registerCommand({
+  name: "plugins",
+  description: "Add plugins, set credentials, verify, and pick the web provider",
+  handler: (_args, _ctx) => ({ type: "overlay", overlay: "plugins" }),
+});
+
+registerCommand({
   name: "login",
   description: "Sign in with Codex or xAI OAuth and manage profiles",
   subcommands: [

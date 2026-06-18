@@ -112,7 +112,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 
 ### Web Tools and Providers (`src/web/`)
 
-`web_search` and `web_fetch` resolve a single `WebProvider` (one backend implements both, avoiding duplicate tool names). The backend is a **generic, core-agnostic plugin hook**: settings name a `webProvider` module specifier (plus opaque `webProviderOptions`), which is dynamically imported at startup — the same pattern as `agentPlugins`/`workflowPlugins`. Core has no knowledge of any specific provider. When no specifier is set, a local (DuckDuckGo) provider is used. Concrete providers (e.g. Exa) live in top-level `plugins/`, outside core.
+`web_search` and `web_fetch` resolve a single `WebProvider` (one backend implements both, avoiding duplicate tool names). The backend is a **generic, core-agnostic plugin hook**: a plugin self-describes via a `manifest` with `kind: "web"` and declared `credentials`, and is auto-discovered from the plugin directories. The active web plugin is chosen by the `web` settings key (its id), or the single enabled web plugin; it is instantiated with the credentials stored under `settings.plugins[id]`. Core has no knowledge of any specific provider. When none is active, a local (DuckDuckGo) provider is used. Concrete providers (e.g. Exa) live in top-level `plugins/`, outside core, and are managed through the `/plugins` UI. When a web plugin is active, the `web_search`/`web_fetch` tool calls render under its brand (e.g. "Exa Search").
 
 ### Director-Layer Tools (`src/agent/director.ts`)
 

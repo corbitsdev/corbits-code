@@ -9,7 +9,7 @@ export type CommandResult =
   | { type: "message"; text: string }
   | { type: "send"; text: string }
   | { type: "view"; view: "tasks" }
-  | { type: "overlay"; overlay: "help" | "permissions" }
+  | { type: "overlay"; overlay: "help" | "permissions" | "plugins" }
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" | "login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "noop" };

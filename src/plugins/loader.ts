@@ -1,10 +1,14 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
+import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 
 export type PluginModule = {
+  // Self-description (id, name, kind, credential fields), when the module
+  // exports a valid `manifest`. Drives the /plugins UI and web-provider wiring.
+  manifest?: PluginManifest;
   workflowPlugin?: WorkflowPlugin;
   commandPlugin?: CommandPlugin;
   // A web provider factory: (options: unknown) => WebProvider | Promise<WebProvider>.
@@ -14,7 +18,8 @@ export type PluginModule = {
 
 // Attempt to load a single plugin directory entry (a file or a directory with
 // an index file). Returns null if the entry cannot be resolved to a module.
-async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> {
+// Exported so the /plugins UI can register a plugin from an arbitrary path.
+export async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> {
   let target = entryPath;
   try {
     const info = await stat(entryPath);
@@ -37,8 +42,13 @@ async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> 
   }
 
   try {
-    const mod = await import(target) as Record<string, unknown>;
+    // Dynamic import resolves relative specifiers against this module, not cwd,
+    // so resolve to an absolute path first (callers may pass a relative path).
+    const importTarget = isAbsolute(target) ? target : resolve(target);
+    const mod = await import(importTarget) as Record<string, unknown>;
     const result: PluginModule = {};
+    const manifest = parsePluginManifest(mod.manifest);
+    if (manifest !== null) result.manifest = manifest;
     if (mod.workflowPlugin != null && typeof mod.workflowPlugin === "object" && "workflows" in mod.workflowPlugin) {
       result.workflowPlugin = mod.workflowPlugin as WorkflowPlugin;
     }
@@ -84,6 +94,15 @@ export async function discoverUserPlugins(cwd: string): Promise<PluginModule[]> 
   ];
   const batches = await Promise.all(dirs.map(scanPluginsDir));
   return batches.flat();
+}
+
+// Load plugins from explicit file/directory paths (from settings.pluginPaths).
+// Relative paths resolve against cwd. Unresolvable entries are skipped.
+export async function loadPluginsFromPaths(paths: string[], cwd: string): Promise<PluginModule[]> {
+  const loaded = await Promise.all(
+    paths.map((p) => loadPluginEntry(isAbsolute(p) ? p : join(cwd, p))),
+  );
+  return loaded.filter((m): m is PluginModule => m !== null);
 }
 
 // Discover built-in repo plugins from the plugins/ directory that lives

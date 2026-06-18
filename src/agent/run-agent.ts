@@ -39,7 +39,9 @@ import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
-import { resolveWebProviderFromSettings } from "../web/providers/index.js";
+import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
+import { setActiveWebProviderBrand } from "../tui/tool-formatter.js";
+import { discoverRepoPlugins, discoverUserPlugins } from "../plugins/loader.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -177,10 +179,17 @@ export async function runAgent(
   );
   const { plugin: mcpPlugin } = createMCPPlugin(mcpClients);
 
-  const webProvider = await resolveWebProviderFromSettings(
-    config.settings?.webProvider,
-    config.settings?.webProviderOptions,
-  );
+  const pluginModules = [
+    ...(await discoverRepoPlugins()),
+    ...(await discoverUserPlugins(config.cwd)),
+  ];
+  const activeWeb = await resolveWebProviderFromPlugins({
+    candidates: collectWebPlugins(pluginModules),
+    pluginConfig: config.settings?.plugins ?? {},
+    webOverride: config.settings?.web,
+  });
+  if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
+  const webProvider = activeWeb?.provider;
 
   const posixTools = createPosixTools({
     cwd: config.cwd,
