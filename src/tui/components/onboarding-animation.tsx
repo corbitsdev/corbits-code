@@ -7,11 +7,10 @@ export type OnboardingAnimationProps = {
   onComplete: () => void;
   rows: number;
   columns: number;
+  isFirstTime?: boolean;
 };
 
-const PREFIX = "Onboarding to ";
 const BRAND = "Intercode";
-const FULL_PHRASE = `${PREFIX}${BRAND}`;
 const TAGLINE = "Your AI coding partner";
 
 const TYPE_INTERVAL_MS = 65;
@@ -22,7 +21,10 @@ const EXIT_STEPS = 14;
 
 type Phase = "typing" | "hold" | "exit";
 
-export function OnboardingAnimation({ onComplete, rows, columns }: OnboardingAnimationProps): ReactNode {
+export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime = true }: OnboardingAnimationProps): ReactNode {
+  const prefix = isFirstTime ? "Welcome to " : "Welcome back to ";
+  const fullPhrase = `${prefix}${BRAND}`;
+
   const [phase, setPhase] = useState<Phase>("typing");
   const [typed, setTyped] = useState(0);
   const [taglineVisible, setTaglineVisible] = useState(false);
@@ -40,14 +42,14 @@ export function OnboardingAnimation({ onComplete, rows, columns }: OnboardingAni
   // Typewriter: reveal one character at a time, then show tagline and hold
   useEffect(() => {
     if (phase !== "typing") return;
-    if (typed >= FULL_PHRASE.length) {
+    if (typed >= fullPhrase.length) {
       const t1 = setTimeout(() => setTaglineVisible(true), TAGLINE_DELAY_MS);
       const t2 = setTimeout(() => setPhase("hold"), TAGLINE_DELAY_MS + 600);
       return () => { clearTimeout(t1); clearTimeout(t2); };
     }
     const t = setTimeout(() => setTyped((c) => c + 1), TYPE_INTERVAL_MS);
     return () => clearTimeout(t);
-  }, [phase, typed]);
+  }, [phase, typed, fullPhrase.length]);
 
   // Hold the fully typed screen, then begin the exit slide
   useEffect(() => {
@@ -102,11 +104,11 @@ export function OnboardingAnimation({ onComplete, rows, columns }: OnboardingAni
   }
 
   // --- Typing / hold phases: centered ---
-  const typedPrefix = FULL_PHRASE.slice(0, Math.min(typed, PREFIX.length));
-  const typedBrand = typed > PREFIX.length ? BRAND.slice(0, typed - PREFIX.length) : "";
-  const showCursor = phase === "typing" && typed < FULL_PHRASE.length && cursorVisible;
+  const typedPrefix = fullPhrase.slice(0, Math.min(typed, prefix.length));
+  const typedBrand = typed > prefix.length ? BRAND.slice(0, typed - prefix.length) : "";
+  const showCursor = phase === "typing" && typed < fullPhrase.length && cursorVisible;
 
-  const phraseWidth = FULL_PHRASE.length;
+  const phraseWidth = fullPhrase.length;
   const phraseLeft = Math.max(0, Math.floor((columns - phraseWidth) / 2));
 
   const taglineLeft = Math.max(0, Math.floor((columns - TAGLINE.length) / 2));
