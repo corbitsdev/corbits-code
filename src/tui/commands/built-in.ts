@@ -16,18 +16,6 @@ registerCommand({
 });
 
 registerCommand({
-  name: "auto",
-  description: "Explain default approval behavior",
-  handler: (_args, ctx) => {
-    ctx.toggleAuto();
-    return {
-      type: "message",
-      text: "Default approvals are on — safe actions run, risky actions ask, malicious actions are blocked.",
-    };
-  },
-});
-
-registerCommand({
   name: "diff",
   description: "Show the working-tree diff in the context panel",
   handler: (_args, _ctx) => ({ type: "view", view: "diff" }),
