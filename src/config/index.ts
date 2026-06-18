@@ -472,6 +472,7 @@ export function providerCatalogToSettings(
         ...(existing.webProvider !== undefined ? { webProvider: existing.webProvider } : {}),
         ...(existing.webProviderOptions !== undefined ? { webProviderOptions: existing.webProviderOptions } : {}),
         ...(existing.hiddenCommands !== undefined ? { hiddenCommands: existing.hiddenCommands } : {}),
+        ...(existing.onboarded !== undefined ? { onboarded: existing.onboarded } : {}),
       }
     : {};
   return {

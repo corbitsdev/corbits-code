@@ -19,7 +19,7 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
-import type { Settings } from "../config/settings.js";
+import { saveGlobalSettings, type Settings } from "../config/settings.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
@@ -308,6 +308,7 @@ export function App({
   const mcpStatus = useMCPStatus(eventEmitter);
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
+  const isFirstTime = !(initialSettings?.onboarded);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
@@ -894,12 +895,23 @@ export function App({
     void permissionsAdmin.revoke(entry).then(refreshPermissions);
   };
 
+  const handleOnboardingComplete = () => {
+    setOnboardingDone(true);
+    if (isFirstTime) {
+      setAgentModalOpen(true);
+      const base: Settings = initialSettings ?? { providers: {} };
+      const updated: Settings = { ...base, onboarded: true };
+      void saveGlobalSettings(globalSettingsPath, updated).catch(() => {});
+    }
+  };
+
   if (!onboardingDone) {
     return (
       <OnboardingAnimation
-        onComplete={() => setOnboardingDone(true)}
+        onComplete={handleOnboardingComplete}
         rows={rows}
         columns={columns}
+        isFirstTime={isFirstTime}
       />
     );
   }

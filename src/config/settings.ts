@@ -59,6 +59,9 @@ export type Settings = {
   // Slash commands to suppress from the command palette and completions.
   // The commands still work if typed in full; they are just not listed.
   hiddenCommands?: string[];
+  // Set after the first launch's welcome animation + provider modal has been
+  // shown. Controls whether subsequent launches show "Welcome to" vs "Welcome back".
+  onboarded?: boolean;
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
@@ -172,6 +175,7 @@ const SettingsSchema = type({
   "webProvider?": "string",
   "webProviderOptions?": type({ "[string]": "unknown" }),
   "hiddenCommands?": "string[]",
+  "onboarded?": "boolean",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -294,6 +298,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.webProvider !== undefined ? { webProvider: s.webProvider as string } : {}),
     ...(s.webProviderOptions !== undefined ? { webProviderOptions: s.webProviderOptions as Record<string, unknown> } : {}),
     ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
+    ...(s.onboarded !== undefined ? { onboarded: Boolean(s.onboarded) } : {}),
   } as Settings;
 }
 
