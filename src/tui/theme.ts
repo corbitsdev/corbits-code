@@ -12,15 +12,15 @@ export type SemanticRole =
   | "text"
   | "surface";
 
-const breakthroughOrange: ColorValue = { hex: "#e98428", ansi256: 173 };
-const summitBlue: ColorValue = { hex: "#607C9A", ansi256: 67 };
-const ridgeGreen: ColorValue = { hex: "#7B9974", ansi256: 108 };
+const breakthroughOrange: ColorValue = { hex: "#f5933a", ansi256: 173 };
+const summitBlue: ColorValue = { hex: "#7ea2c4", ansi256: 74 };
+const ridgeGreen: ColorValue = { hex: "#94b889", ansi256: 108 };
 const bedrockCharcoal: ColorValue = { hex: "#2b2627", ansi256: 235 };
-const canvasCream: ColorValue = { hex: "#f7ead5", ansi256: 230 };
-const dangerRed: ColorValue = { hex: "#c4453a", ansi256: 167 };
-const mutedGray: ColorValue = { hex: "#8a8079", ansi256: 245 };
+const canvasCream: ColorValue = { hex: "#faf1e2", ansi256: 230 };
+const dangerRed: ColorValue = { hex: "#e0594d", ansi256: 167 };
+const mutedGray: ColorValue = { hex: "#a89f96", ansi256: 247 };
 // One step dimmer than muted — used for tool args, collapsed results, thinking gutter.
-const dimGray: ColorValue = { hex: "#5a5450", ansi256: 240 };
+const dimGray: ColorValue = { hex: "#736c66", ansi256: 243 };
 
 export const palette: Record<SemanticRole, ColorValue> = {
   brand: breakthroughOrange,

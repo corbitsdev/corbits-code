@@ -20,6 +20,20 @@ export function isXaiTokenExpired(tokens: XaiTokens, now: number): boolean {
 
 export type XaiAccess = { access: string };
 
+// The grok proxy wants the caller's user id in the x-grok-user-id header. The
+// access token is a JWT whose `sub` claim is that id; decode it rather than
+// threading a separately-stored value through the catalog.
+export function xaiUserIdFromAccessToken(access: string): string | undefined {
+  const payload = access.split(".")[1];
+  if (payload === undefined) return undefined;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown };
+    return typeof decoded.sub === "string" ? decoded.sub : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const inflightRefresh = new Map<string, Promise<XaiAccess>>();
 
 export async function getValidXaiToken(

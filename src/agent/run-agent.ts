@@ -22,11 +22,14 @@ import { createLSPPlugin } from "@intx/tools-lsp";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
+import { registerGrokResponsesAdapter } from "../provider/grok-responses-adapter.js";
+import { xaiProfileFromProviderName } from "../config/xai-providers.js";
+import { getValidXaiToken } from "../auth/xai/session.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { CODEX_HEADLESS_REFRESH_INTERVAL_MS } from "../auth/codex/constants.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 
-import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
+import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
 import { createCodingDirector, advanceWorkflowDefinition, askOperatorDefinition, submitOutputDefinition } from "./director.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
@@ -134,6 +137,7 @@ export async function runAgent(
 ): Promise<number> {
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
+  registerGrokResponsesAdapter();
   await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   await initSessionDir(config.cwd, config.sessionId);
@@ -316,9 +320,21 @@ export async function runAgent(
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
         })
       : undefined;
+
+  const xaiProfile = xaiProfileFromProviderName(config.providerName);
+  const xaiAccess = xaiProfile !== undefined ? await getValidXaiToken(xaiProfile) : undefined;
+  const xaiSource =
+    xaiProfile !== undefined
+      ? buildXaiSource({
+          id: config.providerName,
+          apiKey: xaiAccess?.access ?? config.apiKey,
+          model: config.model,
+        })
+      : undefined;
   const agent = await createAgent(def, {
     source:
       codexSource ??
+      xaiSource ??
       buildOpenAISource({
         id: config.providerName,
         baseURL: config.baseURL,

@@ -26,28 +26,15 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-function formatPath(cwd: string): string {
-  const parts = cwd.split("/");
-  if (parts.length <= 2) return cwd;
-  const repoName = parts[parts.length - 1];
-  const parent = parts[parts.length - 2];
-  return `${parent}/${repoName}`;
-}
-
-// The header carries identity and context (product name, path, session title,
-// latest request) on the left, and live session telemetry (plan usage, clock)
-// on the right.
+// The header carries identity and context (product name, session title,
+// latest request) on the left, and live session telemetry (plan usage) on the
+// right. The working directory lives in the status bar, next to model + effort.
 export function Header({ sessionTitle, latestUserMessage, width, profile, workflow, usage }: HeaderProps): ReactNode {
-  const cwd = process.cwd();
-  const pathDisplay = formatPath(cwd);
-
   return (
-    <Box flexDirection="column" paddingX={1} paddingTop={1}>
+    <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
         <Box flexDirection="row" gap={1} flexWrap="wrap" flexGrow={1}>
           <Text bold color={color("brand")}>{TITLE}</Text>
-          <Text color={color("muted")}>·</Text>
-          <Text color={color("muted")} dimColor>{pathDisplay}</Text>
           {profile !== undefined && (
             <Text color={color("muted")} dimColor>[{profile}]</Text>
           )}
