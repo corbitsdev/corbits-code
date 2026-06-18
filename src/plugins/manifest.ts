@@ -18,7 +18,9 @@ export type PluginCredentialField = {
 export type PluginManifest = {
   id: string;
   name: string;
-  kind?: PluginKind;
+  // Required: every consumer routes strictly by kind, so a kind-less manifest
+  // would be a silent dead path (parses, lists, enables, but wires nothing).
+  kind: PluginKind;
   description?: string;
   credentials?: PluginCredentialField[];
 };
@@ -33,7 +35,7 @@ const PluginCredentialFieldSchema = type({
 export const PluginManifestSchema = type({
   id: "string>0",
   name: "string>0",
-  "kind?": "'web' | 'command' | 'tool'",
+  kind: "'web' | 'command' | 'tool'",
   "description?": "string",
   "credentials?": PluginCredentialFieldSchema.array(),
 });

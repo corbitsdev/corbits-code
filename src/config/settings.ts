@@ -289,6 +289,15 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     );
   }
   const s = parsed as Record<string, unknown>;
+  // These keys were removed when plugins moved to discovery; they are now
+  // silently dropped on the next save. Warn so a user who relied on them knows
+  // to re-enable the equivalent plugins in /plugins instead of losing the
+  // feature without a trace.
+  if (s.workflowPlugins !== undefined || s.agentPlugins !== undefined) {
+    process.stderr.write(
+      `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .intercode/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
+    );
+  }
   return {
     providers: s.providers as Settings["providers"],
     ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),

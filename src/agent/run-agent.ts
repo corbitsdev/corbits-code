@@ -38,7 +38,7 @@ import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { setActiveWebProviderBrand } from "../tui/tool-formatter.js";
-import { discoverRepoPlugins, discoverUserPlugins, loadPluginsFromPaths } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
@@ -175,11 +175,11 @@ export async function runAgent(
   );
   const { plugin: mcpPlugin } = createMCPPlugin(mcpClients);
 
-  const pluginModules = [
+  const pluginModules = dedupePluginModules([
     ...(await discoverRepoPlugins()),
     ...(await discoverUserPlugins(config.cwd)),
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
-  ];
+  ]);
   const activeWeb = await resolveWebProviderFromPlugins({
     candidates: collectWebPlugins(pluginModules),
     pluginConfig: config.settings?.plugins ?? {},

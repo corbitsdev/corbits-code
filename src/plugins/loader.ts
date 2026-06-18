@@ -60,11 +60,15 @@ export async function loadPluginEntry(entryPath: string): Promise<PluginModule |
     }
     if (typeof mod.createWebProvider === "function") result.createWebProvider = mod.createWebProvider;
     if (typeof mod.createToolPlugin === "function") result.createToolPlugin = mod.createToolPlugin;
-    // A default-exported factory maps to the factory for the manifest's kind, so
-    // web and tool plugins can both just `export default`.
+    // A default-exported factory maps strictly to the factory for the manifest's
+    // kind, so web and tool plugins can both just `export default` — and a tool
+    // plugin's default never leaks into the web slot (or vice versa).
     if (typeof mod.default === "function") {
-      if (manifest?.kind === "tool" && result.createToolPlugin === undefined) result.createToolPlugin = mod.default;
-      else if (result.createWebProvider === undefined) result.createWebProvider = mod.default;
+      if (manifest?.kind === "web" && result.createWebProvider === undefined) {
+        result.createWebProvider = mod.default;
+      } else if (manifest?.kind === "tool" && result.createToolPlugin === undefined) {
+        result.createToolPlugin = mod.default;
+      }
     }
     return result;
   } catch (err) {
@@ -100,6 +104,31 @@ export async function discoverUserPlugins(cwd: string): Promise<PluginModule[]> 
   ];
   const batches = await Promise.all(dirs.map(scanPluginsDir));
   return batches.flat();
+}
+
+// Collapse modules sharing a manifest id, keeping the last occurrence. Callers
+// concatenate sources in precedence order (repo, then user, then explicit
+// paths), so "last wins" means an explicit path overrides a user plugin, which
+// overrides a bundled one. Modules without a manifest carry no id and are kept
+// as-is.
+export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
+  const indexById = new Map<string, number>();
+  const result: PluginModule[] = [];
+  for (const mod of modules) {
+    const id = mod.manifest?.id;
+    if (id === undefined) {
+      result.push(mod);
+      continue;
+    }
+    const existing = indexById.get(id);
+    if (existing !== undefined) {
+      result[existing] = mod;
+    } else {
+      indexById.set(id, result.length);
+      result.push(mod);
+    }
+  }
+  return result;
 }
 
 // Load plugins from explicit file/directory paths (from settings.pluginPaths).

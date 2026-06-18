@@ -23,7 +23,7 @@ import { registerGrokResponsesAdapter } from "../provider/grok-responses-adapter
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
 import { registerCommandPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
@@ -44,6 +44,7 @@ import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
+import { scrubSecrets } from "../web/secret-scrub.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import {
   loadApprovals,
@@ -98,11 +99,11 @@ export async function runTUI(config: Config): Promise<number> {
   registerGrokResponsesAdapter();
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
-  const pluginModules = [
+  const pluginModules = dedupePluginModules([
     ...(await discoverRepoPlugins()),
     ...(await discoverUserPlugins(config.cwd)),
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
-  ];
+  ]);
   // Command plugins are wired in only when explicitly enabled in settings.
   registerCommandPlugins(pluginModules, config.settings?.plugins ?? {});
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
@@ -266,7 +267,7 @@ export async function runTUI(config: Config): Promise<number> {
           const count = plugin.tools?.length ?? 0;
           return { ok: true, message: `loaded — ${count} tool${count === 1 ? "" : "s"}` };
         } catch (err) {
-          return { ok: false, message: err instanceof Error ? err.message : String(err) };
+          return { ok: false, message: scrubSecrets(err instanceof Error ? err.message : String(err)) };
         }
       }
       const candidate = webPluginCandidates.find((c) => c.id === id);
@@ -282,7 +283,7 @@ export async function runTUI(config: Config): Promise<number> {
           clearTimeout(timer);
         }
       } catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+        return { ok: false, message: scrubSecrets(err instanceof Error ? err.message : String(err)) };
       }
     },
     addPath: async (rawPath) => {
@@ -311,7 +312,9 @@ export async function runTUI(config: Config): Promise<number> {
         if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
         else toolPluginCandidates.push(cand);
       }
-      if (!livePluginPaths.includes(path)) livePluginPaths.push(path);
+      // Persist the resolved absolute path so it reloads regardless of the cwd
+      // the next session starts from.
+      if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
       return { ok: true, message: `Added ${descriptor.name}`, id: descriptor.id };
     },

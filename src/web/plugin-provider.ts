@@ -63,7 +63,20 @@ export async function resolveWebProviderFromPlugins(args: {
   webOverride: string | undefined;
 }): Promise<ActiveWebProvider | undefined> {
   const selected = selectWebPlugin(args.candidates, args.pluginConfig, args.webOverride);
-  if (selected === undefined) return undefined;
+  if (selected === undefined) {
+    // A configured override that matches no discovered plugin is almost always a
+    // typo or a removed plugin — surface it instead of silently using local.
+    if (
+      args.webOverride !== undefined &&
+      args.webOverride.length > 0 &&
+      !args.candidates.some((c) => c.id === args.webOverride)
+    ) {
+      process.stderr.write(
+        `web-provider: settings.web "${args.webOverride}" matches no discovered web plugin; using the local provider.\n`,
+      );
+    }
+    return undefined;
+  }
   const credentials = args.pluginConfig[selected.id]?.credentials ?? {};
   try {
     const provider = await selected.factory(credentials);

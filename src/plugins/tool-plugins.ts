@@ -2,6 +2,7 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginCredentialField } from "./manifest.js";
+import { scrubSecrets } from "../web/secret-scrub.js";
 
 // A discovered plugin that contributes agent tools: a "tool"-kind manifest plus
 // the factory the loader captured.
@@ -47,7 +48,7 @@ export async function resolveToolPlugins(args: {
     try {
       out.push(await cand.factory(args.pluginConfig[cand.id]?.credentials ?? {}));
     } catch (err) {
-      process.stderr.write(`tool-plugin: failed to start "${cand.id}": ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(`tool-plugin: failed to start "${cand.id}": ${scrubSecrets(err instanceof Error ? err.message : String(err))}\n`);
     }
   }
   return out;

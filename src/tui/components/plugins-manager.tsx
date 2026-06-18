@@ -137,8 +137,10 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
 
     if (input === "e") {
       const enabling = !isEnabled(current.id);
-      // Enabling a tool plugin for the first time needs explicit consent — its
-      // tools run in-process.
+      // Enabling a tool plugin needs explicit consent the first time — its tools
+      // run in-process. Consent is a persistent grant: disabling keeps it, so
+      // re-enabling a previously-consented plugin does not re-prompt. "Active"
+      // (isToolPluginActive) still requires enabled AND consented.
       if (enabling && current.kind === "tool" && !isConsented(current.id)) {
         setConsenting(current.id);
         return;
@@ -236,7 +238,7 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
       {consenting !== null && (
         <Box marginTop={1}>
           <Text color={color("warning")}>
-            This tool plugin adds tools that run in-process with full agent access. Enable and trust it? (y/n)
+            This tool plugin adds tools that run in-process with full agent access. Enable and trust it? (y/n) — takes effect next launch.
           </Text>
         </Box>
       )}
