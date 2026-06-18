@@ -54,12 +54,15 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
   // Add-by-path mode: when non-null, the field captures a filesystem path.
   const [addingPath, setAddingPath] = useState<string | null>(null);
   const [addStatus, setAddStatus] = useState<Status | null>(null);
+  // Consent mode: when set to a plugin id, a tool plugin is awaiting y/n consent.
+  const [consenting, setConsenting] = useState<string | null>(null);
 
   const active = plugins.length > 0 ? Math.min(selected, plugins.length - 1) : 0;
   const current = plugins[active];
 
   const credValue = (id: string, key: string): string => config[id]?.credentials?.[key] ?? "";
   const isEnabled = (id: string): boolean => config[id]?.enabled === true;
+  const isConsented = (id: string): boolean => config[id]?.consented === true;
 
   const persist = (id: string, cfg: PluginConfig): void => {
     setConfig((prev) => ({ ...prev, [id]: cfg }));
@@ -100,6 +103,15 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
   };
 
   useInput((input, key) => {
+    if (consenting !== null) {
+      if (input === "y" || input === "Y") {
+        const existing = config[consenting] ?? {};
+        persist(consenting, { ...existing, enabled: true, consented: true });
+      }
+      setConsenting(null);
+      return;
+    }
+
     if (addingPath !== null) {
       if (key.escape) { setAddingPath(null); setAddStatus(null); return; }
       if (key.return) { commitAddPath(); return; }
@@ -124,7 +136,14 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
     if (current === undefined) return;
 
     if (input === "e") {
-      persist(current.id, { ...(config[current.id] ?? {}), enabled: !isEnabled(current.id) });
+      const enabling = !isEnabled(current.id);
+      // Enabling a tool plugin for the first time needs explicit consent — its
+      // tools run in-process.
+      if (enabling && current.kind === "tool" && !isConsented(current.id)) {
+        setConsenting(current.id);
+        return;
+      }
+      persist(current.id, { ...(config[current.id] ?? {}), enabled: enabling });
       return;
     }
     if (input === "w" && current.kind === "web") {
@@ -133,7 +152,7 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
       void admin.setWebOverride(next);
       return;
     }
-    if (input === "v" && current.kind === "web") { runVerify(); return; }
+    if (input === "v" && (current.kind === "web" || current.kind === "tool")) { runVerify(); return; }
     if (/^[1-9]$/.test(input)) {
       const field = current.credentials[Number(input) - 1];
       if (field !== undefined) {
@@ -164,6 +183,7 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
                 {p.kind !== undefined && <Text color={color("dim")} dimColor>{`[${p.kind}]`}</Text>}
                 <Text color={enabled ? color("success") : color("dim")}>{enabled ? "● enabled" : "○ disabled"}</Text>
                 {webActive && <Text color={color("accent")}>web override</Text>}
+                {p.kind === "tool" && isConsented(p.id) && <Text color={color("dim")} dimColor>consented</Text>}
               </Box>
               {isActive && p.description !== undefined && (
                 <Box marginLeft={2}><Text color={color("muted")}>{p.description}</Text></Box>
@@ -213,13 +233,22 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
           <Text color={addStatus.ok ? color("success") : color("danger")}>{`${addStatus.ok ? "✓" : "✗"} ${addStatus.message ?? ""}`}</Text>
         </Box>
       )}
+      {consenting !== null && (
+        <Box marginTop={1}>
+          <Text color={color("warning")}>
+            This tool plugin adds tools that run in-process with full agent access. Enable and trust it? (y/n)
+          </Text>
+        </Box>
+      )}
       <Box marginTop={1}>
         <Text color={color("muted")}>
-          {addingPath !== null
-            ? "type a file or directory path · Enter add · Esc cancel"
-            : editing !== null
-              ? "type value · Enter save · Esc cancel"
-              : "↑↓ select · 1-9 edit credential · e enable · w web override · v verify · a add by path · Esc close"}
+          {consenting !== null
+            ? "y to consent and enable · any other key to cancel"
+            : addingPath !== null
+              ? "type a file or directory path · Enter add · Esc cancel"
+              : editing !== null
+                ? "type value · Enter save · Esc cancel"
+                : "↑↓ select · 1-9 edit credential · e enable · w web override · v verify · a add by path · Esc close"}
         </Text>
       </Box>
     </Box>

@@ -1,8 +1,12 @@
 # Plugin Design System
 
-Status: **proposal** — a plan to unify the several plugin mechanisms that grew
-independently into one coherent, manifest-driven system. Nothing here is built
-yet beyond the web-provider slice noted under "Current state."
+Status: **implemented** — the unified, manifest-driven system described below is
+in place. Plugins self-describe with a `manifest` (`kind: web | command | tool`),
+are auto-discovered (plus explicit `pluginPaths`), are wired in only when
+explicitly enabled, and are managed through the `/plugins` UI. The sections
+below double as the reference for the system and the record of why it is shaped
+this way. (The "Current state (the problem)" section is retained as the
+historical motivation.)
 
 ## Goals
 
@@ -124,33 +128,31 @@ web = trial search; others = load/contract check), and the kind-selector toggle
 where relevant (web override). Add-by-path (`a`) already exists. Everything
 persists to global settings immediately.
 
-## Migration plan (phased, each phase ships independently)
+## Migration plan (all phases landed)
 
-**Phase 0 — land the web-provider slice (done / in review).**
+**Phase 0 — web-provider slice (done).**
 Manifest type, `kind`, `settings.plugins`/`web`/`pluginPaths`, web resolution,
-tool-name branding, `/plugins` UI, add-by-path. This is the seed the rest grows
-from.
+tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 
-**Phase 1 — command kind + enabled gating.**
-- Require a `manifest` for discovered plugins; route strictly by `kind`.
-- A single `registerDiscoveredPlugins(modules, config)` routes by `kind`, and
-  only wires a plugin when `settings.plugins[id].enabled` is true.
-- `command` plugins register their slash commands only when enabled (fixes the
-  dead workflow-discovery path, problem #2, by routing the same way as web).
-- Migrate the bundled `linear-workflows` plugin to declare a manifest.
-- Remove `settings.workflowPlugins`/`agentPlugins` and their loaders.
-- `/plugins` lists command plugins with enable/disable.
+**Phase 1 — command kind + enabled gating (done).**
+- `command` plugins (`commandPlugin` export) register their slash commands only
+  when `settings.plugins[id].enabled` is true, via `registerCommandPlugins`
+  (`src/plugins/register.ts`); enabling one in `/plugins` wires it in live.
+- The bundled `linear-workflows` plugin declares a manifest and is gated this way
+  (it no longer auto-loads).
+- Removed `settings.workflowPlugins`/`agentPlugins` and their loaders.
 
-**Phase 2 — tool kind with consent.**
-- Allow `kind: "tool"` plugins to contribute posix `ToolPlugin`s at runtime,
-  wired into the toolset in `run-agent` and `tools.ts`.
-- Enabling a tool plugin requires explicit one-time consent recorded in
-  `settings.plugins[id]`; without consent its tools are not wired.
-- `/plugins` shows the consent prompt and tool-plugin status.
+**Phase 2 — tool kind with consent (done).**
+- `kind: "tool"` plugins export `createToolPlugin(credentials)` and contribute
+  posix `ToolPlugin`s, resolved in `src/plugins/tool-plugins.ts` and wired into
+  the toolset in `run-agent.ts` and `tools.ts` (appended last, so they cannot
+  shadow core middleware).
+- A tool plugin is wired in only when **enabled AND consented**. Enabling one in
+  `/plugins` prompts a one-time y/n consent recorded in `settings.plugins[id]`.
 
-**Phase 3 — polish.**
-- Per-kind verify implementations in `/plugins`.
-- Docs + a worked example plugin of each kind.
+**Phase 3 — polish (done).**
+- Per-kind verify in `/plugins` (web = trial search; tool = load check).
+- `plugins/example-tool` is a worked example of a `tool` plugin.
 
 ## Decisions (locked)
 

@@ -61,6 +61,10 @@ export type Settings = {
 
 export type PluginConfig = {
   enabled?: boolean;
+  // One-time consent for a tool plugin (kind "tool"). Its tools add in-process
+  // capabilities to the agent, so they are only wired in once the user has
+  // consented in the /plugins UI. Ignored for other kinds.
+  consented?: boolean;
   credentials?: Record<string, string>;
 };
 
@@ -170,7 +174,7 @@ const SettingsSchema = type({
   "mcpServers?": "unknown",
   "tiers?": TiersSchema,
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
-  "plugins?": type({ "[string]": type({ "enabled?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
+  "plugins?": type({ "[string]": type({ "enabled?": "boolean", "consented?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
   "pluginPaths?": "string[]",
   "web?": "string",
   "hiddenCommands?": "string[]",
