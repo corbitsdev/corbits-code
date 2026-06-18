@@ -94,6 +94,7 @@ src/
   permission/
     classify.ts           Tool tier + approval-request construction
     command.ts            Chained-command split + command scopes
+    auto-shell-policy.ts  Auto-mode run_shell deny/ask rule table
     gate.ts               Permission gate evaluation
     matcher.ts            Approval glob matching
     store.ts              Per-directory approval persistence
