@@ -8,6 +8,7 @@ import { Header } from "./components/header.js";
 import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
+import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
 import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
@@ -19,7 +20,8 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
-import type { Settings } from "../config/settings.js";
+import { markOnboarded, type Settings } from "../config/settings.js";
+import { getLogger } from "@intx/log";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { color } from "./theme.js";
@@ -262,6 +264,14 @@ export type AppProps = {
   // The original settings from disk, used to preserve non-provider fields
   // when the provider catalog is persisted.
   initialSettings?: Settings;
+  // The `onboarded` flag read from the GLOBAL settings file specifically (never
+  // a --config/project file). This is global user state: it decides whether the
+  // welcome animation plays on first run and is the single source of truth for
+  // "first run", independent of which settings file --config pointed resolution at.
+  globallyOnboarded?: boolean;
+  // The TRUE global settings file path (never a --config/project file). The
+  // `onboarded` flag is always written here. Defaults to globalSettingsPath.
+  globalOnboardingPath?: string;
 };
 
 export function App({
@@ -293,6 +303,8 @@ export function App({
   initialProfiles = [],
   profilesDir,
   initialSettings,
+  globallyOnboarded = false,
+  globalOnboardingPath,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -310,6 +322,13 @@ export function App({
   const mcpStatus = useMCPStatus(eventEmitter);
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
+  // First run is determined solely by the global `onboarded` flag, never by
+  // initialSettings (which may be a --config/project file). The animation plays
+  // only on first run; afterwards the flag is stamped into the global file.
+  const isFirstTime = !globallyOnboarded;
+  // The welcome animation plays only on first run; returning users go straight
+  // to the app.
+  const [onboardingDone, setOnboardingDone] = useState(!isFirstTime);
   const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
@@ -913,6 +932,40 @@ export function App({
     if (permissionsAdmin === undefined) return;
     void permissionsAdmin.revoke(entry).then(refreshPermissions);
   };
+
+  const handleOnboardingComplete = () => {
+    setOnboardingDone(true);
+    if (!isFirstTime) return;
+
+    // `runOnboarding` (src/tui/onboarding.tsx) is the single owner of first-run
+    // provider setup. Only prompt for a provider here when none is configured —
+    // never re-ask a user who just configured one through runOnboarding.
+    if (providers.length === 0) {
+      setAgentModalOpen(true);
+    }
+
+    // Stamp the `onboarded` flag into the GLOBAL settings file. markOnboarded
+    // reads the file fresh — it never spreads `initialSettings`, which carries
+    // synthetic OAuth provider entries with short-lived access tokens (see
+    // providerCatalogToSettings) that must never be written to settings.json.
+    void markOnboarded(globalOnboardingPath ?? globalSettingsPath).catch((err: unknown) => {
+      getLogger(["intercode", "tui", "onboarding"]).error(
+        "Failed to persist onboarded flag: {error}",
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+    });
+  };
+
+  if (!onboardingDone) {
+    return (
+      <OnboardingAnimation
+        onComplete={handleOnboardingComplete}
+        rows={rows}
+        columns={columns}
+        isFirstTime={isFirstTime}
+      />
+    );
+  }
 
   return (
     <Box flexDirection="column" height={rows}>

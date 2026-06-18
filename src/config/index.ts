@@ -471,6 +471,7 @@ export function providerCatalogToSettings(
         ...(existing.pluginPaths !== undefined ? { pluginPaths: existing.pluginPaths } : {}),
         ...(existing.web !== undefined ? { web: existing.web } : {}),
         ...(existing.hiddenCommands !== undefined ? { hiddenCommands: existing.hiddenCommands } : {}),
+        ...(existing.onboarded !== undefined ? { onboarded: existing.onboarded } : {}),
       }
     : {};
   return {

@@ -13,9 +13,9 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
+import { globalSettingsPath, loadSettings, saveGlobalSettings, type Settings, type PluginConfig } from "../config/settings.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
-import { loadSettings, saveGlobalSettings, type Settings, type PluginConfig } from "../config/settings.js";
 import type { PluginsAdmin, PluginDescriptor } from "./components/plugins-manager.js";
 import type { PluginManifest } from "../plugins/manifest.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
@@ -699,6 +699,14 @@ export async function runTUI(config: Config): Promise<number> {
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
   // and restore it on exit (including abrupt process exit) so history returns.
+  // The `onboarded` flag is global user state: read and written against the TRUE
+  // global settings file, never config.globalSettingsPath (which is the --config
+  // file when one was given). This keeps first-run detection consistent and stops
+  // a --config launch from stamping project-config contents into the global file.
+  const trueGlobalSettingsPath = globalSettingsPath();
+  const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
+  const globallyOnboarded = globalSettingsForOnboarding?.onboarded === true;
+
   const exitAltScreen = enterAltScreen();
 
   // Render first so the App's gate listeners are registered before it sends the
@@ -714,6 +722,8 @@ export async function runTUI(config: Config): Promise<number> {
       {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}
       providers={config.providers}
       globalSettingsPath={config.globalSettingsPath}
+      globalOnboardingPath={trueGlobalSettingsPath}
+      globallyOnboarded={globallyOnboarded}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
