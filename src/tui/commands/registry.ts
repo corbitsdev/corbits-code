@@ -1,6 +1,4 @@
 export type CommandContext = {
-  getVerbose: () => boolean;
-  toggleVerbose: () => boolean;
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
   // Start a workflow by name; returns a status message to surface to the user.
@@ -14,7 +12,7 @@ export type CommandContext = {
 export type CommandResult =
   | { type: "message"; text: string }
   | { type: "send"; text: string }
-  | { type: "view"; view: "tasks" | "diff" }
+  | { type: "view"; view: "tasks" }
   | { type: "overlay"; overlay: "help" | "permissions" }
   | { type: "modal"; modal: "agent" | "codex-login" }
   | { type: "workflow"; name: string; args?: string }

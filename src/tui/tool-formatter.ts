@@ -153,7 +153,7 @@ function abbreviate(value: string, max: number): string {
 
 /**
  * Render tool arguments as a human-readable "key: value" line rather than raw
- * JSON. The full form keeps every pair on its own line for the /verbose reveal.
+ * JSON. The full form keeps every pair on its own line for the Ctrl+O reveal.
  */
 export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSummary {
   const obj = tryParseObject(rawArgs);
@@ -254,7 +254,7 @@ function webFetchSummary(raw: string): ToolResultSummary | null {
 
 /**
  * Collapse a tool result to a single human-readable preview line. The raw
- * content is preserved in `full` for the /verbose reveal. `isJSONDocument` is
+ * content is preserved in `full` for the Ctrl+O reveal. `isJSONDocument` is
  * true ONLY when the content is genuinely a JSON document the user would want
  * to read as JSON — never for tool envelopes or status strings.
  */

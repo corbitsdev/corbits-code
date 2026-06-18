@@ -152,6 +152,32 @@ test("Up/Down arrows move cursor between lines of a multi-line prompt", async ()
   expect(afterUp).toMatch(/first.*▏/s);
 });
 
+test("Alt+Enter while processing queues without inserting escape bytes", async () => {
+  let current = "follow up";
+  let submitted: string | null = null;
+  function Harness() {
+    const [v, setV] = useState(current);
+    current = v;
+    return (
+      <ChatInput
+        onSubmit={(message) => { submitted = message; }}
+        onCommand={() => {}}
+        commandContext={noopContext}
+        value={v}
+        onChange={(value) => { current = value; setV(value); }}
+        isProcessing={true}
+      />
+    );
+  }
+  const { stdin } = render(<Harness />);
+  await Promise.resolve();
+  stdin.write("\x1B\r");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(submitted).toBe("follow up");
+  expect(current).toBe("");
+});
+
 test("ChatInput silently consumes SGR mouse scroll sequences", async () => {
   let current = "";
   const seq = "\x1B[<64;20;44M";  // scroll up event

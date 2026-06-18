@@ -116,7 +116,7 @@ src/
     theme.ts              Colors
     commands/
       registry.ts         Extensible slash-command registry
-      built-in.ts         /help, /diff, /verbose, /agent (/model alias)
+      built-in.ts         /help, /model, /permissions, /workflows, /clear, /new, /mcp
       plan.ts             /plan-mode slash command (cycles to Plan mode)
     components/
       header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx,
