@@ -14,7 +14,7 @@ export function AtSuggestions({ suggestions, selectedIdx }: AtSuggestionsProps):
       {suggestions.map((s, i) => (
         <Box key={s} flexDirection="row">
           <Text color={i === clamped ? "cyan" : "white"} bold={i === clamped} wrap="truncate-end">
-            @{s}
+            {s}
           </Text>
         </Box>
       ))}
