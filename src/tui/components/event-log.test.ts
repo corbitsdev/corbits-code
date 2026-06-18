@@ -83,4 +83,20 @@ describe("flat line buffer", () => {
     expect(text).toContain("[ts code block hidden: 20 lines]");
     expect(text).not.toContain("line 19");
   });
+
+  test("tool errors strip terminal mouse and CSI control sequences", () => {
+    const block: ContentBlock = {
+      type: "tool_result",
+      id: "mouse-error",
+      callId: "shell-1",
+      name: "run_shell",
+      content: "failed [<0;29;35M\u001B[31m badly",
+      isError: true,
+    };
+
+    const text = lineText(buildLines([block], COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("error: failed  badly");
+    expect(text).not.toContain("[<0;29;35M");
+    expect(text).not.toContain("\u001B");
+  });
 });

@@ -22,6 +22,6 @@ export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/workflows", description: "Pick and start a coding workflow" },
   { keys: "/agent", description: "Configure provider, model, tiers, and profiles" },
   { keys: "/permissions", description: "View and revoke remembered approvals" },
-  { keys: "/auto", description: "Toggle auto-approve for writes/edits and safe shell" },
+  { keys: "/auto", description: "Explain default approval behavior" },
   { keys: "/verbose", description: "Toggle full tool output" },
 ];

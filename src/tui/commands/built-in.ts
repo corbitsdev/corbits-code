@@ -17,14 +17,12 @@ registerCommand({
 
 registerCommand({
   name: "auto",
-  description: "Toggle auto-approve for file writes/edits and safe shell (recoverable via git)",
+  description: "Explain default approval behavior",
   handler: (_args, ctx) => {
-    const enabled = ctx.toggleAuto();
+    ctx.toggleAuto();
     return {
       type: "message",
-      text: enabled
-        ? "Auto mode on — file writes/edits (recoverable via git) and safe shell run without asking."
-        : "Auto mode off — every file write/edit and command will ask first.",
+      text: "Default approvals are on — safe actions run, risky actions ask, malicious actions are blocked.",
     };
   },
 });

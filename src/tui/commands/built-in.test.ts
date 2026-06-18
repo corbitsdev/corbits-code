@@ -65,14 +65,12 @@ describe("/auto command", () => {
     expect(getCommand("auto")).toBeDefined();
   });
 
-  it("toggles auto state and reports it", () => {
+  it("explains the default approval behavior", () => {
     const ctx = makeCtx();
-    const on = getCommand("auto")!.handler("", ctx);
-    expect(ctx.getAuto()).toBe(true);
-    if (on.type === "message") expect(on.text).toContain("on");
-    const off = getCommand("auto")!.handler("", ctx);
-    expect(ctx.getAuto()).toBe(false);
-    if (off.type === "message") expect(off.text).toContain("off");
+    const result = getCommand("auto")!.handler("", ctx);
+    if (result.type !== "message") throw new Error("expected message result");
+    expect(result.text).toContain("Default approvals are on");
+    expect(result.text).toContain("risky actions ask");
   });
 });
 
