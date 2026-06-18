@@ -43,7 +43,7 @@ export function Header({ sessionTitle, latestUserMessage, width, profile, workfl
           {workflow !== undefined && (
             <Box>
               <Text color={color("accent")}>
-                {`\u27F3 ${truncate(`${workflow.name} \u00B7 ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`, Math.max(16, Math.floor(width * 0.4)))}`}
+                ⟳ {truncate(`${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`, Math.max(16, Math.floor(width * 0.4)))}
               </Text>
             </Box>
           )}
@@ -55,7 +55,7 @@ export function Header({ sessionTitle, latestUserMessage, width, profile, workfl
         )}
       </Box>
       {latestUserMessage.length > 0 && (
-        <Text color={color("muted")} dimColor>{`\u25B8 ${truncate(latestUserMessage, Math.max(20, width - 4))}`}</Text>
+        <Text color={color("muted")} dimColor>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
       )}
     </Box>
   );

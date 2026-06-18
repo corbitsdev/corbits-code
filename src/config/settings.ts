@@ -344,6 +344,17 @@ export async function saveGlobalSettings(path: string, settings: Settings): Prom
   await rename(tmp, path);
 }
 
+// Stamp the global `onboarded` flag. Reads the on-disk global settings fresh
+// (never an in-memory Settings that may carry injected OAuth provider entries
+// with short-lived access tokens) and re-saves with onboarded set. When the
+// file is absent a minimal valid Settings is written, so no provider — and thus
+// no credential — is ever invented here.
+export async function markOnboarded(path: string): Promise<void> {
+  const onDisk = await loadSettings(path);
+  const base: Settings = onDisk ?? { providers: {} };
+  await saveGlobalSettings(path, { ...base, onboarded: true });
+}
+
 // Persist the per-repo provider/model selection. This is where the /agent modal
 // writes a "default for this project": selection only, never credentials, so
 // the file stays safe to leave gitignored in the repo. Validated before writing

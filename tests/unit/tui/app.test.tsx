@@ -36,6 +36,7 @@ function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1]
       providers={[testProvider]}
       globalSettingsPath="/tmp/intercode-test-settings.json"
       globalDefaultProvider="test-provider"
+      globallyOnboarded={true}
       cwd="/tmp"
       initialTask={initialTask ?? ""}
     />,
@@ -197,6 +198,7 @@ test("App keeps header and footer visible after many events", async () => {
       providers={[testProvider]}
       globalSettingsPath="/tmp/intercode-test-settings.json"
       globalDefaultProvider="test-provider"
+      globallyOnboarded={true}
       cwd="/tmp"
     />,
     { stdout: { columns: 100, rows: 12 } },
@@ -257,6 +259,7 @@ test("/model editing a non-default provider preserves the global default", async
         ]}
         globalSettingsPath={globalSettingsPath}
         globalDefaultProvider="a"
+        globallyOnboarded={true}
         cwd={dir}
       />,
       { stdout: { columns: 120, rows: 30 } },
@@ -290,6 +293,7 @@ test("/model deleting a non-default provider preserves the global default", asyn
         ]}
         globalSettingsPath={globalSettingsPath}
         globalDefaultProvider="a"
+        globallyOnboarded={true}
         cwd={dir}
       />,
       { stdout: { columns: 120, rows: 30 } },

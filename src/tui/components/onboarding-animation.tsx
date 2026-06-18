@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState, useEffect, useRef } from "react";
 import { color } from "../theme.js";
@@ -7,7 +7,7 @@ export type OnboardingAnimationProps = {
   onComplete: () => void;
   rows: number;
   columns: number;
-  isFirstTime?: boolean;
+  isFirstTime: boolean;
 };
 
 const BRAND = "Intercode";
@@ -17,11 +17,10 @@ const TYPE_INTERVAL_MS = 65;
 const TAGLINE_DELAY_MS = 300;
 const HOLD_MS = 800;
 const EXIT_MS = 700;
-const EXIT_STEPS = 14;
 
 type Phase = "typing" | "hold" | "exit";
 
-export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime = true }: OnboardingAnimationProps): ReactNode {
+export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime }: OnboardingAnimationProps): ReactNode {
   const prefix = isFirstTime ? "Welcome to " : "Welcome back to ";
   const fullPhrase = `${prefix}${BRAND}`;
 
@@ -29,8 +28,16 @@ export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime = t
   const [typed, setTyped] = useState(0);
   const [taglineVisible, setTaglineVisible] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
-  const [exitStep, setExitStep] = useState(0);
   const completedRef = useRef(false);
+
+  const complete = (): void => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    onComplete();
+  };
+
+  // Any keypress dismisses the animation immediately.
+  useInput(() => complete());
 
   // Blink cursor while typing
   useEffect(() => {
@@ -58,43 +65,24 @@ export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime = t
     return () => clearTimeout(t);
   }, [phase]);
 
-  // Exit: "Intercode" slides from center to the bottom-right corner
+  // Exit: the screen slides away and the animation completes once it lands.
   useEffect(() => {
     if (phase !== "exit") return;
-    const stepMs = EXIT_MS / EXIT_STEPS;
-    let step = 0;
-    const interval = setInterval(() => {
-      step++;
-      setExitStep(step);
-      if (step >= EXIT_STEPS) {
-        clearInterval(interval);
-        if (!completedRef.current) {
-          completedRef.current = true;
-          onComplete();
-        }
-      }
-    }, stepMs);
-    return () => clearInterval(interval);
-  }, [phase, onComplete]);
+    const t = setTimeout(complete, EXIT_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
 
-  const progress = exitStep / EXIT_STEPS;
-
-  // --- Exit phase: brand slides toward bottom-right ---
+  // --- Exit phase: brand fades toward the bottom-right ---
   if (phase === "exit") {
     const brandWidth = BRAND.length;
-    const centerH = Math.floor((columns - brandWidth) / 2);
-    const rightH = Math.max(0, columns - brandWidth - 1);
-    const paddingLeft = Math.round(centerH + (rightH - centerH) * progress);
-
-    const centerV = Math.floor((rows - 1) / 2);
-    const bottomV = Math.max(0, rows - 1);
-    const paddingTop = Math.round(centerV + (bottomV - centerV) * progress);
+    const paddingLeft = Math.max(0, columns - brandWidth - 1);
+    const paddingTop = Math.max(0, rows - 1);
 
     return (
       <Box flexDirection="column" height={rows} width={columns}>
         <Box paddingTop={paddingTop}>
           <Box paddingLeft={paddingLeft}>
-            <Text bold color={color("brand")} dimColor={progress > 0.45}>
+            <Text bold color={color("brand")} dimColor>
               {BRAND}
             </Text>
           </Box>
@@ -124,7 +112,7 @@ export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime = t
             <Text>
               <Text color={color("muted")} dimColor>{typedPrefix}</Text>
               <Text bold color={color("brand")}>{typedBrand}</Text>
-              {showCursor && <Text color={color("accent")}>{"\u258B"}</Text>}
+              {showCursor && <Text color={color("accent")}>{"▋"}</Text>}
             </Text>
           </Box>
           {taglineVisible && (
