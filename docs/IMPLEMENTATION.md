@@ -279,11 +279,15 @@ The TUI `EventEmitter` (bridging runner → React) also carries:
 - `faremeter` converts `inference.usage` counts into a formatted `$X.XXXX` cost
 - The same models.dev payload also yields per-model context windows (`limit.context`), captured into the pricing cache (`contextWindows`) and loaded into `src/provider/context-window.ts`. `compactionThresholdFor(model)` returns ~60% of that window (falling back to per-family heuristics, then 128k) to size proactive compaction. Unknown/family-only models still get a sane default.
 
-### Web provider plugin
+### Plugin system
 
-- Web providers are auto-discovered plugins. A plugin exports a `manifest` (`{ id, name, kind: "web", credentials: [...] }`) and a `createWebProvider(credentials)` factory; the loader scans `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`. At startup `resolveWebProviderFromPlugins` selects the active web plugin (the `settings.web` id override, else the single enabled web plugin), instantiates it with credentials from `settings.plugins[id].credentials`, and falls back to the local provider on failure. Core contains no provider-specific code; concrete providers live under top-level `plugins/` (e.g. `plugins/exa`).
-- Plugins are auto-discovered from `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path to `pluginPaths`.
-- Configure via the `/plugins` UI, which writes `settings.plugins` (enabled flag + credentials), `settings.web` (active web plugin id), and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
+See `docs/PLUGINS.md` for the full design. Summary:
+
+- Every installable plugin exports a `manifest` (`{ id, name, kind, description?, credentials? }`) with `kind` one of `web | command | tool`. A workflow is just a slash command, so there is no separate workflow/agent kind.
+- Plugins are auto-discovered from `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path. Discovery resolves relative imports to absolute first (`loadPluginEntry`).
+- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `web` → `resolveWebProviderFromPlugins` picks the active backend (`settings.web` id override, else the single enabled web plugin) and falls back to the local provider on failure; `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset in `run-agent.ts`/`tools.ts`.
+- **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
+- Configure via `/plugins`, which writes `settings.plugins` (enabled / consented / credentials), `settings.web`, and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. When a web plugin is active its tool calls render under its brand (e.g. "Exa Search"). Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
 
 ## Build and Validation
 

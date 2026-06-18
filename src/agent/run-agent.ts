@@ -38,7 +38,8 @@ import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { setActiveWebProviderBrand } from "../tui/tool-formatter.js";
-import { discoverRepoPlugins, discoverUserPlugins } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, loadPluginsFromPaths } from "../plugins/loader.js";
+import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -177,6 +178,7 @@ export async function runAgent(
   const pluginModules = [
     ...(await discoverRepoPlugins()),
     ...(await discoverUserPlugins(config.cwd)),
+    ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
   ];
   const activeWeb = await resolveWebProviderFromPlugins({
     candidates: collectWebPlugins(pluginModules),
@@ -185,6 +187,10 @@ export async function runAgent(
   });
   if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
   const webProvider = activeWeb?.provider;
+  const extraToolPlugins = await resolveToolPlugins({
+    candidates: collectToolPlugins(pluginModules),
+    pluginConfig: config.settings?.plugins ?? {},
+  });
 
   const posixTools = createPosixTools({
     cwd: config.cwd,
@@ -199,6 +205,8 @@ export async function runAgent(
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
       createLSPPlugin({ cwd: config.cwd, minSeverity: 1 }),
       mcpPlugin,
+      // User tool plugins last so they cannot shadow core middleware.
+      ...extraToolPlugins,
     ],
   });
 

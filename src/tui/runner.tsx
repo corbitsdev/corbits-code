@@ -43,6 +43,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
+import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import {
   loadApprovals,
@@ -199,6 +200,13 @@ export async function runTUI(config: Config): Promise<number> {
   if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
   const webProvider = activeWeb?.provider;
 
+  // Tool plugins are wired in only when enabled AND consented.
+  const toolPluginCandidates = collectToolPlugins(pluginModules);
+  const extraToolPlugins = await resolveToolPlugins({
+    candidates: toolPluginCandidates,
+    pluginConfig: config.settings?.plugins ?? {},
+  });
+
   // /plugins UI backend: discovered plugin descriptors plus live, persisted
   // config (enabled flag, credentials, web override, extra paths) written to the
   // global settings file. Verify runs a real trial search through the web
@@ -249,8 +257,20 @@ export async function runTUI(config: Config): Promise<number> {
       await persistPluginSettings();
     },
     verify: async (id, credentials) => {
+      // Tool plugins verify by loading (the factory must construct without
+      // error and yield at least one tool).
+      const toolCand = toolPluginCandidates.find((c) => c.id === id);
+      if (toolCand !== undefined) {
+        try {
+          const plugin = await toolCand.factory(credentials);
+          const count = plugin.tools?.length ?? 0;
+          return { ok: true, message: `loaded — ${count} tool${count === 1 ? "" : "s"}` };
+        } catch (err) {
+          return { ok: false, message: err instanceof Error ? err.message : String(err) };
+        }
+      }
       const candidate = webPluginCandidates.find((c) => c.id === id);
-      if (candidate === undefined) return { ok: false, message: "Not a web plugin" };
+      if (candidate === undefined) return { ok: false, message: "Nothing to verify for this plugin" };
       try {
         const provider = await candidate.factory(credentials);
         const controller = new AbortController();
@@ -286,6 +306,11 @@ export async function runTUI(config: Config): Promise<number> {
         if (ci >= 0) webPluginCandidates.splice(ci, 1, cand);
         else webPluginCandidates.push(cand);
       }
+      for (const cand of collectToolPlugins([mod])) {
+        const ci = toolPluginCandidates.findIndex((c) => c.id === cand.id);
+        if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
+        else toolPluginCandidates.push(cand);
+      }
       if (!livePluginPaths.includes(path)) livePluginPaths.push(path);
       await persistPluginSettings();
       return { ok: true, message: `Added ${descriptor.name}`, id: descriptor.id };
@@ -296,6 +321,7 @@ export async function runTUI(config: Config): Promise<number> {
     cwd: config.cwd,
     permissionGate,
     ...(webProvider !== undefined ? { webProvider } : {}),
+    ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
         const event: OperatorGateEvent = { question, options, resolve };

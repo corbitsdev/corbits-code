@@ -14,6 +14,9 @@ export type PluginModule = {
   // A web provider factory: (options: unknown) => WebProvider | Promise<WebProvider>.
   // Typed as unknown here so this module doesn't pull in the full web type graph.
   createWebProvider?: unknown;
+  // A tool plugin factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>.
+  // Typed as unknown so this module doesn't pull in the tools-posix type graph.
+  createToolPlugin?: unknown;
 };
 
 // Attempt to load a single plugin directory entry (a file or a directory with
@@ -55,10 +58,13 @@ export async function loadPluginEntry(entryPath: string): Promise<PluginModule |
     if (mod.commandPlugin != null && typeof mod.commandPlugin === "object" && "commands" in mod.commandPlugin) {
       result.commandPlugin = mod.commandPlugin as CommandPlugin;
     }
-    if (typeof mod.createWebProvider === "function") {
-      result.createWebProvider = mod.createWebProvider;
-    } else if (mod.default != null && typeof mod.default === "function") {
-      result.createWebProvider = mod.default;
+    if (typeof mod.createWebProvider === "function") result.createWebProvider = mod.createWebProvider;
+    if (typeof mod.createToolPlugin === "function") result.createToolPlugin = mod.createToolPlugin;
+    // A default-exported factory maps to the factory for the manifest's kind, so
+    // web and tool plugins can both just `export default`.
+    if (typeof mod.default === "function") {
+      if (manifest?.kind === "tool" && result.createToolPlugin === undefined) result.createToolPlugin = mod.default;
+      else if (result.createWebProvider === undefined) result.createWebProvider = mod.default;
     }
     return result;
   } catch (err) {
