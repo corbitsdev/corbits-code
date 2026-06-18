@@ -6,8 +6,14 @@ export type { WebProvider, WebResult } from "./types.js";
 export { createLocalProvider, type LocalProviderOptions } from "./providers/local.js";
 export {
   getWebProvider,
-  loadWebProvider,
-  resolveWebProviderFromSettings,
   resetWebProvider,
   withRetry,
 } from "./providers/index.js";
+export {
+  collectWebPlugins,
+  resolveWebProviderFromPlugins,
+  selectWebPlugin,
+  webBrand,
+  type WebPluginCandidate,
+  type ActiveWebProvider,
+} from "./plugin-provider.js";

@@ -281,8 +281,9 @@ The TUI `EventEmitter` (bridging runner → React) also carries:
 
 ### Web provider plugin
 
-- `settings.webProvider` is a module specifier and `settings.webProviderOptions` an opaque options object. At startup `resolveWebProviderFromSettings` dynamically imports the specifier and calls its `createWebProvider(options)` (default or named export), validating the returned shape. Core contains no provider-specific code; concrete providers live under top-level `plugins/` (e.g. `plugins/exa`). On load failure it logs to stderr and falls back to the local provider rather than crashing.
-- Enable example: `{ "webProvider": "./plugins/exa/src/index.ts", "webProviderOptions": { "apiKey": "..." } }`.
+- Web providers are auto-discovered plugins. A plugin exports a `manifest` (`{ id, name, kind: "web", credentials: [...] }`) and a `createWebProvider(credentials)` factory; the loader scans `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`. At startup `resolveWebProviderFromPlugins` selects the active web plugin (the `settings.web` id override, else the single enabled web plugin), instantiates it with credentials from `settings.plugins[id].credentials`, and falls back to the local provider on failure. Core contains no provider-specific code; concrete providers live under top-level `plugins/` (e.g. `plugins/exa`).
+- Plugins are auto-discovered from `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path to `pluginPaths`.
+- Configure via the `/plugins` UI, which writes `settings.plugins` (enabled flag + credentials), `settings.web` (active web plugin id), and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
 
 ## Build and Validation
 
