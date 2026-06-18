@@ -1,17 +1,18 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 
-// Re-import module fresh each test by clearing the registry manually.
-// We test the exported API directly.
-import { registerCommand, getCommand, listCommands } from "./registry.js";
+import { registerCommand, registerCommandPlugin, getCommand, listCommands, setHiddenCommands } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
 const ctx: CommandContext = {
   signalClear: () => {},
 };
 
-describe("command registry", () => {
-  // Each test registers its own uniquely-named commands to avoid order-dependence.
+afterEach(() => {
+  // Reset hidden commands between tests so they don't bleed.
+  setHiddenCommands([]);
+});
 
+describe("command registry", () => {
   it("registers and retrieves a command", () => {
     registerCommand({
       name: "test-get",
@@ -61,5 +62,46 @@ describe("command registry", () => {
     getCommand("test-handler")?.handler("hello world", { signalClear: () => { clearCalled = true; } });
     expect(receivedArgs).toBe("hello world");
     expect(clearCalled).toBe(true);
+  });
+});
+
+describe("registerCommandPlugin", () => {
+  it("registers all commands from a plugin", () => {
+    registerCommandPlugin({
+      commands: [
+        { name: "plugin-cmd-a", description: "a", handler: () => ({ type: "noop" }) },
+        { name: "plugin-cmd-b", description: "b", handler: () => ({ type: "noop" }) },
+      ],
+    });
+    expect(getCommand("plugin-cmd-a")).toBeDefined();
+    expect(getCommand("plugin-cmd-b")).toBeDefined();
+  });
+});
+
+describe("setHiddenCommands", () => {
+  it("hides named commands from listCommands", () => {
+    registerCommand({ name: "visible-cmd", description: "visible", handler: () => ({ type: "noop" }) });
+    registerCommand({ name: "hidden-cmd", description: "hidden", handler: () => ({ type: "noop" }) });
+
+    setHiddenCommands(["hidden-cmd"]);
+
+    const names = listCommands().map((c) => c.name);
+    expect(names).toContain("visible-cmd");
+    expect(names).not.toContain("hidden-cmd");
+  });
+
+  it("getCommand still returns hidden commands", () => {
+    registerCommand({ name: "hidden-but-callable", description: "x", handler: () => ({ type: "noop" }) });
+    setHiddenCommands(["hidden-but-callable"]);
+    expect(getCommand("hidden-but-callable")).toBeDefined();
+  });
+
+  it("clearing hidden set restores visibility", () => {
+    registerCommand({ name: "restore-cmd", description: "x", handler: () => ({ type: "noop" }) });
+    setHiddenCommands(["restore-cmd"]);
+    expect(listCommands().map((c) => c.name)).not.toContain("restore-cmd");
+
+    setHiddenCommands([]);
+    expect(listCommands().map((c) => c.name)).toContain("restore-cmd");
   });
 });

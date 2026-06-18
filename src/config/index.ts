@@ -4,12 +4,18 @@ import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
 import { setModelReasoningCapabilities, validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { readPricingCache } from "../cost/pricing-fetcher.js";
-import { listCodexProfiles } from "../auth/codex/store.js";
+import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
+import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
 import {
   codexProfilesToCatalogEntries,
   codexProvidersAsSettings,
   isCodexProviderName,
 } from "./codex-providers.js";
+import {
+  isXaiProviderName,
+  xaiProfilesToCatalogEntries,
+  xaiProvidersAsSettings,
+} from "./xai-providers.js";
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import {
   CODEX_RESPONSES_PROVIDER,
@@ -81,6 +87,9 @@ export type ProviderCatalogEntry = {
   // ChatGPT account id for a Codex profile, sent as the chatgpt-account-id
   // header by the Responses adapter. Present only on Codex entries.
   codexAccountId?: string;
+  // Set when this entry is an xAI/Grok OAuth profile. It still routes through
+  // openai-compatible; the marker only controls token refresh and persistence.
+  xaiProfile?: string;
 };
 
 // Build the InferenceSource for a Codex OAuth profile. Routes to the
@@ -269,17 +278,21 @@ export async function loadConfig(
         })
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
 
-  // Codex OAuth profiles live in the home-level auth store, not in any settings
-  // file. They are merged in only for the real default settings path: an
-  // explicit --config or a test override selects a controlled provider set that
-  // should not pull in home credentials. Profiles surface as "codex/<name>"
-  // providers so selection and the picker treat them like any other provider.
-  const useCodexProfiles = configPath === undefined && options.globalSettingsPath === undefined;
-  const codexProfiles = useCodexProfiles ? await listCodexProfiles() : [];
+  // OAuth profiles live in home-level auth stores, not in settings files. They
+  // are merged in only for the real default settings path: an explicit --config
+  // or test override selects a controlled provider set that should not pull in
+  // home credentials. Profiles surface as "provider/<name>" so selection and the
+  // picker treat them like any other provider.
+  const useOAuthProfiles = configPath === undefined && options.globalSettingsPath === undefined;
+  const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] = useOAuthProfiles
+    ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
+    : [[], []];
   const codexProviderSettings = codexProvidersAsSettings(codexProfiles);
+  const xaiProviderSettings = xaiProvidersAsSettings(xaiProfiles);
+  const oauthProviderSettings = { ...codexProviderSettings, ...xaiProviderSettings };
   const settingsForResolution: Settings | null =
-    codexProfiles.length > 0
-      ? { ...(settings ?? { providers: {} }), providers: { ...(settings?.providers ?? {}), ...codexProviderSettings } }
+    Object.keys(oauthProviderSettings).length > 0
+      ? { ...(settings ?? { providers: {} }), providers: { ...(settings?.providers ?? {}), ...oauthProviderSettings } }
       : settings;
 
   // The per-repo selection file still applies on top of a --config source: that
@@ -363,8 +376,9 @@ export async function loadConfig(
     ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
     providers: [
-      ...buildProviderCatalog(settings, resolved).filter((e) => !isCodexProviderName(e.name)),
+      ...buildProviderCatalog(settings, resolved).filter((e) => !isCodexProviderName(e.name) && !isXaiProviderName(e.name)),
       ...codexProfilesToCatalogEntries(codexProfiles),
+      ...xaiProfilesToCatalogEntries(xaiProfiles),
     ],
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
     ...(profile.systemPromptExtensions !== undefined
@@ -417,10 +431,10 @@ export function providerCatalogToSettings(
   defaultProvider: string | undefined,
   existing?: Settings,
 ): Settings {
-  // Codex OAuth entries are credential-backed by the home-level auth store, not
-  // by settings.json. Exclude them so a provider edit never persists a
-  // (short-lived) access token into the settings file.
-  const persistable = catalog.filter((p) => p.codexProfile === undefined);
+  // OAuth entries are credential-backed by home-level auth stores, not by
+  // settings.json. Exclude them so provider edits never persist short-lived
+  // access tokens into the settings file.
+  const persistable = catalog.filter((p) => p.codexProfile === undefined && p.xaiProfile === undefined);
   // Preserve existing non-provider fields (mcpServers, workflow plugins, etc.)
   // so they are never silently dropped when the provider catalog is saved.
   const existingFields = existing !== undefined
@@ -432,6 +446,7 @@ export function providerCatalogToSettings(
         ...(existing.workflowProfiles !== undefined ? { workflowProfiles: existing.workflowProfiles } : {}),
         ...(existing.webProvider !== undefined ? { webProvider: existing.webProvider } : {}),
         ...(existing.webProviderOptions !== undefined ? { webProviderOptions: existing.webProviderOptions } : {}),
+        ...(existing.hiddenCommands !== undefined ? { hiddenCommands: existing.hiddenCommands } : {}),
       }
     : {};
   return {

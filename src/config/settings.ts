@@ -56,6 +56,9 @@ export type Settings = {
   // Options passed to the web provider factory. Shape is provider-defined and
   // validated by the provider module, not by core.
   webProviderOptions?: Record<string, unknown>;
+  // Slash commands to suppress from the command palette and completions.
+  // The commands still work if typed in full; they are just not listed.
+  hiddenCommands?: string[];
 };
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
@@ -168,6 +171,7 @@ const SettingsSchema = type({
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "webProvider?": "string",
   "webProviderOptions?": type({ "[string]": "unknown" }),
+  "hiddenCommands?": "string[]",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -289,6 +293,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
     ...(s.webProvider !== undefined ? { webProvider: s.webProvider as string } : {}),
     ...(s.webProviderOptions !== undefined ? { webProviderOptions: s.webProviderOptions as Record<string, unknown> } : {}),
+    ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
   } as Settings;
 }
 
