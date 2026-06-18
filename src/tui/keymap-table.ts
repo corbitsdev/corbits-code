@@ -3,7 +3,7 @@ export type ShortcutEntry = { keys: string; description: string };
 export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+C", description: "Exit (with confirm)" },
   { keys: "Ctrl+H", description: "Toggle hooks panel" },
-  { keys: "Ctrl+T", description: "Toggle thinking output" },
+  { keys: "Ctrl+T", description: "Toggle task panel" },
   { keys: "Ctrl+O", description: "Toggle expand all tool output" },
   { keys: "Ctrl+R", description: "Expand/collapse last tool" },
   { keys: "Ctrl+P", description: "Toggle tasks full-screen" },
@@ -17,7 +17,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
 export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/help", description: "Show the help overlay" },
   { keys: "/tasks", description: "Show the tasks panel" },
-  { keys: "/workflows", description: "Pick and start a coding workflow" },
+  { keys: "/linear", description: "Linear-integrated coding workflows (scope, build, review, scribe)" },
   { keys: "/agent", description: "Configure provider, model, tiers, and profiles" },
   { keys: "/permissions", description: "View and revoke remembered approvals" },
 ];
