@@ -8,6 +8,7 @@ import {
   callTargetsRestricted,
   commandTargetsRestricted,
 } from "./classify.js";
+import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { isApproved } from "./matcher.js";
 import { createPathRestriction } from "./path-restriction.js";
 
@@ -84,10 +85,17 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     const restricted = callTargetsRestricted(call, isRestricted);
     if (!restricted && classifyTool(call.name) === "allow") return { allowed: true };
     if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
+    // Auto mode otherwise rubber-stamps consequential calls, but the auto-shell
+    // policy carves out categories that are unsafe to run unattended. A `deny`
+    // rule (e.g. file mutations through sed/python/redirects) blocks outright; an
+    // `ask` rule (e.g. dependency installs) declines to auto-allow and falls
+    // through to the operator prompt below — the agent may still request it.
+    const shellRule = auto ? autoShellRuleForCall(call) : undefined;
+    if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
     // In AUTO mode the authz and secret-guard plugins have already hard-denied
-    // destructive commands and credential reads upstream, so everything that
-    // reaches here is safe to allow without a prompt.
-    if (auto) return { allowed: true };
+    // destructive commands and credential reads upstream, so everything that is
+    // not held back by an `ask` rule is safe to allow without a prompt.
+    if (auto && shellRule === undefined) return { allowed: true };
 
     for (const request of buildRequests(call)) {
       if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;

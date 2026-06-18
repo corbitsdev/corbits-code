@@ -1,0 +1,93 @@
+import type { ToolCall } from "@intx/types/runtime";
+
+// Auto-mode shell policy: a flat table of rules that constrain what a run_shell
+// command may do when auto mode is on. Auto mode otherwise rubber-stamps every
+// consequential call, so these rules carve out the categories that are unsafe to
+// run unattended.
+//
+// To add a category: append one rule. `deny` blocks the command outright and
+// returns `reason`; `ask` refuses to auto-allow and routes the call to the
+// operator approval prompt instead (the agent may still request it). The first
+// matching rule wins, so order most-specific first.
+
+export type AutoShellEffect = "deny" | "ask";
+
+export type AutoShellRule = {
+  name: string;
+  effect: AutoShellEffect;
+  reason: string;
+  patterns: RegExp[];
+};
+
+// The start of the command, or immediately after a shell separator / subshell
+// or brace-group open, optionally preceded by NAME=value env assignments — so a
+// program name is only matched in command position, not inside a path argument.
+const CMD = String.raw`(?:^|[\n;&|({]\s*)(?:\w+=\S*\s+)*`;
+const inCmd = (body: string): RegExp => new RegExp(`${CMD}${body}`);
+
+// Drop the contents of single- and double-quoted spans before matching so a
+// quoted argument cannot trip a rule (e.g. `git commit -m 'fix > bug'` is not a
+// redirect, `echo "npm install"` is not an install). Quoted-out redirect targets
+// and heredoc markers fall away with their quotes, which is why the file-mutation
+// heredoc pattern keys on the bare `<<` operator rather than the marker word.
+const stripQuoted = (command: string): string => command.replace(/'[^']*'|"[^"]*"/g, " ");
+
+export const AUTO_SHELL_RULES: AutoShellRule[] = [
+  {
+    name: "file-mutation",
+    effect: "deny",
+    reason:
+      "File creation and edits must go through the write_file and edit_file tools, not shell tooling (python, sed -i, awk, perl, tee, or output redirection). Re-do this change with edit_file for a surgical replacement or write_file for the full contents.",
+    patterns: [
+      // `>` / `>>` (optionally fd-qualified) to a target that is not an fd dup
+      // (`2>&1`) or a safe pseudo-device (`> /dev/null`, a TTY).
+      /[0-9]?>>?\s*(?!&|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/))[^\s|;&)]/,
+      // tee writes its stdin to one or more files.
+      /(?:^|[\n;&|({]\s*)tee\b/,
+      // In-place stream editors: sed -i, perl -pi -e, ruby -i.
+      /\b(?:sed|perl|ruby)\b[^\n|;]*?\s-[A-Za-z]*i\b/,
+      // gawk's inplace extension.
+      /\bgawk\b[^\n|;]*-i\s+inplace\b/,
+      // An interpreter handed an inline program (-c/-e/--eval) or a heredoc,
+      // which is how agents smuggle read-modify-write file edits past the tools.
+      /\b(?:python3?|python2|node|bun|deno|ruby|perl|php)\b[^\n]*?(?:\s-(?:c|e)\b|\s--eval\b|<<)/,
+    ],
+  },
+  {
+    name: "dependency-install",
+    effect: "ask",
+    reason:
+      "Installing or adding dependencies fetches and runs untrusted code, so it needs explicit operator approval and never runs unattended in auto mode.",
+    patterns: [
+      // JS package managers: install / i / ci / add (npm, yarn, pnpm, bun).
+      inCmd(String.raw`(?:npm|yarn|pnpm|bun)\s+(?:install|i|ci|add)\b`),
+      // Remote package runners that fetch and execute code on the fly.
+      inCmd(String.raw`(?:npx|bunx|pnpm\s+dlx|yarn\s+dlx)\b`),
+      // Python: pip / pip3 / pipx / uv pip / uv add / poetry / conda.
+      inCmd(String.raw`pip[23]?\s+install\b`),
+      inCmd(String.raw`pipx\s+install\b`),
+      inCmd(String.raw`uv\s+(?:pip\s+install|add)\b`),
+      inCmd(String.raw`poetry\s+(?:add|install)\b`),
+      inCmd(String.raw`conda\s+install\b`),
+      // Other ecosystems: cargo, go, gem, bundle, composer, system pkg mgrs.
+      inCmd(String.raw`cargo\s+(?:install|add)\b`),
+      inCmd(String.raw`go\s+(?:get|install)\b`),
+      inCmd(String.raw`gem\s+install\b`),
+      inCmd(String.raw`bundle\s+(?:install|add)\b`),
+      inCmd(String.raw`composer\s+(?:require|install)\b`),
+      inCmd(String.raw`(?:brew|apt|apt-get|yum|dnf|apk|pacman)\s+(?:install|add)\b`),
+    ],
+  },
+];
+
+export function matchAutoShellRule(command: string): AutoShellRule | undefined {
+  const scannable = stripQuoted(command);
+  return AUTO_SHELL_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(scannable)));
+}
+
+export function autoShellRuleForCall(call: ToolCall): AutoShellRule | undefined {
+  if (call.name !== "run_shell") return undefined;
+  const command = call.arguments.command;
+  if (typeof command !== "string") return undefined;
+  return matchAutoShellRule(command);
+}

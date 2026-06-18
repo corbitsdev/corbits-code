@@ -8,6 +8,7 @@ import {
   buildAvailableTools,
   buildBudgetRules,
   buildChatSystemPrompt,
+  buildCoreToolsRules,
   buildCommunicationRules,
   buildEnvironmentContext,
   buildFewShot,
@@ -63,7 +64,8 @@ test("buildSystemPrompt separates sections with double newlines", () => {
   const prompt = buildSystemPrompt();
   // Sections are joined with \n\n — verify at least one boundary exists
   expect(prompt).toContain(buildAgentRole() + "\n\n" + buildToolCallDiscipline());
-  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildTaskRules());
+  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildCoreToolsRules());
+  expect(prompt).toContain(buildCoreToolsRules() + "\n\n" + buildTaskRules());
 });
 
 test("buildSystemPrompt includes manage_tasks and submit_output in tool list", () => {
