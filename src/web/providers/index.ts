@@ -37,8 +37,11 @@ function isWebProvider(value: unknown): value is WebProvider {
 // loader has no knowledge of any specific provider implementation.
 export async function loadWebProvider(specifier: string, options: unknown): Promise<WebProvider> {
   let mod: unknown;
+  // Relative specifiers in settings are expressed from CWD, not from this
+  // module's location. Resolve them before handing to dynamic import.
+  const resolved = specifier.startsWith(".") ? new URL(specifier, `file://${process.cwd()}/`).href : specifier;
   try {
-    mod = await import(specifier);
+    mod = await import(resolved);
   } catch (err) {
     throw new Error(`Failed to load web provider "${specifier}"`, { cause: err });
   }
