@@ -81,23 +81,27 @@ export function parseManageTasksArgs(rawArgs: unknown): ManageTasksArgs | null {
   return result instanceof type.errors ? null : result;
 }
 
-// Apply a parsed call to a task list, returning the next list. `create`
-// replaces; `update` patches matching ids and leaves the rest in place.
+// Apply a parsed call to a task list, returning the active list. Completed
+// tasks are removed so the task panel stays focused on remaining work.
 export function applyManageTasks(current: Task[], args: ManageTasksArgs): Task[] {
   if (args.action === "create") {
     const tasks = args.tasks ?? [];
-    return tasks.map((t) => ({ id: t.id, title: t.title, status: t.status ?? "todo" }));
+    return tasks
+      .map((t) => ({ id: t.id, title: t.title, status: t.status ?? "todo" }))
+      .filter((task) => task.status !== "done");
   }
   const updates = args.updates ?? [];
   if (updates.length === 0) return current;
   const byId = new Map(updates.map((u) => [u.id, u]));
-  return current.map((task) => {
-    const patch = byId.get(task.id);
-    if (patch === undefined) return task;
-    return {
-      id: task.id,
-      title: patch.title ?? task.title,
-      status: patch.status ?? task.status,
-    };
-  });
+  return current
+    .map((task) => {
+      const patch = byId.get(task.id);
+      if (patch === undefined) return task;
+      return {
+        id: task.id,
+        title: patch.title ?? task.title,
+        status: patch.status ?? task.status,
+      };
+    })
+    .filter((task) => task.status !== "done");
 }

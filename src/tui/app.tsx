@@ -1045,6 +1045,7 @@ export function App({
             active={state.isProcessing}
             frame={spinner.frame}
             elapsedMs={spinner.elapsedMs}
+            toolName={state.currentToolName}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
             {...(() => {
               if (workflowStatus.active && workflowStatus.name !== undefined) {

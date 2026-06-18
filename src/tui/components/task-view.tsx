@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import type { Task } from "../../agent/tasks.js";
 import { color } from "../theme.js";
@@ -9,57 +8,32 @@ export type TaskViewProps = {
 };
 
 export function TaskView({ tasks, compact }: TaskViewProps) {
-  const [pulse, setPulse] = useState(false);
+  const activeTasks = tasks.filter((task) => task.status !== "done");
+  if (activeTasks.length === 0) return null;
 
-  useEffect(() => {
-    if (!tasks.some((t) => t.status === "doing")) return;
-    const id = setInterval(() => setPulse((p) => !p), 600);
-    return () => clearInterval(id);
-  }, [tasks]);
-
-  if (tasks.length === 0) return null;
-
-  // Priority order: doing first, then todo, then done.
-  const sorted = [...tasks].sort(byPriority);
+  const sorted = [...activeTasks].sort(byPriority);
 
   if (compact) {
     const doing = sorted.find((t) => t.status === "doing");
-    const doneCount = tasks.filter((t) => t.status === "done").length;
-    const todoCount = tasks.filter((t) => t.status === "todo").length;
+    const todoCount = sorted.filter((t) => t.status === "todo").length;
+    const current = doing ?? sorted[0]!;
 
     return (
       <Box paddingX={1}>
-        {doing !== undefined ? (
-          <Box flexDirection="row" gap={1}>
-            <Text color={statusColor(doing.status, pulse)}>{statusIcon(doing.status, pulse)}</Text>
-            <Text>{doing.title}</Text>
-            {(doneCount > 0 || todoCount > 0) && (
-              <Text dimColor>
-                ({[doneCount > 0 ? `${doneCount} done` : "", todoCount > 0 ? `${todoCount} todo` : ""].filter(Boolean).join(", ")})
-              </Text>
-            )}
-          </Box>
-        ) : (
-          <Box flexDirection="row" gap={1}>
-            <Text color={color("success")}>●</Text>
-            <Text dimColor>{tasks.length} task{tasks.length !== 1 ? "s" : ""} complete</Text>
-          </Box>
-        )}
+        <Text color={color("accent")}>task </Text>
+        <Text wrap="truncate-end">{current.title}</Text>
+        {todoCount > 0 && <Text dimColor>{` +${todoCount}`}</Text>}
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column" gap={1}>
-      <Text bold color={color("accent")}>
-        Tasks
-      </Text>
-      {tasks.map((task) => (
+    <Box flexDirection="column" gap={1} paddingX={1}>
+      <Text bold color={color("accent")}>Tasks</Text>
+      {sorted.map((task) => (
         <Box key={task.id} flexDirection="row" gap={1}>
-          <Text color={statusColor(task.status, pulse)}>
-            {statusIcon(task.status, pulse)}
-          </Text>
-          <Text>{task.title}</Text>
+          <Text color={statusColor(task.status)}>{statusLabel(task.status)}</Text>
+          <Text wrap="truncate-end">{task.title}</Text>
         </Box>
       ))}
     </Box>
@@ -71,23 +45,23 @@ function byPriority(a: Task, b: Task): number {
   return rank[a.status] - rank[b.status];
 }
 
-function statusIcon(status: Task["status"], pulse: boolean): string {
+function statusLabel(status: Task["status"]): string {
   switch (status) {
     case "done":
-      return "●";
+      return "done";
     case "doing":
-      return pulse ? "◎" : "◉";
+      return "now ";
     case "todo":
-      return "○";
+      return "next";
   }
 }
 
-function statusColor(status: Task["status"], pulse: boolean): string {
+function statusColor(status: Task["status"]): string {
   switch (status) {
     case "done":
       return color("success");
     case "doing":
-      return pulse ? color("warning") : color("accent");
+      return color("accent");
     case "todo":
       return color("muted");
   }

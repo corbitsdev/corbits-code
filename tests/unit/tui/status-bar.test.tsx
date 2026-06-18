@@ -31,7 +31,7 @@ test("StatusBar hides the running status label", () => {
 
 test("StatusBar renders the blocked status label", () => {
   const { lastFrame } = renderBar({ status: "blocked" });
-  expect(lastFrame()).toContain("Blocked");
+  expect(lastFrame()).toContain("blocked");
 });
 
 test("StatusBar does not render token counts or cost", () => {
@@ -41,13 +41,15 @@ test("StatusBar does not render token counts or cost", () => {
   expect(lastFrame()).not.toContain("$");
 });
 
-test("StatusBar renders the reasoning-effort suffix", () => {
+test("StatusBar renders reasoning effort without dot separators", () => {
   const { lastFrame } = renderBar({ reasoningEffort: "high" });
-  expect(lastFrame()).toContain("· high");
+  expect(lastFrame()).toContain("high");
+  expect(lastFrame()).not.toContain("· high");
+  expect(lastFrame()).not.toContain("|");
 });
 
-test("StatusBar hides effort suffix when unset", () => {
+test("StatusBar hides effort when unset", () => {
   const { lastFrame } = renderBar();
-  expect(lastFrame()).not.toContain("· HIGH");
-  expect(lastFrame()).not.toContain("· high");
+  expect(lastFrame()).not.toContain("HIGH");
+  expect(lastFrame()).not.toContain("high");
 });
