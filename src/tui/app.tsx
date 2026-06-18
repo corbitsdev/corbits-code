@@ -177,7 +177,6 @@ const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
 // before the watchdog fires and aborts the in-flight request.
 export const STALL_TIMEOUT_MS = 900_000;
 
-export type AgentMode = "edit" | "auto";
 
 export type ShouldAbortForStallArgs = {
   status: AgentStatus;
@@ -284,7 +283,7 @@ export function App({
   onNewSession,
   permissionsAdmin,
   profile,
-  initialAuto = false,
+  initialAuto = true,
   onToggleAuto,
   onSubAgentProviderChange,
   onStartWorkflow,
@@ -316,10 +315,6 @@ export function App({
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
-  const [agentMode, setAgentMode] = useState<AgentMode>(initialAuto ? "auto" : "edit");
-  const agentModeRef = useRef(agentMode);
-  agentModeRef.current = agentMode;
-  const auto = agentMode === "auto";
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contextView, setContextView] = useState<ContextView>("tasks");
@@ -508,7 +503,7 @@ export function App({
   );
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
-  const modeColor = agentMode === "auto" ? color("warning") : color("accent");
+  const modeColor = color("warning");
 
   const diffActive = (sidebarOpen && contextView === "diff") || diffFullScreenOpen;
   const diff = useDiff({ cwd: process.cwd(), active: diffActive });
@@ -597,19 +592,21 @@ export function App({
       setVerbose(next);
       return next;
     },
-    getAuto: () => agentMode === "auto",
+    getAuto: () => true,
     toggleAuto: () => {
-      const next = agentMode !== "auto";
-      setAgentMode(next ? "auto" : "edit");
-      onToggleAuto?.(next);
-      return next;
+      onToggleAuto?.(true);
+      return true;
     },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, agentMode, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
+  }), [verbose, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
+
+  useEffect(() => {
+    if (!initialAuto) onToggleAuto?.(true);
+  }, [initialAuto, onToggleAuto]);
 
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the
@@ -817,9 +814,7 @@ export function App({
         }
       },
       cycleMode: () => {
-        const next: AgentMode = agentMode === "edit" ? "auto" : "edit";
-        onToggleAuto?.(next === "auto");
-        setAgentMode(next);
+        onToggleAuto?.(true);
       },
     },
   );
@@ -1092,8 +1087,6 @@ export function App({
           model={model}
           status={state.status}
           reasoningEffort={reasoningEffort}
-          auto={auto}
-          agentMode={agentMode}
         />
         </Box>
       )}

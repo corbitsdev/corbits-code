@@ -45,6 +45,16 @@ test("down arrow moves selection to second option", async () => {
   expect(result).toEqual({ kind: "option", index: 1 });
 });
 
+test("operator modal handles arrow fragments when Ink strips ESC", async () => {
+  let result: OperatorResult | null = null;
+  const { stdin } = renderModal(OPTIONS, (r) => { result = r; });
+  stdin.write("[B");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  expect(result).toEqual({ kind: "option", index: 1 });
+});
+
 test("up arrow wraps from first to the Close entry, which cancels", async () => {
   let result: OperatorResult | null = null;
   const { stdin } = renderModal(OPTIONS, (r) => { result = r; });

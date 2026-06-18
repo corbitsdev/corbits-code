@@ -8,8 +8,6 @@ export type StatusBarProps = {
   model: string;
   status: AgentStatus;
   reasoningEffort?: ReasoningEffort | undefined;
-  auto?: boolean;
-  agentMode?: "edit" | "auto";
 };
 
 
@@ -23,14 +21,9 @@ export function StatusBar({
   model,
   status,
   reasoningEffort,
-  auto = false,
-  agentMode,
 }: StatusBarProps): ReactNode {
-  const modeLabel = agentMode === "auto" || auto ? "auto" : "edit";
-  const modeColor = agentMode === "auto" || auto ? color("warning") : color("muted");
   return (
     <Box flexDirection="row" paddingX={1} gap={1} overflow="hidden">
-      <Text color={modeColor}>{modeLabel}</Text>
       <Text color={color("muted")} dimColor wrap="truncate-end">{model}</Text>
       {reasoningEffort !== undefined && <Text color={color("muted")} dimColor>{reasoningEffort}</Text>}
       {status !== "running" && status !== "idle" && (
