@@ -460,7 +460,7 @@ describe("buildProviderCatalog", () => {
       defaultProvider: "fp",
       providers: { fp: { baseURL: "https://fp/v1", apiKey: "old-key", models: ["fp-small"] } },
       mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
-      workflowPlugins: ["./plugins/my-flow"],
+      plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
       tiers: { fast: { provider: "fp", model: "fp-large" } },
     };
     const settings = providerCatalogToSettings(
@@ -478,7 +478,7 @@ describe("buildProviderCatalog", () => {
         oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
       },
       mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
-      workflowPlugins: ["./plugins/my-flow"],
+      plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
       tiers: { fast: { provider: "fp", model: "fp-large" } },
     });
   });
