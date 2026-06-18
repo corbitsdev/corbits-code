@@ -14,11 +14,15 @@ import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, type Config } from "../config/index.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
+import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { loadWorkflowPlugins } from "../workflows/index.js";
 import { loadAgentPlugins } from "../agent/profiles.js";
+import { discoverRepoPlugins, discoverUserPlugins } from "../plugins/loader.js";
+import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { setModelContextWindows } from "../provider/context-window.js";
@@ -88,6 +92,15 @@ export async function runTUI(config: Config): Promise<number> {
   registerCodexResponsesAdapter();
   await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
   await loadAgentPlugins(config.settings?.agentPlugins ?? []);
+  // Auto-discover plugins from the repo's plugins/ directory and user plugin dirs.
+  const pluginModules = [
+    ...(await discoverRepoPlugins()),
+    ...(await discoverUserPlugins(config.cwd)),
+  ];
+  for (const mod of pluginModules) {
+    if (mod.commandPlugin !== undefined) registerCommandPlugin(mod.commandPlugin);
+  }
+  setHiddenCommands(config.settings?.hiddenCommands ?? []);
   // Seed reasoning capabilities from the cached models.dev metadata so the
   // /agent effort selector can gate non-reasoning models immediately, then
   // refresh from the network in the background (updates the cache for next run).
@@ -280,8 +293,17 @@ export async function runTUI(config: Config): Promise<number> {
   // source (account id pulled from the resolved catalog entry, session id from
   // the run) rather than the OpenAI-compatible one.
   const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+  const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
   if (initialCodexProfile !== undefined) void refreshCodexInstructions().catch(() => {});
   const initialCodexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
+  const buildOpenAICompatibleInitialSource = (): InferenceSource =>
+    buildOpenAISource({
+      id: config.providerName,
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+    });
   const buildInitialSource = (): InferenceSource =>
     initialCodexProfile !== undefined
       ? buildCodexSource({
@@ -292,13 +314,7 @@ export async function runTUI(config: Config): Promise<number> {
           ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
         })
-      : buildOpenAISource({
-          id: config.providerName,
-          baseURL: config.baseURL,
-          apiKey: config.apiKey,
-          model: config.model,
-          ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-        });
+      : buildOpenAICompatibleInitialSource();
 
   // The source the next inference will use, tracked live so the compaction
   // summarizer always summarizes with the current model (model switches and
@@ -414,6 +430,10 @@ export async function runTUI(config: Config): Promise<number> {
     initialCodexProfile !== undefined
       ? { profile: initialCodexProfile, source: buildInitialSource() }
       : undefined;
+  let activeXaiSource: { profile: string; source: InferenceSource } | undefined =
+    initialXaiProfile !== undefined
+      ? { profile: initialXaiProfile, source: buildInitialSource() }
+      : undefined;
 
   // Refresh the active Codex access token (if any) and push it onto the live
   // agent before a send. getValidCodexToken returns the stored token when still
@@ -436,6 +456,17 @@ export async function runTUI(config: Config): Promise<number> {
     currentAgent.setSource(source);
   };
 
+  const refreshXaiBeforeSend = async (): Promise<void> => {
+    const active = activeXaiSource;
+    if (active === undefined) return;
+    const { access } = await getValidXaiToken(active.profile);
+    const source: InferenceSource =
+      access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
+    activeXaiSource = { profile: active.profile, source };
+    liveSource = source;
+    currentAgent.setSource(source);
+  };
+
   // Stable handle handed to the App so the underlying agent can be swapped out
   // from under it without a remount; method calls always target the live agent.
   const agentProxy: Agent = {
@@ -445,6 +476,7 @@ export async function runTUI(config: Config): Promise<number> {
       inFlight++;
       try {
         await refreshCodexBeforeSend();
+        await refreshXaiBeforeSend();
         return await currentAgent.send(content, opts);
       } finally {
         inFlight--;
@@ -455,8 +487,10 @@ export async function runTUI(config: Config): Promise<number> {
     deliver: (message) => currentAgent.deliver(message),
     close: () => currentAgent.close(),
     setSource: (source) => {
-      const profile = codexProfileFromProviderName(source.id);
-      activeCodexSource = profile !== undefined ? { profile, source } : undefined;
+      const codexProfile = codexProfileFromProviderName(source.id);
+      const xaiProfile = xaiProfileFromProviderName(source.id);
+      activeCodexSource = codexProfile !== undefined ? { profile: codexProfile, source } : undefined;
+      activeXaiSource = xaiProfile !== undefined ? { profile: xaiProfile, source } : undefined;
       liveSource = source;
       currentAgent.setSource(source);
     },
@@ -564,7 +598,6 @@ export async function runTUI(config: Config): Promise<number> {
         liveSubAgentProvider.current = provider;
       }}
       onStartWorkflow={(name) => workflowController.start(name)}
-      listWorkflows={() => workflowController.list()}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       initialWorkflowStatus={workflowController.status()}
     />,
