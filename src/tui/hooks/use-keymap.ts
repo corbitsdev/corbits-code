@@ -29,6 +29,7 @@ export type KeymapActions = {
   scrollUp: () => void;
   scrollDown: () => void;
   scrollToBottom: () => void;
+  toggleTaskPanel: () => void;
   toggleThinking: () => void;
   toggleLastTool: () => void;
   toggleVerbose: () => void;
@@ -118,7 +119,7 @@ export function handleKey(
     return lastEscMs;
   }
   if (key.ctrl && input === "t") {
-    actions.toggleThinking();
+    actions.toggleTaskPanel();
     return lastEscMs;
   }
   if (key.ctrl && input === "o") {

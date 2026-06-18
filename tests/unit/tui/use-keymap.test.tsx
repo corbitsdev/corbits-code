@@ -57,6 +57,7 @@ function makeActions(): KeymapActions {
     scrollUp: mock(() => {}),
     scrollDown: mock(() => {}),
     scrollToBottom: mock(() => {}),
+    toggleTaskPanel: mock(() => {}),
     toggleThinking: mock(() => {}),
     toggleLastTool: mock(() => {}),
     toggleVerbose: mock(() => {}),
@@ -260,9 +261,9 @@ test("Ctrl+Down still scrolls to bottom while command palette is open (Ctrl is n
 
 // --- Other Ctrl shortcuts ---
 
-test("Ctrl+T calls toggleThinking", () => {
+test("Ctrl+T calls toggleTaskPanel", () => {
   const { actions } = dispatch("t", CTRL);
-  expect(actions.toggleThinking).toHaveBeenCalledTimes(1);
+  expect(actions.toggleTaskPanel).toHaveBeenCalledTimes(1);
 });
 
 test("Ctrl+R calls toggleLastTool", () => {
