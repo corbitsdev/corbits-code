@@ -104,8 +104,18 @@ function sliceSegments(segments: StyledSegment[], start: number, end: number): S
   return out;
 }
 
+function sanitizeTerminalControls(content: string): string {
+  return content
+    .replace(/\x1B\[<\d+;\d+;\d+[Mm]/g, "")
+    .replace(/\[<\d+;\d+;\d+[Mm]/g, "")
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
+
 function plainLines(content: string, base: Partial<StyledSegment>, width: number): StyledLine[] {
-  return content.split("\n").flatMap((line) => wrapLines(line, width).map((row) => [{ ...base, text: row }]));
+  return sanitizeTerminalControls(content)
+    .split("\n")
+    .flatMap((line) => wrapLines(line, width).map((row) => [{ ...base, text: row }]));
 }
 
 function compactUserCodeBlocks(content: string): string {
