@@ -1,8 +1,0 @@
-{
-  "extends": "../interchange/tsconfig.base.json",
-  "compilerOptions": {
-    "noEmit": true,
-    "composite": false
-  },
-  "include": ["lib/**/*.ts", "../scripts/eval.ts"]
-}

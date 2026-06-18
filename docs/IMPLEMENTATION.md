@@ -110,7 +110,6 @@ src/
     app.tsx               Root full-screen layout
     runner.tsx            Chat-mode agent setup + Ink render (alt-screen)
     use-stream.ts         Event stream → React state (AgentStatus machine)
-    git-diff.ts           Working-tree diff
     tool-formatter.ts     Human-readable tool args/results
     markdown-parser.ts    Markdown rendering
     keymap-table.ts       Keybindings
@@ -194,7 +193,7 @@ Credentials and provider definitions come exclusively from the settings files. E
 
 OpenAI-compatible `baseURL` values are normalized during provider resolution. A plain base URL such as `https://provider.example.com/v1` is preserved, a trailing slash is removed, and a pasted full chat-completions endpoint such as `https://provider.example.com/v1/chat/completions` is reduced to `https://provider.example.com/v1` before the runtime appends `/chat/completions`. Invalid non-URL values fail with an explicit baseURL error.
 
-`--config <path>` replaces the global settings file as the provider source (used by CI and the eval harness to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). A provider must be defined in one of these settings files; there is no environment-variable fallback.
+`--config <path>` replaces the global settings file as the provider source (useful for CI to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). A provider must be defined in one of these settings files; there is no environment-variable fallback.
 
 ### Profiles (`src/config/profiles.ts`)
 
@@ -289,8 +288,8 @@ The TUI `EventEmitter` (bridging runner → React) also carries:
 
 ```bash
 bun run build      # bun build ./src/index.ts --outdir ./dist --target bun
-bun run typecheck  # tsc --noEmit (app) && tsc --noEmit -p eval/tsconfig.json (eval tooling)
-bun test ./src ./tests ./eval/lib   # scoped so eval *task* fixtures (intentionally-failing starting state) are not collected
+bun run typecheck  # tsc --noEmit
+bun test ./src ./tests
 ```
 
 Run all three before declaring work complete.
@@ -301,16 +300,6 @@ Run all three before declaring work complete.
 - **Integration / e2e** use the `@intx/inference-testing` harness with deterministic SSE responses to assert real tool sequences (`read_file` → `write_file` → `run_shell` → `submit_output`) and that critique passes.
 - **Fixtures** live under `tests/fixtures/` (e.g. `demo-comparison/` for side-by-side comparison runs).
 - **TUI tests** use `ink-testing-library` with mock `EventEmitter`s to simulate real-time event streams; they verify stream-hook accumulation, event-log formatting/filtering, keyboard handling, and cost formatting.
-
-## Eval Harness
-
-An internal measurement tool, kept **outside `src/`** so it is never part of the app build: code in `eval/lib/`, tasks in `eval/tasks/`, runner `scripts/eval.ts`, entry `bun run eval`, typechecked via `eval/tsconfig.json`. It scores headless agent runs so prompt/model/provider changes are measured rather than guessed.
-
-- **Tasks** are self-contained folders (`repo/`, `prompt.txt`, `verify.sh`). The harness copies the folder to a temp dir, runs the headless `runAgent` (reusing its `onEvent` hook to feed a `createTurnContextCollector`, so no runtime change), then runs `verify.sh` as the objective grader. Tasks cover targeted edits, multi-file features, a bug-fix-with-reproduction, a multi-step feature, and a refactor-with-callers.
-- **Variants** are `{ prompt, provider, model }`; provider/model are injected per run via the CL-927 `--config` flag, so the same harness A/Bs across prompt, model, and provider.
-- **LLM judge** (optional, `--judge <settings.json>` + `--judge-provider/--judge-model`): after `verify.sh`, the agent's diff (captured by git-baselining the temp copy) is scored 1–5 by a judge model on correctness, scope, quality, and an overall "would a senior approve". Judge credentials live in their own CL-927 settings file. A failed/absent judge yields `null` (not fabricated scores). Necessary because a quantized model can pass tests while writing low-quality code.
-- **Metrics**: pass/fail, turns, tool calls (count + by type), token usage, cost, wall-clock, judge scores. Cost is `flat-fee` for flat-rate providers (`--flat-fee`, e.g. Firepass), `unknown` for unpriced metered models (optional per-variant price override), else a dollar figure. `--runs N` collapses runs by median.
-- **Pure logic** (`eval/lib/metrics.ts`, `report.ts`, `judge.ts` parsing) is unit-tested against synthetic results in `eval/lib/eval.test.ts` — no live provider in tests. The eval *task* fixtures hold intentionally-failing starting state, so the suite is scoped to `./src ./tests ./eval/lib` to avoid collecting them.
 
 ## Deployment
 

@@ -48,7 +48,7 @@ Two tools exist only at the director layer and gate the loop:
 ### Config Resolution (`src/config/index.ts`, `src/config/settings.ts`)
 
 - Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > per-repo `.intercode/settings.json` (selection only) > global `~/.intercode/settings.json`. Credentials come only from the settings files — no environment-variable override, and `.env` is not loaded.
-- `--config <path>` replaces the global settings file as the provider source (the eval harness's per-run injection seam). A provider must be defined in a settings file; there is no env fallback.
+- `--config <path>` replaces the global settings file as the provider source (useful for CI per-run injection). A provider must be defined in a settings file; there is no env fallback.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.
@@ -142,8 +142,6 @@ The agent's identity is **Intercode**, framed as a senior teammate who owns the 
 - `buildSystemPrompt` — Autonomous loop: identity + quality bar, tool-call discipline, completion rules, encoded code standards (the core `style`/`philosophy` rules — scope discipline, match surrounding code, delete superseded code, comment the why, validate at boundaries), instruction hierarchy and scoped project-guidance rules, efficiency/tool-layer limits, review-mode criteria, communication rules, self-verification, authorization/escalation, plan contract, a risk-and-reversibility plan-decision rubric (not file counts), and a few-shot "locate → understand → change → verify → submit" sequence.
 - `buildChatSystemPrompt` — TUI chat: same Intercode identity, code standards, instruction hierarchy, review-mode criteria, and communication rules, conversational, without the submit/plan-required loop mechanics.
 
-> The prompt rewrite (CL-1220) is in place; the "measured improvement vs the prior prompt" acceptance remains to be validated by running the eval harness (CL-1219) against a real provider.
-
 ### State Persistence (`src/session/state.ts`)
 
 - `RunState` — `running` | `done` | `failed`, turns used, task, timestamps, error
@@ -214,7 +212,7 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
-- `app.tsx` — Root layout: pinned header, scrollable event log, context panel (diff/plan), chat input, status bar, and overlay modals. Owns keymap, gate/scroll/diff state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). The active agent mode (`AgentMode`: `"edit" | "auto" | "plan"`) is owned here; SHIFT+TAB cycles through the three modes. Mode color cascades through the input separator and sidebar border (blue=Edit, orange=Auto, green=Plan). `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
+- `app.tsx` — Root layout: pinned header, scrollable event log, task context panel, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). The active agent mode (`AgentMode`: `"edit" | "auto" | "plan"`) is owned here; SHIFT+TAB cycles through the three modes. Mode color cascades through the input separator and sidebar border (blue=Edit, orange=Auto, green=Plan). `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
 
   **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLines`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLines` evicts entries for block IDs not in the current block list on every call, so manage_tasks/present splices do not accumulate orphaned entries.
 
@@ -234,9 +232,9 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - **In-flight indicator** — Spinner uses the `"live"` semantic color (calm blue) rather than the brand orange, reducing visual noise during long runs.
 
 - Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
-- Components: `header`, `event-log`, `chat-input`, `status-bar`, `plan-view`, `diff-view`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
-- Support: `git-diff.ts` (working-tree diff), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
-- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/diff`, `/plan`, `/verbose`, `/agent`; `/model` aliases `/agent`).
+- Components: `header`, `event-log`, `chat-input`, `status-bar`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
+- Support: `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
+- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/model`, `/permissions`, `/workflows`, `/clear`, `/new`, `/mcp`).
 - `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.intercode/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
 
 #### Event log rendering
@@ -310,7 +308,7 @@ For manifest-sourced plugins, commands are namespaced as `plugin:skill-name` (e.
 
 For fallback-scanned skills, the command name is the bare skill name with no prefix.
 
-> **Note:** This registry is agent-visible only — skills are injected into the system prompt and intercepted by the director. These commands are distinct from the TUI slash command registry (`src/tui/commands/`), which handles client-side dispatch for built-in TUI commands (`/help`, `/diff`, `/plan`, etc.) and populates TUI autocomplete. Extension-sourced slash commands do not appear in the TUI autocomplete registry.
+> **Note:** This registry is agent-visible only — skills are injected into the system prompt and intercepted by the director. These commands are distinct from the TUI slash command registry (`src/tui/commands/`), which handles client-side dispatch for built-in TUI commands (`/help`, `/model`, etc.) and populates TUI autocomplete. Extension-sourced slash commands do not appear in the TUI autocomplete registry.
 
 #### Compatibility Matrix
 
