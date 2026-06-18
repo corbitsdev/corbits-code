@@ -21,6 +21,7 @@ export type EventLogProps = {
 
 const LINE_PADDING = 2;
 const SHELL_PREFIX = "$ ";
+const USER_CODE_BLOCK_LINE_LIMIT = 12;
 
 export function isRenderable(block: ContentBlock): block is RenderableBlock {
   return block.type !== "reply" && block.type !== "tasks";
@@ -107,6 +108,15 @@ function plainLines(content: string, base: Partial<StyledSegment>, width: number
   return content.split("\n").flatMap((line) => wrapLines(line, width).map((row) => [{ ...base, text: row }]));
 }
 
+function compactUserCodeBlocks(content: string): string {
+  return content.replace(/```([^\n`]*)\n([\s\S]*?)\n```/g, (match, language: string, body: string) => {
+    const lineCount = body.length === 0 ? 0 : body.split("\n").length;
+    if (lineCount <= USER_CODE_BLOCK_LINE_LIMIT) return match;
+    const label = language.trim().length > 0 ? `${language.trim()} code block` : "code block";
+    return `[${label} hidden: ${lineCount} lines]`;
+  });
+}
+
 function markdownLines(content: string, width: number): StyledLine[] {
   return parseMarkdown(content, width).flatMap((segments) =>
     segments.length === 0 ? [[]] : wrapStyledLine(segments, width),
@@ -173,8 +183,9 @@ function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }
   }
 
   const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
-  if (isJSONDocument) return markdownLines(full, width);
-  if (expanded) return plainLines(full, { color: color("muted") }, width);
+  if (expanded) {
+    return isJSONDocument ? markdownLines(full, width) : plainLines(full, { color: color("muted") }, width);
+  }
   return plainLines(preview, { color: color("muted"), dim: true }, width);
 }
 
@@ -197,7 +208,7 @@ function blockToLines(block: RenderableBlock, columns: number, expanded: boolean
     }
     case "user":
       return plainLines(
-        block.content
+        compactUserCodeBlocks(block.content)
           .split("\n")
           .map((line, i) => (i === 0 ? "> " : "") + line)
           .join("\n"),
