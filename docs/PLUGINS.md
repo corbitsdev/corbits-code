@@ -45,10 +45,11 @@ Net: what exists is a *web-provider plugin system*, not *the* plugin system.
 
 ### One manifest, kind-routed
 
-Every installable plugin exports a `manifest`. `kind` decides how it is wired:
+Every installable plugin exports a `manifest`. `kind` decides how it is wired.
+The taxonomy is deliberately small — **`web | command | tool`**:
 
 ```ts
-export type PluginKind = "web" | "workflow" | "command" | "agent" | "tool";
+export type PluginKind = "web" | "command" | "tool";
 
 export type PluginManifest = {
   id: string;                 // stable, unique (e.g. "exa")
@@ -59,15 +60,19 @@ export type PluginManifest = {
 };
 ```
 
-The kind-specific export stays as the implementation hook:
+Why no `workflow`/`agent` kinds: **a workflow is just a slash command.** A
+command can fan out to a single prompt, a series of prompts, one subagent, or a
+fleet of agents — and it can be invoked by the user (slash) or chosen by the
+agent. So orchestration lives behind a `command` plugin, not a separate kind.
+Subagents/fleets are an implementation detail of what a command does.
 
-| kind | export | wired into |
-|---|---|---|
-| `web` | `createWebProvider(credentials)` | web_search/web_fetch backend |
-| `workflow` | `workflowPlugin` | workflow registry |
-| `command` | `commandPlugin` | slash-command registry |
-| `agent` | `agentPlugin` | agent-profile registry |
-| `tool` | `toolPlugin` (factory) | posix toolset |
+The kind-specific export is the implementation hook:
+
+| kind | export | wired into | purpose |
+|---|---|---|---|
+| `web` | `createWebProvider(credentials)` | web_search/web_fetch backend | override the web tools (a specialized tool override) |
+| `command` | `commandPlugin` | slash-command registry | slash commands, incl. workflow orchestration |
+| `tool` | `toolPlugin` (factory) | posix toolset | add new agent tools (highest trust) |
 
 A module with no valid manifest is ignored (not silently half-loaded).
 
@@ -126,37 +131,42 @@ Manifest type, `kind`, `settings.plugins`/`web`/`pluginPaths`, web resolution,
 tool-name branding, `/plugins` UI, add-by-path. This is the seed the rest grows
 from.
 
-**Phase 1 — unify discovery + registration.**
-- Add a single `registerDiscoveredPlugins(modules)` that routes by `kind`.
-- Route discovered `workflow`/`command`/`agent` plugins through it (fixes the
-  dead workflow-discovery path, problem #2).
-- Fold `settings.workflowPlugins`/`agentPlugins` into `pluginPaths` as aliases.
-- No behavior removed; specifier arrays still work.
-
-**Phase 2 — manifest required for installable plugins.**
+**Phase 1 — command kind + enabled gating.**
 - Require a `manifest` for discovered plugins; route strictly by `kind`.
-- Move workflow/agent plugins to declare manifests (update bundled ones).
-- `/plugins` shows workflow/agent/command kinds with enable/disable + verify.
+- A single `registerDiscoveredPlugins(modules, config)` routes by `kind`, and
+  only wires a plugin when `settings.plugins[id].enabled` is true.
+- `command` plugins register their slash commands only when enabled (fixes the
+  dead workflow-discovery path, problem #2, by routing the same way as web).
+- Migrate the bundled `linear-workflows` plugin to declare a manifest.
+- Remove `settings.workflowPlugins`/`agentPlugins` and their loaders.
+- `/plugins` lists command plugins with enable/disable.
 
-**Phase 3 — config + lifecycle unification.**
-- `settings.plugins[id].enabled` honored for all kinds (disabled = not wired).
-- Per-kind verify implementations.
-- Deprecate `settings.workflowPlugins`/`agentPlugins` (warn), then remove.
+**Phase 2 — tool kind with consent.**
+- Allow `kind: "tool"` plugins to contribute posix `ToolPlugin`s at runtime,
+  wired into the toolset in `run-agent` and `tools.ts`.
+- Enabling a tool plugin requires explicit one-time consent recorded in
+  `settings.plugins[id]`; without consent its tools are not wired.
+- `/plugins` shows the consent prompt and tool-plugin status.
 
-**Phase 4 (optional, biggest) — user-installable ToolPlugins.**
-- Allow `kind: "tool"` plugins to contribute posix tools at runtime.
-- Gated behind permissions/authz review since tools are the highest-trust
-  surface. Probably its own design pass.
+**Phase 3 — polish.**
+- Per-kind verify implementations in `/plugins`.
+- Docs + a worked example plugin of each kind.
 
-## Open questions
+## Decisions (locked)
 
-1. Do we keep `settings.workflowPlugins`/`agentPlugins` as permanent aliases or
-   remove them after a deprecation window?
-2. `settings.web` now, or jump straight to `settings.active[kind]`?
-3. Should `enabled` default to true for discovered repo/built-in plugins and
-   false for user-added ones, or always require explicit enable?
-4. How far do we trust `kind: "tool"` plugins — same permission gate as the
-   agent, or a stricter install-time consent?
+1. **Specifier arrays removed now.** `settings.workflowPlugins` and
+   `settings.agentPlugins` are dropped; everything comes through discovery +
+   `settings.pluginPaths`.
+2. **`settings.web` stays** as the only kind-selector for now; generalize to
+   `settings.active[kind]` only if another kind needs "exactly one active."
+3. **Always explicit enable.** Every discovered plugin (built-in or user-added)
+   starts disabled. Nothing is wired in until `settings.plugins[id].enabled` is
+   true — set in `/plugins`. (Note: this changes today's behavior where repo
+   command plugins like linear-workflows auto-load; they must now be enabled.)
+4. **Tool plugins require explicit consent.** Enabling a `kind: "tool"` plugin
+   prompts a one-time confirmation in `/plugins` before its tools are wired in
+   (they run in-process — the highest-trust surface). Consent is recorded in
+   `settings.plugins[id]`.
 
 ## Non-goals
 
