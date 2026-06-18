@@ -4,15 +4,12 @@ import "./workflows.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
-const makeCtx = (): CommandContext & { verbose: boolean; auto: boolean } => {
-  const state = { verbose: false, auto: false };
+const makeCtx = (): CommandContext & { verbose: boolean } => {
+  const state = { verbose: false };
   return {
     verbose: state.verbose,
-    auto: state.auto,
     getVerbose: () => state.verbose,
     toggleVerbose: () => { state.verbose = !state.verbose; return state.verbose; },
-    getAuto: () => state.auto,
-    toggleAuto: () => { state.auto = !state.auto; return state.auto; },
     signalClear: () => {},
   };
 };
@@ -60,17 +57,9 @@ describe("/verbose command", () => {
   });
 });
 
-describe("/auto command", () => {
-  it("is registered", () => {
-    expect(getCommand("auto")).toBeDefined();
-  });
-
-  it("explains the default approval behavior", () => {
-    const ctx = makeCtx();
-    const result = getCommand("auto")!.handler("", ctx);
-    if (result.type !== "message") throw new Error("expected message result");
-    expect(result.text).toContain("Default approvals are on");
-    expect(result.text).toContain("risky actions ask");
+describe("removed approval command", () => {
+  it("is not registered", () => {
+    expect(getCommand("auto")).toBeUndefined();
   });
 });
 
