@@ -12,11 +12,11 @@ afterEach(() => {
 });
 
 test("color returns the brand hex", () => {
-  expect(color("brand")).toBe("#e98428");
+  expect(color("brand")).toBe("#f5933a");
 });
 
 test("color returns the accent (summit blue) hex", () => {
-  expect(color("accent")).toBe("#607C9A");
+  expect(color("accent")).toBe("#7ea2c4");
 });
 
 test("warning reuses the brand orange hex", () => {
@@ -25,7 +25,7 @@ test("warning reuses the brand orange hex", () => {
 
 test("color256 returns the ANSI-256 index for each role", () => {
   expect(color256("brand")).toBe(173);
-  expect(color256("accent")).toBe(67);
+  expect(color256("accent")).toBe(74);
   expect(color256("success")).toBe(108);
   expect(color256("danger")).toBe(167);
 });

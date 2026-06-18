@@ -49,6 +49,7 @@ function segmentProps(seg: StyledSegment): RenderProps {
     props.bold = true;
     if (seg.heading === 1) props.color = color("brand");
     else if (seg.heading === 2) props.color = color("accent");
+    else props.color = color("success");
   }
   if (seg.link) {
     props.underline = true;
@@ -59,8 +60,8 @@ function segmentProps(seg: StyledSegment): RenderProps {
     props.color = color("muted");
   }
   if (seg.rule) props.color = color("muted");
-  if (seg.bullet && /^\s*(•|\d+\.)/.test(seg.text)) props.color = color("muted");
-  if (seg.code) props.color = color("muted");
+  if (seg.bullet && /^\s*(•|\d+\.)/.test(seg.text)) props.color = color("accent");
+  if (seg.code) props.color = color("warning");
   // Explicit per-segment styling (views, shell prefix) wins over flag-derived
   // colours so the one render path serves both markdown and the view spec.
   if (seg.color !== undefined) props.color = seg.color;
@@ -157,15 +158,17 @@ function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, w
   }
 
   if (expanded) {
-    const headline = wrapStyledLine([{ text: display, color: roleColor }], width);
+    const headline = wrapStyledLine([{ text: "● ", color: roleColor }, { text: display, color: roleColor }], width);
     return full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
   }
 
   // Collapsed non-shell tool calls are subordinate — danger stays loud, everything
-  // else recedes so the model's actual text output draws the eye instead.
+  // else recedes so the model's actual text output draws the eye instead. The
+  // leading bullet stays in the action colour so a call still reads as a call.
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
+      { text: "● ", color: roleColor, dim: role !== "danger" },
       { text: display, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],

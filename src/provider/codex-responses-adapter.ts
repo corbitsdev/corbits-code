@@ -206,10 +206,16 @@ function buildRequest(
 // signature to the exact thinking block it belongs to. `kind` is recorded so a
 // signature is only emitted against a real thinking block.
 type CodexBlockKind = "text" | "thinking" | "tool_call";
-type CodexBlockIndexer = {
+export type CodexBlockIndexer = {
   nextIndex: number;
   items: Map<string, { index: number; kind: CodexBlockKind }>;
 };
+
+// Both the Codex and grok backends speak the same Responses SSE protocol, so
+// the parser is shared. Each adapter creates its own indexer per request.
+export function createResponsesBlockIndexer(): CodexBlockIndexer {
+  return { nextIndex: 0, items: new Map<string, { index: number; kind: CodexBlockKind }>() };
+}
 
 function blockIndexFor(state: CodexBlockIndexer, itemId: string, kind: CodexBlockKind): number {
   const existing = state.items.get(itemId);
@@ -236,17 +242,18 @@ function usageFromResponse(response: Record<string, unknown>): TokenUsage | unde
   };
 }
 
-function parseResponse(
+export function parseResponse(
   sseData: string,
   indexer: CodexBlockIndexer,
   source: LastCycleSource,
+  label = "codex-responses",
 ): InferenceEvent[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(sseData);
   } catch (cause) {
     throw new ProtocolMismatchError(
-      `codex-responses parseResponse: malformed JSON in SSE data payload: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `${label} parseResponse: malformed JSON in SSE data payload: ${cause instanceof Error ? cause.message : String(cause)}`,
       sseData,
     );
   }
@@ -349,12 +356,12 @@ function parseResponse(
     case "response.failed": {
       const response = event["response"] as Record<string, unknown> | undefined;
       const error = response?.["error"] as Record<string, unknown> | undefined;
-      const message = typeof error?.["message"] === "string" ? error["message"] : "Codex response failed";
-      throw new ProtocolMismatchError(`codex-responses: ${message}`, parsed);
+      const message = typeof error?.["message"] === "string" ? error["message"] : "response failed";
+      throw new ProtocolMismatchError(`${label}: ${message}`, parsed);
     }
     case "error": {
-      const message = typeof event["message"] === "string" ? event["message"] : "Codex stream error";
-      throw new ProtocolMismatchError(`codex-responses: ${message}`, parsed);
+      const message = typeof event["message"] === "string" ? event["message"] : "stream error";
+      throw new ProtocolMismatchError(`${label}: ${message}`, parsed);
     }
     default:
       // Lifecycle envelopes (response.created, response.in_progress,
