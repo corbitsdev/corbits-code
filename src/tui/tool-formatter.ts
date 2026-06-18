@@ -36,7 +36,20 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   ask_operator: "Ask operator",
 };
 
+// Brand of the active web plugin (e.g. "Exa"), set at startup when a web plugin
+// overrides the built-in provider. Renders web_search/web_fetch as branded
+// actions so it is clear which backend served the call.
+let activeWebProviderBrand: string | undefined;
+
+export function setActiveWebProviderBrand(brand: string | undefined): void {
+  activeWebProviderBrand = brand !== undefined && brand.length > 0 ? brand : undefined;
+}
+
 export function humanizeToolName(toolName: string): string {
+  if (activeWebProviderBrand !== undefined) {
+    if (toolName === "web_search") return `${activeWebProviderBrand} Search`;
+    if (toolName === "web_fetch") return `${activeWebProviderBrand} Fetch`;
+  }
   const known = TOOL_DISPLAY_NAMES[toolName];
   if (known !== undefined) return known;
   // MCP tools read as "Server: tool name" rather than the raw mcp__ identifier.

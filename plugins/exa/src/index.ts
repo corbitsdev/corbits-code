@@ -1,4 +1,6 @@
 import { type } from "arktype";
+import { htmlToMarkdown } from "../../../src/web/markdown.js";
+import { scrubSecrets } from "../../../src/web/secret-scrub.js";
 
 // Minimal WebProvider shape, structurally compatible with the core
 // src/web/types.ts WebProvider/WebResult interfaces. Kept self-contained so the
@@ -20,6 +22,24 @@ export interface WebProvider {
 const EXA_SEARCH_URL = "https://api.exa.ai/search";
 const EXA_FETCH_TIMEOUT_MS = 30_000;
 
+// Self-description consumed by the plugin loader and the /plugins UI: the kind
+// wires this in as the web backend, and the credential field tells the UI to
+// collect an Exa API key before the provider can run.
+export const manifest = {
+  id: "exa",
+  name: "Exa Search",
+  kind: "web" as const,
+  description: "Web search and page fetch powered by the Exa API.",
+  credentials: [
+    {
+      key: "apiKey",
+      label: "Exa API Key",
+      description: "Create one at dashboard.exa.ai (starts with a UUID).",
+      secret: true,
+    },
+  ],
+};
+
 const ExaProviderOptionsSchema = type({
   apiKey: "string>0",
   // Allow tests to inject a fetch implementation; not user-configurable.
@@ -36,7 +56,7 @@ const ExaSearchResponseSchema = type({
 const ExaResultSchema = type({
   title: "string",
   url: "string",
-  "published_date?": "string",
+  "publishedDate?": "string",
   "author?": "string",
   "score?": "number",
   "id?": "string",
@@ -51,7 +71,7 @@ function exaResultToWebResult(raw: unknown): WebResult | null {
     url: parsed.url,
     snippet: parsed.text ?? "",
     extra: {
-      ...(parsed.published_date !== undefined ? { publishedDate: parsed.published_date } : {}),
+      ...(parsed.publishedDate !== undefined ? { publishedDate: parsed.publishedDate } : {}),
       ...(parsed.author !== undefined ? { author: parsed.author } : {}),
       ...(parsed.score !== undefined ? { score: parsed.score } : {}),
     },
@@ -79,7 +99,7 @@ export default function createWebProvider(options: unknown): WebProvider {
           "x-api-key": apiKey,
           Accept: "application/json",
         },
-        body: JSON.stringify({ query, numResults: 10 }),
+        body: JSON.stringify({ query, numResults: 10, contents: { text: true } }),
       });
 
       if (!response.ok) {
@@ -121,10 +141,17 @@ export default function createWebProvider(options: unknown): WebProvider {
       });
 
       if (!response.ok) {
-        throw new Error(`fetch returned ${response.status} for ${url}`);
+        throw new Error(scrubSecrets(`fetch returned ${response.status} for ${url}`));
       }
 
-      return response.text();
+      const contentType = response.headers.get("content-type") ?? "";
+      const body = await response.text();
+
+      if (contentType.includes("text/markdown") || contentType.includes("text/plain")) {
+        return scrubSecrets(body);
+      }
+
+      return scrubSecrets(htmlToMarkdown(body));
     },
   };
 }
