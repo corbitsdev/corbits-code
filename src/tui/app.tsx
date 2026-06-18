@@ -47,7 +47,7 @@ import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink, readFile, opendir, realpath, stat } from "node:fs/promises";
-import { resolve, isAbsolute, relative, sep } from "node:path";
+import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
@@ -64,24 +64,13 @@ const MAX_MENTION_COUNT = 5;
 const MAX_DIRECTORY_SUMMARY_ENTRIES = 200;
 const MAX_DIRECTORY_NAMES = 20;
 
-async function resolveWorkspacePath(cwd: string, path: string): Promise<{ ok: true; abs: string } | { ok: false; reason: string }> {
-  if (isAbsolute(path) || path === "~" || path.startsWith("~/")) {
-    return { ok: false, reason: "use a workspace-relative path" };
-  }
-
-  const abs = resolve(cwd, path);
-  const rel = relative(cwd, abs);
-  if (rel.startsWith("..") || rel === ".." || rel.startsWith(sep) || rel.startsWith("/")) {
-    return { ok: false, reason: "outside workspace" };
+async function resolveMentionPath(cwd: string, path: string): Promise<{ ok: true; abs: string } | { ok: false; reason: string }> {
+  if (path === "~" || path.startsWith("~/")) {
+    return { ok: false, reason: "home-relative paths are not supported" };
   }
 
   try {
-    const [realAbs, realCwd] = await Promise.all([realpath(abs), realpath(cwd)]);
-    const realRel = relative(realCwd, realAbs);
-    if (realRel.startsWith("..") || realRel === ".." || realRel.startsWith(sep) || realRel.startsWith("/")) {
-      return { ok: false, reason: "outside workspace" };
-    }
-    return { ok: true, abs: realAbs };
+    return { ok: true, abs: await realpath(isAbsolute(path) ? path : resolve(cwd, path)) };
   } catch {
     return { ok: false, reason: "not found" };
   }
@@ -134,7 +123,7 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
       replacements.push({ full, replacement: `${full} (blocked: sensitive path)` });
       continue;
     }
-    const resolved = await resolveWorkspacePath(cwd, path);
+    const resolved = await resolveMentionPath(cwd, path);
     if (!resolved.ok) {
       replacements.push({ full, replacement: `${full} (blocked: ${resolved.reason})` });
       continue;

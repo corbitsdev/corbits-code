@@ -14,7 +14,7 @@ async function fixture(): Promise<string> {
 }
 
 describe("resolveAtMentions", () => {
-  test("inlines small workspace-relative files", async () => {
+  test("inlines small relative files", async () => {
     const dir = await fixture();
     try {
       const resolved = await resolveAtMentions("read @src/small.ts", dir);
@@ -83,27 +83,38 @@ describe("resolveAtMentions", () => {
     }
   });
 
-  test("does not inline absolute paths", async () => {
+  test("inlines absolute paths", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions(`read @${join(dir, "src", "small.ts")}`, dir);
-      expect(resolved).toContain("(blocked: use a workspace-relative path)");
-      expect(resolved).not.toContain("export const value = 1;");
+      const absolutePath = join(dir, "src", "small.ts");
+      const resolved = await resolveAtMentions(`read @${absolutePath}`, dir);
+      expect(resolved).toContain(`\`${absolutePath}\`:`);
+      expect(resolved).toContain("export const value = 1;");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("does not follow symlinks outside the workspace", async () => {
+  test("inlines parent-directory paths", async () => {
+    const dir = await fixture();
+    try {
+      const resolved = await resolveAtMentions("read @../src/small.ts", join(dir, "src"));
+      expect(resolved).toContain("`../src/small.ts`:");
+      expect(resolved).toContain("export const value = 1;");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("follows symlinks outside the start directory", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
-      await writeFile(join(outside, "secret.txt"), "outside secret\n");
+      await writeFile(join(outside, "outside.txt"), "outside content\n");
       await symlink(outside, join(dir, "escape"));
 
-      const resolved = await resolveAtMentions("read @escape/secret.txt", dir);
-      expect(resolved).toContain("(blocked: outside workspace)");
-      expect(resolved).not.toContain("outside secret");
+      const resolved = await resolveAtMentions("read @escape/outside.txt", dir);
+      expect(resolved).toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
