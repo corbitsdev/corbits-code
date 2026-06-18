@@ -14,6 +14,7 @@ export type InFlightIndicatorProps = {
   frame: string;
   elapsedMs: number;
   label?: string;
+  toolName?: string | null;
   workflow?: InlineWorkflowStatus;
 };
 
@@ -28,7 +29,7 @@ export function resolveLabel(label: string | undefined): string {
 // A single dim line that spins while the model is composing and clears the
 // instant its first token streams. The row is always rendered (blank when
 // idle) so the surrounding layout never shifts as it appears and disappears.
-export function InFlightIndicator({ active, frame, elapsedMs, label, workflow }: InFlightIndicatorProps): ReactNode {
+export function InFlightIndicator({ active, frame, elapsedMs, label, toolName, workflow }: InFlightIndicatorProps): ReactNode {
   const workflowText = workflow !== undefined
     ? `⟳ ${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`
     : undefined;
@@ -48,10 +49,11 @@ export function InFlightIndicator({ active, frame, elapsedMs, label, workflow }:
   const seconds = Math.floor(elapsedMs / 1000);
   const suffix = elapsedMs >= SLOW_THRESHOLD_MS ? ` ${seconds}s` : "";
   const displayLabel = resolveLabel(label);
+  const toolText = toolName === null || toolName === undefined ? "" : ` · ${toolName}`;
   return (
     <Box paddingX={1}>
       <Text color={color("live")}>{frame}</Text>
-      <Text color={color("muted")} dimColor>{` ${displayLabel}${suffix}`}</Text>
+      <Text color={color("muted")} dimColor>{` ${displayLabel}${toolText}${suffix}`}</Text>
       {workflowText !== undefined && (
         <Box flexGrow={1} justifyContent="flex-end">
           <Text color={color("accent")} dimColor>{workflowText}</Text>
