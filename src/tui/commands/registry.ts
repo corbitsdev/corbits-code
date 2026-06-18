@@ -1,8 +1,6 @@
 export type CommandContext = {
   getVerbose: () => boolean;
   toggleVerbose: () => boolean;
-  getAuto: () => boolean;
-  toggleAuto: () => boolean;
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
   // Start a workflow by name; returns a status message to surface to the user.

@@ -592,17 +592,12 @@ export function App({
       setVerbose(next);
       return next;
     },
-    getAuto: () => true,
-    toggleAuto: () => {
-      onToggleAuto?.(true);
-      return true;
-    },
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(listWorkflows !== undefined ? { listWorkflows } : {}),
     openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [verbose, onToggleAuto, mcpStatus.servers, onStartWorkflow, listWorkflows]);
+  }), [verbose, mcpStatus.servers, onStartWorkflow, listWorkflows]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
