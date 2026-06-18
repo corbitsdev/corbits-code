@@ -8,6 +8,7 @@ import { Header } from "./components/header.js";
 import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
+import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
 import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
@@ -307,6 +308,7 @@ export function App({
   const mcpStatus = useMCPStatus(eventEmitter);
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
+  const [onboardingDone, setOnboardingDone] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
@@ -891,6 +893,16 @@ export function App({
     if (permissionsAdmin === undefined) return;
     void permissionsAdmin.revoke(entry).then(refreshPermissions);
   };
+
+  if (!onboardingDone) {
+    return (
+      <OnboardingAnimation
+        onComplete={() => setOnboardingDone(true)}
+        rows={rows}
+        columns={columns}
+      />
+    );
+  }
 
   return (
     <Box flexDirection="column" height={rows}>
