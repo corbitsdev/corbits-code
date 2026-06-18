@@ -88,6 +88,36 @@ test("ChatInput renders its controlled value", () => {
   expect(lastFrame()).toContain("hello");
 });
 
+test("ChatInput only shows steer and queue hint while processing with prompt text", () => {
+  const empty = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value=""
+      onChange={() => {}}
+      isProcessing={true}
+      queuedCount={1}
+    />,
+  );
+  expect(empty.lastFrame()).not.toContain("queued");
+  expect(empty.lastFrame()).not.toContain("steer");
+
+  const filled = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value="follow up"
+      onChange={() => {}}
+      isProcessing={true}
+      queuedCount={2}
+    />,
+  );
+  const frame = filled.lastFrame() ?? "";
+  expect(frame).toContain("2 queued · Enter steer · Alt+Enter queue");
+  expect(frame.indexOf("2 queued")).toBeLessThan(frame.indexOf("> follow up"));
+});
 
 test("Up/Down arrows move cursor between lines of a multi-line prompt", async () => {
   let current = "";
