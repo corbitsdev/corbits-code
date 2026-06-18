@@ -2,7 +2,7 @@ import { fromToolRunner, stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
-import { createPosixTools } from "@intx/tools-posix";
+import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import {
   advanceWorkflowDefinition,
@@ -67,6 +67,9 @@ export type AgentToolsetArgs = {
   mcpServers?: MCPServerConfig[];
   // Pre-resolved web provider. When omitted, the built-in local provider is used.
   webProvider?: WebProvider;
+  // Pre-resolved tool plugins (enabled + consented kind:"tool" plugins). Their
+  // tools are appended to the posix toolset.
+  extraToolPlugins?: ToolPlugin[];
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -105,7 +108,7 @@ export type AgentToolset = {
 };
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
-  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider } = args;
+  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [] } = args;
 
   const posixTools = createPosixTools({
     cwd,
@@ -119,6 +122,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
       createLSPPlugin({ cwd, minSeverity: 1 }),
       resultTruncationPlugin(),
+      // User tool plugins last so their tools cannot shadow the core middleware.
+      ...extraToolPlugins,
     ],
   });
 
