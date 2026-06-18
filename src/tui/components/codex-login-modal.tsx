@@ -13,15 +13,14 @@ export type CodexLoginStart = {
 };
 
 export type CodexLoginModalProps = {
-  // Codex profiles already authorized, by name.
   profiles: string[];
-  // The currently active provider, so the active Codex profile is marked.
   activeProfile: string | undefined;
-  // Begin a login for `name`; resolves once the callback server is listening.
+  providerPrefix?: string;
+  title?: string;
+  subtitle?: string;
+  providerLabel?: string;
   onStartLogin: (name: string) => Promise<CodexLoginStart>;
-  // Switch the active provider to an existing Codex profile.
   onSwitchProfile: (name: string) => void;
-  // Remove a profile from the auth store.
   onRemoveProfile: (name: string) => void;
   onClose: () => void;
 };
@@ -39,6 +38,10 @@ function validateProfileName(raw: string, existing: string[]): string | null {
 export function CodexLoginModal({
   profiles,
   activeProfile,
+  providerPrefix = "codex/",
+  title = "Codex Login",
+  subtitle = "Sign in with a ChatGPT Plus/Pro subscription",
+  providerLabel = "Codex",
   onStartLogin,
   onSwitchProfile,
   onRemoveProfile,
@@ -63,7 +66,7 @@ export function CodexLoginModal({
         setAuthorizeUrl(started.authorizeUrl);
         started.completed.then(
           (res) => {
-            setResultMessage(`Authorized Codex profile "${res.profile}".`);
+            setResultMessage(`Authorized ${providerLabel} profile "${res.profile}".`);
             setStep("done");
             onSwitchProfile(res.profile);
           },
@@ -184,17 +187,17 @@ export function CodexLoginModal({
       marginY={1}
     >
       <Text bold color={color("accent")}>
-        Codex Login
+        {title}
       </Text>
       <Box marginTop={1}>
-        <Text color={color("muted")}>Sign in with a ChatGPT Plus/Pro subscription</Text>
+        <Text color={color("muted")}>{subtitle}</Text>
       </Box>
 
       {step === "list" && (
         <Box marginTop={1} flexDirection="column">
           {profiles.map((name, i) => {
             const isCursor = i === cursor;
-            const isActive = `codex/${name}` === activeProfile;
+            const isActive = `${providerPrefix}${name}` === activeProfile;
             return (
               <Box key={name} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
@@ -237,7 +240,7 @@ export function CodexLoginModal({
                 Authorizing "{pendingName}". Your browser should open; if not, open this link:
               </Text>
               <Box marginTop={1}>
-                <Text color={color("accent")}>{osc8(authorizeUrl, "Open Codex authorization")}</Text>
+                <Text color={color("accent")}>{osc8(authorizeUrl, `Open ${providerLabel} authorization`)}</Text>
               </Box>
               <Text color={color("muted")}>{authorizeUrl}</Text>
               <Box marginTop={1}>
@@ -262,7 +265,7 @@ export function CodexLoginModal({
 
       {step === "remove" && (
         <Box marginTop={1} flexDirection="column">
-          <Text color={color("danger")}>Remove Codex profile {profiles[cursor]}?</Text>
+          <Text color={color("danger")}>Remove {providerLabel} profile {profiles[cursor]}?</Text>
           <Text color={color("muted")}>y remove · n cancel · Esc cancel</Text>
         </Box>
       )}
