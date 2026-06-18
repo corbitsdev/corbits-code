@@ -1,29 +1,22 @@
 import { opendir, realpath } from "node:fs/promises";
-import { resolve, dirname, basename, relative, sep } from "node:path";
+import { resolve, dirname, basename } from "node:path";
 
 const MAX_SUGGESTIONS = 20;
 const MAX_SCANNED_ENTRIES = 2_000;
 
-async function resolveWorkspaceDirectory(dir: string, cwd: string): Promise<string | null> {
-  const abs = resolve(cwd, dir);
-  const rel = relative(cwd, abs);
-  if (rel.startsWith("..") || rel === ".." || rel.startsWith(sep) || rel.startsWith("/")) return null;
-
+async function resolveDirectory(dir: string, cwd: string): Promise<string | null> {
   try {
-    const [realAbs, realCwd] = await Promise.all([realpath(abs), realpath(cwd)]);
-    const realRel = relative(realCwd, realAbs);
-    if (realRel.startsWith("..") || realRel === ".." || realRel.startsWith(sep) || realRel.startsWith("/")) return null;
-    return realAbs;
+    return await realpath(resolve(cwd, dir));
   } catch {
     return null;
   }
 }
 
 // Given what the user has typed after @, return up to MAX_SUGGESTIONS matching
-// workspace-relative filesystem paths. Directories get a trailing / so the user
-// can drill in. Never throws — returns [] on any fs error.
+// filesystem paths. Directories get a trailing / so the user can drill in.
+// Never throws — returns [] on any fs error.
 export async function listAtSuggestions(prefix: string, cwd: string): Promise<string[]> {
-  if (prefix.startsWith("/") || prefix === "~" || prefix.startsWith("~/")) return [];
+  if (prefix === "~" || prefix.startsWith("~/")) return [];
 
   try {
     const endsWithSep = prefix.endsWith("/");
@@ -37,7 +30,7 @@ export async function listAtSuggestions(prefix: string, cwd: string): Promise<st
     const hasSlash = lastSlash !== -1;
     const dir = endsWithSep ? prefix : hasSlash ? dirname(prefix) : ".";
     const fragment = endsWithSep ? "" : hasSlash ? basename(prefix) : prefix;
-    const realDir = await resolveWorkspaceDirectory(dir, cwd);
+    const realDir = await resolveDirectory(dir, cwd);
     if (realDir === null) return [];
 
     const matched: string[] = [];

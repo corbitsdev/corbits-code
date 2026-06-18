@@ -20,7 +20,7 @@ afterAll(async () => {
 });
 
 describe("listAtSuggestions", () => {
-  test("lists entries in a workspace-relative directory when prefix is a dir path with trailing slash", async () => {
+  test("lists entries in a relative directory when prefix is a dir path with trailing slash", async () => {
     const results = await listAtSuggestions("src/", fixture);
     expect(results).toContain("src/index.ts");
     expect(results).toContain("src/index.test.ts");
@@ -67,21 +67,29 @@ describe("listAtSuggestions", () => {
     expect(await listAtSuggestions("/nonexistent-path-12345/", fixture)).toEqual([]);
   });
 
-  test("does not browse absolute paths", async () => {
-    expect(await listAtSuggestions(fixture + "/", fixture)).toEqual([]);
+  test("browses absolute paths", async () => {
+    const results = await listAtSuggestions(fixture + "/", fixture);
+    expect(results).toContain(fixture + "/README.md");
+    expect(results).toContain(fixture + "/src/");
+  });
+
+  test("browses parent directories", async () => {
+    const results = await listAtSuggestions("../", join(fixture, "src"));
+    expect(results).toContain("../README.md");
+    expect(results).toContain("../src/");
   });
 
   test("does not browse home-relative paths", async () => {
     expect(await listAtSuggestions("~/", fixture)).toEqual([]);
   });
 
-  test("does not follow symlinked directories outside the workspace", async () => {
+  test("follows symlinked directories", async () => {
     const outside = await mkdtemp(join(tmpdir(), "at-mention-list-outside-"));
     try {
       await writeFile(join(outside, "secret.txt"), "");
       await symlink(outside, join(fixture, "escape"));
 
-      expect(await listAtSuggestions("escape/", fixture)).toEqual([]);
+      expect(await listAtSuggestions("escape/", fixture)).toContain("escape/secret.txt");
     } finally {
       await rm(outside, { recursive: true, force: true });
       await rm(join(fixture, "escape"), { force: true });
