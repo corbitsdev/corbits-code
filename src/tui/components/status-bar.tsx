@@ -11,6 +11,7 @@ export type StatusBarProps = {
   cwd?: string | undefined;
 };
 
+const BRAND = "Intercode";
 
 function terminalStatusColor(status: AgentStatus): string {
   if (status === "failed") return color("danger");
@@ -45,6 +46,8 @@ export function StatusBar({
           {status}
         </Text>
       )}
+      <Box flexGrow={1} />
+      <Text bold color={color("brand")} wrap="truncate-end">{BRAND}</Text>
     </Box>
   );
 }
