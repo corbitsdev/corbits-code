@@ -57,6 +57,9 @@ export type Settings = {
   // Slash commands to suppress from the command palette and completions.
   // The commands still work if typed in full; they are just not listed.
   hiddenCommands?: string[];
+  // Set after the first launch's welcome animation + provider modal has been
+  // shown. Controls whether subsequent launches show "Welcome to" vs "Welcome back".
+  onboarded?: boolean;
 };
 
 export type PluginConfig = {
@@ -178,6 +181,7 @@ const SettingsSchema = type({
   "pluginPaths?": "string[]",
   "web?": "string",
   "hiddenCommands?": "string[]",
+  "onboarded?": "boolean",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -308,6 +312,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.pluginPaths !== undefined ? { pluginPaths: s.pluginPaths as string[] } : {}),
     ...(s.web !== undefined ? { web: s.web as string } : {}),
     ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
+    ...(s.onboarded !== undefined ? { onboarded: Boolean(s.onboarded) } : {}),
   } as Settings;
 }
 
@@ -351,6 +356,17 @@ export async function saveGlobalSettings(path: string, settings: Settings): Prom
   await mkdir(dirname(path), { recursive: true });
   await writeFile(tmp, payload);
   await rename(tmp, path);
+}
+
+// Stamp the global `onboarded` flag. Reads the on-disk global settings fresh
+// (never an in-memory Settings that may carry injected OAuth provider entries
+// with short-lived access tokens) and re-saves with onboarded set. When the
+// file is absent a minimal valid Settings is written, so no provider — and thus
+// no credential — is ever invented here.
+export async function markOnboarded(path: string): Promise<void> {
+  const onDisk = await loadSettings(path);
+  const base: Settings = onDisk ?? { providers: {} };
+  await saveGlobalSettings(path, { ...base, onboarded: true });
 }
 
 // Persist the per-repo provider/model selection. This is where the /agent modal

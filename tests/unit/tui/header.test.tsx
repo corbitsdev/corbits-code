@@ -14,9 +14,9 @@ function renderHeader(props: Partial<HeaderProps> = {}) {
   );
 }
 
-test("Header renders product name", () => {
-  const { lastFrame } = renderHeader();
-  expect(lastFrame()).toContain("Intercode");
+test("Header no longer renders the product name — it lives in the status bar", () => {
+  const { lastFrame } = renderHeader({ sessionTitle: "build a plan" });
+  expect(lastFrame() ?? "").not.toContain("Intercode");
 });
 
 test("Header renders the session title", () => {
@@ -30,8 +30,8 @@ test("Header renders the latest user message", () => {
 });
 
 test("Header no longer renders the working directory — it lives in the status bar", () => {
-  const { lastFrame } = renderHeader({ width: 160 });
-  expect(lastFrame()).toContain("Intercode");
+  const { lastFrame } = renderHeader({ width: 160, latestUserMessage: "do the thing" });
+  expect(lastFrame()).toContain("do the thing");
 });
 
 test("Header does not render the session clock", () => {

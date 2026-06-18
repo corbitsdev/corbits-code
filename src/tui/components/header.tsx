@@ -19,22 +19,19 @@ export type HeaderProps = {
   usage?: string | undefined;
 };
 
-const TITLE = "Intercode";
-
 function truncate(s: string, max: number): string {
   if (max <= 1) return s.slice(0, Math.max(0, max));
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-// The header carries identity and context (product name, session title,
-// latest request) on the left, and live session telemetry (plan usage) on the
-// right. The working directory lives in the status bar, next to model + effort.
+// The header carries session context (profile, session title, latest request)
+// on the left and live telemetry (plan usage) on the right. The product name
+// lives in the status bar so the top line stays clear for user content.
 export function Header({ sessionTitle, latestUserMessage, width, profile, workflow, usage }: HeaderProps): ReactNode {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
         <Box flexDirection="row" gap={1} flexWrap="wrap" flexGrow={1}>
-          <Text bold color={color("brand")}>{TITLE}</Text>
           {profile !== undefined && (
             <Text color={color("muted")} dimColor>[{profile}]</Text>
           )}
