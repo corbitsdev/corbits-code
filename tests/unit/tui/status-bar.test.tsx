@@ -19,6 +19,11 @@ test("StatusBar renders the model name", () => {
   expect(lastFrame()).toContain("test-model");
 });
 
+test("StatusBar renders the product name (moved from the header)", () => {
+  const { lastFrame } = renderBar();
+  expect(lastFrame()).toContain("Intercode");
+});
+
 test("StatusBar does not render the keyboard hint row", () => {
   const { lastFrame } = renderBar();
   expect(lastFrame()).not.toContain("Ctrl+C");
