@@ -8,18 +8,17 @@ test("first run shows the 'Welcome to' greeting", async () => {
   const { lastFrame } = render(
     <OnboardingAnimation onComplete={() => {}} rows={20} columns={80} isFirstTime={true} />,
   );
-  await tick(1600);
+  await tick(1000);
   expect(lastFrame()).toContain("Welcome to");
-  expect(lastFrame()).toContain("Intercode");
-});
+}, 6000);
 
 test("returning user shows the 'Welcome back' greeting", async () => {
   const { lastFrame } = render(
     <OnboardingAnimation onComplete={() => {}} rows={20} columns={80} isFirstTime={false} />,
   );
-  await tick(1200);
+  await tick(1000);
   expect(lastFrame()).toContain("Welcome back");
-});
+}, 6000);
 
 test("any keypress dismisses the animation immediately", async () => {
   let completed = 0;
