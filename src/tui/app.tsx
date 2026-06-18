@@ -38,7 +38,12 @@ import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { removeCodexProfile } from "../auth/codex/store.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import { startXaiLogin } from "../auth/xai/login.js";
+import { getValidXaiToken, XaiAuthError } from "../auth/xai/session.js";
+import { removeXaiProfile } from "../auth/xai/store.js";
+import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
+import { xaiProviderName } from "../config/xai-providers.js";
 import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
@@ -47,14 +52,10 @@ import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink, readFile, opendir, realpath, stat } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
-import { WorkflowPickerModal } from "./components/workflow-picker-modal.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
-import { WORKFLOWS } from "../workflows/index.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import "./commands/built-in.js";
-import "./commands/scope.js";
-import "./commands/workflows.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
 const MAX_MENTION_TOTAL_BYTES = 400_000;
@@ -252,7 +253,6 @@ export type AppProps = {
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
   onStartWorkflow?: (name: string) => string;
-  listWorkflows?: () => Array<{ name: string; description: string }>;
   onToggleCapability?: (name: CapabilityName) => void;
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
@@ -285,7 +285,6 @@ export function App({
   onToggleAuto,
   onSubAgentProviderChange,
   onStartWorkflow,
-  listWorkflows,
   onToggleCapability,
   initialWorkflowStatus,
   initialProfiles = [],
@@ -319,11 +318,10 @@ export function App({
   const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
-  const [codexLoginOpen, setCodexLoginOpen] = useState(false);
+  const [loginModal, setLoginModal] = useState<"codex" | "xai" | null>(null);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
-  const [workflowPickerOpen, setWorkflowPickerOpen] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
@@ -347,7 +345,7 @@ export function App({
     onMessage: setCommandMessage,
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
-  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, removeCodexProvider } = providerManager;
+  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, registerXaiProvider, removeCodexProvider, removeXaiProvider } = providerManager;
   // Safe to mutate during render: the ref is only read later by the faremeter's
   // pricing resolver at usage-event time, never during this render pass.
   modelRef.current = model;
@@ -356,6 +354,13 @@ export function App({
     () =>
       providerCatalog
         .map((p) => p.codexProfile)
+        .filter((name): name is string => name !== undefined),
+    [providerCatalog],
+  );
+  const xaiProfileNames = useMemo(
+    () =>
+      providerCatalog
+        .map((p) => p.xaiProfile)
         .filter((name): name is string => name !== undefined),
     [providerCatalog],
   );
@@ -401,6 +406,37 @@ export function App({
     void removeCodexProfile(name).then(
       () => setCommandMessage(`Removed Codex profile "${name}".`),
       (err: unknown) => setCommandMessage(`Failed to remove Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`),
+    );
+  };
+
+  const switchToXaiProfile = (name: string): void => {
+    void getValidXaiToken(name).then(
+      (token) => {
+        const defaultModel = XAI_DEFAULT_MODELS[0];
+        registerXaiProvider({
+          name: xaiProviderName(name),
+          baseURL: XAI_BASE_URL,
+          apiKey: token.access,
+          models: [...XAI_DEFAULT_MODELS],
+          defaultModel,
+          xaiProfile: name,
+        });
+      },
+      (err: unknown) => {
+        setCommandMessage(
+          err instanceof XaiAuthError
+            ? err.message
+            : `Could not use xAI profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      },
+    );
+  };
+
+  const removeXaiProfileEverywhere = (name: string): void => {
+    removeXaiProvider(xaiProviderName(name));
+    void removeXaiProfile(name).then(
+      () => setCommandMessage(`Removed xAI profile "${name}".`),
+      (err: unknown) => setCommandMessage(`Failed to remove xAI profile "${name}": ${err instanceof Error ? err.message : String(err)}`),
     );
   };
 
@@ -508,7 +544,7 @@ export function App({
     gates.gateOpen ||
     hookPanelOpen ||
     agentModalOpen ||
-    codexLoginOpen ||
+    loginModal !== null ||
     permissionsOpen
   );
 
@@ -576,9 +612,7 @@ export function App({
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
-    ...(listWorkflows !== undefined ? { listWorkflows } : {}),
-    openWorkflowPicker: () => setWorkflowPickerOpen(true),
-  }), [mcpStatus.servers, onStartWorkflow, listWorkflows]);
+  }), [mcpStatus.servers, onStartWorkflow]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -692,7 +726,7 @@ export function App({
       // like the help overlay, so block the global keymap the same way.
       helpOpen: helpOpen || permissionsOpen,
       gateOpen: gates.gateOpen,
-      agentModalOpen: agentModalOpen || workflowPickerOpen || codexLoginOpen,
+      agentModalOpen: agentModalOpen || loginModal !== null,
       hookPanelOpen,
       taskFullScreenOpen,
       hasInput: inputValue.length > 0,
@@ -726,6 +760,7 @@ export function App({
       toggleVerbose: () => {
         setVerbose((v) => !v);
       },
+      toggleTaskPanel: () => setSidebarOpen((open) => !open),
       toggleThinking: () => setThinkingExpanded((e) => !e),
       toggleLastTool: () => {
         if (lastToolId !== null) {
@@ -819,8 +854,8 @@ export function App({
         );
       }
     }
-    if (result.type === "modal" && result.modal === "codex-login") {
-      setCodexLoginOpen(true);
+    if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login")) {
+      setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
     }
     if (result.type === "workflow") {
       if (onStartWorkflow === undefined) {
@@ -923,24 +958,6 @@ export function App({
         onResolvePermission={gates.resolvePermission}
         width={columns}
       />
-      {workflowPickerOpen && (
-        <WorkflowPickerModal
-          workflows={WORKFLOWS}
-          history={workflowHistory}
-          onSelect={(name) => {
-            setWorkflowPickerOpen(false);
-            if (onStartWorkflow !== undefined) {
-              const msg = onStartWorkflow(name);
-              if (msg.startsWith("Started") || msg.startsWith("Auto-started")) {
-                sendMessage(`Begin the ${name} workflow.`);
-              } else {
-                setCommandMessage(msg);
-              }
-            }
-          }}
-          onClose={() => setWorkflowPickerOpen(false)}
-        />
-      )}
       {permissionsOpen && (
         <PermissionsManager
           entries={permissionEntries}
@@ -949,13 +966,18 @@ export function App({
           maxHeight={permissionsOverlayRows}
         />
       )}
-      {codexLoginOpen && (
+      {loginModal !== null && (
         <CodexLoginModal
-          profiles={codexProfileNames}
+          profiles={loginModal === "xai" ? xaiProfileNames : codexProfileNames}
           activeProfile={provider}
+          providerPrefix={loginModal === "xai" ? "xai/" : "codex/"}
+          title={loginModal === "xai" ? "xAI Login" : "Codex Login"}
+          subtitle={loginModal === "xai" ? "Sign in with a SuperGrok or X Premium+ subscription" : "Sign in with a ChatGPT Plus/Pro subscription"}
+          providerLabel={loginModal === "xai" ? "xAI" : "Codex"}
           onStartLogin={(name) => {
             const controller = new AbortController();
-            return startCodexLogin({ profile: name, signal: controller.signal }).then((handle) => ({
+            const start = loginModal === "xai" ? startXaiLogin : startCodexLogin;
+            return start({ profile: name, signal: controller.signal }).then((handle) => ({
               authorizeUrl: handle.authorizeUrl,
               completed: handle.completed,
               cancel: () => {
@@ -964,9 +986,9 @@ export function App({
               },
             }));
           }}
-          onSwitchProfile={switchToCodexProfile}
-          onRemoveProfile={removeCodexProfileEverywhere}
-          onClose={() => setCodexLoginOpen(false)}
+          onSwitchProfile={loginModal === "xai" ? switchToXaiProfile : switchToCodexProfile}
+          onRemoveProfile={loginModal === "xai" ? removeXaiProfileEverywhere : removeCodexProfileEverywhere}
+          onClose={() => setLoginModal(null)}
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}

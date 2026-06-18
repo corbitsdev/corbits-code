@@ -1,6 +1,5 @@
 import { describe, it, expect } from "bun:test";
 import "./built-in.js";
-import "./workflows.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
@@ -20,25 +19,18 @@ describe("/help command", () => {
   });
 });
 
-describe("/workflows command", () => {
-  it("is registered", () => {
-    expect(getCommand("workflows")).toBeDefined();
-  });
-
-  it("returns noop and opens the workflow picker", () => {
-    let opened = false;
-    const ctx = makeCtx();
-    ctx.openWorkflowPicker = () => { opened = true; };
-    const result = getCommand("workflows")!.handler("", ctx);
-    expect(result).toEqual({ type: "noop" });
-    expect(opened).toBe(true);
-  });
-});
-
-describe("removed output commands", () => {
+describe("removed commands", () => {
   it("does not register verbose or diff", () => {
     expect(getCommand("verbose")).toBeUndefined();
     expect(getCommand("diff")).toBeUndefined();
+  });
+
+  it("/workflows is not registered", () => {
+    expect(getCommand("workflows")).toBeUndefined();
+  });
+
+  it("/scope is not registered", () => {
+    expect(getCommand("scope")).toBeUndefined();
   });
 });
 
