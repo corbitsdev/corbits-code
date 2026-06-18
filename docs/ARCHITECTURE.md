@@ -89,7 +89,7 @@ Two directors, selected by front end:
 **ChatDirector** (TUI) operates in three modes, cycled by the user with SHIFT+TAB:
 
 - **Edit** — full tool access; the agent can read, write, and run shell commands.
-- **Auto** — same as Edit; the label signals that the agent runs continuously without per-action approval gates.
+- **Auto** — same as Edit, but the agent runs continuously without per-action approval gates. Auto mode is not a blanket bypass: the auto-shell policy still denies file mutations attempted through shell tooling (steering them to `write_file`/`edit_file`) and still routes dependency installs to an operator prompt (see Permission System).
 - **Plan** — write-restricted; `write_file` and `edit_file` are stripped from the infer action set. The agent may only read, search, and reason. `submit_plan` is promoted into the active tool set exactly when the user enters Plan mode (not globally), so the chat model is never advertised a tool it cannot call. When the user cycles out of Plan mode, `exitPlanPhase()` on the director undoes the write restriction. The TUI resets to Edit when the director emits a `"plan-phase"` event signaling plan approval.
 
 Plan steps auto-show in the sidebar when `submit_plan` has been called — no manual `/plan` command is needed. The sidebar also auto-shows when a workflow is active.
@@ -202,7 +202,8 @@ tool call
 
 - **classify** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) are tier `allow`; everything else is tier `ask`. Builds discrete approval requests: chained shell commands split into one request per segment; file tools keyed on the target path; other tools keyed on tool name.
 - **command** — Splits chained commands and derives command-shape approval scopes.
-- **gate** — Evaluates a call: `skipPermissions` allows everything; `allow`-tier passes; for `ask`-tier, checks persisted approvals, otherwise requests operator approval. In a non-interactive run an unresolved `ask` becomes a denial. Newly granted scopes are appended in memory and persisted.
+- **auto-shell-policy** — A flat, first-match-wins table of rules that constrain `run_shell` even when auto mode would otherwise rubber-stamp it. Each rule carries an effect: `deny` blocks the command outright with a reason (file mutations through ad-hoc tooling — output redirection, `tee`, `sed -i`/`perl -i`, interpreter inline programs or heredocs — which must instead go through `write_file`/`edit_file`); `ask` declines to auto-allow and falls through to the operator prompt (dependency installs and remote runners: npm/yarn/pnpm/bun, pip, cargo, go, brew, npx/bunx, …). Quoted spans are stripped before matching so a quoted `>` or install word in an argument is not flagged, and program names are matched only in command position (start, after a separator, or after a brace-group open). Adding a category is a one-line rule append.
+- **gate** — Evaluates a call: `skipPermissions` allows everything; `allow`-tier passes; for `ask`-tier, checks persisted approvals, otherwise requests operator approval. In a non-interactive run an unresolved `ask` becomes a denial. In auto mode the gate consults the auto-shell policy first: a `deny` rule fails the call, an `ask` rule skips the auto-allow shortcut and proceeds to the normal approval flow, and anything unmatched is auto-allowed. Newly granted scopes are appended in memory and persisted.
 - **matcher** — Glob matching of an approval pattern against a request subject.
 - **store** — Loads/persists approvals scoped to the working directory.
 - **types** — `Approval`, `ApprovalScope`, `PermissionRequest`, `ApprovalOutcome`.
