@@ -36,7 +36,7 @@ export function StatusBar({
       {cwd !== undefined && (
         <>
           <Text color={color("accent")} wrap="truncate-end">{formatPath(cwd)}</Text>
-          <Text color={color("dim")} dimColor>{"\u00B7"}</Text>
+          <Text color={color("dim")} dimColor>·</Text>
         </>
       )}
       <Text color={color("muted")} dimColor wrap="truncate-end">{model}</Text>
