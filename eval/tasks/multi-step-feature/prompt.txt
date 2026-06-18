@@ -1,4 +1,0 @@
-Implement a taxFor(subtotalCents, rate) function in tax.ts that returns the tax
-on a subtotal in whole cents (rounded), then wire it into invoiceTotal in
-invoice.ts so an invoice total includes tax. The tests in invoice.test.ts must
-pass. Do not modify the test file.
