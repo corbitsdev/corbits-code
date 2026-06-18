@@ -343,6 +343,153 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
+  test("auto mode refuses file mutations made through shell tooling", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true }),
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const cases = [
+      "echo hi > src/a.ts",
+      "cat foo >> src/a.ts",
+      "echo x | tee src/a.ts",
+      "sed -i 's/a/b/' src/a.ts",
+      "perl -pi -e 's/a/b/' src/a.ts",
+      "python3 - <<'PY'\nopen('a','w').write('x')\nPY",
+      "node -e \"require('fs').writeFileSync('a','x')\"",
+    ];
+    for (const command of cases) {
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(verdict.allowed).toBe(false);
+      expect("reason" in verdict && /write_file|edit_file/.test(verdict.reason)).toBe(true);
+    }
+  });
+
+  test("auto mode prompts for dependency installs instead of auto-allowing", async () => {
+    const cases = [
+      "npm install",
+      "npm i lodash",
+      "npm ci",
+      "yarn add react",
+      "pnpm install",
+      "bun add zod",
+      "pip install requests",
+      "pip3 install -r requirements.txt",
+      "uv add httpx",
+      "poetry add fastapi",
+      "cargo add serde",
+      "go get ./...",
+      "brew install jq",
+      "npx create-react-app x",
+      "bunx cowsay hi",
+    ];
+    for (const command of cases) {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => { asked++; return { allow: true }; },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+      });
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(asked).toBeGreaterThan(0);
+      expect(verdict.allowed).toBe(true);
+    }
+  });
+
+  test("auto mode denies an install the operator rejects", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: false }),
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("npm install lodash"));
+    expect(verdict.allowed).toBe(false);
+  });
+
+  test("headless auto mode denies a dependency install", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("npm install"));
+    expect(verdict.allowed).toBe(false);
+  });
+
+  test("auto mode does not flag commands that merely mention install", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    for (const command of ["npm test", "npm run build", "git add src/a.ts", "grep install README.md"]) {
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(verdict.allowed).toBe(true);
+    }
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode still allows real shell work and harmless redirects", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true }),
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    for (const command of ["npm test", "git status", "bun run build 2>&1", "ls -la > /dev/null", "ls > /dev/pts/0"]) {
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(verdict.allowed).toBe(true);
+    }
+  });
+
+  test("auto mode does not flag a redirect or install mentioned inside a quoted argument", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    for (const command of [
+      "git commit -m 'fix > bug'",
+      'echo "value > threshold"',
+      'grep "pattern > result" README.md',
+      'echo "run npm install first"',
+    ]) {
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(verdict.allowed).toBe(true);
+    }
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode sees through a brace group to the wrapped command", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const install = await gate.evaluate(shellCall("{ npm install; }"));
+    expect(install.allowed).toBe(true);
+    expect(asked).toBeGreaterThan(0);
+    const mutate = await gate.evaluate(shellCall("{ echo x; } | tee src/a.ts"));
+    expect(mutate.allowed).toBe(false);
+  });
+
   // SECURITY: skipPermissions must short-circuit BEFORE the approval callback is
   // ever invoked. If the callback fires it means skipPermissions is being used as
   // a post-classification hint rather than a gate bypass, which could leave the
