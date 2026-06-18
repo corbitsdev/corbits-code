@@ -1,3 +1,0 @@
-parse.test.ts reproduces a bug in parseList (parse.ts): it does not trim
-whitespace around items and does not drop empty segments. Fix parse.ts so the
-test passes. Do not modify the test.

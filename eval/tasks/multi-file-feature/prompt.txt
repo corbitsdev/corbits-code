@@ -1,2 +1,0 @@
-Add a multiply(a, b) function. Implement it in math.ts and export it from
-index.ts so that multiply.test.ts passes. Do not modify the test.

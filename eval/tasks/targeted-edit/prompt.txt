@@ -1,2 +1,0 @@
-The test in sum.test.ts is failing. Fix the sum function in sum.ts so the test
-passes. Do not modify the test.

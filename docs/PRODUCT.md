@@ -63,7 +63,7 @@ Continues from the last saved state in the working directory.
 
 ## Slash Commands (TUI)
 
-The TUI has an extensible slash-command framework. Built-ins: `/help` (shortcut + command overlay), `/diff` (show working-tree diff), `/plan` (show the plan), `/verbose` (toggle full tool argument/result output), `/agent` (open the agent configuration surface; `/model` is a kept alias). Plugins can register additional commands.
+The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (open the agent configuration surface), `/permissions`, `/workflows`, `/clear`, `/new`, and `/mcp`. Plugins can register additional commands.
 
 `/agent` opens a dedicated full-screen modal — the single place agent configuration lives. Today it holds a Provider / Model section: it lists configured providers, marks the active one, and lets you switch provider and model. A switch applies to the running session immediately (no restart), and can be saved as this project's default (written to the per-repo selection file). The surface is section-based so future configuration (system-prompt overrides, profiles) lands as additional sections rather than new slash commands.
 
@@ -104,8 +104,6 @@ Providers and models are configured in `~/.intercode/settings.json` (holds provi
 ## Roadmap (planned, not yet shipped)
 
 - **Fast provider/model switching** in the TUI with a persisted default (CL-1221).
-- **Agent eval harness** to score prompt/tool-use quality across tasks, models, and providers (CL-1219).
-- **System prompt overhaul** for tool-use, efficiency, and output quality, validated by the eval (CL-1220).
 - **Perpetual-session context management** — compaction/curation so a long-running session's context window stays bounded (CL-930).
 
 ## Business Justification
