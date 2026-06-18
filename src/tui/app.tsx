@@ -15,6 +15,7 @@ import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
 import { PermissionsManager } from "./components/permissions-manager.js";
+import { PluginsManager, type PluginsAdmin } from "./components/plugins-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
@@ -250,6 +251,7 @@ export type AppProps = {
   onInterrupt?: () => void;
   onNewSession?: () => void;
   permissionsAdmin?: PermissionsAdmin;
+  pluginsAdmin?: PluginsAdmin;
   profile?: string;
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
@@ -290,6 +292,7 @@ export function App({
   onInterrupt,
   onNewSession,
   permissionsAdmin,
+  pluginsAdmin,
   profile,
   initialAuto = true,
   onToggleAuto,
@@ -339,6 +342,7 @@ export function App({
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [loginModal, setLoginModal] = useState<"codex" | "xai" | "choose" | null>(null);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
@@ -496,12 +500,23 @@ export function App({
       ? 0
       : (tasksExpanded ? state.tasks.length + 1 : 1) + 2;
 
+  // The plugins overlay renders outside the modal-stack accounting (like the
+  // permissions overlay), so reserve rows for its box: chrome + one row per
+  // plugin + the selected plugin's credential rows.
+  const pluginChromeRows = (() => {
+    if (!pluginsOpen || pluginsAdmin === undefined) return 0;
+    const list = pluginsAdmin.list();
+    const widestCreds = list.reduce((n, p) => Math.max(n, p.credentials.length), 0);
+    return 6 + list.length + widestCreds + 2;
+  })();
+
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
-    taskChromeRows;
+    taskChromeRows +
+    pluginChromeRows;
 
   const layout = useLayoutGeometry({
     columns,
@@ -570,7 +585,8 @@ export function App({
     hookPanelOpen ||
     agentModalOpen ||
     loginModal !== null ||
-    permissionsOpen
+    permissionsOpen ||
+    pluginsOpen
   );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
@@ -749,7 +765,7 @@ export function App({
       exitConfirmOpen,
       // The permissions overlay owns input through its own useInput, exactly
       // like the help overlay, so block the global keymap the same way.
-      helpOpen: helpOpen || permissionsOpen,
+      helpOpen: helpOpen || permissionsOpen || pluginsOpen,
       gateOpen: gates.gateOpen,
       agentModalOpen: agentModalOpen || loginModal !== null,
       hookPanelOpen,
@@ -861,6 +877,12 @@ export function App({
       if (result.overlay === "permissions") {
         refreshPermissions();
         setPermissionsOpen(true);
+      } else if (result.overlay === "plugins") {
+        if (pluginsAdmin === undefined) {
+          setCommandMessage("Plugins are not available in this context.");
+        } else {
+          setPluginsOpen(true);
+        }
       } else {
         setHelpOpen(true);
       }
@@ -1005,6 +1027,9 @@ export function App({
           onClose={() => setPermissionsOpen(false)}
           maxHeight={permissionsOverlayRows}
         />
+      )}
+      {pluginsOpen && pluginsAdmin !== undefined && (
+        <PluginsManager admin={pluginsAdmin} onClose={() => setPluginsOpen(false)} />
       )}
       {loginModal === "choose" && (
         <LoginProviderPicker

@@ -1,8 +1,5 @@
 import { join } from "node:path";
 
-import { loadWorkflowPlugins } from "../workflows/index.js";
-import { loadAgentPlugins } from "./profiles.js";
-
 import {
   createAgent,
   defineAgent,
@@ -39,7 +36,10 @@ import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
-import { resolveWebProviderFromSettings } from "../web/providers/index.js";
+import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
+import { setActiveWebProviderBrand } from "../tui/tool-formatter.js";
+import { discoverRepoPlugins, discoverUserPlugins, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -138,8 +138,6 @@ export async function runAgent(
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
-  await loadWorkflowPlugins(config.settings?.workflowPlugins ?? []);
-  await loadAgentPlugins(config.settings?.agentPlugins ?? []);
   await initSessionDir(config.cwd, config.sessionId);
   const state = await loadState(config.cwd, config.sessionId);
   if (state !== null && state.status === "running" && !config.force) {
@@ -177,10 +175,22 @@ export async function runAgent(
   );
   const { plugin: mcpPlugin } = createMCPPlugin(mcpClients);
 
-  const webProvider = await resolveWebProviderFromSettings(
-    config.settings?.webProvider,
-    config.settings?.webProviderOptions,
-  );
+  const pluginModules = dedupePluginModules([
+    ...(await discoverRepoPlugins()),
+    ...(await discoverUserPlugins(config.cwd)),
+    ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
+  ]);
+  const activeWeb = await resolveWebProviderFromPlugins({
+    candidates: collectWebPlugins(pluginModules),
+    pluginConfig: config.settings?.plugins ?? {},
+    webOverride: config.settings?.web,
+  });
+  if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
+  const webProvider = activeWeb?.provider;
+  const extraToolPlugins = await resolveToolPlugins({
+    candidates: collectToolPlugins(pluginModules),
+    pluginConfig: config.settings?.plugins ?? {},
+  });
 
   const posixTools = createPosixTools({
     cwd: config.cwd,
@@ -195,6 +205,8 @@ export async function runAgent(
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
       createLSPPlugin({ cwd: config.cwd, minSeverity: 1 }),
       mcpPlugin,
+      // User tool plugins last so they cannot shadow core middleware.
+      ...extraToolPlugins,
     ],
   });
 
