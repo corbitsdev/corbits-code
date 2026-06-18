@@ -20,6 +20,10 @@ function bigShellBlock(lineCount: number): ContentBlock {
   };
 }
 
+function lineText(lines: ReturnType<typeof buildLines>): string[] {
+  return lines.map((line) => line.map((segment) => segment.text).join(""));
+}
+
 describe("flat line buffer", () => {
   test("a multi-line shell command decomposes into one line per visual row", () => {
     const lines = buildLines([bigShellBlock(50)], COLUMNS, false, isExpanded);
@@ -52,5 +56,31 @@ describe("flat line buffer", () => {
     const { start, end } = lineWindow(lines, maxOffset, visibleRows);
     expect(end).toBe(lines.length);
     expect(end - start).toBe(visibleRows);
+  });
+
+  test("collapsed JSON tool results show a preview instead of the full document", () => {
+    const block: ContentBlock = {
+      type: "tool_result",
+      id: "json-result",
+      callId: "read-json",
+      name: "read_file",
+      content: '{"scripts":{"test":"bun test"},"dependencies":{"ink":"latest"}}',
+      isError: false,
+    };
+
+    expect(lineText(buildLines([block], COLUMNS, false, isExpanded))).toEqual(["Read 1 lines"]);
+    expect(lineText(buildLines([block], COLUMNS, false, () => true)).join("\n")).toContain("scripts");
+  });
+
+  test("large user code fences are compacted in the log", () => {
+    const block: ContentBlock = {
+      type: "user",
+      id: "user-with-code",
+      content: `Please inspect @src/file.ts:\n\`\`\`ts\n${Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n")}\n\`\`\``,
+    };
+
+    const text = lineText(buildLines([block], COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("[ts code block hidden: 20 lines]");
+    expect(text).not.toContain("line 19");
   });
 });
