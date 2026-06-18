@@ -253,8 +253,6 @@ describe("loaders", () => {
         path,
         JSON.stringify({
           providers: { a: { baseURL: "https://a/v1", apiKey: "k", models: ["m"] } },
-          workflowPlugins: ["./wf.js"],
-          agentPlugins: ["./agent.js"],
           workflowProfiles: { fast: { implement: "m" } },
           web: "exa",
           plugins: { exa: { enabled: true, credentials: { apiKey: "exa-key" } } },
@@ -262,8 +260,6 @@ describe("loaders", () => {
         }),
       );
       const loaded = await loadSettings(path);
-      expect(loaded?.workflowPlugins).toEqual(["./wf.js"]);
-      expect(loaded?.agentPlugins).toEqual(["./agent.js"]);
       expect(loaded?.workflowProfiles).toEqual({ fast: { implement: "m" } });
       expect(loaded?.web).toBe("exa");
       expect(loaded?.plugins).toEqual({ exa: { enabled: true, credentials: { apiKey: "exa-key" } } });

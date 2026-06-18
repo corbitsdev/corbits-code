@@ -1,6 +1,14 @@
 import { scope, scribe, build, review } from "@intercode/default-workflows";
 import type { CommandPlugin } from "../../../src/tui/commands/registry.js";
 
+// Discovered and wired in only when enabled via /plugins (explicit-enable).
+export const manifest = {
+  id: "linear-workflows",
+  name: "Linear Workflows",
+  kind: "command" as const,
+  description: "Linear-integrated coding workflows under /linear (scope, scribe, build, review).",
+};
+
 const SUBCOMMANDS = [
   { name: "scope", description: "Scope a feature or task — creates a Linear issue/project or a local scope file" },
   { name: "scribe", description: "Write or update documentation for the given target" },

@@ -466,8 +466,6 @@ export function providerCatalogToSettings(
     ? {
         ...(existing.mcpServers !== undefined ? { mcpServers: existing.mcpServers } : {}),
         ...(existing.tiers !== undefined ? { tiers: existing.tiers } : {}),
-        ...(existing.workflowPlugins !== undefined ? { workflowPlugins: existing.workflowPlugins } : {}),
-        ...(existing.agentPlugins !== undefined ? { agentPlugins: existing.agentPlugins } : {}),
         ...(existing.workflowProfiles !== undefined ? { workflowProfiles: existing.workflowProfiles } : {}),
         ...(existing.plugins !== undefined ? { plugins: existing.plugins } : {}),
         ...(existing.pluginPaths !== undefined ? { pluginPaths: existing.pluginPaths } : {}),

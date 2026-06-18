@@ -28,7 +28,7 @@ describe("collectWebPlugins", () => {
   test("keeps only web-kind modules with a factory", () => {
     const modules: PluginModule[] = [
       webModule("exa", "Exa Search"),
-      { manifest: { id: "wf", name: "WF", kind: "workflow" } },
+      { manifest: { id: "cmd", name: "Cmd", kind: "command" } },
       { manifest: { id: "broken", name: "Broken", kind: "web" } }, // no factory
     ];
     const candidates = collectWebPlugins(modules);
