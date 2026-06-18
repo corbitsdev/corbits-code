@@ -43,14 +43,16 @@ export type ProviderManagerController = {
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
   saveTierAssignment: (tier: ProviderTier, provider: string, model: string) => void;
-  // Inject (or replace) a Codex OAuth provider in the live catalog and switch to
-  // it. Codex entries are never persisted to settings.json — their credentials
-  // live in the home-level Codex auth store — so this only mutates in-memory
-  // catalog state, unlike upsertProvider.
+  // Inject (or replace) an OAuth provider in the live catalog and switch to it.
+  // OAuth entries are never persisted to settings.json — their credentials live
+  // in provider-specific auth stores — so this only mutates in-memory catalog
+  // state, unlike upsertProvider.
   registerCodexProvider: (entry: ProviderCatalogEntry) => void;
-  // Drop a Codex provider from the live catalog, falling back to another
+  registerXaiProvider: (entry: ProviderCatalogEntry) => void;
+  // Drop an OAuth provider from the live catalog, falling back to another
   // provider if the removed one was active.
   removeCodexProvider: (providerName: string) => void;
+  removeXaiProvider: (providerName: string) => void;
 };
 
 // The selection writer omits reasoningEffort when there is no override so the
@@ -244,10 +246,10 @@ export function useProviderManager({
     );
   };
 
-  const registerCodexProvider = (entry: ProviderCatalogEntry): void => {
+  const registerOAuthProvider = (entry: ProviderCatalogEntry, label: string): void => {
     const targetModel = entry.defaultModel ?? entry.models[0];
     if (targetModel === undefined) {
-      onMessage(`Codex profile ${entry.name} has no model to select`);
+      onMessage(`${label} profile ${entry.name} has no model to select`);
       return;
     }
     const catalog = providerCatalog.filter((p) => p.name !== entry.name).concat(entry);
@@ -258,20 +260,25 @@ export function useProviderManager({
     }
   };
 
-  const removeCodexProvider = (providerName: string): void => {
+  const removeOAuthProvider = (providerName: string, label: string): void => {
     const catalog = providerCatalog.filter((p) => p.name !== providerName);
     setProviderCatalog(catalog);
     if (providerName !== provider) return;
     const fallback = catalog[0];
     const fallbackModel = fallback?.defaultModel ?? fallback?.models[0];
     if (fallback === undefined || fallbackModel === undefined) {
-      onMessage("Removed the active Codex profile but no other provider is configured");
+      onMessage(`Removed the active ${label} profile but no other provider is configured`);
       return;
     }
     if (applyCatalogSelection(catalog, fallback.name, fallbackModel, reasoningEffort)) {
       persistLocalSelection(fallback.name, fallbackModel);
     }
   };
+
+  const registerCodexProvider = (entry: ProviderCatalogEntry): void => registerOAuthProvider(entry, "Codex");
+  const registerXaiProvider = (entry: ProviderCatalogEntry): void => registerOAuthProvider(entry, "xAI");
+  const removeCodexProvider = (providerName: string): void => removeOAuthProvider(providerName, "Codex");
+  const removeXaiProvider = (providerName: string): void => removeOAuthProvider(providerName, "xAI");
 
   return {
     provider,
@@ -286,6 +293,8 @@ export function useProviderManager({
     deleteProvider,
     saveTierAssignment,
     registerCodexProvider,
+    registerXaiProvider,
     removeCodexProvider,
+    removeXaiProvider,
   };
 }
