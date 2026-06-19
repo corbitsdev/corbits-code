@@ -751,14 +751,19 @@ export function App({
     });
   };
 
-  // Spin for the full duration of a send cycle (markRunning → connector.reply):
-  // "Thinking…" while waiting for the model's first token, "Working…" while
-  // tools are executing between inference turns. isProcessing covers both phases
-  // and correctly clears when connector.reply fires (unlike status === "running",
-  // which stays set while the reactor is in wait() between user messages).
+  // Spin for the full duration of a send cycle (markRunning → connector.reply).
+  // The label tracks the live phase so "Thinking…" is reserved for reasoning
+  // chunks, not tool execution or response waits.
   const awaitingResponse = state.status === "running" && state.awaitingResponse;
   const spinner = useSpinner(state.isProcessing, sendCounterRef.current);
-  const spinnerLabel = state.isProcessing && !awaitingResponse ? "Working…" : undefined;
+  const spinnerLabel = (() => {
+    if (!state.isProcessing) return undefined;
+    if (state.currentToolName !== null || state.streamingType === "tool") return "Running tool…";
+    if (state.streamingType === "thinking") return "Thinking…";
+    if (state.streamingType === "text") return "Responding…";
+    if (awaitingResponse) return "Working…";
+    return "Working…";
+  })();
 
   useKeymap(
     {
