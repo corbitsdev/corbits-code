@@ -27,7 +27,7 @@ function segmentProps(seg: StyledSegment): Record<string, unknown> {
 function MarkdownText({ text, width }: { text: string; width: number }): ReactNode {
   const lines = parseMarkdown(text, width);
   return (
-    <>
+    <Box flexDirection="column">
       {lines.map((line, li) => (
         <Text key={li} wrap="wrap">
           {line.length === 0 ? " " : line.map((seg, si) => (
@@ -35,7 +35,7 @@ function MarkdownText({ text, width }: { text: string; width: number }): ReactNo
           ))}
         </Text>
       ))}
-    </>
+    </Box>
   );
 }
 
@@ -125,7 +125,7 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
         setDraft((d) => d.slice(0, -1));
         return;
       }
-      if (!key.ctrl && !key.meta && input.length > 0) {
+      if (!key.ctrl && !key.meta && input.length > 0 && /^[\x20-\x7E -￿]+$/.test(input)) {
         setDraft((d) => d + input);
       }
       return;
@@ -155,7 +155,7 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
       }
     }
     // Any printable char starts a custom response
-    if (input && !key.ctrl && !key.meta) {
+    if (input && !key.ctrl && !key.meta && /^[\x20-\x7E -￿]+$/.test(input)) {
       setDraft(input);
     }
   });
