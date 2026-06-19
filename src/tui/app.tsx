@@ -15,6 +15,7 @@ import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
 import { PermissionsManager } from "./components/permissions-manager.js";
+import { SettingsOverlay, type CompactionMode } from "./components/settings-overlay.js";
 import { PluginsManager, type PluginsAdmin } from "./components/plugins-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
@@ -264,6 +265,7 @@ export type AppProps = {
   // The original settings from disk, used to preserve non-provider fields
   // when the provider catalog is persisted.
   initialSettings?: Settings;
+  onChangeCompactionMode?: (mode: CompactionMode) => Promise<void>;
   // The `onboarded` flag read from the GLOBAL settings file specifically (never
   // a --config/project file). This is global user state: it decides whether the
   // welcome animation plays on first run and is the single source of truth for
@@ -303,6 +305,7 @@ export function App({
   initialProfiles = [],
   profilesDir,
   initialSettings,
+  onChangeCompactionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
 }: AppProps): ReactNode {
@@ -342,6 +345,10 @@ export function App({
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [loginModal, setLoginModal] = useState<"codex" | "xai" | "choose" | null>(null);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [compactionMode, setCompactionMode] = useState<CompactionMode>(
+    initialSettings?.compactionMode ?? "llm",
+  );
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -526,7 +533,7 @@ export function App({
       pendingPermission: gates.pendingPermission,
       pendingOperator: gates.pendingOperator,
     },
-    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen, permissionEntryCount: permissionEntries.length },
+    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen: permissionsOpen || settingsOpen, permissionEntryCount: permissionEntries.length },
     hookCount: state.hooks.length,
     providerCatalog,
     extraChromeRows,
@@ -586,6 +593,7 @@ export function App({
     agentModalOpen ||
     loginModal !== null ||
     permissionsOpen ||
+    settingsOpen ||
     pluginsOpen
   );
 
@@ -770,7 +778,7 @@ export function App({
       exitConfirmOpen,
       // The permissions overlay owns input through its own useInput, exactly
       // like the help overlay, so block the global keymap the same way.
-      helpOpen: helpOpen || permissionsOpen || pluginsOpen,
+      helpOpen: helpOpen || permissionsOpen || settingsOpen || pluginsOpen,
       gateOpen: gates.gateOpen,
       agentModalOpen: agentModalOpen || loginModal !== null,
       hookPanelOpen,
@@ -882,6 +890,9 @@ export function App({
       if (result.overlay === "permissions") {
         refreshPermissions();
         setPermissionsOpen(true);
+      } else if (result.overlay === "settings") {
+        refreshPermissions();
+        setSettingsOpen(true);
       } else if (result.overlay === "plugins") {
         if (pluginsAdmin === undefined) {
           setCommandMessage("Plugins are not available in this context.");
@@ -1030,6 +1041,19 @@ export function App({
           entries={permissionEntries}
           onRevoke={handleRevokePermission}
           onClose={() => setPermissionsOpen(false)}
+          maxHeight={permissionsOverlayRows}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsOverlay
+          permissionEntries={permissionEntries}
+          onRevokePermission={handleRevokePermission}
+          compactionMode={compactionMode}
+          onChangeCompactionMode={(mode) => {
+            setCompactionMode(mode);
+            void onChangeCompactionMode?.(mode);
+          }}
+          onClose={() => setSettingsOpen(false)}
           maxHeight={permissionsOverlayRows}
         />
       )}
