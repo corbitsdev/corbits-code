@@ -23,7 +23,20 @@ export type InFlightIndicatorProps = {
 const SLOW_THRESHOLD_MS = 2000;
 
 export function resolveLabel(label: string | undefined): string {
-  return label ?? "Thinking…";
+  return label ?? "Working…";
+}
+
+export function formatElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.floor(elapsedMs / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}m ${seconds}s`;
+
+  const minutes = totalMinutes % 60;
+  const hours = Math.floor(totalMinutes / 60);
+  return `${hours}h ${minutes}m ${seconds}s`;
 }
 
 // A single dim line that spins while the model is composing and clears the
@@ -46,8 +59,7 @@ export function InFlightIndicator({ active, frame, elapsedMs, label, toolName, w
       </Box>
     );
   }
-  const seconds = Math.floor(elapsedMs / 1000);
-  const suffix = elapsedMs >= SLOW_THRESHOLD_MS ? ` ${seconds}s` : "";
+  const suffix = elapsedMs >= SLOW_THRESHOLD_MS ? ` ${formatElapsed(elapsedMs)}` : "";
   const displayLabel = resolveLabel(label);
   const toolText = toolName === null || toolName === undefined ? "" : ` · ${toolName}`;
   return (

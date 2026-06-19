@@ -85,6 +85,16 @@ function stringifyToolContent(content: unknown): string {
   }
 }
 
+function stringifyToolArguments(args: unknown): string {
+  if (typeof args === "string") return args;
+  if (args === undefined) return "";
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return "";
+  }
+}
+
 export function createAgentStreamState(
   initialHooks: LifecycleHookStatus[] = [],
   getModelId?: () => string,
@@ -351,6 +361,25 @@ export function createAgentStreamState(
           }
           if (openCallId !== null) {
             callIdToArguments.set(openCallId, (callIdToArguments.get(openCallId) ?? "") + fragment);
+          }
+          break;
+        }
+        case "inference.tool_call.end": {
+          awaitingResponse = false;
+          streamingType = "tool";
+          const data = event.data as { name: string; callId: string; arguments?: unknown };
+          currentToolName = data.name;
+          callIdToName.set(data.callId, data.name);
+          const existingArguments = callIdToArguments.get(data.callId) ?? "";
+          const argumentText = data.arguments === undefined ? existingArguments : stringifyToolArguments(data.arguments);
+          callIdToArguments.set(data.callId, argumentText);
+          openCallId = null;
+          const last = contentBlocks[contentBlocks.length - 1];
+          if (last?.type === "tool_call" && last.name === data.name) {
+            if (argumentText.length > 0) last.arguments = argumentText;
+            contentBlocksDirty = true;
+          } else {
+            pushBlock({ type: "tool_call", name: data.name, arguments: argumentText });
           }
           break;
         }
