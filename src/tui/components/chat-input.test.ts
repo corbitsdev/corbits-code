@@ -13,10 +13,13 @@ const key = (overrides: Partial<InputKey> = {}): InputKey => ({
   escape: false,
   upArrow: false,
   downArrow: false,
+  home: false,
+  end: false,
   tab: false,
   ctrl: false,
   meta: false,
   shift: false,
+  super: false,
   ...overrides,
 });
 
@@ -106,6 +109,39 @@ describe("applyKey — right arrow", () => {
 
   test("clamps at string length", () => {
     expect(applyKey(state("hi", 2), "", key({ rightArrow: true }))).toEqual(state("hi", 2));
+  });
+});
+
+describe("applyKey — word movement", () => {
+  test("Alt+Left moves to the start of the current word", () => {
+    expect(applyKey(state("hello world", 8), "", key({ leftArrow: true, meta: true }))).toEqual(state("hello world", 6));
+  });
+
+  test("Alt+Left skips spaces before moving to the previous word", () => {
+    expect(applyKey(state("hello  world", 7), "", key({ leftArrow: true, meta: true }))).toEqual(state("hello  world", 0));
+  });
+
+  test("Alt+Right moves to the end of the current word", () => {
+    expect(applyKey(state("hello world", 2), "", key({ rightArrow: true, meta: true }))).toEqual(state("hello world", 5));
+  });
+
+  test("Alt+Right skips spaces before moving to the next word end", () => {
+    expect(applyKey(state("hello  world", 5), "", key({ rightArrow: true, meta: true }))).toEqual(state("hello  world", 12));
+  });
+});
+
+describe("applyKey — line movement", () => {
+  test("Cmd+Left moves to the current line start", () => {
+    expect(applyKey(state("one\ntwo three", 8), "", key({ leftArrow: true, super: true }))).toEqual(state("one\ntwo three", 4));
+  });
+
+  test("Cmd+Right moves to the current line end", () => {
+    expect(applyKey(state("one\ntwo three\nfour", 6), "", key({ rightArrow: true, super: true }))).toEqual(state("one\ntwo three\nfour", 13));
+  });
+
+  test("Home and End use current line boundaries", () => {
+    expect(applyKey(state("one\ntwo", 5), "", key({ home: true }))).toEqual(state("one\ntwo", 4));
+    expect(applyKey(state("one\ntwo", 5), "", key({ end: true }))).toEqual(state("one\ntwo", 7));
   });
 });
 
