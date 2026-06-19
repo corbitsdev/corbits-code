@@ -160,6 +160,22 @@ function operatorDeclinedHasMessage(result: { content: unknown }): boolean {
   return typeof result.content === "string" && / — .+/.test(result.content);
 }
 
+function incompleteTasks(tasks: readonly Task[]): Task[] {
+  return tasks.filter((task) => task.status !== "done");
+}
+
+function taskCompletionNudge(tasks: readonly Task[]): string {
+  const pending = incompleteTasks(tasks)
+    .map((task) => `- ${task.id}: ${task.title} (${task.status})`)
+    .join("\n");
+  return [
+    "You called submit_output, but your manage_tasks list still has unfinished items.",
+    "Update the task list first: mark completed work as done, or continue/ask if anything is genuinely blocked.",
+    "Unfinished tasks:",
+    pending,
+  ].join("\n");
+}
+
 class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private submitCalled = false;
   private _turnsUsed = 0;
@@ -337,6 +353,11 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       const submitArgs = this.callIdToArgs.get(event.result.callId);
       const isStepTagged = !(type({ step: "string" })(submitArgs) instanceof type.errors);
       if (name === "submit_output" && isSuccessfulToolResult(event.result) && !isStepTagged) {
+        const unfinished = incompleteTasks(this.tasks);
+        if (unfinished.length > 0) {
+          this.submitCalled = false;
+          return capabilities.infer({ systemPrompt: `${this._systemPrompt}\n\n${taskCompletionNudge(unfinished)}` });
+        }
         this.submitCalled = true;
       }
       if (name === "read_file" && !event.result.isError) {
