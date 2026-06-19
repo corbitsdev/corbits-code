@@ -116,29 +116,29 @@ src/
     theme.ts              Colors
     commands/
       registry.ts         Extensible slash-command registry
-      built-in.ts         /help, /model, /permissions, /workflows, /clear, /new, /mcp
-      plan.ts             /plan-mode slash command (cycles to Plan mode)
+      built-in.ts         /help, /model, /settings, /permissions, /plugins,
+                          /login, /codex, /xai, /grok, /clear, /new, /mcp
     components/
-      header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx,
-      plan-view.tsx, diff-view.tsx, context-panel.tsx,
-      operator-modal.tsx, permission-modal.tsx, approval-modal.tsx,
+      header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx, task-view.tsx,
+      at-mention/, operator-modal.tsx, permission-modal.tsx,
+      permissions-manager.tsx, plugins-manager.tsx, settings-overlay.tsx,
       agent-modal.tsx, exit-confirm.tsx, help-overlay.tsx, hook-panel.tsx,
-      in-flight-indicator.tsx, modal-stack.tsx
+      login-provider-picker.tsx, codex-login-modal.tsx, mcp-auth-prompt.tsx,
+      onboarding-animation.tsx, in-flight-indicator.tsx, modal-stack.tsx
     hooks/
-      use-diff.ts, use-gates.ts, use-keymap.ts, use-layout-geometry.ts,
-      use-mcp-status.ts, use-provider-manager.ts,
+      use-gates.ts, use-keymap.ts, use-layout-geometry.ts, use-mcp-status.ts,
+      use-mouse-scroll.ts, use-provider-manager.ts,
       use-scroll.ts, use-spinner.ts, use-terminal-size.ts
+    stdin-filter.ts       Strips SGR mouse sequences before Ink parses input
 docs/
-  PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, HOOKS.md
+  PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, HOOKS.md, MCP.md, PLUGINS.md
 ```
 
-### Agent Mode
+### Auto Mode
 
-`AgentMode = "edit" | "auto" | "plan"` (`src/tui/app.tsx`). SHIFT+TAB cycles the three modes; `/plan-mode` slash command also enters Plan mode directly. `modeColor` is derived once from the current mode and applied to the input separator border and the sidebar `borderColor` prop: `accent` (blue) for Edit, `warning` (orange) for Auto, `success` (green) for Plan.
+SHIFT+TAB (wired through `use-keymap`'s `cycleMode` action to `onToggleAuto` in `src/tui/app.tsx`) enables auto mode. The permission gate reads this flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) and auto-approves non-destructive consequential actions — file writes and edits — without prompting on the next tool call. Destructive actions still gate normally.
 
-On Plan mode entry, `runner.tsx` calls `promoteTools(["submit_plan"])` so the chat model can call `submit_plan` without a prior `tool_search`. On exit (either SHIFT+TAB cycle or the director's `"plan-phase"` done event), `directorHolder.instance?.exitPlanPhase()` lifts the write restriction on the director side. `app.tsx` listens for `"plan-phase"` events from the runner's `EventEmitter` to reset `agentMode` to `"edit"` when the director independently exits plan phase after plan approval.
-
-Plan steps auto-render in the sidebar (`plan-view.tsx`) when `planSteps.length > 0`; the workflow panel auto-shows when a workflow is active. Neither requires a manual slash command.
+Plan approval is handled separately by `use-gates` (`pendingPlan`), independent of auto mode.
 
 ### Interrupt and Queue Steering
 
@@ -252,6 +252,10 @@ Positional arguments are joined into the task description. In headless mode a ta
 - `.agent-state/director.json` — `DirectorPersistedState`
 - `.agent-state/context/` — git-backed conversation context (`@intx/storage-isogit`)
 - Atomic JSON writes with schema validation on load
+
+### Crash Logging
+
+`index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each writes a best-effort crash report to `~/.intercode/projects/<project-slug>/errors/<timestamp>.txt`, where the slug is the cwd with non-alphanumeric runs collapsed to `-`. The file records the failure kind, an ISO timestamp, the cwd, and the stack. The logger swallows its own errors so it can never mask the original crash, then exits non-zero after printing a one-line message to stderr.
 
 ### Event Stream
 
