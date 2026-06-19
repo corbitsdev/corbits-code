@@ -15,10 +15,6 @@ registerCommand({
 registerCommand({
   name: "settings",
   description: "Open settings: permissions, compaction, and other options",
-  subcommands: [
-    { name: "permissions", description: "View and revoke remembered approvals" },
-    { name: "compaction", description: "Configure context-compaction strategy" },
-  ],
   handler: (_args, _ctx) => ({ type: "overlay", overlay: "settings" }),
 });
 

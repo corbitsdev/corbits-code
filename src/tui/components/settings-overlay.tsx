@@ -22,13 +22,19 @@ type Tab = (typeof TABS)[number];
 const COMPACTION_OPTIONS: { value: CompactionMode; label: string; description: string }[] = [
   {
     value: "llm",
-    label: "Smart (LLM)",
-    description: "Summarizes goals, tasks, key files, and next steps before compacting",
+    label: "Summarize",
+    description:
+      "At ~60% of the context window, makes a lightweight LLM call to write a structured handoff " +
+      "(goal, active tasks, key files, decisions, next steps), then replaces older turns with that summary. " +
+      "The next turn sees the handoff in place of the raw history.",
   },
   {
     value: "pruning",
-    label: "Pruning",
-    description: "Fast deterministic pruning — keeps recent turns, no LLM call",
+    label: "Drop",
+    description:
+      "At ~60% of the context window, older turns are silently removed and replaced with a short " +
+      "statistical note (turn count, tools called, last user message). No inference call. " +
+      "Fastest option — use it when conversation history is not load-bearing.",
   },
 ];
 
