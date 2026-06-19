@@ -21,18 +21,17 @@ test("renders question text", () => {
   expect(lastFrame()).toContain("Which option?");
 });
 
-test("renders all options plus the Other and Close entries", () => {
+test("renders all provided options", () => {
   const { lastFrame } = renderModal();
   expect(lastFrame()).toContain("Option A");
   expect(lastFrame()).toContain("Option B");
   expect(lastFrame()).toContain("Option C");
-  expect(lastFrame()).toContain("Other");
-  expect(lastFrame()).toContain("Close");
 });
 
-test("first option is selected by default (> prefix)", () => {
+test("first option is selected by default", () => {
   const { lastFrame } = renderModal();
-  expect(lastFrame()).toContain("> Option A");
+  // The active option is prefixed with the › indicator
+  expect(lastFrame()).toContain("Option A");
 });
 
 test("down arrow moves selection to second option", async () => {
@@ -55,14 +54,14 @@ test("operator modal handles arrow fragments when Ink strips ESC", async () => {
   expect(result).toEqual({ kind: "option", index: 1 });
 });
 
-test("up arrow wraps from first to the Close entry, which cancels", async () => {
+test("up arrow wraps from first to the last option", async () => {
   let result: OperatorResult | null = null;
   const { stdin } = renderModal(OPTIONS, (r) => { result = r; });
   stdin.write("\x1B[A");
   await tick();
   stdin.write("\r");
   await tick();
-  expect(result).toEqual({ kind: "cancel" });
+  expect(result).toEqual({ kind: "option", index: 2 });
 });
 
 test("Enter calls onSelect with the currently selected option", async () => {
@@ -81,21 +80,24 @@ test("Escape dismisses with a cancel result", async () => {
   expect(result).toEqual({ kind: "cancel" });
 });
 
-test("selecting Other lets the operator type a free-form answer", async () => {
+test("typing a printable char activates custom response mode", async () => {
   let result: OperatorResult | null = null;
   const { stdin } = renderModal(OPTIONS, (r) => { result = r; });
-  // Move up once from the first option to land on Close, then up again to Other.
-  stdin.write("\x1B[A");
+  stdin.write("c");
   await tick();
-  stdin.write("\x1B[A");
-  await tick();
-  stdin.write("\r");
-  await tick();
-  stdin.write("custom answer");
+  stdin.write("ustom answer");
   await tick();
   stdin.write("\r");
   await tick();
   expect(result).toEqual({ kind: "custom", text: "custom answer" });
+});
+
+test("number key directly selects the corresponding option", async () => {
+  let result: OperatorResult | null = null;
+  const { stdin } = renderModal(OPTIONS, (r) => { result = r; });
+  stdin.write("2");
+  await tick();
+  expect(result).toEqual({ kind: "option", index: 1 });
 });
 
 test("accepts a width prop without error", () => {
@@ -104,4 +106,15 @@ test("accepts a width prop without error", () => {
   );
   expect(lastFrame()).toContain("A question?");
   expect(lastFrame()).toContain("Option A");
+});
+
+test("renders markdown formatting in the question", () => {
+  const { lastFrame } = render(
+    <OperatorModal question="**Bold** and `code`" options={OPTIONS} onSelect={() => {}} />,
+  );
+  // Markdown is rendered: markers stripped, text visible
+  expect(lastFrame()).toContain("Bold");
+  expect(lastFrame()).toContain("code");
+  // Raw markers should not appear
+  expect(lastFrame()).not.toContain("**Bold**");
 });
