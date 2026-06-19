@@ -34,7 +34,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 $ intercode "Add JWT auth to the API"
 ```
 
-A full-screen terminal interface: a pinned header (status, turns, live cost), a scrollable event log, a context panel that toggles between the working-tree diff and the plan, modals for permission prompts and operator questions, and a chat input for follow-up turns.
+A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
 
 ### Headless Mode
 
@@ -63,7 +63,7 @@ Continues from the last saved state in the working directory.
 
 ## Slash Commands (TUI)
 
-The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (open the agent configuration surface), `/permissions`, `/workflows`, `/clear`, `/new`, and `/mcp`. Plugins can register additional commands.
+The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (open the agent configuration surface), `/settings`, `/permissions`, `/plugins`, `/login`, `/clear`, `/new`, and `/mcp`, plus a `/<name>` command per available workflow. Plugins can register additional commands.
 
 `/agent` opens a dedicated full-screen modal — the single place agent configuration lives. Today it holds a Provider / Model section: it lists configured providers, marks the active one, and lets you switch provider and model. A switch applies to the running session immediately (no restart), and can be saved as this project's default (written to the per-repo selection file). The surface is section-based so future configuration (system-prompt overrides, profiles) lands as additional sections rather than new slash commands.
 
