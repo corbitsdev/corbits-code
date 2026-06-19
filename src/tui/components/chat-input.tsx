@@ -97,6 +97,14 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
   // navigation or cursor-line movement) before reaching this function.
   const { value, cursor } = state;
 
+  if (key.meta && input === "b") {
+    return { value, cursor: previousWordStart(value, cursor) };
+  }
+
+  if (key.meta && input === "f") {
+    return { value, cursor: nextWordEnd(value, cursor) };
+  }
+
   if (key.leftArrow) {
     if (key.super) return { value, cursor: lineStart(value, cursor) };
     if (key.meta || input.startsWith("\u001B")) return { value, cursor: previousWordStart(value, cursor) };

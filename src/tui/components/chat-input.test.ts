@@ -136,6 +136,14 @@ describe("applyKey — word movement", () => {
   test("escape-prefixed Option+Right moves by word when the terminal does not set meta", () => {
     expect(applyKey(state("hello world", 2), "\u001B[C", key({ rightArrow: true }))).toEqual(state("hello world", 5));
   });
+
+  test("readline Option+B moves to the previous word", () => {
+    expect(applyKey(state("hello world", 8), "b", key({ meta: true }))).toEqual(state("hello world", 6));
+  });
+
+  test("readline Option+F moves to the next word end", () => {
+    expect(applyKey(state("hello world", 2), "f", key({ meta: true }))).toEqual(state("hello world", 5));
+  });
 });
 
 describe("applyKey — line movement", () => {
