@@ -711,9 +711,9 @@ export function createChatDirector(
   toolDefinitions: ToolDefinition[],
   taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
   onActivateTools?: (names: string[]) => void,
-  workflowCoordinator?: WorkflowCoordinator,
   inactivityTimeoutMs?: number,
   totalTimeoutMs?: number,
+  workflowCoordinator?: WorkflowCoordinator,
   onTasksChange?: (tasks: Task[]) => void,
   requestContinuation?: () => void,
 ): ChatDirectorWithClear {
