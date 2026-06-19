@@ -60,6 +60,10 @@ export type Settings = {
   // Set after the first launch's welcome animation + provider modal has been
   // shown. Controls whether subsequent launches show "Welcome to" vs "Welcome back".
   onboarded?: boolean;
+  // Controls the context-compaction strategy used when the context window fills.
+  // "llm" (default) generates a structured handoff summary via LLM call.
+  // "pruning" uses fast deterministic pruning with no LLM call.
+  compactionMode?: "llm" | "pruning";
 };
 
 export type PluginConfig = {
