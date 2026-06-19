@@ -2,6 +2,9 @@ import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { OperatorResult } from "../../agent/tools.js";
+import { parseMarkdown } from "../markdown-parser.js";
+import type { StyledSegment } from "../markdown-parser.js";
+import { color } from "../theme.js";
 
 export type OperatorModalProps = {
   question: string;
@@ -10,24 +13,106 @@ export type OperatorModalProps = {
   width?: number;
 };
 
-const OTHER_LABEL = "Other (type your own answer)";
-const CLOSE_LABEL = "Close (dismiss without answering)";
+function segmentProps(seg: StyledSegment): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+  if (seg.bold) props.bold = true;
+  if (seg.italic) props.italic = true;
+  if (seg.strikethrough) props.strikethrough = true;
+  if (seg.code) props.color = color("warning");
+  if (seg.color !== undefined) props.color = seg.color;
+  if (seg.dim) props.dimColor = true;
+  return props;
+}
+
+function MarkdownText({ text, width }: { text: string; width: number }): ReactNode {
+  const lines = parseMarkdown(text, width);
+  return (
+    <>
+      {lines.map((line, li) => (
+        <Text key={li} wrap="wrap">
+          {line.length === 0 ? " " : line.map((seg, si) => (
+            <Text key={si} {...segmentProps(seg)}>{seg.text}</Text>
+          ))}
+        </Text>
+      ))}
+    </>
+  );
+}
+
+// Two-column layout when all options are short enough to fit side by side.
+// Each column gets half the inner width minus a small gap for the number prefix.
+function renderOptionsGrid(options: string[], selected: number, innerWidth: number): ReactNode {
+  const colWidth = Math.floor((innerWidth - 3) / 2); // 3 for " │ " separator
+  const rows: ReactNode[] = [];
+
+  for (let i = 0; i < options.length; i += 2) {
+    const leftOpt = options[i]!;
+    const rightOpt = options[i + 1];
+    const leftIdx = i;
+    const rightIdx = i + 1;
+    const leftActive = leftIdx === selected;
+    const rightActive = rightIdx === selected;
+
+    rows.push(
+      <Box key={i} flexDirection="row">
+        <Box width={colWidth}>
+          <Text>
+            <Text color={leftActive ? color("brand") : color("muted")} bold={leftActive}>{leftActive ? "› " : "  "}</Text>
+            <Text color={color("muted")}>{`${leftIdx + 1}. `}</Text>
+            <Text color={leftActive ? color("text") : color("muted")} bold={leftActive}>{leftOpt}</Text>
+          </Text>
+        </Box>
+        {rightOpt !== undefined && (
+          <>
+            <Text color={color("dim")}> │ </Text>
+            <Box width={colWidth}>
+              <Text>
+                <Text color={rightActive ? color("brand") : color("muted")} bold={rightActive}>{rightActive ? "› " : "  "}</Text>
+                <Text color={color("muted")}>{`${rightIdx + 1}. `}</Text>
+                <Text color={rightActive ? color("text") : color("muted")} bold={rightActive}>{rightOpt}</Text>
+              </Text>
+            </Box>
+          </>
+        )}
+      </Box>,
+    );
+  }
+
+  return <Box flexDirection="column">{rows}</Box>;
+}
+
+function renderOptionsList(options: string[], selected: number): ReactNode {
+  return (
+    <Box flexDirection="column">
+      {options.map((opt, i) => {
+        const active = i === selected;
+        return (
+          <Text key={i} wrap="wrap">
+            <Text color={active ? color("brand") : color("muted")} bold={active}>{active ? "› " : "  "}</Text>
+            <Text color={color("muted")}>{`${i + 1}. `}</Text>
+            <Text color={active ? color("text") : color("muted")} bold={active}>{opt}</Text>
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
 
 export function OperatorModal({ question, options, onSelect, width = 80 }: OperatorModalProps): ReactNode {
-  // The "Other" and "Close" entries always sit below the offered options, so the
-  // operator can answer freely or back out without the agent having to anticipate it.
-  const items = [...options, OTHER_LABEL, CLOSE_LABEL];
-  const otherIndex = options.length;
-  const closeIndex = options.length + 1;
-
   const [selected, setSelected] = useState(0);
-  const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState("");
+  const typing = draft.length > 0;
+
+  // Available width for text inside the box: border(2) + paddingX(4) + marginX(2)
+  const innerWidth = Math.max(1, width - 8);
+  // Options fit side by side when each is shorter than half the inner width, minus prefix "1. › " (5 chars)
+  const colWidth = Math.floor((innerWidth - 3) / 2);
+  const maxOptLen = options.reduce((n, o) => Math.max(n, o.length), 0);
+  const useGrid = options.length >= 2 && options.length <= 4 && maxOptLen <= colWidth - 5;
 
   useInput((input, key) => {
     if (typing) {
       if (key.escape) {
-        setTyping(false);
         setDraft("");
         return;
       }
@@ -51,73 +136,65 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
       return;
     }
     if (key.upArrow || input === "\x1B[A" || input === "[A") {
-      setSelected((s) => (s > 0 ? s - 1 : items.length - 1));
+      setSelected((s) => (s > 0 ? s - 1 : options.length - 1));
       return;
     }
     if (key.downArrow || input === "\x1B[B" || input === "[B") {
-      setSelected((s) => (s < items.length - 1 ? s + 1 : 0));
+      setSelected((s) => (s < options.length - 1 ? s + 1 : 0));
       return;
     }
     if (key.return) {
-      if (selected === closeIndex) {
-        onSelect({ kind: "cancel" });
-        return;
-      }
-      if (selected === otherIndex) {
-        setTyping(true);
-        return;
-      }
       onSelect({ kind: "option", index: selected });
+      return;
+    }
+    if (/^[1-9]$/.test(input)) {
+      const index = Number(input) - 1;
+      if (index < options.length) {
+        onSelect({ kind: "option", index });
+        return;
+      }
+    }
+    // Any printable char starts a custom response
+    if (input && !key.ctrl && !key.meta) {
+      setDraft(input);
     }
   });
 
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor="cyan"
+      borderStyle="single"
+      borderColor={color("muted")}
       paddingX={2}
       paddingY={1}
       marginX={1}
-      marginY={1}
       width={Math.max(24, width - 2)}
     >
-      <Text bold color="cyan">Operator Question</Text>
-      <Box marginTop={1}>
-        <Text wrap="wrap">{question}</Text>
+      <Box marginBottom={1}>
+        <MarkdownText text={question} width={innerWidth} />
       </Box>
       {typing ? (
-        <>
-          <Box marginTop={1} flexDirection="row" gap={1}>
-            <Text color="cyan" bold>{">"}</Text>
-            <Text wrap="wrap">{draft.length > 0 ? draft : <Text dimColor>Type your answer…</Text>}</Text>
+        <Box flexDirection="column">
+          <Box flexDirection="row" gap={1}>
+            <Text color={color("brand")} bold>›</Text>
+            <Text color={color("text")}>{draft}</Text>
+            <Text color={color("brand")}>▌</Text>
           </Box>
           <Box marginTop={1}>
-            <Text dimColor wrap="truncate-end">Enter to submit, Esc to go back</Text>
+            <Text color={color("muted")}>Enter to confirm · Esc to cancel</Text>
           </Box>
-        </>
+        </Box>
       ) : (
-        <>
-          <Box marginTop={1} flexDirection="column">
-            {items.map((opt, i) => {
-              const active = i === selected;
-              const dim = i === otherIndex || i === closeIndex;
-              return (
-                <Box key={i} flexDirection="row" gap={1}>
-                  {active ? <Text color="cyan" bold>{">"}</Text> : <Text>{" "}</Text>}
-                  {active ? (
-                    <Text color="cyan" wrap="wrap">{opt}</Text>
-                  ) : (
-                    <Text dimColor={dim} wrap="wrap">{opt}</Text>
-                  )}
-                </Box>
-              );
-            })}
-          </Box>
+        <Box flexDirection="column">
+          {useGrid
+            ? renderOptionsGrid(options, selected, innerWidth)
+            : renderOptionsList(options, selected)}
           <Box marginTop={1}>
-            <Text dimColor wrap="truncate-end">↑↓ to navigate, Enter to select, Esc to dismiss</Text>
+            <Text color={color("dim")} wrap="truncate-end">
+              {`1-${options.length} select · ↑↓ navigate · Enter choose · type to respond · Esc dismiss`}
+            </Text>
           </Box>
-        </>
+        </Box>
       )}
     </Box>
   );

@@ -131,16 +131,16 @@ test("agentModalOpen with 2 providers each having 3 models: effectiveOverlayRows
   expect(geo.effectiveOverlayRows).toBe(19);
 });
 
-// 9. pendingOperator with a short question and 4 short options → fixed (11) +
-// 1 question line + 4 option lines + 2 (Other/Close) = 18.
-test("pendingOperator with a short question and 4 options: effectiveOverlayRows is 18", () => {
+// 9. pendingOperator with a short question and 4 short options → fixed (7) +
+// 1 question line + 4 option lines = 12.
+test("pendingOperator with a short question and 4 options: effectiveOverlayRows is 12", () => {
   const geo = computeGeo({
     gateContext: {
       ...noGates,
       pendingOperator: { question: "Pick one", options: ["a", "b", "c", "d"] },
     },
   });
-  expect(geo.effectiveOverlayRows).toBe(18);
+  expect(geo.effectiveOverlayRows).toBe(12);
 });
 
 // 11. A long question that wraps across many lines must reserve those rows so

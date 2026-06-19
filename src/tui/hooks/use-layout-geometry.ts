@@ -118,18 +118,16 @@ export function computeOverlayRows({
     return 11 + subjectLines + choices;
   }
   if (gateContext.pendingOperator !== null) {
-    // Fixed chrome: border (2) + paddingY (2) + marginY (2) + title (1) +
-    // marginTop before the question, options, and footer (3) + footer hint (1).
-    const FIXED = 11;
+    // Fixed chrome: border (2) + paddingY (2) + marginBottom after question (1) +
+    // marginTop before footer (1) + footer hint (1).
+    const FIXED = 7;
     const questionLines = wrappedLineCount(gateContext.pendingOperator.question, innerWidth);
-    // Each option is prefixed by an arrow + gap (2 cols) and may wrap. The
-    // "Other" and "Close" entries always sit below the offered options.
-    const optionWidth = Math.max(1, innerWidth - 2);
+    const optionWidth = Math.max(1, innerWidth - 5);
     const optionLines = gateContext.pendingOperator.options.reduce<number>(
       (n, opt) => n + wrappedLineCount(String(opt), optionWidth),
       0,
     );
-    return FIXED + questionLines + optionLines + 2;
+    return FIXED + questionLines + optionLines;
   }
   if (modalContext.helpOpen) return 16;
   if (modalContext.hookPanelOpen) return 4 + hookCount;
