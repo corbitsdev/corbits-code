@@ -56,3 +56,45 @@ test("returns null when the source is drained", () => {
   const { stdin } = createFilteredStdin(fakeStdin([]));
   expect(stdin.read()).toBeNull();
 });
+
+test("strips a mouse sequence split across two reads", () => {
+  const { stdin, mouse } = createFilteredStdin(fakeStdin(["a\x1b[<64", ";1;1Mb"]));
+  const events: string[] = [];
+  mouse.on("scrollUp", () => events.push("up"));
+  // The first read holds back the incomplete trailing `[<64`, so nothing leaks.
+  expect(stdin.read()).toBe("a");
+  // The second read completes it: the sequence is stripped and scroll emitted.
+  expect(stdin.read()).toBe("b");
+  expect(events).toEqual(["up"]);
+});
+
+test("does not buffer a bare trailing ESC (would swallow an Esc keypress)", () => {
+  const { stdin } = createFilteredStdin(fakeStdin(["\x1b"]));
+  expect(stdin.read()).toBe("\x1b");
+});
+
+test("strips via the read(size) overload", () => {
+  const { stdin } = createFilteredStdin(fakeStdin(["x\x1b[<0;1;1My"]));
+  expect(stdin.read(1024)).toBe("xy");
+});
+
+test("emits scroll for release (m) sequences too", () => {
+  const { stdin, mouse } = createFilteredStdin(fakeStdin(["\x1b[<65;1;1m"]));
+  const events: string[] = [];
+  mouse.on("scrollDown", () => events.push("down"));
+  expect(stdin.read()).toBe("");
+  expect(events).toEqual(["down"]);
+});
+
+test("no mouse bytes survive Ink's read loop", () => {
+  const { stdin } = createFilteredStdin(
+    fakeStdin(["type \x1b[<0;5;5M", "\x1b[<64;5;5Mmore"]),
+  );
+  // Mirror Ink's drain: `while ((chunk = stdin.read()) !== null)`.
+  let drained = "";
+  for (let chunk = stdin.read(); chunk !== null; chunk = stdin.read()) {
+    drained += chunk;
+  }
+  expect(drained).toBe("type more");
+  expect(drained).not.toContain("[<");
+});
