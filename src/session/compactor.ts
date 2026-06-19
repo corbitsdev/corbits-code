@@ -195,45 +195,103 @@ export function buildContextEnvelope(envelope: ContextEnvelope): string {
 // Compactor
 // ---------------------------------------------------------------------------
 
-/**
- * Configuration for the deterministic compactor.
- *
- * These parameters control how many recent turns to preserve and how much
- * prior context to compact. They are deliberately simple for v1; future
- * versions may use learned or dynamic values.
- */
 export type CompactorConfig = {
-  /** Number of most-recent turns to preserve in full fidelity. */
   keepRecentTurns: number;
-  /**
-   * Maximum total characters for the compacted summary of prior turns.
-   * Older turns beyond `keepRecentTurns` are replaced with this summary.
-   */
   summaryMaxChars: number;
-  /**
-   * Optional async summarizer. When provided, called instead of the
-   * deterministic `buildTurnSummary` to produce the compacted summary.
-   */
   summarize?: (turns: ConversationTurn[]) => Promise<string>;
+  // Max older turns to pull forward as anchors (file edits, task updates,
+  // errors) before the summary stub. Pulled from the end of the older set
+  // so the most-recent anchors survive.
+  maxAnchorTurns: number;
+  // When true, replace tool_result content in every kept turn with a
+  // one-line stub. Safe at compaction time because the cache is already
+  // cold from the compaction event itself.
+  stripResultContent: boolean;
 };
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   keepRecentTurns: 5,
   summaryMaxChars: 2000,
+  maxAnchorTurns: 8,
+  stripResultContent: false,
 };
 
-/**
- * Build a deterministic compactor that preserves recent turns and the
- * current task's essential information.
- *
- * The compactor:
- * 1. Keeps the N most-recent turns in full fidelity
- * 2. Replaces everything older with a compacted summary block
- * 3. Preserves any tool results referenced by the kept turns
- *
- * This is a pure function — it does not read or write any state. The
- * reactor's context store handles persistence.
- */
+// Minimum anchor score for a turn to be pulled forward past the summary boundary.
+const ANCHOR_SCORE_THRESHOLD = 5;
+
+// Tool name → path argument, used to build readable stubs.
+type ToolCallInfo = {
+  name: string;
+  pathArg?: string;
+  commandArg?: string;
+};
+
+// Build a callId → tool info index from the full turn list so the strip
+// function can produce named stubs without searching across turns.
+function buildCallIndex(turns: ConversationTurn[]): Map<string, ToolCallInfo> {
+  const index = new Map<string, ToolCallInfo>();
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type !== "tool_call") continue;
+      const info: ToolCallInfo = { name: block.name };
+      const args = block.arguments;
+      if (typeof args === "object" && args !== null) {
+        const a = args as Record<string, unknown>;
+        if (typeof a["path"] === "string") info.pathArg = a["path"];
+        if (typeof a["command"] === "string") info.commandArg = a["command"];
+      }
+      index.set(block.id, info);
+    }
+  }
+  return index;
+}
+
+// Score a turn by its anchor importance. Turns that write files, update
+// tasks, or contain errors are load-bearing regardless of age.
+function anchorScore(turn: ConversationTurn): number {
+  let score = 0;
+  for (const block of turn.content) {
+    if (block.type === "tool_call") {
+      if (block.name === "edit_file" || block.name === "write_file") score += 10;
+      else if (block.name === "manage_tasks") score += 7;
+    }
+    if (block.type === "tool_result" && block.isError === true) score += 5;
+  }
+  return score;
+}
+
+function resultContentSize(block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>): number {
+  return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
+}
+
+function buildResultStub(
+  block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+  callIndex: Map<string, ToolCallInfo>,
+): string {
+  const info = callIndex.get(block.callId);
+  const name = info?.name ?? "tool_result";
+  const size = resultContentSize(block);
+  if (info?.pathArg !== undefined) return `[${name} ${info.pathArg} — ${size} chars, omitted]`;
+  if (info?.commandArg !== undefined) {
+    const cmd = info.commandArg.slice(0, 40);
+    return `[${name} "${cmd}" — ${size} chars, omitted]`;
+  }
+  return `[${name} — ${size} chars, omitted]`;
+}
+
+// Replace tool_result content with a one-line stub. Errors are kept in full
+// because they may describe constraints the model still needs to respect.
+function stripTurnResults(
+  turn: ConversationTurn,
+  callIndex: Map<string, ToolCallInfo>,
+): ConversationTurn {
+  const content = turn.content.map((block): ConversationTurn["content"][number] => {
+    if (block.type !== "tool_result" || block.isError === true) return block;
+    return { ...block, content: [{ type: "text", text: buildResultStub(block, callIndex) }] };
+  });
+  return { ...turn, content };
+}
+
 export function createPruningCompactor(
   config: Partial<CompactorConfig> = {},
 ): Compactor {
@@ -259,42 +317,51 @@ export function createPruningCompactor(
         };
       }
 
+      const callIndex = buildCallIndex(turns);
+
       const keepCount = Math.min(cfg.keepRecentTurns, turns.length - 1);
       const keepFrom = turns.length - keepCount;
-
-      // Build a summary of the older turns (everything before keepFrom)
-      const olderTurns = turns.slice(0, keepFrom);
-      const summary = cfg.summarize !== undefined
-        ? await cfg.summarize(olderTurns)
-        : buildTurnSummary(olderTurns, cfg.summaryMaxChars);
-
-      // Recent turns are preserved in full
       const recentTurns = turns.slice(keepFrom);
+      const olderTurns = turns.slice(0, keepFrom);
 
-      // Prepend the summary as a synthetic system turn so the model sees it
+      // Pull high-importance turns forward regardless of age. Take from the
+      // tail of the older set so the most recent anchors survive.
+      const scoredOlder = olderTurns.map((t, i) => ({ turn: t, index: i, score: anchorScore(t) }));
+      const anchorCandidates = scoredOlder
+        .filter(({ score }) => score >= ANCHOR_SCORE_THRESHOLD)
+        .slice(-cfg.maxAnchorTurns);
+      const anchorIndices = new Set(anchorCandidates.map(({ index }) => index));
+      const anchorTurns = anchorCandidates.map(({ turn }) => turn);
+      const summarizedTurns = olderTurns.filter((_, i) => !anchorIndices.has(i));
+
+      const summary = cfg.summarize !== undefined
+        ? await cfg.summarize(summarizedTurns)
+        : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
+
       const summaryTurn: ConversationTurn = {
         role: "system",
-        content: [
-          {
-            type: "text",
-            text: `[Compacted prior context]\n${summary}`,
-          },
-        ],
+        content: [{ type: "text", text: `[Compacted prior context]\n${summary}` }],
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 
+      const process = (t: ConversationTurn): ConversationTurn =>
+        cfg.stripResultContent ? stripTurnResults(t, callIndex) : t;
+
       return {
-        output: [summaryTurn, ...recentTurns],
+        output: [summaryTurn, ...anchorTurns.map(process), ...recentTurns.map(process)],
         record: {
           strategy: this.name,
           version: this.version,
           parameters: {
             keepRecentTurns: cfg.keepRecentTurns,
             summaryMaxChars: cfg.summaryMaxChars,
+            maxAnchorTurns: cfg.maxAnchorTurns,
+            stripResultContent: cfg.stripResultContent,
           },
-          reason: `compacted ${olderTurns.length} older turns, keeping ${keepCount} recent`,
+          reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${keepCount} recent`,
           decisions: {
-            olderTurnCount: olderTurns.length,
+            summarizedTurnCount: summarizedTurns.length,
+            anchorTurnCount: anchorTurns.length,
             recentTurnCount: recentTurns.length,
             summaryLength: summary.length,
           },
@@ -304,22 +371,17 @@ export function createPruningCompactor(
   };
 }
 
-/**
- * Build a text summary of a sequence of turns. For v1 this is a
- * deterministic extract — no LLM summarization. It counts tokens, lists
- * tools called, and notes the last user message.
- *
- * Future versions may use LLM summarization for richer summaries while
- * keeping the deterministic fallback for prompt-cache friendliness.
- */
-export function buildTurnSummary(turns: ConversationTurn[], maxChars: number): string {
+export function buildTurnSummary(
+  turns: ConversationTurn[],
+  maxChars: number,
+  anchorCount = 0,
+): string {
   const toolNames = new Set<string>();
   let totalTokens = 0;
   let lastUserMessage = "";
   let toolCallCount = 0;
 
   for (const turn of turns) {
-    // Estimate tokens (rough: 4 chars per token)
     for (const block of turn.content) {
       if (block.type === "text") {
         totalTokens += Math.ceil(block.text.length / 4);
@@ -330,21 +392,17 @@ export function buildTurnSummary(turns: ConversationTurn[], maxChars: number): s
         totalTokens += Math.ceil(JSON.stringify(block.arguments).length / 4);
       }
       if (block.type === "tool_result") {
-        // Estimate tool result size
         totalTokens += Math.ceil(String(block.content ?? "").length / 4);
       }
     }
-    // Track last user message
     if (turn.role === "user") {
       const textBlock = turn.content.find((b) => b.type === "text");
-      if (textBlock !== undefined) {
-        lastUserMessage = textBlock.text.slice(0, 200);
-      }
+      if (textBlock !== undefined) lastUserMessage = textBlock.text.slice(0, 200);
     }
   }
 
   const lines: string[] = [
-    `Turns compacted: ${turns.length}`,
+    `Turns compacted: ${turns.length}${anchorCount > 0 ? ` (${anchorCount} anchor turns preserved separately)` : ""}`,
     `Estimated tokens: ~${totalTokens}`,
     `Tools called: ${[...toolNames].sort().join(", ")}`,
     `Total tool calls: ${toolCallCount}`,
@@ -355,13 +413,7 @@ export function buildTurnSummary(turns: ConversationTurn[], maxChars: number): s
   }
 
   const summary = lines.join("\n");
-
-  // Truncate if needed
-  if (summary.length > maxChars) {
-    return summary.slice(0, maxChars - 3) + "...";
-  }
-
-  return summary;
+  return summary.length > maxChars ? summary.slice(0, maxChars - 3) + "..." : summary;
 }
 
 /**

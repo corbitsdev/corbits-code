@@ -371,9 +371,9 @@ export async function runTUI(config: Config): Promise<number> {
         computeAdvertised([...agentCtx.toolDefinitions]),
         undefined,
         (names) => promoteTools(names),
-        undefined,
         config.inactivityTimeoutMs ?? 750_000,
         config.totalTimeoutMs,
+        undefined,
         undefined,
         () => {
           try {
@@ -496,7 +496,7 @@ export async function runTUI(config: Config): Promise<number> {
         "pruning-compactor": createPruningCompactor({
           keepRecentTurns: 6,
           summaryMaxChars: 2500,
-          ...(liveCompactionMode !== "pruning" ? { summarize: summarizeForCompaction } : {}),
+          ...(liveCompactionMode !== "pruning" ? { summarize: summarizeForCompaction } : { stripResultContent: true }),
         }),
       },
     });
