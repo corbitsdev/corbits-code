@@ -1,11 +1,8 @@
 import { type } from "arktype";
 import { htmlToMarkdown } from "../../../src/web/markdown.js";
 import { scrubSecrets } from "../../../src/web/secret-scrub.js";
+import { attemptLlmsTxt, truncateContent } from "../../../src/web/smart-fetch.js";
 
-// Minimal WebProvider shape, structurally compatible with the core
-// src/web/types.ts WebProvider/WebResult interfaces. Kept self-contained so the
-// plugin does not depend on core internals; the core loader validates that the
-// returned object has { name, search, fetch }.
 export type WebResult = {
   title: string;
   url: string;
@@ -20,11 +17,10 @@ export interface WebProvider {
 }
 
 const EXA_SEARCH_URL = "https://api.exa.ai/search";
+const EXA_CONTENTS_URL = "https://api.exa.ai/contents";
 const EXA_FETCH_TIMEOUT_MS = 30_000;
+const CONTENTS_MAX_CHARS = 10_000;
 
-// Self-description consumed by the plugin loader and the /plugins UI: the kind
-// wires this in as the web backend, and the credential field tells the UI to
-// collect an Exa API key before the provider can run.
 export const manifest = {
   id: "exa",
   name: "Exa Search",
@@ -42,7 +38,6 @@ export const manifest = {
 
 const ExaProviderOptionsSchema = type({
   apiKey: "string>0",
-  // Allow tests to inject a fetch implementation; not user-configurable.
   "fetchImpl?": "unknown",
 });
 
@@ -61,7 +56,26 @@ const ExaResultSchema = type({
   "score?": "number",
   "id?": "string",
   "text?": "string",
+  "highlights?": "string[]",
 });
+
+const ExaContentsResultSchema = type({
+  "id?": "string",
+  "url?": "string",
+  "title?": "string",
+  "text?": "string",
+});
+
+const ExaContentsResponseSchema = type({
+  results: "unknown[]",
+});
+
+function bestSnippet(parsed: { text?: string; highlights?: string[] }): string {
+  if (parsed.highlights !== undefined && parsed.highlights.length > 0) {
+    return parsed.highlights.join(" … ");
+  }
+  return parsed.text ?? "";
+}
 
 function exaResultToWebResult(raw: unknown): WebResult | null {
   const parsed = ExaResultSchema(raw);
@@ -69,7 +83,7 @@ function exaResultToWebResult(raw: unknown): WebResult | null {
   return {
     title: parsed.title,
     url: parsed.url,
-    snippet: parsed.text ?? "",
+    snippet: bestSnippet(parsed),
     extra: {
       ...(parsed.publishedDate !== undefined ? { publishedDate: parsed.publishedDate } : {}),
       ...(parsed.author !== undefined ? { author: parsed.author } : {}),
@@ -87,6 +101,12 @@ export default function createWebProvider(options: unknown): WebProvider {
   const apiKey = parsed.apiKey;
   const fetchImpl = (parsed.fetchImpl as typeof fetch | undefined) ?? fetch;
 
+  const exaHeaders = {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    Accept: "application/json",
+  };
+
   return {
     name: "exa",
 
@@ -94,12 +114,14 @@ export default function createWebProvider(options: unknown): WebProvider {
       const response = await fetchImpl(EXA_SEARCH_URL, {
         method: "POST",
         signal: AbortSignal.any([signal, AbortSignal.timeout(EXA_FETCH_TIMEOUT_MS)]),
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ query, numResults: 10, contents: { text: true } }),
+        headers: exaHeaders,
+        body: JSON.stringify({
+          query,
+          numResults: 10,
+          contents: {
+            highlights: { numSentences: 3, highlightsPerUrl: 3 },
+          },
+        }),
       });
 
       if (!response.ok) {
@@ -124,14 +146,37 @@ export default function createWebProvider(options: unknown): WebProvider {
     },
 
     async fetch(url: string, signal: AbortSignal): Promise<string> {
-      // Exa exposes no generic fetch-arbitrary-URL endpoint, so forward as a
-      // plain HTTP fetch (matching the core local provider's fallback).
-      //
-      // The core web_fetch tool runs the initial URL through isBlockedURL before
-      // calling this, but redirects are not re-checked here (the SSRF policy lives
-      // in core and should not be duplicated into every provider). TODO: core
-      // should hand providers a policy-checked fetch so redirect hops are gated
-      // the way the local provider gates them. Tracked as a follow-up.
+      // Prefer llms.txt at the target origin before fetching the full page.
+      const llmsTxt = await attemptLlmsTxt(url, fetchImpl, signal);
+      if (llmsTxt !== null) return llmsTxt;
+
+      // Use Exa's Contents API to get a cleaned, structured version of the page.
+      try {
+        const response = await fetchImpl(EXA_CONTENTS_URL, {
+          method: "POST",
+          signal: AbortSignal.any([signal, AbortSignal.timeout(EXA_FETCH_TIMEOUT_MS)]),
+          headers: exaHeaders,
+          body: JSON.stringify({
+            ids: [url],
+            text: { maxCharacters: CONTENTS_MAX_CHARS },
+          }),
+        });
+
+        if (response.ok) {
+          const raw: unknown = await response.json();
+          const parsed = ExaContentsResponseSchema(raw);
+          if (!(parsed instanceof type.errors) && parsed.results.length > 0) {
+            const first = ExaContentsResultSchema(parsed.results[0]);
+            if (!(first instanceof type.errors) && first.text !== undefined && first.text.length > 0) {
+              return scrubSecrets(truncateContent(first.text));
+            }
+          }
+        }
+      } catch {
+        // Fall through to plain HTTP fetch below.
+      }
+
+      // Plain HTTP fetch as final fallback.
       const response = await fetchImpl(url, {
         signal: AbortSignal.any([signal, AbortSignal.timeout(EXA_FETCH_TIMEOUT_MS)]),
         headers: {
@@ -148,10 +193,10 @@ export default function createWebProvider(options: unknown): WebProvider {
       const body = await response.text();
 
       if (contentType.includes("text/markdown") || contentType.includes("text/plain")) {
-        return scrubSecrets(body);
+        return scrubSecrets(truncateContent(body));
       }
 
-      return scrubSecrets(htmlToMarkdown(body));
+      return scrubSecrets(truncateContent(htmlToMarkdown(body)));
     },
   };
 }

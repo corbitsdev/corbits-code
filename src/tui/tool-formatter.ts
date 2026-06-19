@@ -228,6 +228,8 @@ function pathFromResult(toolName: string, content: string): string | null {
 
 const WebSearchItemSchema = type({ "title?": "string", "url?": "string", "snippet?": "string" });
 
+const SEARCH_DISPLAY_LIMIT = 5;
+
 function webSearchSummary(raw: string): ToolResultSummary | null {
   const parsed = WebSearchResultSchema(tryParseObject(raw));
   if (parsed instanceof type.errors) return null;
@@ -235,7 +237,8 @@ function webSearchSummary(raw: string): ToolResultSummary | null {
   if (results.length === 0) {
     return { preview: "No web results", full: "No web results", isJSONDocument: false };
   }
-  const lines = results.flatMap((item, index) => {
+  const displayed = results.slice(0, SEARCH_DISPLAY_LIMIT);
+  const lines = displayed.flatMap((item, index) => {
     const rec = WebSearchItemSchema(item);
     if (rec instanceof type.errors) return [`${index + 1}. ${scalarToString(item)}`];
     const title = rec.title ?? "Untitled";
@@ -247,6 +250,9 @@ function webSearchSummary(raw: string): ToolResultSummary | null {
       ...(snippet.length > 0 ? [`   ${snippet}`] : []),
     ];
   });
+  if (results.length > SEARCH_DISPLAY_LIMIT) {
+    lines.push(`\n... ${results.length - SEARCH_DISPLAY_LIMIT} more results`);
+  }
   const noun = results.length === 1 ? "result" : "results";
   return {
     preview: `Found ${results.length} web ${noun}`,
@@ -255,12 +261,21 @@ function webSearchSummary(raw: string): ToolResultSummary | null {
   };
 }
 
+const FETCH_DISPLAY_LINE_LIMIT = 200;
+
 function webFetchSummary(raw: string): ToolResultSummary | null {
   const parsed = WebFetchResultSchema(tryParseObject(raw));
   if (parsed instanceof type.errors) return null;
+  const lines = parsed.content.split("\n");
+  const totalLines = lines.length;
+  const visible = lines.slice(0, FETCH_DISPLAY_LINE_LIMIT).join("\n");
+  const full =
+    totalLines > FETCH_DISPLAY_LINE_LIMIT
+      ? `${visible}\n\n[... ${totalLines - FETCH_DISPLAY_LINE_LIMIT} more lines]`
+      : visible;
   return {
-    preview: `Fetched ${countLines(parsed.content)} lines`,
-    full: parsed.content,
+    preview: `Fetched ${totalLines} lines`,
+    full,
     isJSONDocument: false,
   };
 }
