@@ -24,17 +24,17 @@ const COMPACTION_OPTIONS: { value: CompactionMode; label: string; description: s
     value: "llm",
     label: "Summarize",
     description:
-      "At ~60% of the context window, makes a lightweight LLM call to write a structured handoff " +
-      "(goal, active tasks, key files, decisions, next steps), then replaces older turns with that summary. " +
-      "The next turn sees the handoff in place of the raw history.",
+      "At ~60% of the context window, makes a lightweight LLM call to produce a structured handoff " +
+      "(goal, active tasks, key files, decisions, next steps), then replaces the older turns with that text. " +
+      "The next turn picks up from the summary rather than the raw history.",
   },
   {
     value: "pruning",
     label: "Drop",
     description:
-      "At ~60% of the context window, older turns are silently removed and replaced with a short " +
-      "statistical note (turn count, tools called, last user message). No inference call. " +
-      "Fastest option — use it when conversation history is not load-bearing.",
+      "At ~60% of the context window, older turns are deleted and replaced with a one-paragraph note " +
+      "listing how many turns were removed, which tools were called, and the last user message. " +
+      "No inference call — use when conversation history is not load-bearing.",
   },
 ];
 
