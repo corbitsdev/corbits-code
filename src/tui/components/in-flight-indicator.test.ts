@@ -2,8 +2,8 @@ import { describe, test, expect } from "bun:test";
 import { formatElapsed, resolveLabel } from "./in-flight-indicator.js";
 
 describe("resolveLabel", () => {
-  test("defaults to Working… when no label provided", () => {
-    expect(resolveLabel(undefined)).toBe("Working…");
+  test("defaults to Thinking… when no label provided", () => {
+    expect(resolveLabel(undefined)).toBe("Thinking…");
   });
 
   test("uses provided label when given", () => {
