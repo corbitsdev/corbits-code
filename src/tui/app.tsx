@@ -274,6 +274,9 @@ export type AppProps = {
   // The TRUE global settings file path (never a --config/project file). The
   // `onboarded` flag is always written here. Defaults to globalSettingsPath.
   globalOnboardingPath?: string;
+  // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
+  // from stdin before they reach useInput (see createFilteredStdin).
+  mouseEvents?: EventEmitter;
 };
 
 export function App({
@@ -308,6 +311,7 @@ export function App({
   onChangeCompactionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
+  mouseEvents,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -869,6 +873,7 @@ export function App({
   );
 
   useMouseScroll(
+    mouseEvents,
     () => scroll.scrollUp(3),
     () => scroll.scrollDown(3),
   );
