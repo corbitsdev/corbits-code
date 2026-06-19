@@ -133,7 +133,7 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
-Invocation: a `/<name>` slash command per workflow plus `/workflows` to list; auto-invoke from a profile's `workflow` field once MCP servers connect (suppressed by `--no-workflow`). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows progress, `Ctrl+W` opens the step/capability panel.
+Invocation: a `/<name>` slash command per workflow; auto-invoke from a profile's `workflow` field once MCP servers connect (suppressed by `--no-workflow`). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
 
 ### System Prompt (`src/agent/prompts.ts`)
 
@@ -212,7 +212,7 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
-- `app.tsx` — Root layout: pinned header, scrollable event log, task context panel, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). The active agent mode (`AgentMode`: `"edit" | "auto" | "plan"`) is owned here; SHIFT+TAB cycles through the three modes. Mode color cascades through the input separator and sidebar border (blue=Edit, orange=Auto, green=Plan). `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
+- `app.tsx` — Root layout: pinned header, scrollable event log, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). SHIFT+TAB enables auto mode, which auto-approves non-destructive consequential actions through the permission gate (`onToggleAuto`). Plan handling is a separate approval gate (`use-gates`), not a mode. `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
 
   **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLines`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLines` evicts entries for block IDs not in the current block list on every call, so manage_tasks/present splices do not accumulate orphaned entries.
 
@@ -225,16 +225,16 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
   - **Alt+Enter** calls `onSubmit(message)` immediately, queuing the message for delivery after the current response cycle completes.
   - A hint line (`↵ interrupt · Alt+↵ queue`) is shown in the input area while processing and the queue is empty.
 
-- **Status bar** — Simplified to model name, optional reasoning-effort suffix, AUTO label, and terminal status. Token counts and cost display removed.
+- **Status bar** — Shows the working directory, model name, optional reasoning-effort suffix, terminal status, and the brand label. Token counts and cost display removed.
 
 - **Task view** — Compact rendering: shows only the current in-progress task plus a `(N done, M todo)` count suffix. No scrolling task list.
 
 - **In-flight indicator** — Spinner uses the `"live"` semantic color (calm blue) rather than the brand orange, reducing visual noise during long runs.
 
-- Hooks: `use-diff`, `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-spinner`, `use-terminal-size`.
-- Components: `header`, `event-log`, `chat-input`, `status-bar`, `context-panel`, `operator-modal`, `permission-modal`, `approval-modal`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `in-flight-indicator`.
-- Support: `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
-- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/model`, `/permissions`, `/workflows`, `/clear`, `/new`, `/mcp`).
+- Hooks: `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-mouse-scroll`, `use-spinner`, `use-terminal-size`, `use-layout-geometry`, `use-mcp-status`, `use-provider-manager`.
+- Components: `header`, `event-log`, `chat-input`, `status-bar`, `task-view`, `operator-modal`, `permission-modal`, `permissions-manager`, `plugins-manager`, `settings-overlay`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `login-provider-picker`, `codex-login-modal`, `mcp-auth-prompt`, `onboarding-animation`, `in-flight-indicator`.
+- Support: `stdin-filter.ts` (strips SGR mouse sequences before Ink parses input — see below), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
+- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/model`, `/settings`, `/permissions`, `/plugins`, `/login`, `/codex`, `/xai`, `/grok`, `/clear`, `/new`, `/mcp`).
 - `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the CL-927 catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.intercode/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the CL-1224 add-provider/onboarding step.
 
 #### Event log rendering
@@ -244,6 +244,14 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - **Collapsed tool calls** — Non-danger tools render dimmed with a muted summary suffix. Danger-role tools (destructive shell, writes under risk paths) retain their role color when collapsed so they remain visually salient.
 - **Thinking gutter** — When `thinkingExpanded` is true, thinking content lines are prefixed with `│ ` in the `dim` color, separating them visually from model output without requiring a header.
 - **Block-level cache** — `buildLines` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick.
+
+#### Input handling
+
+Ink reads stdin, parses it into string events, and broadcasts every event to *all* mounted `useInput` handlers. That broadcast model means an escape sequence not consumed by one handler leaks into another — in particular, SGR mouse tracking sequences (emitted on every terminal click, e.g. `ESC[<0;39;38M`) would surface as literal `[<...` text in whichever input is focused.
+
+Rather than filter per component, `stdin-filter.ts` (`createFilteredStdin`) wraps `process.stdin` and is passed to Ink's `render` via the `stdin` option. It proxies the stream, intercepting `read()` to strip all `ESC[<…M/m` sequences before Ink's parser sees them — so no component's `useInput` ever receives one. A sequence split across two `read()` calls is handled by holding back an incomplete trailing `ESC[<…` (the SGR private marker is unambiguous, so this never swallows a boundary-split Esc or arrow key) and prepending it to the next chunk. This depends on Ink 7 driving its input pipeline off `stdin.read()`; bytes Ink consumes via its transient Kitty-keyboard probe are `unshift`ed back and re-enter through `read()`, so they pass through the filter too.
+
+Mouse-wheel events are the one class of mouse input the UI acts on. Since they can no longer arrive through `useInput`, the filter detects wheel buttons (64 = up, 65 = down) and re-emits them as `scrollUp`/`scrollDown` on a dedicated `EventEmitter`. `use-mouse-scroll` subscribes to that emitter (and still owns enabling/disabling SGR mouse mode on the terminal).
 
 ### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
 
