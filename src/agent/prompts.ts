@@ -56,8 +56,8 @@ export function buildCoreToolsRules(): string {
     "Core tools — use the right tool for the job. These exist so every change flows through one reviewable path. Do NOT reach for shell to do what a core tool already does:",
     "- To create or overwrite a file: USE write_file. Never `echo`/`cat`/`printf` into a file, redirect (`>`/`>>`), or `tee`.",
     "- To change part of an existing file: USE edit_file for the surgical replacement. Never `sed -i`, `perl -i`, `awk`, or a python/node script that rewrites the file.",
-    "- To read a file: USE read_file. To list a directory: USE list_dir. To find files: USE search_files. To search contents: USE grep. Never `cat`/`ls`/`find`/`grep` through the shell for these.",
-    "- To resolve a symbol or its callers: USE lsp (goToDefinition, findReferences, hover).",
+    "- To read a file: USE read_file. To list a directory: USE list_dir. To find files by path/name: USE search_files. To search plain text: USE grep. Never `cat`/`ls`/`find`/`grep` through the shell for these.",
+    "- To understand code symbols, definitions, types, implementations, or callers: USE lsp before text search (goToDefinition, findReferences, hover, goToImplementation, documentSymbol, workspaceSymbol, call hierarchy).",
     "- To access the web: USE web_search and web_fetch. Never `curl`/`wget` for HTTP(S).",
     "- run_shell is for running real commands — builds, tests, git, package managers — NOT for reading, editing, or writing files, and NOT for talking to the user. Do not invoke python, node, sed, awk, perl, or interpreter heredocs to manipulate files; the permission layer blocks file mutations made through shell tooling.",
     "- Installing or adding dependencies (npm/yarn/pnpm/bun install or add, pip install, cargo add, brew install, npx/bunx, and the like) always needs operator approval — even in auto mode it will not run unattended, because it fetches and runs untrusted code. You may request it; just expect an approval prompt rather than installing silently.",
@@ -69,10 +69,10 @@ export function buildToolCallDiscipline(): string {
     "How you work:",
     "- Every turn makes at least one tool call. Prose alone stalls the loop.",
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
-    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block, and your shell runs in that directory. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
+    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block, and your shell runs in that directory. Never run pwd, ls, or find to orient — use list_dir or search_files to explore paths.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- Understand before you change: grep for the symbol, read the file and its callers, then edit. Don't change code you haven't read, and don't read past what the task touches. Take in the whole region you need in one read — don't re-open or page through a file you've already read.",
-    "- Parallelize independent reads: if you need to grep several patterns or read several files in the same investigation, issue all the calls in one turn — not one per turn.",
+    "- Understand before you change: if a code symbol is involved, use lsp first for definitions, references, types, implementations, and call hierarchy; then read the file and its callers before editing. Use grep only for literal text, logs, docs, config, or when lsp has no server/results. Don't change code you haven't read, and don't read past what the task touches. Take in the whole region you need in one read — don't re-open or page through a file you've already read.",
+    "- Parallelize independent reads: if you need several searches or files in the same investigation, issue all the calls in one turn — not one per turn.",
   ].join("\n");
 }
 
@@ -109,8 +109,8 @@ export function buildInstructionHierarchyRules(): string {
 export function buildBudgetRules(): string {
   return [
     "Working efficiently:",
-    "- Find with grep or search before opening large files; read the part you need.",
-    "- The tool layer won't re-serve a file you already read — keep what you saw, and use grep or search to re-locate things rather than re-opening.",
+    "- Find code with lsp before opening large files when you need symbols, references, types, or call flow; use search_files for path discovery and grep for literal text.",
+    "- The tool layer won't re-serve a file you already read — keep what you saw, and use lsp, search_files, or grep to re-locate things rather than re-opening.",
     "- edit_file for surgical changes; write_file for new files or full rewrites. Never generate file contents through run_shell.",
     "- If a tool reports a limit, narrow the operation instead of repeating it.",
   ].join("\n");
@@ -177,9 +177,9 @@ export function buildSubmitRules(): string {
 export function buildLSPGuidance(): string {
   return [
     "Language server (lsp tool):",
-    "- Prefer lsp over grep for symbol resolution: use goToDefinition to jump to a declaration, findReferences to find all call sites, and hover to inspect a type without opening the file.",
+    "- Use lsp as the default for code understanding: goToDefinition for declarations, findReferences for call sites, hover for types/docs, goToImplementation for concrete implementations, documentSymbol/workspaceSymbol for symbol discovery, and call hierarchy for dependency flow.",
+    "- Use grep after lsp only to search literal strings, generated text, tests by assertion text, docs/config, or languages/files where lsp has no server or no useful result.",
     "- After editing a file the LSP middleware appends diagnostics automatically — read them before moving on.",
-    "- Fall back to grep only when lsp reports no server available for a file type.",
   ].join("\n");
 }
 
@@ -351,10 +351,10 @@ export function buildChatToolCallDiscipline(): string {
     "How you work:",
     "- Use tools to do real work — read files, run commands, search. Answer directly in prose when no action is needed; a greeting or a clarifying question does not require a tool call.",
     "- Don't narrate routine actions before doing them — just call the tool.",
-    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir and grep to explore further.",
+    "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir or search_files to explore paths.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- Understand before you change: grep for the symbol, read the file and its callers, then edit.",
-    "- Parallelize independent reads: if you need to grep several patterns or read several files in the same investigation, issue all the calls in one turn — not one per turn.",
+    "- Understand before you change: if a code symbol is involved, use lsp first for definitions, references, types, implementations, and call hierarchy; then read the file and its callers before editing. Use grep only for literal text, logs, docs, config, or when lsp has no server/results.",
+    "- Parallelize independent reads: if you need several searches or files in the same investigation, issue all the calls in one turn — not one per turn.",
     "- When the user gives an open-ended request and the next step is obvious from the codebase, do it — don't ask for confirmation or offer a template. Explore first, then act. Only use ask_operator when the task is genuinely ambiguous and the wrong choice would waste significant effort.",
   ].join("\n");
 }
