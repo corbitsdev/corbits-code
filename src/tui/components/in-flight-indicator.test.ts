@@ -1,9 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { resolveLabel } from "./in-flight-indicator.js";
+import { formatElapsed, resolveLabel } from "./in-flight-indicator.js";
 
 describe("resolveLabel", () => {
-  test("defaults to Thinking… when no label provided", () => {
-    expect(resolveLabel(undefined)).toBe("Thinking…");
+  test("defaults to Working… when no label provided", () => {
+    expect(resolveLabel(undefined)).toBe("Working…");
   });
 
   test("uses provided label when given", () => {
@@ -13,5 +13,19 @@ describe("resolveLabel", () => {
 
   test("returns empty string when explicitly set", () => {
     expect(resolveLabel("")).toBe("");
+  });
+});
+
+describe("formatElapsed", () => {
+  test("uses seconds for short waits", () => {
+    expect(formatElapsed(59_999)).toBe("59s");
+  });
+
+  test("uses minutes and seconds after one minute", () => {
+    expect(formatElapsed(65_000)).toBe("1m 5s");
+  });
+
+  test("uses hours, minutes, and seconds after one hour", () => {
+    expect(formatElapsed(3_665_000)).toBe("1h 1m 5s");
   });
 });
