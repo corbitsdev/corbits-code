@@ -50,10 +50,10 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
     const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
     return merged;
   };
-  // Some OpenAI-compatible providers (e.g. DeepSeek via NVIDIA NIM) emit
-  // `tool_calls: null` in delta chunks instead of omitting the field. The
-  // upstream parser validates it as an array and throws ProtocolMismatchError.
-  // Strip the null before the base parser sees it.
+  // DeepSeek via NVIDIA NIM sends null for delta fields the upstream schema
+  // requires to be non-null (role: string, tool_calls: array). Fields that
+  // legitimately accept null (content, reasoning_content, etc.) are left alone.
+  const NULL_REJECTED_DELTA_FIELDS = new Set(["role", "tool_calls"]);
   const parseResponse: ProviderAdapter["parseResponse"] = (sseData: string) => {
     let data = sseData;
     try {
@@ -64,9 +64,13 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
         for (const choice of choices) {
           if (choice !== null && typeof choice === "object") {
             const delta = (choice as Record<string, unknown>)["delta"];
-            if (delta !== null && typeof delta === "object" && (delta as Record<string, unknown>)["tool_calls"] === null) {
-              delete (delta as Record<string, unknown>)["tool_calls"];
-              patched = true;
+            if (delta !== null && typeof delta === "object") {
+              for (const key of NULL_REJECTED_DELTA_FIELDS) {
+                if ((delta as Record<string, unknown>)[key] === null) {
+                  delete (delta as Record<string, unknown>)[key];
+                  patched = true;
+                }
+              }
             }
           }
         }
