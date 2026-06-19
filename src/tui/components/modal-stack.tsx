@@ -1,6 +1,8 @@
+import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import type { LifecycleHookStatus } from "../../session/hooks.js";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
+import type { PlanStep } from "../use-stream.js";
 import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
@@ -8,6 +10,27 @@ import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { ProviderTier, TierAssignment } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 import { OperatorModal } from "./operator-modal.js";
+import { color } from "../theme.js";
+
+function ApprovalModal({ plan, onApprove, onReject }: { plan: PlanStep[]; onApprove: () => void; onReject: () => void }): ReactNode {
+  useInput((_input, key) => {
+    if (key.return) onApprove();
+    if (key.escape) onReject();
+  });
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={color("accent")} paddingX={2} paddingY={1} marginX={1} marginY={1}>
+      <Text bold color={color("accent")}>Plan Review</Text>
+      <Box flexDirection="column" marginTop={1}>
+        {plan.map((step, i) => (
+          <Text key={i} color={color("muted")}>{`  ${step.file}  ${step.action}`}</Text>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text color={color("muted")}>Enter to approve · Esc to reject</Text>
+      </Box>
+    </Box>
+  );
+}
 import type { OperatorResult } from "../../agent/tools.js";
 import { PermissionModal } from "./permission-modal.js";
 
@@ -34,6 +57,10 @@ export type ModalStackProps = {
   onSaveAgentProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteAgentProfile: (id: string) => void;
   codexUsage?: string | undefined;
+
+  pendingPlan: PlanStep[] | null;
+  onApprove: () => void;
+  onReject: () => void;
 
   pendingOperator: { question: string; options: string[] } | null;
   onSelectOperator: (result: OperatorResult) => void;
@@ -65,6 +92,9 @@ export function ModalStack({
   onSaveAgentProfile,
   onDeleteAgentProfile,
   codexUsage,
+  pendingPlan,
+  onApprove,
+  onReject,
   pendingOperator,
   onSelectOperator,
   pendingPermission,
@@ -93,6 +123,9 @@ export function ModalStack({
           onDeleteProfile={onDeleteAgentProfile}
           codexUsage={codexUsage}
         />
+      )}
+      {pendingPlan !== null && (
+        <ApprovalModal plan={pendingPlan} onApprove={onApprove} onReject={onReject} />
       )}
       {pendingOperator !== null && (
         <OperatorModal
