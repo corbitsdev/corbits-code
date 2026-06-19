@@ -13,9 +13,19 @@ registerCommand({
 });
 
 registerCommand({
+  name: "settings",
+  description: "Open settings: permissions, compaction, and other options",
+  subcommands: [
+    { name: "permissions", description: "View and revoke remembered approvals" },
+    { name: "compaction", description: "Configure context-compaction strategy" },
+  ],
+  handler: (_args, _ctx) => ({ type: "overlay", overlay: "settings" }),
+});
+
+registerCommand({
   name: "permissions",
-  description: "View and revoke remembered approvals across scopes",
-  handler: (_args, _ctx) => ({ type: "overlay", overlay: "permissions" }),
+  description: "Alias for /settings — view and revoke remembered approvals",
+  handler: (_args, _ctx) => ({ type: "overlay", overlay: "settings" }),
 });
 
 registerCommand({

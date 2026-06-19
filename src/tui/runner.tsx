@@ -479,6 +479,10 @@ export async function runTUI(config: Config): Promise<number> {
     );
   };
 
+  // Mutable reference so the compaction summarize callback reads the live mode
+  // without requiring an agent rebuild on every settings change.
+  let liveCompactionMode = config.settings?.compactionMode ?? "llm";
+
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
     return createAgent(def, {
@@ -492,7 +496,7 @@ export async function runTUI(config: Config): Promise<number> {
         "pruning-compactor": createPruningCompactor({
           keepRecentTurns: 6,
           summaryMaxChars: 2500,
-          summarize: summarizeForCompaction,
+          ...(liveCompactionMode !== "pruning" ? { summarize: summarizeForCompaction } : {}),
         }),
       },
     });
@@ -739,6 +743,12 @@ export async function runTUI(config: Config): Promise<number> {
       onToggleAuto={(value) => permissionGate.setAuto(value)}
       {...(config.tiers !== undefined ? { initialTiers: config.tiers } : {})}
       {...(config.settings !== undefined ? { initialSettings: config.settings } : {})}
+      onChangeCompactionMode={async (mode) => {
+        liveCompactionMode = mode;
+        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
+        const base: Settings = current ?? { providers: {} };
+        await saveGlobalSettings(config.globalSettingsPath, { ...base, compactionMode: mode });
+      }}
       initialProfiles={initialProfiles}
       profilesDir={profilesDir}
       onSubAgentProviderChange={(provider) => {
