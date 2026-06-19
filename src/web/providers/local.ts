@@ -1,6 +1,6 @@
 import { isBlockedURL } from "../url-policy.js";
-import { htmlToMarkdown } from "../markdown.js";
 import { scrubSecrets } from "../secret-scrub.js";
+import { attemptLlmsTxt, normalizeBody } from "../smart-fetch.js";
 import type { WebProvider, WebResult } from "../types.js";
 
 const SEARCH_URL = "https://lite.duckduckgo.com/lite/";
@@ -97,6 +97,9 @@ export function createLocalProvider(options: LocalProviderOptions = {}): WebProv
         throw createFetchError(`fetch blocked by policy: ${policy.reason}`);
       }
 
+      const llmsTxt = await attemptLlmsTxt(url, fetchImpl, signal);
+      if (llmsTxt !== null) return llmsTxt;
+
       let response: Response;
       try {
         response = await fetchWithPolicy(fetchImpl, url, signal);
@@ -111,17 +114,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): WebProv
 
       const contentType = response.headers.get("content-type") ?? "";
       const body = await response.text();
-
-      if (contentType.includes("text/markdown")) {
-        return scrubSecrets(body);
-      }
-
-      if (contentType.includes("text/plain")) {
-        return scrubSecrets(body);
-      }
-
-      // Default: treat as HTML (even if Content-Type is missing or unexpected).
-      return scrubSecrets(htmlToMarkdown(body));
+      return normalizeBody(contentType, body);
     },
   };
 }
