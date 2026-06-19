@@ -111,13 +111,16 @@ export async function main(argv: readonly string[]): Promise<number> {
 
 function writeCrashLog(kind: string, err: unknown): void {
   try {
-    const errorsDir = `${process.cwd()}/.intercode/errors`;
     const fs = require("node:fs") as typeof import("node:fs");
+    const os = require("node:os") as typeof import("node:os");
+    const cwd = process.cwd();
+    const projectSlug = cwd.replace(/^\//, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+    const errorsDir = `${os.homedir()}/.intercode/projects/${projectSlug}/errors`;
     fs.mkdirSync(errorsDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const file = `${errorsDir}/${stamp}.txt`;
     const stack = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    fs.writeFileSync(file, `${kind}\n${new Date().toISOString()}\n\n${stack}\n`);
+    fs.writeFileSync(file, `${kind}\n${new Date().toISOString()}\ncwd: ${cwd}\n\n${stack}\n`);
   } catch {
     // best-effort — don't let the crash logger itself throw
   }
