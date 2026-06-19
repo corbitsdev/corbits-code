@@ -58,7 +58,7 @@ import {
 import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { enterAltScreen } from "../util/alt-screen.js";
-import { createFilteredStdin } from "./stdin-filter.js";
+import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
 import { App } from "./app.js";
 import type { OperatorGateEvent, PermissionGateEvent } from "./hooks/use-gates.js";
 import {
@@ -720,6 +720,10 @@ export async function runTUI(config: Config): Promise<number> {
   // arrive via useInput.
   const { stdin: filteredStdin, mouse: mouseEvents } = createFilteredStdin(process.stdin);
 
+  // Turn on SGR mouse reporting so the terminal emits the wheel sequences the
+  // filter detects and re-routes to `mouseEvents`.
+  const disableMouseReporting = enableMouseReporting();
+
   // Render first so the App's gate listeners are registered before it sends the
   // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
   // instead of Ink killing the process outright.
@@ -803,6 +807,7 @@ export async function runTUI(config: Config): Promise<number> {
 
   await waitUntilExit();
   mcpConnectController.abort();
+  disableMouseReporting();
   exitAltScreen();
 
   const finishedAt = Date.now();
