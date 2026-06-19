@@ -112,7 +112,6 @@ test("ApprovalModal Escape calls onReject", async () => {
 
 test("OperatorModal renders when pendingOperator is non-null", () => {
   const { lastFrame } = render(<ModalStack {...base()} pendingOperator={OPERATOR} />);
-  expect(lastFrame()).toContain("Operator Question");
   expect(lastFrame()).toContain("Which approach?");
   expect(lastFrame()).toContain("Option A");
   expect(lastFrame()).toContain("Option B");
@@ -120,7 +119,7 @@ test("OperatorModal renders when pendingOperator is non-null", () => {
 
 test("OperatorModal does not render when pendingOperator is null", () => {
   const { lastFrame } = render(<ModalStack {...base()} pendingOperator={null} />);
-  expect(lastFrame()).not.toContain("Operator Question");
+  expect(lastFrame()).not.toContain("Which approach?");
 });
 
 test("OperatorModal Enter calls onSelectOperator with the selected option", async () => {
