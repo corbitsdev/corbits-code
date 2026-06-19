@@ -109,11 +109,41 @@ export async function main(argv: readonly string[]): Promise<number> {
   return mainWithRunners(argv, { runAgent, runTUI, runOnboarding });
 }
 
+function writeCrashLog(kind: string, err: unknown): void {
+  try {
+    const errorsDir = `${process.cwd()}/.intercode/errors`;
+    const fs = require("node:fs") as typeof import("node:fs");
+    fs.mkdirSync(errorsDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = `${errorsDir}/${stamp}.txt`;
+    const stack = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    fs.writeFileSync(file, `${kind}\n${new Date().toISOString()}\n\n${stack}\n`);
+  } catch {
+    // best-effort — don't let the crash logger itself throw
+  }
+}
+
 if (import.meta.main) {
+  process.on("uncaughtException", (err: Error) => {
+    writeCrashLog("uncaughtException", err);
+    // eslint-disable-next-line no-console
+    console.error(`intercode: uncaught exception: ${err.message}`);
+    process.exit(1);
+  });
+
+  process.on("unhandledRejection", (reason: unknown) => {
+    writeCrashLog("unhandledRejection", reason);
+    // eslint-disable-next-line no-console
+    console.error(`intercode: unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+    process.exit(1);
+  });
+
   void main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {
+      writeCrashLog("mainRejection", err);
       const message = err instanceof Error ? err.message : String(err);
+      // eslint-disable-next-line no-console
       console.error(`intercode: ${message}`);
       process.exit(1);
     },
