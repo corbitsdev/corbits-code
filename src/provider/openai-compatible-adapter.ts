@@ -50,7 +50,33 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
     const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
     return merged;
   };
-  return { ...base, buildRequest };
+  // Some OpenAI-compatible providers (e.g. DeepSeek via NVIDIA NIM) emit
+  // `tool_calls: null` in delta chunks instead of omitting the field. The
+  // upstream parser validates it as an array and throws ProtocolMismatchError.
+  // Strip the null before the base parser sees it.
+  const parseResponse: ProviderAdapter["parseResponse"] = (sseData: string) => {
+    let data = sseData;
+    try {
+      const parsed = JSON.parse(sseData) as Record<string, unknown>;
+      const choices = parsed["choices"];
+      if (Array.isArray(choices)) {
+        let patched = false;
+        for (const choice of choices) {
+          if (choice !== null && typeof choice === "object") {
+            const delta = (choice as Record<string, unknown>)["delta"];
+            if (delta !== null && typeof delta === "object" && (delta as Record<string, unknown>)["tool_calls"] === null) {
+              delete (delta as Record<string, unknown>)["tool_calls"];
+              patched = true;
+            }
+          }
+        }
+        if (patched) data = JSON.stringify(parsed);
+      }
+    } catch { /* not JSON — pass through */ }
+    return base.parseResponse(data);
+  };
+
+  return { ...base, buildRequest, parseResponse };
 }
 
 // Override the stock "openai-compatible" provider with the wrapper. Idempotent:
