@@ -23,7 +23,7 @@ export type InFlightIndicatorProps = {
 const SLOW_THRESHOLD_MS = 2000;
 
 export function resolveLabel(label: string | undefined): string {
-  return label ?? "Working…";
+  return label ?? "Thinking…";
 }
 
 export function formatElapsed(elapsedMs: number): string {
