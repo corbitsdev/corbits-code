@@ -6,7 +6,7 @@ import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEv
 const mockState: ReactorState = {} as unknown as ReactorState;
 
 const mockCapabilities: ReactorCapabilities = {
-  infer: () => ({ type: "infer" }),
+  infer: (options) => ({ type: "infer", ...(options !== undefined ? { options } : {}) } as ReactorAction),
   executeTools: (calls) => ({ type: "execute_tools", calls }),
   suspend: (gate) => ({ type: "suspend", gate }),
   fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
@@ -126,6 +126,58 @@ describe("submit_output without plan", () => {
     expect(hasWarning(result)).toBe(false);
   });
 
+});
+
+describe("submit_output with managed tasks", () => {
+  const inferPrompt = (result: ReactorAction | ReactorAction[]): string | undefined => {
+    const infer = actionsArray(result).find((a) => a.type === "infer") as { options?: { systemPrompt?: string } } | undefined;
+    return infer?.options?.systemPrompt;
+  };
+
+  test("re-infers instead of completing when tasks are unfinished", async () => {
+    const director = createCodingDirector("base prompt", []);
+    await director.decide(
+      makeInferenceDoneEvent([
+        {
+          id: "tasks",
+          name: "manage_tasks",
+          args: { action: "create", tasks: [{ id: "t1", title: "Finish work", status: "doing" }] },
+        },
+        { id: "submit", name: "submit_output", args: { summary: "done" } },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+
+    const result = await director.decide(makeToolDoneEvent("submit"), mockState, mockCapabilities);
+
+    expect(actionsArray(result).some((a) => a.type === "done")).toBe(false);
+    expect(inferPrompt(result)).toContain("manage_tasks list still has unfinished items");
+    expect(inferPrompt(result)).toContain("t1: Finish work (doing)");
+    expect(director.getState().submitCalled).toBe(false);
+  });
+
+  test("accepts submit_output when managed tasks are done", async () => {
+    const director = createCodingDirector("base prompt", []);
+    await director.decide(
+      makeInferenceDoneEvent([
+        {
+          id: "tasks",
+          name: "manage_tasks",
+          args: { action: "create", tasks: [{ id: "t1", title: "Finish work", status: "done" }] },
+        },
+        { id: "submit", name: "submit_output", args: { summary: "done" } },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+
+    await director.decide(makeToolDoneEvent("submit"), mockState, mockCapabilities);
+    const result = await director.decide(makeInferenceDoneEvent([]), mockState, mockCapabilities);
+
+    expect(actionsArray(result).some((a) => a.type === "done")).toBe(true);
+    expect(director.getState().submitCalled).toBe(true);
+  });
 });
 
 describe("operator declined tool calls", () => {
