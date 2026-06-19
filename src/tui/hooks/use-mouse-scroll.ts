@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useInput, useStdin } from "ink";
+import { useStdin } from "ink";
+import type { EventEmitter } from "node:events";
 
 // SGR mouse mode escape sequences. Mode 1000 enables basic button-event
 // reporting; mode 1006 switches to the SGR extended format that supports
@@ -8,13 +9,12 @@ import { useInput, useStdin } from "ink";
 const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1006h";
 const MOUSE_DISABLE = "\x1b[?1000l\x1b[?1006l";
 
-// SGR mouse-wheel sequences (after Ink strips the leading ESC byte):
-//   scroll up:   "[<64;col;rowM" (press) or "[<64;col;rowm" (release)
-//   scroll down: "[<65;col;rowM" (press) or "[<65;col;rowm" (release)
-const SCROLL_UP_RE = /^\[<64;\d+;\d+[Mm]$/;
-const SCROLL_DOWN_RE = /^\[<65;\d+;\d+[Mm]$/;
-
+// Mouse-wheel events are stripped from stdin before Ink parses them (see
+// createFilteredStdin), so scroll arrives on a dedicated emitter rather than
+// through useInput. This keeps the raw `[<64;..M` sequences from ever leaking
+// into any text input.
 export function useMouseScroll(
+  mouseEvents: EventEmitter | undefined,
   onScrollUp: () => void,
   onScrollDown: () => void,
 ): void {
@@ -25,8 +25,8 @@ export function useMouseScroll(
 
   const { isRawModeSupported } = useStdin();
 
-  // Enable SGR mouse tracking on mount so the terminal sends mouse-wheel
-  // events as CSI sequences that Ink's input parser forwards to useInput.
+  // Enable SGR mouse tracking on mount so the terminal sends mouse-wheel events
+  // as CSI sequences that the stdin filter can detect.
   useEffect(() => {
     if (!isRawModeSupported) return;
     process.stdout.write(MOUSE_ENABLE);
@@ -35,14 +35,15 @@ export function useMouseScroll(
     };
   }, [isRawModeSupported]);
 
-  // Intercept mouse-wheel sequences that reach the useInput callback.
-  // The leading ESC byte has already been stripped by Ink, leaving clean
-  // patterns like "[<65;22;80M".
-  useInput((input, _key) => {
-    if (SCROLL_DOWN_RE.test(input)) {
-      onScrollDownRef.current();
-    } else if (SCROLL_UP_RE.test(input)) {
-      onScrollUpRef.current();
-    }
-  });
+  useEffect(() => {
+    if (!mouseEvents) return;
+    const up = () => onScrollUpRef.current();
+    const down = () => onScrollDownRef.current();
+    mouseEvents.on("scrollUp", up);
+    mouseEvents.on("scrollDown", down);
+    return () => {
+      mouseEvents.off("scrollUp", up);
+      mouseEvents.off("scrollDown", down);
+    };
+  }, [mouseEvents]);
 }

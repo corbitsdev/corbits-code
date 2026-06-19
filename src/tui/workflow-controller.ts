@@ -148,7 +148,10 @@ export class WorkflowController {
   // confirmation and a second call with the same name replaces it.
   start(name: string): string {
     const workflow = findWorkflow(name);
-    if (workflow === undefined) return `No workflow named "${name}". Try /workflows.`;
+    if (workflow === undefined) {
+      const names = WORKFLOWS.map((w) => `/${w.name}`).join(", ");
+      return `No workflow named "${name}". Available: ${names}.`;
+    }
     if (this.isActive()) {
       if (this.pendingReplace !== name) {
         this.pendingReplace = name;
