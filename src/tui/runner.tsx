@@ -58,6 +58,7 @@ import {
 import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { enterAltScreen } from "../util/alt-screen.js";
+import { createFilteredStdin } from "./stdin-filter.js";
 import { App } from "./app.js";
 import type { OperatorGateEvent, PermissionGateEvent } from "./hooks/use-gates.js";
 import {
@@ -713,6 +714,12 @@ export async function runTUI(config: Config): Promise<number> {
 
   const exitAltScreen = enterAltScreen();
 
+  // Strip SGR mouse sequences before Ink's parser broadcasts input to every
+  // useInput handler, so they can never leak into a text field as literal text.
+  // Scroll-wheel events are re-routed through `mouseEvents` since they no longer
+  // arrive via useInput.
+  const { stdin: filteredStdin, mouse: mouseEvents } = createFilteredStdin(process.stdin);
+
   // Render first so the App's gate listeners are registered before it sends the
   // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
   // instead of Ink killing the process outright.
@@ -757,8 +764,9 @@ export async function runTUI(config: Config): Promise<number> {
       onStartWorkflow={(name) => workflowController.start(name)}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       initialWorkflowStatus={workflowController.status()}
+      mouseEvents={mouseEvents}
     />,
-    { exitOnCtrlC: false },
+    { exitOnCtrlC: false, stdin: filteredStdin },
   );
 
   // Connect MCP servers after the TUI is up so the UI is usable immediately and
