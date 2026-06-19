@@ -99,13 +99,13 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
 
   if (key.leftArrow) {
     if (key.super) return { value, cursor: lineStart(value, cursor) };
-    if (key.meta) return { value, cursor: previousWordStart(value, cursor) };
+    if (key.meta || input.startsWith("\u001B")) return { value, cursor: previousWordStart(value, cursor) };
     return { value, cursor: Math.max(0, cursor - 1) };
   }
 
   if (key.rightArrow) {
     if (key.super) return { value, cursor: lineEnd(value, cursor) };
-    if (key.meta) return { value, cursor: nextWordEnd(value, cursor) };
+    if (key.meta || input.startsWith("\u001B")) return { value, cursor: nextWordEnd(value, cursor) };
     return { value, cursor: Math.min(value.length, cursor + 1) };
   }
 

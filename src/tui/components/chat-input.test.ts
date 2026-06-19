@@ -128,6 +128,14 @@ describe("applyKey — word movement", () => {
   test("Alt+Right skips spaces before moving to the next word end", () => {
     expect(applyKey(state("hello  world", 5), "", key({ rightArrow: true, meta: true }))).toEqual(state("hello  world", 12));
   });
+
+  test("escape-prefixed Option+Left moves by word when the terminal does not set meta", () => {
+    expect(applyKey(state("hello world", 8), "\u001B[D", key({ leftArrow: true }))).toEqual(state("hello world", 6));
+  });
+
+  test("escape-prefixed Option+Right moves by word when the terminal does not set meta", () => {
+    expect(applyKey(state("hello world", 2), "\u001B[C", key({ rightArrow: true }))).toEqual(state("hello world", 5));
+  });
 });
 
 describe("applyKey — line movement", () => {
