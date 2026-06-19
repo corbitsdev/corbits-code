@@ -1030,6 +1030,9 @@ export function App({
         onSaveAgentProfile={saveProfile}
         onDeleteAgentProfile={deleteProfile}
         codexUsage={agentModalUsage ?? undefined}
+        pendingPlan={gates.pendingPlan}
+        onApprove={gates.approve}
+        onReject={gates.reject}
         pendingOperator={gates.pendingOperator}
         onSelectOperator={gates.selectOperator}
         pendingPermission={gates.pendingPermission}

@@ -27,6 +27,17 @@ function looksLikeContextOverflow(message: string): boolean {
   );
 }
 
+// PlanStep is the type used by the plan gate modal (approval UI).
+export type PlanStep = {
+  file: string;
+  action: string;
+  completed: boolean;
+  deviated: boolean;
+};
+
+// Raw step as stored in the "plan" content block from submit_plan args.
+type PlanBlockStep = { file: string; action: string; reason?: string };
+
 export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
@@ -35,6 +46,7 @@ export type ContentBlockData =
   | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { type: "reply"; content: string }
   | { type: "tasks"; tasks: Task[] }
+  | { type: "plan"; steps: PlanBlockStep[] }
   | { type: "view"; node: ViewNode }
   | { type: "error"; message: string };
 
@@ -67,6 +79,9 @@ export type AgentStreamState = {
   // stays in sync with every event without an extra subscription.
   lastActivityAt: number;
   quotaError: { retryAfterMs: number; retryAt: number } | null;
+  currentPlanStep: number | null;
+  planTotal: number | null;
+  planDeviated: boolean;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -149,6 +164,9 @@ export function createAgentStreamState(
   let latestUserMessage = "";
   let tasks: Task[] = [];
   let quotaError: { retryAfterMs: number; retryAt: number } | null = null;
+  let currentPlanStep: number | null = null;
+  let planTotal: number | null = null;
+  let planDeviated = false;
   let currentToolName: string | null = null;
   let streamingType: "text" | "thinking" | "tool" | null = null;
   // Refcount of open gates. Status is "blocked" while this is > 0, so
@@ -241,6 +259,15 @@ export function createAgentStreamState(
     get quotaError() {
       return quotaError;
     },
+    get currentPlanStep() {
+      return currentPlanStep;
+    },
+    get planTotal() {
+      return planTotal;
+    },
+    get planDeviated() {
+      return planDeviated;
+    },
     setGatePending(pending: boolean): void {
       // Always balance the count, even when the run is terminal/stopping — a gate
       // that opened while running can still resolve after a stop, and if the
@@ -292,6 +319,9 @@ export function createAgentStreamState(
       latestUserMessage = "";
       tasks = [];
       quotaError = null;
+      currentPlanStep = null;
+      planTotal = null;
+      planDeviated = false;
       currentToolName = null;
       streamingType = null;
       gateCount = 0;
@@ -410,6 +440,66 @@ export function createAgentStreamState(
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
           const content = stringifyToolContent(result.content);
+
+          if (name === "submit_plan" && !result.isError) {
+            const rawArgs = callIdToArguments.get(result.callId) ?? "";
+            callIdToName.delete(result.callId);
+            callIdToArguments.delete(result.callId);
+            let steps: PlanBlockStep[] = [];
+            try {
+              const parsed = JSON.parse(rawArgs) as { steps?: Array<{ file: string; action: string; reason?: string }> };
+              if (Array.isArray(parsed.steps)) {
+                steps = parsed.steps.map((s) => ({ file: s.file, action: s.action, ...(s.reason !== undefined ? { reason: s.reason } : {}) }));
+              }
+            } catch { /* invalid args → empty plan */ }
+            // Remove originating tool_call block
+            let planCallIndex = -1;
+            for (let i = contentBlocks.length - 1; i >= 0; i--) {
+              const b = contentBlocks[i];
+              if (b?.type === "tool_call" && b.name === "submit_plan") { planCallIndex = i; break; }
+            }
+            if (planCallIndex >= 0) spliceBlocks(planCallIndex, 1);
+            // Replace existing plan block or pin at index 0
+            const existingPlanIndex = contentBlocks.findIndex((b) => b.type === "plan");
+            const planBlock = { type: "plan" as const, steps };
+            if (existingPlanIndex >= 0) {
+              setBlock(existingPlanIndex, planBlock);
+            } else {
+              unshiftBlock(planBlock);
+            }
+            currentPlanStep = 0;
+            planTotal = steps.length;
+            planDeviated = false;
+            break;
+          }
+
+          if ((name === "write_file" || name === "edit_file") && !result.isError && currentPlanStep !== null && planTotal !== null) {
+            const rawArgs = callIdToArguments.get(result.callId) ?? "";
+            callIdToName.delete(result.callId);
+            callIdToArguments.delete(result.callId);
+            let filePath = "";
+            try { filePath = (JSON.parse(rawArgs) as { path?: string }).path ?? ""; } catch { /* ignored */ }
+            const planBlock = contentBlocks.find((b) => b.type === "plan");
+            if (planBlock?.type === "plan" && filePath.length > 0) {
+              // Find the next step with a non-empty file, skipping fileless steps.
+              let nextFileIndex: number | null = null;
+              for (let i = currentPlanStep; i < planBlock.steps.length; i++) {
+                const s = planBlock.steps[i];
+                if (s !== undefined && s.file.length > 0) { nextFileIndex = i; break; }
+              }
+              if (nextFileIndex !== null && planBlock.steps[nextFileIndex]?.file === filePath) {
+                // Find the next file step after this one; null if none remain.
+                let afterIndex: number | null = null;
+                for (let i = nextFileIndex + 1; i < planBlock.steps.length; i++) {
+                  const s = planBlock.steps[i];
+                  if (s !== undefined && s.file.length > 0) { afterIndex = i; break; }
+                }
+                currentPlanStep = afterIndex;
+              } else {
+                planDeviated = true;
+              }
+            }
+          }
 
           if (name === "manage_tasks" && !result.isError) {
             let taskCallIndex = -1;
