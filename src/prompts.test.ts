@@ -14,6 +14,7 @@ import {
   buildFewShot,
   buildGroundingRules,
   buildInstructionHierarchyRules,
+  buildLSPGuidance,
   buildTaskRules,
   buildReviewRules,
   buildSelfVerification,
@@ -153,6 +154,14 @@ test("tool discipline prefers web tools over shell for web access", () => {
   const discipline = buildToolCallDiscipline();
   expect(discipline).toContain("use web_search and web_fetch");
   expect(discipline).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
+});
+
+test("prompt guidance prefers lsp before grep for code understanding", () => {
+  const prompt = buildSystemPrompt();
+  expect(prompt).toContain(buildLSPGuidance());
+  expect(prompt).toContain("if a code symbol is involved, use lsp first");
+  expect(prompt).toContain("Use grep only for literal text");
+  expect(prompt).not.toContain("grep for the symbol");
 });
 
 test("system prompt requires web grounding for current or unclear external facts", () => {
