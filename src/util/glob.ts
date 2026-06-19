@@ -38,13 +38,6 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp("^" + regex + "$");
 }
 
-/**
- * Match a relative file path against a glob pattern.
- *
- * Supports `**` (any number of segments), `*` (within a segment), `?` (single
- * char), and brace expansion: `{a,b}` is expanded into separate patterns and
- * the path matches if any alternative matches.
- */
 export function matchGlob(pattern: string, filePath: string): boolean {
   const braceMatch = pattern.match(/^(.*)\{([^}]+)\}(.*)$/);
   if (braceMatch) {
