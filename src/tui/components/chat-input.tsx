@@ -38,16 +38,45 @@ export type InputKey = {
   escape: boolean;
   upArrow: boolean;
   downArrow: boolean;
+  home: boolean;
+  end: boolean;
   tab: boolean;
   ctrl: boolean;
   meta: boolean;
   shift: boolean;
+  super: boolean;
 };
 
 export type EditState = {
   value: string;
   cursor: number;
 };
+
+const isWordSeparator = (char: string): boolean => /\s/.test(char);
+
+function previousWordStart(value: string, cursor: number): number {
+  let next = cursor;
+  while (next > 0 && isWordSeparator(value[next - 1]!)) next--;
+  while (next > 0 && !isWordSeparator(value[next - 1]!)) next--;
+  return next;
+}
+
+function nextWordEnd(value: string, cursor: number): number {
+  let next = cursor;
+  while (next < value.length && isWordSeparator(value[next]!)) next++;
+  while (next < value.length && !isWordSeparator(value[next]!)) next++;
+  return next;
+}
+
+function lineStart(value: string, cursor: number): number {
+  const previousBreak = value.lastIndexOf("\n", Math.max(0, cursor - 1));
+  return previousBreak === -1 ? 0 : previousBreak + 1;
+}
+
+function lineEnd(value: string, cursor: number): number {
+  const nextBreak = value.indexOf("\n", cursor);
+  return nextBreak === -1 ? value.length : nextBreak;
+}
 
 // Pure function: given the current editor state and pasted text, return the
 // next editor state. Mirrors the paste-handler logic without the component
@@ -69,11 +98,23 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
   const { value, cursor } = state;
 
   if (key.leftArrow) {
+    if (key.super) return { value, cursor: lineStart(value, cursor) };
+    if (key.meta) return { value, cursor: previousWordStart(value, cursor) };
     return { value, cursor: Math.max(0, cursor - 1) };
   }
 
   if (key.rightArrow) {
+    if (key.super) return { value, cursor: lineEnd(value, cursor) };
+    if (key.meta) return { value, cursor: nextWordEnd(value, cursor) };
     return { value, cursor: Math.min(value.length, cursor + 1) };
+  }
+
+  if (key.home) {
+    return { value, cursor: lineStart(value, cursor) };
+  }
+
+  if (key.end) {
+    return { value, cursor: lineEnd(value, cursor) };
   }
 
   if (key.backspace) {
