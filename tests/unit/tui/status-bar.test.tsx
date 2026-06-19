@@ -36,7 +36,7 @@ test("StatusBar hides the running status label", () => {
 
 test("StatusBar renders the blocked status label", () => {
   const { lastFrame } = renderBar({ status: "blocked" });
-  expect(lastFrame()).toContain("blocked");
+  expect(lastFrame()).toContain("Blocked");
 });
 
 test("StatusBar does not render token counts or cost", () => {

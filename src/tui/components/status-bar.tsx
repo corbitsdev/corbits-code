@@ -43,7 +43,7 @@ export function StatusBar({
       {reasoningEffort !== undefined && <Text color={color("muted")} dimColor>{reasoningEffort}</Text>}
       {status !== "running" && status !== "idle" && (
         <Text color={terminalStatusColor(status)} wrap="truncate-end">
-          {status}
+          {status.charAt(0).toUpperCase() + status.slice(1)}
         </Text>
       )}
       <Box flexGrow={1} />
