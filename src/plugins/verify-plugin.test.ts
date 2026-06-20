@@ -157,4 +157,52 @@ describe("verifyPlugin", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("serializes parallel edit_file on the same path", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const editHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        const oldStr = String(call.arguments.old_string ?? "");
+        const newStr = String(call.arguments.new_string ?? "");
+        const content = await readFile(path, "utf8");
+        const updated = content.replace(oldStr, newStr);
+        await writeFile(path, updated);
+        return { callId: call.id, content: "edited" };
+      };
+      const handler = plugin.middleware
+        ? plugin.middleware(editHandler)
+        : editHandler;
+
+      const path = join(dir, "test.txt");
+      await writeFile(path, "aaa bbb ccc");
+
+      const [r1, r2] = await Promise.all([
+        handler(
+          {
+            id: "call-1",
+            name: "edit_file",
+            arguments: { path, old_string: "aaa", new_string: "AAA" },
+          },
+          new AbortController().signal,
+        ),
+        handler(
+          {
+            id: "call-2",
+            name: "edit_file",
+            arguments: { path, old_string: "bbb", new_string: "BBB" },
+          },
+          new AbortController().signal,
+        ),
+      ]);
+
+      expect(r1.isError).not.toBe(true);
+      expect(r2.isError).not.toBe(true);
+      const final = await readFile(path, "utf8");
+      expect(final).toBe("AAA BBB ccc");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

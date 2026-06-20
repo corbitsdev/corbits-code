@@ -13,7 +13,15 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
-import { globalSettingsPath, loadSettings, saveGlobalSettings, type Settings, type PluginConfig } from "../config/settings.js";
+import {
+  globalSettingsPath,
+  loadSettings,
+  resolveMaxConcurrentSubAgents,
+  saveGlobalSettings,
+  type Settings,
+  type PluginConfig,
+} from "../config/settings.js";
+import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "./components/plugins-manager.js";
@@ -98,6 +106,7 @@ export async function runTUI(config: Config): Promise<number> {
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
+  configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
   const pluginModules = dedupePluginModules([
@@ -486,8 +495,10 @@ export async function runTUI(config: Config): Promise<number> {
 
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
+    const initialSource = buildInitialSource();
     return createAgent(def, {
-      source: buildInitialSource(),
+      sources: [initialSource],
+      defaultSource: initialSource.id,
       storage,
       workdir,
       audit: noopAuditStore(),
@@ -635,6 +646,17 @@ export async function runTUI(config: Config): Promise<number> {
       liveSource = source;
       currentAgent.setSource(source);
     },
+    setSources: (sources, defaultSource) => {
+      currentAgent.setSources(sources, defaultSource);
+      const head = sources.find((s) => s.id === defaultSource) ?? sources[0];
+      if (head !== undefined) {
+        const codexProfile = codexProfileFromProviderName(head.id);
+        const xaiProfile = xaiProfileFromProviderName(head.id);
+        activeCodexSource = codexProfile !== undefined ? { profile: codexProfile, source: head } : undefined;
+        activeXaiSource = xaiProfile !== undefined ? { profile: xaiProfile, source: head } : undefined;
+        liveSource = head;
+      }
+    },
     history: () => currentAgent.history(),
     checkpoints: (limit) => currentAgent.checkpoints(limit),
     readAt: (hash) => currentAgent.readAt(hash),
@@ -759,6 +781,15 @@ export async function runTUI(config: Config): Promise<number> {
         const current = await loadSettings(config.globalSettingsPath).catch(() => null);
         const base: Settings = current ?? { providers: {} };
         await saveGlobalSettings(config.globalSettingsPath, { ...base, compactionMode: mode });
+      }}
+      onChangeMaxConcurrentSubAgents={async (limit) => {
+        configureSubAgentConcurrency(limit);
+        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
+        const base: Settings = current ?? { providers: {} };
+        await saveGlobalSettings(config.globalSettingsPath, {
+          ...base,
+          maxConcurrentSubAgents: limit,
+        });
       }}
       initialProfiles={initialProfiles}
       profilesDir={profilesDir}

@@ -32,6 +32,8 @@ import { authzPlugin } from "../plugins/authz-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { reReadBlockPlugin } from "../plugins/re-read-block-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
+import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
@@ -47,6 +49,8 @@ import { loadApprovals } from "../permission/store.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { gatherEnvironment } from "./environment.js";
 import { createTaskTool } from "../subagent/index.js";
+import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
+import { resolveMaxConcurrentSubAgents } from "../config/settings.js";
 import { loadAgentProfiles } from "./profiles.js";
 import { saveState, loadState, saveDirectorState, loadDirectorState, type DirectorPersistedState } from "../session/state.js";
 import { runCritique } from "./critic.js";
@@ -138,6 +142,7 @@ export async function runAgent(
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
+  configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
   await initSessionDir(config.cwd, config.sessionId);
   const state = await loadState(config.cwd, config.sessionId);
   if (state !== null && state.status === "running" && !config.force) {
@@ -196,6 +201,7 @@ export async function runAgent(
     cwd: config.cwd,
     plugins: [
       pathEscapePlugin(config.cwd),
+      toolOutputUriPlugin(),
       secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
@@ -203,6 +209,7 @@ export async function runAgent(
       verifyPlugin(),
       reReadBlockPlugin(() => directorHolder.instance),
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
+      lspHintPlugin(),
       createLSPPlugin({ cwd: config.cwd, minSeverity: 1 }),
       mcpPlugin,
       // User tool plugins last so they cannot shadow core middleware.
@@ -343,17 +350,19 @@ export async function runAgent(
           model: config.model,
         })
       : undefined;
+  const primarySource =
+    codexSource ??
+    xaiSource ??
+    buildOpenAISource({
+      id: config.providerName,
+      baseURL: config.baseURL,
+      apiKey: config.apiKey,
+      model: config.model,
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+    });
   const agent = await createAgent(def, {
-    source:
-      codexSource ??
-      xaiSource ??
-      buildOpenAISource({
-        id: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      }),
+    sources: [primarySource],
+    defaultSource: primarySource.id,
     storage,
     workdir,
     audit: noopAuditStore(),

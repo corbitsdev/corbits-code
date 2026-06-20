@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -32,19 +33,22 @@ import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
+import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { withSubAgentSlot } from "./concurrency.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { Settings, ProviderTier } from "../config/settings.js";
 import { resolveTier } from "../config/settings.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
-  // the dispatcher. It has no submit_output and never blocks on the
-  // operator — autonomy is the whole point of delegation.
+// the dispatcher. It has no submit_output and never blocks on the
+// operator — autonomy is the whole point of delegation.
 const SUBAGENT_DEFAULT_MAX_TURNS = 25;
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {
@@ -131,16 +135,22 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
 // tool instances and its own git-backed context store so the two loops never
 // trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
+  return withSubAgentSlot(() => runSubAgentInner(params));
+}
+
+async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const maxTurns = params.maxTurns ?? SUBAGENT_DEFAULT_MAX_TURNS;
   const posixTools = createPosixTools({
     cwd: params.cwd,
     plugins: [
       pathEscapePlugin(params.cwd),
+      toolOutputUriPlugin(),
       secretGuardPlugin(),
       authzPlugin(),
       ripgrepPlugin(params.cwd),
       verifyPlugin(),
       webToolsPlugin(),
+      lspHintPlugin(),
       createLSPPlugin({ cwd: params.cwd, minSeverity: 1 }),
     ],
   });
@@ -168,6 +178,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());
+  await mkdir(workdir, { recursive: true });
 
   const def = defineAgent({
     id: "intercode/subagent",
@@ -182,16 +193,18 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 
   const storage = await createIsogitStore(workdir);
 
+  const primarySource = buildOpenAISource({
+    id: params.provider.providerName,
+    baseURL: params.provider.baseURL,
+    apiKey: params.provider.apiKey,
+    model: params.provider.model,
+    ...(params.provider.reasoningEffort !== undefined
+      ? { reasoningEffort: params.provider.reasoningEffort }
+      : {}),
+  });
   const agent = await createAgent(def, {
-    source: buildOpenAISource({
-      id: params.provider.providerName,
-      baseURL: params.provider.baseURL,
-      apiKey: params.provider.apiKey,
-      model: params.provider.model,
-      ...(params.provider.reasoningEffort !== undefined
-        ? { reasoningEffort: params.provider.reasoningEffort }
-        : {}),
-    }),
+    sources: [primarySource],
+    defaultSource: primarySource.id,
     storage,
     workdir,
     audit: noopAuditStore(),
@@ -202,10 +215,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     }),
   });
 
-  const streamPromise =
-    params.onEvent !== undefined
-      ? consumeStream(agent.stream(), params.onEvent)
-      : Promise.resolve();
+  const streamSink = params.onEvent ?? (() => {});
+  const streamPromise = consumeStream(agent.stream(), streamSink);
 
   try {
     const fullPrompt = params.context
@@ -224,14 +235,16 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     } catch {
       // ignore
     }
-    if (params.onEvent !== undefined) {
-      try {
-        await streamPromise;
-      } catch {
-        // ignore
-      }
+    try {
+      await streamPromise;
+    } catch {
+      // ignore
     }
-    await posixTools.dispose();
+    try {
+      await posixTools.dispose();
+    } catch {
+      // LSP shutdown can fail when several sub-agents exit together.
+    }
   }
 }
 

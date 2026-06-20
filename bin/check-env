@@ -62,6 +62,15 @@ else
 fi
 echo ""
 
+# LSP (TypeScript/JavaScript in this repo)
+echo "language server"
+if [[ -x "node_modules/.bin/typescript-language-server" ]] || command -v typescript-language-server >/dev/null 2>&1; then
+  ok "typescript-language-server available"
+else
+  fail "typescript-language-server missing — run: bun add -d typescript-language-server"
+fi
+echo ""
+
 # Summary
 if [[ $FAIL -eq 0 ]]; then
   echo "all checks passed"

@@ -133,7 +133,7 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
-Invocation: a `/<name>` slash command per workflow; auto-invoke from a profile's `workflow` field once MCP servers connect (suppressed by `--no-workflow`). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
+Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from `@intercode/default-workflows` at startup; the operator starts them through **enabled `kind: "command"` plugins** (e.g. `plugins/linear-workflows` → `/linear scope`, `/linear build`). The model may also call `suggest_workflow` or a profile may auto-invoke by name once MCP servers connect (suppressed by `--no-workflow`). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
 
 ### System Prompt (`src/agent/prompts.ts`)
 
@@ -190,10 +190,12 @@ tool call
 **Rejection behavior:** Any plugin can short-circuit by returning a `ToolResult` with `isError: true`; the error propagates to the agent and downstream plugins/execution are skipped.
 
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
+- **Tool-output URI** (`tool-output-uri-plugin.ts`) — Normalizes mistaken `read_file` blob URIs to `tool-output:///id` (intercode-only; interchange stays unpatched).
 - **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls that would expose a sensitive file: path-keyed arguments (`read_file`, `write_file`, …) and `run_shell` command strings, which are tokenized so `cat .env` or `cat ~/.intercode/settings.json` are blocked the same as a direct read. Runs before the permission plugin, so the deny holds even under `--dangerously-skip-permissions`. Shell containment is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly).
 - **Authorization** (`authz-plugin.ts`) — Denies catastrophic shell command patterns by regex.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
-- **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch.
+- **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch. Per-path serialization (`file-mutation-lock.ts`) prevents parallel edits on one file from tripping verification.
+- **LSP hint** (`lsp-hint-plugin.ts`) — Appends a typescript-language-server install hint when the stock `lsp` tool reports no server for TS/JS paths.
 - **Re-read Block** (`re-read-block-plugin.ts`) — Consults the director's read tracking to block re-reading an already-read file.
 
 ### Permission System (`src/permission/`)
