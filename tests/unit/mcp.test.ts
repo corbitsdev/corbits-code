@@ -334,6 +334,25 @@ describe("OAuth provider", () => {
       await rm(home, { recursive: true, force: true });
     }
   });
+
+  test("can clear stale authorization before starting a fresh OAuth flow", async () => {
+    const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
+    try {
+      const provider = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      await provider.saveTokens({ access_token: "abc", refresh_token: "stale", token_type: "Bearer" });
+      await provider.saveCodeVerifier("old-verifier");
+      const oldState = await provider.state?.();
+
+      await provider.resetAuthorization();
+
+      expect(provider.tokens()).toBeUndefined();
+      expect(() => provider.codeVerifier()).toThrow("No PKCE code verifier saved");
+      expect(await provider.state?.()).not.toBe(oldState);
+      expect(await loadAuthState("acme", home)).toEqual({});
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("dynamic tool runner", () => {

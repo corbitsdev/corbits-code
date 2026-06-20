@@ -2,10 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { MCPServerConfig } from "../config/settings.js";
-import { createOAuthProvider } from "./oauth-provider.js";
-import { startCallbackServer } from "./callback-server.js";
+import { createOAuthProvider, type IntercodeOAuthProvider } from "./oauth-provider.js";
+import { startCallbackServer, type CallbackServer } from "./callback-server.js";
 
 export type MCPTool = {
   name: string;
@@ -54,9 +55,63 @@ export function unwrapToolContent(content: unknown): string {
     .join("\n");
 }
 
+type HTTPAuthContext = {
+  url: URL;
+  authProvider: IntercodeOAuthProvider;
+  callback: CallbackServer;
+  signal?: AbortSignal;
+  interactive: boolean;
+};
+
+function isRecoverableAuthError(err: unknown): boolean {
+  return err instanceof UnauthorizedError || err instanceof OAuthError;
+}
+
+async function completeInteractiveAuth(context: HTTPAuthContext): Promise<void> {
+  if (!context.interactive) throw new Error("Authorization required but no interactive handler is available.");
+  const code = await context.callback.waitForCode(context.signal ?? new AbortController().signal);
+  await new StreamableHTTPClientTransport(context.url, { authProvider: context.authProvider }).finishAuth(code);
+}
+
+async function recoverHTTPAuthorization<T>(
+  err: unknown,
+  context: HTTPAuthContext | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (context === undefined || !isRecoverableAuthError(err)) throw err;
+
+  let lastErr: unknown = err;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (lastErr instanceof OAuthError) await context.authProvider.resetAuthorization();
+    if (lastErr instanceof UnauthorizedError) {
+      await completeInteractiveAuth(context);
+      return operation();
+    }
+
+    try {
+      return await operation();
+    } catch (nextErr) {
+      if (!isRecoverableAuthError(nextErr)) throw nextErr;
+      lastErr = nextErr;
+    }
+  }
+  throw lastErr;
+}
+
+async function withHTTPAuthorizationRecovery<T>(
+  context: HTTPAuthContext | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (err) {
+    return recoverHTTPAuthorization(err, context, operation);
+  }
+}
+
 // List the server's tools and wrap the connected client in the MCPClient shape.
-async function finishClient(client: Client, serverName: string): Promise<MCPClient> {
-  const result = await client.listTools();
+async function finishClient(client: Client, serverName: string, authContext?: HTTPAuthContext): Promise<MCPClient> {
+  const result = await withHTTPAuthorizationRecovery(authContext, () => client.listTools());
   const tools: MCPTool[] = result.tools.map((t) => ({
     name: t.name,
     description: t.description ?? "",
@@ -67,10 +122,14 @@ async function finishClient(client: Client, serverName: string): Promise<MCPClie
     serverName,
     tools,
     async call(toolName, args, signal) {
-      const result = await client.callTool({ name: toolName, arguments: args }, undefined, { signal });
+      const context = authContext === undefined ? undefined : { ...authContext, signal };
+      const result = await withHTTPAuthorizationRecovery(context, () =>
+        client.callTool({ name: toolName, arguments: args }, undefined, { signal }),
+      );
       return unwrapToolContent(result.content);
     },
     async close() {
+      authContext?.callback.close();
       await client.close().catch(() => undefined);
     },
   };
@@ -115,27 +174,21 @@ async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions):
   const makeTransport = (): Transport =>
     new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
   const client = new Client({ name: "intercode", version: "1.0.0" });
+  const authContext: HTTPAuthContext = {
+    url,
+    authProvider,
+    callback,
+    interactive: options.onAuthURL !== undefined,
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+  };
 
   try {
-    try {
-      await client.connect(makeTransport());
-    } catch (err) {
-      if (!(err instanceof UnauthorizedError)) throw err;
-      if (options.onAuthURL === undefined) {
-        throw new Error("Authorization required but no interactive handler is available.");
-      }
-      // redirectToAuthorization has already surfaced the URL; wait for the
-      // operator to complete consent and the loopback to receive the code.
-      const code = await callback.waitForCode(options.signal ?? new AbortController().signal);
-      await new StreamableHTTPClientTransport(url, { authProvider }).finishAuth(code);
-      await client.connect(makeTransport());
-    }
-    return { ok: true, client: await finishClient(client, config.name) };
+    await withHTTPAuthorizationRecovery(authContext, () => client.connect(makeTransport()));
+    return { ok: true, client: await finishClient(client, config.name, authContext) };
   } catch (err) {
     await client.close().catch(() => undefined);
-    return { ok: false, serverName: config.name, error: err instanceof Error ? err.message : String(err) };
-  } finally {
     callback.close();
+    return { ok: false, serverName: config.name, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
