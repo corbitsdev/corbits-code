@@ -36,6 +36,11 @@ Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`,
 | `react-devtools-core` | ^7.0.1 | React devtools |
 | `ws` | ^8.21.0 | WebSocket support |
 | `typescript` | 5.9.3 | Type checking |
+| `typescript-language-server` | ^4.3.4 | TS/JS language server for the `lsp` tool (`bin/check-env` checks for it) |
+
+## Interchange submodule
+
+The `interchange/` git submodule tracks **`origin/main`** with no intercode-specific patches inside it. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
 
 ## Developer Setup
 
@@ -100,12 +105,15 @@ src/
     store.ts              Per-directory approval persistence
     types.ts              Approval / scope / request / outcome types
   plugins/
-    path-escape-plugin.ts   Path sandboxing (first)
-    secret-guard-plugin.ts  Hard-deny secret files
-    authz-plugin.ts         Catastrophic command blocking
-    permission-plugin.ts    Tiered operator approval
-    verify-plugin.ts        Write/edit verification
-    re-read-block-plugin.ts Block redundant re-reads
+    path-escape-plugin.ts      Path sandboxing (first)
+    tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
+    secret-guard-plugin.ts     Hard-deny secret files
+    authz-plugin.ts            Catastrophic command blocking
+    permission-plugin.ts       Tiered operator approval
+    verify-plugin.ts           Write/edit verification (per-path lock)
+    file-mutation-lock.ts      Serialize mutations per file for verify
+    lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
+    re-read-block-plugin.ts    Block redundant re-reads
   tui/
     app.tsx               Root full-screen layout
     runner.tsx            Chat-mode agent setup + Ink render (alt-screen)
@@ -176,6 +184,8 @@ Provider and model configuration lives in JSON settings files. The global file h
   ```
 
   `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
+
+  Optional `maxConcurrentSubAgents` (integer ≥ 0, default **10**) caps how many `task`-tool sub-agent loops may run at once; **0** disables sub-agents entirely. Change it in **Settings → Sub-agents** or in this file.
 
 - Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
 

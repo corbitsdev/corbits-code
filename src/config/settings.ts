@@ -64,7 +64,22 @@ export type Settings = {
   // "llm" (default) generates a structured handoff summary via LLM call.
   // "pruning" uses fast deterministic pruning with no LLM call.
   compactionMode?: "llm" | "pruning";
+  maxConcurrentSubAgents?: number;
 };
+
+export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
+
+export function clampMaxConcurrentSubAgents(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_CONCURRENT_SUB_AGENTS;
+  return Math.max(0, Math.floor(value));
+}
+
+export function resolveMaxConcurrentSubAgents(settings?: Settings | null): number {
+  if (settings?.maxConcurrentSubAgents === undefined) {
+    return DEFAULT_MAX_CONCURRENT_SUB_AGENTS;
+  }
+  return clampMaxConcurrentSubAgents(settings.maxConcurrentSubAgents);
+}
 
 export type PluginConfig = {
   enabled?: boolean;
@@ -186,6 +201,8 @@ const SettingsSchema = type({
   "web?": "string",
   "hiddenCommands?": "string[]",
   "onboarded?": "boolean",
+  "compactionMode?": "'llm' | 'pruning'",
+  "maxConcurrentSubAgents?": "number",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -215,6 +232,10 @@ export function isSettings(value: unknown): value is Settings {
   if (!SettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
+  if (s.maxConcurrentSubAgents !== undefined) {
+    const n = s.maxConcurrentSubAgents;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return false;
+  }
   return true;
 }
 
@@ -317,6 +338,12 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.web !== undefined ? { web: s.web as string } : {}),
     ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
     ...(s.onboarded !== undefined ? { onboarded: Boolean(s.onboarded) } : {}),
+    ...(s.compactionMode === "llm" || s.compactionMode === "pruning"
+      ? { compactionMode: s.compactionMode }
+      : {}),
+    ...(s.maxConcurrentSubAgents !== undefined
+      ? { maxConcurrentSubAgents: clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number) }
+      : {}),
   } as Settings;
 }
 

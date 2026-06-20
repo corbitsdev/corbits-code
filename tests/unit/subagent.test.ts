@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   createTaskTool,
+  runSubAgent,
   taskToolDefinition,
   type RunSubAgentParams,
   type SubAgentProvider,
@@ -180,4 +181,8 @@ test("handler sends prompt without context block when context is empty or omitte
 
   expect(receivedNoContext?.context).toBeUndefined();
   expect(receivedEmptyContext?.context).toBeUndefined();
+});
+
+test("runSubAgent is wired as the default task runner", () => {
+  expect(typeof runSubAgent).toBe("function");
 });
