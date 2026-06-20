@@ -1,6 +1,7 @@
 import { resolve, relative } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { isToolOutputLike } from "../util/tool-output-uri.js";
 
 export function pathEscapePlugin(cwd: string): ToolPlugin {
   return {
@@ -54,6 +55,9 @@ export function looksLikePath(key: string): boolean {
 }
 
 function sanitizePath(value: string, cwd: string): string {
+  if (isToolOutputLike(value)) {
+    return value;
+  }
   const resolved = resolve(cwd, value);
   const rel = relative(cwd, resolved);
   if (rel.startsWith("..")) {

@@ -13,6 +13,9 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   type Settings,
+  DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
+  resolveMaxConcurrentSubAgents,
+  clampMaxConcurrentSubAgents,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -279,6 +282,48 @@ describe("loaders", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("maxConcurrentSubAgents", () => {
+  test("defaults to 10 when unset", () => {
+    expect(resolveMaxConcurrentSubAgents(null)).toBe(DEFAULT_MAX_CONCURRENT_SUB_AGENTS);
+    expect(resolveMaxConcurrentSubAgents({ providers: {} })).toBe(10);
+  });
+
+  test("loadSettings round-trips maxConcurrentSubAgents", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".intercode", "settings.json");
+      await saveGlobalSettings(path, { ...firepass, maxConcurrentSubAgents: 6 });
+      expect(await loadSettings(path)).toEqual({ ...firepass, maxConcurrentSubAgents: 6 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("accepts zero to disable sub-agents", () => {
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        maxConcurrentSubAgents: 0,
+      }),
+    ).toBe(true);
+    expect(clampMaxConcurrentSubAgents(0)).toBe(0);
+  });
+
+  test("rejects negative maxConcurrentSubAgents", () => {
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        maxConcurrentSubAgents: -1,
+      }),
+    ).toBe(false);
+  });
+
+  test("clamp floors fractional values and negative numbers", () => {
+    expect(clampMaxConcurrentSubAgents(3.9)).toBe(3);
+    expect(clampMaxConcurrentSubAgents(-2)).toBe(0);
   });
 });
 

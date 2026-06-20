@@ -12,11 +12,13 @@ export type SettingsOverlayProps = {
   onRevokePermission: (entry: ScopedApproval) => void;
   compactionMode: CompactionMode;
   onChangeCompactionMode: (mode: CompactionMode) => void;
+  maxConcurrentSubAgents: number;
+  onChangeMaxConcurrentSubAgents: (limit: number) => void;
   onClose: () => void;
   maxHeight?: number;
 };
 
-const TABS = ["Permissions", "Compaction"] as const;
+const TABS = ["Permissions", "Compaction", "Sub-agents"] as const;
 type Tab = (typeof TABS)[number];
 
 const COMPACTION_OPTIONS: { value: CompactionMode; label: string; description: string }[] = [
@@ -201,6 +203,38 @@ function CompactionTab({
   );
 }
 
+function SubAgentsTab({
+  current,
+  onChange,
+}: {
+  current: number;
+  onChange: (limit: number) => void;
+}): ReactNode {
+  useInput((_input) => {
+    if (_input === "+" || _input === "=") onChange(current + 1);
+    else if (_input === "-" || _input === "_") onChange(Math.max(0, current - 1));
+  });
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={color("muted")} bold>
+        Concurrent sub-agents
+      </Text>
+      <Text color={color("muted")}>
+        Maximum task-tool workers running at once (each has its own LSP and context store). Takes effect
+        immediately; also saved to ~/.intercode/settings.json.
+      </Text>
+      <Box marginTop={1}>
+        <Text bold>
+          Limit: {current}
+          {current === 0 ? " (sub-agents disabled)" : ""}
+        </Text>
+      </Box>
+      <Text color={color("muted")}>+ / − to adjust (0 disables sub-agents)</Text>
+    </Box>
+  );
+}
+
 const FIXED_CHROME = 8;
 
 export function SettingsOverlay({
@@ -208,6 +242,8 @@ export function SettingsOverlay({
   onRevokePermission,
   compactionMode,
   onChangeCompactionMode,
+  maxConcurrentSubAgents,
+  onChangeMaxConcurrentSubAgents,
   onClose,
   maxHeight,
 }: SettingsOverlayProps): ReactNode {
@@ -249,6 +285,12 @@ export function SettingsOverlay({
       )}
       {activeTab === "Compaction" && (
         <CompactionTab current={compactionMode} onChange={onChangeCompactionMode} />
+      )}
+      {activeTab === "Sub-agents" && (
+        <SubAgentsTab
+          current={maxConcurrentSubAgents}
+          onChange={onChangeMaxConcurrentSubAgents}
+        />
       )}
       <Box marginTop={1}>
         <Text color={color("muted")}>Esc to close</Text>

@@ -19,6 +19,8 @@ import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
+import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
+import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
@@ -114,12 +116,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     cwd,
     plugins: [
       pathEscapePlugin(cwd),
+      toolOutputUriPlugin(),
       secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
       ripgrepPlugin(cwd),
       verifyPlugin(),
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
+      lspHintPlugin(),
       createLSPPlugin({ cwd, minSeverity: 1 }),
       resultTruncationPlugin(),
       // User tool plugins last so their tools cannot shadow the core middleware.

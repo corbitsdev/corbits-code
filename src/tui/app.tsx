@@ -21,7 +21,11 @@ import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
-import { markOnboarded, type Settings } from "../config/settings.js";
+import {
+  markOnboarded,
+  resolveMaxConcurrentSubAgents,
+  type Settings,
+} from "../config/settings.js";
 import { getLogger } from "@intx/log";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
@@ -266,6 +270,7 @@ export type AppProps = {
   // when the provider catalog is persisted.
   initialSettings?: Settings;
   onChangeCompactionMode?: (mode: CompactionMode) => Promise<void>;
+  onChangeMaxConcurrentSubAgents?: (limit: number) => Promise<void>;
   // The `onboarded` flag read from the GLOBAL settings file specifically (never
   // a --config/project file). This is global user state: it decides whether the
   // welcome animation plays on first run and is the single source of truth for
@@ -309,6 +314,7 @@ export function App({
   profilesDir,
   initialSettings,
   onChangeCompactionMode,
+  onChangeMaxConcurrentSubAgents,
   globallyOnboarded = false,
   globalOnboardingPath,
   mouseEvents,
@@ -352,6 +358,9 @@ export function App({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
     initialSettings?.compactionMode ?? "llm",
+  );
+  const [maxConcurrentSubAgents, setMaxConcurrentSubAgents] = useState(() =>
+    resolveMaxConcurrentSubAgents(initialSettings),
   );
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
@@ -1060,6 +1069,11 @@ export function App({
           onChangeCompactionMode={(mode) => {
             setCompactionMode(mode);
             void onChangeCompactionMode?.(mode);
+          }}
+          maxConcurrentSubAgents={maxConcurrentSubAgents}
+          onChangeMaxConcurrentSubAgents={(limit) => {
+            setMaxConcurrentSubAgents(limit);
+            void onChangeMaxConcurrentSubAgents?.(limit);
           }}
           onClose={() => setSettingsOpen(false)}
           maxHeight={permissionsOverlayRows}
