@@ -17,10 +17,14 @@ export type OAuthProviderOptions = {
   home?: string;
 };
 
+export type IntercodeOAuthProvider = OAuthClientProvider & {
+  resetAuthorization(): Promise<void>;
+};
+
 // An OAuthClientProvider backed by the on-disk auth store. State is loaded once
 // up front and persisted on every mutation; the SDK drives the rest of the flow
 // (discovery, dynamic registration, PKCE, token exchange and refresh).
-export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<OAuthClientProvider> {
+export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<IntercodeOAuthProvider> {
   const stored: MCPAuthState = await loadAuthState(opts.serverName, opts.home);
   const persist = (): Promise<void> => saveAuthState(opts.serverName, stored, opts.home);
 
@@ -82,6 +86,13 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<O
         throw new Error("No PKCE code verifier saved for this authorization.");
       }
       return stored.codeVerifier;
+    },
+
+    resetAuthorization(): Promise<void> {
+      delete stored.tokens;
+      delete stored.codeVerifier;
+      oauthState = undefined;
+      return persist();
     },
   };
 }
