@@ -42,6 +42,7 @@ import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
+import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
@@ -495,7 +496,7 @@ export async function runTUI(config: Config): Promise<number> {
 
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
-    const initialSource = buildInitialSource();
+    const initialSource = liveSource;
     return createAgent(def, {
       sources: [initialSource],
       defaultSource: initialSource.id,
@@ -605,7 +606,7 @@ export async function runTUI(config: Config): Promise<number> {
       access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
     activeCodexSource = { profile: active.profile, source };
     liveSource = source;
-    currentAgent.setSource(source);
+    setAgentSourceUnlessClosed(currentAgent, source);
   };
 
   const refreshXaiBeforeSend = async (): Promise<void> => {
@@ -616,7 +617,7 @@ export async function runTUI(config: Config): Promise<number> {
       access === active.source.apiKey ? active.source : { ...active.source, apiKey: access };
     activeXaiSource = { profile: active.profile, source };
     liveSource = source;
-    currentAgent.setSource(source);
+    setAgentSourceUnlessClosed(currentAgent, source);
   };
 
   // Stable handle handed to the App so the underlying agent can be swapped out
@@ -644,7 +645,7 @@ export async function runTUI(config: Config): Promise<number> {
       activeCodexSource = codexProfile !== undefined ? { profile: codexProfile, source } : undefined;
       activeXaiSource = xaiProfile !== undefined ? { profile: xaiProfile, source } : undefined;
       liveSource = source;
-      currentAgent.setSource(source);
+      setAgentSourceUnlessClosed(currentAgent, source);
     },
     setSources: (sources, defaultSource) => {
       currentAgent.setSources(sources, defaultSource);
