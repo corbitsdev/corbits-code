@@ -1,5 +1,7 @@
-import { mkdir, readlink, symlink, unlink } from "node:fs/promises";
+import { mkdir, readdir, readlink, symlink, unlink } from "node:fs/promises";
 import { join, dirname } from "node:path";
+
+import { loadState, type RunState } from "./state.js";
 
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
@@ -99,4 +101,41 @@ export async function resolveLatestSession(
   } catch {
     return null;
   }
+}
+
+export type SessionSummary = {
+  sessionId: string;
+  task: string;
+  startedAt: number;
+  status: RunState["status"];
+};
+
+const SESSION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** List on-disk sessions for a repo, newest first. */
+export async function listSessions(cwd: string): Promise<SessionSummary[]> {
+  const base = join(cwd, SESSION_BASE);
+  let entries: string[];
+  try {
+    entries = await readdir(base);
+  } catch {
+    return [];
+  }
+
+  const summaries: SessionSummary[] = [];
+  for (const entry of entries) {
+    if (entry === "latest" || !SESSION_ID_RE.test(entry)) continue;
+    const state = await loadState(cwd, entry);
+    if (state === null) continue;
+    summaries.push({
+      sessionId: entry,
+      task: state.task,
+      startedAt: state.startedAt,
+      status: state.status,
+    });
+  }
+
+  summaries.sort((a, b) => b.startedAt - a.startedAt);
+  return summaries;
 }

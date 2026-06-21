@@ -1,5 +1,5 @@
 import { Box, Text, useApp } from "ink";
-import type { AgentStatus } from "./use-stream.js";
+import type { AgentStatus, ContentBlockData } from "./use-stream.js";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
@@ -10,6 +10,15 @@ import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
+import {
+  createSentHistoryBrowse,
+  resetSentHistoryBrowse,
+  sentHistoryOnEdit,
+  stepSentHistoryDown,
+  stepSentHistoryUp,
+  type SentHistoryBrowse,
+} from "./sent-message-history.js";
+import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
@@ -250,6 +259,9 @@ export type AppProps = {
   globalDefaultProvider?: string;
   cwd: string;
   initialTask?: string;
+  skipInitialTask?: boolean;
+  initialContentBlocks?: ContentBlockData[];
+  getSessionId?: () => string;
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
@@ -296,6 +308,9 @@ export function App({
   globalDefaultProvider: initialGlobalDefaultProvider,
   cwd,
   initialTask = "",
+  skipInitialTask = false,
+  initialContentBlocks = [],
+  getSessionId,
   initialHooks = [],
   onToggleHook,
   onAgentError,
@@ -329,6 +344,7 @@ export function App({
     initialHooks,
     () => modelRef.current,
     () => requestStopRef.current(),
+    initialContentBlocks,
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -343,6 +359,7 @@ export function App({
   // to the app.
   const [onboardingDone, setOnboardingDone] = useState(!isFirstTime);
   const [inputValue, setInputValue] = useState("");
+  const [sentHistoryBrowse, setSentHistoryBrowse] = useState<SentHistoryBrowse>(() => createSentHistoryBrowse([]));
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
@@ -624,6 +641,13 @@ export function App({
   const sendMessageRef = useRef<(message: string) => void>(null!);
   sendMessageRef.current = (message: string) => {
     lastSentMessageRef.current = message;
+    const trimmed = message.trim();
+    if (trimmed.length > 0 && getSessionId !== undefined) {
+      const sid = getSessionId();
+      void appendSentMessage(cwd, sid, trimmed).then(() => {
+        setSentHistoryBrowse((prev) => resetSentHistoryBrowse([...prev.sent, trimmed]));
+      });
+    }
     quotaAutoRetryFiredRef.current = false;
     sendCounterRef.current += 1;
     state.markRunning();
@@ -664,7 +688,15 @@ export function App({
     pendingQueueRef.current.length = 0;
     setQueuedCount(0);
     setWorkflowHistory([]);
+    setInputValue("");
     onNewSession?.();
+    if (getSessionId !== undefined) {
+      void loadSentMessages(cwd, getSessionId()).then((sent) => {
+        setSentHistoryBrowse(createSentHistoryBrowse(sent));
+      });
+    } else {
+      setSentHistoryBrowse(createSentHistoryBrowse([]));
+    }
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
   };
@@ -742,8 +774,16 @@ export function App({
   // Send the initial task once the App (and its gate listeners) is mounted, so
   // the run is driven through the same abortable path as interactive sends.
   useEffect(() => {
+    if (getSessionId === undefined) return;
+    void loadSentMessages(cwd, getSessionId()).then((sent) => {
+      setSentHistoryBrowse(createSentHistoryBrowse(sent));
+    });
+  }, [cwd, getSessionId]);
+
+  useEffect(() => {
     if (didSendInitial.current) return;
     didSendInitial.current = true;
+    if (skipInitialTask) return;
     if (initialTask.length > 0) sendMessage(initialTask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1160,6 +1200,24 @@ export function App({
               queuedCount={queuedCount}
               isProcessing={state.isProcessing}
               onInterrupt={handleInterrupt}
+              onSentHistoryPrevious={() => {
+                const step = stepSentHistoryUp(sentHistoryBrowse, inputValue);
+                if (step === null) return false;
+                setSentHistoryBrowse(step.browse);
+                setInputValue(step.value);
+                return true;
+              }}
+              onSentHistoryNext={() => {
+                const step = stepSentHistoryDown(sentHistoryBrowse, inputValue, inputValue.length);
+                if (step === null) return false;
+                setSentHistoryBrowse(step.browse);
+                setInputValue(step.value);
+                return true;
+              }}
+              onSentHistoryExitBrowse={() => {
+                if (sentHistoryBrowse.browseIndex === null) return;
+                setSentHistoryBrowse(sentHistoryOnEdit(sentHistoryBrowse));
+              }}
             />
           )}
           {state.subAgents.length > 0 && (

@@ -79,6 +79,10 @@ import {
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
+import { loadHooks, loadState, loadTurns } from "../session/state.js";
+import { pickSession } from "./pick-session.js";
+import { turnsToContentBlocks } from "./turns-to-blocks.js";
+import type { ContentBlockData } from "./use-stream.js";
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
@@ -103,7 +107,8 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
   return 0;
 }
 
-export async function runTUI(config: Config): Promise<number> {
+export async function runTUI(initialConfig: Config): Promise<number> {
+  let config = initialConfig;
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
@@ -135,14 +140,34 @@ export async function runTUI(config: Config): Promise<number> {
     })
     .catch(() => undefined);
   let sessionId = config.sessionId;
+  let resumeSkipInitialTask = config.skipInitialTask === true;
+  let initialTranscriptBlocks: ContentBlockData[] = [];
+
+  if (config.resumePicker) {
+    const picked = await pickSession(config.cwd);
+    if (picked === null) return 0;
+    sessionId = picked.sessionId;
+    resumeSkipInitialTask = true;
+    const pickedState = await loadState(config.cwd, sessionId);
+    config =
+      pickedState !== null
+        ? { ...config, sessionId, task: pickedState.task }
+        : { ...config, sessionId };
+  }
+
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
+  initialTranscriptBlocks = turnsToContentBlocks(await loadTurns(config.cwd, sessionId));
   const emitter = createTUIEventEmitter();
   const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
   });
+  const persistedHooks = await loadHooks(config.cwd, sessionId);
+  for (const hook of persistedHooks) {
+    hookManager.setEnabled(hook.id, hook.enabled);
+  }
   let runError: string | undefined;
 
   const recordRunError = (err: unknown): void => {
@@ -451,7 +476,7 @@ export async function runTUI(config: Config): Promise<number> {
           id: config.providerName,
           apiKey: config.apiKey,
           model: config.model,
-          sessionId: config.sessionId,
+          sessionId,
           ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
         })
@@ -765,6 +790,9 @@ export async function runTUI(config: Config): Promise<number> {
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
+      skipInitialTask={resumeSkipInitialTask}
+      initialContentBlocks={initialTranscriptBlocks}
+      getSessionId={() => sessionId}
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}

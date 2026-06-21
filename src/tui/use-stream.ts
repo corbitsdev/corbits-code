@@ -131,6 +131,7 @@ function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">):
 export function createAgentStreamState(
   initialHooks: LifecycleHookStatus[] = [],
   getModelId?: () => string,
+  initialContentBlocks: ContentBlockData[] = [],
 ): AgentStreamState {
   // Price each turn at the active model's rate, resolved live so a mid-session
   // provider/model switch is reflected without recreating the meter.
@@ -208,6 +209,9 @@ export function createAgentStreamState(
   let faremeter = makeFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
+  }
+  for (const block of initialContentBlocks) {
+    pushBlock(block);
   }
 
   return {
@@ -695,10 +699,11 @@ export function useAgentStream(
   initialHooks: LifecycleHookStatus[] = [],
   getModel?: () => string,
   onInferenceTimeout?: () => void,
+  initialContentBlocks: ContentBlockData[] = [],
 ): AgentStreamState {
   // getModel is read live by the faremeter's pricing resolver, so a
   // mid-session model switch is priced correctly without recreating the state.
-  const [state] = useState(() => createAgentStreamState(initialHooks, getModel));
+  const [state] = useState(() => createAgentStreamState(initialHooks, getModel, initialContentBlocks));
   const [tick, setTick] = useState(0);
   const onInferenceTimeoutRef = useRef(onInferenceTimeout);
   onInferenceTimeoutRef.current = onInferenceTimeout;
