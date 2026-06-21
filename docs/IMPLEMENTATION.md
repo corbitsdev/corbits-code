@@ -221,7 +221,7 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 }
 ```
 
-`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt; `workflow` names a workflow to auto-invoke on session start (unless `--no-workflow` is passed). CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
+`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. Workflow profile metadata is deprecated because workflows are started only by explicit slash commands. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
 
 ### Provider Configuration
 
@@ -240,7 +240,7 @@ Providers and credentials are read exclusively from settings files: the global `
 | `--headless`, `-h` | false | Headless CLI mode (default is the TUI) |
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
-| `--no-workflow` | false | Suppress auto-invoking the profile's `workflow` for this run |
+| `--no-workflow` | false | Deprecated no-op; workflows are manual slash commands only |
 | `--help` | — | Show help |
 
 Positional arguments are joined into the task description. In headless mode a task is required.

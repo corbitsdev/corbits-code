@@ -69,33 +69,6 @@ export const presentDefinition: ToolDefinition = {
   },
 };
 
-export const suggestWorkflowDefinition: ToolDefinition = {
-  name: "suggest_workflow",
-  description:
-    "Suggest launching a named workflow when the user's request clearly maps to one. " +
-    "Present the workflow and extracted context for operator approval before starting. " +
-    "Only call this once per message, and only when no workflow is already active.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      workflow: {
-        type: "string",
-        description: "Workflow name (e.g. triage-bug, build-feature, code-review)",
-      },
-      context: {
-        type: "string",
-        description:
-          "Key context extracted from the user's message (bug description, feature request, etc.)",
-      },
-      reason: {
-        type: "string",
-        description: "One sentence explaining why this workflow fits the request",
-      },
-    },
-    required: ["workflow", "reason"],
-  },
-};
-
 export const advanceWorkflowDefinition: ToolDefinition = {
   name: "advance_workflow",
   description:

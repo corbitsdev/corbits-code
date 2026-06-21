@@ -355,8 +355,8 @@ export async function runTUI(config: Config): Promise<number> {
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
-  // Owns the workflow lifecycle: slash-command starts, auto-invoke, capability
-  // overrides, resume, and publishing status to the App via the emitter.
+  // Owns the workflow lifecycle: slash-command starts, capability overrides,
+  // resume, and publishing status to the App via the emitter.
   const workflowController = new WorkflowController({
     cwd: config.cwd,
     emitter,
@@ -829,12 +829,8 @@ export async function runTUI(config: Config): Promise<number> {
         reloadIfIdle();
       }
       // Now that the capability map reflects connected MCP servers, restore any
-      // persisted workflow, then auto-invoke the profile's workflow if one is
-      // declared and nothing is already active. --no-workflow suppresses this.
+      // persisted workflow. New workflows are manual-only slash commands.
       await workflowController.resume();
-      if (!config.noWorkflow && config.workflow !== undefined && !workflowController.isActive()) {
-        workflowController.autoInvoke(config.workflow);
-      }
     });
 
   await waitUntilExit();

@@ -63,10 +63,10 @@ test("replacing an active workflow requires a confirming second call", async () 
   });
 });
 
-test("autoInvoke starts only when nothing is active", async () => {
+test("autoInvoke is inert because workflows are manual-only", async () => {
   await withController([], async (controller) => {
-    expect(controller.autoInvoke("build")).toContain("Auto-started");
-    expect(controller.autoInvoke("review")).toBeNull();
+    expect(controller.autoInvoke("build")).toBeNull();
+    expect(controller.isActive()).toBe(false);
   });
 });
 
