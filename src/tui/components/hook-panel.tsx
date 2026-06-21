@@ -21,7 +21,7 @@ function formatExitStatus(hook: LifecycleHookStatus): string {
 
 export function HookPanel({ hooks }: HookPanelProps): ReactNode {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Box flexDirection="column" paddingX={1}>
       <Text color="cyan" bold>
         hooks  {hooks.length === 0 ? "none registered" : `${hooks.length} registered`}
       </Text>

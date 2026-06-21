@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { color } from "../theme.js";
 import { osc8, writeClipboard } from "../util/clipboard.js";
 
@@ -15,6 +15,8 @@ export type CodexLoginStart = {
 export type CodexLoginModalProps = {
   profiles: string[];
   activeProfile: string | undefined;
+  /** When set, pre-selects this profile and immediately starts the login flow. */
+  autoLoginProfile?: string | undefined;
   providerPrefix?: string;
   title?: string;
   subtitle?: string;
@@ -46,13 +48,16 @@ export function CodexLoginModal({
   onSwitchProfile,
   onRemoveProfile,
   onClose,
+  autoLoginProfile,
 }: CodexLoginModalProps): ReactNode {
-  const [step, setStep] = useState<Step>(profiles.length > 0 ? "list" : "name");
-  const [cursor, setCursor] = useState(0);
+  const autoIdx = autoLoginProfile !== undefined ? profiles.indexOf(autoLoginProfile) : -1;
+  const autoStart = autoLoginProfile !== undefined && autoIdx >= 0;
+  const [step, setStep] = useState<Step>(autoStart ? "pending" : profiles.length > 0 ? "list" : "name");
+  const [cursor, setCursor] = useState(autoIdx >= 0 ? autoIdx : 0);
   const [nameValue, setNameValue] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null);
-  const [pendingName, setPendingName] = useState<string>("");
+  const [pendingName, setPendingName] = useState<string>(autoStart ? autoLoginProfile : "");
   const [resultMessage, setResultMessage] = useState<string>("");
   const [handle, setHandle] = useState<CodexLoginStart | null>(null);
 
@@ -82,6 +87,35 @@ export function CodexLoginModal({
       },
     );
   };
+
+  // Fire onStartLogin exactly once when auto-starting. The ref guard prevents
+  // re-firing on re-renders. State is pre-initialized to "pending" so the UI
+  // is already in the right shape; this just attaches the async handle.
+  const autoLoginFired = useRef(false);
+  if (!autoLoginFired.current && autoStart) {
+    autoLoginFired.current = true;
+    void onStartLogin(autoLoginProfile).then(
+      (started) => {
+        setHandle(started);
+        setAuthorizeUrl(started.authorizeUrl);
+        started.completed.then(
+          (res) => {
+            setResultMessage(`Authorized ${providerLabel} profile "${res.profile}".`);
+            setStep("done");
+            onSwitchProfile(res.profile);
+          },
+          (err: unknown) => {
+            setResultMessage(err instanceof Error ? err.message : String(err));
+            setStep("error");
+          },
+        );
+      },
+      (err: unknown) => {
+        setResultMessage(err instanceof Error ? err.message : String(err));
+        setStep("error");
+      },
+    );
+  }
 
   useInput((input, key) => {
     if (step === "list") {
@@ -179,8 +213,6 @@ export function CodexLoginModal({
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor={color("accent")}
       paddingX={2}
       paddingY={1}
       marginX={1}

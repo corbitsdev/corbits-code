@@ -18,7 +18,7 @@ function ApprovalModal({ plan, onApprove, onReject }: { plan: PlanStep[]; onAppr
     if (key.escape) onReject();
   });
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={color("accent")} paddingX={2} paddingY={1} marginX={1} marginY={1}>
+    <Box flexDirection="column" paddingX={2} paddingY={1} marginX={1} marginY={1}>
       <Text bold color={color("accent")}>Plan Review</Text>
       <Box flexDirection="column" marginTop={1}>
         {plan.map((step, i) => (
@@ -56,7 +56,11 @@ export type ModalStackProps = {
   agentProfiles: AgentProfile[];
   onSaveAgentProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteAgentProfile: (id: string) => void;
-  codexUsage?: string | undefined;
+  usage?: string | undefined;
+  /** Forwarded to AgentModal for live usage fetch on hover/select of codex/xai providers. */
+  onRequestAgentUsage?: (kind: "codex" | "xai", profile: string) => void;
+  unauthedProviders?: ReadonlySet<string>;
+  onRequestAgentLogin?: (kind: "codex" | "xai", profile: string) => void;
 
   pendingPlan: PlanStep[] | null;
   onApprove: () => void;
@@ -91,7 +95,10 @@ export function ModalStack({
   agentProfiles,
   onSaveAgentProfile,
   onDeleteAgentProfile,
-  codexUsage,
+  usage,
+  onRequestAgentUsage,
+  unauthedProviders,
+  onRequestAgentLogin,
   pendingPlan,
   onApprove,
   onReject,
@@ -121,7 +128,10 @@ export function ModalStack({
           profiles={agentProfiles}
           onSaveProfile={onSaveAgentProfile}
           onDeleteProfile={onDeleteAgentProfile}
-          codexUsage={codexUsage}
+          usage={usage}
+          {...(onRequestAgentUsage !== undefined ? { onRequestUsage: onRequestAgentUsage } : {})}
+          {...(unauthedProviders !== undefined ? { unauthedProviders } : {})}
+          {...(onRequestAgentLogin !== undefined ? { onRequestLogin: onRequestAgentLogin } : {})}
         />
       )}
       {pendingPlan !== null && (

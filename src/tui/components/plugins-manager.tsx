@@ -11,6 +11,9 @@ export type PluginDescriptor = {
   kind?: PluginKind;
   description?: string;
   credentials: PluginCredentialField[];
+  // For kind:"agent" plugins — the profiles contributed, shown so the user can
+  // see which sub-agents and tiers a plugin provides before enabling it.
+  agentProfiles?: { id: string; tier?: string; description?: string }[];
 };
 
 export type VerifyResult = { ok: boolean; message: string };
@@ -165,7 +168,7 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
   });
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={color("accent")} paddingX={2} paddingY={1} marginX={1} marginY={1}>
+    <Box flexDirection="column" paddingX={2} paddingY={1} marginX={1} marginY={1}>
       <Text bold color={color("accent")}>Plugins</Text>
       {plugins.length === 0 ? (
         <Box marginTop={1}>
@@ -189,6 +192,19 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
               </Box>
               {isActive && p.description !== undefined && (
                 <Box marginLeft={2}><Text color={color("muted")}>{p.description}</Text></Box>
+              )}
+              {isActive && p.agentProfiles !== undefined && p.agentProfiles.length > 0 && (
+                <Box marginLeft={2} flexDirection="column">
+                  {p.agentProfiles.map((ap) => (
+                    <Box key={ap.id} gap={1}>
+                      <Text color={color("dim")} dimColor>agent</Text>
+                      <Text color={color("muted")}>{ap.id}</Text>
+                      {ap.tier !== undefined && (
+                        <Text color={color("dim")} dimColor>{`tier: ${ap.tier} — configure in /model → tiers`}</Text>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
               )}
               {isActive && p.credentials.map((field, ci) => {
                 const raw = credValue(p.id, field.key);
