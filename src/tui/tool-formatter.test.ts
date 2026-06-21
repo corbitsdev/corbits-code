@@ -236,6 +236,13 @@ describe("describeToolCall for task tool", () => {
     expect(result.summary).toBe("map all callers");
   });
 
+  test("task with blank agent uses generic Task display", () => {
+    const args = JSON.stringify({ agent: "", description: "map all callers", prompt: "..." });
+    const result = describeToolCall("task", args);
+    expect(result.display).toBe("Task");
+    expect(result.summary).toBe("map all callers");
+  });
+
   test("long description is abbreviated", () => {
     const long = "a".repeat(100);
     const args = JSON.stringify({ agent: "critique", description: long, prompt: "..." });

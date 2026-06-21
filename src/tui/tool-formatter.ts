@@ -105,10 +105,10 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
   if (toolName === "task") {
     const taskParsed = TaskArgSchema(tryParseObject(rawArgs));
     if (!(taskParsed instanceof type.errors)) {
-      const agentName = taskParsed.agent;
+      const agentName = taskParsed.agent?.trim();
       const description = taskParsed.description ?? "";
       const display =
-        agentName !== undefined
+        agentName !== undefined && agentName.length > 0
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
       const summary = description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "";
