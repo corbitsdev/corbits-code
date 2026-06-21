@@ -72,6 +72,25 @@ registerCommand({
 });
 
 registerCommand({
+  name: "rename",
+  description: "Name the current session (shown in resume list and header)",
+  handler: (args, ctx) => {
+    const name = args.trim();
+    if (name.length === 0) {
+      return { type: "message", text: "Usage: /rename <name>" };
+    }
+    if (ctx.renameSession === undefined) {
+      return { type: "message", text: "Renaming is not available in this mode." };
+    }
+    const err = ctx.renameSession(name);
+    if (err !== undefined) {
+      return { type: "message", text: err };
+    }
+    return { type: "message", text: `Session renamed to "${name}".` };
+  },
+});
+
+registerCommand({
   name: "mcp",
   description: "List connected MCP servers and their available tools",
   handler: (_args, ctx) => {

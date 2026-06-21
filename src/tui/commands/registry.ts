@@ -3,6 +3,8 @@ export type CommandContext = {
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
   // Start a workflow by name; returns a status message to surface to the user.
   startWorkflow?: (name: string) => string;
+  /** Rename the active session (persisted as run.json task). */
+  renameSession?: (name: string) => string | undefined;
 };
 
 export type CommandResult =
