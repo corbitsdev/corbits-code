@@ -267,6 +267,7 @@ export type AppProps = {
   onAgentError?: (err: unknown) => void;
   onInterrupt?: () => void;
   onNewSession?: () => void;
+  onRenameSession?: (name: string) => string | undefined;
   permissionsAdmin?: PermissionsAdmin;
   pluginsAdmin?: PluginsAdmin;
   profile?: string;
@@ -316,6 +317,7 @@ export function App({
   onAgentError,
   onInterrupt,
   onNewSession,
+  onRenameSession,
   permissionsAdmin,
   pluginsAdmin,
   profile,
@@ -355,6 +357,17 @@ export function App({
   // initialSettings (which may be a --config/project file). The animation plays
   // only on first run; afterwards the flag is stamped into the global file.
   const isFirstTime = !globallyOnboarded;
+  const [displaySessionTitle, setDisplaySessionTitle] = useState(sessionTitle);
+  useEffect(() => {
+    setDisplaySessionTitle(sessionTitle);
+  }, [sessionTitle]);
+  useEffect(() => {
+    const onTitle = (title: string) => setDisplaySessionTitle(title);
+    eventEmitter.on("session.title", onTitle);
+    return () => {
+      eventEmitter.off("session.title", onTitle);
+    };
+  }, [eventEmitter]);
   // The welcome animation plays only on first run; returning users go straight
   // to the app.
   const [onboardingDone, setOnboardingDone] = useState(!isFirstTime);
@@ -706,7 +719,8 @@ export function App({
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
-  }), [mcpStatus.servers, onStartWorkflow]);
+    ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -1041,7 +1055,7 @@ export function App({
     <Box flexDirection="column" height={rows}>
       <Box flexShrink={0} flexDirection="column">
         <Header
-          sessionTitle={sessionTitle}
+          sessionTitle={displaySessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
           usage={codexUsageDisplay}

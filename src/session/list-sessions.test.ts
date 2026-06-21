@@ -20,7 +20,9 @@ test("listSessions includes TUI sessions with context/ but no run.json", async (
   const sessionId = generateSessionId();
   await initSessionDir(cwd, sessionId);
   const listed = await listSessions(cwd);
-  expect(listed.some((s) => s.sessionId === sessionId)).toBe(true);
+  const row = listed.find((s) => s.sessionId === sessionId);
+  expect(row).toBeDefined();
+  expect(row?.task).toBe("Untitled session");
 });
 
 test("listSessions prefers run.json task title when present", async () => {

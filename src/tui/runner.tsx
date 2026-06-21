@@ -78,7 +78,8 @@ import {
   type RunSummary,
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
-import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
+import { generateSessionId, initSessionDir, renameSession, sessionContextDir, sessionDir } from "../session/index.js";
+import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
 import { loadState, saveState, type RunState } from "../session/state.js";
 import { pickSession } from "./pick-session.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
@@ -576,6 +577,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     initialTranscriptBlocks = [];
   }
   await persistRunSnapshot("running");
+  void resolveSessionLabel(config.cwd, sessionId, runTaskTitle).then((label) => {
+    emitter.emit("session.title", label);
+  });
   let streamPromise = consumeStream(currentAgent.stream(), streamSink);
 
   // Serial operation queue. Each rotation (reload, interrupt, newSession) enqueues
@@ -683,6 +687,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const trimmed = typeof content === "string" ? content.trim() : "";
       if (trimmed.length > 0 && runTaskTitle.trim().length === 0) {
         runTaskTitle = trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed;
+        emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
         void persistRunSnapshot("running");
       }
       inFlight++;
@@ -765,6 +770,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         sessionId = generateSessionId();
         startedAt = Date.now();
         runTaskTitle = config.task;
+        emitter.emit("session.title", runTaskTitle.trim().length > 0 ? truncateSessionLabel(runTaskTitle) : "Untitled session");
         workdir = sessionContextDir(config.cwd, sessionId);
         await initSessionDir(config.cwd, sessionId);
         permissionGate.reset();
@@ -817,7 +823,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     <App
       eventEmitter={emitter}
       agent={agentProxy}
-      sessionTitle={config.task}
+      sessionTitle={runTaskTitle.length > 0 ? runTaskTitle : "Untitled session"}
       initialModel={config.model}
       initialProvider={config.providerName}
       {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}
@@ -836,6 +842,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onAgentError={recordRunError}
       onInterrupt={interrupt}
       onNewSession={newSession}
+      onRenameSession={(name) => {
+        const trimmed = name.trim();
+        if (trimmed.length === 0) return "Session name cannot be empty";
+        runTaskTitle = trimmed;
+        emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
+        void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
+        return undefined;
+      }}
       permissionsAdmin={permissionsAdmin}
       pluginsAdmin={pluginsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { SessionSummary } from "../../session/index.js";
+import { formatRelativeTime } from "../format-relative-time.js";
 import { color } from "../theme.js";
 
 export type SessionResumePickerProps = {
@@ -12,10 +13,9 @@ export type SessionResumePickerProps = {
 };
 
 function formatLabel(session: SessionSummary): string {
-  const task = session.task.trim();
-  const title = task.length > 0 ? task : "(no task title)";
-  const shortId = session.sessionId.slice(0, 8);
-  return `${title} · ${shortId} · ${session.status}`;
+  const title = session.task.trim().length > 0 ? session.task.trim() : "Untitled session";
+  const when = formatRelativeTime(session.startedAt);
+  return `${title} · ${when} · ${session.status}`;
 }
 
 export function SessionResumePicker({ sessions, onSelect, onCancel }: SessionResumePickerProps): ReactNode {

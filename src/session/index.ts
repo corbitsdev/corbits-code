@@ -1,7 +1,8 @@
 import { mkdir, readdir, readlink, stat, symlink, unlink } from "node:fs/promises";
 import { join, dirname } from "node:path";
 
-import { loadState, type RunState } from "./state.js";
+import { loadState, saveState, type RunState } from "./state.js";
+import { resolveSessionLabel } from "./session-label.js";
 
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
@@ -152,5 +153,29 @@ export async function listSessions(cwd: string): Promise<SessionSummary[]> {
   }
 
   summaries.sort((a, b) => b.startedAt - a.startedAt);
-  return summaries;
+  return Promise.all(
+    summaries.map(async (row) => ({
+      ...row,
+      task: await resolveSessionLabel(cwd, row.sessionId, row.task),
+    })),
+  );
+}
+
+/** Set the display name shown in resume lists and the session header (`run.json` task). */
+export async function renameSession(cwd: string, sessionId: string, name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Session name cannot be empty");
+  }
+  const existing = await loadState(cwd, sessionId);
+  if (existing === null) {
+    await saveState(cwd, sessionId, {
+      status: "running",
+      turnsUsed: 0,
+      task: trimmed,
+      startedAt: Date.now(),
+    });
+    return;
+  }
+  await saveState(cwd, sessionId, { ...existing, task: trimmed });
 }
