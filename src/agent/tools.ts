@@ -8,10 +8,8 @@ import {
   advanceWorkflowDefinition,
   askOperatorDefinition,
   presentDefinition,
-  suggestWorkflowDefinition,
 } from "../agent/director.js";
 import { manageTasksDefinition } from "./tasks.js";
-import { findWorkflow, WORKFLOWS } from "../workflows/index.js";
 import { validateView } from "../tui/view/index.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
@@ -40,12 +38,6 @@ const AskOperatorArgs = type({
   options: "string[]",
 });
 
-const SuggestWorkflowArgs = type({
-  workflow: "string",
-  reason: "string",
-  "context?": "string",
-});
-
 const AdvanceWorkflowArgs = type({
   "note?": "string",
 });
@@ -62,10 +54,6 @@ export type AgentToolsetArgs = {
   cwd: string;
   permissionGate: PermissionGate;
   onOperatorGate: (question: string, options: string[]) => Promise<OperatorResult>;
-  // Called when the agent suggests a workflow and the operator approves. The
-  // TUI wires this to WorkflowController.start(). Returns false if the name is
-  // not found or already active (so the handler can report the failure).
-  onWorkflowSuggested?: (name: string) => boolean;
   mcpServers?: MCPServerConfig[];
   // Pre-resolved web provider. When omitted, the built-in local provider is used.
   webProvider?: WebProvider;
@@ -187,36 +175,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const result = validateView(rawArgs.view);
         if (result.ok) return "Rendered.";
         return `Invalid view spec at ${result.error}. Fix the spec and call present again.`;
-      },
-    }),
-    stringTool({
-      definition: suggestWorkflowDefinition,
-      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        const parsed = SuggestWorkflowArgs(rawArgs);
-        if (parsed instanceof type.errors) {
-          return "Error: suggest_workflow requires workflow (string) and reason (string).";
-        }
-        const { workflow: name, reason, context } = parsed;
-
-        const workflow = findWorkflow(name);
-        if (workflow === undefined) {
-          const available = WORKFLOWS.map((w) => w.name).join(", ");
-          return `Error: unknown workflow "${name}". Available: ${available}.`;
-        }
-
-        const steps = workflow.steps.map((s, i) => `  ${i + 1}. ${s.label}`).join("\n");
-        const contextLine = context !== undefined && context.length > 0 ? `\nContext: ${context}` : "";
-        const question =
-          `Launch workflow: ${name}\n` +
-          `Reason: ${reason}${contextLine}\n\n` +
-          `Steps:\n${steps}`;
-
-        const result = await onOperatorGate(question, ["Yes, launch it", "No, skip"]);
-        if (result.kind !== "option" || result.index !== 0) return "Workflow suggestion declined.";
-
-        const started = args.onWorkflowSuggested?.(name) ?? false;
-        if (!started) return `Could not start "${name}": already active or not found.`;
-        return `Started ${name} workflow.`;
       },
     }),
     stringTool({

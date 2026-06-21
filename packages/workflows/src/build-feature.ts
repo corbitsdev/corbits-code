@@ -3,12 +3,10 @@ import type { Workflow } from "./types.js";
 // The flagship composite workflow. It chains the atomic workflows into the full
 // end-to-end development recipe, with the creative implement step inline (it is
 // the part that cannot be templated). Optional sub-workflow steps let the
-// composite run even when an atomic is unavailable. autoInvoke starts it for
-// every new coding session.
+// composite run even when an atomic is unavailable.
 export const buildFeature = {
   name: "build-feature",
   description: "End-to-end feature implementation from ticket to reviewed PR",
-  autoInvoke: "coding",
   steps: [
     {
       id: "scope",

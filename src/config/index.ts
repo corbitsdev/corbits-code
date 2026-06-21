@@ -171,9 +171,9 @@ export type Config = {
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
-  // Workflow to auto-start for this session, from the resolved profile.
+  // Deprecated workflow profile metadata; workflows are manual-only slash commands.
   workflow?: string;
-  // Suppress auto-invoking the profile's workflow for this run (--no-workflow).
+  // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
   tiers?: Partial<Record<ProviderTier, TierAssignment>>;
   settings?: Settings;

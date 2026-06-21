@@ -120,7 +120,6 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 - `ask_operator` — Pauses for a clarifying question with a list of options.
 - `submit_output` — The only clean termination signal; requires a prior plan.
 - `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
-- `suggest_workflow` — Proposes a named workflow to the user from within the chat loop. Always advertised to the chat model (in `CORE_TOOL_NAMES`) so the model can surface workflow suggestions without tool_search. The TUI intercepts the result and presents a confirmation before launching.
 - `plan_enter` — Signals the director to enter plan phase; advertised in `CORE_TOOL_NAMES` for the chat model to invoke when it decides to plan before acting.
 
 ### Workflows (`src/workflows/`)
@@ -133,7 +132,7 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
-Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from `@intercode/default-workflows` at startup; the operator starts them through **enabled `kind: "command"` plugins** (e.g. `plugins/linear-workflows` → `/linear scope`, `/linear build`). The model may also call `suggest_workflow` or a profile may auto-invoke by name once MCP servers connect (suppressed by `--no-workflow`). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
+Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from `@intercode/default-workflows` at startup; the operator starts them only through **enabled `kind: "command"` plugins** (e.g. `plugins/linear-workflows` → `/linear scope`, `/linear build`). The model never suggests or auto-starts workflows from ordinary chat. The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
 
 ### System Prompt (`src/agent/prompts.ts`)
 

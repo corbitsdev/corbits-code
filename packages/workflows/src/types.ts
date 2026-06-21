@@ -38,7 +38,7 @@ export type Workflow = {
   // Must be a valid slash-command token: lowercase, hyphen-separated, no spaces.
   name: string;
   description: string;
-  // Agent profile name that auto-starts this workflow on session start.
+  // Deprecated: workflows are manual-only slash commands.
   autoInvoke?: string;
   // Pause after every step and wait for the user before advancing.
   stepThrough?: boolean;

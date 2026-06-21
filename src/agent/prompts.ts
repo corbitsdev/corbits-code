@@ -1,6 +1,5 @@
 import type { EnvironmentInfo } from "./environment.js";
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
-import { WORKFLOWS } from "../workflows/index.js";
 
 const defaultAgentTools = [
   "read_file",
@@ -207,7 +206,6 @@ const TOOL_SUMMARIES: Record<string, string> = {
   manage_tasks: "maintain your own task list (create/update status)",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous; the options you give are suggestions — the user may answer in their own words or dismiss the question entirely",
-  suggest_workflow: "propose launching a built-in workflow when the user's request matches one",
   present: "render structured data (lists, tables, status) to the user",
   tool_search: "load more tools by capability when you need them",
 };
@@ -302,14 +300,11 @@ export function buildSystemPrompt(
 }
 
 export function buildWorkflowSuggestionRules(): string {
-  const list = WORKFLOWS.map((w) => `  - ${w.name}: ${w.description}`).join("\n");
   return [
-    "Suggesting workflows:",
-    "- When the user's message clearly maps to one of the built-in workflows below, call suggest_workflow with the workflow name, key context extracted from their message, and a one-sentence reason.",
-    "- Only suggest when intent is unambiguous — a direct bug report, feature request, or explicit ask for one of these recipes. Don't suggest for vague or conversational messages.",
-    "- Only call suggest_workflow once per message, and never when a workflow is already active.",
-    "Available workflows:",
-    list,
+    "Workflow invocation:",
+    "- Never suggest, auto-start, or invoke workflows from ordinary user messages.",
+    "- Workflows are slash-command only: run them only when the operator manually enters the corresponding slash command.",
+    "- Do not call suggest_workflow; leave workflow choice to the operator.",
   ].join("\n");
 }
 
