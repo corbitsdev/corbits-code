@@ -384,6 +384,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
         else toolPluginCandidates.push(cand);
       }
+      // Register slash commands immediately so they show up without a restart.
+      if (mod.commandPlugin !== undefined) {
+        registerCommandPlugin(mod.commandPlugin);
+      }
       // Persist the resolved absolute path so it reloads regardless of the cwd
       // the next session starts from.
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
