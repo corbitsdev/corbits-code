@@ -16,6 +16,7 @@ import {
   XAI_CLIENT_VERSION,
   XAI_USER_AGENT,
 } from "../auth/xai/constants.js";
+import { parseXaiRateLimitHeaders, recordXaiUsage } from "../auth/xai/usage.js";
 import { createResponsesBlockIndexer, parseResponse } from "./codex-responses-adapter.js";
 
 // Adapter for the grok-cli OAuth proxy (cli-chat-proxy.grok.com), which serves
@@ -146,6 +147,14 @@ export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAda
   return {
     buildRequest,
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
+    // Capture usage snapshot if the proxy ever emits x-grok-* rate headers on a
+    // response (currently populates via the explicit /v1/billing fetch on switch
+    // and modal open; this keeps parity with the Codex adapter).
+    extractPacingDelayMs: (headers) => {
+      const usage = parseXaiRateLimitHeaders(headers);
+      if (usage !== undefined) recordXaiUsage(usage);
+      return undefined;
+    },
   };
 }
 
