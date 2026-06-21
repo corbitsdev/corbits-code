@@ -68,6 +68,7 @@ export type AgentStreamState = {
   latestUserMessage: string;
   hooks: LifecycleHookStatus[];
   tasks: Task[];
+  subAgents: Task[];
   elapsedMs: number;
   awaitingResponse: boolean;
   // Use this (not status === "running") to decide whether to queue a new message.
@@ -108,6 +109,23 @@ function stringifyToolArguments(args: unknown): string {
   } catch {
     return "";
   }
+}
+
+function parseTaskToolTitle(rawArgs: string): string {
+  try {
+    const parsed = JSON.parse(rawArgs) as { description?: unknown; agent?: unknown };
+    const description = typeof parsed.description === "string" ? parsed.description.trim() : "";
+    const agent = typeof parsed.agent === "string" ? parsed.agent.trim() : "";
+    if (description.length === 0) return agent.length > 0 ? agent : "Sub-agent";
+    return agent.length > 0 ? `${agent}: ${description}` : description;
+  } catch {
+    return "Sub-agent";
+  }
+}
+
+function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">): Task[] {
+  const next = tasks.filter((task) => task.id !== callId);
+  return [...next, { id: callId, ...patch }];
 }
 
 export function createAgentStreamState(
@@ -163,6 +181,7 @@ export function createAgentStreamState(
   let isProcessing = false;
   let latestUserMessage = "";
   let tasks: Task[] = [];
+  let subAgents: Task[] = [];
   let quotaError: { retryAfterMs: number; retryAt: number } | null = null;
   let currentPlanStep: number | null = null;
   let planTotal: number | null = null;
@@ -234,6 +253,9 @@ export function createAgentStreamState(
     },
     get tasks() {
       return tasks;
+    },
+    get subAgents() {
+      return subAgents;
     },
     get elapsedMs() {
       return (finishedAt ?? Date.now()) - startedAt;
@@ -318,6 +340,7 @@ export function createAgentStreamState(
       isProcessing = false;
       latestUserMessage = "";
       tasks = [];
+      subAgents = [];
       quotaError = null;
       currentPlanStep = null;
       planTotal = null;
@@ -411,6 +434,12 @@ export function createAgentStreamState(
           } else {
             pushBlock({ type: "tool_call", name: data.name, arguments: argumentText });
           }
+          if (data.name === "task") {
+            subAgents = updateSubAgent(subAgents, data.callId, {
+              title: parseTaskToolTitle(argumentText),
+              status: "doing",
+            });
+          }
           break;
         }
         case "connector.reply": {
@@ -440,6 +469,14 @@ export function createAgentStreamState(
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
           const content = stringifyToolContent(result.content);
+
+          if (name === "task") {
+            const rawArgs = callIdToArguments.get(result.callId) ?? "";
+            subAgents = updateSubAgent(subAgents, result.callId, {
+              title: parseTaskToolTitle(rawArgs),
+              status: result.isError ? "todo" : "done",
+            });
+          }
 
           if (name === "submit_plan" && !result.isError) {
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
