@@ -5,6 +5,7 @@ import { color } from "../theme.js";
 export type TaskViewProps = {
   tasks: Task[];
   compact?: boolean;
+  title?: string;
 };
 
 // Checkbox glyphs make task state legible at a glance: an empty box for pending
@@ -15,7 +16,7 @@ const GLYPH: Record<TaskStatus, string> = {
   done: "☑",
 };
 
-export function TaskView({ tasks, compact }: TaskViewProps) {
+export function TaskView({ tasks, compact, title = "Tasks" }: TaskViewProps) {
   if (tasks.length === 0) return null;
 
   const sorted = [...tasks].sort(byPriority);
@@ -41,7 +42,7 @@ export function TaskView({ tasks, compact }: TaskViewProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box gap={1}>
-        <Text bold color={color("accent")}>Tasks</Text>
+        <Text bold color={color("accent")}>{title}</Text>
         <Text color={color("dim")} dimColor>{`${doneCount}/${sorted.length}`}</Text>
       </Box>
       {sorted.map((task) => (

@@ -80,6 +80,10 @@ export function buildTaskRules(): string {
     "Task tracking:",
     "- For multi-step work, call manage_tasks to register a short ordered list of what you intend to do. Update statuses as you progress (todo → doing → done).",
     "- Skip it for trivial single-step changes. The tool is optional and self-owned — no hard gate on completion.",
+    "Multi-agent delegation:",
+    "- When the user asks for multiple sub-agents, launch them in parallel with multiple task calls in the same turn whenever possible.",
+    "- Do not send identical prompts to same-profile agents. Give each one a distinct lens and success criteria, e.g. correctness/regressions, architecture/maintainability, tests/security/performance, or UI/UX.",
+    "- Put the shared facts in context and the individual lens, files to inspect, and report format in each prompt.",
   ].join("\n");
 }
 

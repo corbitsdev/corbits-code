@@ -50,4 +50,23 @@ describe("createAgentStreamState", () => {
     expect(state.currentToolName).toBe("run_shell");
     expect(state.streamingType).toBe("tool");
   });
+
+  test("tracks sub-agent task calls separately from managed tasks", () => {
+    const state = createAgentStreamState();
+
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "call-3",
+      name: "task",
+      arguments: { agent: "greybeard", description: "review correctness", prompt: "..." },
+    }));
+
+    expect(state.subAgents).toEqual([{ id: "call-3", title: "greybeard: review correctness", status: "doing" }]);
+    expect(state.tasks).toEqual([]);
+
+    state.addEvent(event("tool.done", {
+      result: { callId: "call-3", content: "ok", isError: false },
+    }));
+
+    expect(state.subAgents).toEqual([{ id: "call-3", title: "greybeard: review correctness", status: "done" }]);
+  });
 });
