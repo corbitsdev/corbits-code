@@ -50,7 +50,9 @@ export function stepSentHistoryUp(
     ...browse,
     browseIndex: browse.browseIndex + 1,
   };
-  const value = browse.sent[browse.sent.length - 1 - next.browseIndex]!;
+  const idx = next.browseIndex;
+  if (idx === null) return null;
+  const value = browse.sent[browse.sent.length - 1 - idx]!;
   return { browse: next, value, cursor: value.length };
 }
 
@@ -65,7 +67,9 @@ export function stepSentHistoryDown(
 
   if (browse.browseIndex > 0) {
     const next: SentHistoryBrowse = { ...browse, browseIndex: browse.browseIndex - 1 };
-    const value = browse.sent[browse.sent.length - 1 - next.browseIndex]!;
+    const idx = next.browseIndex;
+    if (idx === null) return null;
+    const value = browse.sent[browse.sent.length - 1 - idx]!;
     return { browse: next, value, cursor: value.length };
   }
 
