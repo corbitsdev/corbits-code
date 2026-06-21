@@ -79,7 +79,7 @@ import {
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
-import { loadState } from "../session/state.js";
+import { loadState, saveState, type RunState } from "../session/state.js";
 import { pickSession } from "./pick-session.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 import type { ContentBlockData } from "./use-stream.js";
@@ -142,6 +142,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let sessionId = config.sessionId;
   let resumeSkipInitialTask = config.skipInitialTask === true;
   let initialTranscriptBlocks: ContentBlockData[] = [];
+  let startedAt = Date.now();
+  let runTaskTitle = config.task;
 
   if (config.resumePicker) {
     const picked = await pickSession(config.cwd);
@@ -149,16 +151,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     sessionId = picked.sessionId;
     resumeSkipInitialTask = true;
     const pickedState = await loadState(config.cwd, sessionId);
+    if (pickedState !== null) {
+      startedAt = pickedState.startedAt;
+      runTaskTitle = pickedState.task;
+    } else {
+      runTaskTitle = picked.task.length > 0 ? picked.task : runTaskTitle;
+    }
     config =
       pickedState !== null
         ? { ...config, sessionId, task: pickedState.task }
-        : { ...config, sessionId };
+        : { ...config, sessionId, task: runTaskTitle };
   }
 
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
   const emitter = createTUIEventEmitter();
-  const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
@@ -537,6 +544,26 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   const runSink = createRunSink({ emitter, hookManager });
 
+  const persistRunSnapshot = async (
+    status: RunState["status"],
+    extra?: Pick<RunState, "finishedAt" | "error">,
+  ): Promise<void> => {
+    await saveState(config.cwd, sessionId, {
+      status,
+      turnsUsed: runSink.getTurnCollector().getTurns().length,
+      task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+      startedAt,
+      ...extra,
+    });
+  };
+
+  const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
+    runSink.sink(event);
+    if (event.type === "reactor.done") {
+      void persistRunSnapshot("running");
+    }
+  };
+
   // Tool count before any MCP server connects; a reload is only worthwhile if
   // connecting actually added tools.
   const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
@@ -548,7 +575,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   } catch {
     initialTranscriptBlocks = [];
   }
-  let streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+  await persistRunSnapshot("running");
+  let streamPromise = consumeStream(currentAgent.stream(), streamSink);
 
   // Serial operation queue. Each rotation (reload, interrupt, newSession) enqueues
   // an async task; they run one at a time. `send` awaits the tail of the queue
@@ -574,7 +602,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       await old.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();
-      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+      streamPromise = consumeStream(currentAgent.stream(), streamSink);
       // The rebuild made a fresh director; re-attach the active workflow.
       workflowController.reattach();
     });
@@ -652,6 +680,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     send: async (content, opts) => {
       await opQueueTail;
       if (fatalBuildError !== null) throw fatalBuildError;
+      const trimmed = typeof content === "string" ? content.trim() : "";
+      if (trimmed.length > 0 && runTaskTitle.trim().length === 0) {
+        runTaskTitle = trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed;
+        void persistRunSnapshot("running");
+      }
       inFlight++;
       try {
         await refreshCodexBeforeSend();
@@ -701,7 +734,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
-        streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        streamPromise = consumeStream(currentAgent.stream(), streamSink);
         workflowController.reattach();
         fatalBuildError = null;
       } catch (err) {
@@ -728,7 +761,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
+        await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
+        startedAt = Date.now();
+        runTaskTitle = config.task;
         workdir = sessionContextDir(config.cwd, sessionId);
         await initSessionDir(config.cwd, sessionId);
         permissionGate.reset();
@@ -736,7 +772,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
-        streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        streamPromise = consumeStream(currentAgent.stream(), streamSink);
+        await persistRunSnapshot("running");
         // A fresh session drops any active workflow.
         workflowController.reset();
         fatalBuildError = null;
@@ -870,9 +907,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const finishedAt = Date.now();
   const turnCollector = runSink.getTurnCollector();
   const sinkError = runSink.getRunError();
+  const summaryStatus = runSink.getStatus();
+  const persistedStatus: RunState["status"] =
+    summaryStatus === "failed" ? "failed" : summaryStatus === "done" ? "done" : "running";
+  await persistRunSnapshot(persistedStatus, {
+    finishedAt,
+    ...(sinkError !== undefined ? { error: sinkError } : {}),
+  });
   await hookManager.dispatchPostRun(createRunSummary({
-    task: config.task,
-    status: runSink.getStatus(),
+    task: runTaskTitle.length > 0 ? runTaskTitle : config.task,
+    status: summaryStatus,
     startedAt,
     finishedAt,
     turnsUsed: turnCollector.getTurns().length,

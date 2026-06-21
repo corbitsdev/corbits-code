@@ -1,4 +1,4 @@
-import { mkdir, readdir, readlink, symlink, unlink } from "node:fs/promises";
+import { mkdir, readdir, readlink, stat, symlink, unlink } from "node:fs/promises";
 import { join, dirname } from "node:path";
 
 import { loadState, type RunState } from "./state.js";
@@ -127,13 +127,28 @@ export async function listSessions(cwd: string): Promise<SessionSummary[]> {
   for (const entry of entries) {
     if (entry === "latest" || !SESSION_ID_RE.test(entry)) continue;
     const state = await loadState(cwd, entry);
-    if (state === null) continue;
-    summaries.push({
-      sessionId: entry,
-      task: state.task,
-      startedAt: state.startedAt,
-      status: state.status,
-    });
+    if (state !== null) {
+      summaries.push({
+        sessionId: entry,
+        task: state.task,
+        startedAt: state.startedAt,
+        status: state.status,
+      });
+      continue;
+    }
+    // TUI sessions persist conversation under context/ before run.json exists.
+    try {
+      const dirStat = await stat(sessionDir(cwd, entry));
+      await stat(sessionContextDir(cwd, entry));
+      summaries.push({
+        sessionId: entry,
+        task: "(conversation)",
+        startedAt: dirStat.mtimeMs,
+        status: "running",
+      });
+    } catch {
+      // Not a resumable session directory.
+    }
   }
 
   summaries.sort((a, b) => b.startedAt - a.startedAt);

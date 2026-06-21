@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput } from "ink";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { SessionSummary } from "../../session/index.js";
 import { color } from "../theme.js";
@@ -21,6 +21,10 @@ function formatLabel(session: SessionSummary): string {
 export function SessionResumePicker({ sessions, onSelect, onCancel }: SessionResumePickerProps): ReactNode {
   const { exit } = useApp();
   const [cursor, setCursor] = useState(0);
+  const cursorRef = useRef(0);
+  useEffect(() => {
+    cursorRef.current = cursor;
+  }, [cursor]);
   const rows = useMemo(() => sessions.map((s) => ({ session: s, label: formatLabel(s) })), [sessions]);
   const clamped = rows.length > 0 ? Math.min(cursor, rows.length - 1) : 0;
 
@@ -41,7 +45,8 @@ export function SessionResumePicker({ sessions, onSelect, onCancel }: SessionRes
       return;
     }
     if (key.return) {
-      const row = rows[clamped];
+      const index = Math.min(cursorRef.current, Math.max(0, rows.length - 1));
+      const row = rows[index];
       if (row !== undefined) {
         onSelect(row.session);
         exit();

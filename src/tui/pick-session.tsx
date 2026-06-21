@@ -26,6 +26,9 @@ export async function pickSession(cwd: string): Promise<SessionSummary | null> {
       />,
       { exitOnCtrlC: true },
     );
-    void waitUntilExit().then(() => settle(null));
+    void waitUntilExit().then(() => {
+      // Only treat as cancel when the user did not already select a session.
+      settle(null);
+    });
   });
 }
