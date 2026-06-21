@@ -169,11 +169,18 @@ export async function renameSession(cwd: string, sessionId: string, name: string
   }
   const existing = await loadState(cwd, sessionId);
   if (existing === null) {
+    let startedAt = Date.now();
+    try {
+      const dirStat = await stat(sessionDir(cwd, sessionId));
+      startedAt = dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
+    } catch {
+      // Session dir missing; fall back to now.
+    }
     await saveState(cwd, sessionId, {
       status: "running",
       turnsUsed: 0,
       task: trimmed,
-      startedAt: Date.now(),
+      startedAt,
     });
     return;
   }
