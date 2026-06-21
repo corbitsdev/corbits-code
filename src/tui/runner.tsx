@@ -17,9 +17,11 @@ import {
   globalSettingsPath,
   loadSettings,
   resolveMaxConcurrentSubAgents,
+  resolveTier,
   saveGlobalSettings,
   type Settings,
   type PluginConfig,
+  type ProviderTier,
 } from "../config/settings.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
@@ -47,7 +49,8 @@ import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { loadAgentContextExtensions } from "../agent/run-agent.js";
-import { loadAgentProfiles } from "../agent/profiles.js";
+import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
+import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
@@ -78,7 +81,12 @@ import {
   type RunSummary,
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
-import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
+import { generateSessionId, initSessionDir, renameSession, sessionContextDir, sessionDir } from "../session/index.js";
+import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
+import { loadState, saveState, type RunState } from "../session/state.js";
+import { pickSession } from "./pick-session.js";
+import { turnsToContentBlocks } from "./turns-to-blocks.js";
+import type { ContentBlockData } from "./use-stream.js";
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
@@ -103,7 +111,8 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
   return 0;
 }
 
-export async function runTUI(config: Config): Promise<number> {
+export async function runTUI(initialConfig: Config): Promise<number> {
+  let config = initialConfig;
   registerOpenAICompatibleAdapter();
   registerCodexResponsesAdapter();
   registerGrokResponsesAdapter();
@@ -135,10 +144,32 @@ export async function runTUI(config: Config): Promise<number> {
     })
     .catch(() => undefined);
   let sessionId = config.sessionId;
+  let resumeSkipInitialTask = config.skipInitialTask === true;
+  let initialTranscriptBlocks: ContentBlockData[] = [];
+  let startedAt = Date.now();
+  let runTaskTitle = config.task;
+
+  if (config.resumePicker) {
+    const picked = await pickSession(config.cwd, { includeCompleted: config.force });
+    if (picked === null) return 0;
+    sessionId = picked.sessionId;
+    resumeSkipInitialTask = true;
+    const pickedState = await loadState(config.cwd, sessionId);
+    if (pickedState !== null) {
+      startedAt = pickedState.startedAt;
+      runTaskTitle = pickedState.task;
+    } else {
+      runTaskTitle = picked.task.length > 0 ? picked.task : runTaskTitle;
+    }
+    config =
+      pickedState !== null
+        ? { ...config, sessionId, task: pickedState.task }
+        : { ...config, sessionId, task: runTaskTitle };
+  }
+
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
   const emitter = createTUIEventEmitter();
-  const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
@@ -237,6 +268,21 @@ export async function runTUI(config: Config): Promise<number> {
   const pluginDescriptors: PluginDescriptor[] = pluginModules
     .map((m) => toDescriptor(m.manifest))
     .filter((d): d is PluginDescriptor => d !== undefined);
+  // Attach agent profiles to their descriptors so the /plugins UI can show
+  // which sub-agents and tiers a plugin contributes.
+  for (const mod of pluginModules) {
+    if (mod.manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
+    const desc = pluginDescriptors.find((d) => d.id === mod.manifest!.id);
+    if (desc === undefined) continue;
+    const agents = Array.isArray(mod.agentPlugin.agents) ? mod.agentPlugin.agents : [];
+    desc.agentProfiles = agents
+      .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null && "id" in a)
+      .map((a) => ({
+        id: String(a["id"]),
+        ...(typeof a["tier"] === "string" ? { tier: a["tier"] } : {}),
+        ...(typeof a["description"] === "string" ? { description: a["description"] } : {}),
+      }));
+  }
   let livePluginConfig: Record<string, PluginConfig> = { ...(config.settings?.plugins ?? {}) };
   let liveWebOverride: string | undefined = config.settings?.web;
   const livePluginPaths: string[] = [...(config.settings?.pluginPaths ?? [])];
@@ -269,6 +315,21 @@ export async function runTUI(config: Config): Promise<number> {
       await persistPluginSettings();
     },
     verify: async (id, credentials) => {
+      // Agent plugins verify by checking they contribute valid profiles and
+      // that each profile's tier resolves to a configured provider.
+      const agentMod = pluginModules.find((m) => m.manifest?.id === id && m.manifest?.kind === "agent");
+      if (agentMod !== undefined) {
+        const profiles = await resolveAgentPluginProfiles([agentMod], { [id]: { enabled: true } });
+        if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
+        // Check tier resolution so the user knows if the provider is configured.
+        const unresolved = profiles.filter(
+          (p) => p.tier !== undefined && resolveTier(p.tier as ProviderTier, config.settings ?? { providers: {} }) === null,
+        );
+        const tierHint = unresolved.length > 0
+          ? ` (${unresolved.length} unresolved tier${unresolved.length === 1 ? "" : "s"} — set in /model → tiers)`
+          : "";
+        return { ok: true, message: `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}${tierHint}` };
+      }
       // Tool plugins verify by loading (the factory must construct without
       // error and yield at least one tool).
       const toolCand = toolPluginCandidates.find((c) => c.id === id);
@@ -451,7 +512,7 @@ export async function runTUI(config: Config): Promise<number> {
           id: config.providerName,
           apiKey: config.apiKey,
           model: config.model,
-          sessionId: config.sessionId,
+          sessionId,
           ...(initialCodexAccountId !== undefined ? { accountId: initialCodexAccountId } : {}),
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
         })
@@ -517,12 +578,42 @@ export async function runTUI(config: Config): Promise<number> {
 
   const runSink = createRunSink({ emitter, hookManager });
 
+  const persistRunSnapshot = async (
+    status: RunState["status"],
+    extra?: Pick<RunState, "finishedAt" | "error">,
+  ): Promise<void> => {
+    await saveState(config.cwd, sessionId, {
+      status,
+      turnsUsed: runSink.getTurnCollector().getTurns().length,
+      task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+      startedAt,
+      ...extra,
+    });
+  };
+
+  const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
+    runSink.sink(event);
+    if (event.type === "reactor.done") {
+      void persistRunSnapshot("running");
+    }
+  };
+
   // Tool count before any MCP server connects; a reload is only worthwhile if
   // connecting actually added tools.
   const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
 
   let currentAgent = await buildAgent();
-  let streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+  try {
+    const turns = await currentAgent.history();
+    initialTranscriptBlocks = turnsToContentBlocks(turns);
+  } catch {
+    initialTranscriptBlocks = [];
+  }
+  await persistRunSnapshot("running");
+  void resolveSessionLabel(config.cwd, sessionId, runTaskTitle).then((label) => {
+    emitter.emit("session.title", label);
+  });
+  let streamPromise = consumeStream(currentAgent.stream(), streamSink);
 
   // Serial operation queue. Each rotation (reload, interrupt, newSession) enqueues
   // an async task; they run one at a time. `send` awaits the tail of the queue
@@ -548,7 +639,7 @@ export async function runTUI(config: Config): Promise<number> {
       await old.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
       currentAgent = await buildAgent();
-      streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+      streamPromise = consumeStream(currentAgent.stream(), streamSink);
       // The rebuild made a fresh director; re-attach the active workflow.
       workflowController.reattach();
     });
@@ -626,6 +717,12 @@ export async function runTUI(config: Config): Promise<number> {
     send: async (content, opts) => {
       await opQueueTail;
       if (fatalBuildError !== null) throw fatalBuildError;
+      const trimmed = typeof content === "string" ? content.trim() : "";
+      if (trimmed.length > 0 && runTaskTitle.trim().length === 0) {
+        runTaskTitle = trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed;
+        emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
+        void persistRunSnapshot("running");
+      }
       inFlight++;
       try {
         await refreshCodexBeforeSend();
@@ -675,7 +772,7 @@ export async function runTUI(config: Config): Promise<number> {
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
-        streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        streamPromise = consumeStream(currentAgent.stream(), streamSink);
         workflowController.reattach();
         fatalBuildError = null;
       } catch (err) {
@@ -702,7 +799,11 @@ export async function runTUI(config: Config): Promise<number> {
     // automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
+        await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
+        startedAt = Date.now();
+        runTaskTitle = config.task;
+        emitter.emit("session.title", runTaskTitle.trim().length > 0 ? truncateSessionLabel(runTaskTitle) : "Untitled session");
         workdir = sessionContextDir(config.cwd, sessionId);
         await initSessionDir(config.cwd, sessionId);
         permissionGate.reset();
@@ -710,7 +811,8 @@ export async function runTUI(config: Config): Promise<number> {
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
-        streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
+        streamPromise = consumeStream(currentAgent.stream(), streamSink);
+        await persistRunSnapshot("running");
         // A fresh session drops any active workflow.
         workflowController.reset();
         fatalBuildError = null;
@@ -722,7 +824,11 @@ export async function runTUI(config: Config): Promise<number> {
   };
 
   const profilesDir = join(config.cwd, ".agents", "agents");
-  const initialProfiles = await loadAgentProfiles(profilesDir);
+  const pluginAgentProfiles = await resolveAgentPluginProfiles(
+    pluginModules,
+    config.settings?.plugins ?? {},
+  );
+  const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
 
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
@@ -754,7 +860,7 @@ export async function runTUI(config: Config): Promise<number> {
     <App
       eventEmitter={emitter}
       agent={agentProxy}
-      sessionTitle={config.task}
+      sessionTitle={runTaskTitle.length > 0 ? runTaskTitle : "Untitled session"}
       initialModel={config.model}
       initialProvider={config.providerName}
       {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}
@@ -765,11 +871,22 @@ export async function runTUI(config: Config): Promise<number> {
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
+      skipInitialTask={resumeSkipInitialTask}
+      initialContentBlocks={initialTranscriptBlocks}
+      getSessionId={() => sessionId}
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
       onAgentError={recordRunError}
       onInterrupt={interrupt}
       onNewSession={newSession}
+      onRenameSession={(name) => {
+        const trimmed = name.trim();
+        if (trimmed.length === 0) return "Session name cannot be empty";
+        runTaskTitle = trimmed;
+        emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
+        void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
+        return undefined;
+      }}
       permissionsAdmin={permissionsAdmin}
       pluginsAdmin={pluginsAdmin}
       {...(config.profile !== undefined ? { profile: config.profile } : {})}
@@ -841,9 +958,16 @@ export async function runTUI(config: Config): Promise<number> {
   const finishedAt = Date.now();
   const turnCollector = runSink.getTurnCollector();
   const sinkError = runSink.getRunError();
+  const summaryStatus = runSink.getStatus();
+  const persistedStatus: RunState["status"] =
+    summaryStatus === "failed" ? "failed" : summaryStatus === "done" ? "done" : "running";
+  await persistRunSnapshot(persistedStatus, {
+    finishedAt,
+    ...(sinkError !== undefined ? { error: sinkError } : {}),
+  });
   await hookManager.dispatchPostRun(createRunSummary({
-    task: config.task,
-    status: runSink.getStatus(),
+    task: runTaskTitle.length > 0 ? runTaskTitle : config.task,
+    status: summaryStatus,
     startedAt,
     finishedAt,
     turnsUsed: turnCollector.getTurns().length,

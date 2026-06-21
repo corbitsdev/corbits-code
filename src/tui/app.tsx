@@ -1,5 +1,5 @@
 import { Box, Text, useApp } from "ink";
-import type { AgentStatus } from "./use-stream.js";
+import type { AgentStatus, ContentBlockData } from "./use-stream.js";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
@@ -10,6 +10,15 @@ import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
+import {
+  createSentHistoryBrowse,
+  resetSentHistoryBrowse,
+  sentHistoryOnEdit,
+  stepSentHistoryDown,
+  stepSentHistoryUp,
+  type SentHistoryBrowse,
+} from "./sent-message-history.js";
+import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
@@ -51,8 +60,9 @@ import { getValidXaiToken, XaiAuthError } from "../auth/xai/session.js";
 import { removeXaiProfile } from "../auth/xai/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
-import { xaiProviderName } from "../config/xai-providers.js";
-import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage } from "../auth/codex/usage.js";
+import { xaiProviderName, xaiProfileFromProviderName } from "../config/xai-providers.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage, recordCodexUsage } from "../auth/codex/usage.js";
+import { fetchXaiUsage, formatXaiUsage, formatXaiUsageCompact, getLatestXaiUsage, recordXaiUsage } from "../auth/xai/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -250,11 +260,15 @@ export type AppProps = {
   globalDefaultProvider?: string;
   cwd: string;
   initialTask?: string;
+  skipInitialTask?: boolean;
+  initialContentBlocks?: ContentBlockData[];
+  getSessionId?: () => string;
   initialHooks?: LifecycleHookStatus[];
   onToggleHook?: (hookId: string, enabled: boolean) => void;
   onAgentError?: (err: unknown) => void;
   onInterrupt?: () => void;
   onNewSession?: () => void;
+  onRenameSession?: (name: string) => string | undefined;
   permissionsAdmin?: PermissionsAdmin;
   pluginsAdmin?: PluginsAdmin;
   profile?: string;
@@ -296,11 +310,15 @@ export function App({
   globalDefaultProvider: initialGlobalDefaultProvider,
   cwd,
   initialTask = "",
+  skipInitialTask = false,
+  initialContentBlocks = [],
+  getSessionId,
   initialHooks = [],
   onToggleHook,
   onAgentError,
   onInterrupt,
   onNewSession,
+  onRenameSession,
   permissionsAdmin,
   pluginsAdmin,
   profile,
@@ -324,11 +342,14 @@ export function App({
   // resolved from the provider manager below.
   const modelRef = useRef(initialModel);
   const requestStopRef = useRef<() => void>(() => undefined);
+  const onCredentialFailureRef = useRef<() => void>(() => {});
   const state = useAgentStream(
     eventEmitter,
     initialHooks,
     () => modelRef.current,
     () => requestStopRef.current(),
+    initialContentBlocks,
+    () => onCredentialFailureRef.current(),
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -339,10 +360,22 @@ export function App({
   // initialSettings (which may be a --config/project file). The animation plays
   // only on first run; afterwards the flag is stamped into the global file.
   const isFirstTime = !globallyOnboarded;
+  const [displaySessionTitle, setDisplaySessionTitle] = useState(sessionTitle);
+  useEffect(() => {
+    setDisplaySessionTitle(sessionTitle);
+  }, [sessionTitle]);
+  useEffect(() => {
+    const onTitle = (title: string) => setDisplaySessionTitle(title);
+    eventEmitter.on("session.title", onTitle);
+    return () => {
+      eventEmitter.off("session.title", onTitle);
+    };
+  }, [eventEmitter]);
   // The welcome animation plays only on first run; returning users go straight
   // to the app.
   const [onboardingDone, setOnboardingDone] = useState(!isFirstTime);
   const [inputValue, setInputValue] = useState("");
+  const [sentHistoryBrowse, setSentHistoryBrowse] = useState<SentHistoryBrowse>(() => createSentHistoryBrowse([]));
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
@@ -353,7 +386,39 @@ export function App({
   const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
+  const [unauthedProviders, setUnauthedProviders] = useState<ReadonlySet<string>>(() => new Set());
   const [loginModal, setLoginModal] = useState<"codex" | "xai" | "choose" | null>(null);
+  const [autoLoginProfile, setAutoLoginProfile] = useState<string | undefined>(undefined);
+  // Updated every render so the stream callback always sees the current provider.
+  onCredentialFailureRef.current = () => {
+    if (loginModal !== null) return;
+    const xaiName = xaiProfileFromProviderName(provider);
+    const codexName = codexProfileFromProviderName(provider);
+    if (xaiName !== undefined) {
+      void getValidXaiToken(xaiName).then(
+        () => {
+          // Token is locally valid but the proxy returned 403 — subscription or
+          // account-level access issue, not a bad token. Re-authing won't help.
+          setCommandMessage(
+            `Grok 403: "${xaiName}" has a valid token but the proxy rejected the request. ` +
+            `Check your SuperGrok or X Premium+ subscription at grok.com.`,
+          );
+        },
+        (err: unknown) => {
+          if (err instanceof XaiAuthError) {
+            setAutoLoginProfile(xaiName);
+            setLoginModal("xai");
+          }
+        },
+      );
+    } else if (codexName !== undefined) {
+      setAutoLoginProfile(codexName);
+      setLoginModal("codex");
+    } else {
+      setAutoLoginProfile(undefined);
+      setLoginModal("choose");
+    }
+  };
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
@@ -408,12 +473,37 @@ export function App({
     [providerCatalog],
   );
 
+  // Check which OAuth providers currently have valid tokens and update the
+  // unauthedProviders set. Called after login/logout and when the agent modal opens.
+  const refreshAuthState = (): void => {
+    const checks = providerCatalog.flatMap((p) => {
+      if (p.xaiProfile !== undefined) {
+        const profile = p.xaiProfile;
+        const providerName = p.name;
+        return [getValidXaiToken(profile).then(
+          () => ({ providerName, ok: true }),
+          () => ({ providerName, ok: false }),
+        )];
+      }
+      return [];
+    });
+    void Promise.all(checks).then((results) => {
+      const unauthed = new Set(results.filter((r) => !r.ok).map((r) => r.providerName));
+      setUnauthedProviders(unauthed);
+    });
+  };
+
   // Derived on every render — stream events re-render this component, so it
   // stays current without an extra request. undefined → fall back to cost string.
   const codexUsageDisplay = (() => {
     if (codexProfileFromProviderName(provider) === undefined) return undefined;
     const usage = getLatestCodexUsage();
     return usage !== undefined ? formatCodexUsageCompact(usage) : undefined;
+  })();
+  const xaiUsageDisplay = (() => {
+    if (xaiProfileFromProviderName(provider) === undefined) return undefined;
+    const usage = getLatestXaiUsage();
+    return usage !== undefined ? formatXaiUsageCompact(usage) : undefined;
   })();
   const switchToCodexProfile = (name: string): void => {
     void refreshCodexInstructions().catch(() => {});
@@ -464,6 +554,9 @@ export function App({
           defaultModel,
           xaiProfile: name,
         });
+        // Populate usage for header immediately (xAI has no per-response headers yet).
+        void fetchXaiUsage(name).then((u) => recordXaiUsage(u)).catch(() => {});
+        refreshAuthState();
       },
       (err: unknown) => {
         setCommandMessage(
@@ -624,6 +717,13 @@ export function App({
   const sendMessageRef = useRef<(message: string) => void>(null!);
   sendMessageRef.current = (message: string) => {
     lastSentMessageRef.current = message;
+    const trimmed = message.trim();
+    if (trimmed.length > 0 && getSessionId !== undefined) {
+      const sid = getSessionId();
+      void appendSentMessage(cwd, sid, trimmed).then(() => {
+        setSentHistoryBrowse((prev) => resetSentHistoryBrowse([...prev.sent, trimmed]));
+      });
+    }
     quotaAutoRetryFiredRef.current = false;
     sendCounterRef.current += 1;
     state.markRunning();
@@ -664,7 +764,15 @@ export function App({
     pendingQueueRef.current.length = 0;
     setQueuedCount(0);
     setWorkflowHistory([]);
+    setInputValue("");
     onNewSession?.();
+    if (getSessionId !== undefined) {
+      void loadSentMessages(cwd, getSessionId()).then((sent) => {
+        setSentHistoryBrowse(createSentHistoryBrowse(sent));
+      });
+    } else {
+      setSentHistoryBrowse(createSentHistoryBrowse([]));
+    }
     scroll.scrollToBottom();
     forceRender((n) => n + 1);
   };
@@ -674,7 +782,8 @@ export function App({
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
-  }), [mcpStatus.servers, onStartWorkflow]);
+    ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -742,8 +851,16 @@ export function App({
   // Send the initial task once the App (and its gate listeners) is mounted, so
   // the run is driven through the same abortable path as interactive sends.
   useEffect(() => {
+    if (getSessionId === undefined) return;
+    void loadSentMessages(cwd, getSessionId()).then((sent) => {
+      setSentHistoryBrowse(createSentHistoryBrowse(sent));
+    });
+  }, [cwd, getSessionId]);
+
+  useEffect(() => {
     if (didSendInitial.current) return;
     didSendInitial.current = true;
+    if (skipInitialTask) return;
     if (initialTask.length > 0) sendMessage(initialTask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -920,15 +1037,27 @@ export function App({
     }
     if (result.type === "modal" && result.modal === "agent") {
       setAgentModalOpen(true);
-      const profileName = codexProfileFromProviderName(provider);
-      if (profileName === undefined) {
-        setAgentModalUsage(null);
-      } else {
-        setAgentModalUsage("Loading Codex usage…");
-        void fetchCodexUsage(profileName).then(
-          (usage) => setAgentModalUsage(formatCodexUsage(usage)),
+      refreshAuthState();
+      const codexName = codexProfileFromProviderName(provider);
+      const xaiName = xaiProfileFromProviderName(provider);
+      if (codexName !== undefined) {
+        void fetchCodexUsage(codexName).then(
+          (usage) => {
+            recordCodexUsage(usage);
+            setAgentModalUsage(formatCodexUsage(usage));
+          },
           () => setAgentModalUsage(null),
         );
+      } else if (xaiName !== undefined) {
+        void fetchXaiUsage(xaiName).then(
+          (usage) => {
+            recordXaiUsage(usage);
+            setAgentModalUsage(formatXaiUsage(usage));
+          },
+          () => setAgentModalUsage(null),
+        );
+      } else {
+        setAgentModalUsage(null);
       }
     }
     if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login" || result.modal === "login")) {
@@ -1001,10 +1130,10 @@ export function App({
     <Box flexDirection="column" height={rows}>
       <Box flexShrink={0} flexDirection="column">
         <Header
-          sessionTitle={sessionTitle}
+          sessionTitle={displaySessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
-          usage={codexUsageDisplay}
+          usage={codexUsageDisplay ?? xaiUsageDisplay}
           {...(profile !== undefined ? { profile } : {})}
         />
       </Box>
@@ -1043,7 +1172,25 @@ export function App({
         agentProfiles={profiles}
         onSaveAgentProfile={saveProfile}
         onDeleteAgentProfile={deleteProfile}
-        codexUsage={agentModalUsage ?? undefined}
+        usage={agentModalUsage ?? undefined}
+        onRequestAgentUsage={(kind, profile) => {
+          if (kind === "codex") {
+            void fetchCodexUsage(profile).then(
+              (u) => { recordCodexUsage(u); setAgentModalUsage(formatCodexUsage(u)); },
+              () => {},
+            );
+          } else {
+            void fetchXaiUsage(profile).then(
+              (u) => { recordXaiUsage(u); setAgentModalUsage(formatXaiUsage(u)); },
+              () => {},
+            );
+          }
+        }}
+        unauthedProviders={unauthedProviders}
+        onRequestAgentLogin={(kind, profile) => {
+          setAutoLoginProfile(profile);
+          setLoginModal(kind);
+        }}
         pendingPlan={gates.pendingPlan}
         onApprove={gates.approve}
         onReject={gates.reject}
@@ -1108,9 +1255,10 @@ export function App({
               },
             }));
           }}
+          autoLoginProfile={autoLoginProfile}
           onSwitchProfile={loginModal === "xai" ? switchToXaiProfile : switchToCodexProfile}
           onRemoveProfile={loginModal === "xai" ? removeXaiProfileEverywhere : removeCodexProfileEverywhere}
-          onClose={() => setLoginModal(null)}
+          onClose={() => { setLoginModal(null); setAutoLoginProfile(undefined); }}
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
@@ -1160,6 +1308,24 @@ export function App({
               queuedCount={queuedCount}
               isProcessing={state.isProcessing}
               onInterrupt={handleInterrupt}
+              onSentHistoryPrevious={() => {
+                const step = stepSentHistoryUp(sentHistoryBrowse, inputValue);
+                if (step === null) return false;
+                setSentHistoryBrowse(step.browse);
+                setInputValue(step.value);
+                return true;
+              }}
+              onSentHistoryNext={() => {
+                const step = stepSentHistoryDown(sentHistoryBrowse, inputValue, inputValue.length);
+                if (step === null) return false;
+                setSentHistoryBrowse(step.browse);
+                setInputValue(step.value);
+                return true;
+              }}
+              onSentHistoryExitBrowse={() => {
+                if (sentHistoryBrowse.browseIndex === null) return;
+                setSentHistoryBrowse(sentHistoryOnEdit(sentHistoryBrowse));
+              }}
             />
           )}
           {state.subAgents.length > 0 && (

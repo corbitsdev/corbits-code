@@ -40,8 +40,6 @@ export function LoginProviderPicker({ onSelect, onClose }: LoginProviderPickerPr
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor={color("accent")}
       paddingX={2}
       paddingY={1}
       marginX={1}
