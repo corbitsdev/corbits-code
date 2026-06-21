@@ -3,10 +3,20 @@ import { render } from "ink";
 import { listSessions, type SessionSummary } from "../session/index.js";
 import { SessionResumePicker } from "./components/session-resume-picker.js";
 
-export async function pickSession(cwd: string): Promise<SessionSummary | null> {
-  const sessions = await listSessions(cwd);
+export async function pickSession(
+  cwd: string,
+  options?: { includeCompleted?: boolean },
+): Promise<SessionSummary | null> {
+  let sessions = await listSessions(cwd);
+  if (options?.includeCompleted !== true) {
+    sessions = sessions.filter((s) => s.status === "running");
+  }
   if (sessions.length === 0) {
-    process.stderr.write("intercode: no previous sessions found in this directory.\n");
+    process.stderr.write(
+      options?.includeCompleted === true
+        ? "intercode: no previous sessions found in this directory.\n"
+        : "intercode: no in-progress sessions found (use --force to resume completed runs).\n",
+    );
     return null;
   }
 
