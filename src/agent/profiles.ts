@@ -10,6 +10,9 @@ import { plugin as defaultPlugin } from "@intercode/default-agents";
 export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode } from "@intercode/default-agents";
 import type { AgentProfile } from "@intercode/default-agents";
 
+// Exported so agent-kind plugins can validate contributed profiles.
+export { AgentProfileSchema };
+
 const CapabilityFilterSchema = type({
   mode: "'exclude' | 'allow'",
   tools: "string[]",
@@ -21,6 +24,7 @@ const AgentProfileSchema = type({
   "tier?": "'fast' | 'standard' | 'clever'",
   "capabilities?": CapabilityFilterSchema,
   "systemPromptRole?": "string",
+  "systemPromptPath?": "string",
 });
 
 function isENOENT(err: unknown): boolean {
@@ -37,20 +41,42 @@ function isENOENT(err: unknown): boolean {
 // .agents/agents/ directory) replaces the earlier one.
 const registry: AgentProfile[] = [...defaultPlugin.agents];
 
-// Load JSON profiles from the local .agents/agents/ directory and merge them
-// into the registry. Local profiles override any same-id plugin-provided profile.
-export async function loadAgentProfiles(dir: string): Promise<AgentProfile[]> {
+// Merge a profile into a list: replace a same-id entry or append. Used to layer
+// profiles by precedence (defaults < plugin < local).
+function mergeProfileInto(list: AgentProfile[], profile: AgentProfile): void {
+  const idx = list.findIndex((p) => p.id === profile.id);
+  if (idx >= 0) list[idx] = profile;
+  else list.push(profile);
+}
+
+// Load and merge profiles from three sources, in ascending precedence:
+//   1. The built-in default registry
+//   2. `extraProfiles` — profiles contributed by enabled agent-kind plugins
+//   3. JSON/YAML files in the local .agents/agents/ directory
+// A profile with a duplicate id loaded from a higher-precedence source replaces
+// the earlier one.
+export async function loadAgentProfiles(
+  dir: string,
+  extraProfiles: AgentProfile[] = [],
+): Promise<AgentProfile[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch (err) {
-    if (isENOENT(err)) return [...registry];
+    if (isENOENT(err)) {
+      const merged = [...registry];
+      for (const p of extraProfiles) mergeProfileInto(merged, p);
+      return merged;
+    }
     throw err;
   }
 
   const local: AgentProfile[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    // Accept .json, .yaml, and .yml for local agent configs.
+    const isJSON = entry.endsWith(".json");
+    const isYAML = entry.endsWith(".yaml") || entry.endsWith(".yml");
+    if (!isJSON && !isYAML) continue;
     const filePath = join(dir, entry);
     let raw: string;
     try {
@@ -60,24 +86,28 @@ export async function loadAgentProfiles(dir: string): Promise<AgentProfile[]> {
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(raw);
+      parsed = isJSON ? JSON.parse(raw) : Bun.YAML.parse(raw);
     } catch {
       continue;
     }
     const result = AgentProfileSchema(parsed);
     if (result instanceof type.errors) continue;
-    local.push(result as AgentProfile);
+    const profile = result as AgentProfile;
+    // Resolve systemPromptPath relative to this directory. The file content
+    // becomes systemPromptRole; an explicit systemPromptRole takes precedence.
+    if (profile.systemPromptPath !== undefined && profile.systemPromptRole === undefined) {
+      try {
+        const promptRaw = await readFile(join(dir, profile.systemPromptPath), "utf8");
+        profile.systemPromptRole = promptRaw.trim();
+      } catch {
+        // Missing prompt file is non-fatal — the profile loads without a role.
+      }
+    }
+    local.push(profile);
   }
 
-  // Build merged list: start from registry, override/append with local profiles.
   const merged = [...registry];
-  for (const profile of local) {
-    const idx = merged.findIndex((p) => p.id === profile.id);
-    if (idx >= 0) {
-      merged[idx] = profile;
-    } else {
-      merged.push(profile);
-    }
-  }
+  for (const profile of extraProfiles) mergeProfileInto(merged, profile);
+  for (const profile of local) mergeProfileInto(merged, profile);
   return merged;
 }

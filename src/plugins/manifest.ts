@@ -3,10 +3,11 @@ import { type } from "arktype";
 // A plugin self-describes through a `manifest` export. The `kind` drives how the
 // plugin is wired: "web" provides the web_search/web_fetch backend, "command"
 // contributes slash commands (a workflow is just a command that fans out to
-// prompts/subagents), and "tool" adds agent tools. `credentials` declares what
-// the /plugins UI must collect before the plugin can run (stored in the global
+// prompts/subagents), "tool" adds agent tools, and "agent" contributes sub-agent
+// profiles (tier, capabilities, system prompt). `credentials` declares what the
+// /plugins UI must collect before the plugin can run (stored in the global
 // settings). Every installable plugin must declare a manifest to be wired in.
-export type PluginKind = "web" | "command" | "tool";
+export type PluginKind = "web" | "command" | "tool" | "agent";
 
 export type PluginCredentialField = {
   key: string;
@@ -35,7 +36,7 @@ const PluginCredentialFieldSchema = type({
 export const PluginManifestSchema = type({
   id: "string>0",
   name: "string>0",
-  kind: "'web' | 'command' | 'tool'",
+  kind: "'web' | 'command' | 'tool' | 'agent'",
   "description?": "string",
   "credentials?": PluginCredentialFieldSchema.array(),
 });
