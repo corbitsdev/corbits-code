@@ -171,6 +171,10 @@ export type Config = {
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionId: string;
+  /** When true, runTUI shows a session picker first (resume flow). */
+  resumePicker?: boolean;
+  /** When true, the TUI does not auto-send `task` on mount (resumed session). */
+  skipInitialTask?: boolean;
   // Deprecated workflow profile metadata; workflows are manual-only slash commands.
   workflow?: string;
   // Deprecated no-op retained for CLI compatibility.
