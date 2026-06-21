@@ -35,6 +35,10 @@ export const XAI_CLIENT_IDENTIFIER = "grok-shell";
 export const XAI_CLIENT_VERSION = "0.2.56";
 export const XAI_USER_AGENT = "grok-shell/0.2.56 (macos; aarch64)";
 
-// xAI OAuth tokens are short-lived. Refresh early enough that long-running TUI
-// sessions do not hit the expiry boundary between turns.
-export const XAI_REFRESH_SKEW_MS = 60 * 60 * 1000;
+// Refresh xAI access tokens 5 minutes before they expire. xAI issues ~1-hour
+// tokens so a 1-hour skew makes every fresh token immediately stale.
+export const XAI_REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+// Billing snapshot for prepaid plans (subscription tier + credit %). The CLI
+// chat proxy mirrors the grok.com billing surface so the same OAuth token works.
+export const XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";

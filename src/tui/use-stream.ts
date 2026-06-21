@@ -131,6 +131,7 @@ function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">):
 export function createAgentStreamState(
   initialHooks: LifecycleHookStatus[] = [],
   getModelId?: () => string,
+  initialContentBlocks: ContentBlockData[] = [],
 ): AgentStreamState {
   // Price each turn at the active model's rate, resolved live so a mid-session
   // provider/model switch is reflected without recreating the meter.
@@ -208,6 +209,9 @@ export function createAgentStreamState(
   let faremeter = makeFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
+  }
+  for (const block of initialContentBlocks) {
+    pushBlock(block);
   }
 
   return {
@@ -614,7 +618,7 @@ export function createAgentStreamState(
         case "inference.error": {
           const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
           const friendly: Record<string, string> = {
-            credential_failure: "Authentication failed — check your API key.",
+            credential_failure: "Authentication failed (403).",
             quota_exhausted: "Quota exhausted — usage limit reached.",
             context_overflow: "Context window full — compaction could not keep up. Try /clear to start fresh.",
             retryable: "Request failed — will retry.",
@@ -628,7 +632,13 @@ export function createAgentStreamState(
           // over the category when it clearly describes a context overflow, so the
           // user gets the right guidance instead of a misleading "quota" error.
           const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
-          const msg = friendly[category] ?? err.message;
+          // For credential failures, show the raw proxy message (if any) alongside
+          // the friendly label so the user can see whether it's a subscription issue
+          // vs. a bad token.
+          const base = friendly[category] ?? err.message;
+          const msg = category === "credential_failure" && err.message && err.message !== base
+            ? `${base}\n${err.message}`
+            : base;
           pushBlock({ type: "error", message: msg });
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
             quotaError = { retryAfterMs: err.retryAfterMs, retryAt: Date.now() + err.retryAfterMs };
@@ -695,13 +705,17 @@ export function useAgentStream(
   initialHooks: LifecycleHookStatus[] = [],
   getModel?: () => string,
   onInferenceTimeout?: () => void,
+  initialContentBlocks: ContentBlockData[] = [],
+  onCredentialFailure?: () => void,
 ): AgentStreamState {
   // getModel is read live by the faremeter's pricing resolver, so a
   // mid-session model switch is priced correctly without recreating the state.
-  const [state] = useState(() => createAgentStreamState(initialHooks, getModel));
+  const [state] = useState(() => createAgentStreamState(initialHooks, getModel, initialContentBlocks));
   const [tick, setTick] = useState(0);
   const onInferenceTimeoutRef = useRef(onInferenceTimeout);
   onInferenceTimeoutRef.current = onInferenceTimeout;
+  const onCredentialFailureRef = useRef(onCredentialFailure);
+  onCredentialFailureRef.current = onCredentialFailure;
   const pendingRenderRef = useRef(false);
 
   // ~30fps drain makes streaming feel metronomic rather than bursty.
@@ -723,11 +737,10 @@ export function useAgentStream(
       } else {
         setTick((t) => t + 1);
       }
-      if (
-        event.type === "inference.error" &&
-        (event.data as { error: { category: string } }).error.category === "timeout"
-      ) {
-        onInferenceTimeoutRef.current?.();
+      if (event.type === "inference.error") {
+        const category = (event.data as { error: { category: string } }).error.category;
+        if (category === "timeout") onInferenceTimeoutRef.current?.();
+        if (category === "credential_failure") onCredentialFailureRef.current?.();
       }
     };
     const hookHandler = (event: LifecycleHookEvent) => {
