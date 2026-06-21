@@ -79,7 +79,7 @@ import {
 } from "../session/hooks.js";
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, sessionContextDir, sessionDir } from "../session/index.js";
-import { loadHooks, loadState, loadTurns } from "../session/state.js";
+import { loadState } from "../session/state.js";
 import { pickSession } from "./pick-session.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 import type { ContentBlockData } from "./use-stream.js";
@@ -157,17 +157,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
-  initialTranscriptBlocks = turnsToContentBlocks(await loadTurns(config.cwd, sessionId));
   const emitter = createTUIEventEmitter();
   const startedAt = Date.now();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
   });
-  const persistedHooks = await loadHooks(config.cwd, sessionId);
-  for (const hook of persistedHooks) {
-    hookManager.setEnabled(hook.id, hook.enabled);
-  }
   let runError: string | undefined;
 
   const recordRunError = (err: unknown): void => {
@@ -547,6 +542,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
 
   let currentAgent = await buildAgent();
+  try {
+    const turns = await currentAgent.history();
+    initialTranscriptBlocks = turnsToContentBlocks(turns);
+  } catch {
+    initialTranscriptBlocks = [];
+  }
   let streamPromise = consumeStream(currentAgent.stream(), runSink.sink);
 
   // Serial operation queue. Each rotation (reload, interrupt, newSession) enqueues
