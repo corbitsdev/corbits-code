@@ -22,7 +22,7 @@ export type MainRunners = {
 
 function printHelp(): void {
   console.log("Usage: intercode [run] <task description>");
-  console.log("       intercode resume [--force]");
+  console.log("       intercode resume [--headless] [--force]");
   console.log("");
   console.log("Options:");
   console.log("  --headless, -h     Run in headless CLI mode (default: TUI)");
@@ -31,6 +31,7 @@ function printHelp(): void {
   console.log("  --provider <name>  Select a configured provider");
   console.log("  --model <id>       Select a model for the active provider");
   console.log("  --force            Override an existing run state");
+  console.log("                     For resume: also allows picking a completed session in the TUI");
   console.log("  --auto             Auto-approve safe shell and file writes/edits (default; recoverable via git)");
   console.log("  --no-auto          Disable auto mode: ask before every file write/edit and command");
   console.log("  --help             Show this help message");
@@ -53,7 +54,17 @@ export async function mainWithRunners(
 
   if (args[0] === "resume") {
     args.shift();
-    const config = await loadConfig(args);
+    const config = await loadConfig(args, { allowUnconfigured: true });
+    if (config.configured === false) {
+      if (config.headless) {
+        console.error(`intercode: ${config.providerError}`);
+        return 1;
+      }
+      return runners.runOnboarding(config);
+    }
+    if (!config.headless) {
+      return runners.runTUI({ ...config, resumePicker: true });
+    }
     const session = await resolveLatestSession(config.cwd);
     if (session === null) {
       console.error("No previous run found in this directory.");
