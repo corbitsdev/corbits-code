@@ -940,7 +940,7 @@ export function App({
         setCommandMessage("Workflows are not available in this context.");
       } else {
         const msg = onStartWorkflow(result.name);
-        if (msg.startsWith("Started") || msg.startsWith("Auto-started")) {
+        if (msg.startsWith("Started")) {
           const task = result.args !== undefined && result.args.length > 0
             ? `Begin the ${result.name} workflow for: ${result.args}`
             : `Begin the ${result.name} workflow.`;
@@ -1161,6 +1161,11 @@ export function App({
               isProcessing={state.isProcessing}
               onInterrupt={handleInterrupt}
             />
+          )}
+          {state.subAgents.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              <TaskView tasks={state.subAgents} title="Agents" />
+            </Box>
           )}
         <StatusBar
           model={model}
