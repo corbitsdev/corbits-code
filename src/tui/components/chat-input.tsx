@@ -25,6 +25,10 @@ export type ChatInputProps = {
   isProcessing?: boolean;
   // Called when the user presses Enter while isProcessing is true.
   onInterrupt?: (message: string) => void;
+  /** Recall previously sent messages (readline-style). Return true when handled. */
+  onSentHistoryPrevious?: () => boolean;
+  onSentHistoryNext?: () => boolean;
+  onSentHistoryExitBrowse?: () => void;
 };
 
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
@@ -199,7 +203,22 @@ function slashPrefix(value: string): string | null {
   return spaceIdx === -1 ? value.slice(1) : null;
 }
 
-export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange, cwd, active = true, queuedCount = 0, isProcessing = false, onInterrupt, borderColor = color("dim") }: ChatInputProps): ReactNode {
+export function ChatInput({
+  onSubmit,
+  onCommand,
+  commandContext,
+  value,
+  onChange,
+  cwd,
+  active = true,
+  queuedCount = 0,
+  isProcessing = false,
+  onInterrupt,
+  onSentHistoryPrevious,
+  onSentHistoryNext,
+  onSentHistoryExitBrowse,
+  borderColor = color("dim"),
+}: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // The last value this component produced itself. Used to tell an external
@@ -332,6 +351,10 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
       for (let i = 0; i < value.length; i++) {
         if (value[i] === "\n") lineBreaks.push(i);
       }
+      if (lineBreaks.length === 0) {
+        if (key.upArrow && cursor === 0 && onSentHistoryPrevious?.()) return;
+        if (key.downArrow && cursor === value.length && onSentHistoryNext?.()) return;
+      }
       if (lineBreaks.length > 0) {
         const lineStarts: number[] = [0, ...lineBreaks.map((p) => p + 1)];
         const lineEnds: number[] = [...lineBreaks, value.length];
@@ -396,6 +419,7 @@ export function ChatInput({ onSubmit, onCommand, commandContext, value, onChange
 
     const next = applyKey({ value, cursor }, input, key);
     if (next.value !== value) {
+      onSentHistoryExitBrowse?.();
       // Record our own edit so the value-change effect does not treat the
       // echoed prop update as external and yank the cursor to the end.
       selfSetValue.current = next.value;

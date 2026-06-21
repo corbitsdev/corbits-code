@@ -11,7 +11,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+Y", description: "Copy last output to clipboard" },
   { keys: "Alt+← / Alt+→", description: "Move prompt cursor by word" },
   { keys: "Cmd+← / Cmd+→", description: "Move prompt cursor to line start/end" },
-  { keys: "↑ / ↓", description: "Scroll active pane when prompt is empty" },
+  { keys: "↑ / ↓", description: "Recall sent messages at prompt edges; scroll panes when empty" },
   { keys: "ESC", description: "Back / close overlay" },
   { keys: "ESC ESC", description: "Clear prompt" },
 ];

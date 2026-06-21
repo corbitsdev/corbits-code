@@ -35,6 +35,7 @@ export type AgentProvider = {
   models: string[];
   defaultModel?: string;
   codexProfile?: string;
+  xaiProfile?: string;
 };
 
 export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
@@ -65,7 +66,15 @@ const FIELD_HINTS: Record<ProviderFormField, string> = {
 // editable fields it must display plus model metadata, but never receives
 // provider API keys.
 export function toAgentProviders(
-  entries: ReadonlyArray<{ name: string; baseURL: string; apiKey?: string; models: string[]; defaultModel?: string; codexProfile?: string }>,
+  entries: ReadonlyArray<{
+    name: string;
+    baseURL: string;
+    apiKey?: string;
+    models: string[];
+    defaultModel?: string;
+    codexProfile?: string;
+    xaiProfile?: string;
+  }>,
 ): AgentProvider[] {
   return entries.map((p) => ({
     name: p.name,
@@ -73,6 +82,7 @@ export function toAgentProviders(
     models: p.models,
     ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
     ...(p.codexProfile !== undefined ? { codexProfile: p.codexProfile } : {}),
+    ...(p.xaiProfile !== undefined ? { xaiProfile: p.xaiProfile } : {}),
   }));
 }
 
@@ -91,7 +101,13 @@ export type AgentModalProps = {
   profiles: AgentProfile[];
   onSaveProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteProfile: (id: string) => void;
-  codexUsage?: string | undefined;
+  usage?: string | undefined;
+  /** Called when keyboard cursor lands on (or selects) a usage-supporting provider so parent can live-fetch. */
+  onRequestUsage?: (kind: "codex" | "xai", profile: string) => void;
+  /** Provider names (not profile names) that have expired/missing OAuth tokens. */
+  unauthedProviders?: ReadonlySet<string>;
+  /** Called when user presses Enter on an unauthed OAuth provider to trigger login. */
+  onRequestLogin?: (kind: "codex" | "xai", profile: string) => void;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -188,7 +204,10 @@ export function AgentModal({
   profiles,
   onSaveProfile,
   onDeleteProfile,
-  codexUsage,
+  usage,
+  onRequestUsage,
+  unauthedProviders,
+  onRequestLogin,
 }: AgentModalProps): ReactNode {
   const initialProvider = Math.max(
     0,
@@ -214,6 +233,14 @@ export function AgentModal({
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
+
+  const requestUsageForIndex = (idx: number): void => {
+    if (onRequestUsage === undefined) return;
+    const p = providers[idx];
+    if (p === undefined) return;
+    if (p.codexProfile !== undefined) onRequestUsage("codex", p.codexProfile);
+    else if (p.xaiProfile !== undefined) onRequestUsage("xai", p.xaiProfile);
+  };
   // Real effort levels the selected model accepts, from supportedEfforts().
   // An empty array means no model is selected or the model has no reasoning capability.
   const isCodexProvider = (name: string | undefined): boolean =>
@@ -334,14 +361,29 @@ export function AgentModal({
   useInput((input, key) => {
     if (step === "provider") {
       if (key.upArrow) {
-        setProviderIndex((i) => (i > 0 ? i - 1 : providers.length - 1));
+        setProviderIndex((i) => {
+          const next = i > 0 ? i - 1 : providers.length - 1;
+          requestUsageForIndex(next);
+          return next;
+        });
         return;
       }
       if (key.downArrow) {
-        setProviderIndex((i) => (i < providers.length - 1 ? i + 1 : 0));
+        setProviderIndex((i) => {
+          const next = i < providers.length - 1 ? i + 1 : 0;
+          requestUsageForIndex(next);
+          return next;
+        });
         return;
       }
       if (key.return) {
+        const p = providers[providerIndex];
+        const isUnauthed = p !== undefined && unauthedProviders?.has(p.name) === true;
+        if (isUnauthed && onRequestLogin !== undefined && p !== undefined) {
+          if (p.codexProfile !== undefined) onRequestLogin("codex", p.codexProfile);
+          else if (p.xaiProfile !== undefined) onRequestLogin("xai", p.xaiProfile);
+          return;
+        }
         enterModelStep();
         return;
       }
@@ -601,8 +643,6 @@ export function AgentModal({
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
-      borderColor={color("accent")}
       paddingX={2}
       paddingY={1}
       marginX={1}
@@ -611,9 +651,9 @@ export function AgentModal({
       <Text bold color={color("accent")}>
         Agent Configuration
       </Text>
-      {codexUsage !== undefined && (
+      {usage !== undefined && (
         <Box marginTop={1} flexDirection="column">
-          {codexUsage.split("\n").map((line, i) => (
+          {usage.split("\n").map((line, i) => (
             <Text key={i} color={color("warning")}>{line}</Text>
           ))}
         </Box>
@@ -627,6 +667,8 @@ export function AgentModal({
           {providers.map((p, i) => {
             const isActive = p.name === activeProvider;
             const isCursor = i === providerIndex;
+            const isOAuth = p.codexProfile !== undefined || p.xaiProfile !== undefined;
+            const isUnauthed = isOAuth && unauthedProviders?.has(p.name) === true;
             return (
               <Box key={p.name} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
@@ -639,9 +681,21 @@ export function AgentModal({
                 <Text color={color("muted")}>
                   ({p.models.length} model{p.models.length === 1 ? "" : "s"})
                 </Text>
+                {isUnauthed && (
+                  <Text color="red"> ! not authenticated</Text>
+                )}
               </Box>
             );
           })}
+          {(() => {
+            const p = providers[providerIndex];
+            const isUnauthed = p !== undefined && (p.codexProfile !== undefined || p.xaiProfile !== undefined) && unauthedProviders?.has(p.name) === true;
+            return isUnauthed ? (
+              <Box marginTop={1}>
+                <Text color="red">Enter to re-authenticate</Text>
+              </Box>
+            ) : null;
+          })()}
         </Box>
       )}
 
