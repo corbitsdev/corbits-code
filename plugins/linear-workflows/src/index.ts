@@ -45,7 +45,7 @@ export const commandPlugin: CommandPlugin = {
           ? `Begin the ${found.name} workflow for: ${subcmdArgs}`
           : `Begin the ${found.name} workflow.`;
 
-        if (msg.startsWith("Started") || msg.startsWith("Auto-started")) {
+        if (msg.startsWith("Started")) {
           return { type: "send", text: send };
         }
         return { type: "message", text: msg };

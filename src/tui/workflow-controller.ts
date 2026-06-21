@@ -163,16 +163,10 @@ export class WorkflowController {
     return `Started ${name} workflow.`;
   }
 
-  // Auto-invoke from a profile: start only if nothing is active and the workflow
-  // exists. Returns a status message or null when nothing happened.
-  autoInvoke(name: string): string | null {
-    if (this.isActive()) return null;
-    const workflow = findWorkflow(name);
-    if (workflow === undefined) {
-      return `Profile requested workflow "${name}" but it is not registered; skipping.`;
-    }
-    this.attach(workflow);
-    return `Auto-started ${name} workflow.`;
+  // Kept for compatibility with older callers; workflows are manual-only slash
+  // commands and profile metadata must never start them implicitly.
+  autoInvoke(_name: string): string | null {
+    return null;
   }
 
   // Restore a persisted workflow for the current session, if any.

@@ -14,7 +14,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "run_shell",
   "ask_operator",
   "manage_tasks",
-  "suggest_workflow",
   "present",
   "tool_search",
 ];
