@@ -41,6 +41,7 @@ import { webToolsPlugin } from "../web/plugin.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { setActiveWebProviderBrand } from "../tui/tool-formatter.js";
 import { discoverRepoPlugins, discoverUserPlugins, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { connectMCPServers } from "../mcp/client.js";
 import { createMCPPlugin } from "../mcp/plugin.js";
@@ -220,7 +221,11 @@ export async function runAgent(
   const posixToolList = fromToolRunner(posixTools);
   const workdir = sessionContextDir(config.cwd, config.sessionId);
 
-  const agentProfiles = await loadAgentProfiles(join(config.cwd, ".agents", "agents"));
+  const pluginAgentProfiles = await resolveAgentPluginProfiles(
+    pluginModules,
+    config.settings?.plugins ?? {},
+  );
+  const agentProfiles = await loadAgentProfiles(join(config.cwd, ".agents", "agents"), pluginAgentProfiles);
 
   const agentTools = [
     ...posixToolList,

@@ -50,10 +50,10 @@ Net: what exists is a *web-provider plugin system*, not *the* plugin system.
 ### One manifest, kind-routed
 
 Every installable plugin exports a `manifest`. `kind` decides how it is wired.
-The taxonomy is deliberately small — **`web | command | tool`**:
+The taxonomy is deliberately small — **`web | command | tool | agent`**:
 
 ```ts
-export type PluginKind = "web" | "command" | "tool";
+export type PluginKind = "web" | "command" | "tool" | "agent";
 
 export type PluginManifest = {
   id: string;                 // stable, unique (e.g. "exa")
@@ -78,6 +78,7 @@ The kind-specific export is the implementation hook:
 | `web` | `createWebProvider(credentials)` | web_search/web_fetch backend | override the web tools (a specialized tool override) |
 | `command` | `commandPlugin` | slash-command registry | slash commands, incl. workflow orchestration |
 | `tool` | `toolPlugin` (factory) | posix toolset | add new agent tools (highest trust) |
+| `agent` | `agentPlugin` | sub-agent profiles | contribute `task`-dispatchable agent profiles |
 
 A module with no valid manifest is ignored (not silently half-loaded).
 
@@ -154,6 +155,17 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 **Phase 3 — polish (done).**
 - Per-kind verify in `/plugins` (web = trial search; tool = load check).
 - `plugins/example-tool` is a worked example of a `tool` plugin.
+
+**Phase 4 — agent kind (done).**
+- `agent` plugins (`agentPlugin` export) contribute `AgentProfile`s that the
+  `task` tool can dispatch to, resolved in `src/plugins/agent-plugins.ts` and
+  merged into the profile registry alongside local `.agents/agents/` profiles.
+- An agent plugin is wired in only when `settings.plugins[id].enabled` is true
+  (same gating as command plugins — no consent needed, since profiles are
+  configuration data, not in-process code).
+- Profile precedence: built-in defaults < plugin profiles < local
+  `.agents/agents/*.json` (most specific wins on same-id conflicts).
+- Per-kind verify in `/plugins` (agent = profile count check).
 
 ## Decisions (locked)
 

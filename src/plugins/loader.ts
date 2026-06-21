@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
@@ -9,8 +9,14 @@ export type PluginModule = {
   // Self-description (id, name, kind, credential fields), when the module
   // exports a valid `manifest`. Drives the /plugins UI and web-provider wiring.
   manifest?: PluginManifest;
+  // Absolute directory the module was loaded from. Used by resolvers that need
+  // to resolve relative paths declared by the plugin (e.g. systemPromptPath).
+  dir?: string;
   workflowPlugin?: WorkflowPlugin;
   commandPlugin?: CommandPlugin;
+  // Agent profiles contributed by a kind:"agent" plugin. Validated by
+  // resolveAgentPluginProfiles before they reach the sub-agent dispatcher.
+  agentPlugin?: { agents: unknown[] };
   // A web provider factory: (options: unknown) => WebProvider | Promise<WebProvider>.
   // Typed as unknown here so this module doesn't pull in the full web type graph.
   createWebProvider?: unknown;
@@ -49,7 +55,7 @@ export async function loadPluginEntry(entryPath: string): Promise<PluginModule |
     // so resolve to an absolute path first (callers may pass a relative path).
     const importTarget = isAbsolute(target) ? target : resolve(target);
     const mod = await import(importTarget) as Record<string, unknown>;
-    const result: PluginModule = {};
+    const result: PluginModule = { dir: dirname(importTarget) };
     const manifest = parsePluginManifest(mod.manifest);
     if (manifest !== null) result.manifest = manifest;
     if (mod.workflowPlugin != null && typeof mod.workflowPlugin === "object" && "workflows" in mod.workflowPlugin) {
@@ -57,6 +63,9 @@ export async function loadPluginEntry(entryPath: string): Promise<PluginModule |
     }
     if (mod.commandPlugin != null && typeof mod.commandPlugin === "object" && "commands" in mod.commandPlugin) {
       result.commandPlugin = mod.commandPlugin as CommandPlugin;
+    }
+    if (mod.agentPlugin != null && typeof mod.agentPlugin === "object" && "agents" in mod.agentPlugin) {
+      result.agentPlugin = mod.agentPlugin as { agents: unknown[] };
     }
     if (typeof mod.createWebProvider === "function") result.createWebProvider = mod.createWebProvider;
     if (typeof mod.createToolPlugin === "function") result.createToolPlugin = mod.createToolPlugin;
