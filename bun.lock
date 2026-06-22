@@ -6,7 +6,6 @@
       "name": "interchange-code",
       "dependencies": {
         "@intercode/default-agents": "workspace:*",
-        "@intercode/default-workflows": "workspace:*",
         "@intx/agent": "workspace:*",
         "@intx/inference": "workspace:*",
         "@intx/log": "workspace:*",
@@ -155,10 +154,6 @@
       "name": "@intercode/default-agents",
       "version": "0.1.0",
     },
-    "packages/workflows": {
-      "name": "@intercode/default-workflows",
-      "version": "0.1.0",
-    },
     "plugins/exa": {
       "name": "@interchange/plugin-exa",
       "version": "0.1.0",
@@ -190,8 +185,6 @@
     "@interchange/plugin-exa": ["@interchange/plugin-exa@workspace:plugins/exa"],
 
     "@intercode/default-agents": ["@intercode/default-agents@workspace:packages/agents"],
-
-    "@intercode/default-workflows": ["@intercode/default-workflows@workspace:packages/workflows"],
 
     "@intx/agent": ["@intx/agent@workspace:interchange/packages/agent"],
 

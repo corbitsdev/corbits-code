@@ -1,0 +1,6 @@
+{
+  "id": "linear-workflows",
+  "name": "Linear Workflows",
+  "kind": "workflow",
+  "description": "Scope, build, and review workflows for Linear issues"
+}

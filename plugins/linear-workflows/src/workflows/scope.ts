@@ -1,11 +1,11 @@
-import type { Workflow } from "./types.js";
+import type { Workflow } from "../../../../src/workflows/definition.js";
 
-// Plans a feature, task, or initiative. Creates a Linear issue/project when
-// the ticket-tracker capability is available; falls back to a local plan file
-// at .intercode/plans/<slug>.md. On completion the agent suggests /build.
-export const plan = {
-  name: "plan",
-  description: "Plan a feature or task — creates a Linear issue/project or a local plan file",
+// Scopes a feature, task, or initiative. Creates a Linear issue/project when
+// the ticket-tracker capability is available; falls back to a local scope file
+// at .intercode/scope/<slug>.md. On completion the agent suggests /build.
+export const scope = {
+  name: "scope",
+  description: "Scope a feature or task — creates a Linear issue/project or a local scope file",
   autoAdvance: true,
   steps: [
     {
@@ -28,11 +28,11 @@ export const plan = {
         "checkboxes, and acceptance criteria. Return the Linear URL in your output.",
     },
     {
-      id: "create-local-plan",
-      label: "Write local plan file",
+      id: "create-local-scope",
+      label: "Write local scope file",
       prompt:
         "If a Linear ticket was just created, skip this step by calling submit_output immediately. " +
-        "Otherwise write a local plan file at .intercode/plans/<slug>.md with: background, " +
+        "Otherwise write a local scope file at .intercode/scope/<slug>.md with: background, " +
         "goal, acceptance criteria, and a step-by-step implementation checklist.",
     },
     {
@@ -40,7 +40,7 @@ export const plan = {
       label: "Suggest /build",
       type: "gate",
       prompt:
-        "Summarize the plan just created (with Linear URL if available) and suggest the user " +
+        "Summarize the scope just created (with Linear URL if available) and suggest the user " +
         "run /build to begin implementation. Wait for their confirmation before the workflow ends.",
     },
   ],
