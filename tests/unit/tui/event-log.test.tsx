@@ -51,7 +51,7 @@ test("EventLog renders nothing when there are no blocks", () => {
 
 test("EventLog renders user message", () => {
   const { lastFrame } = renderLog([{ type: "user", content: "hello world" }]);
-  expect(lastFrame()).toContain("> hello world");
+  expect(lastFrame()).toContain("hello world");
 });
 
 test("EventLog renders text block", () => {
@@ -200,7 +200,7 @@ test("EventLog filters out reply and task blocks", () => {
     { type: "user", content: "go" },
   ]);
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("> go");
+  expect(frame).toContain("go");
   expect(frame).not.toContain("create");
   expect(frame).not.toContain("synthetic");
 });

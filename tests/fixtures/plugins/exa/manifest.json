@@ -1,0 +1,7 @@
+{
+  "id": "exa",
+  "name": "Exa",
+  "kind": "web",
+  "description": "Test fixture web plugin",
+  "credentials": [{ "key": "apiKey", "label": "API key", "secret": true }]
+}
