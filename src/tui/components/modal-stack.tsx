@@ -7,7 +7,7 @@ import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
-import type { ProviderTier, TierAssignment } from "../../config/settings.js";
+import type { ProviderTier } from "../../config/settings.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 import { OperatorModal } from "./operator-modal.js";
 import { color } from "../theme.js";
@@ -51,8 +51,12 @@ export type ModalStackProps = {
   onAgentSaveProvider: (provider: ProviderFormSubmission) => { ok: true } | { ok: false; error: string };
   onAgentDeleteProvider: (provider: string) => void;
   onCloseAgentModal: () => void;
-  agentTiers: Partial<Record<ProviderTier, TierAssignment>>;
+  agentTiers: Partial<Record<ProviderTier, import("../../config/settings.js").TierConfig>>;
   onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
+  onCycleTierMode?: (tier: ProviderTier) => void;
+  onClearTier?: (tier: ProviderTier) => void;
+  onRemoveTierLeg?: (tier: ProviderTier, legIndex: number) => void;
+  onMoveTierLeg?: (tier: ProviderTier, legIndex: number, direction: -1 | 1) => void;
   agentProfiles: AgentProfile[];
   onSaveAgentProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteAgentProfile: (id: string) => void;
@@ -92,6 +96,10 @@ export function ModalStack({
   onCloseAgentModal,
   agentTiers,
   onSaveTier,
+  onCycleTierMode,
+  onClearTier,
+  onRemoveTierLeg,
+  onMoveTierLeg,
   agentProfiles,
   onSaveAgentProfile,
   onDeleteAgentProfile,
@@ -125,6 +133,10 @@ export function ModalStack({
           onClose={onCloseAgentModal}
           tiers={agentTiers}
           onSaveTier={onSaveTier}
+          {...(onCycleTierMode !== undefined ? { onCycleTierMode } : {})}
+          {...(onClearTier !== undefined ? { onClearTier } : {})}
+          {...(onRemoveTierLeg !== undefined ? { onRemoveTierLeg } : {})}
+          {...(onMoveTierLeg !== undefined ? { onMoveTierLeg } : {})}
           profiles={agentProfiles}
           onSaveProfile={onSaveAgentProfile}
           onDeleteProfile={onDeleteAgentProfile}

@@ -4,7 +4,8 @@ import { useState } from "react";
 import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
 import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
-import { PROVIDER_TIERS, type ProviderTier, type TierAssignment } from "../../config/settings.js";
+import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
+import { formatTierChain, normalizeTierDefinition } from "../../config/inference-sources.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 
 // Effort display: undefined means "no override" (field omitted); "none" is
@@ -34,21 +35,33 @@ export type AgentProvider = {
   baseURL: string;
   models: string[];
   defaultModel?: string;
+  keyless?: boolean;
   codexProfile?: string;
   xaiProfile?: string;
 };
 
 export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
 
-export type ProviderFormField = "name" | "baseURL" | "apiKey" | "models" | "defaultModel";
+export type ProviderFormField = "name" | "baseURL" | "keyless" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
-type Step = "provider" | "model" | "effort" | "form" | "delete" | "tiers" | "profiles" | "profile-form" | "profile-delete";
+type Step =
+  | "provider"
+  | "model"
+  | "effort"
+  | "form"
+  | "delete"
+  | "tiers"
+  | "tier-chain"
+  | "profiles"
+  | "profile-form"
+  | "profile-delete";
 
-const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "apiKey", "models", "defaultModel"];
+const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "keyless", "apiKey", "models", "defaultModel"];
 
 const FIELD_LABELS: Record<ProviderFormField, string> = {
   name: "Provider name",
   baseURL: "Base URL",
+  keyless: "Keyless",
   apiKey: "API key",
   models: "Models",
   defaultModel: "Default model",
@@ -57,6 +70,7 @@ const FIELD_LABELS: Record<ProviderFormField, string> = {
 const FIELD_HINTS: Record<ProviderFormField, string> = {
   name: "openai, anthropic, fireworks, ...",
   baseURL: "https://api.openai.com/v1",
+  keyless: "no auth needed (e.g. Ollama)",
   apiKey: "sk-...",
   models: "model-a, model-b",
   defaultModel: "optional; must be in models",
@@ -72,6 +86,7 @@ export function toAgentProviders(
     apiKey?: string;
     models: string[];
     defaultModel?: string;
+    keyless?: boolean;
     codexProfile?: string;
     xaiProfile?: string;
   }>,
@@ -81,6 +96,7 @@ export function toAgentProviders(
     baseURL: p.baseURL,
     models: p.models,
     ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+    ...(p.keyless === true ? { keyless: true } : {}),
     ...(p.codexProfile !== undefined ? { codexProfile: p.codexProfile } : {}),
     ...(p.xaiProfile !== undefined ? { xaiProfile: p.xaiProfile } : {}),
   }));
@@ -96,8 +112,12 @@ export type AgentModalProps = {
   onSaveProvider: (provider: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
-  tiers: Partial<Record<ProviderTier, TierAssignment>>;
+  tiers: Partial<Record<ProviderTier, TierConfig>>;
   onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
+  onCycleTierMode?: (tier: ProviderTier) => void;
+  onClearTier?: (tier: ProviderTier) => void;
+  onRemoveTierLeg?: (tier: ProviderTier, legIndex: number) => void;
+  onMoveTierLeg?: (tier: ProviderTier, legIndex: number, direction: -1 | 1) => void;
   profiles: AgentProfile[];
   onSaveProfile: (profile: AgentProfile) => { ok: true } | { ok: false; error: string };
   onDeleteProfile: (id: string) => void;
@@ -114,6 +134,7 @@ function initialFormValues(provider: AgentProvider | undefined): ProviderFormVal
   return {
     name: provider?.name ?? "",
     baseURL: provider?.baseURL ?? "",
+    keyless: provider?.keyless === true ? "yes" : "no",
     apiKey: "",
     models: provider?.models.join(", ") ?? "",
     defaultModel: provider?.defaultModel ?? provider?.models[0] ?? "",
@@ -134,13 +155,14 @@ export function validateProviderForm(
   const name = values.name.trim();
   const baseURL = values.baseURL.trim();
   const apiKey = values.apiKey.trim();
+  const keyless = values.keyless === "yes";
   const models = parseModels(values.models);
   const defaultModel = values.defaultModel.trim();
 
   if (name.length === 0) return { ok: false, error: "Provider name is required" };
   if (baseURL.length === 0) return { ok: false, error: "Base URL is required" };
-  if (originalName === undefined && apiKey.length === 0) {
-    return { ok: false, error: "API key is required" };
+  if (!keyless && originalName === undefined && apiKey.length === 0) {
+    return { ok: false, error: "API key is required (or enable keyless)" };
   }
   if (models.length === 0) return { ok: false, error: "At least one model is required" };
   if (defaultModel.length > 0 && !models.includes(defaultModel)) {
@@ -153,6 +175,7 @@ export function validateProviderForm(
       ...(originalName !== undefined ? { originalName } : {}),
       name,
       baseURL,
+      ...(keyless ? { keyless: true } : {}),
       ...(apiKey.length > 0 ? { apiKey } : {}),
       models,
       ...(defaultModel.length > 0 ? { defaultModel } : {}),
@@ -201,6 +224,10 @@ export function AgentModal({
   onClose,
   tiers,
   onSaveTier,
+  onCycleTierMode,
+  onClearTier,
+  onRemoveTierLeg,
+  onMoveTierLeg,
   profiles,
   onSaveProfile,
   onDeleteProfile,
@@ -224,6 +251,8 @@ export function AgentModal({
   const [editingProvider, setEditingProvider] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
   const [tierIndex, setTierIndex] = useState(0);
+  const [tierChainFocus, setTierChainFocus] = useState<ProviderTier | null>(null);
+  const [tierLegIndex, setTierLegIndex] = useState(0);
   const [pendingTierAssign, setPendingTierAssign] = useState<ProviderTier | null>(null);
   const [profileIndex, setProfileIndex] = useState(0);
   const [profileFormIndex, setProfileFormIndex] = useState(0);
@@ -303,6 +332,14 @@ export function AgentModal({
     } else {
       setStep("provider");
     }
+  };
+
+  const enterTierChainStep = (tier: ProviderTier): void => {
+    const def = normalizeTierDefinition(tiers[tier]);
+    if (def === undefined || def.order.length === 0) return;
+    setTierChainFocus(tier);
+    setTierLegIndex(0);
+    setStep("tier-chain");
   };
 
   const enterTierModelStep = (tierName: ProviderTier): void => {
@@ -529,8 +566,68 @@ export function AgentModal({
         }
         return;
       }
+      if (input === "m") {
+        const tier = PROVIDER_TIERS[tierIndex];
+        if (tier !== undefined) onCycleTierMode?.(tier);
+        return;
+      }
+      if (input === "e") {
+        const tier = PROVIDER_TIERS[tierIndex];
+        if (tier !== undefined) enterTierChainStep(tier);
+        return;
+      }
+      if (input === "c") {
+        const tier = PROVIDER_TIERS[tierIndex];
+        if (tier !== undefined) onClearTier?.(tier);
+        return;
+      }
       if (key.escape) {
         setStep("provider");
+        return;
+      }
+      return;
+    }
+
+    if (step === "tier-chain" && tierChainFocus !== null) {
+      const def = normalizeTierDefinition(tiers[tierChainFocus]);
+      const legs = def?.order ?? [];
+      if (key.upArrow) {
+        setTierLegIndex((i) => (i > 0 ? i - 1 : Math.max(0, legs.length - 1)));
+        return;
+      }
+      if (key.downArrow) {
+        setTierLegIndex((i) => (i < legs.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (input === "x") {
+        onRemoveTierLeg?.(tierChainFocus, tierLegIndex);
+        if (legs.length <= 1) {
+          setTierChainFocus(null);
+          setStep("tiers");
+        } else {
+          setTierLegIndex((i) => Math.min(i, legs.length - 2));
+        }
+        return;
+      }
+      if (input === "u") {
+        onMoveTierLeg?.(tierChainFocus, tierLegIndex, -1);
+        return;
+      }
+      if (input === "d") {
+        onMoveTierLeg?.(tierChainFocus, tierLegIndex, 1);
+        return;
+      }
+      if (input === "m") {
+        onCycleTierMode?.(tierChainFocus);
+        return;
+      }
+      if (input === "a" || key.return) {
+        enterTierModelStep(tierChainFocus);
+        return;
+      }
+      if (key.escape) {
+        setTierChainFocus(null);
+        setStep("tiers");
         return;
       }
       return;
@@ -613,12 +710,25 @@ export function AgentModal({
       return;
     }
     if (key.downArrow || key.tab) {
-      setFormIndex((i) => (i < FORM_FIELDS.length - 1 ? i + 1 : 0));
+      setFormIndex((i) => {
+        // Skip the apiKey field when keyless is enabled — there's nothing to enter.
+        if (currentField === "keyless" && formValues.keyless === "yes") {
+          const next = i + 1 >= FORM_FIELDS.length ? 0 : i + 2;
+          return next >= FORM_FIELDS.length ? 0 : next;
+        }
+        return i < FORM_FIELDS.length - 1 ? i + 1 : 0;
+      });
       return;
     }
     if (key.return) {
       if (formIndex < FORM_FIELDS.length - 1) {
-        setFormIndex((i) => i + 1);
+        setFormIndex((i) => {
+          // Skip apiKey when keyless.
+          if (currentField === "keyless" && formValues.keyless === "yes") {
+            return Math.min(i + 2, FORM_FIELDS.length - 1);
+          }
+          return i + 1;
+        });
         return;
       }
       submitForm();
@@ -628,6 +738,14 @@ export function AgentModal({
       setStep("provider");
       setFormError(null);
       setPendingTierAssign(null);
+      return;
+    }
+    // keyless field: toggle with left/right or space, no text input.
+    if (currentField === "keyless") {
+      if (key.leftArrow || key.rightArrow || input === " ") {
+        setFormValues((v) => ({ ...v, keyless: v.keyless === "yes" ? "no" : "yes" }));
+        setFormError(null);
+      }
       return;
     }
     if (key.backspace || key.delete) {
@@ -699,15 +817,33 @@ export function AgentModal({
         </Box>
       )}
 
+      {step === "tier-chain" && tierChainFocus !== null && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={color("muted")}>
+            Chain for tier: {tierChainFocus} ({formatTierChain(tiers[tierChainFocus])})
+          </Text>
+          {(normalizeTierDefinition(tiers[tierChainFocus])?.order ?? []).map((leg, i) => {
+            const isCursor = i === tierLegIndex;
+            return (
+              <Box key={`${leg.provider}-${leg.model}-${i}`} flexDirection="row" gap={2}>
+                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                  {isCursor ? ">" : " "}
+                </Text>
+                <Text color={isCursor ? color("accent") : color("text")}>
+                  {leg.provider} · {leg.model}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
       {step === "tiers" && (
         <Box marginTop={1} flexDirection="column">
           {PROVIDER_TIERS.map((tier, i) => {
             const assignment = tiers[tier];
             const isCursor = i === tierIndex;
-            const assignmentLabel =
-              assignment !== undefined
-                ? `${assignment.provider} · ${assignment.model}`
-                : "unset";
+            const assignmentLabel = formatTierChain(assignment);
             return (
               <Box key={tier} flexDirection="row" gap={2}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
@@ -797,7 +933,7 @@ export function AgentModal({
           {FORM_FIELDS.map((field, i) => {
             const isCursor = i === formIndex;
             const value = formValues[field];
-            const hint = field === "apiKey" && editingProvider !== undefined ? "leave blank to keep existing" : FIELD_HINTS[field];
+            const isKeyless = formValues.keyless === "yes";
             return (
               <Box key={field} flexDirection="row" gap={1}>
                 <Box width={16} flexShrink={0}>
@@ -805,10 +941,26 @@ export function AgentModal({
                     {FIELD_LABELS[field]}
                   </Text>
                 </Box>
-                <Text color={value.length > 0 ? color("text") : color("muted")}>
-                  {value.length > 0 ? maskInput(field, value) : hint}
-                </Text>
-                {isCursor && <Text color={color("accent")}>|</Text>}
+                {field === "keyless" ? (
+                  <Text color={value === "yes" ? color("accent") : color("muted")}>
+                    {isCursor ? "< " : "  "}
+                    {value === "yes" ? "yes" : "no"}
+                    {isCursor ? " >" : ""}
+                  </Text>
+                ) : field === "apiKey" && isKeyless ? (
+                  <Text color={color("muted")}>(disabled — keyless provider)</Text>
+                ) : (
+                  <Text color={value.length > 0 ? color("text") : color("muted")}>
+                    {value.length > 0
+                      ? maskInput(field, value)
+                      : field === "apiKey" && editingProvider !== undefined
+                        ? "leave blank to keep existing"
+                        : FIELD_HINTS[field]}
+                  </Text>
+                )}
+                {isCursor && field !== "keyless" && !(field === "apiKey" && isKeyless) && (
+                  <Text color={color("accent")}>|</Text>
+                )}
               </Box>
             );
           })}
@@ -894,13 +1046,16 @@ export function AgentModal({
       <Box marginTop={1}>
         <Text dimColor>
           {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · p profiles · Esc close"}
-          {step === "tiers" && "Up/Down navigate · Enter assign · Esc back"}
+          {step === "tiers" &&
+            "Up/Down navigate · Enter add · e edit chain · m mode · c clear · Esc back"}
+          {step === "tier-chain" &&
+            "Up/Down leg · a/Enter add · x remove · u/d reorder · m mode · Esc back"}
           {step === "profiles" && "Up/Down navigate · a add · e edit · x remove · Esc back"}
           {step === "profile-form" && "Up/Down fields · Left/Right for tier · Enter next/save · Esc cancel"}
           {step === "profile-delete" && "y remove · n cancel · Esc back"}
           {step === "model" && "Up/Down navigate · Enter effort · Esc back"}
           {step === "effort" && "Up/Down navigate · Enter use now · d set as default · Esc back"}
-          {step === "form" && "Up/Down fields · Enter next/save · Esc cancel"}
+          {step === "form" && "Up/Down fields · Left/Right toggle keyless · Enter next/save · Esc cancel"}
           {step === "delete" && "y remove · n cancel · Esc back"}
         </Text>
       </Box>
