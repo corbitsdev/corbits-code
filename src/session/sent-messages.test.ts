@@ -24,4 +24,17 @@ describe("sent-messages", () => {
     await appendSentMessage(cwd, sessionId, "world");
     expect(await loadSentMessages(cwd, sessionId)).toEqual(["hello", "world"]);
   });
+
+  test("load keeps only the last 20 messages", async () => {
+    cwd = await mkdtemp(join(tmpdir(), "sent-msg-"));
+    sessionId = generateSessionId();
+    await initSessionDir(cwd, sessionId);
+    for (let i = 0; i < 25; i++) {
+      await appendSentMessage(cwd, sessionId, `msg-${i}`);
+    }
+    const loaded = await loadSentMessages(cwd, sessionId);
+    expect(loaded).toHaveLength(20);
+    expect(loaded[0]).toBe("msg-5");
+    expect(loaded[19]).toBe("msg-24");
+  });
 });

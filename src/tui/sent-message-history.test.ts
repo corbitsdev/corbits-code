@@ -52,4 +52,12 @@ describe("sent-message-history", () => {
     const browse = stepSentHistoryUp(createSentHistoryBrowse(sent), "x")!.browse;
     expect(sentHistoryOnEdit(browse).browseIndex).toBeNull();
   });
+
+  test("up from browse index with cursor at end still reaches older messages", () => {
+    let browse = createSentHistoryBrowse(sent);
+    browse = stepSentHistoryUp(browse, "")!.browse;
+    expect(browse.browseIndex).toBe(0);
+    const older = stepSentHistoryUp(browse, "third");
+    expect(older?.value).toBe("second");
+  });
 });
