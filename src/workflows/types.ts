@@ -1,6 +1,10 @@
-// Public workflow definition types live in @intercode/workflows so plugin
-// authors can depend on that package without pulling in the full runtime.
-export type { Workflow, WorkflowStep, WorkflowPlugin, CapabilityName, StepType } from "@intercode/default-workflows";
+export type {
+  Workflow,
+  WorkflowStep,
+  WorkflowPlugin,
+  CapabilityName,
+  StepType,
+} from "./definition.js";
 
 export type StepStatus = "pending" | "active" | "completed" | "skipped";
 

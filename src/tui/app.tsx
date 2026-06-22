@@ -72,6 +72,7 @@ import { resolve, isAbsolute } from "node:path";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
+import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import "./commands/built-in.js";
 
@@ -276,6 +277,7 @@ export type AppProps = {
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
   onStartWorkflow?: (name: string) => string;
+  onInjectSkill?: (skillRef: string) => void | Promise<void>;
   onToggleCapability?: (name: CapabilityName) => void;
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
@@ -326,6 +328,7 @@ export function App({
   onToggleAuto,
   onSubAgentProviderChange,
   onStartWorkflow,
+  onInjectSkill,
   onToggleCapability,
   initialWorkflowStatus,
   initialProfiles = [],
@@ -1009,6 +1012,16 @@ export function App({
       handleSend(result.text);
       return;
     }
+    if (result.type === "skill") {
+      const run = async (): Promise<void> => {
+        await onInjectSkill?.(result.skill);
+        if (result.text !== undefined && result.text.length > 0) {
+          handleSend(result.text);
+        }
+      };
+      void run();
+      return;
+    }
     if (result.type === "message") {
       setCommandMessage(result.text);
       return;
@@ -1070,10 +1083,7 @@ export function App({
       } else {
         const msg = onStartWorkflow(result.name);
         if (msg.startsWith("Started")) {
-          const task = result.args !== undefined && result.args.length > 0
-            ? `Begin the ${result.name} workflow for: ${result.args}`
-            : `Begin the ${result.name} workflow.`;
-          sendMessage(task);
+          sendMessage(workflowKickoffUserMessage(result.args));
         } else {
           setCommandMessage(msg);
         }

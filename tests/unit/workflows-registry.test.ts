@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import "../helpers/workflows.js";
 import { WORKFLOWS, findWorkflow } from "../../src/workflows/index.js";
 import { isValidWorkflowName, type Workflow } from "../../src/workflows/types.js";
 

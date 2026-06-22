@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import "../helpers/workflows.js";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { WorkflowRuntime } from "../../src/workflows/runtime.js";
 import { findWorkflow } from "../../src/workflows/index.js";
@@ -47,14 +48,14 @@ test("build workflow completes with no capabilities, skipping ticket steps", () 
   expect(ids).toContain("gate");
 });
 
-test("autoAdvance is set on all four core workflows", () => {
-  for (const name of ["scope", "scribe", "build", "review"]) {
+test("autoAdvance is set on linear plugin workflows", () => {
+  for (const name of ["scope", "build", "review"]) {
     expect(findWorkflow(name)?.autoAdvance).toBe(true);
   }
 });
 
-test("every workflow drains to completion under full capabilities", () => {
-  for (const name of ["scope", "scribe", "review", "build"]) {
+test("every linear workflow drains to completion under full capabilities", () => {
+  for (const name of ["scope", "review", "build"]) {
     expect(() => drive(name, fullCaps)).not.toThrow();
   }
 });
