@@ -47,6 +47,7 @@ import { useScroll } from "./hooks/use-scroll.js";
 import { useKeymap } from "./hooks/use-keymap.js";
 import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
+import { removeAgentProfile, upsertAgentProfile } from "./agent-profiles.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
 import { CodexLoginModal } from "./components/codex-login-modal.js";
 import { LoginProviderPicker } from "./components/login-provider-picker.js";
@@ -278,6 +279,7 @@ export type AppProps = {
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
+  onAgentProfilesChange?: (profiles: AgentProfile[]) => void;
   onStartWorkflow?: (name: string) => string;
   onInjectSkill?: (skillRef: string) => void | Promise<void>;
   onToggleCapability?: (name: CapabilityName) => void;
@@ -333,6 +335,7 @@ export function App({
   initialAuto = true,
   onToggleAuto,
   onSubAgentProviderChange,
+  onAgentProfilesChange,
   onStartWorkflow,
   onInjectSkill,
   onToggleCapability,
@@ -588,18 +591,18 @@ export function App({
 
   const saveProfile = (profile: AgentProfile): { ok: true } | { ok: false; error: string } => {
     if (profilesDir === undefined) return { ok: false, error: "No profiles directory configured" };
-    setProfiles((prev) => {
-      const next = prev.filter((p) => p.id !== profile.id);
-      next.push(profile);
-      return next.sort((a, b) => a.id.localeCompare(b.id));
-    });
+    const next = upsertAgentProfile(profiles, profile);
+    setProfiles(next);
+    onAgentProfilesChange?.(next);
     void writeProfileFile(profilesDir, profile);
     return { ok: true };
   };
 
   const deleteProfile = (id: string): void => {
     if (profilesDir === undefined) return;
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
+    const next = removeAgentProfile(profiles, id);
+    setProfiles(next);
+    onAgentProfilesChange?.(next);
     void deleteProfileFile(profilesDir, id);
   };
 
