@@ -68,7 +68,7 @@ describe("flat line buffer", () => {
       isError: false,
     };
 
-    expect(lineText(buildLines([block], COLUMNS, false, isExpanded))).toEqual(["Read 1 lines"]);
+    expect(lineText(buildLines([block], COLUMNS, false, isExpanded))).toEqual(["  Read 1 lines"]);
     expect(lineText(buildLines([block], COLUMNS, false, () => true)).join("\n")).toContain("scripts");
   });
 
@@ -98,5 +98,50 @@ describe("flat line buffer", () => {
     expect(text).toContain("error: failed  badly");
     expect(text).not.toContain("[<0;29;35M");
     expect(text).not.toContain("\u001B");
+  });
+
+  const planBlock: ContentBlock = {
+    type: "plan",
+    id: "plan-1",
+    steps: [
+      { file: "src/a.ts", action: "edit" },
+      { file: "src/b.ts", action: "create" },
+      { file: "src/c.ts", action: "edit" },
+    ],
+  };
+
+  test("plan renders all steps as grey todo circles before work starts", () => {
+    const text = lineText(buildLines([planBlock], COLUMNS, false, isExpanded, undefined, {
+      currentStep: null,
+      deviated: false,
+    }));
+    expect(text).toEqual([
+      "○ edit src/a.ts",
+      "○ create src/b.ts",
+      "○ edit src/c.ts",
+    ]);
+  });
+
+  test("plan shows done checkmarks, an active circle, and remaining todo", () => {
+    const text = lineText(buildLines([planBlock], COLUMNS, false, isExpanded, undefined, {
+      currentStep: 1,
+      deviated: false,
+    }));
+    expect(text).toEqual([
+      "✓ edit src/a.ts",
+      "◯ create src/b.ts",
+      "○ edit src/c.ts",
+    ]);
+  });
+
+  test("plan marks remaining steps as cancelled when deviated", () => {
+    const text = lineText(buildLines([planBlock], COLUMNS, false, isExpanded, undefined, {
+      currentStep: 1,
+      deviated: true,
+    }));
+    expect(text[0]).toBe("✓ edit src/a.ts");
+    expect(text[1]).toBe("◯ create src/b.ts");
+    expect(text[2]).toContain("cancelled");
+    expect(text[2]).toContain("edit src/c.ts");
   });
 });

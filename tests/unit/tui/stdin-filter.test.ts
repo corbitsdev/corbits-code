@@ -98,3 +98,26 @@ test("no mouse bytes survive Ink's read loop", () => {
   expect(drained).toBe("type more");
   expect(drained).not.toContain("[<");
 });
+
+// Regression: when a mouse sequence's leading ESC lands in one read (consumed
+// by Ink's escape parser) and the body `[<65;18;49m` lands in the next read
+// alone, the fragment must still be stripped rather than leaking as literal
+// text into the prompt.
+test("strips an orphaned mouse fragment whose ESC arrived in a prior read", () => {
+  const { stdin, mouse } = createFilteredStdin(fakeStdin(["\x1b", "[<65;18;49m"]));
+  const events: string[] = [];
+  mouse.on("scrollDown", () => events.push("down"));
+  // ESC passes through (it may be a real Esc keypress).
+  expect(stdin.read()).toBe("\x1b");
+  // The orphaned fragment is stripped, not echoed.
+  expect(stdin.read()).toBe("");
+  expect(events).toEqual(["down"]);
+});
+
+test("does not double-count a scroll when the full sequence is intact", () => {
+  const { stdin, mouse } = createFilteredStdin(fakeStdin(["\x1b[<65;1;1m"]));
+  const events: string[] = [];
+  mouse.on("scrollDown", () => events.push("down"));
+  stdin.read();
+  expect(events).toEqual(["down"]);
+});

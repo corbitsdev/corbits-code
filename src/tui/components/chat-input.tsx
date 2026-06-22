@@ -29,6 +29,16 @@ export type ChatInputProps = {
   onSentHistoryPrevious?: () => boolean;
   onSentHistoryNext?: () => boolean;
   onSentHistoryExitBrowse?: () => void;
+  /** True while stepping through sent history (relaxes Up-at-start-only for older entries). */
+  sentHistoryBrowsing?: boolean;
+  // Active model name shown right-aligned on the action bar above the box.
+  model?: string;
+  // Reasoning effort appended after the model when set.
+  effort?: string;
+  // Rotating action verb shown to the left of the steer hint while processing.
+  verb?: string;
+  // Terminal row count, used to cap the box at 40vh and scroll internally.
+  rows?: number;
 };
 
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
@@ -171,6 +181,11 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
 
   if (input.length === 0) return state;
 
+  // Any input still starting with ESC here is an unrecognized control sequence
+  // (e.g. a mouse SGR sequence that slipped past the stdin filter). It is
+  // never printable text and must not be spliced into the buffer.
+  if (input.charCodeAt(0) === 0x1b) return state;
+
   return {
     value: value.slice(0, cursor) + input + value.slice(cursor),
     cursor: cursor + input.length,
@@ -217,7 +232,12 @@ export function ChatInput({
   onSentHistoryPrevious,
   onSentHistoryNext,
   onSentHistoryExitBrowse,
+  sentHistoryBrowsing = false,
   borderColor = color("dim"),
+  model,
+  effort,
+  verb,
+  rows,
 }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -352,8 +372,16 @@ export function ChatInput({
         if (value[i] === "\n") lineBreaks.push(i);
       }
       if (lineBreaks.length === 0) {
-        if (key.upArrow && cursor === 0 && onSentHistoryPrevious?.()) return;
-        if (key.downArrow && cursor === value.length && onSentHistoryNext?.()) return;
+        if (
+          key.upArrow
+          && (sentHistoryBrowsing || cursor === 0)
+          && onSentHistoryPrevious?.()
+        ) return;
+        if (
+          key.downArrow
+          && (sentHistoryBrowsing || cursor === value.length)
+          && onSentHistoryNext?.()
+        ) return;
       }
       if (lineBreaks.length > 0) {
         const lineStarts: number[] = [0, ...lineBreaks.map((p) => p + 1)];
@@ -464,6 +492,23 @@ export function ChatInput({
   }
   const cursorCol = remaining;
 
+  // Cap the prompt box at 40% of the terminal height so a huge paste never
+  // shoves the transcript off-screen. Past the cap the box scrolls internally,
+  // keeping the cursor line in view.
+  const maxBoxRows = Math.max(3, Math.floor((rows ?? 24) * 0.4));
+  let windowStart = 0;
+  let windowEnd = lines.length;
+  if (lines.length > maxBoxRows) {
+    windowStart = Math.max(0, cursorLine - maxBoxRows + 1);
+    windowEnd = windowStart + maxBoxRows;
+    if (windowEnd > lines.length) {
+      windowEnd = lines.length;
+      windowStart = windowEnd - maxBoxRows;
+    }
+  }
+  const atTopEdge = windowStart > 0;
+  const atBottomEdge = windowEnd < lines.length;
+
   // Slash and @ pickers are mutually exclusive: slash owns the field when value
   // starts with /, @ picker fires for any other @ token in the input.
   const showSlash = suggestions.length > 0;
@@ -494,53 +539,97 @@ export function ChatInput({
       {showAt && (
         <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
-      {showSteerHint && (
-        <Box paddingX={1}>
-          <Text dimColor>
-            {queuedCount > 0 ? `${queuedCount} queued · Enter steer · Alt+Enter queue` : "Enter steer · Alt+Enter queue"}
-          </Text>
-        </Box>
-      )}
-      {!showSlash && !showAt && (
-        <Box
-          borderStyle="single"
-          borderColor={borderColor}
-          borderTop
-          borderBottom={false}
-          borderLeft={false}
-          borderRight={false}
-        />
-      )}
-      <Box flexDirection="column" paddingX={1} marginBottom={1}>
-        {lines.map((line, i) => {
-          const prefix = i === 0 ? "> " : "  ";
-          if (i !== cursorLine) {
-            return (
-              <Text key={i}>
-                <Text color="green">{prefix}</Text>
-                {line}
+      {(() => {
+        // Action bar: the row directly above the prompt box. While processing
+        // with text typed, the revolving verb + steer hint sit on the left; the
+        // model · effort is always right-aligned on the same baseline.
+        const steerText = queuedCount > 0
+          ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
+          : "Enter steer · Alt+Enter queue";
+        const modelText = effort !== undefined && effort.length > 0 ? `${model} · ${effort}` : model;
+        if (!showSteerHint && model === undefined) return null;
+        return (
+          <Box flexDirection="row" marginX={1} gap={1}>
+            {showSteerHint && (
+              <Text dimColor>
+                {verb !== undefined && verb.length > 0 ? `${verb} · ` : ""}{steerText}
               </Text>
+            )}
+            <Box flexGrow={1} />
+            {modelText !== undefined && (
+              <Text color={color("muted")} dimColor>{modelText}</Text>
+            )}
+          </Box>
+        );
+      })()}
+      {(() => {
+        const renderInputLines = () => {
+          const out: ReactNode[] = [];
+          if (atTopEdge) {
+            out.push(
+              <Text key="top-edge" color="green">{"  ↑"}</Text>,
             );
           }
-          const head = line.slice(0, cursorCol);
-          const atChar = line.slice(cursorCol, cursorCol + 1);
-          const tail = line.slice(cursorCol + 1);
+          for (let i = windowStart; i < windowEnd; i++) {
+            const line = lines[i]!;
+            const prefix = i === 0 ? "> " : "  ";
+            if (i !== cursorLine) {
+              out.push(
+                <Text key={i}>
+                  <Text color="green">{prefix}</Text>
+                  {line}
+                </Text>,
+              );
+              continue;
+            }
+            const head = line.slice(0, cursorCol);
+            const atChar = line.slice(cursorCol, cursorCol + 1);
+            const tail = line.slice(cursorCol + 1);
+            out.push(
+              <Text key={i}>
+                <Text color="green">{prefix}</Text>
+                <Text>{head}</Text>
+                {atChar.length > 0 ? (
+                  <>
+                    <Text backgroundColor="white" color="black">{atChar}</Text>
+                    <Text>{tail}</Text>
+                  </>
+                ) : (
+                  <Text color="green">▏</Text>
+                )}
+              </Text>,
+            );
+          }
+          if (atBottomEdge) {
+            out.push(
+              <Text key="bottom-edge" color="green">{"  ↓"}</Text>,
+            );
+          }
+          return out;
+        };
+
+        // When slash/@ pickers are open the input renders plainly so the
+        // suggestion list sits flush above it without a competing border.
+        if (showSlash || showAt) {
           return (
-            <Text key={i}>
-              <Text color="green">{prefix}</Text>
-              <Text>{head}</Text>
-              {atChar.length > 0 ? (
-                <>
-                  <Text backgroundColor="white" color="black">{atChar}</Text>
-                  <Text>{tail}</Text>
-                </>
-              ) : (
-                <Text color="green">▏</Text>
-              )}
-            </Text>
+            <Box flexDirection="column" paddingX={1}>
+              {renderInputLines()}
+            </Box>
           );
-        })}
-      </Box>
+        }
+        return (
+          <Box marginX={1} marginTop={1} flexDirection="column">
+            <Box
+              borderStyle="round"
+              borderColor={borderColor}
+              flexDirection="column"
+              paddingX={1}
+            >
+              {renderInputLines()}
+            </Box>
+          </Box>
+        );
+      })()}
     </Box>
   );
 }

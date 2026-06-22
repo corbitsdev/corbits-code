@@ -53,6 +53,12 @@ describe("applyKey — character insertion", () => {
   test("ignores empty input", () => {
     expect(applyKey(state("hi", 2), "", key())).toEqual(state("hi", 2));
   });
+
+  test("drops an unrecognized escape sequence instead of inserting it", () => {
+    // A mouse SGR sequence that slipped past the stdin filter must never be
+    // spliced into the buffer as literal text.
+    expect(applyKey(state("hi", 2), "\u001B[<65;18;49m", key())).toEqual(state("hi", 2));
+  });
 });
 
 describe("applyKey — backspace", () => {

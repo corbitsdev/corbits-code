@@ -49,7 +49,8 @@ import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
-import { loadAgentContextExtensions } from "../agent/run-agent.js";
+import { loadAgentContextExtensions } from "../agent/context-extensions.js";
+import { buildMainSessionSources } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -399,6 +400,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   };
 
+  const profilesDir = join(config.cwd, ".agents", "agents");
+  const pluginAgentProfiles = await resolveAgentPluginProfiles(
+    pluginModules,
+    config.settings?.plugins ?? {},
+  );
+  const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
@@ -413,6 +421,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     subAgent: {
       provider: () => liveSubAgentProvider.current,
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
+      ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
+      catalog: () => config.providers,
+      profiles: () => initialProfiles,
     },
   });
 
@@ -513,8 +524,28 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       model: config.model,
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
     });
-  const buildInitialSource = (): InferenceSource =>
-    initialCodexProfile !== undefined
+  const buildSessionSources = (): { sources: InferenceSource[]; defaultSource: string } =>
+    buildMainSessionSources({
+      settings: config.settings,
+      catalog: config.providers,
+      activeProvider: config.providerName,
+      activeModel: config.model,
+      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+      sessionId,
+    });
+
+  const initialBundle = buildSessionSources();
+  let liveSources = initialBundle.sources;
+  let liveDefaultSource = initialBundle.defaultSource;
+
+  // The source the next inference will use, tracked live so the compaction
+  // summarizer always summarizes with the current model (model switches and
+  // Codex token refreshes update it below).
+  let liveSource: InferenceSource =
+    liveSources.find((s) => s.id === liveDefaultSource) ?? liveSources[0] ?? buildInitialSourceFallback();
+
+  function buildInitialSourceFallback(): InferenceSource {
+    return initialCodexProfile !== undefined
       ? buildCodexSource({
           id: config.providerName,
           apiKey: config.apiKey,
@@ -524,17 +555,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
         })
       : initialXaiProfile !== undefined
-      ? buildXaiSource({
-          id: config.providerName,
-          apiKey: config.apiKey,
-          model: config.model,
-        })
-      : buildOpenAICompatibleInitialSource();
-
-  // The source the next inference will use, tracked live so the compaction
-  // summarizer always summarizes with the current model (model switches and
-  // Codex token refreshes update it below).
-  let liveSource: InferenceSource = buildInitialSource();
+        ? buildXaiSource({
+            id: config.providerName,
+            apiKey: config.apiKey,
+            model: config.model,
+          })
+        : buildOpenAICompatibleInitialSource();
+  }
 
   // Compaction summarizer: produces a structured, workflow-aware handoff via a
   // one-shot call on the live model, falling back to the deterministic summary
@@ -564,10 +591,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   const buildAgent = async (): Promise<Agent> => {
     const storage = await createIsogitStore(workdir);
-    const initialSource = liveSource;
+    const sources = liveSources.length > 0 ? liveSources : [liveSource];
+    const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
     return createAgent(def, {
-      sources: [initialSource],
-      defaultSource: initialSource.id,
+      sources,
+      defaultSource,
       storage,
       workdir,
       audit: noopAuditStore(),
@@ -678,13 +706,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // config when the session starts on a Codex profile (buildAgent sets that
   // source directly, not through the proxy's setSource).
   let activeCodexSource: { profile: string; source: InferenceSource } | undefined =
-    initialCodexProfile !== undefined
-      ? { profile: initialCodexProfile, source: buildInitialSource() }
-      : undefined;
+    initialCodexProfile !== undefined ? { profile: initialCodexProfile, source: liveSource } : undefined;
   let activeXaiSource: { profile: string; source: InferenceSource } | undefined =
-    initialXaiProfile !== undefined
-      ? { profile: initialXaiProfile, source: buildInitialSource() }
-      : undefined;
+    initialXaiProfile !== undefined ? { profile: initialXaiProfile, source: liveSource } : undefined;
 
   // Refresh the active Codex access token (if any) and push it onto the live
   // agent before a send. getValidCodexToken returns the stored token when still
@@ -749,10 +773,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       activeCodexSource = codexProfile !== undefined ? { profile: codexProfile, source } : undefined;
       activeXaiSource = xaiProfile !== undefined ? { profile: xaiProfile, source } : undefined;
       liveSource = source;
+      liveSources = [source];
+      liveDefaultSource = source.id;
       setAgentSourceUnlessClosed(currentAgent, source);
     },
     setSources: (sources, defaultSource) => {
       currentAgent.setSources(sources, defaultSource);
+      liveSources = sources;
+      liveDefaultSource = defaultSource;
       const head = sources.find((s) => s.id === defaultSource) ?? sources[0];
       if (head !== undefined) {
         const codexProfile = codexProfileFromProviderName(head.id);
@@ -829,13 +857,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }
     });
   };
-
-  const profilesDir = join(config.cwd, ".agents", "agents");
-  const pluginAgentProfiles = await resolveAgentPluginProfiles(
-    pluginModules,
-    config.settings?.plugins ?? {},
-  );
-  const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
 
   // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
   // screen buffer by hand: enter before render to hide pre-launch scrollback,
@@ -933,6 +954,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       initialWorkflowStatus={workflowController.status()}
       mouseEvents={mouseEvents}
+      sessionStartedAt={startedAt}
     />,
     { exitOnCtrlC: false, stdin: filteredStdin },
   );

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildOpenAISource, buildProviderCatalog, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import type { ResolvedProvider, Settings } from "./config/settings.js";
 
@@ -351,6 +351,11 @@ describe("buildOpenAISource", () => {
       providerOptions: { reasoning_effort: "high" },
     });
   });
+
+  test("substitutes a placeholder apiKey when none is provided (keyless)", () => {
+    const source = buildOpenAISource({ id: "ollama", baseURL: "http://localhost:11434/v1", model: "llama3" });
+    expect(source.apiKey).toBe(KEYLESS_API_KEY);
+  });
 });
 
 describe("buildProviderCatalog", () => {
@@ -396,6 +401,22 @@ describe("buildProviderCatalog", () => {
     expect(catalog).toEqual([
       { name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
     ]);
+  });
+
+  test("preserves keyless flag and omits apiKey for keyless providers", () => {
+    const settings: Settings = {
+      providers: {
+        ollama: { baseURL: "http://localhost:11434/v1", keyless: true, models: ["llama3"] },
+        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+      },
+    };
+    const catalog = buildProviderCatalog(settings, resolved);
+    const ollama = catalog.find((c) => c.name === "ollama")!;
+    expect(ollama.keyless).toBe(true);
+    expect(ollama.apiKey).toBeUndefined();
+    const fp = catalog.find((c) => c.name === "fp")!;
+    expect(fp.keyless).toBeUndefined();
+    expect(fp.apiKey).toBe("fp-key");
   });
 
   test("converts a provider catalog back to global settings", () => {

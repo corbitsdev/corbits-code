@@ -17,7 +17,7 @@ export type DirectorPersistedState = {
   submitCalled: boolean;
   callIdToName: Record<string, string>;
   idleCycles: number;
-  tasks: Array<{ id: string; title: string; status: "todo" | "doing" | "done" }>;
+  tasks: Array<{ id: string; title: string; status: "todo" | "doing" | "done" | "cancelled" }>;
   terminated?: boolean;
   filesRead?: Array<{ path: string; turn: number }>;
 };
