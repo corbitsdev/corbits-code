@@ -48,9 +48,11 @@ bun test
 
 ## Agent Workspace
 
-This repository includes a shared agent workspace under `.agents/`, `.claude/`, and `.codex/` so Codex, Claude, and other agent tools share the same instructions, skills, and specialist profiles.
+Intercode keeps repository guidance and sub-agent profiles separate:
 
 - `AGENTS.md` — shared startup instructions and project context
 - `CLAUDE.md` — Claude-specific workspace notes
-- `.agents/skills/` — shared skills (`style`, `philosophy`, `dispatch`, `interview`, `scribe`, `brand-identity`, `design-lab`)
-- `.agents/agents/` — shared agent profiles (`karen`, `greybeard`, `critique`, `intern`, `neckbeard`, etc.)
+- `packages/agents/` — built-in sub-agent profiles shipped with Intercode (`greybeard`, `critique`)
+- `.agents/agents/` — optional local profile overrides or additions; this directory is not required and may be absent
+
+Named `task` sub-agents resolve from built-ins first, then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles. Add a local profile under `.agents/agents/` or use an installed profile id such as `greybeard`.
