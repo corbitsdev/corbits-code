@@ -68,7 +68,7 @@ Why no `workflow`/`agent` kinds: **a workflow is just a slash command.** A
 command can fan out to a single prompt, a series of prompts, one subagent, or a
 fleet of agents — and it can be invoked by the user (slash) or chosen by the
 agent. So orchestration lives behind a `command` plugin, not a separate kind.
-Recipe names from `@intercode/default-workflows` are **not** registered as top-level `/scope` slashes; an integration plugin owns the prefix (e.g. `linear-workflows` → `/linear scope`).
+Workflow recipe names are **not** registered as top-level `/scope` slashes; an integration plugin owns the prefix (e.g. `linear-workflows`, `kind: "workflow"` → `/linear scope`). Types live in `src/workflows/definition.ts`; definitions live beside the plugin under `plugins/<name>/src/workflows/`.
 Subagents/fleets are an implementation detail of what a command does.
 
 The kind-specific export is the implementation hook:
