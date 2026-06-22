@@ -58,18 +58,39 @@ describe("flat line buffer", () => {
     expect(end - start).toBe(visibleRows);
   });
 
-  test("collapsed JSON tool results show a preview instead of the full document", () => {
+  test("paired tool call and result collapse to one merged line", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        id: "call-read",
+        name: "read_file",
+        arguments: JSON.stringify({ path: "package.json" }),
+      },
+      {
+        type: "tool_result",
+        id: "result-read",
+        callId: "call-read",
+        name: "read_file",
+        content: '{"scripts":{"test":"bun test"}}',
+        isError: false,
+      },
+    ];
+
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Read 1 line of package.json"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
+  });
+
+  test("orphan tool result still renders on its own", () => {
     const block: ContentBlock = {
       type: "tool_result",
       id: "json-result",
       callId: "read-json",
       name: "read_file",
-      content: '{"scripts":{"test":"bun test"},"dependencies":{"ink":"latest"}}',
+      content: "     1\tfoo",
       isError: false,
     };
 
-    expect(lineText(buildLines([block], COLUMNS, false, isExpanded))).toEqual(["  Read 1 lines"]);
-    expect(lineText(buildLines([block], COLUMNS, false, () => true)).join("\n")).toContain("scripts");
+    expect(lineText(buildLines([block], COLUMNS, false, isExpanded))).toEqual(["  Read 1 line"]);
   });
 
   test("large user code fences are compacted in the log", () => {

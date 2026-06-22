@@ -70,8 +70,8 @@ export function buildToolCallDiscipline(): string {
     "- Don't narrate routine actions before doing them — just call the tool. Brief reasoning on a non-obvious decision is fine.",
     "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block, and your shell runs in that directory. Never run pwd, ls, or find to orient — use list_dir or search_files to explore paths.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- Understand before you change: if a code symbol is involved, use lsp first for definitions, references, types, implementations, and call hierarchy; then read the file and its callers before editing. Use grep only for literal text, logs, docs, config, or when lsp has no server/results. Don't change code you haven't read, and don't read past what the task touches. Take in the whole region you need in one read — don't re-open or page through a file you've already read.",
-    "- Parallelize independent reads: if you need several searches or files in the same investigation, issue all the calls in one turn — not one per turn.",
+    "- Understand before you change: if a code symbol is involved, use lsp first for definitions, references, types, implementations, and call hierarchy; then read only the smallest file regions lsp points at and their callers before editing. Use grep only for literal text, logs, docs, config, or when lsp has no server/results. Opening a large file before lsp when a symbol is named is a mistake. Don't change code you haven't read, and don't read past what the task touches. Take in the whole region you need in one read — don't re-open or page through a file you've already read.",
+    "- Parallelize independent work: if you already need several searches, reads, or sub-agents that do not depend on each other, issue all of those calls in one turn — not one per turn. Do not serialize obvious independent exploration.",
   ].join("\n");
 }
 
@@ -149,12 +149,32 @@ export function buildReviewRules(): string {
   ].join("\n");
 }
 
+export function buildProjectContextRules(): string {
+  return [
+    "Learning how this repo works:",
+    "- Each project documents itself differently (AGENTS.md, README, contributing guides, internal doc trees, and the like). Find and follow whatever onboarding or architecture guidance this repository already provides before deep source spelunking.",
+    "- Do not assume a fixed documentation layout; discover what this repo uses.",
+  ].join("\n");
+}
+
+export function buildMemoryRules(): string {
+  return [
+    "Session memory (.intercode/MEMORY.md):",
+    "- Read it when prior project context would help.",
+    "- Write durable facts: user preferences, verified repo conventions, recurring gotchas, and corrections the user wants remembered.",
+    "- Do not store transient task progress, large tool dumps, or secrets.",
+    "- When the user teaches something that should hold in a future session, append a short bullet before you finish.",
+  ].join("\n");
+}
+
 export function buildSelfVerification(): string {
   return [
     "Verify before you finish:",
+    "- Follow this project's completion checklist when one exists in loaded guidance (for example AGENTS.md or a contributing guide). If none is clear, recommend a short checklist to the operator for this kind of task.",
     "- Review your changes with `git diff` (via run_shell) — they should do exactly what was asked, no more.",
     "- Changed a signature or behavior? grep the callers and update them.",
     "- Run the narrowest relevant check first, then the full build and tests the run is graded on. Reproduce a bug with a failing test before fixing it.",
+    "- After substantive code work, sanity-check: lsp before large symbol reads? independent tools batched? durable memory updated if the user gave lasting preferences?",
   ].join("\n");
 }
 
@@ -180,8 +200,8 @@ export function buildSubmitRules(): string {
 export function buildLSPGuidance(): string {
   return [
     "Language server (lsp tool):",
-    "- Use lsp as the default for code understanding: goToDefinition for declarations, findReferences for call sites, hover for types/docs, goToImplementation for concrete implementations, documentSymbol/workspaceSymbol for symbol discovery, and call hierarchy for dependency flow.",
-    "- Use grep after lsp only to search literal strings, generated text, tests by assertion text, docs/config, or languages/files where lsp has no server or no useful result.",
+    "- For code understanding or edits involving symbols, types, call flow, or refactors: call lsp before read_file or grep on large files (goToDefinition, findReferences, hover, goToImplementation, documentSymbol, workspaceSymbol, call hierarchy).",
+    "- Read only the spans and related files lsp identifies; use grep after lsp only for literal strings, generated text, tests by assertion text, docs/config, or languages/files where lsp has no server or no useful result.",
     "- After editing a file the LSP middleware appends diagnostics automatically — read them before moving on.",
   ].join("\n");
 }
@@ -189,8 +209,8 @@ export function buildLSPGuidance(): string {
 export function buildFewShot(): string {
   return [
     "The shape of a turn — locate, understand, change, verify, finish:",
-    "- Fixing a bug: grep the failing symbol -> read just that region -> write a failing test that reproduces it -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
-    "- Adding a feature: grep/list_dir to find where similar code lives -> read that file and the module it sits in -> edit_file or write_file following the patterns you saw -> grep the callers you affected -> run the build and tests -> submit_output.",
+    "- Fixing a bug: lsp on the failing symbol (definition + references) -> read just those regions -> write a failing test that reproduces it -> edit_file the minimal fix -> run the narrowest test, then the full check -> submit_output.",
+    "- Adding a feature: list_dir/search_files to find where similar code lives -> lsp or read that module -> edit_file or write_file following the patterns you saw -> grep or lsp for callers you affected -> run the build and tests -> submit_output.",
     "Don't read everything first; don't finish before verifying. One tool call per turn minimum, always.",
   ].join("\n");
 }
@@ -229,8 +249,9 @@ export function buildDiscoverableCapabilities(tools: readonly string[] = CATALOG
 export function buildToolSearchGuidance(): string {
   return [
     "Loading more tools:",
-    '- Only the core tools above are loaded. The "Discoverable tools" listed, plus any connected integrations (issue trackers, etc.) that are not listed at all, exist but are not loaded.',
-    '- When you need one, call tool_search with a short description of the capability (e.g. "create a file", "search the web", "find references", "issue tracker"). It loads the matching tools; call them on the next turn.',
+    "- Only the core tools listed above are loaded on the first turn. Discoverable built-ins and connected integrations (MCP, issue trackers, etc.) exist but are not loaded until you request them.",
+    '- When you need a capability outside the loaded set, call tool_search first with a short description (e.g. "create a file", "search the web", "find references", "issue tracker"). Do not use run_shell to substitute for a tool you have not loaded.',
+    "- tool_search loads matching tools for use on the next turn; then call the loaded tool.",
     "- The language server loads automatically once you read or edit a code file.",
   ].join("\n");
 }
@@ -240,7 +261,7 @@ export function buildActiveContext(date = new Date(), cwd = process.cwd()): stri
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here. You do not need to discover it.`,
-    `Memory: ${cwd}/.intercode/MEMORY.md (your scratch pad across sessions — read it when context would help, write to it when you learn something worth keeping)`,
+    `Memory file: ${cwd}/.intercode/MEMORY.md`,
   ].join("\n");
 }
 
@@ -264,7 +285,7 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
   }
   if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
-  lines.push(`Memory: ${env.cwd}/.intercode/MEMORY.md (your scratch pad across sessions — read it when context would help, write to it when you learn something worth keeping)`);
+  lines.push(`Memory file: ${env.cwd}/.intercode/MEMORY.md`);
   lines.push("</env>");
   return lines.join("\n");
 }
@@ -285,6 +306,8 @@ export function buildSystemPrompt(
     buildTaskRules(),
     buildStyleRules(),
     buildInstructionHierarchyRules(),
+    buildProjectContextRules(),
+    buildMemoryRules(),
     buildBudgetRules(),
     buildLSPGuidance(),
     buildGroundingRules(),
@@ -353,8 +376,8 @@ export function buildChatToolCallDiscipline(): string {
     "- Don't narrate routine actions before doing them — just call the tool.",
     "- You already know where you are: the working directory, platform, git state, and top-level layout are in the <env> block. Never run pwd, ls, or find to orient — use list_dir or search_files to explore paths.",
     "- For web access, use web_search and web_fetch. Do not use run_shell commands like curl or wget for HTTP(S) unless the web tools fail or the user explicitly asks for shell.",
-    "- Understand before you change: if a code symbol is involved, use lsp first for definitions, references, types, implementations, and call hierarchy; then read the file and its callers before editing. Use grep only for literal text, logs, docs, config, or when lsp has no server/results.",
-    "- Parallelize independent reads: if you need several searches or files in the same investigation, issue all the calls in one turn — not one per turn.",
+    "- Understand before you change: if a code symbol is involved, use lsp first for definitions, references, types, implementations, and call hierarchy; then read only the smallest regions lsp points at before editing. Use grep only for literal text, logs, docs, config, or when lsp has no server/results. Opening a large file before lsp when a symbol is named is a mistake.",
+    "- Parallelize independent work: if you already need several searches or reads that do not depend on each other, issue all of those calls in one turn — not one per turn.",
     "- When the user gives an open-ended request and the next step is obvious from the codebase, do it — don't ask for confirmation or offer a template. Explore first, then act. Only use ask_operator when the task is genuinely ambiguous and the wrong choice would waste significant effort.",
   ].join("\n");
 }
@@ -367,6 +390,8 @@ export function buildChatSystemPrompt(extensions?: string[], env?: EnvironmentIn
     buildOutputRenderingRules(),
     buildStyleRules(),
     buildInstructionHierarchyRules(),
+    buildProjectContextRules(),
+    buildMemoryRules(),
     buildBudgetRules(),
     buildLSPGuidance(),
     buildGroundingRules(),

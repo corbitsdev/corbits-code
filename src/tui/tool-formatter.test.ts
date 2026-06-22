@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   summarizeToolArgs,
   summarizeToolResult,
+  mergedToolCollapsedPreview,
   isUserFacingJSON,
   describeToolCall,
   humanizeToolName,
@@ -45,16 +46,16 @@ describe("describeToolCall", () => {
     expect(d.display).toBe("Shell");
     expect(d.summary).toBe("npm test");
   });
-  test("writes read as success, edits as accent, reads as muted", () => {
+  test("file mutations read as success and lookups as warning", () => {
     expect(describeToolCall("write_file", '{"path":"a"}').role).toBe("success");
-    expect(describeToolCall("edit_file", '{"path":"a"}').role).toBe("accent");
-    expect(describeToolCall("read_file", '{"path":"a"}').role).toBe("muted");
+    expect(describeToolCall("edit_file", '{"path":"a"}').role).toBe("success");
+    expect(describeToolCall("read_file", '{"path":"a"}').role).toBe("warning");
   });
-  test("web tools read as accent actions with readable names", () => {
+  test("web tools read as warning lookups with readable names", () => {
     expect(describeToolCall("web_search", '{"query":"hono.dev"}').display).toBe("Web Search");
-    expect(describeToolCall("web_search", '{"query":"hono.dev"}').role).toBe("accent");
+    expect(describeToolCall("web_search", '{"query":"hono.dev"}').role).toBe("warning");
     expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').display).toBe("Web Fetch");
-    expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').role).toBe("accent");
+    expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').role).toBe("warning");
   });
   test("a destructive shell command reads as danger", () => {
     expect(describeToolCall("run_shell", '{"command":"rm -rf build"}').role).toBe("danger");
@@ -98,6 +99,25 @@ describe("summarizeToolArgs", () => {
   test("nested object is compacted, not dumped", () => {
     const { summary } = summarizeToolArgs("x", JSON.stringify({ opts: { a: 1, b: 2 } }));
     expect(summary).toBe("opts: {…}");
+  });
+});
+
+describe("mergedToolCollapsedPreview", () => {
+  test("read_file merges path and line count", () => {
+    const content = ["     1\tfoo", "     2\tbar"].join("\n");
+    const args = JSON.stringify({ path: "src/foo.ts" });
+    expect(mergedToolCollapsedPreview("read_file", args, content, false)).toBe("Read 2 lines of src/foo.ts");
+  });
+
+  test("grep merges scope and match count", () => {
+    const args = JSON.stringify({ pattern: "foo", path: "src" });
+    const content = "a.ts:1:foo\nb.ts:2:foo";
+    expect(mergedToolCollapsedPreview("grep", args, content, false)).toBe("Found 2 matches with Grep in src");
+  });
+
+  test("run_shell merges command and output preview", () => {
+    const args = JSON.stringify({ command: "npm test" });
+    expect(mergedToolCollapsedPreview("run_shell", args, "ok\nmore", false)).toBe("npm test → ok (+1 more lines)");
   });
 });
 

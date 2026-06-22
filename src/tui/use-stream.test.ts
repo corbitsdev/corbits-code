@@ -81,4 +81,21 @@ describe("createAgentStreamState", () => {
 
     expect(state.subAgents).toEqual([{ id: "call-4", title: "worker: map callers of X", status: "doing" }]);
   });
+
+  test("requestStop clears quota wait after quota_exhausted inference.error", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.error", {
+      error: { category: "quota_exhausted", message: "rate limited", retryAfterMs: 5000 },
+    }));
+
+    expect(state.status).toBe("failed");
+    expect(state.quotaError).not.toBeNull();
+
+    state.requestStop();
+
+    expect(state.quotaError).toBeNull();
+    expect(state.status).toBe("stopped");
+    expect(state.isProcessing).toBe(false);
+  });
 });

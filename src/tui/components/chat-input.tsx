@@ -5,6 +5,7 @@ import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
 import { useAtSuggestions, AtSuggestions } from "./at-mention/index.js";
 import { color } from "../theme.js";
+import { wrapLines } from "../view/height.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -39,6 +40,8 @@ export type ChatInputProps = {
   verb?: string;
   // Terminal row count, used to cap the box at 40vh and scroll internally.
   rows?: number;
+  // Terminal column count, used to pre-wrap prompt text before Ink lays it out.
+  columns?: number;
 };
 
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
@@ -238,6 +241,7 @@ export function ChatInput({
   effort,
   verb,
   rows,
+  columns,
 }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -474,23 +478,32 @@ export function ChatInput({
     atMention.refresh(next.value, next.cursor);
   }, { isActive: active });
 
-  // Split the value into display lines and locate the cursor's line and column,
-  // so a multi-line prompt (Shift+Enter) renders the caret on the right line.
-  // The cursor glyph sits inline: a reverse-video cell over a real character, or
-  // a visible caret at end-of-line (never trailing whitespace, which terminals
-  // and Ink's test frame trim — which would eat the "> " prompt's trailing space).
-  const lines = value.split("\n");
-  let remaining = cursor;
-  let cursorLine = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const len = lines[i]!.length;
-    if (remaining <= len) {
+  // Pre-wrap the prompt ourselves so long logical lines do not wrap under Ink's
+  // nested Text indentation, which can make continuation rows drift right.
+  const promptWidth = Math.max(8, (columns ?? 80) - 6);
+  const visualLines: Array<{ text: string; logicalStart: number }> = [];
+  let logicalStart = 0;
+  for (const logical of value.split("\n")) {
+    const wrapped = wrapLines(logical, promptWidth);
+    const rowsForLine = wrapped.length > 0 ? wrapped : [""];
+    let offset = 0;
+    for (const row of rowsForLine) {
+      visualLines.push({ text: row, logicalStart: logicalStart + offset });
+      offset += row.length;
+    }
+    logicalStart += logical.length + 1;
+  }
+  const lines = visualLines.map((line) => line.text);
+  let cursorLine = Math.max(0, visualLines.length - 1);
+  for (let i = 0; i < visualLines.length; i++) {
+    const start = visualLines[i]!.logicalStart;
+    const end = start + visualLines[i]!.text.length;
+    if (cursor >= start && cursor <= end) {
       cursorLine = i;
       break;
     }
-    remaining -= len + 1;
   }
-  const cursorCol = remaining;
+  const cursorCol = Math.max(0, cursor - visualLines[cursorLine]!.logicalStart);
 
   // Cap the prompt box at 40% of the terminal height so a huge paste never
   // shoves the transcript off-screen. Past the cap the box scrolls internally,
@@ -618,7 +631,7 @@ export function ChatInput({
           );
         }
         return (
-          <Box marginX={1} marginTop={1} flexDirection="column">
+          <Box marginX={1} flexDirection="column">
             <Box
               borderStyle="round"
               borderColor={borderColor}
