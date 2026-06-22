@@ -312,7 +312,21 @@ export function createAgentStreamState(
       status = gateCount > 0 ? "blocked" : "running";
     },
     requestStop(): void {
-      if (status !== "running" && status !== "blocked") return;
+      quotaError = null;
+      if (status !== "running" && status !== "blocked") {
+        // Quota exhaustion leaves status at "failed" while auto-retry is armed;
+        // still land in a terminal stopped state so ESC/Ctrl+C can dismiss the wait.
+        if (status === "failed") {
+          stopRequested = true;
+          status = "stopped";
+          awaitingResponse = false;
+          isProcessing = false;
+          currentToolName = null;
+          streamingType = null;
+          finishedAt = Date.now();
+        }
+        return;
+      }
       stopRequested = true;
       status = "stopped";
       awaitingResponse = false;

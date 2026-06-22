@@ -14,7 +14,10 @@ import {
   buildFewShot,
   buildGroundingRules,
   buildInstructionHierarchyRules,
+  buildMemoryRules,
+  buildProjectContextRules,
   buildLSPGuidance,
+  buildToolSearchGuidance,
   buildTaskRules,
   buildReviewRules,
   buildSelfVerification,
@@ -42,6 +45,8 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   const discipline = buildToolCallDiscipline();
   const taskRules = buildTaskRules();
   const hierarchy = buildInstructionHierarchyRules();
+  const projectContext = buildProjectContextRules();
+  const memory = buildMemoryRules();
   const budget = buildBudgetRules();
   const grounding = buildGroundingRules();
   const review = buildReviewRules();
@@ -53,7 +58,9 @@ test("buildSystemPrompt orders sections: identity, then planning, then work, the
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf(discipline));
   expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(taskRules));
   expect(prompt.indexOf(taskRules)).toBeLessThan(prompt.indexOf(hierarchy));
-  expect(prompt.indexOf(hierarchy)).toBeLessThan(prompt.indexOf(budget));
+  expect(prompt.indexOf(hierarchy)).toBeLessThan(prompt.indexOf(projectContext));
+  expect(prompt.indexOf(projectContext)).toBeLessThan(prompt.indexOf(memory));
+  expect(prompt.indexOf(memory)).toBeLessThan(prompt.indexOf(budget));
   expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(grounding));
   expect(prompt.indexOf(grounding)).toBeLessThan(prompt.indexOf(review));
   expect(prompt.indexOf(review)).toBeLessThan(prompt.indexOf(submit));
@@ -199,7 +206,7 @@ test("buildChatSystemPrompt advertises core tools and teaches tool_search for th
   const prompt = buildChatSystemPrompt();
   expect(prompt).toContain("tool_search");
   expect(prompt).toContain("Discoverable tools");
-  expect(prompt).toContain("call them on the next turn");
+  expect(prompt).toContain("for use on the next turn");
   expect(prompt).toContain("read_file");
   // Discoverable built-ins are named (one-liners), but specific MCP integrations
   // are never enumerated in the prompt — they are discovered blind.
@@ -243,6 +250,28 @@ test("chat prompt is Intercode and holds the same code standards", () => {
   expect(prompt).toContain(buildGroundingRules());
   expect(prompt).toContain(buildReviewRules());
   expect(prompt).toContain(buildCommunicationRules());
+});
+
+test("project context rules do not mandate a fixed docs path", () => {
+  const rules = buildProjectContextRules();
+  expect(rules).toContain("Do not assume a fixed documentation layout");
+  expect(rules).not.toMatch(/read \"\/docs\"/i);
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toContain(buildProjectContextRules());
+  expect(prompt).toContain(buildMemoryRules());
+});
+
+test("tool_search guidance forbids shell as a substitute for unloaded tools", () => {
+  const guidance = buildToolSearchGuidance();
+  expect(guidance).toContain("tool_search first");
+  expect(guidance).toContain("Do not use run_shell to substitute");
+  expect(buildChatSystemPrompt()).toContain(guidance);
+});
+
+test("self verification follows project checklist or recommends one", () => {
+  const verification = buildSelfVerification();
+  expect(verification).toContain("completion checklist");
+  expect(verification).toContain("recommend a short checklist");
 });
 
 test("instruction hierarchy explains scoped repository guidance", () => {
