@@ -1,6 +1,6 @@
 import { beforeAll } from "bun:test";
 
-import { workflowPlugin as linearWorkflows } from "../../plugins/linear-workflows/src/index.js";
+import { workflowPlugin as linearWorkflows } from "../fixtures/plugins/linear-workflows/src/index.js";
 import { clearWorkflowRegistryForTests, registerWorkflowPlugin } from "../../src/workflows/index.js";
 
 export function installLinearWorkflowsForTests(): void {

@@ -1,8 +1,8 @@
 import { test, expect } from "bun:test";
 
-import { commandPlugin } from "../../plugins/scribe/src/index.js";
+import { commandPlugin } from "../fixtures/plugins/scribe/src/index.js";
 import type { CommandContext } from "../../src/tui/commands/registry.js";
-import manifest from "../../plugins/scribe/manifest.json";
+import manifest from "../fixtures/plugins/scribe/manifest.json";
 
 const cmd = commandPlugin.commands[0]!;
 

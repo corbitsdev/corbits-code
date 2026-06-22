@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { loadPluginEntry, loadPluginsFromPaths } from "../../src/plugins/loader.js";
 
 test("loadPluginEntry loads a plugin directory by path and reads its manifest", async () => {
-  const mod = await loadPluginEntry("plugins/exa");
+  const mod = await loadPluginEntry("tests/fixtures/plugins/exa");
   expect(mod).not.toBeNull();
   expect(mod!.manifest?.id).toBe("exa");
   expect(mod!.manifest?.kind).toBe("web");
@@ -14,7 +14,7 @@ test("loadPluginEntry returns null for a non-existent path", async () => {
 });
 
 test("loadPluginsFromPaths resolves relative paths against cwd and skips bad ones", async () => {
-  const mods = await loadPluginsFromPaths(["plugins/exa", "does-not-exist"], process.cwd());
+  const mods = await loadPluginsFromPaths(["tests/fixtures/plugins/exa", "does-not-exist"], process.cwd());
   expect(mods.map((m) => m.manifest?.id)).toEqual(["exa"]);
 });
 
@@ -41,12 +41,12 @@ test("dedupePluginModules keeps the last module per id (path > user > repo)", ()
 });
 
 test("loadPluginEntry maps a default export to the factory for the manifest kind", async () => {
-  const toolMod = await loadPluginEntry("plugins/example-tool");
+  const toolMod = await loadPluginEntry("tests/fixtures/plugins/example-tool");
   expect(toolMod?.manifest?.kind).toBe("tool");
   expect(typeof toolMod?.createToolPlugin).toBe("function");
   expect(toolMod?.createWebProvider).toBeUndefined();
 
-  const webMod = await loadPluginEntry("plugins/exa");
+  const webMod = await loadPluginEntry("tests/fixtures/plugins/exa");
   expect(webMod?.manifest?.kind).toBe("web");
   expect(typeof webMod?.createWebProvider).toBe("function");
   expect(webMod?.createToolPlugin).toBeUndefined();
