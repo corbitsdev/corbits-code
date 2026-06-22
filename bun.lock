@@ -154,13 +154,6 @@
       "name": "@intercode/default-agents",
       "version": "0.1.0",
     },
-    "plugins/exa": {
-      "name": "@interchange/plugin-exa",
-      "version": "0.1.0",
-      "dependencies": {
-        "arktype": "catalog:",
-      },
-    },
   },
   "catalog": {
     "@types/semver": "^7.7.1",
@@ -181,8 +174,6 @@
     "@ark/util": ["@ark/util@0.56.0", "", {}, "sha512-BghfRC8b9pNs3vBoDJhcta0/c1J1rsoS1+HgVUreMFPdhz/CRAKReAu57YEllNaSy98rWAdY1gE+gFup7OXpgA=="],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
-
-    "@interchange/plugin-exa": ["@interchange/plugin-exa@workspace:plugins/exa"],
 
     "@intercode/default-agents": ["@intercode/default-agents@workspace:packages/agents"],
 
