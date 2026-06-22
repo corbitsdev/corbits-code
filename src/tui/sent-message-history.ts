@@ -1,5 +1,13 @@
 // Per-conversation sent-message recall in the prompt (readline-style).
 
+import { SENT_MESSAGE_HISTORY_LIMIT } from "../session/sent-messages.js";
+
+function tailSent(sent: readonly string[]): readonly string[] {
+  return sent.length <= SENT_MESSAGE_HISTORY_LIMIT
+    ? sent
+    : sent.slice(-SENT_MESSAGE_HISTORY_LIMIT);
+}
+
 export type SentHistoryBrowse = {
   /** Messages sent in this session, oldest first. */
   sent: readonly string[];
@@ -13,7 +21,7 @@ export type SentHistoryBrowse = {
 };
 
 export function createSentHistoryBrowse(sent: readonly string[]): SentHistoryBrowse {
-  return { sent, draft: null, browseIndex: null };
+  return { sent: tailSent(sent), draft: null, browseIndex: null };
 }
 
 export function resetSentHistoryBrowse(sent: readonly string[]): SentHistoryBrowse {
