@@ -63,8 +63,8 @@ import { removeXaiProfile } from "../auth/xai/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProviderName, xaiProfileFromProviderName } from "../config/xai-providers.js";
-import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, formatCodexUsageCompact, getLatestCodexUsage, recordCodexUsage } from "../auth/codex/usage.js";
-import { fetchXaiUsage, formatXaiUsage, formatXaiUsageCompact, getLatestXaiUsage, recordXaiUsage } from "../auth/xai/usage.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, recordCodexUsage } from "../auth/codex/usage.js";
+import { fetchXaiUsage, formatXaiUsage, recordXaiUsage } from "../auth/xai/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -368,23 +368,10 @@ export function App({
   const { exit } = useApp();
   const { columns, rows } = useTerminalSize();
   // First run is determined solely by the global `onboarded` flag, never by
-  // initialSettings (which may be a --config/project file). The animation plays
-  // only on first run; afterwards the flag is stamped into the global file.
+  // initialSettings (which may be a --config/project file). The animation still
+  // uses this to vary its copy for first-time users, but it now runs on every start.
   const isFirstTime = !globallyOnboarded;
-  const [displaySessionTitle, setDisplaySessionTitle] = useState(sessionTitle);
-  useEffect(() => {
-    setDisplaySessionTitle(sessionTitle);
-  }, [sessionTitle]);
-  useEffect(() => {
-    const onTitle = (title: string) => setDisplaySessionTitle(title);
-    eventEmitter.on("session.title", onTitle);
-    return () => {
-      eventEmitter.off("session.title", onTitle);
-    };
-  }, [eventEmitter]);
-  // The welcome animation plays only on first run; returning users go straight
-  // to the app.
-  const [onboardingDone, setOnboardingDone] = useState(!isFirstTime);
+  const [onboardingDone, setOnboardingDone] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [sentHistoryBrowse, setSentHistoryBrowse] = useState<SentHistoryBrowse>(() => createSentHistoryBrowse([]));
   const [hookPanelOpen, setHookPanelOpen] = useState(false);
@@ -525,18 +512,7 @@ export function App({
     });
   };
 
-  // Derived on every render — stream events re-render this component, so it
-  // stays current without an extra request. undefined → fall back to cost string.
-  const codexUsageDisplay = (() => {
-    if (codexProfileFromProviderName(provider) === undefined) return undefined;
-    const usage = getLatestCodexUsage();
-    return usage !== undefined ? formatCodexUsageCompact(usage) : undefined;
-  })();
-  const xaiUsageDisplay = (() => {
-    if (xaiProfileFromProviderName(provider) === undefined) return undefined;
-    const usage = getLatestXaiUsage();
-    return usage !== undefined ? formatXaiUsageCompact(usage) : undefined;
-  })();
+
   const switchToCodexProfile = (name: string): void => {
     void refreshCodexInstructions().catch(() => {});
     void Promise.all([getValidCodexToken(name), fetchCodexModels(name).catch(() => [])]).then(
@@ -1177,10 +1153,8 @@ export function App({
     <Box flexDirection="column" height={rows}>
       <Box flexShrink={0} flexDirection="column">
         <Header
-          sessionTitle={displaySessionTitle}
           latestUserMessage={headerLatestUserMessage}
           width={columns}
-          usage={codexUsageDisplay ?? xaiUsageDisplay}
           {...(profile !== undefined ? { profile } : {})}
         />
       </Box>
@@ -1320,7 +1294,7 @@ export function App({
         </Box>
       )}
       {!taskFullScreenOpen && (
-        <Box flexShrink={0} flexDirection="column">
+        <Box flexShrink={0} flexDirection="column" marginTop={1}>
           {state.tasks.length > 0 && (
             <Box flexDirection="column" marginTop={1} marginBottom={1}>
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />

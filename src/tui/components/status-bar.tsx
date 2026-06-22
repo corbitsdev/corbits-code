@@ -29,7 +29,7 @@ export function formatElapsed(elapsedMs: number): string {
 export function StatusBar({ sessionElapsedMs, mcpCount }: StatusBarProps): ReactNode {
   return (
     <Box flexDirection="row" paddingX={1} gap={1} overflow="hidden">
-      <Text bold color={color("brand")} wrap="truncate-end">{BRAND}</Text>
+      <Text bold color={color("muted")} dimColor wrap="truncate-end">{BRAND}</Text>
       <Text color={color("muted")} dimColor>{formatElapsed(sessionElapsedMs)}</Text>
       <Box flexGrow={1} />
       {mcpCount > 0 && (
