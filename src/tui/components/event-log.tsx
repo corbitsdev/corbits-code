@@ -3,7 +3,7 @@ import type { ContentBlock } from "../use-stream.js";
 import type { ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
-import { describeToolCall, summarizeToolResult } from "../tool-formatter.js";
+import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
 import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
@@ -20,7 +20,6 @@ export type EventLogProps = {
   width: number;
 };
 
-const LINE_PADDING = 2;
 const SHELL_PREFIX = "$ ";
 const USER_CODE_BLOCK_LINE_LIMIT = 12;
 // Tool calls and results sit one level below assistant prose so the model's
@@ -188,6 +187,39 @@ function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, w
   );
 }
 
+function mergedToolLines(
+  call: Extract<RenderableBlock, { type: "tool_call" }>,
+  result: Extract<RenderableBlock, { type: "tool_result" }>,
+  width: number,
+): StyledLine[] {
+  const { role, isShell } = describeToolCall(call.name, call.arguments);
+  const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
+  const roleColor = color(role);
+
+  if (isShell) {
+    const arrow = merged.includes(" → ") ? merged.split(" → ") : [merged];
+    const command = arrow[0] ?? merged;
+    const suffix = arrow[1];
+    const base = shellLines(command, roleColor, width);
+    if (suffix === undefined || suffix.length === 0) return base;
+    const last = base[base.length - 1];
+    if (last === undefined) return base;
+    return [
+      ...base.slice(0, -1),
+      [...last, { text: ` → ${suffix}`, color: color("dim"), dim: true }],
+    ];
+  }
+
+  const collapsedColor = role === "danger" ? roleColor : color("muted");
+  return wrapStyledLine(
+    [
+      { text: "● ", color: roleColor, dim: role !== "danger" },
+      { text: merged, color: collapsedColor, dim: role !== "danger" },
+    ],
+    width,
+  );
+}
+
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {
   if (block.isError) {
     return plainLines(
@@ -268,7 +300,7 @@ function blockToLines(
   thinkingExpanded: boolean,
   planCtx?: PlanContext,
 ): StyledLine[] {
-  const width = Math.max(8, columns - LINE_PADDING);
+  const width = Math.max(8, columns);
 
   switch (block.type) {
     case "thinking": {
@@ -285,26 +317,32 @@ function blockToLines(
       ];
     }
     case "user": {
-      const bg = color("surface");
+      const accentBg = color("brand");
+      const bg = "#050505";
       const userLines = plainLines(
         compactUserCodeBlocks(block.content),
-        { color: color("text"), backgroundColor: bg },
+        { color: "#ffffff", backgroundColor: bg },
         width,
       );
-      // Pad every line to the full content width so the background reads as a
-      // solid block rather than a ragged strip.
+      // Fill the entire row so the user message reads as a full-width banner,
+      // with a thin brand-colored rail at the left edge.
       return userLines.map((line) => {
         const textLen = line.reduce((n, s) => n + s.text.length, 0);
-        const pad = Math.max(0, width - textLen);
-        return [...line, { text: " ".repeat(pad), backgroundColor: bg }];
+        const pad = Math.max(0, width - textLen - 3);
+        return [
+          { text: "  ", backgroundColor: accentBg },
+          { text: " ", backgroundColor: bg },
+          ...line,
+          { text: " ".repeat(pad), backgroundColor: bg },
+        ];
       });
     }
     case "text": {
       const textLines = markdownLines(block.content, width);
-      // Leading icon so assistant text is visually distinct from user messages
-      // at a glance.
+      // Leading marker keeps assistant prose visually separate from the colored
+      // user banner while staying quiet in the layout.
       if (textLines.length === 0) return textLines;
-      textLines[0] = [{ text: "◆ ", color: color("accent") }, ...(textLines[0] ?? [])];
+      textLines[0] = [{ text: " ● ", color: color("text") }, ...(textLines[0] ?? [])];
       return textLines;
     }
     case "tool_call":
@@ -341,8 +379,25 @@ export function buildLines(
   const lastIdx = blocks.length - 1;
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]!;
+    const next = blocks[i + 1];
     const startsTurn = block.type === "user" || block.type === "text";
     if (startsTurn && lines.length > 0) lines.push([]);
+
+    if (
+      block.type === "tool_call"
+      && next?.type === "tool_result"
+      && next.name === block.name
+      && !isExpanded(block)
+      && !isExpanded(next)
+    ) {
+      const mergedLines = indentLines(
+        mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT),
+        TOOL_INDENT,
+      );
+      lines.push(...mergedLines);
+      i++;
+      continue;
+    }
 
     const expanded = isExpanded(block);
     // Plan blocks re-render as currentStep advances; always recompute them so
@@ -384,13 +439,13 @@ export function EventLog({
   visibleRows,
   width,
 }: EventLogProps): ReactNode {
-  const contentWidth = Math.max(1, width - LINE_PADDING);
+  const contentWidth = Math.max(1, width);
   const { start, end } = lineWindow(lines, scrollOffset, visibleRows);
   const visible = lines.slice(start, end);
   const missingRows = Math.max(0, visibleRows - visible.length);
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box flexDirection="column">
       {visible.map((line, i) => renderLine(line, `line-${start + i}`, contentWidth))}
       {Array.from({ length: missingRows }, (_, i) => renderLine([], `blank-${i}`, contentWidth))}
     </Box>

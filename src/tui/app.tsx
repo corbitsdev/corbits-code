@@ -751,6 +751,7 @@ export function App({
   const sendMessage = (message: string) => sendMessageRef.current(message);
 
   const requestStop = () => {
+    quotaAutoRetryFiredRef.current = true;
     sendAbortRef.current?.abort();
     onInterrupt?.();
     state.requestStop();
@@ -916,8 +917,8 @@ export function App({
   // Whole-session timer for the status bar. Held in state so /new can zero it.
   const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
   const sessionElapsedMs = useSessionClock(sessionStartedAt);
-  // Ambient rotating verb shown beside the steer hint while the agent runs.
-  const revolvingVerb = useRevolvingVerb(state.isProcessing);
+  // Ambient verb shown beside the steer hint while the agent runs.
+  const revolvingVerb = useRevolvingVerb(state.isProcessing, sendCounterRef.current);
 
   useKeymap(
     {
@@ -940,7 +941,10 @@ export function App({
       // "stopping" is deliberately excluded: a stop is already in flight, so the
       // next Ctrl+C / double-Esc should escalate to the exit path rather than
       // re-issuing a no-op stop and trapping the user while the run drains.
-      isRunning: state.status === "running" || state.status === "blocked",
+      isRunning:
+        state.status === "running"
+        || state.status === "blocked"
+        || state.quotaError !== null,
     },
     {
       clearInput: () => setInputValue(""),
@@ -1066,6 +1070,7 @@ export function App({
       refreshAuthState();
       const codexName = codexProfileFromProviderName(provider);
       const xaiName = xaiProfileFromProviderName(provider);
+      setAgentModalUsage(null);
       if (codexName !== undefined) {
         void fetchCodexUsage(codexName).then(
           (usage) => {
@@ -1200,6 +1205,7 @@ export function App({
         onDeleteAgentProfile={deleteProfile}
         usage={agentModalUsage ?? undefined}
         onRequestAgentUsage={(kind, profile) => {
+          setAgentModalUsage(null);
           if (kind === "codex") {
             void fetchCodexUsage(profile).then(
               (u) => { recordCodexUsage(u); setAgentModalUsage(formatCodexUsage(u)); },
@@ -1355,6 +1361,7 @@ export function App({
               sentHistoryBrowsing={sentHistoryBrowse.browseIndex !== null}
               model={model}
               rows={rows}
+              columns={columns}
               {...(reasoningEffort !== undefined ? { effort: reasoningEffort } : {})}
               {...(revolvingVerb !== undefined ? { verb: revolvingVerb } : {})}
             />

@@ -74,15 +74,16 @@ function toolRole(toolName: string): SemanticRole {
     case "write_file":
       return "success";
     case "edit_file":
-      return "accent";
+      return "success";
     case "read_file":
     case "search_files":
     case "grep":
     case "list_dir":
-      return "muted";
     case "web_search":
     case "web_fetch":
-      return "accent";
+      return "warning";
+    case "run_shell":
+      return "danger";
     default:
       return "accent";
   }
@@ -134,6 +135,10 @@ function shortenPath(p: string): string {
 }
 
 const PathArgSchema = type({ path: "string" });
+const GrepArgSchema = type({ pattern: "string", "path?": "string", "glob?": "string" });
+const SearchFilesArgSchema = type({ pattern: "string", "path?": "string" });
+const WebSearchArgSchema = type({ query: "string" });
+const WebFetchArgSchema = type({ url: "string" });
 const ShellArgSchema = type({ command: "string" });
 const TaskArgSchema = type({ "agent?": "string", "description?": "string" });
 const WebSearchResultSchema = type({ results: "unknown[]" });
@@ -215,6 +220,135 @@ function countLines(content: string): number {
   if (content.length === 0) return 0;
   const trimmed = content.endsWith("\n") ? content.slice(0, -1) : content;
   return trimmed.split("\n").length;
+}
+
+function lineCountLabel(n: number): string {
+  return n === 1 ? "1 line" : `${n} lines`;
+}
+
+function pathFromArgs(rawArgs: string): string | null {
+  const parsed = PathArgSchema(tryParseObject(rawArgs));
+  if (parsed instanceof type.errors) return null;
+  return shortenPath(parsed.path);
+}
+
+function grepMatchCount(content: string): number | null {
+  if (/^no matches for/.test(content)) return 0;
+  return countLines(content.replace(/\n\.\.\. \(.*shown\)$/, ""));
+}
+
+function searchFileCount(content: string): number | null {
+  if (/^no files matching/.test(content)) return 0;
+  return countLines(content.replace(/\n\.\.\. \(.*shown\)$/, ""));
+}
+
+/**
+ * One collapsed log line merging the tool action (args) and outcome (result).
+ */
+export function mergedToolCollapsedPreview(
+  toolName: string,
+  rawArgs: string,
+  rawResult: string,
+  isError: boolean,
+): string {
+  const argSummary = summarizeToolArgs(toolName, rawArgs).summary;
+  const { preview: outcomePreview } = summarizeToolResult(toolName, rawResult);
+
+  if (isError) {
+    const err = abbreviate(rawResult.split("\n").map((l) => l.trim()).filter(Boolean).join(" "), 72);
+    if (argSummary.length > 0) return `${humanizeToolName(toolName)} ${argSummary} — ${err}`;
+    return err.length > 0 ? err : "error";
+  }
+
+  if (toolName === "run_shell") {
+    const command = describeToolCall(toolName, rawArgs).summary;
+    if (outcomePreview === "(no output)") return command;
+    return `${command} → ${outcomePreview}`;
+  }
+
+  if (toolName === "read_file") {
+    const path = pathFromArgs(rawArgs);
+    const n = countLines(rawResult);
+    if (path) return `Read ${lineCountLabel(n)} of ${path}`;
+    return outcomePreview;
+  }
+
+  if (toolName === "write_file") {
+    const path = pathFromArgs(rawArgs) ?? pathFromResult(toolName, rawResult);
+    const bytes = rawResult.match(/wrote (\d+) bytes/);
+    if (path && bytes) return `Wrote ${bytes[1]} bytes to ${shortenPath(path)}`;
+    if (path) return `Wrote ${path}`;
+    return outcomePreview;
+  }
+
+  if (toolName === "edit_file") {
+    const path = pathFromArgs(rawArgs) ?? pathFromResult(toolName, rawResult);
+    const occ = rawResult.match(/replaced (\d+) occurrence/);
+    if (path && occ) return `Edited ${path} (${occ[1]} replacement${occ[1] === "1" ? "" : "s"})`;
+    if (path) return `Edited ${path}`;
+    return outcomePreview;
+  }
+
+  if (toolName === "grep") {
+    const parsed = GrepArgSchema(tryParseObject(rawArgs));
+    const scope =
+      !(parsed instanceof type.errors) && parsed.path !== undefined && parsed.path.length > 0
+        ? ` in ${shortenPath(parsed.path)}`
+        : argSummary.length > 0 && !argSummary.includes("pattern:")
+          ? ` in ${argSummary}`
+          : "";
+    const count = grepMatchCount(rawResult);
+    if (count === 0) return `Grep found no matches${scope}`;
+    if (count !== null) return `Found ${count} matches with Grep${scope}`;
+    return outcomePreview;
+  }
+
+  if (toolName === "search_files") {
+    const parsed = SearchFilesArgSchema(tryParseObject(rawArgs));
+    const pattern = !(parsed instanceof type.errors) ? parsed.pattern : null;
+    const count = searchFileCount(rawResult);
+    if (count === 0) return pattern ? `No files matched ${pattern}` : "No files matched";
+    if (count !== null && pattern) return `Found ${count} files matching ${pattern}`;
+    return outcomePreview;
+  }
+
+  if (toolName === "list_dir") {
+    const path = pathFromArgs(rawArgs);
+    const entries = countLines(rawResult.replace(/\n\.\.\. \(.*shown\)$/, ""));
+    if (path && entries > 0) return `Listed ${entries} entries in ${path}`;
+    if (path) return `Listed ${path}`;
+    return outcomePreview;
+  }
+
+  if (toolName === "web_search") {
+    const parsed = WebSearchArgSchema(tryParseObject(rawArgs));
+    const query = !(parsed instanceof type.errors) ? abbreviate(parsed.query, ARG_VALUE_MAX) : "";
+    if (query.length > 0 && outcomePreview.length > 0) return `${outcomePreview} for "${query}"`;
+    return outcomePreview;
+  }
+
+  if (toolName === "web_fetch") {
+    const parsed = WebFetchArgSchema(tryParseObject(rawArgs));
+    if (!(parsed instanceof type.errors)) {
+      const host = abbreviate(parsed.url.replace(/^https?:\/\//, ""), ARG_VALUE_MAX);
+      return `${outcomePreview} from ${host}`;
+    }
+    return outcomePreview;
+  }
+
+  if (isMcpToolName(toolName)) {
+    const label = humanizeToolName(toolName);
+    if (argSummary.length > 0) return `${label} ${argSummary} — ${outcomePreview}`;
+    return `${label} — ${outcomePreview}`;
+  }
+
+  if (argSummary.length > 0) {
+    const label = humanizeToolName(toolName);
+    if (outcomePreview === argSummary || outcomePreview.includes(argSummary)) return outcomePreview;
+    return `${label} ${argSummary} — ${outcomePreview}`;
+  }
+
+  return outcomePreview;
 }
 
 function pathFromResult(toolName: string, content: string): string | null {
@@ -316,7 +450,7 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
   switch (toolName) {
     case "read_file": {
       // read_file returns line-numbered content ("     1\t<line>").
-      preview = `Read ${countLines(content)} lines`;
+      preview = `Read ${lineCountLabel(countLines(content))}`;
       break;
     }
     case "write_file": {
