@@ -308,6 +308,7 @@ export function buildWorkflowSuggestionRules(): string {
     "Workflow invocation:",
     "- Never suggest, auto-start, or invoke workflows from ordinary user messages.",
     "- Workflows are slash-command only: run them only when the operator manually enters the corresponding slash command.",
+    "- When a [WORKFLOW STEP …] block is present in your instructions, the operator already started that workflow via slash command. Execute the current step; do not ask them to run the slash command again.",
     "- Do not call suggest_workflow; leave workflow choice to the operator.",
   ].join("\n");
 }

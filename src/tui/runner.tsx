@@ -34,7 +34,8 @@ import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
-import { registerCommandPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
+import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
+import { formatSkillDirective, resolveSkillBody } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
@@ -125,7 +126,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
   ]);
   // Command plugins are wired in only when explicitly enabled in settings.
-  registerCommandPlugins(pluginModules, config.settings?.plugins ?? {});
+  const pluginConfig = config.settings?.plugins ?? {};
+  registerWorkflowPlugins(pluginModules, pluginConfig);
+  registerCommandPlugins(pluginModules, pluginConfig);
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
   // Seed reasoning capabilities from the cached models.dev metadata so the
   // /agent effort selector can gate non-reasoning models immediately, then
@@ -919,6 +922,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         liveSubAgentProvider.current = provider;
       }}
       onStartWorkflow={(name) => workflowController.start(name)}
+      onInjectSkill={async (ref) => {
+        const dirs = pluginModules
+          .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
+          .map((m) => m.dir!);
+        const body = await resolveSkillBody(config.cwd, ref, dirs);
+        if (body === undefined) return;
+        directorHolder.instance?.setPendingSkillDirective(formatSkillDirective(ref, body));
+      }}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       initialWorkflowStatus={workflowController.status()}
       mouseEvents={mouseEvents}

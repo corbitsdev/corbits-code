@@ -7,7 +7,7 @@ import { type } from "arktype";
 // profiles (tier, capabilities, system prompt). `credentials` declares what the
 // /plugins UI must collect before the plugin can run (stored in the global
 // settings). Every installable plugin must declare a manifest to be wired in.
-export type PluginKind = "web" | "command" | "tool" | "agent";
+export type PluginKind = "web" | "command" | "tool" | "agent" | "workflow";
 
 export type PluginCredentialField = {
   key: string;
@@ -36,7 +36,7 @@ const PluginCredentialFieldSchema = type({
 export const PluginManifestSchema = type({
   id: "string>0",
   name: "string>0",
-  kind: "'web' | 'command' | 'tool' | 'agent'",
+  kind: "'web' | 'command' | 'tool' | 'agent' | 'workflow'",
   "description?": "string",
   "credentials?": PluginCredentialFieldSchema.array(),
 });

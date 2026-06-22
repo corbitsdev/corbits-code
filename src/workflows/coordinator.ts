@@ -45,7 +45,12 @@ export class WorkflowCoordinator {
     if (step === null) return null;
     const view = this.runtime.view();
     const ordinal = view !== null ? `${view.stepIndex + 1}/${view.total}` : "?";
-    const lines = [`[WORKFLOW STEP ${ordinal}: ${step.label}]`, ""];
+    const lines = [
+      `[WORKFLOW STEP ${ordinal}: ${step.label}]`,
+      "",
+      "The operator started this workflow via slash command; it is already running. Execute this step now.",
+      "",
+    ];
     if (step.prompt !== undefined) lines.push(step.prompt, "");
     for (const guidance of guidanceFor(step)) lines.push(guidance);
     if (this.stepThrough && step.type !== "gate") {

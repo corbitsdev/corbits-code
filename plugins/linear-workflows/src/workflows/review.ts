@@ -1,4 +1,4 @@
-import type { Workflow } from "./types.js";
+import type { Workflow } from "../../../../src/workflows/definition.js";
 
 // Multi-agent review cycle. Always runs greybeard, CTO, and critic reviewers.
 // Detects UI changes and adds draper/cmo reviewers automatically when relevant.

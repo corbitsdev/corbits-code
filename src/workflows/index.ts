@@ -1,15 +1,13 @@
-import { plugin as defaultPlugin } from "@intercode/default-workflows";
 import { isValidWorkflowName, type Workflow, type WorkflowPlugin } from "./types.js";
 
-// Mutable registry, seeded with the default plugin at module load. All callers
-// read from this array at call time.
+// Mutable registry populated by enabled workflow plugins at startup.
 export const WORKFLOWS: Workflow[] = [];
 
 export function findWorkflow(name: string): Workflow | undefined {
   return WORKFLOWS.find((workflow) => workflow.name === name);
 }
 
-function registerWorkflowPlugin(plugin: WorkflowPlugin): void {
+export function registerWorkflowPlugin(plugin: WorkflowPlugin): void {
   for (const workflow of plugin.workflows) {
     if (!isValidWorkflowName(workflow.name)) {
       throw new Error(
@@ -25,9 +23,9 @@ function registerWorkflowPlugin(plugin: WorkflowPlugin): void {
   }
 }
 
-// Register the default plugin at module load so the registry is populated for
-// every caller. Third-party workflows now arrive as discovered command plugins
-// (see docs/PLUGINS.md), not via a settings specifier list.
-registerWorkflowPlugin(defaultPlugin);
+/** @internal test helper */
+export function clearWorkflowRegistryForTests(): void {
+  WORKFLOWS.length = 0;
+}
 
 export type { Workflow, WorkflowStep, CapabilityName } from "./types.js";

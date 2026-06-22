@@ -1,4 +1,4 @@
-import type { Workflow } from "./types.js";
+import type { Workflow } from "../../../../src/workflows/definition.js";
 
 // Full implementation workflow: fetch context, implement, document, review,
 // update the ticket, and gate on human approval. Each phase is a self-contained
@@ -35,8 +35,11 @@ export const build = {
     {
       id: "document",
       label: "Update docs",
-      workflow: "scribe",
+      skill: "gaas:scribe",
       optional: true,
+      prompt:
+        "If the implementation changes how the product, architecture, or implementation should be documented, " +
+        "follow the scribe skill for the affected areas. Otherwise call advance_workflow to skip.",
     },
     {
       id: "review",
