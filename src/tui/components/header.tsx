@@ -10,13 +10,10 @@ export type HeaderWorkflow = {
 };
 
 export type HeaderProps = {
-  sessionTitle: string;
   latestUserMessage: string;
   width: number;
   profile?: string;
   workflow?: HeaderWorkflow;
-  // Codex plan usage (e.g. "50% used") — shown only for prepaid Codex accounts.
-  usage?: string | undefined;
 };
 
 function truncate(s: string, max: number): string {
@@ -24,21 +21,13 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-// The header carries session context (profile, session title, latest request)
-// on the left and live telemetry (plan usage) on the right. The product name
-// lives in the status bar so the top line stays clear for user content.
-export function Header({ sessionTitle, latestUserMessage, width, profile, workflow, usage }: HeaderProps): ReactNode {
+export function Header({ latestUserMessage, width, profile, workflow }: HeaderProps): ReactNode {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
         <Box flexDirection="row" gap={1} flexWrap="wrap" flexGrow={1}>
           {profile !== undefined && (
             <Text color={color("muted")} dimColor>[{profile}]</Text>
-          )}
-          {sessionTitle.length > 0 && (
-            <Box>
-              <Text color={color("muted")} dimColor>— {truncate(sessionTitle, Math.max(12, Math.floor(width * 0.3)))}</Text>
-            </Box>
           )}
           {workflow !== undefined && (
             <Box>
@@ -48,11 +37,6 @@ export function Header({ sessionTitle, latestUserMessage, width, profile, workfl
             </Box>
           )}
         </Box>
-        {usage !== undefined && (
-          <Box flexShrink={0}>
-            <Text color={color("warning")}>{usage}</Text>
-          </Box>
-        )}
       </Box>
       {latestUserMessage.length > 0 && (
         <Text color={color("muted")} dimColor>▸ {truncate(latestUserMessage, Math.max(20, width - 4))}</Text>
