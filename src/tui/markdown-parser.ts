@@ -13,6 +13,7 @@ export type StyledSegment = {
   rule?: boolean;
   color?: string;
   dim?: boolean;
+  backgroundColor?: string;
 };
 
 function parseSegments(text: string): StyledSegment[] {

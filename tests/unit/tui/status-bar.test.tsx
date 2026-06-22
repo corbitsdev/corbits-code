@@ -1,60 +1,45 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
 import { StatusBar } from "../../../src/tui/components/status-bar.js";
-import type { StatusBarProps } from "../../../src/tui/components/status-bar.js";
 
-function renderBar(props: Partial<StatusBarProps> = {}) {
+function renderBar(props: { sessionElapsedMs?: number; mcpCount?: number } = {}) {
   return render(
     <StatusBar
-      model={props.model ?? "test-model"}
-      status={props.status ?? "running"}
-      {...(props.reasoningEffort !== undefined ? { reasoningEffort: props.reasoningEffort } : {})}
-      {...(props.agentMode !== undefined ? { agentMode: props.agentMode } : {})}
+      sessionElapsedMs={props.sessionElapsedMs ?? 0}
+      mcpCount={props.mcpCount ?? 0}
     />,
   );
 }
 
-test("StatusBar renders the model name", () => {
-  const { lastFrame } = renderBar({ model: "test-model" });
-  expect(lastFrame()).toContain("test-model");
-});
-
-test("StatusBar renders the product name (moved from the header)", () => {
+test("StatusBar renders the product name on the left", () => {
   const { lastFrame } = renderBar();
-  expect(lastFrame()).toContain("Intercode");
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Intercode");
+  // Brand is the first non-whitespace content — left-aligned.
+  expect(frame.trimStart().startsWith("Intercode")).toBe(true);
 });
 
-test("StatusBar does not render the keyboard hint row", () => {
-  const { lastFrame } = renderBar();
-  expect(lastFrame()).not.toContain("Ctrl+C");
+test("StatusBar shows the session elapsed time beside the brand", () => {
+  const { lastFrame } = renderBar({ sessionElapsedMs: 65_000 });
+  expect(lastFrame()).toContain("1m 5s");
 });
 
-test("StatusBar hides the running status label", () => {
-  const { lastFrame } = renderBar({ status: "running" });
-  expect(lastFrame()).not.toContain("Running");
+test("StatusBar shows MCP health on the right when servers are connected", () => {
+  const { lastFrame } = renderBar({ mcpCount: 3 });
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("MCP ✓ 3");
+  expect(frame.indexOf("Intercode")).toBeLessThan(frame.indexOf("MCP"));
 });
 
-test("StatusBar renders the blocked status label", () => {
-  const { lastFrame } = renderBar({ status: "blocked" });
-  expect(lastFrame()).toContain("Blocked");
+test("StatusBar hides MCP when none are connected", () => {
+  const { lastFrame } = renderBar({ mcpCount: 0 });
+  expect(lastFrame()).not.toContain("MCP");
 });
 
 test("StatusBar does not render token counts or cost", () => {
   const { lastFrame } = renderBar();
-  expect(lastFrame()).not.toContain("↑");
-  expect(lastFrame()).not.toContain("↓");
-  expect(lastFrame()).not.toContain("$");
-});
-
-test("StatusBar renders reasoning effort without dot separators", () => {
-  const { lastFrame } = renderBar({ reasoningEffort: "high" });
-  expect(lastFrame()).toContain("high");
-  expect(lastFrame()).not.toContain("· high");
-  expect(lastFrame()).not.toContain("|");
-});
-
-test("StatusBar hides effort when unset", () => {
-  const { lastFrame } = renderBar();
-  expect(lastFrame()).not.toContain("HIGH");
-  expect(lastFrame()).not.toContain("high");
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("↑");
+  expect(frame).not.toContain("↓");
+  expect(frame).not.toContain("$");
 });

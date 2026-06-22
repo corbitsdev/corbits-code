@@ -111,15 +111,22 @@ function stringifyToolArguments(args: unknown): string {
   }
 }
 
+// A sub-agent is a worker, so one without a named profile is still labeled —
+// "worker" — so the activity row always reads like a named crew member rather
+// than a bare task description.
+const DEFAULT_AGENT_NAME = "worker";
+
 function parseTaskToolTitle(rawArgs: string): string {
   try {
     const parsed = JSON.parse(rawArgs) as { description?: unknown; agent?: unknown };
     const description = typeof parsed.description === "string" ? parsed.description.trim() : "";
-    const agent = typeof parsed.agent === "string" ? parsed.agent.trim() : "";
-    if (description.length === 0) return agent.length > 0 ? agent : "Sub-agent";
-    return agent.length > 0 ? `${agent}: ${description}` : description;
+    const agent = typeof parsed.agent === "string" && parsed.agent.trim().length > 0
+      ? parsed.agent.trim()
+      : DEFAULT_AGENT_NAME;
+    if (description.length === 0) return agent;
+    return `${agent}: ${description}`;
   } catch {
-    return "Sub-agent";
+    return DEFAULT_AGENT_NAME;
   }
 }
 

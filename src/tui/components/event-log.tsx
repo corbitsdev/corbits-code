@@ -17,11 +17,21 @@ export type EventLogProps = {
   lines: StyledLine[];
   scrollOffset: number;
   visibleRows: number;
+  width: number;
 };
 
 const LINE_PADDING = 2;
 const SHELL_PREFIX = "$ ";
 const USER_CODE_BLOCK_LINE_LIMIT = 12;
+// Tool calls and results sit one level below assistant prose so the model's
+// text draws the eye and tools read as subordinate actions.
+const TOOL_INDENT = 2;
+
+function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
+  if (spaces <= 0) return lines;
+  const pad: StyledSegment = { text: " ".repeat(spaces) };
+  return lines.map((line) => [pad, ...line]);
+}
 
 export function isRenderable(block: ContentBlock): block is RenderableBlock {
   return block.type !== "reply" && block.type !== "tasks";
@@ -38,6 +48,7 @@ type RenderProps = {
   strikethrough?: boolean;
   color?: string;
   dimColor?: boolean;
+  backgroundColor?: string;
 };
 
 function segmentProps(seg: StyledSegment): RenderProps {
@@ -66,17 +77,18 @@ function segmentProps(seg: StyledSegment): RenderProps {
   // colours so the one render path serves both markdown and the view spec.
   if (seg.color !== undefined) props.color = seg.color;
   if (seg.dim) props.dimColor = true;
+  if (seg.backgroundColor !== undefined) props.backgroundColor = seg.backgroundColor;
   return props;
 }
 
-function renderLine(line: StyledLine, key: string): ReactNode {
+function renderLine(line: StyledLine, key: string, width: number): ReactNode {
   const text = line.map((s) => s.text).join("");
-  if (text.length === 0) {
-    return <Text key={key}> </Text>;
-  }
+  const pad = Math.max(0, width - text.length);
+  const paddedLine = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
+
   return (
     <Text key={key}>
-      {line.map((seg, i) => (
+      {paddedLine.map((seg, i) => (
         <Text key={`${key}-${i}`} {...segmentProps(seg)}>
           {seg.text}
         </Text>
@@ -202,7 +214,60 @@ function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }
   return plainLines(preview, { color: color("muted"), dim: true }, width);
 }
 
-function blockToLines(block: RenderableBlock, columns: number, expanded: boolean, thinkingExpanded: boolean): StyledLine[] {
+export type PlanContext = {
+  currentStep: number | null;
+  deviated: boolean;
+};
+
+function planStepLines(
+  block: Extract<RenderableBlock, { type: "plan" }>,
+  width: number,
+  ctx: PlanContext | undefined,
+): StyledLine[] {
+  const currentStep = ctx?.currentStep ?? null;
+  const deviated = ctx?.deviated ?? false;
+
+  const lines: StyledLine[] = [];
+  block.steps.forEach((step, i) => {
+    const isDone = currentStep !== null && i < currentStep;
+    const isActive = currentStep !== null && i === currentStep;
+    const isCancelled = deviated && currentStep !== null && i >= currentStep && !isActive;
+
+    const text = `${step.action} ${step.file}`.trim();
+
+    if (isDone) {
+      lines.push([
+        { text: "✓ ", color: color("success") },
+        { text, color: color("muted"), strikethrough: true, dim: true },
+      ]);
+    } else if (isActive) {
+      lines.push([
+        { text: "◯ ", color: color("text") },
+        { text, color: color("text"), bold: true },
+      ]);
+    } else if (isCancelled) {
+      lines.push([
+        { text: "✗ ", color: color("danger") },
+        { text: "cancelled", color: color("danger") },
+        { text: ` ${text}`, color: color("dim"), dim: true },
+      ]);
+    } else {
+      lines.push([
+        { text: "○ ", color: color("muted"), dim: true },
+        { text, color: color("muted"), dim: true },
+      ]);
+    }
+  });
+  return lines;
+}
+
+function blockToLines(
+  block: RenderableBlock,
+  columns: number,
+  expanded: boolean,
+  thinkingExpanded: boolean,
+  planCtx?: PlanContext,
+): StyledLine[] {
   const width = Math.max(8, columns - LINE_PADDING);
 
   switch (block.type) {
@@ -219,25 +284,39 @@ function blockToLines(block: RenderableBlock, columns: number, expanded: boolean
         ...prefixedLines,
       ];
     }
-    case "user":
-      return plainLines(
-        compactUserCodeBlocks(block.content)
-          .split("\n")
-          .map((line, i) => (i === 0 ? "> " : "") + line)
-          .join("\n"),
-        { color: color("success") },
+    case "user": {
+      const bg = color("surface");
+      const userLines = plainLines(
+        compactUserCodeBlocks(block.content),
+        { color: color("text"), backgroundColor: bg },
         width,
       );
-    case "text":
-      return markdownLines(block.content, width);
+      // Pad every line to the full content width so the background reads as a
+      // solid block rather than a ragged strip.
+      return userLines.map((line) => {
+        const textLen = line.reduce((n, s) => n + s.text.length, 0);
+        const pad = Math.max(0, width - textLen);
+        return [...line, { text: " ".repeat(pad), backgroundColor: bg }];
+      });
+    }
+    case "text": {
+      const textLines = markdownLines(block.content, width);
+      // Leading icon so assistant text is visually distinct from user messages
+      // at a glance.
+      if (textLines.length === 0) return textLines;
+      textLines[0] = [{ text: "◆ ", color: color("accent") }, ...(textLines[0] ?? [])];
+      return textLines;
+    }
     case "tool_call":
-      return toolCallLines(block, width, expanded);
+      return indentLines(toolCallLines(block, width - TOOL_INDENT, expanded), TOOL_INDENT);
     case "tool_result":
-      return toolResultLines(block, columns, width, expanded);
+      return indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
     case "view":
       return viewToLines(block.node, columns);
     case "error":
       return plainLines(block.message, { color: color("danger") }, width);
+    case "plan":
+      return planStepLines(block, width, planCtx);
     default:
       return [];
   }
@@ -249,6 +328,7 @@ export function buildLines(
   thinkingExpanded: boolean,
   isExpanded: (block: RenderableBlock) => boolean,
   cache?: Map<string, StyledLine[]>,
+  planCtx?: PlanContext,
 ): StyledLine[] {
   const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
   if (cache !== undefined) {
@@ -265,8 +345,10 @@ export function buildLines(
     if (startsTurn && lines.length > 0) lines.push([]);
 
     const expanded = isExpanded(block);
+    // Plan blocks re-render as currentStep advances; always recompute them so
+    // the cache (keyed only on block id + expanded) never serves a stale status.
     // Last block is always recomputed — it may still be receiving tokens.
-    const isStreaming = i === lastIdx;
+    const isStreaming = i === lastIdx || block.type === "plan";
     let blockLines: StyledLine[];
 
     if (cache !== undefined && !isStreaming) {
@@ -275,11 +357,11 @@ export function buildLines(
       if (cached !== undefined) {
         blockLines = cached;
       } else {
-        blockLines = blockToLines(block, columns, expanded, thinkingExpanded);
+        blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx);
         cache.set(key, blockLines);
       }
     } else {
-      blockLines = blockToLines(block, columns, expanded, thinkingExpanded);
+      blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx);
     }
     lines.push(...blockLines);
   }
@@ -300,16 +382,17 @@ export function EventLog({
   lines,
   scrollOffset,
   visibleRows,
+  width,
 }: EventLogProps): ReactNode {
-  if (lines.length === 0) {
-    return <Box paddingX={1} />;
-  }
-
+  const contentWidth = Math.max(1, width - LINE_PADDING);
   const { start, end } = lineWindow(lines, scrollOffset, visibleRows);
+  const visible = lines.slice(start, end);
+  const missingRows = Math.max(0, visibleRows - visible.length);
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      {lines.slice(start, end).map((line, i) => renderLine(line, `line-${start + i}`))}
+      {visible.map((line, i) => renderLine(line, `line-${start + i}`, contentWidth))}
+      {Array.from({ length: missingRows }, (_, i) => renderLine([], `blank-${i}`, contentWidth))}
     </Box>
   );
 }

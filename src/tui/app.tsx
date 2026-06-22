@@ -38,6 +38,8 @@ import {
 import { getLogger } from "@intx/log";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
+import { useSessionClock } from "./hooks/use-session-clock.js";
+import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
@@ -285,6 +287,7 @@ export type AppProps = {
   // The original settings from disk, used to preserve non-provider fields
   // when the provider catalog is persisted.
   initialSettings?: Settings;
+  initialTiers?: Partial<Record<import("../config/settings.js").ProviderTier, import("../config/settings.js").TierConfig>>;
   onChangeCompactionMode?: (mode: CompactionMode) => Promise<void>;
   onChangeMaxConcurrentSubAgents?: (limit: number) => Promise<void>;
   // The `onboarded` flag read from the GLOBAL settings file specifically (never
@@ -298,6 +301,9 @@ export type AppProps = {
   // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
   // from stdin before they reach useInput (see createFilteredStdin).
   mouseEvents?: EventEmitter;
+  // Wall-clock ms timestamp the session started. Drives the whole-session timer
+  // in the status bar; reset on /new.
+  sessionStartedAt?: number;
 };
 
 export function App({
@@ -334,11 +340,13 @@ export function App({
   initialProfiles = [],
   profilesDir,
   initialSettings,
+  initialTiers,
   onChangeCompactionMode,
   onChangeMaxConcurrentSubAgents,
   globallyOnboarded = false,
   globalOnboardingPath,
   mouseEvents,
+  sessionStartedAt: sessionStartedAtProp,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -452,11 +460,32 @@ export function App({
     ...(initialSettings !== undefined ? { initialSettings } : {}),
     cwd,
     globalSettingsPath,
+    getSessionId: () => getSessionId?.() ?? "session",
     agent,
     onMessage: setCommandMessage,
+    ...(initialTiers !== undefined ? { initialTiers } : {}),
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
   });
-  const { provider, model, reasoningEffort, providerCatalog, applySelection, persistSelection, upsertProvider, deleteProvider, tiers, saveTierAssignment, registerCodexProvider, registerXaiProvider, removeCodexProvider, removeXaiProvider } = providerManager;
+  const {
+    provider,
+    model,
+    reasoningEffort,
+    providerCatalog,
+    applySelection,
+    persistSelection,
+    upsertProvider,
+    deleteProvider,
+    tiers,
+    saveTierAssignment,
+    cycleTierMode,
+    clearTier,
+    removeTierLegAt,
+    moveTierLegAt,
+    registerCodexProvider,
+    registerXaiProvider,
+    removeCodexProvider,
+    removeXaiProvider,
+  } = providerManager;
   // Safe to mutate during render: the ref is only read later by the faremeter's
   // pricing resolver at usage-event time, never during this render pass.
   modelRef.current = model;
@@ -668,10 +697,11 @@ export function App({
       thinkingExpanded,
       (block) => verbose || expandedTools.has(block.id),
       lineCacheRef.current,
+      { currentStep: state.currentPlanStep, deviated: state.planDeviated },
     ),
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools],
+    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
@@ -768,6 +798,7 @@ export function App({
     setQueuedCount(0);
     setWorkflowHistory([]);
     setInputValue("");
+    setSessionStartedAt(Date.now());
     onNewSession?.();
     if (getSessionId !== undefined) {
       void loadSentMessages(cwd, getSessionId()).then((sent) => {
@@ -905,6 +936,12 @@ export function App({
     if (awaitingResponse) return "Working…";
     return "Working…";
   })();
+
+  // Whole-session timer for the status bar. Held in state so /new can zero it.
+  const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
+  const sessionElapsedMs = useSessionClock(sessionStartedAt);
+  // Ambient rotating verb shown beside the steer hint while the agent runs.
+  const revolvingVerb = useRevolvingVerb(state.isProcessing);
 
   useKeymap(
     {
@@ -1158,6 +1195,7 @@ export function App({
               lines={eventLogLines}
               scrollOffset={scroll.scrollOffset}
               visibleRows={visibleRows}
+              width={leftWidth}
             />
           </Box>
         )}
@@ -1179,6 +1217,10 @@ export function App({
         onCloseAgentModal={() => setAgentModalOpen(false)}
         agentTiers={tiers}
         onSaveTier={saveTierAssignment}
+        onCycleTierMode={cycleTierMode}
+        onClearTier={clearTier}
+        onRemoveTierLeg={removeTierLegAt}
+        onMoveTierLeg={moveTierLegAt}
         agentProfiles={profiles}
         onSaveAgentProfile={saveProfile}
         onDeleteAgentProfile={deleteProfile}
@@ -1336,18 +1378,21 @@ export function App({
                 if (sentHistoryBrowse.browseIndex === null) return;
                 setSentHistoryBrowse(sentHistoryOnEdit(sentHistoryBrowse));
               }}
+              sentHistoryBrowsing={sentHistoryBrowse.browseIndex !== null}
+              model={model}
+              rows={rows}
+              {...(reasoningEffort !== undefined ? { effort: reasoningEffort } : {})}
+              {...(revolvingVerb !== undefined ? { verb: revolvingVerb } : {})}
             />
           )}
-          {state.subAgents.length > 0 && (
+          {state.subAgents.some((a) => a.status !== "done") && (
             <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={state.subAgents} title="Agents" />
+              <TaskView tasks={state.subAgents.filter((a) => a.status !== "done")} title="Agents" />
             </Box>
           )}
         <StatusBar
-          model={model}
-          status={state.status}
-          reasoningEffort={reasoningEffort}
-          cwd={cwd}
+          sessionElapsedMs={sessionElapsedMs}
+          mcpCount={mcpStatus.connected.length}
         />
         </Box>
       )}

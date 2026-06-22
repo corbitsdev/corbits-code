@@ -26,7 +26,9 @@ import type { PermissionGate } from "../permission/gate.js";
 import { connectMCPServer } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
-import type { MCPServerConfig } from "../config/settings.js";
+import type { MCPServerConfig, Settings } from "../config/settings.js";
+import type { ProviderCatalogEntry } from "../config/index.js";
+import type { AgentProfile } from "./profiles.js";
 import { createTaskTool, type SubAgentProvider } from "../subagent/index.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
@@ -66,6 +68,9 @@ export type AgentToolsetArgs = {
     provider: SubAgentProvider | (() => SubAgentProvider);
     getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
+    settings?: Settings | (() => Settings | undefined);
+    catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+    profiles?: AgentProfile[] | (() => AgentProfile[]);
   };
 };
 
@@ -129,6 +134,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             getWorkdirBase: args.subAgent.getWorkdirBase,
             provider: args.subAgent.provider,
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
+            ...(args.subAgent.settings !== undefined ? { settings: args.subAgent.settings } : {}),
+            ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
+            ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
           }),
         ]
       : []),

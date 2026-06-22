@@ -24,7 +24,7 @@ const FIELD_LABELS: Record<Field, string> = {
 const FIELD_HINTS: Record<Field, string> = {
   name: "openai, anthropic, fireworks, ...",
   baseURL: "https://api.openai.com/v1",
-  apiKey: "sk-...",
+  apiKey: "sk-... (blank for keyless/local)",
   model: "gpt-4o",
 };
 
@@ -54,7 +54,8 @@ export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): React
   const val = values[currentField];
 
   const advance = (): void => {
-    if (val.trim().length === 0) return;
+    // apiKey is optional — blank means a keyless local provider (e.g. Ollama).
+    if (currentField !== "apiKey" && val.trim().length === 0) return;
 
     if (fieldIndex < FIELDS.length - 1) {
       setFieldIndex((i) => i + 1);
@@ -212,11 +213,14 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
       onSubmit={async (values) => {
         const { name, baseURL, apiKey, model } = values;
         const providerName = name.trim();
+        const trimmedKey = apiKey.trim();
         const newProvider = {
           baseURL: baseURL.trim(),
-          apiKey: apiKey.trim(),
           models: [model.trim()],
           defaultModel: model.trim(),
+          ...(trimmedKey.length > 0
+            ? { apiKey: trimmedKey }
+            : { keyless: true }),
         };
         // Merge new provider with any pre-existing ones. Single write — the TUI
         // stays open (spinner) until saveGlobalSettings resolves, so the user

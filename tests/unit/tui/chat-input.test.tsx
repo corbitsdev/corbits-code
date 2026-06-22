@@ -205,3 +205,48 @@ test("cursor stays mid-string across successive edits", async () => {
   await press("Y");
   expect(current).toBe("aXYbc");
 });
+
+test("ChatInput caps the box at 40vh and scrolls internally", () => {
+  // rows=10 -> 40vh = 4 visible lines. Six lines exceed the cap.
+  const value = Array.from({ length: 6 }, (_, i) => `line${i}`).join("\n");
+  const { lastFrame } = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value={value}
+      onChange={() => {}}
+      rows={10}
+    />,
+  );
+  const frame = lastFrame() ?? "";
+  // The first line is scrolled out of view; the cursor sits on the last line.
+  expect(frame).not.toContain("line0");
+  expect(frame).toContain("line5");
+  // An edge indicator marks that content exists above the window.
+  expect(frame).toContain("↑");
+});
+
+test("ChatInput action bar shows the verb beside the steer hint and the model on the right", () => {
+  const { lastFrame } = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value="follow up"
+      onChange={() => {}}
+      isProcessing={true}
+      queuedCount={1}
+      verb="thinking"
+      model="gpt-5"
+      effort="high"
+    />,
+  );
+  const frame = lastFrame() ?? "";
+  // Verb prefixes the steer hint on the left; model · effort on the right,
+  // both above the prompt box on the same baseline.
+  expect(frame).toContain("thinking · 1 queued · Enter steer · Alt+Enter queue");
+  expect(frame).toContain("gpt-5 · high");
+  expect(frame.indexOf("thinking")).toBeLessThan(frame.indexOf("> follow up"));
+  expect(frame.indexOf("gpt-5 · high")).toBeLessThan(frame.indexOf("> follow up"));
+});
