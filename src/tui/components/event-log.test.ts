@@ -121,6 +121,29 @@ describe("flat line buffer", () => {
     expect(text).not.toContain("\u001B");
   });
 
+  test("cached assistant output rewraps when the terminal width changes", () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: "text",
+        id: "assistant-long",
+        content: "This assistant response should wrap across several rows at a narrow width but collapse when the viewport grows wider.",
+      },
+      {
+        type: "tool_call",
+        id: "keep-first-block-cacheable",
+        name: "read_file",
+        arguments: JSON.stringify({ path: "package.json" }),
+      },
+    ];
+    const cache = new Map<string, ReturnType<typeof buildLines>>();
+
+    const narrow = lineText(buildLines(blocks, 28, false, isExpanded, cache));
+    const wide = lineText(buildLines(blocks, 100, false, isExpanded, cache));
+
+    expect(wide.length).toBeLessThan(narrow.length);
+    expect(wide.join("\n")).toContain("viewport grows wider");
+  });
+
   const planBlock: ContentBlock = {
     type: "plan",
     id: "plan-1",

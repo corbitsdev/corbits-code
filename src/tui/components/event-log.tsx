@@ -32,6 +32,16 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   return lines.map((line) => [pad, ...line]);
 }
 
+const CACHE_KEY_SEPARATOR = "\x1f";
+
+function blockCacheKey(block: RenderableBlock, columns: number, expanded: boolean): string {
+  return [block.id, String(columns), expanded ? "1" : "0"].join(CACHE_KEY_SEPARATOR);
+}
+
+function blockIdFromCacheKey(key: string): string {
+  return key.split(CACHE_KEY_SEPARATOR, 1)[0] ?? key;
+}
+
 export function isRenderable(block: ContentBlock): block is RenderableBlock {
   return block.type !== "reply" && block.type !== "tasks";
 }
@@ -372,7 +382,7 @@ export function buildLines(
   if (cache !== undefined) {
     const activeIds = new Set(blocks.map((b) => b.id));
     for (const key of cache.keys()) {
-      if (!activeIds.has(key.slice(0, key.lastIndexOf(":")))) cache.delete(key);
+      if (!activeIds.has(blockIdFromCacheKey(key))) cache.delete(key);
     }
   }
   const lines: StyledLine[] = [];
@@ -401,13 +411,13 @@ export function buildLines(
 
     const expanded = isExpanded(block);
     // Plan blocks re-render as currentStep advances; always recompute them so
-    // the cache (keyed only on block id + expanded) never serves a stale status.
+    // the cache never serves a stale status.
     // Last block is always recomputed — it may still be receiving tokens.
     const isStreaming = i === lastIdx || block.type === "plan";
     let blockLines: StyledLine[];
 
     if (cache !== undefined && !isStreaming) {
-      const key = `${block.id}:${expanded ? "1" : "0"}`;
+      const key = blockCacheKey(block, columns, expanded);
       const cached = cache.get(key);
       if (cached !== undefined) {
         blockLines = cached;

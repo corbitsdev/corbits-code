@@ -50,7 +50,6 @@ import { resolveTier } from "../config/settings.js";
 // tools, at which point its final assistant text is the result handed back to
 // the dispatcher. It has no submit_output and never blocks on the
 // operator — autonomy is the whole point of delegation.
-const SUBAGENT_DEFAULT_MAX_TURNS = 25;
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -63,12 +62,8 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
 }
 
 class SubAgentDirector extends DefaultDirector {
-  private turns = 0;
-  private readonly maxTurns: number;
-
-  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], maxTurns: number) {
+  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[]) {
     super(systemPrompt, toolDefinitions, {});
-    this.maxTurns = maxTurns;
   }
 
   override async decide(
@@ -77,20 +72,11 @@ class SubAgentDirector extends DefaultDirector {
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
     if (event.type === "inference.done") {
-      this.turns++;
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
       if (!hasToolCalls) {
         return [
           capabilities.checkpoint("subagent-complete"),
           capabilities.reply(lastText(event.turn.content)),
-        ];
-      }
-      if (this.turns >= this.maxTurns) {
-        return [
-          capabilities.checkpoint("subagent-max-turns"),
-          capabilities.reply(
-            `Sub-agent stopped after reaching its ${this.maxTurns}-turn limit. Partial progress may have landed in the working tree.`,
-          ),
         ];
       }
     }
@@ -119,7 +105,6 @@ export type RunSubAgentParams = {
   description: string;
   context?: string;
   prompt: string;
-  maxTurns?: number;
   signal?: AbortSignal;
   onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
   capabilities?: CapabilityFilter;
@@ -144,7 +129,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 }
 
 async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
-  const maxTurns = params.maxTurns ?? SUBAGENT_DEFAULT_MAX_TURNS;
   const posixTools = createPosixTools({
     cwd: params.cwd,
     plugins: [
@@ -174,7 +158,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     id: "intercode/subagent",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
-      new SubAgentDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], maxTurns),
+      new SubAgentDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions]),
   });
 
   const toolsFactory = defineTool({
@@ -317,7 +301,6 @@ export type TaskToolDeps = {
   // spawned after the change, not just the value captured at startup. A plain
   // value is also accepted for callers with no live switching.
   provider: SubAgentProvider | (() => SubAgentProvider);
-  maxTurns?: number;
   // Injectable for tests; defaults to the real runSubAgent.
   run?: (params: RunSubAgentParams) => Promise<string>;
   onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
@@ -394,7 +377,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,
           signal,
-          ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
           ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
           ...(capabilities !== undefined ? { capabilities } : {}),
           ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
