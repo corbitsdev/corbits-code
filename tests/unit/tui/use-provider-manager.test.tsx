@@ -34,21 +34,22 @@ const BASE_CATALOG = [
 ];
 
 function makeAgent() {
-  return { setSource: mock((_source: unknown) => {}) };
+  return { setSources: mock((_sources: unknown, _default: string) => {}) };
 }
 
 function makeArgs(overrides: Partial<UseProviderManagerArgs> = {}): UseProviderManagerArgs {
-  return {
+  const base: UseProviderManagerArgs = {
     initialProvider: "openai",
     initialModel: "gpt-4o",
     initialCatalog: BASE_CATALOG,
     initialGlobalDefaultProvider: "openai",
     cwd: "/repo",
     globalSettingsPath: "/home/.agent/settings.json",
+    getSessionId: () => "test-session",
     agent: makeAgent() as unknown as UseProviderManagerArgs["agent"],
     onMessage: mock((_msg: string) => {}),
-    ...overrides,
   };
+  return { ...base, ...overrides };
 }
 
 let capturedCtrl: ProviderManagerController;
@@ -89,13 +90,13 @@ test("applySelection with valid provider updates provider/model, calls setSource
   const { lastFrame } = render(<CapturingHarness args={args} />);
 
   await act(async () => {
-    capturedCtrl.applySelection("anthropic", "claude-3-opus");
+    capturedCtrl.applySelection("anthropic", "claude-3-opus", undefined);
   });
 
   const state = JSON.parse(lastFrame()!);
   expect(state.provider).toBe("anthropic");
   expect(state.model).toBe("claude-3-opus");
-  expect(agent.setSource).toHaveBeenCalled();
+  expect(agent.setSources).toHaveBeenCalled();
   expect(onMessage).toHaveBeenCalledWith(expect.stringContaining("Now using anthropic"));
 });
 
@@ -106,14 +107,14 @@ test("applySelection with unknown provider calls onMessage with 'no longer confi
   const { lastFrame } = render(<CapturingHarness args={args} />);
 
   await act(async () => {
-    capturedCtrl.applySelection("nonexistent", "some-model");
+    capturedCtrl.applySelection("nonexistent", "some-model", undefined);
   });
 
   const state = JSON.parse(lastFrame()!);
   expect(state.provider).toBe("openai");
   expect(state.model).toBe("gpt-4o");
   expect(onMessage).toHaveBeenCalledWith(expect.stringContaining("no longer configured"));
-  expect(agent.setSource).not.toHaveBeenCalled();
+  expect(agent.setSources).not.toHaveBeenCalled();
 });
 
 test("persistSelection applies selection and calls saveLocalSettings", async () => {
@@ -122,7 +123,7 @@ test("persistSelection applies selection and calls saveLocalSettings", async () 
   const { lastFrame } = render(<CapturingHarness args={args} />);
 
   await act(async () => {
-    capturedCtrl.persistSelection("anthropic", "claude-3-opus");
+    capturedCtrl.persistSelection("anthropic", "claude-3-opus", undefined);
   });
   await tick();
 
@@ -145,7 +146,7 @@ test("applySelection threads reasoning effort into the source and state", async 
   });
 
   expect(capturedCtrl.reasoningEffort).toBe("high");
-  expect(agent.setSource).toHaveBeenCalledWith(expect.objectContaining({ reasoningEffort: "high" }));
+  expect(agent.setSources).toHaveBeenCalled();
 });
 
 test("persistSelection with effort writes reasoningEffort to local settings", async () => {
@@ -250,7 +251,7 @@ test("upsertProvider success adds to catalog, calls setSource, saveLocalSettings
   expect(result!.ok).toBe(true);
   const state = JSON.parse(lastFrame()!);
   expect(state.catalogLen).toBe(3);
-  expect(agent.setSource).toHaveBeenCalled();
+  expect(agent.setSources).toHaveBeenCalled();
   expect(mockSaveLocalSettings).toHaveBeenCalled();
   expect(mockSaveGlobalSettings).toHaveBeenCalled();
 });

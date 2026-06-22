@@ -1,8 +1,23 @@
 import type { Agent } from "@intx/agent";
-import { randomUUID } from "node:crypto";
+import type { InferenceSource } from "@intx/types/runtime";
 import { useState } from "react";
-import { buildCodexSource, buildOpenAISource, buildXaiSource, providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
-import { localSettingsPath, saveGlobalSettings, saveLocalSettings, type LocalSettings, type ProviderTier, type Settings, type TierAssignment } from "../../config/settings.js";
+import { providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
+import {
+  localSettingsPath,
+  saveGlobalSettings,
+  saveLocalSettings,
+  type LocalSettings,
+  type ProviderTier,
+  type Settings,
+  type TierConfig,
+} from "../../config/settings.js";
+import {
+  appendTierEntry,
+  buildMainSessionSources,
+  cycleTierMode,
+  moveTierLeg,
+  removeTierLeg,
+} from "../../config/inference-sources.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../../subagent/index.js";
 import {
@@ -18,13 +33,16 @@ export type UseProviderManagerArgs = {
   initialReasoningEffort?: ReasoningEffort;
   initialCatalog: ProviderCatalogEntry[];
   initialGlobalDefaultProvider: string | undefined;
-  initialTiers?: Partial<Record<ProviderTier, TierAssignment>>;
+  initialTiers?: Partial<Record<ProviderTier, TierConfig>>;
+  getSessionId: () => string;
   // The original settings from disk, used to preserve non-provider fields
   // (mcpServers, workflow plugins, etc.) when saving the provider catalog back.
   initialSettings?: Settings;
   cwd: string;
   globalSettingsPath: string;
-  agent: Agent;
+  agent: Agent & {
+    setSources: (sources: InferenceSource[], defaultSource: string) => void;
+  };
   onMessage: (msg: string) => void;
   // Fired whenever the active source changes (provider, model, or effort) so the
   // subagent provider can track a live /agent switch, not just the startup value.
@@ -37,12 +55,16 @@ export type ProviderManagerController = {
   reasoningEffort: ReasoningEffort | undefined;
   providerCatalog: ProviderCatalogEntry[];
   globalDefaultProvider: string | undefined;
-  tiers: Partial<Record<ProviderTier, TierAssignment>>;
+  tiers: Partial<Record<ProviderTier, TierConfig>>;
   applySelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   persistSelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
   saveTierAssignment: (tier: ProviderTier, provider: string, model: string) => void;
+  cycleTierMode: (tier: ProviderTier) => void;
+  clearTier: (tier: ProviderTier) => void;
+  removeTierLegAt: (tier: ProviderTier, legIndex: number) => void;
+  moveTierLegAt: (tier: ProviderTier, legIndex: number, direction: -1 | 1) => void;
   // Inject (or replace) an OAuth provider in the live catalog and switch to it.
   // OAuth entries are never persisted to settings.json — their credentials live
   // in provider-specific auth stores — so this only mutates in-memory catalog
@@ -69,6 +91,30 @@ function localSelection(
   };
 }
 
+function settingsWithTiers(
+  catalog: readonly ProviderCatalogEntry[],
+  defaultProvider: string | undefined,
+  baseSettings: Settings | undefined,
+  nextTiers: Partial<Record<ProviderTier, TierConfig>>,
+): Settings {
+  return { ...providerCatalogToSettings(catalog, defaultProvider, baseSettings), tiers: nextTiers };
+}
+
+function persistGlobalSettings(
+  globalSettingsPath: string,
+  settings: Settings,
+  onMessage: (msg: string) => void,
+  successMessage: string,
+  failPrefix: string,
+): void {
+  void saveGlobalSettings(globalSettingsPath, settings).then(
+    () => onMessage(successMessage),
+    (err: unknown) => {
+      onMessage(`${failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  );
+}
+
 export function useProviderManager({
   initialProvider,
   initialModel,
@@ -79,6 +125,7 @@ export function useProviderManager({
   initialSettings,
   cwd,
   globalSettingsPath,
+  getSessionId,
   agent,
   onMessage,
   onSelectionChange,
@@ -88,7 +135,36 @@ export function useProviderManager({
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(initialReasoningEffort);
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(initialCatalog);
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
-  const [tiers, setTiers] = useState<Partial<Record<ProviderTier, TierAssignment>>>(initialTiers ?? {});
+  const [tiers, setTiers] = useState<Partial<Record<ProviderTier, TierConfig>>>(initialTiers ?? {});
+
+  const syncMainSessionSources = (args: {
+    catalog: readonly ProviderCatalogEntry[];
+    activeProvider: string;
+    activeModel: string;
+    effort: ReasoningEffort | undefined;
+    tierState: Partial<Record<ProviderTier, TierConfig>>;
+  }): void => {
+    const settings = settingsWithTiers(args.catalog, globalDefaultProvider, initialSettings, args.tierState);
+    const bundle = buildMainSessionSources({
+      settings,
+      catalog: args.catalog,
+      activeProvider: args.activeProvider,
+      activeModel: args.activeModel,
+      ...(args.effort !== undefined ? { reasoningEffort: args.effort } : {}),
+      sessionId: getSessionId(),
+    });
+    agent.setSources(bundle.sources, bundle.defaultSource);
+  };
+
+  const pushLiveSources = (nextTiers: Partial<Record<ProviderTier, TierConfig>>): void => {
+    syncMainSessionSources({
+      catalog: providerCatalog,
+      activeProvider: provider,
+      activeModel: model,
+      effort: reasoningEffort,
+      tierState: nextTiers,
+    });
+  };
 
   const applyCatalogSelection = (
     catalog: readonly ProviderCatalogEntry[],
@@ -101,34 +177,18 @@ export function useProviderManager({
       onMessage(`Provider "${providerName}" is no longer configured`);
       return false;
     }
-    agent.setSource(
-      entry.codexProfile !== undefined
-        ? buildCodexSource({
-            id: entry.name,
-            apiKey: entry.apiKey,
-            model: nextModel,
-            sessionId: randomUUID(),
-            ...(entry.codexAccountId !== undefined ? { accountId: entry.codexAccountId } : {}),
-            ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
-          })
-        : entry.xaiProfile !== undefined
-        ? buildXaiSource({
-            id: entry.name,
-            apiKey: entry.apiKey,
-            model: nextModel,
-          })
-        : buildOpenAISource({
-            id: entry.name,
-            baseURL: entry.baseURL,
-            apiKey: entry.apiKey,
-            model: nextModel,
-            ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
-          }),
-    );
+    syncMainSessionSources({
+      catalog,
+      activeProvider: providerName,
+      activeModel: nextModel,
+      effort: nextEffort,
+      tierState: tiers,
+    });
     onSelectionChange?.({
       providerName,
       baseURL: entry.baseURL,
-      apiKey: entry.apiKey,
+      ...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
+      ...(entry.keyless === true ? { keyless: true } : {}),
       model: nextModel,
       ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
     });
@@ -175,14 +235,31 @@ export function useProviderManager({
     );
   };
 
+  const switchActiveAfterCatalogChange = (
+    catalog: ProviderCatalogEntry[],
+    removedName: string,
+    emptyMessage: string,
+  ): void => {
+    if (removedName !== provider) return;
+    const fallback = catalog.find((p) => p.name === provider) ?? catalog[0];
+    const fallbackModel = fallback?.defaultModel ?? fallback?.models[0];
+    if (fallback === undefined || fallbackModel === undefined) {
+      onMessage(emptyMessage);
+      return;
+    }
+    if (applyCatalogSelection(catalog, fallback.name, fallbackModel, reasoningEffort)) {
+      persistLocalSelection(fallback.name, fallbackModel);
+    }
+  };
+
   const persistProviderCatalog = (
     catalog: ProviderCatalogEntry[],
     defaultProvider: string | undefined,
     successMessage: string,
   ): void => {
-    let settings: ReturnType<typeof providerCatalogToSettings>;
+    let settings: Settings;
     try {
-      settings = providerCatalogToSettings(catalog, defaultProvider, initialSettings);
+      settings = settingsWithTiers(catalog, defaultProvider, initialSettings, tiers);
     } catch (err) {
       onMessage(
         `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -191,13 +268,12 @@ export function useProviderManager({
     }
     setProviderCatalog(catalog);
     setGlobalDefaultProvider(defaultProvider);
-    void saveGlobalSettings(globalSettingsPath, settings).then(
-      () => onMessage(successMessage),
-      (err: unknown) => {
-        onMessage(
-          `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      },
+    persistGlobalSettings(
+      globalSettingsPath,
+      settings,
+      onMessage,
+      successMessage,
+      "Provider settings changed locally, but saving failed",
     );
   };
 
@@ -222,15 +298,15 @@ export function useProviderManager({
     }
     const catalog = providerCatalog.filter((p) => p.name !== providerName);
     const fallback = catalog.find((p) => p.name === provider) ?? catalog[0];
-    const fallbackModel = fallback?.defaultModel ?? fallback?.models[0];
-    if (fallback === undefined || fallbackModel === undefined) {
+    if (fallback === undefined) {
       onMessage("Cannot remove provider because no fallback provider is configured");
       return;
     }
-    if (providerName === provider) {
-      applyCatalogSelection(catalog, fallback.name, fallbackModel, reasoningEffort);
-      persistLocalSelection(fallback.name, fallbackModel);
-    }
+    switchActiveAfterCatalogChange(
+      catalog,
+      providerName,
+      "Cannot remove provider because no fallback provider is configured",
+    );
     persistProviderCatalog(
       catalog,
       defaultProviderAfterDelete(providerName, fallback.name, catalog, globalDefaultProvider),
@@ -238,18 +314,56 @@ export function useProviderManager({
     );
   };
 
-  const saveTierAssignment = (tier: ProviderTier, tierProvider: string, tierModel: string): void => {
-    const nextTiers = { ...tiers, [tier]: { provider: tierProvider, model: tierModel } };
+  const persistTierState = (
+    nextTiers: Partial<Record<ProviderTier, TierConfig>>,
+    successMessage: string,
+    failPrefix: string,
+  ): void => {
     setTiers(nextTiers);
-    const settings = { ...providerCatalogToSettings(providerCatalog, globalDefaultProvider, initialSettings), tiers: nextTiers };
-    void saveGlobalSettings(globalSettingsPath, settings).then(
-      () => onMessage(`Saved tier ${tier}: ${tierProvider} · ${tierModel}`),
-      (err: unknown) => {
-        onMessage(
-          `Tier assignment saved locally, but persisting failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      },
+    pushLiveSources(nextTiers);
+    persistGlobalSettings(
+      globalSettingsPath,
+      settingsWithTiers(providerCatalog, globalDefaultProvider, initialSettings, nextTiers),
+      onMessage,
+      successMessage,
+      failPrefix,
     );
+  };
+
+  const saveTierAssignment = (tier: ProviderTier, tierProvider: string, tierModel: string): void => {
+    const nextDef = appendTierEntry(tiers[tier], { provider: tierProvider, model: tierModel });
+    persistTierState(
+      { ...tiers, [tier]: nextDef },
+      `Saved tier ${tier}: ${tierProvider} · ${tierModel} (chain length ${nextDef.order.length})`,
+      "Tier assignment saved locally, but persisting failed",
+    );
+  };
+
+  const clearTierFor = (tier: ProviderTier): void => {
+    const nextTiers = { ...tiers };
+    delete nextTiers[tier];
+    persistTierState(nextTiers, `Cleared tier ${tier}`, "Tier cleared locally, but persisting failed");
+  };
+
+  const removeTierLegAt = (tier: ProviderTier, legIndex: number): void => {
+    const nextDef = removeTierLeg(tiers[tier], legIndex);
+    const nextTiers = { ...tiers };
+    if (nextDef === undefined) delete nextTiers[tier];
+    else nextTiers[tier] = nextDef;
+    persistTierState(nextTiers, `Removed leg ${legIndex + 1} from tier ${tier}`, "Tier leg removed locally, but persisting failed");
+  };
+
+  const moveTierLegAt = (tier: ProviderTier, legIndex: number, direction: -1 | 1): void => {
+    const nextDef = moveTierLeg(tiers[tier], legIndex, direction);
+    if (nextDef === undefined) return;
+    const nextTiers = { ...tiers, [tier]: nextDef };
+    persistTierState(nextTiers, `Reordered tier ${tier} chain`, "Tier reorder saved locally, but persisting failed");
+  };
+
+  const cycleTierModeFor = (tier: ProviderTier): void => {
+    const nextDef = cycleTierMode(tiers[tier]);
+    const nextTiers = { ...tiers, [tier]: nextDef };
+    persistTierState(nextTiers, `Tier ${tier} mode: ${nextDef.mode}`, "Tier mode updated locally, but persisting failed");
   };
 
   const registerOAuthProvider = (entry: ProviderCatalogEntry, label: string): void => {
@@ -269,16 +383,11 @@ export function useProviderManager({
   const removeOAuthProvider = (providerName: string, label: string): void => {
     const catalog = providerCatalog.filter((p) => p.name !== providerName);
     setProviderCatalog(catalog);
-    if (providerName !== provider) return;
-    const fallback = catalog[0];
-    const fallbackModel = fallback?.defaultModel ?? fallback?.models[0];
-    if (fallback === undefined || fallbackModel === undefined) {
-      onMessage(`Removed the active ${label} profile but no other provider is configured`);
-      return;
-    }
-    if (applyCatalogSelection(catalog, fallback.name, fallbackModel, reasoningEffort)) {
-      persistLocalSelection(fallback.name, fallbackModel);
-    }
+    switchActiveAfterCatalogChange(
+      catalog,
+      providerName,
+      `Removed the active ${label} profile but no other provider is configured`,
+    );
   };
 
   const registerCodexProvider = (entry: ProviderCatalogEntry): void => registerOAuthProvider(entry, "Codex");
@@ -298,6 +407,10 @@ export function useProviderManager({
     upsertProvider,
     deleteProvider,
     saveTierAssignment,
+    cycleTierMode: cycleTierModeFor,
+    clearTier: clearTierFor,
+    removeTierLegAt,
+    moveTierLegAt,
     registerCodexProvider,
     registerXaiProvider,
     removeCodexProvider,

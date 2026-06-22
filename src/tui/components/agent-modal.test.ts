@@ -23,6 +23,7 @@ const form = (overrides: Partial<ProviderFormValues> = {}): ProviderFormValues =
   name: "firepass",
   baseURL: "https://firepass.example/v1",
   apiKey: "sk-key",
+  keyless: "no",
   models: "fp-large, fp-small",
   defaultModel: "fp-large",
   ...overrides,
@@ -43,10 +44,10 @@ describe("validateProviderForm", () => {
     });
   });
 
-  test("requires an API key when adding a provider", () => {
+  test("requires an API key when adding a non-keyless provider", () => {
     expect(validateProviderForm(form({ apiKey: "" }), undefined)).toEqual({
       ok: false,
-      error: "API key is required",
+      error: "API key is required (or enable keyless)",
     });
   });
 
@@ -69,5 +70,22 @@ describe("validateProviderForm", () => {
       ok: false,
       error: "Default model must be listed in models",
     });
+  });
+
+  test("allows a keyless provider with no API key when adding", () => {
+    const result = validateProviderForm(form({ keyless: "yes", apiKey: "" }), undefined);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.submission.keyless).toBe(true);
+      expect(result.submission.apiKey).toBeUndefined();
+    }
+  });
+
+  test("does not set keyless when the toggle is no", () => {
+    const result = validateProviderForm(form({ keyless: "no" }), undefined);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.submission.keyless).toBeUndefined();
+    }
   });
 });
