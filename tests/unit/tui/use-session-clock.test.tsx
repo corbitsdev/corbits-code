@@ -20,7 +20,10 @@ test("useSessionClock resets when startedAt changes", () => {
   const { lastFrame, rerender } = render(<Clock startedAt={oldStart} />);
   expect(Number(lastFrame())).toBeGreaterThanOrEqual(10_000);
 
-  rerender(<Clock startedAt={Date.now() - 500} />);
+  const newStart = Date.now() - 500;
+  rerender(<Clock startedAt={newStart} />);
   // After the reset the clock reads near-zero, not the prior 10s.
-  expect(Number(lastFrame())).toBeLessThan(5000);
+  const afterReset = Number(lastFrame());
+  expect(afterReset).toBeGreaterThanOrEqual(500);
+  expect(afterReset).toBeLessThan(5000);
 });

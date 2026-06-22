@@ -31,7 +31,7 @@ export async function resolveSkillBody(cwd: string, ref: string, pluginDirs: str
   const { plugin, name } = parseSkillRef(ref);
 
   if (plugin === "gaas" && name === "scribe") {
-    const bundled = join(import.meta.dirname, "../../plugins/scribe/skills/scribe/SKILL.md");
+    const bundled = join(import.meta.dirname, "../../skills/bundled/scribe/SKILL.md");
     const fromBundled = await readSkillFile(bundled);
     if (fromBundled !== undefined) return fromBundled;
   }
