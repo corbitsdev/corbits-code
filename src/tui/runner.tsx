@@ -406,6 +406,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     config.settings?.plugins ?? {},
   );
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
+  let liveAgentProfiles = initialProfiles;
 
   const toolset = await createAgentToolset({
     cwd: config.cwd,
@@ -423,7 +424,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
       ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
       catalog: () => config.providers,
-      profiles: () => initialProfiles,
+      profiles: () => liveAgentProfiles,
     },
   });
 
@@ -446,10 +447,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the core set plus any promoted via tool_search.
-      // `activeNames` persists across agent reloads, so `computeAdvertised` — run
-      // inside the director factory on every (re)build — keeps the advertised set stable.
-      const activeNames = new Set<string>();
-      const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
+  // `activeNames` persists across agent reloads, so `computeAdvertised` — run
+  // inside the director factory on every (re)build — keeps the advertised set stable.
+  const activeNames = new Set<string>();
+  const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
     all.filter((d) => CORE_TOOL_NAMES.includes(d.name) || activeNames.has(d.name));
 
   const chatDirectorDef = defineDirector({
@@ -939,6 +940,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }}
       initialProfiles={initialProfiles}
       profilesDir={profilesDir}
+      onAgentProfilesChange={(profiles) => {
+        liveAgentProfiles = profiles;
+      }}
       onSubAgentProviderChange={(provider) => {
         liveSubAgentProvider.current = provider;
       }}
