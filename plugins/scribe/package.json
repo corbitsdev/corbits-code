@@ -9,8 +9,5 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
-  },
-  "dependencies": {
-    "@intercode/default-workflows": "workspace:*"
   }
 }
