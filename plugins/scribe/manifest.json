@@ -1,0 +1,6 @@
+{
+  "id": "scribe",
+  "name": "Scribe",
+  "kind": "command",
+  "description": "Documentation skill (gaas:scribe) via slash command"
+}

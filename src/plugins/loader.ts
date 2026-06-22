@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
@@ -24,6 +24,18 @@ export type PluginModule = {
   // Typed as unknown so this module doesn't pull in the tools-posix type graph.
   createToolPlugin?: unknown;
 };
+
+// Read and validate a manifest.json beside the module. Plugins may declare
+// their manifest as a JS export (mod.manifest) or a sibling manifest.json file;
+// this covers the JSON path so plugins that are pure data + commands work too.
+async function readManifestJson(dir: string): Promise<PluginManifest | null> {
+  try {
+    const raw = await readFile(join(dir, "manifest.json"), "utf8");
+    return parsePluginManifest(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
 
 // Attempt to load a single plugin directory entry (a file or a directory with
 // an index file). Returns null if the entry cannot be resolved to a module.
@@ -56,7 +68,9 @@ export async function loadPluginEntry(entryPath: string): Promise<PluginModule |
     const importTarget = isAbsolute(target) ? target : resolve(target);
     const mod = await import(importTarget) as Record<string, unknown>;
     const result: PluginModule = { dir: dirname(importTarget) };
-    const manifest = parsePluginManifest(mod.manifest);
+    const manifest = parsePluginManifest(mod.manifest)
+      ?? (await readManifestJson(dirname(importTarget)))
+      ?? (await readManifestJson(dirname(dirname(importTarget))));
     if (manifest !== null) result.manifest = manifest;
     if (mod.workflowPlugin != null && typeof mod.workflowPlugin === "object" && "workflows" in mod.workflowPlugin) {
       result.workflowPlugin = mod.workflowPlugin as WorkflowPlugin;
