@@ -26,7 +26,8 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 
-import { buildOpenAISource } from "../config/index.js";
+import { buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
+import { buildSubagentSources } from "../config/inference-sources.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
@@ -100,7 +101,8 @@ class SubAgentDirector extends DefaultDirector {
 export type SubAgentProvider = {
   providerName: string;
   baseURL: string;
-  apiKey: string;
+  apiKey?: string;
+  keyless?: boolean;
   model: string;
   // Subagents inherit the parent's reasoning effort so a /agent selection
   // applies to delegated work, not just the top-level loop.
@@ -111,6 +113,9 @@ export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
   provider: SubAgentProvider;
+  tier?: ProviderTier;
+  settings?: Settings;
+  catalog?: readonly ProviderCatalogEntry[];
   description: string;
   context?: string;
   prompt: string;
@@ -193,18 +198,33 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   const storage = await createIsogitStore(workdir);
 
-  const primarySource = buildOpenAISource({
-    id: params.provider.providerName,
-    baseURL: params.provider.baseURL,
-    apiKey: params.provider.apiKey,
-    model: params.provider.model,
-    ...(params.provider.reasoningEffort !== undefined
-      ? { reasoningEffort: params.provider.reasoningEffort }
-      : {}),
-  });
+  const head = { provider: params.provider.providerName, model: params.provider.model };
+  const bundle =
+    params.tier !== undefined && params.settings !== undefined && params.catalog !== undefined
+      ? buildSubagentSources({
+          settings: params.settings,
+          catalog: params.catalog,
+          tier: params.tier,
+          head,
+          ...(params.provider.reasoningEffort !== undefined
+            ? { reasoningEffort: params.provider.reasoningEffort }
+            : {}),
+        })
+      : (() => {
+          const primarySource = buildOpenAISource({
+            id: params.provider.providerName,
+            baseURL: params.provider.baseURL,
+            ...(params.provider.apiKey !== undefined ? { apiKey: params.provider.apiKey } : {}),
+            model: params.provider.model,
+            ...(params.provider.reasoningEffort !== undefined
+              ? { reasoningEffort: params.provider.reasoningEffort }
+              : {}),
+          });
+          return { sources: [primarySource], defaultSource: primarySource.id };
+        })();
   const agent = await createAgent(def, {
-    sources: [primarySource],
-    defaultSource: primarySource.id,
+    sources: bundle.sources,
+    defaultSource: bundle.defaultSource,
     storage,
     workdir,
     audit: noopAuditStore(),
@@ -286,19 +306,24 @@ export const taskToolDefinition: ToolDefinition = {
   },
 };
 
+function resolveDep<T>(value: T | (() => T)): T {
+  return typeof value === "function" ? (value as () => T)() : value;
+}
+
 export type TaskToolDeps = {
   cwd: string;
   getWorkdirBase: () => string;
   // A getter so a live /agent provider/model/effort switch reaches subagents
   // spawned after the change, not just the value captured at startup. A plain
-  // value is also accepted for callers with no live switching (e.g. headless).
+  // value is also accepted for callers with no live switching.
   provider: SubAgentProvider | (() => SubAgentProvider);
   maxTurns?: number;
   // Injectable for tests; defaults to the real runSubAgent.
   run?: (params: RunSubAgentParams) => Promise<string>;
   onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
-  settings?: Settings;
-  profiles?: AgentProfile[];
+  settings?: Settings | (() => Settings | undefined);
+  catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  profiles?: AgentProfile[] | (() => AgentProfile[]);
 };
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
@@ -322,9 +347,13 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         typeof deps.provider === "function" ? deps.provider() : deps.provider;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
+      let tier: ProviderTier | undefined;
+      const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+      const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
+      const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
 
-      if (agentId !== undefined && agentId.length > 0 && deps.profiles !== undefined) {
-        const profile = deps.profiles.find((p) => p.id === agentId);
+      if (agentId !== undefined && agentId.length > 0 && profiles !== undefined) {
+        const profile = profiles.find((p) => p.id === agentId);
         if (profile !== undefined) {
           if (profile.capabilities !== undefined) {
             capabilities = profile.capabilities;
@@ -332,15 +361,19 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.systemPromptRole !== undefined) {
             systemPromptRole = profile.systemPromptRole;
           }
-          if (profile.tier !== undefined && deps.settings !== undefined) {
-            const assignment = resolveTier(profile.tier as ProviderTier, deps.settings);
+          if (profile.tier !== undefined && settings !== undefined) {
+            tier = profile.tier as ProviderTier;
+            const assignment = resolveTier(tier, settings);
             if (assignment !== null) {
-              const providerSettings = deps.settings.providers[assignment.provider];
+              const providerSettings = settings.providers[assignment.provider];
               if (providerSettings !== undefined) {
                 provider = {
                   providerName: assignment.provider,
                   baseURL: providerSettings.baseURL,
-                  apiKey: providerSettings.apiKey,
+                  ...(providerSettings.keyless === true ? { keyless: true } : {}),
+                  ...(providerSettings.apiKey !== undefined
+                    ? { apiKey: providerSettings.apiKey }
+                    : {}),
                   model: assignment.model,
                 };
               }
@@ -354,6 +387,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           cwd: deps.cwd,
           workdirBase: deps.getWorkdirBase(),
           provider,
+          ...(tier !== undefined ? { tier } : {}),
+          ...(settings !== undefined ? { settings } : {}),
+          ...(catalog !== undefined ? { catalog } : {}),
           description,
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,

@@ -134,7 +134,7 @@ function operatorDeclinedHasMessage(result: { content: unknown }): boolean {
 }
 
 function incompleteTasks(tasks: readonly Task[]): Task[] {
-  return tasks.filter((task) => task.status !== "done");
+  return tasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
 }
 
 function taskCompletionNudge(tasks: readonly Task[]): string {
