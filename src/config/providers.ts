@@ -7,6 +7,7 @@ export type ProviderSubmission = {
   apiKey?: string;
   models: string[];
   defaultModel?: string;
+  keyless?: boolean;
 };
 
 export type ProviderEntryResult =
@@ -27,14 +28,16 @@ export function buildProviderEntry(
     submission.originalName !== undefined
       ? currentCatalog.find((p) => p.name === submission.originalName)
       : undefined;
-  const apiKey = submission.apiKey ?? existing?.apiKey;
-  if (apiKey === undefined || apiKey.length === 0) {
+  const keyless = submission.keyless === true;
+  const apiKey = submission.apiKey ?? (keyless ? undefined : existing?.apiKey);
+  if (!keyless && (apiKey === undefined || apiKey.length === 0)) {
     return { ok: false, error: "Provider API key is required" };
   }
   const entry: ProviderCatalogEntry = {
     name: submission.name,
     baseURL: submission.baseURL,
-    apiKey,
+    ...(keyless ? { keyless: true } : {}),
+    ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
     ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
   };

@@ -14,17 +14,29 @@ import { REASONING_EFFORTS, type ReasoningEffort } from "../provider/reasoning-e
 export type ProviderSettings = {
   name?: string;
   baseURL: string;
-  apiKey: string;
+  // Optional for keyless local providers (e.g. Ollama) that require no
+  // authentication. When `keyless` is true the resolution path skips the
+  // non-empty apiKey check entirely.
+  apiKey?: string;
   models: string[];
   defaultModel?: string;
+  keyless?: boolean;
   // Manual override that suppresses the status-bar dollar cost for this
   // provider regardless of model pricing — e.g. a prepaid coding plan or a
   // gateway whose models.dev prices do not apply.
   free?: boolean;
+  contextWindow?: number;
 };
 
 export type ProviderTier = "fast" | "standard" | "clever";
 export type TierAssignment = { provider: string; model: string };
+export type TierSelectionMode = "pin" | "prefer";
+export type TierProviderRef = { provider: string; model: string };
+export type TierDefinition = {
+  mode?: TierSelectionMode;
+  order: TierProviderRef[];
+};
+export type TierConfig = TierAssignment | TierDefinition;
 
 export const PROVIDER_TIERS: readonly ProviderTier[] = ["fast", "standard", "clever"];
 
@@ -33,7 +45,7 @@ export type Settings = {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerConfig[];
-  tiers?: Partial<Record<ProviderTier, TierAssignment>>;
+  tiers?: Partial<Record<ProviderTier, TierConfig>>;
   // Per-phase model overrides for workflows. Keyed by profile name, then by
   // workflow step profile key. Example:
   //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
@@ -119,6 +131,7 @@ export type ResolvedProvider = {
   baseURL: string;
   model: string;
   providerName: string;
+  keyless?: boolean;
 };
 
 const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
@@ -171,21 +184,32 @@ function isENOENT(err: unknown): boolean {
 const ProviderSettingsSchema = type({
   "name?": "string",
   baseURL: "string",
-  apiKey: "string",
+  "apiKey?": "string",
   models: "string[]",
   "defaultModel?": "string",
+  "keyless?": "boolean",
   "free?": "boolean",
+  "contextWindow?": "number",
 });
 
-const TierAssignmentSchema = type({
+const TierProviderRefSchema = type({
   provider: "string",
   model: "string",
 });
 
+const TierAssignmentSchema = TierProviderRefSchema;
+
+const TierDefinitionSchema = type({
+  "mode?": "'pin' | 'prefer'",
+  order: TierProviderRefSchema.array(),
+});
+
+const TierConfigSchema = TierDefinitionSchema.or(TierAssignmentSchema);
+
 const TiersSchema = type({
-  "fast?": TierAssignmentSchema,
-  "standard?": TierAssignmentSchema,
-  "clever?": TierAssignmentSchema,
+  "fast?": TierConfigSchema,
+  "standard?": TierConfigSchema,
+  "clever?": TierConfigSchema,
 });
 
 const SettingsSchema = type({
@@ -451,6 +475,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
 
   const baseURL = selected?.baseURL;
   const apiKey = selected?.apiKey;
+  const keyless = selected?.keyless === true;
   const model = cli.model ?? local?.model ?? selected?.defaultModel ?? selected?.models[0];
 
   // A provider name was selected (from local file or defaultProvider) but is not
@@ -459,20 +484,20 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const selectedMissing =
     providerName !== undefined && settings !== null && providers[providerName] === undefined;
 
+  const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
   if (
     providerName === undefined ||
     providerName.length === 0 ||
     baseURL === undefined ||
     baseURL.length === 0 ||
-    apiKey === undefined ||
-    apiKey.length === 0 ||
+    missingApiKey ||
     model === undefined ||
     model.length === 0
   ) {
     const missing: string[] = [];
     if (providerName === undefined || providerName.length === 0) missing.push("provider");
     if (baseURL === undefined || baseURL.length === 0) missing.push("baseURL");
-    if (apiKey === undefined || apiKey.length === 0) missing.push("apiKey");
+    if (missingApiKey) missing.push("apiKey");
     if (model === undefined || model.length === 0) missing.push("model");
     const detail = selectedMissing
       ? ` Selected provider "${providerName}" is not configured in settings (available: ${
@@ -486,22 +511,70 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     );
   }
 
-  return { providerName, baseURL: normalizeOpenAICompatibleBaseURL(baseURL), apiKey, model };
+  return {
+    providerName,
+    baseURL: normalizeOpenAICompatibleBaseURL(baseURL),
+    apiKey: apiKey ?? "",
+    model,
+    ...(keyless ? { keyless: true } : {}),
+  };
 }
 
-// Walk the fallback chain fast → standard → clever and return the first
-// TierAssignment that is configured and references an existing provider.
-// Returns null if no tier in the chain is configured.
-export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignment | null {
+function isTierDefinitionConfig(raw: TierConfig): raw is TierDefinition {
+  return "order" in raw && Array.isArray(raw.order);
+}
+
+function tierConfigToDefinition(raw: TierConfig): TierDefinition | null {
+  if (isTierDefinitionConfig(raw)) {
+    const order = raw.order.filter((r) => r.provider.length > 0 && r.model.length > 0);
+    if (order.length === 0) return null;
+    return { mode: raw.mode ?? "prefer", order };
+  }
+  const leg = raw;
+  if (leg.provider.length === 0 || leg.model.length === 0) return null;
+  return { mode: "pin", order: [{ provider: leg.provider, model: leg.model }] };
+}
+
+/** Tier config at the given name only (no fast → standard → clever walk). */
+export function tierDefinitionAt(
+  tier: ProviderTier,
+  settings: Settings,
+): TierDefinition | null {
+  const raw = settings.tiers?.[tier];
+  if (raw === undefined) return null;
+  const def = tierConfigToDefinition(raw);
+  if (def === null) return null;
+  const viable = def.order.filter((r) => settings.providers[r.provider] !== undefined);
+  if (viable.length === 0) return null;
+  return { mode: def.mode ?? "prefer", order: viable };
+}
+
+export function resolveTierDefinition(
+  tier: ProviderTier,
+  settings: Settings,
+): TierDefinition | null {
   const chain: ProviderTier[] = ["fast", "standard", "clever"];
   const start = chain.indexOf(tier);
   if (start === -1) return null;
   for (let i = start; i < chain.length; i++) {
     const t = chain[i] as ProviderTier;
-    const assignment = settings.tiers?.[t];
-    if (assignment !== undefined && settings.providers[assignment.provider] !== undefined) {
-      return assignment;
-    }
+    const raw = settings.tiers?.[t];
+    if (raw === undefined) continue;
+    const def = tierConfigToDefinition(raw);
+    if (def === null) continue;
+    const viable = def.order.filter((r) => settings.providers[r.provider] !== undefined);
+    if (viable.length === 0) continue;
+    const mode: TierSelectionMode = def.mode ?? "prefer";
+    return { mode, order: viable };
   }
   return null;
+}
+
+// Walk the fallback chain fast → standard → clever and return the first
+// provider/model in the resolved tier chain.
+export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignment | null {
+  const def = resolveTierDefinition(tier, settings);
+  const first = def?.order[0];
+  if (first === undefined) return null;
+  return { provider: first.provider, model: first.model };
 }

@@ -36,8 +36,11 @@ import {
   type MCPServerConfig,
   type ProviderTier,
   type TierAssignment,
+  type TierConfig,
+  type TierDefinition,
   type ResolvedProvider,
   type Settings,
+  type ProviderSettings,
 } from "./settings.js";
 import { resolveProfile } from "./profiles.js";
 
@@ -47,13 +50,19 @@ import { resolveProfile } from "./profiles.js";
 // revert the ceiling.
 export const SOURCE_MAX_TOKENS = 16384;
 
+// Placeholder sent in the Authorization header for keyless local providers
+// (e.g. Ollama). The runtime's InferenceSource type requires a non-empty
+// apiKey string; the value is injected as `Bearer <key>` by the harness but
+// keyless servers ignore it entirely.
+export const KEYLESS_API_KEY = "keyless";
+
 // Build the OpenAI-compatible InferenceSource the runtime consumes. `id` is the
 // user-facing name for this source (e.g. "zen"); `provider` is always
 // "openai-compatible" so the inference registry routes it to the right adapter.
 export function buildOpenAISource(fields: {
   id: string;
   baseURL: string;
-  apiKey: string;
+  apiKey?: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
@@ -65,7 +74,7 @@ export function buildOpenAISource(fields: {
     id: fields.id,
     provider: "openai-compatible",
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
-    apiKey: fields.apiKey,
+    apiKey: fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
@@ -77,9 +86,14 @@ export function buildOpenAISource(fields: {
 export type ProviderCatalogEntry = {
   name: string;
   baseURL: string;
-  apiKey: string;
+  // Absent for keyless providers (see `keyless`). When present, carries the
+  // secret key the harness injects as a Bearer credential.
+  apiKey?: string;
   models: string[];
   defaultModel?: string;
+  // True for local providers that require no authentication (e.g. Ollama).
+  // When set, `apiKey` is omitted and resolution skips the key check.
+  keyless?: boolean;
   // Manual override suppressing the status-bar dollar cost for this provider.
   free?: boolean;
   // Set when this entry is a Codex OAuth profile rather than an API-key
@@ -149,10 +163,10 @@ export type Config = {
   baseURL: string;
   model: string;
   providerName: string;
+  keyless?: boolean;
   cwd: string;
   task: string;
   force: boolean;
-  headless: boolean;
   dangerouslySkipPermissions: boolean;
   auto: boolean;
   globalSettingsPath: string;
@@ -179,7 +193,7 @@ export type Config = {
   workflow?: string;
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
-  tiers?: Partial<Record<ProviderTier, TierAssignment>>;
+  tiers?: Partial<Record<ProviderTier, import("./settings.js").TierConfig>>;
   settings?: Settings;
 };
 
@@ -191,7 +205,6 @@ export type UnconfiguredConfig = {
   cwd: string;
   task: string;
   force: boolean;
-  headless: boolean;
   dangerouslySkipPermissions: boolean;
   auto: boolean;
   // Path where the onboarding flow should write the new settings.
@@ -225,7 +238,6 @@ export async function loadConfig(
 
   let cwd = process.cwd();
   let force = false;
-  let headless = false;
   let dangerouslySkipPermissions = false;
   // Auto mode is the default: non-destructive consequential actions (file
   // writes/edits, safe read-only shell) run without prompting, while malicious
@@ -273,10 +285,7 @@ export async function loadConfig(
       force = true;
       continue;
     }
-    if (arg === "--headless" || arg === "-h") {
-      headless = true;
-      continue;
-    }
+
     if (arg === "--dangerously-skip-permissions") {
       dangerouslySkipPermissions = true;
       continue;
@@ -367,7 +376,6 @@ export async function loadConfig(
       cwd,
       task,
       force,
-      headless,
       dangerouslySkipPermissions,
       auto,
       globalSettingsPath: effectiveSettingsPath,
@@ -396,7 +404,6 @@ export async function loadConfig(
     cwd,
     task,
     force,
-    headless,
     dangerouslySkipPermissions,
     auto,
     globalSettingsPath: effectiveSettingsPath,
@@ -436,10 +443,11 @@ export function buildProviderCatalog(
   resolved: ResolvedProvider,
 ): ProviderCatalogEntry[] {
   if (settings !== null && Object.keys(settings.providers).length > 0) {
-    return Object.entries(settings.providers).map(([name, p]) => ({
+    return Object.entries(settings.providers).map(([name, p]): ProviderCatalogEntry => ({
       name,
       baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
-      apiKey: p.apiKey,
+      ...(p.keyless === true ? { keyless: true } : {}),
+      ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
       models: p.models,
       ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
       ...(p.free !== undefined ? { free: p.free } : {}),
@@ -449,7 +457,9 @@ export function buildProviderCatalog(
     {
       name: resolved.providerName,
       baseURL: resolved.baseURL,
-      apiKey: resolved.apiKey,
+      ...(resolved.keyless === true
+        ? { keyless: true }
+        : { apiKey: resolved.apiKey }),
       models: [resolved.model],
     },
   ];
@@ -482,11 +492,12 @@ export function providerCatalogToSettings(
     ...(defaultProvider !== undefined ? { defaultProvider } : {}),
     ...existingFields,
     providers: Object.fromEntries(
-      persistable.map((p) => [
+      persistable.map((p): [string, ProviderSettings] => [
         p.name,
         {
           baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
-          apiKey: p.apiKey,
+          ...(p.keyless === true ? { keyless: true } : {}),
+          ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
           models: p.models,
           ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
           ...(p.free !== undefined ? { free: p.free } : {}),

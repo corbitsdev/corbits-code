@@ -178,6 +178,28 @@ describe("submit_output with managed tasks", () => {
     expect(actionsArray(result).some((a) => a.type === "done")).toBe(true);
     expect(director.getState().submitCalled).toBe(true);
   });
+
+  test("accepts submit_output when remaining managed tasks are cancelled", async () => {
+    const director = createCodingDirector("base prompt", []);
+    await director.decide(
+      makeInferenceDoneEvent([
+        {
+          id: "tasks",
+          name: "manage_tasks",
+          args: { action: "create", tasks: [{ id: "t1", title: "Blocked work", status: "cancelled" }] },
+        },
+        { id: "submit", name: "submit_output", args: { summary: "done" } },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+
+    await director.decide(makeToolDoneEvent("submit"), mockState, mockCapabilities);
+    const result = await director.decide(makeInferenceDoneEvent([]), mockState, mockCapabilities);
+
+    expect(actionsArray(result).some((a) => a.type === "done")).toBe(true);
+    expect(director.getState().submitCalled).toBe(true);
+  });
 });
 
 describe("operator declined tool calls", () => {

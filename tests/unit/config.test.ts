@@ -45,31 +45,4 @@ test("loadConfig --no-auto disables auto mode", async () => {
   });
 });
 
-test("loadConfig parses --headless flag", async () => {
-  await withSettings(async ({ cwd, globalSettingsPath }) => {
-    const config = await loadConfig(["--cwd", cwd, "--headless", "do something"], { globalSettingsPath });
-    expect(config.headless).toBe(true);
-  });
-});
 
-test("loadConfig parses -h flag", async () => {
-  await withSettings(async ({ cwd, globalSettingsPath }) => {
-    const config = await loadConfig(["--cwd", cwd, "-h", "do something"], { globalSettingsPath });
-    expect(config.headless).toBe(true);
-  });
-});
-
-test("loadConfig defaults headless to false", async () => {
-  await withSettings(async ({ cwd, globalSettingsPath }) => {
-    const config = await loadConfig(["--cwd", cwd, "do something"], { globalSettingsPath });
-    expect(config.headless).toBe(false);
-  });
-});
-
-test("loadConfig headless flag does not consume positional args", async () => {
-  await withSettings(async ({ cwd, globalSettingsPath }) => {
-    const config = await loadConfig(["--cwd", cwd, "--headless", "read", "file"], { globalSettingsPath });
-    expect(config.headless).toBe(true);
-    expect(config.task).toBe("read file");
-  });
-});
