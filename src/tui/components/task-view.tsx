@@ -8,12 +8,11 @@ export type TaskViewProps = {
   title?: string;
 };
 
-// Checkbox glyphs make task state legible at a glance: an empty box for pending
-// work, a half-filled box for the item in flight, and a checked box once done.
 const GLYPH: Record<TaskStatus, string> = {
-  todo: "☐",
-  doing: "◐",
-  done: "☑",
+  todo: "○",
+  doing: "●",
+  done: "✓",
+  cancelled: "✗",
 };
 
 export function TaskView({ tasks, compact, title = "Tasks" }: TaskViewProps) {
@@ -22,7 +21,7 @@ export function TaskView({ tasks, compact, title = "Tasks" }: TaskViewProps) {
   const sorted = [...tasks].sort(byPriority);
 
   if (compact) {
-    const active = sorted.filter((t) => t.status !== "done");
+    const active = sorted.filter((t) => t.status !== "done" && t.status !== "cancelled");
     if (active.length === 0) return null;
     const doing = active.find((t) => t.status === "doing");
     const current = doing ?? active[0]!;
@@ -62,7 +61,7 @@ export function TaskView({ tasks, compact, title = "Tasks" }: TaskViewProps) {
 }
 
 function byPriority(a: Task, b: Task): number {
-  const rank: Record<TaskStatus, number> = { doing: 0, todo: 1, done: 2 };
+  const rank: Record<TaskStatus, number> = { doing: 0, todo: 1, cancelled: 2, done: 3 };
   return rank[a.status] - rank[b.status];
 }
 
@@ -71,7 +70,9 @@ function statusColor(status: TaskStatus): string {
     case "done":
       return color("success");
     case "doing":
-      return color("accent");
+      return color("text");
+    case "cancelled":
+      return color("danger");
     case "todo":
       return color("muted");
   }

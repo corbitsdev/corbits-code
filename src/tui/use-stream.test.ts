@@ -69,4 +69,16 @@ describe("createAgentStreamState", () => {
 
     expect(state.subAgents).toEqual([{ id: "call-3", title: "greybeard: review correctness", status: "done" }]);
   });
+
+  test("labels sub-agents without a named profile as worker", () => {
+    const state = createAgentStreamState();
+
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "call-4",
+      name: "task",
+      arguments: { description: "map callers of X", prompt: "..." },
+    }));
+
+    expect(state.subAgents).toEqual([{ id: "call-4", title: "worker: map callers of X", status: "doing" }]);
+  });
 });

@@ -8,6 +8,14 @@ import { EventEmitter } from "node:events";
 // component — from ever seeing them.
 const MOUSE_SEQUENCE = /\x1b\[<(\d+);\d+;\d+[Mm]/g;
 
+// An orphaned mouse fragment: the leading ESC was consumed by Ink's escape
+// parser in a prior read (held as a pending escape) and the rest arrives here
+// alone. Such a fragment reassembles into a CSI string event inside Ink and
+// would otherwise reach `useInput` as literal `[<65;18;49m` text. The SGR body
+// `[<digits;digits;digits[Mm]` is unambiguous for the mouse, so stripping the
+// fragment is safe.
+const MOUSE_FRAGMENT = /\[<(\d+);\d+;\d+[Mm]/g;
+
 // A trailing, not-yet-terminated mouse sequence at the end of a chunk. A single
 // logical sequence can be split across two `read()` calls, so the tail is held
 // back and prepended to the next chunk rather than leaked. `[<` is the SGR
@@ -64,14 +72,26 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
   const mouse = new EventEmitter();
 
   const stripAndEmit = (text: string): string => {
+    let stripped = text.replace(MOUSE_SEQUENCE, "");
     MOUSE_SEQUENCE.lastIndex = 0;
-    for (let match = MOUSE_SEQUENCE.exec(text); match !== null; match = MOUSE_SEQUENCE.exec(text)) {
-      const button = Number(match[1]);
-      if (button === SCROLL_UP_BUTTON) mouse.emit("scrollUp");
-      else if (button === SCROLL_DOWN_BUTTON) mouse.emit("scrollDown");
+    for (const match of text.matchAll(MOUSE_SEQUENCE)) {
+      emitScroll(Number(match[1]));
     }
-    return text.replace(MOUSE_SEQUENCE, "");
+    // Catch orphaned fragments whose leading ESC was consumed by Ink's parser in
+    // a prior read. Run only on the full-sequence-free remainder so a complete
+    // sequence is never counted twice.
+    MOUSE_FRAGMENT.lastIndex = 0;
+    for (const match of stripped.matchAll(MOUSE_FRAGMENT)) {
+      emitScroll(Number(match[1]));
+    }
+    stripped = stripped.replace(MOUSE_FRAGMENT, "");
+    return stripped;
   };
+
+  function emitScroll(button: number): void {
+    if (button === SCROLL_UP_BUTTON) mouse.emit("scrollUp");
+    else if (button === SCROLL_DOWN_BUTTON) mouse.emit("scrollDown");
+  }
 
   // Carries an incomplete trailing mouse sequence from one read to the next.
   let pending = "";
@@ -83,12 +103,16 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
 
     let text = pending + raw;
     pending = "";
-    if (!text.includes("\x1b[<")) return text;
 
-    const partial = TRAILING_PARTIAL.exec(text);
-    if (partial) {
-      pending = partial[0];
-      text = text.slice(0, text.length - partial[0].length);
+    // Buffer a trailing partial FULL-form sequence only (ESC + `[<` ...). The
+    // orphaned-fragment form has no ESC to anchor a reliable partial match, so
+    // it is never buffered — any stray fragment reaches stripAndEmit directly.
+    if (text.includes("\x1b[<")) {
+      const partial = TRAILING_PARTIAL.exec(text);
+      if (partial) {
+        pending = partial[0];
+        text = text.slice(0, text.length - partial[0].length);
+      }
     }
 
     return stripAndEmit(text);

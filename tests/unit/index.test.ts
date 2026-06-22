@@ -23,39 +23,16 @@ async function withEnv(fn: () => void | Promise<void>): Promise<void> {
   }
 }
 
-const mockRunAgent = mock(() => Promise.resolve(0));
 const mockRunTUI = mock(() => Promise.resolve(0));
+const mockRunOnboarding = mock(() => Promise.resolve(0));
 
-test("main requires task in headless mode", async () => {
-  await withEnv(async () => {
-    const code = await mainWithRunners(["--headless"], {
-      runAgent: mockRunAgent,
-      runTUI: mockRunTUI,
-    });
-    expect(code).toBe(1);
-    expect(mockRunAgent).not.toHaveBeenCalled();
-    expect(mockRunTUI).not.toHaveBeenCalled();
-  });
-});
-
-test("main does not require task in TUI mode", async () => {
+test("main launches TUI when configured", async () => {
   await withEnv(async () => {
     const code = await mainWithRunners([], {
-      runAgent: mockRunAgent,
       runTUI: mockRunTUI,
+      runOnboarding: mockRunOnboarding,
     });
     expect(code).toBe(0);
     expect(mockRunTUI).toHaveBeenCalled();
-  });
-});
-
-test("main routes headless with task to runAgent", async () => {
-  await withEnv(async () => {
-    const code = await mainWithRunners(["--headless", "do something"], {
-      runAgent: mockRunAgent,
-      runTUI: mockRunTUI,
-    });
-    expect(code).toBe(0);
-    expect(mockRunAgent).toHaveBeenCalled();
   });
 });

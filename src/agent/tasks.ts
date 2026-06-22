@@ -4,7 +4,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 // A task is a unit of work the agent registered for itself. The agent owns the
 // list — it adds items on receipt of a multi-step command and updates each
 // item's status as work progresses.
-export const TaskStatusSchema = type("'todo' | 'doing' | 'done'");
+export const TaskStatusSchema = type("'todo' | 'doing' | 'done' | 'cancelled'");
 export type TaskStatus = typeof TaskStatusSchema.infer;
 
 export const TaskSchema = type({
@@ -35,7 +35,7 @@ export type ManageTasksArgs = typeof ManageTasksArgsSchema.infer;
 export const manageTasksDefinition: ToolDefinition = {
   name: "manage_tasks",
   description:
-    "Maintain your own ordered task list for multi-step work. Call with action=\"create\" and an ordered list of tasks at the start of a non-trivial command to register what you intend to do. Call with action=\"update\" and per-task patches as you make progress (status transitions: todo → doing → done; title edits when scope sharpens). Skip this tool for trivial single-step changes.",
+    "Maintain your own ordered task list for multi-step work. Call with action=\"create\" and an ordered list of tasks at the start of a non-trivial command to register what you intend to do. Call with action=\"update\" and per-task patches as you make progress (status transitions: todo → doing → done/cancelled; title edits when scope sharpens). Skip this tool for trivial single-step changes.",
   inputSchema: {
     type: "object",
     properties: {
@@ -52,7 +52,7 @@ export const manageTasksDefinition: ToolDefinition = {
           properties: {
             id: { type: "string", description: "Stable id, unique within this list (e.g. t1, t2)." },
             title: { type: "string", description: "Short, action-oriented description." },
-            status: { type: "string", enum: ["todo", "doing", "done"], description: "Defaults to \"todo\" when omitted." },
+            status: { type: "string", enum: ["todo", "doing", "done", "cancelled"], description: "Defaults to \"todo\" when omitted." },
           },
           required: ["id", "title"],
         },
@@ -65,7 +65,7 @@ export const manageTasksDefinition: ToolDefinition = {
           properties: {
             id: { type: "string", description: "Id of an existing task." },
             title: { type: "string" },
-            status: { type: "string", enum: ["todo", "doing", "done"] },
+            status: { type: "string", enum: ["todo", "doing", "done", "cancelled"] },
           },
           required: ["id"],
         },
