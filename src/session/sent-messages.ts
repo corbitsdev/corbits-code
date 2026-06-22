@@ -5,6 +5,9 @@ import { type } from "arktype";
 
 import { sessionDir } from "./index.js";
 
+/** Max user messages recallable with Up/Down in the prompt (newest retained). */
+export const SENT_MESSAGE_HISTORY_LIMIT = 20;
+
 function sentMessagesPath(cwd: string, sessionId: string): string {
   return join(sessionDir(cwd, sessionId), "sent-messages.ndjson");
 }
@@ -29,7 +32,9 @@ export async function loadSentMessages(cwd: string, sessionId: string): Promise<
       // corrupt line — skip
     }
   }
-  return results;
+  return results.length <= SENT_MESSAGE_HISTORY_LIMIT
+    ? results
+    : results.slice(-SENT_MESSAGE_HISTORY_LIMIT);
 }
 
 // Append-only: no read-modify-write race. Each message is one JSON line.
