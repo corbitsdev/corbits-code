@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadAgentContextExtensions } from "../../src/agent/run-agent.js";
+import { loadAgentContextExtensions } from "../../src/agent/context-extensions.js";
 
 let dir: string;
 
