@@ -78,7 +78,6 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
-    maxTurns: 7,
     run: async (params) => {
       received = params;
       return "found three callers in foo.ts";
@@ -93,7 +92,6 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
   expect(received?.description).toBe("map callers");
   expect(received?.prompt).toBe("find every caller of X");
   expect(received?.cwd).toBe("/repo");
-  expect(received?.maxTurns).toBe(7);
   expect(result).toContain("map callers");
   expect(result).toContain("found three callers in foo.ts");
 });
