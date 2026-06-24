@@ -4,9 +4,9 @@ import { useRef } from "react";
 // without shouting. Eighty milliseconds per frame is fast enough to feel
 // fluid, slow enough to stay calm.
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-const FRAME_MS = 80;
+export const SPINNER_FRAME_MS = 80;
 
-export type SpinnerState = { frame: string; elapsedMs: number };
+export type SpinnerTiming = { anchor: number | null };
 
 // Computes the new start anchor so the elapsed clock is cumulative across
 // re-arms. The anchor is set in the past by `pausedElapsedMs` so that
@@ -17,11 +17,19 @@ export function computeAnchor(pausedElapsedMs: number): number {
 }
 
 export function spinnerFrameIndex(now = Date.now()): number {
-  return Math.floor(now / FRAME_MS) % SPINNER_FRAMES.length;
+  return Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length;
 }
 
-// Animate a spinner only while `active`. Returns the current frame and the
-// cumulative elapsed time so callers can surface a "still working" hint.
+export function spinnerFrameAt(now = Date.now()): string {
+  return SPINNER_FRAMES[spinnerFrameIndex(now)] ?? SPINNER_FRAMES[0]!;
+}
+
+export function elapsedMsFromAnchor(anchor: number | null, now = Date.now()): number {
+  return anchor === null ? 0 : Math.max(0, now - anchor);
+}
+
+// Tracks cumulative elapsed timing for the in-flight row. Glyph animation runs
+// inside InFlightIndicator so the rest of the tree is not repainted every frame.
 //
 // Elapsed is cumulative within a turn: brief pauses (e.g. between a tool
 // result and the next model chunk) do not reset the counter. Going inactive
@@ -33,9 +41,7 @@ export function spinnerFrameIndex(now = Date.now()): number {
 // accumulated elapsed is zeroed so a new turn always starts the clock fresh
 // instead of inheriting the prior turn's running total.
 //
-// No local interval: the parent re-renders on the agent stream tick (~30fps)
-// and advances the glyph from wall-clock time.
-export function useSpinner(active: boolean, resetKey?: number): SpinnerState {
+export function useSpinner(active: boolean, resetKey?: number): SpinnerTiming {
   const startRef = useRef<number | null>(null);
   const pausedElapsedRef = useRef(0);
   const lastResetKeyRef = useRef<number | undefined>(undefined);
@@ -61,11 +67,8 @@ export function useSpinner(active: boolean, resetKey?: number): SpinnerState {
   wasActiveRef.current = active;
 
   if (!active) {
-    return { frame: SPINNER_FRAMES[0]!, elapsedMs: 0 };
+    return { anchor: null };
   }
 
-  const now = Date.now();
-  const elapsedMs = startRef.current !== null ? now - startRef.current : 0;
-  const frame = SPINNER_FRAMES[spinnerFrameIndex(now)] ?? SPINNER_FRAMES[0]!;
-  return { frame, elapsedMs };
+  return { anchor: startRef.current };
 }
