@@ -227,6 +227,25 @@ test("ChatInput caps the box at 40vh and scrolls internally", () => {
   expect(frame).toContain("↑");
 });
 
+test("ChatInput pre-wraps long lines to the inner box width (prefix + chrome)", () => {
+  // columns=40 -> content width 32; with "> " prefix the row fits the bordered box.
+  const chunk = "a".repeat(32);
+  const { lastFrame } = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value={chunk}
+      onChange={() => {}}
+      columns={40}
+    />,
+  );
+  const frame = lastFrame() ?? "";
+  const promptLines = frame.split("\n").filter((line) => line.includes("a") && !line.includes("Intercode"));
+  expect(promptLines.length).toBe(1);
+  expect(promptLines[0]).toContain(chunk);
+});
+
 test("ChatInput action bar shows the verb beside the steer hint and the model on the right", () => {
   const { lastFrame } = render(
     <ChatInput

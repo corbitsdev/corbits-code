@@ -144,6 +144,19 @@ describe("flat line buffer", () => {
     expect(wide.join("\n")).toContain("viewport grows wider");
   });
 
+  test("text block marker counts against the wrap budget so no line overflows the column", () => {
+    // A first row that fills the width: the leading " ● " marker must be
+    // folded into the wrap, not prepended after it. Otherwise line 0 grows past
+    // the column and spills an extra row, clipping the viewport's bottom line.
+    const width = 40;
+    const block: ContentBlock = { type: "text", id: "full-row", content: "x".repeat(50) };
+    const lines = buildLines([block], width, false, isExpanded);
+    for (const line of lines) {
+      const len = line.reduce((n, s) => n + s.text.length, 0);
+      expect(len).toBeLessThanOrEqual(width);
+    }
+  });
+
   const planBlock: ContentBlock = {
     type: "plan",
     id: "plan-1",
