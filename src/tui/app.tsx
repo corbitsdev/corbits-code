@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLines, maxLineOffset } from "./components/event-log.js";
+import { EventLog, buildLinesIncremental, maxLineOffset, type IncrementalLinesState } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -38,6 +38,7 @@ import {
 import { getLogger } from "@intx/log";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
+import { extraPromptChromeRows } from "./prompt-layout.js";
 import { useSessionClock } from "./hooks/use-session-clock.js";
 import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
@@ -636,11 +637,17 @@ export function App({
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
+  const activeSubAgents = state.subAgents.filter((a) => a.status !== "done");
+  const subAgentChromeRows = activeSubAgents.length > 0 ? activeSubAgents.length + 2 : 0;
+
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
     taskChromeRows +
-    pluginChromeRows;
+    pluginChromeRows +
+    (state.quotaError !== null ? 1 : 0) +
+    subAgentChromeRows +
+    extraPromptChromeRows(inputValue, columns ?? 80, rows ?? 24);
 
   const layout = useLayoutGeometry({
     columns,
@@ -659,6 +666,7 @@ export function App({
 
   // Cleared when layout width or display options change — those affect all blocks.
   const lineCacheRef = useRef(new Map<string, StyledLine[]>());
+  const incrementalLinesRef = useRef<IncrementalLinesState | undefined>(undefined);
   const lineCacheKeysRef = useRef({ leftWidth, thinkingExpanded, verbose });
   if (
     lineCacheKeysRef.current.leftWidth !== leftWidth ||
@@ -666,21 +674,40 @@ export function App({
     lineCacheKeysRef.current.verbose !== verbose
   ) {
     lineCacheRef.current.clear();
+    incrementalLinesRef.current = undefined;
     lineCacheKeysRef.current = { leftWidth, thinkingExpanded, verbose };
   }
 
-  const eventLogLines = useMemo(
-    () => buildLines(
-      state.contentBlocks,
+  const linesLayoutKey = useMemo(
+    () => [
       leftWidth,
-      thinkingExpanded,
-      (block) => verbose || expandedTools.has(block.id),
-      lineCacheRef.current,
-      { currentStep: state.currentPlanStep, deviated: state.planDeviated },
-    ),
+      thinkingExpanded ? "1" : "0",
+      verbose ? "1" : "0",
+      [...expandedTools].sort().join("\x1f"),
+      String(state.currentPlanStep),
+      state.planDeviated ? "1" : "0",
+    ].join("|"),
+    [leftWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+  );
+
+  const eventLogLines = useMemo(
+    () => {
+      const next = buildLinesIncremental(
+        incrementalLinesRef.current,
+        state.contentBlocks,
+        leftWidth,
+        thinkingExpanded,
+        (block) => verbose || expandedTools.has(block.id),
+        lineCacheRef.current,
+        { currentStep: state.currentPlanStep, deviated: state.planDeviated },
+        linesLayoutKey,
+      );
+      incrementalLinesRef.current = next;
+      return next.lines;
+    },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, leftWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [state.contentBlocks, linesLayoutKey, leftWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
@@ -1172,7 +1199,12 @@ export function App({
             tasks={state.tasks}
           />
         ) : (
-          <Box width={leftWidth} flexDirection="column" overflow="hidden">
+          <Box
+            width={leftWidth}
+            flexDirection="column"
+            justifyContent="flex-end"
+            overflow="hidden"
+          >
             <EventLog
               lines={eventLogLines}
               scrollOffset={scroll.scrollOffset}
@@ -1303,7 +1335,7 @@ export function App({
         </Box>
       )}
       {!taskFullScreenOpen && (
-        <Box flexShrink={0} flexDirection="column" marginTop={1}>
+        <Box flexShrink={0} flexDirection="column">
           {state.tasks.length > 0 && (
             <Box flexDirection="column" marginTop={1} marginBottom={1}>
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />

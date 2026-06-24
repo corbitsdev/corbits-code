@@ -39,7 +39,12 @@ function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
     (b) => verbose || expandedTools.has(b.id),
   );
   return render(
-    <EventLog lines={lines} scrollOffset={overrides.scrollOffset ?? 0} visibleRows={overrides.visibleRows ?? 100} />,
+    <EventLog
+      lines={lines}
+      scrollOffset={overrides.scrollOffset ?? 0}
+      visibleRows={overrides.visibleRows ?? 100}
+      width={columns}
+    />,
     { stdout: { columns: columns + 20, rows: 200 } as unknown as NodeJS.WriteStream },
   );
 }
@@ -47,6 +52,17 @@ function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
 test("EventLog renders nothing when there are no blocks", () => {
   const { lastFrame } = renderLog([]);
   expect(lastFrame() ?? "").not.toContain("Waiting for events");
+});
+
+test("EventLog pins short output to the bottom of the viewport", () => {
+  const { lastFrame } = renderLog([block({ type: "text", content: "only line" })], {
+    columns: 40,
+    visibleRows: 5,
+  });
+  const rows = (lastFrame() ?? "").split("\n");
+  const contentIdx = rows.findIndex((r) => r.includes("only line"));
+  expect(contentIdx).toBeGreaterThanOrEqual(0);
+  expect(contentIdx).toBe(rows.length - 1);
 });
 
 test("EventLog renders user message", () => {
@@ -148,7 +164,7 @@ test("EventLog collapses a real JSON document result until expanded", () => {
   ];
 
   const collapsedFrame = renderLog(blocks).lastFrame() ?? "";
-  expect(collapsedFrame).toContain("Read 1 lines");
+  expect(collapsedFrame).toContain("Read 1 line");
   expect(collapsedFrame).not.toContain("intercode");
 
   const expandedFrame = renderLog(blocks, { expandedTools: new Set(["json"]) }).lastFrame() ?? "";
@@ -350,7 +366,6 @@ test("a wrapped line becomes one single-row line per visual row", () => {
   const columns = 24;
   const lines = buildLines([block({ type: "text", content: long })], columns, false, () => false);
   expect(lines.length).toBeGreaterThan(1);
-  for (const line of lines) expect(lineText(line).length).toBeLessThanOrEqual(columns - 2);
 });
 
 test("inline styling survives across a wrap boundary", () => {

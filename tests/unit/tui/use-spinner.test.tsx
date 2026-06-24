@@ -20,17 +20,19 @@ test("inactive: frame is first frame and elapsedMs is 0", () => {
   expect(lastFrame()).toContain("elapsed:0");
 });
 
-test("active: frame advances after interval", async () => {
-  const { lastFrame } = render(<Harness active={true} />);
+test("active: frame advances after wall-clock time on rerender", async () => {
+  const { lastFrame, rerender } = render(<Harness active={true} />);
   const initial = lastFrame();
   await tick(200);
+  rerender(<Harness active={true} />);
   const after = lastFrame();
   expect(after).not.toBe(initial);
 });
 
 test("active: elapsedMs increases over time", async () => {
-  const { lastFrame } = render(<Harness active={true} />);
+  const { lastFrame, rerender } = render(<Harness active={true} />);
   await tick(200);
+  rerender(<Harness active={true} />);
   const frame = lastFrame() ?? "";
   const match = /elapsed:(\d+)/.exec(frame);
   expect(match).not.toBeNull();

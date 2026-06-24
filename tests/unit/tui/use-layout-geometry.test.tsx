@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import {
+  CHROME_ROWS,
   computeOverlayRows,
   computeVisibleRows,
   type GateContext,
@@ -7,8 +8,6 @@ import {
   type UseLayoutGeometryArgs,
 } from "../../../src/tui/hooks/use-layout-geometry.js";
 import type { ProviderCatalogEntry } from "../../../src/config/index.js";
-
-const CHROME_ROWS = 9;
 
 // Default empty modal and gate contexts
 const noGates: GateContext = {
@@ -76,15 +75,15 @@ test("sidebar open: leftWidth is floor(columns * 0.65)", () => {
   expect(geo.rightWidth).toBe(100 - Math.floor(100 * 0.65));
 });
 
-test("visibleRows equals rows - 9 - effectiveOverlayRows", () => {
+test("visibleRows equals rows - CHROME_ROWS - effectiveOverlayRows", () => {
   const geo = computeGeo({ rows: 40 });
-  expect(geo.visibleRows).toBe(40 - 9 - geo.effectiveOverlayRows);
+  expect(geo.visibleRows).toBe(40 - CHROME_ROWS - geo.effectiveOverlayRows);
 });
 
-test("no modals or gates: effectiveOverlayRows is 0 and visibleRows is rows - 9", () => {
+test("no modals or gates: effectiveOverlayRows is 0 and visibleRows is rows - CHROME_ROWS", () => {
   const geo = computeGeo({ rows: 40 });
   expect(geo.effectiveOverlayRows).toBe(0);
-  expect(geo.visibleRows).toBe(40 - 9);
+  expect(geo.visibleRows).toBe(40 - CHROME_ROWS);
 });
 
 // 5. helpOpen: true → effectiveOverlayRows === 16
