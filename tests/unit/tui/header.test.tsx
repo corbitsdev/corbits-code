@@ -6,27 +6,32 @@ import type { HeaderProps } from "../../../src/tui/components/header.js";
 function renderHeader(props: Partial<HeaderProps> = {}) {
   return render(
     <Header
-      sessionTitle={props.sessionTitle ?? ""}
       latestUserMessage={props.latestUserMessage ?? ""}
       width={props.width ?? 160}
-      usage={props.usage}
+      {...(props.profile !== undefined ? { profile: props.profile } : {})}
+      {...(props.workflow !== undefined ? { workflow: props.workflow } : {})}
     />,
   );
 }
 
 test("Header no longer renders the product name — it lives in the status bar", () => {
-  const { lastFrame } = renderHeader({ sessionTitle: "build a plan" });
+  const { lastFrame } = renderHeader();
   expect(lastFrame() ?? "").not.toContain("Intercode");
-});
-
-test("Header renders the session title", () => {
-  const { lastFrame } = renderHeader({ sessionTitle: "build a plan" });
-  expect(lastFrame()).toContain("build a plan");
 });
 
 test("Header renders the latest user message", () => {
   const { lastFrame } = renderHeader({ latestUserMessage: "do the thing" });
   expect(lastFrame()).toContain("do the thing");
+});
+
+test("Header renders the profile when provided", () => {
+  const { lastFrame } = renderHeader({ profile: "architect" });
+  expect(lastFrame()).toContain("architect");
+});
+
+test("Header does not render a profile bracket when none is provided", () => {
+  const { lastFrame } = renderHeader();
+  expect(lastFrame() ?? "").not.toContain("[");
 });
 
 test("Header no longer renders the working directory — it lives in the status bar", () => {
@@ -40,12 +45,15 @@ test("Header does not render the session clock", () => {
   expect(lastFrame() ?? "").not.toContain("0:00");
 });
 
-test("Header renders live usage when provided", () => {
-  const { lastFrame } = renderHeader({ usage: "Codex 5h 12%" });
-  expect(lastFrame()).toContain("Codex 5h 12%");
+test("Header renders the workflow stepper when provided", () => {
+  const { lastFrame } = renderHeader({
+    workflow: { name: "refactor", stepIndex: 1, total: 3, label: "editing" },
+  });
+  expect(lastFrame()).toContain("refactor");
+  expect(lastFrame()).toContain("2/3");
 });
 
 test("Header does not render the dollar cost", () => {
-  const { lastFrame } = renderHeader({ sessionTitle: "x" });
+  const { lastFrame } = renderHeader({ latestUserMessage: "x" });
   expect(lastFrame() ?? "").not.toContain("$");
 });
