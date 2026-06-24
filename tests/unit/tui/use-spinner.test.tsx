@@ -1,11 +1,16 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
-import { useSpinner, SPINNER_FRAMES } from "../../../src/tui/hooks/use-spinner.js";
+import {
+  elapsedMsFromAnchor,
+  useSpinner,
+  SPINNER_FRAMES,
+} from "../../../src/tui/hooks/use-spinner.js";
 
 function Harness({ active, resetKey }: { active: boolean; resetKey?: number }) {
-  const { frame, elapsedMs } = useSpinner(active, resetKey);
-  return <Text>{`frame:${frame}|elapsed:${elapsedMs}`}</Text>;
+  const { anchor } = useSpinner(active, resetKey);
+  const elapsedMs = elapsedMsFromAnchor(anchor);
+  return <Text>{`anchor:${anchor ?? "null"}|elapsed:${elapsedMs}`}</Text>;
 }
 
 const tick = (ms = 20): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -14,19 +19,16 @@ test("SPINNER_FRAMES has 10 entries", () => {
   expect(SPINNER_FRAMES.length).toBe(10);
 });
 
-test("inactive: frame is first frame and elapsedMs is 0", () => {
+test("inactive: anchor is null and elapsedMs is 0", () => {
   const { lastFrame } = render(<Harness active={false} />);
-  expect(lastFrame()).toContain(`frame:${SPINNER_FRAMES[0]}`);
+  expect(lastFrame()).toContain("anchor:null");
   expect(lastFrame()).toContain("elapsed:0");
 });
 
-test("active: frame advances after wall-clock time on rerender", async () => {
-  const { lastFrame, rerender } = render(<Harness active={true} />);
-  const initial = lastFrame();
-  await tick(200);
-  rerender(<Harness active={true} />);
-  const after = lastFrame();
-  expect(after).not.toBe(initial);
+test("active: exposes a timing anchor", () => {
+  const { lastFrame } = render(<Harness active={true} />);
+  const frame = lastFrame() ?? "";
+  expect(frame).toMatch(/anchor:\d+/);
 });
 
 test("active: elapsedMs increases over time", async () => {
@@ -39,12 +41,12 @@ test("active: elapsedMs increases over time", async () => {
   expect(Number(match![1])).toBeGreaterThan(0);
 });
 
-test("flipping active to false resets frame and elapsedMs", async () => {
+test("flipping active to false clears anchor and elapsedMs", async () => {
   const { lastFrame, rerender } = render(<Harness active={true} />);
   await tick(200);
   rerender(<Harness active={false} />);
   await tick(20);
-  expect(lastFrame()).toContain(`frame:${SPINNER_FRAMES[0]}`);
+  expect(lastFrame()).toContain("anchor:null");
   expect(lastFrame()).toContain("elapsed:0");
 });
 

@@ -1,5 +1,11 @@
 import { Box, Text } from "ink";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  elapsedMsFromAnchor,
+  SPINNER_FRAMES,
+  spinnerFrameAt,
+  SPINNER_FRAME_MS,
+} from "../hooks/use-spinner.js";
 import { color } from "../theme.js";
 
 export type InlineWorkflowStatus = {
@@ -11,12 +17,29 @@ export type InlineWorkflowStatus = {
 
 export type InFlightIndicatorProps = {
   active: boolean;
-  frame: string;
-  elapsedMs: number;
+  /** Wall-clock anchor for cumulative elapsed; null while idle. */
+  timingAnchor: number | null;
   label?: string;
   toolName?: string | null;
   workflow?: InlineWorkflowStatus;
 };
+
+// Ink draws to the terminal — there is no CSS @keyframes. This hook is the
+// lightest equivalent: one small subtree repaints on SPINNER_FRAME_MS, not App.
+function useInFlightVisuals(active: boolean, timingAnchor: number | null): { frame: string; elapsedMs: number } {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return undefined;
+    const id = setInterval(() => setTick((n) => n + 1), SPINNER_FRAME_MS);
+    return () => clearInterval(id);
+  }, [active]);
+  void tick;
+  const now = Date.now();
+  return {
+    frame: active ? spinnerFrameAt(now) : SPINNER_FRAMES[0]!,
+    elapsedMs: active ? elapsedMsFromAnchor(timingAnchor, now) : 0,
+  };
+}
 
 // The "still working" hint only appears once a wait runs past this, so a fast
 // reply never flashes a counter — only a genuinely slow one earns the seconds.
@@ -42,7 +65,8 @@ export function formatElapsed(elapsedMs: number): string {
 // A single dim line that spins while the model is composing and clears the
 // instant its first token streams. The row is always rendered (blank when
 // idle) so the surrounding layout never shifts as it appears and disappears.
-export function InFlightIndicator({ active, frame, elapsedMs, label, toolName, workflow }: InFlightIndicatorProps): ReactNode {
+export function InFlightIndicator({ active, timingAnchor, label, toolName, workflow }: InFlightIndicatorProps): ReactNode {
+  const { frame, elapsedMs } = useInFlightVisuals(active, timingAnchor);
   const workflowText = workflow !== undefined
     ? `⟳ ${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`
     : undefined;
