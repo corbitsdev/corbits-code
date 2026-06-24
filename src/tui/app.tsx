@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLinesIncremental, maxLineOffset, type IncrementalLinesState } from "./components/event-log.js";
+import { EventLog, buildLinesIncremental, maxLineOffset, TEXT_GUTTER, type IncrementalLinesState } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -663,31 +663,33 @@ export function App({
     extraChromeRows,
   });
   const { leftWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
+  // Text wraps and renders inside the gutter so prose never touches the edges.
+  const contentWidth = Math.max(8, leftWidth - TEXT_GUTTER * 2);
 
   // Cleared when layout width or display options change — those affect all blocks.
   const lineCacheRef = useRef(new Map<string, StyledLine[]>());
   const incrementalLinesRef = useRef<IncrementalLinesState | undefined>(undefined);
-  const lineCacheKeysRef = useRef({ leftWidth, thinkingExpanded, verbose });
+  const lineCacheKeysRef = useRef({ contentWidth, thinkingExpanded, verbose });
   if (
-    lineCacheKeysRef.current.leftWidth !== leftWidth ||
+    lineCacheKeysRef.current.contentWidth !== contentWidth ||
     lineCacheKeysRef.current.thinkingExpanded !== thinkingExpanded ||
     lineCacheKeysRef.current.verbose !== verbose
   ) {
     lineCacheRef.current.clear();
     incrementalLinesRef.current = undefined;
-    lineCacheKeysRef.current = { leftWidth, thinkingExpanded, verbose };
+    lineCacheKeysRef.current = { contentWidth, thinkingExpanded, verbose };
   }
 
   const linesLayoutKey = useMemo(
     () => [
-      leftWidth,
+      contentWidth,
       thinkingExpanded ? "1" : "0",
       verbose ? "1" : "0",
       [...expandedTools].sort().join("\x1f"),
       String(state.currentPlanStep),
       state.planDeviated ? "1" : "0",
     ].join("|"),
-    [leftWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
   );
 
   const eventLogLines = useMemo(
@@ -695,7 +697,7 @@ export function App({
       const next = buildLinesIncremental(
         incrementalLinesRef.current,
         state.contentBlocks,
-        leftWidth,
+        contentWidth,
         thinkingExpanded,
         (block) => verbose || expandedTools.has(block.id),
         lineCacheRef.current,
@@ -707,7 +709,7 @@ export function App({
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, linesLayoutKey, leftWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [state.contentBlocks, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
@@ -934,7 +936,7 @@ export function App({
   // The label tracks the live phase so "Thinking…" is reserved for reasoning
   // chunks, not tool execution or response waits.
   const awaitingResponse = state.status === "running" && state.awaitingResponse;
-  const spinner = useSpinner(state.isProcessing, sendCounterRef.current);
+  const spinnerTiming = useSpinner(state.isProcessing, sendCounterRef.current);
   const spinnerLabel = (() => {
     if (!state.isProcessing) return undefined;
     if (state.currentToolName !== null || state.streamingType === "tool") return "Running tool…";
@@ -1204,12 +1206,13 @@ export function App({
             flexDirection="column"
             justifyContent="flex-end"
             overflow="hidden"
+            paddingX={TEXT_GUTTER}
           >
             <EventLog
               lines={eventLogLines}
               scrollOffset={scroll.scrollOffset}
               visibleRows={visibleRows}
-              width={leftWidth}
+              width={contentWidth}
             />
           </Box>
         )}
@@ -1343,8 +1346,7 @@ export function App({
           )}
           <InFlightIndicator
             active={state.isProcessing}
-            frame={spinner.frame}
-            elapsedMs={spinner.elapsedMs}
+            timingAnchor={spinnerTiming.anchor}
             toolName={state.currentToolName}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
             {...(() => {

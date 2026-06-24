@@ -25,6 +25,9 @@ const USER_CODE_BLOCK_LINE_LIMIT = 12;
 // Tool calls and results sit one level below assistant prose so the model's
 // text draws the eye and tools read as subordinate actions.
 const TOOL_INDENT = 2;
+// Horizontal gutters keep prose off the terminal edges so wrapped lines
+// don't sit flush against the window border.
+export const TEXT_GUTTER = 2;
 
 function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   if (spaces <= 0) return lines;
