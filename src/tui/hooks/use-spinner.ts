@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 
 // Braille spinner — a smooth, low-noise glyph cycle that reads as "alive"
 // without shouting. Eighty milliseconds per frame is fast enough to feel
@@ -16,6 +16,10 @@ export function computeAnchor(pausedElapsedMs: number): number {
   return Date.now() - pausedElapsedMs;
 }
 
+export function spinnerFrameIndex(now = Date.now()): number {
+  return Math.floor(now / FRAME_MS) % SPINNER_FRAMES.length;
+}
+
 // Animate a spinner only while `active`. Returns the current frame and the
 // cumulative elapsed time so callers can surface a "still working" hint.
 //
@@ -28,50 +32,40 @@ export function computeAnchor(pausedElapsedMs: number): number {
 // `resetKey` identifies the current user turn. When resetKey changes, the
 // accumulated elapsed is zeroed so a new turn always starts the clock fresh
 // instead of inheriting the prior turn's running total.
-// Idle: no interval, no re-renders.
+//
+// No local interval: the parent re-renders on the agent stream tick (~30fps)
+// and advances the glyph from wall-clock time.
 export function useSpinner(active: boolean, resetKey?: number): SpinnerState {
-  const [frameIndex, setFrameIndex] = useState(0);
-  const [elapsedMs, setElapsedMs] = useState(0);
   const startRef = useRef<number | null>(null);
-  // Accumulated elapsed captured when going inactive. Preserved so re-arming
-  // continues the cumulative clock within the same turn (same resetKey).
   const pausedElapsedRef = useRef(0);
-  // Tracks the last seen resetKey so we can detect a new turn starting.
   const lastResetKeyRef = useRef<number | undefined>(undefined);
+  const wasActiveRef = useRef(false);
 
-  // A new turn begins when resetKey changes. Zero the accumulated elapsed so
-  // the fresh turn's clock starts at 0 rather than the prior turn's total.
-  // Run synchronously (not inside the active effect) so the reset happens
-  // before the active effect reads pausedElapsedRef.
   if (resetKey !== lastResetKeyRef.current) {
     lastResetKeyRef.current = resetKey;
     pausedElapsedRef.current = 0;
     startRef.current = null;
   }
 
-  useEffect(() => {
-    if (!active) {
-      // Capture elapsed before stopping. If startRef is null the spinner was
-      // never running this arm — do not overwrite a meaningful paused value.
-      if (startRef.current !== null) {
-        pausedElapsedRef.current = Date.now() - startRef.current;
-      }
-      startRef.current = null;
-      setFrameIndex(0);
-      setElapsedMs(0);
-      return undefined;
+  if (!active && wasActiveRef.current) {
+    if (startRef.current !== null) {
+      pausedElapsedRef.current = Date.now() - startRef.current;
     }
-    // Resume the clock from wherever it was paused. Immediately restore the
-    // accumulated elapsed so the display does not flicker back to 0 before
-    // the first interval tick. First activation has pausedElapsedRef === 0.
-    startRef.current = computeAnchor(pausedElapsedRef.current);
-    setElapsedMs(pausedElapsedRef.current);
-    const interval = setInterval(() => {
-      setFrameIndex((i) => (i + 1) % SPINNER_FRAMES.length);
-      if (startRef.current !== null) setElapsedMs(Date.now() - startRef.current);
-    }, FRAME_MS);
-    return () => clearInterval(interval);
-  }, [active, resetKey]);
+    startRef.current = null;
+  }
 
-  return { frame: SPINNER_FRAMES[frameIndex] ?? SPINNER_FRAMES[0], elapsedMs };
+  if (active && !wasActiveRef.current) {
+    startRef.current = computeAnchor(pausedElapsedRef.current);
+  }
+
+  wasActiveRef.current = active;
+
+  if (!active) {
+    return { frame: SPINNER_FRAMES[0]!, elapsedMs: 0 };
+  }
+
+  const now = Date.now();
+  const elapsedMs = startRef.current !== null ? now - startRef.current : 0;
+  const frame = SPINNER_FRAMES[spinnerFrameIndex(now)] ?? SPINNER_FRAMES[0]!;
+  return { frame, elapsedMs };
 }

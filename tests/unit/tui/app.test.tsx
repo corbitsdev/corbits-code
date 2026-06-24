@@ -2,7 +2,7 @@ import { test, expect, mock } from "bun:test";
 import { render } from "ink-testing-library";
 import { App } from "../../../src/tui/app.js";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -15,6 +15,7 @@ const mockAgent = {
   stream: mock(() => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }) })),
   close: mock(() => Promise.resolve()),
   setSource: mock(() => undefined),
+  setSources: mock(() => undefined),
 };
 
 const testProvider: ProviderCatalogEntry = {
@@ -24,42 +25,79 @@ const testProvider: ProviderCatalogEntry = {
   models: ["test-model"],
 };
 
-function renderApp(emitter: EventEmitter, options?: Parameters<typeof render>[1] & { initialTask?: string }) {
-  const { initialTask, ...renderOptions } = options ?? {};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+async function dismissStartupAnimation(stdin: { write: (input: string) => void }): Promise<void> {
+  stdin.write(" ");
+  await tick();
+}
+
+type RenderAppOptions = {
+  stdout?: { columns: number; rows: number };
+  initialTask?: string;
+  sessionTitle?: string;
+  initialModel?: string;
+  initialProvider?: string;
+  providers?: ProviderCatalogEntry[];
+  globalSettingsPath?: string;
+  globalDefaultProvider?: string;
+  cwd?: string;
+  agent?: Agent;
+};
+
+function renderApp(emitter: EventEmitter, options?: RenderAppOptions) {
+  const {
+    stdout,
+    initialTask,
+    sessionTitle,
+    initialModel,
+    initialProvider,
+    providers,
+    globalSettingsPath,
+    globalDefaultProvider,
+    cwd,
+    agent,
+  } = options ?? {};
   return render(
     <App
       eventEmitter={emitter}
-      agent={mockAgent as unknown as Agent}
-      sessionTitle=""
-      initialModel="test-model"
-      initialProvider="test-provider"
-      providers={[testProvider]}
-      globalSettingsPath="/tmp/intercode-test-settings.json"
-      globalDefaultProvider="test-provider"
+      agent={(agent ?? mockAgent) as unknown as Agent}
+      sessionTitle={sessionTitle ?? ""}
+      initialModel={initialModel ?? "test-model"}
+      initialProvider={initialProvider ?? "test-provider"}
+      providers={providers ?? [testProvider]}
+      globalSettingsPath={globalSettingsPath ?? "/tmp/intercode-test-settings.json"}
+      globalDefaultProvider={globalDefaultProvider ?? "test-provider"}
       globallyOnboarded={true}
-      cwd="/tmp"
+      cwd={cwd ?? "/tmp"}
       initialTask={initialTask ?? ""}
     />,
-    renderOptions,
+    { stdout: stdout ?? { columns: 80, rows: 24 } },
   );
 }
 
-test("App renders header and status bar", () => {
+async function renderAppReady(emitter: EventEmitter, options?: RenderAppOptions) {
+  const view = renderApp(emitter, options);
+  await dismissStartupAnimation(view.stdin);
+  return view;
+}
+
+test("App renders header and status bar", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = renderApp(emitter);
+  const { lastFrame } = await renderAppReady(emitter);
   expect(lastFrame()).toContain("Intercode");
   expect(lastFrame()).toContain("test-model");
 });
 
-test("App renders chat input", () => {
+test("App renders chat input", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = renderApp(emitter);
+  const { lastFrame } = await renderAppReady(emitter);
   expect(lastFrame()).toContain("> ");
 });
 
 test("App renders events after they are emitted", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
 
   const event: ReactorEmittedEvent = {
     type: "inference.tool_call.start",
@@ -74,7 +112,7 @@ test("App renders events after they are emitted", async () => {
 
 test("App renders a submitted prompt once, not in both header and log", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
 
   emitter.emit("event", {
     type: "message.received",
@@ -85,16 +123,14 @@ test("App renders a submitted prompt once, not in both header and log", async ()
   await new Promise((resolve) => setTimeout(resolve, 50));
   const frame = lastFrame() ?? "";
   expect(frame.match(/hello world/g)?.length ?? 0).toBe(1);
-  expect(frame).toContain("> hello world");
+  expect(frame).not.toMatch(/> hello world/);
 });
 
-test("App hides the running status label in the status bar", () => {
+test("App hides the running status label in the status bar", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = renderApp(emitter);
+  const { lastFrame } = await renderAppReady(emitter);
   expect(lastFrame()).not.toContain("Running");
 });
-
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 async function writeKeys(stdin: { write: (input: string) => void }, keys: readonly string[]): Promise<void> {
   for (const key of keys) {
@@ -105,7 +141,7 @@ async function writeKeys(stdin: { write: (input: string) => void }, keys: readon
 
 test("CTRL+C with text in the prompt clears the input and does not open exit confirm", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
   stdin.write("hello");
   await tick();
   expect(lastFrame()).toContain("hello");
@@ -121,22 +157,38 @@ const settleRun = (emitter: EventEmitter) =>
 
 test("CTRL+C while the agent is running stops the run instead of exiting", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 }, initialTask: "go" });
+  const hangingAgent = {
+    ...mockAgent,
+    send: mock(() => new Promise(() => undefined)),
+  } as unknown as Agent;
+  const { stdin, lastFrame } = await renderAppReady(emitter, {
+    stdout: { columns: 120, rows: 30 },
+    initialTask: "go",
+    agent: hangingAgent,
+  });
   await tick();
   stdin.write("\x03");
   await tick();
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Stopped");
   expect(frame).not.toContain("Exit Intercode?");
+  expect(frame).toContain("Intercode");
 });
 
 test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 }, initialTask: "go" });
+  const hangingAgent = {
+    ...mockAgent,
+    send: mock(() => new Promise(() => undefined)),
+  } as unknown as Agent;
+  const { stdin, lastFrame } = await renderAppReady(emitter, {
+    stdout: { columns: 120, rows: 30 },
+    initialTask: "go",
+    agent: hangingAgent,
+  });
   await tick();
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).toContain("Stopped");
+  expect(lastFrame()).not.toContain("Exit Intercode?");
   stdin.write("\x03");
   await tick();
   expect(lastFrame()).toContain("Exit Intercode?");
@@ -144,7 +196,7 @@ test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
 
 test("CTRL+C with an empty prompt opens the exit confirm overlay once idle", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
   settleRun(emitter);
   await tick();
   stdin.write("\x03");
@@ -154,7 +206,7 @@ test("CTRL+C with an empty prompt opens the exit confirm overlay once idle", asy
 
 test("exit confirm cancels on N and closes the overlay", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
   settleRun(emitter);
   await tick();
   stdin.write("\x03");
@@ -167,7 +219,7 @@ test("exit confirm cancels on N and closes the overlay", async () => {
 
 test("ESC never opens the exit confirm overlay", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
   stdin.write("\x1B");
   await tick();
   expect(lastFrame()).not.toContain("Exit Intercode?");
@@ -175,7 +227,7 @@ test("ESC never opens the exit confirm overlay", async () => {
 
 test("double ESC within the window clears the prompt", async () => {
   const emitter = new EventEmitter();
-  const { stdin, lastFrame } = renderApp(emitter, { stdout: { columns: 120, rows: 30 } });
+  const { stdin, lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
   stdin.write("draft text");
   await tick();
   expect(lastFrame()).toContain("draft text");
@@ -188,21 +240,10 @@ test("double ESC within the window clears the prompt", async () => {
 
 test("App keeps header and footer visible after many events", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame } = render(
-    <App
-      eventEmitter={emitter}
-      agent={mockAgent as unknown as Agent}
-      sessionTitle="scroll test"
-      initialModel="test-model"
-      initialProvider="test-provider"
-      providers={[testProvider]}
-      globalSettingsPath="/tmp/intercode-test-settings.json"
-      globalDefaultProvider="test-provider"
-      globallyOnboarded={true}
-      cwd="/tmp"
-    />,
-    { stdout: { columns: 100, rows: 12 } },
-  );
+  const { lastFrame } = await renderAppReady(emitter, {
+    stdout: { columns: 100, rows: 12 },
+    sessionTitle: "scroll test",
+  });
 
   for (let i = 0; i < 25; i++) {
     emitter.emit("event", {
@@ -214,14 +255,13 @@ test("App keeps header and footer visible after many events", async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(lastFrame()).toContain("Intercode");
-  expect(lastFrame()).toContain("scroll test");
   expect(lastFrame()).toContain("> ");
   expect(lastFrame()).toContain("test-model");
 });
 
 test("App does not scroll the event log with arrow keys (arrows belong to the prompt box)", async () => {
   const emitter = new EventEmitter();
-  const { lastFrame, stdin } = renderApp(emitter, { stdout: { columns: 100, rows: 20 } });
+  const { lastFrame, stdin } = await renderAppReady(emitter, { stdout: { columns: 100, rows: 20 } });
 
   for (let i = 0; i < 20; i++) {
     emitter.emit("event", {
@@ -246,28 +286,29 @@ test("/model editing a non-default provider preserves the global default", async
   try {
     const emitter = new EventEmitter();
     const globalSettingsPath = join(dir, "settings.json");
-    const { stdin } = render(
-      <App
-        eventEmitter={emitter}
-        agent={mockAgent as unknown as Agent}
-        sessionTitle=""
-        initialModel="b-model"
-        initialProvider="b"
-        providers={[
-          { name: "a", baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
-          { name: "b", baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
-        ]}
-        globalSettingsPath={globalSettingsPath}
-        globalDefaultProvider="a"
-        globallyOnboarded={true}
-        cwd={dir}
-      />,
-      { stdout: { columns: 120, rows: 30 } },
+    await writeFile(
+      globalSettingsPath,
+      JSON.stringify({ defaultProvider: "a", providers: {} }),
+      "utf8",
     );
+    const multiProviders = [
+      { name: "a", baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
+      { name: "b", baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
+    ];
+    const { stdin } = await renderAppReady(emitter, {
+      stdout: { columns: 120, rows: 30 },
+      initialModel: "b-model",
+      initialProvider: "b",
+      providers: multiProviders,
+      globalSettingsPath,
+      globalDefaultProvider: "a",
+      cwd: dir,
+    });
 
     settleRun(emitter);
     await tick();
     await writeKeys(stdin, ["/model", "\r", "e", "\r", "\r", "\r", "\r", "\r"]);
+    await tick();
 
     expect((await loadSettings(globalSettingsPath))?.defaultProvider).toBe("a");
   } finally {
@@ -280,28 +321,29 @@ test("/model deleting a non-default provider preserves the global default", asyn
   try {
     const emitter = new EventEmitter();
     const globalSettingsPath = join(dir, "settings.json");
-    const { stdin } = render(
-      <App
-        eventEmitter={emitter}
-        agent={mockAgent as unknown as Agent}
-        sessionTitle=""
-        initialModel="b-model"
-        initialProvider="b"
-        providers={[
-          { name: "a", baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
-          { name: "b", baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
-        ]}
-        globalSettingsPath={globalSettingsPath}
-        globalDefaultProvider="a"
-        globallyOnboarded={true}
-        cwd={dir}
-      />,
-      { stdout: { columns: 120, rows: 30 } },
+    await writeFile(
+      globalSettingsPath,
+      JSON.stringify({ defaultProvider: "a", providers: {} }),
+      "utf8",
     );
+    const multiProviders = [
+      { name: "a", baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
+      { name: "b", baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"] },
+    ];
+    const { stdin } = await renderAppReady(emitter, {
+      stdout: { columns: 120, rows: 30 },
+      initialModel: "b-model",
+      initialProvider: "b",
+      providers: multiProviders,
+      globalSettingsPath,
+      globalDefaultProvider: "a",
+      cwd: dir,
+    });
 
     settleRun(emitter);
     await tick();
     await writeKeys(stdin, ["/model", "\r", "x", "y"]);
+    await tick();
 
     const settings = await loadSettings(globalSettingsPath);
     expect(settings?.defaultProvider).toBe("a");

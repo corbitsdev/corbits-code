@@ -5,6 +5,7 @@ import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
 import { useAtSuggestions, AtSuggestions } from "./at-mention/index.js";
 import { color } from "../theme.js";
+import { promptContentWidth, promptScrollWindow } from "../prompt-layout.js";
 import { wrapLines } from "../view/height.js";
 
 export type ChatInputProps = {
@@ -478,9 +479,7 @@ export function ChatInput({
     atMention.refresh(next.value, next.cursor);
   }, { isActive: active });
 
-  // Pre-wrap the prompt ourselves so long logical lines do not wrap under Ink's
-  // nested Text indentation, which can make continuation rows drift right.
-  const promptWidth = Math.max(8, (columns ?? 80) - 6);
+  const promptWidth = promptContentWidth(columns ?? 80);
   const visualLines: Array<{ text: string; logicalStart: number }> = [];
   let logicalStart = 0;
   for (const logical of value.split("\n")) {
@@ -505,22 +504,12 @@ export function ChatInput({
   }
   const cursorCol = Math.max(0, cursor - visualLines[cursorLine]!.logicalStart);
 
-  // Cap the prompt box at 40% of the terminal height so a huge paste never
-  // shoves the transcript off-screen. Past the cap the box scrolls internally,
-  // keeping the cursor line in view.
-  const maxBoxRows = Math.max(3, Math.floor((rows ?? 24) * 0.4));
-  let windowStart = 0;
-  let windowEnd = lines.length;
-  if (lines.length > maxBoxRows) {
-    windowStart = Math.max(0, cursorLine - maxBoxRows + 1);
-    windowEnd = windowStart + maxBoxRows;
-    if (windowEnd > lines.length) {
-      windowEnd = lines.length;
-      windowStart = windowEnd - maxBoxRows;
-    }
-  }
-  const atTopEdge = windowStart > 0;
-  const atBottomEdge = windowEnd < lines.length;
+  const { windowStart, windowEnd, atTopEdge, atBottomEdge } = promptScrollWindow(
+    value,
+    columns ?? 80,
+    rows ?? 24,
+    cursor,
+  );
 
   // Slash and @ pickers are mutually exclusive: slash owns the field when value
   // starts with /, @ picker fires for any other @ token in the input.

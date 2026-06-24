@@ -352,8 +352,14 @@ function blockToLines(
       // Leading marker keeps assistant prose visually separate from the colored
       // user banner while staying quiet in the layout.
       if (textLines.length === 0) return textLines;
-      textLines[0] = [{ text: " ● ", color: color("text") }, ...(textLines[0] ?? [])];
-      return textLines;
+      // Fold the marker into the wrap budget so a full first line doesn't
+      // overflow the column — an uncounted spill row would push the viewport's
+      // bottom line (the newest text) out of view.
+      const firstWrapped = wrapStyledLine(
+        [{ text: " ● ", color: color("text") }, ...(textLines[0] ?? [])],
+        width,
+      );
+      return [...firstWrapped, ...textLines.slice(1)];
     }
     case "tool_call":
       return indentLines(toolCallLines(block, width - TOOL_INDENT, expanded), TOOL_INDENT);
@@ -370,24 +376,41 @@ function blockToLines(
   }
 }
 
-export function buildLines(
-  contentBlocks: ContentBlock[],
-  columns: number,
-  thinkingExpanded: boolean,
-  isExpanded: (block: RenderableBlock) => boolean,
-  cache?: Map<string, StyledLine[]>,
-  planCtx?: PlanContext,
-): StyledLine[] {
-  const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
-  if (cache !== undefined) {
-    const activeIds = new Set(blocks.map((b) => b.id));
-    for (const key of cache.keys()) {
-      if (!activeIds.has(blockIdFromCacheKey(key))) cache.delete(key);
-    }
+type AssembleBlocksArgs = {
+  blocks: RenderableBlock[];
+  columns: number;
+  thinkingExpanded: boolean;
+  isExpanded: (block: RenderableBlock) => boolean;
+  cache?: Map<string, StyledLine[]>;
+  planCtx?: PlanContext;
+  startBlockIndex: number;
+  prefixLines: StyledLine[];
+};
+
+function pruneBlockLineCache(cache: Map<string, StyledLine[]>, blocks: RenderableBlock[]): void {
+  const activeIds = new Set(blocks.map((b) => b.id));
+  for (const key of cache.keys()) {
+    if (!activeIds.has(blockIdFromCacheKey(key))) cache.delete(key);
   }
-  const lines: StyledLine[] = [];
+}
+
+function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine[]; blockLineStarts: number[] } {
+  const {
+    blocks,
+    columns,
+    thinkingExpanded,
+    isExpanded,
+    cache,
+    planCtx,
+    startBlockIndex,
+    prefixLines,
+  } = args;
+  const lines = [...prefixLines];
+  const blockLineStarts = new Array<number>(blocks.length);
   const lastIdx = blocks.length - 1;
-  for (let i = 0; i < blocks.length; i++) {
+
+  for (let i = startBlockIndex; i < blocks.length; i++) {
+    blockLineStarts[i] = lines.length;
     const block = blocks[i]!;
     const next = blocks[i + 1];
     const startsTurn = block.type === "user" || block.type === "text";
@@ -405,14 +428,12 @@ export function buildLines(
         TOOL_INDENT,
       );
       lines.push(...mergedLines);
+      if (i + 1 < blocks.length) blockLineStarts[i + 1] = lines.length;
       i++;
       continue;
     }
 
     const expanded = isExpanded(block);
-    // Plan blocks re-render as currentStep advances; always recompute them so
-    // the cache never serves a stale status.
-    // Last block is always recomputed — it may still be receiving tokens.
     const isStreaming = i === lastIdx || block.type === "plan";
     let blockLines: StyledLine[];
 
@@ -430,7 +451,91 @@ export function buildLines(
     }
     lines.push(...blockLines);
   }
-  return lines;
+
+  return { lines, blockLineStarts };
+}
+
+export type IncrementalLinesState = {
+  blocks: RenderableBlock[];
+  lines: StyledLine[];
+  blockLineStarts: number[];
+  layoutKey: string;
+};
+
+export function buildLinesIncremental(
+  prev: IncrementalLinesState | undefined,
+  contentBlocks: ContentBlock[],
+  columns: number,
+  thinkingExpanded: boolean,
+  isExpanded: (block: RenderableBlock) => boolean,
+  cache?: Map<string, StyledLine[]>,
+  planCtx?: PlanContext,
+  layoutKey?: string,
+): IncrementalLinesState {
+  const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
+  if (cache !== undefined) pruneBlockLineCache(cache, blocks);
+
+  const key = layoutKey ?? "";
+
+  let startBlockIndex = 0;
+  let prefixLines: StyledLine[] = [];
+
+  if (
+    prev !== undefined
+    && prev.layoutKey === key
+    && prev.blocks.length === blocks.length
+    && blocks.length > 0
+  ) {
+    let firstDiff = blocks.length;
+    for (let i = 0; i < blocks.length; i++) {
+      if (blocks[i] !== prev.blocks[i]) {
+        firstDiff = i;
+        break;
+      }
+    }
+    if (firstDiff >= blocks.length - 1) {
+      startBlockIndex = firstDiff >= blocks.length ? blocks.length - 1 : firstDiff;
+      prefixLines = prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
+    }
+  }
+
+  const { lines, blockLineStarts } = assembleRenderableBlocks({
+    blocks,
+    columns,
+    thinkingExpanded,
+    isExpanded,
+    ...(cache !== undefined ? { cache } : {}),
+    ...(planCtx !== undefined ? { planCtx } : {}),
+    startBlockIndex,
+    prefixLines,
+  });
+
+  if (prev !== undefined && startBlockIndex > 0) {
+    for (let i = 0; i < startBlockIndex; i++) {
+      blockLineStarts[i] = prev.blockLineStarts[i] ?? 0;
+    }
+  }
+
+  return { blocks, lines, blockLineStarts, layoutKey: key };
+}
+
+export function buildLines(
+  contentBlocks: ContentBlock[],
+  columns: number,
+  thinkingExpanded: boolean,
+  isExpanded: (block: RenderableBlock) => boolean,
+  cache?: Map<string, StyledLine[]>,
+  planCtx?: PlanContext,
+): StyledLine[] {
+  return buildLinesIncremental(
+    undefined,
+    contentBlocks,
+    columns,
+    thinkingExpanded,
+    isExpanded,
+    cache,
+    planCtx,
+  ).lines;
 }
 
 export function maxLineOffset(lines: StyledLine[], visibleRows: number): number {
@@ -454,10 +559,12 @@ export function EventLog({
   const visible = lines.slice(start, end);
   const missingRows = Math.max(0, visibleRows - visible.length);
 
+  // Pad above the window so short transcripts sit on the last row of the viewport,
+  // flush with the prompt chrome instead of leaving a dead band at the bottom.
   return (
     <Box flexDirection="column">
+      {Array.from({ length: missingRows }, (_, i) => renderLine([], `blank-top-${i}`, contentWidth))}
       {visible.map((line, i) => renderLine(line, `line-${start + i}`, contentWidth))}
-      {Array.from({ length: missingRows }, (_, i) => renderLine([], `blank-${i}`, contentWidth))}
     </Box>
   );
 }
