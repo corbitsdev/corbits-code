@@ -42,6 +42,7 @@ const DEFAULT_CTX: KeymapContext = {
   inputFocused: false,
   isRunning: false,
   commandPaletteOpen: false,
+  copyModeOpen: false,
 };
 
 const NOW = 1000;
@@ -64,7 +65,12 @@ function makeActions(): KeymapActions {
     toggleTaskSidebar: mock(() => {}),
     toggleHelp: mock(() => {}),
     copyMcpUrl: mock(() => {}),
-    copyLastOutput: mock(() => {}),
+    enterCopyMode: mock(() => {}),
+    copyModeNext: mock(() => {}),
+    copyModePrev: mock(() => {}),
+    copyModeConfirm: mock(() => {}),
+    copyModeCopyAll: mock(() => {}),
+    copyModeCancel: mock(() => {}),
     cycleMode: mock(() => {}),
   };
 }
