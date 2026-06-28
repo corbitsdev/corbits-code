@@ -28,6 +28,7 @@ import type {
 
 import { buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
 import { buildSubagentSources } from "../config/inference-sources.js";
+import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
@@ -211,6 +212,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     defaultSource: bundle.defaultSource,
     storage,
     workdir,
+    deps: await createInferenceDependencies(),
     audit: noopAuditStore(),
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({

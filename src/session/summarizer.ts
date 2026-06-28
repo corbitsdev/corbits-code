@@ -7,7 +7,8 @@
 // inference call against the session's own model. On any failure it falls back
 // to the deterministic summary so compaction never breaks the session.
 
-import { runInference, createDefaultDependencies, type Dependencies } from "@intx/inference";
+import { runInference, type Dependencies } from "@intx/inference";
+import { createDefaultDependencies } from "@intx/inference/providers";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 import { buildTurnSummary } from "./compactor.js";
 

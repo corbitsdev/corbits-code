@@ -1,6 +1,5 @@
 import {
   BEARER_CREDENTIAL_SENTINEL,
-  registerProvider,
   type BuiltRequest,
   type ProviderAdapter,
 } from "@intx/inference";
@@ -156,10 +155,4 @@ export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAda
       return undefined;
     },
   };
-}
-
-// Register the adapter under "grok-responses". Idempotent (registerProvider is a
-// map set), so calling this from every entry point is safe.
-export function registerGrokResponsesAdapter(): void {
-  registerProvider(GROK_RESPONSES_PROVIDER, createGrokResponsesAdapter);
 }
