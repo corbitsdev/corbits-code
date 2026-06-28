@@ -1,9 +1,8 @@
 import {
-  createOpenAIAdapter,
-  registerProvider,
   type BuiltRequest,
   type ProviderAdapter,
 } from "@intx/inference";
+import { createOpenAIAdapter } from "@intx/inference/providers";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
 // (max_tokens, temperature, tools, messages, response_format) and ignores
@@ -81,10 +80,4 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
   };
 
   return { ...base, buildRequest, parseResponse };
-}
-
-// Override the stock "openai-compatible" provider with the wrapper. Idempotent:
-// registerProvider is a map set, so calling this from every entry point is safe.
-export function registerOpenAICompatibleAdapter(): void {
-  registerProvider("openai-compatible", createOpenAICompatibleAdapter);
 }
