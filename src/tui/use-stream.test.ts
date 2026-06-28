@@ -38,6 +38,29 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks).toMatchObject([{ type: "text", content: "hello" }]);
   });
 
+  test("caps the retained block tail and reports the trimmed count", () => {
+    const state = createAgentStreamState();
+
+    // Drive well past the retention cap with distinct tool_call/result pairs so
+    // every event pushes a fresh block rather than appending to the last one.
+    for (let i = 0; i < 1200; i++) {
+      state.addEvent(event("inference.tool_call.end", {
+        callId: `call-${i}`,
+        name: "read_file",
+        arguments: { path: `f${i}.ts` },
+      }));
+      state.addEvent(event("tool.done", {
+        result: { callId: `call-${i}`, content: `result ${i}`, isError: false },
+      }));
+    }
+
+    expect(state.contentBlocks.length).toBeLessThanOrEqual(2000);
+    expect(state.trimmedBlockCount).toBeGreaterThan(0);
+    // The most recent work is always retained; the oldest is what gets dropped.
+    const last = state.contentBlocks.at(-1);
+    expect(last?.type).toBe("tool_result");
+  });
+
   test("surfaces the active tool while a tool call is running", () => {
     const state = createAgentStreamState();
 

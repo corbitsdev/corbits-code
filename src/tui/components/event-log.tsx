@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
@@ -551,7 +551,10 @@ export function lineWindow(lines: StyledLine[], scrollOffset: number, visibleRow
   return { start, end };
 }
 
-export function EventLog({
+// Memoized so typing in the prompt — which re-renders the App shell on every
+// keystroke — does not re-walk the visible window unless the lines, scroll
+// position, or viewport actually change.
+export const EventLog = memo(function EventLog({
   lines,
   scrollOffset,
   visibleRows,
@@ -570,4 +573,4 @@ export function EventLog({
       {visible.map((line, i) => renderLine(line, `line-${start + i}`, contentWidth))}
     </Box>
   );
-}
+});

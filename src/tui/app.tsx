@@ -705,11 +705,17 @@ export function App({
         linesLayoutKey,
       );
       incrementalLinesRef.current = next;
+      if (state.trimmedBlockCount > 0) {
+        const marker: StyledLine = [
+          { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
+        ];
+        return [marker, [], ...next.lines];
+      }
       return next.lines;
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [state.contentBlocks, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
