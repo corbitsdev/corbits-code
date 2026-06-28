@@ -10,6 +10,7 @@ import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
 import { viewToLines, type StyledLine } from "../view/index.js";
 import { wrapLines, wrapRanges } from "../view/height.js";
 import { color } from "../theme.js";
+import { editDiffFromArgs, renderDiff } from "../diff.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
 
@@ -183,6 +184,18 @@ function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, w
 
   if (expanded) {
     const headline = wrapStyledLine([{ text: "● ", color: roleColor }, { text: display, color: roleColor }], width);
+    const edit = editDiffFromArgs(block.name, block.arguments);
+    if (edit !== null) {
+      // write_file replaces a whole file, so collapse its unchanged context;
+      // edit_file hunks are already small and read best in full.
+      const diff = renderDiff(
+        edit.oldText,
+        edit.newText,
+        width,
+        block.name === "write_file" ? { contextLines: 3 } : {},
+      );
+      return [...headline, ...diff];
+    }
     return full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
   }
 
@@ -332,19 +345,24 @@ function blockToLines(
     case "user": {
       const accentBg = color("brand");
       const bg = "#050505";
+      // The banner is a 2-col brand rail, a 1-col gap, the text, then a 1-col
+      // right margin. Wrap the content to that inner budget so a full line lands
+      // flush inside the banner instead of spilling past the terminal edge.
+      const RAIL = 2;
+      const GAP = 1;
+      const RIGHT = 1;
+      const innerWidth = Math.max(1, width - RAIL - GAP - RIGHT);
       const userLines = plainLines(
         compactUserCodeBlocks(block.content),
         { color: "#ffffff", backgroundColor: bg },
-        width,
+        innerWidth,
       );
-      // Fill the entire row so the user message reads as a full-width banner,
-      // with a thin brand-colored rail at the left edge.
       return userLines.map((line) => {
         const textLen = line.reduce((n, s) => n + s.text.length, 0);
-        const pad = Math.max(0, width - textLen - 3);
+        const pad = Math.max(0, innerWidth - textLen + RIGHT);
         return [
-          { text: "  ", backgroundColor: accentBg },
-          { text: " ", backgroundColor: bg },
+          { text: " ".repeat(RAIL), backgroundColor: accentBg },
+          { text: " ".repeat(GAP), backgroundColor: bg },
           ...line,
           { text: " ".repeat(pad), backgroundColor: bg },
         ];
