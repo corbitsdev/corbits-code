@@ -157,6 +157,17 @@ describe("flat line buffer", () => {
     }
   });
 
+  test("user banner wraps within the column instead of spilling past the rail", () => {
+    const width = 40;
+    const block: ContentBlock = { type: "user", id: "wide-user", content: "y".repeat(120) };
+    const lines = buildLines([block], width, false, isExpanded);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
+      const len = line.reduce((n, s) => n + s.text.length, 0);
+      expect(len).toBeLessThanOrEqual(width);
+    }
+  });
+
   const planBlock: ContentBlock = {
     type: "plan",
     id: "plan-1",
