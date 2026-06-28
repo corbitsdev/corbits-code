@@ -1,7 +1,6 @@
 import {
   BEARER_CREDENTIAL_SENTINEL,
   ProtocolMismatchError,
-  registerProvider,
   type BuiltRequest,
   type ProviderAdapter,
 } from "@intx/inference";
@@ -389,10 +388,4 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
       return undefined;
     },
   };
-}
-
-// Register the adapter under "codex-responses". Idempotent (registerProvider is
-// a map set), so calling this from every entry point is safe.
-export function registerCodexResponsesAdapter(): void {
-  registerProvider(CODEX_RESPONSES_PROVIDER, createCodexResponsesAdapter);
 }

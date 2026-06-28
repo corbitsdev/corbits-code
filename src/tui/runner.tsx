@@ -28,8 +28,7 @@ import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "./components/plugins-manager.js";
 import type { PluginManifest } from "../plugins/manifest.js";
-import { registerCodexResponsesAdapter } from "../provider/codex-responses-adapter.js";
-import { registerGrokResponsesAdapter } from "../provider/grok-responses-adapter.js";
+import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
@@ -37,7 +36,6 @@ import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsF
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
 import { formatSkillDirective, resolveSkillBody } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
-import { registerOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { setModelContextWindows } from "../provider/context-window.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
@@ -115,9 +113,7 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 
 export async function runTUI(initialConfig: Config): Promise<number> {
   let config = initialConfig;
-  registerOpenAICompatibleAdapter();
-  registerCodexResponsesAdapter();
-  registerGrokResponsesAdapter();
+  const inferenceDeps = await createInferenceDependencies();
   configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
@@ -568,7 +564,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // one-shot call on the live model, falling back to the deterministic summary
   // on any failure. The workflow context is read at call time so a compaction
   // mid-/build or mid-/plan preserves which step we are on.
-  const compactionSummarize = createModelSummarizer({ getSource: () => liveSource });
+  const compactionSummarize = createModelSummarizer({ getSource: () => liveSource, deps: inferenceDeps });
   const summarizeForCompaction = (turns: Parameters<typeof compactionSummarize>[0]): Promise<string> => {
     const status = workflowController.status();
     return compactionSummarize(
@@ -599,6 +595,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       defaultSource,
       storage,
       workdir,
+      deps: inferenceDeps,
       audit: noopAuditStore(),
       authorize: permissiveAuthorize(),
       directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "intercode/chat" }),
