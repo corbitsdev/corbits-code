@@ -53,6 +53,7 @@ import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
 import { CodexLoginModal } from "./components/codex-login-modal.js";
 import { LoginProviderPicker } from "./components/login-provider-picker.js";
 import { writeClipboard } from "./util/clipboard.js";
+import { copyTargets, transcriptMarkdown } from "./copy.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { startCodexLogin } from "../auth/codex/login.js";
 import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
@@ -432,6 +433,7 @@ export function App({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  const [copyModeIndex, setCopyModeIndex] = useState<number | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
@@ -747,8 +749,12 @@ export function App({
     loginModal !== null ||
     permissionsOpen ||
     settingsOpen ||
-    pluginsOpen
+    pluginsOpen ||
+    copyModeIndex !== null
   );
+
+  const copyTargetList = useMemo(() => copyTargets(state.contentBlocks), [state.contentBlocks]);
+  const copyModeOpen = copyModeIndex !== null;
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
   // active run. Aborting rejects the send promise; the reactor's current cycle
@@ -970,6 +976,7 @@ export function App({
       taskFullScreenOpen,
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
+      copyModeOpen,
       commandPaletteOpen: inputValue.startsWith("/") && (
         !inputValue.includes(" ") ||
         listCommands().some(
@@ -1026,30 +1033,36 @@ export function App({
           setCommandMessage(`Copied authorization URL for ${first.name}`);
         }
       },
-      copyLastOutput: () => {
-        // MCP auth URL takes priority when one is pending.
+      enterCopyMode: () => {
+        // A pending MCP auth URL is the one thing worth copying instantly.
         const first = mcpStatus.needsAuth[0];
         if (first !== undefined) {
           writeClipboard(first.url);
           setCommandMessage(`Copied authorization URL for ${first.name}`);
           return;
         }
-        // Walk backwards for the last copyable block: reply, text, or tool_result.
-        const blocks = state.contentBlocks;
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          const b = blocks[i]!;
-          if (b.type === "reply" || b.type === "text") {
-            writeClipboard(b.content);
-            setCommandMessage("Copied to clipboard");
-            return;
-          }
-          if (b.type === "tool_result") {
-            writeClipboard(b.content);
-            setCommandMessage(`Copied ${b.name} output`);
-            return;
-          }
+        if (copyTargetList.length === 0) {
+          setCommandMessage("Nothing to copy yet");
+          return;
         }
+        setCopyModeIndex(copyTargetList.length - 1);
       },
+      copyModePrev: () => setCopyModeIndex((i) => (i === null ? null : Math.max(0, i - 1))),
+      copyModeNext: () => setCopyModeIndex((i) => (i === null ? null : Math.min(copyTargetList.length - 1, i + 1))),
+      copyModeConfirm: () => {
+        const target = copyModeIndex === null ? undefined : copyTargetList[copyModeIndex];
+        if (target !== undefined) {
+          writeClipboard(target.text);
+          setCommandMessage(`Copied ${target.label}`);
+        }
+        setCopyModeIndex(null);
+      },
+      copyModeCopyAll: () => {
+        writeClipboard(transcriptMarkdown(state.contentBlocks));
+        setCommandMessage("Copied the conversation as markdown");
+        setCopyModeIndex(null);
+      },
+      copyModeCancel: () => setCopyModeIndex(null),
       cycleMode: () => {
         onToggleAuto?.(true);
       },
@@ -1368,6 +1381,25 @@ export function App({
           />
           {state.quotaError !== null && (
             <QuotaErrorBanner retryAt={state.quotaError.retryAt} />
+          )}
+          {copyModeOpen && (
+            <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={color("brand")} paddingX={1}>
+              <Text color={color("brand")} bold>Copy — ↑/↓ select · y/⏎ copy · a copy all · esc cancel</Text>
+              {(() => {
+                const windowSize = 6;
+                const sel = copyModeIndex ?? 0;
+                const start = Math.max(0, Math.min(sel - Math.floor(windowSize / 2), Math.max(0, copyTargetList.length - windowSize)));
+                return copyTargetList.slice(start, start + windowSize).map((target, i) => {
+                  const idx = start + i;
+                  const selected = idx === sel;
+                  return (
+                    <Text key={target.id} color={selected ? color("text") : color("muted")} dimColor={!selected}>
+                      {selected ? "› " : "  "}{target.label}: {target.preview}
+                    </Text>
+                  );
+                });
+              })()}
+            </Box>
           )}
           {exitConfirmOpen ? (
             <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />

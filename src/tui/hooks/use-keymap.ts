@@ -17,6 +17,7 @@ export type KeymapContext = {
   inputFocused: boolean;
   isRunning: boolean;
   commandPaletteOpen: boolean;
+  copyModeOpen: boolean;
 };
 
 export type KeymapActions = {
@@ -36,7 +37,12 @@ export type KeymapActions = {
   toggleTaskSidebar: () => void;
   toggleHelp: () => void;
   copyMcpUrl: () => void;
-  copyLastOutput: () => void;
+  enterCopyMode: () => void;
+  copyModeNext: () => void;
+  copyModePrev: () => void;
+  copyModeConfirm: () => void;
+  copyModeCopyAll: () => void;
+  copyModeCancel: () => void;
   cycleMode: () => void;
 };
 
@@ -64,6 +70,16 @@ export function handleKey(
   }
   if (key.pageDown) {
     actions.scrollDown();
+    return lastEscMs;
+  }
+
+  // Copy mode owns all input while picking a chunk to lift to the clipboard.
+  if (context.copyModeOpen) {
+    if (key.escape) actions.copyModeCancel();
+    else if (key.upArrow) actions.copyModePrev();
+    else if (key.downArrow) actions.copyModeNext();
+    else if (key.return || input === "y") actions.copyModeConfirm();
+    else if (input === "a") actions.copyModeCopyAll();
     return lastEscMs;
   }
 
@@ -139,7 +155,7 @@ export function handleKey(
     return lastEscMs;
   }
   if (key.ctrl && input === "y") {
-    actions.copyLastOutput();
+    actions.enterCopyMode();
     return lastEscMs;
   }
   if (key.tab && key.shift) {
