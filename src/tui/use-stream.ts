@@ -83,6 +83,10 @@ export type AgentStreamState = {
   currentPlanStep: number | null;
   planTotal: number | null;
   planDeviated: boolean;
+  // Count of oldest blocks dropped from the display once the retention cap is
+  // exceeded. Non-zero means the rendered transcript is a tail, not the whole
+  // history; the UI surfaces this so the trim is never silent.
+  trimmedBlockCount: number;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
   setGatePending(pending: boolean): void;
@@ -90,6 +94,10 @@ export type AgentStreamState = {
   markRunning(): void;
   clear(): void;
 };
+
+// Generous enough that no normal session ever notices, low enough that a
+// multi-hour run can't exhaust memory or stall the per-render block scan.
+const MAX_RETAINED_BLOCKS = 2000;
 
 function stringifyToolContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -153,6 +161,20 @@ export function createAgentStreamState(
   // return the same reference and referential-equality memoization holds.
   let contentBlocksSnapshot: ContentBlock[] = [];
   let contentBlocksDirty = true;
+  // The display retains the whole conversation while the agent compacts its own
+  // turns, so a long-running session would grow the block array without bound —
+  // and every streaming render pays O(blocks) to snapshot, map, and diff it.
+  // Cap the retained tail so per-render cost and memory plateau; the dropped
+  // count feeds a trimmed-history marker.
+  let trimmedBlockCount = 0;
+  const trimOldestBlocks = (): void => {
+    const excess = contentBlocks.length - MAX_RETAINED_BLOCKS;
+    if (excess > 0) {
+      contentBlocks.splice(0, excess);
+      trimmedBlockCount += excess;
+      contentBlocksDirty = true;
+    }
+  };
   // Monotonic per-state counter for stable block ids. Stable ids let the UI key
   // expansion/selection state to a block rather than its array position, which
   // shifts when plan/present handlers splice the array.
@@ -162,6 +184,7 @@ export function createAgentStreamState(
   const pushBlock = (block: ContentBlockData): void => {
     contentBlocks.push({ ...block, id: nextBlockId() });
     contentBlocksDirty = true;
+    trimOldestBlocks();
   };
   const spliceBlocks = (start: number, deleteCount: number): void => {
     contentBlocks.splice(start, deleteCount);
@@ -300,6 +323,9 @@ export function createAgentStreamState(
     },
     get planDeviated() {
       return planDeviated;
+    },
+    get trimmedBlockCount() {
+      return trimmedBlockCount;
     },
     setGatePending(pending: boolean): void {
       // Always balance the count, even when the run is terminal/stopping — a gate
