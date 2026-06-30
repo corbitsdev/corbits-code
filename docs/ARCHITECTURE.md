@@ -259,86 +259,40 @@ Rather than filter per component, `stdin-filter.ts` (`createFilteredStdin`) wrap
 
 Mouse-wheel events are the one class of mouse input the UI acts on. Since they can no longer arrive through `useInput`, the filter detects wheel buttons (64 = up, 65 = down) and re-emits them as `scrollUp`/`scrollDown` on a dedicated `EventEmitter`. `use-mouse-scroll` subscribes to that emitter (and still owns enabling/disabling SGR mouse mode on the terminal).
 
-### Extension System (`src/extensions/skill-loader.ts`, `src/extensions/slash-registry.ts`)
+### Skills (`src/extensions/skills.ts`)
 
-Intercode supports an extension system that sources slash commands and context skills from external skill directories. The contract is compatible with the `marketplace.json` + `plugins/<name>/skills/<skill-name>/SKILL.md` layout used by Claude Code and Codex plugin ecosystems.
+Skills are Markdown capability packages (`SKILL.md`) that the model loads on demand — pi-style lazy skills. They are not slash commands and are never operator-invoked; discovery and loading are entirely model-driven.
 
-#### Discovery
+#### Discovery and precedence
 
-Extension discovery runs at session start and produces a slash command registry injected into the system prompt.
+`discoverSkills(cwd, pluginDirs)` runs at session start and returns each available skill's `name` + one-line `description` for the lazy listing in the system prompt. It scans the following base directories, highest precedence first:
 
-**Primary path — manifest-driven:**
-
-A `marketplace.json` (or `.claude-plugin/marketplace.json`) file at the root of a plugin directory declares the available plugins. The loader reads each plugin entry's `source` path and enumerates skills under `<source>/skills/<skill-name>/SKILL.md`.
-
-Required manifest fields per plugin entry:
-
-| Field | Type | Description |
-|---|---|---|
-| `name` | string | Plugin identifier, used for namespacing slash commands |
-| `description` | string | Human-readable summary of the plugin |
-| `source` | string | Relative path to the plugin directory |
-| `version` | string | Semantic version |
-
-**Fallback path — manifest-free scan:**
-
-When no manifest is present, the loader scans three well-known local directories for `SKILL.md` files directly:
-
-| Directory | Convention |
+| Base directory | Source |
 |---|---|
-| `.agents/skills/<skill-name>/SKILL.md` | Shared across runtimes |
-| `.claude/skills/<skill-name>/SKILL.md` | Claude Code workspace skills |
-| `.codex/skills/<skill-name>/SKILL.md` | Codex workspace skills |
+| `<pluginDir>/skills/` | Each enabled plugin that ships skills (`runner.tsx` includes only `pluginConfig[id].enabled`) |
+| `.agents/skills/` | Shared across runtimes |
+| `.claude/skills/` | Claude Code workspace skills |
+| `.codex/skills/` | Codex workspace skills |
+| `skills/bundled/` | Ships with the binary (lowest precedence) |
 
-Skills discovered via fallback scan are treated as if they belong to an anonymous plugin with no namespace prefix. When two fallback-scanned skills share the same name, the discovery order is `.agents/skills/` > `.claude/skills/` > `.codex/skills/`, and later entries are silently skipped.
+Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory name: the first base dir that provides a given name wins, so a plugin- or project-provided skill shadows a bundled one of the same name. `resolveSkillBody(cwd, ref, pluginDirs)` resolves a skill's body using the same ordered list (it accepts a bare name or a `plugin:name` ref, keying on the name).
 
-#### SKILL.md Frontmatter
+#### SKILL.md format
 
-Every skill file begins with a YAML frontmatter block:
+A skill file begins with a YAML frontmatter block, followed by the body that holds the instructions. The loader parses only `description`; the skill's identifier (what `use_skill` takes) is its directory name. A skill with no `SKILL.md` or an empty body is skipped.
 
 | Field | Required | Description |
 |---|---|---|
-| `name` | yes | Skill identifier; becomes the slash command name (e.g. `name: style` → `/style`) |
-| `description` | yes | One-line summary shown in the slash command registry and system prompt |
-| `type` | no | `context` (default) or `workflow` — controls how the skill is expanded |
-| `argument-hint` | no | Usage hint displayed alongside the command name |
-| `disable-model-invocation` | no | When `true`, injects the skill body directly without triggering a new inference turn |
+| `description` | yes | One-line summary shown in the prompt's lazy skills listing |
+| `name` | conventional | Conventionally matches the directory name; the directory name is what is actually used as the identifier |
 
-#### Skill Types
+There are no `type`, `argument-hint`, or `disable-model-invocation` fields — a skill body is plain instruction text. Multi-step orchestration is a separate mechanism (see Workflows above), not a skill `type`.
 
-**`context` (default)**
+#### Loading (model-driven)
 
-The SKILL.md body is injected verbatim into the system prompt (or as a synthetic tool result) when the skill is invoked. Used for style guides, conventions, and any reference material the agent should internalize.
+`buildSkillsSection` lists each discovered skill as `- name: description` in the system prompt — descriptions only, so the prompt stays small regardless of how many skills exist. The full instructions enter context only when the model calls the `use_skill` core tool (`src/agent/use-skill.ts`) with a skill name; the handler calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result. There is no slash-command surface and no operator-side injection — the model decides when a skill applies and loads it itself.
 
-**`workflow`** *(not yet implemented — planned for a future iteration)*
-
-The SKILL.md body describes a multi-step plan. When invoked, the workflow executor parses the steps and drives the agent through them sequentially, enforcing gates, dispatching sub-agents for parallel steps, and waiting on approval gates before continuing. Workflow skills are the mechanism behind commands like `/linear-issue-workflow`.
-
-#### Slash Command Registry
-
-At session start, all discovered skills are registered in a slash command map keyed by command name. The registry is injected into the system prompt so the agent knows which commands are available. When the agent invokes `/command-name [args]`, the director intercepts it, looks up the definition, and expands it.
-
-For manifest-sourced plugins, commands are namespaced as `plugin:skill-name` (e.g. `gaas:style`) to avoid collisions. The short form `style` is also registered as an alias if no other skill uses that name.
-
-For fallback-scanned skills, the command name is the bare skill name with no prefix.
-
-> **Note:** This registry is agent-visible only — skills are injected into the system prompt and intercepted by the director. These commands are distinct from the TUI slash command registry (`src/tui/commands/`), which handles client-side dispatch for built-in TUI commands (`/help`, `/model`, etc.) and populates TUI autocomplete. Extension-sourced slash commands do not appear in the TUI autocomplete registry.
-
-#### Compatibility Matrix
-
-All skill files must begin with a YAML frontmatter block. Files without frontmatter are skipped during discovery.
-
-| Source | Discovery method | Modification required |
-|---|---|---|
-| Manifest-based plugin directory | `marketplace.json` | Requires SKILL.md frontmatter |
-| Claude Code workspace skills (`.claude/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
-| Codex workspace skills (`.codex/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
-| Shared workspace skills (`.agents/skills/`) | Fallback scan | Requires SKILL.md frontmatter |
-| Custom plugin path (explicit config) | `marketplace.json` | Requires SKILL.md frontmatter |
-
-#### Plugin Path Configuration
-
-The set of directories searched for manifests is configurable via `.intercode/settings.json` under `pluginPaths`. Each entry is a path (absolute or relative to the repository root) that the loader checks for a manifest file. The three fallback scan directories (`.agents/`, `.claude/`, `.codex/`) are always included and cannot be disabled.
+Which plugin skill directories are in scope is decided in `runner.tsx`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). The `.agents`/`.claude`/`.codex/skills` and bundled directories are always searched.
 
 ## Data Flow
 
