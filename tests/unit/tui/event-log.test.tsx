@@ -342,8 +342,10 @@ test("buildLines inserts a blank spacer line between conversational turns", () =
     false,
     () => false,
   );
-  expect(lines.length).toBe(3);
-  expect(lineText(lines[1]!)).toBe("");
+  // The user banner contributes its own padding rows above/below; the turn
+  // separator is the true empty line right before the next turn starts.
+  const spacerIndex = lines.length - 2;
+  expect(lineText(lines[spacerIndex]!)).toBe("");
 });
 
 test("an expanded shell command wraps into rows that each fit the width", () => {
