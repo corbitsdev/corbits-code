@@ -26,8 +26,6 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "search_files",
   "grep",
   "list_dir",
-  "web_search",
-  "web_fetch",
   "task",
 ];
 
