@@ -32,9 +32,12 @@ function loadCached(): string {
   return GPT_5_CODEX_PROMPT;
 }
 
-let instructions = loadCached();
+// Resolved lazily on first use so importing this module never blocks the event
+// loop on a disk read during startup.
+let instructions: string | undefined;
 
 export function codexInstructions(): string {
+  if (instructions === undefined) instructions = loadCached();
   return instructions;
 }
 
