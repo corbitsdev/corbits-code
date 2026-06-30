@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildLines, maxLineOffset, lineWindow } from "./event-log.js";
+import { buildLines, buildResourceBanner, maxLineOffset, lineWindow } from "./event-log.js";
 import type { ContentBlock } from "../use-stream.js";
 
 const COLUMNS = 80;
@@ -166,6 +166,16 @@ describe("flat line buffer", () => {
       const len = line.reduce((n, s) => n + s.text.length, 0);
       expect(len).toBeLessThanOrEqual(width);
     }
+  });
+
+  test("buildResourceBanner lists skills and plugins, and is empty when there are none", () => {
+    const banner = buildResourceBanner([{ name: "scribe" }, { name: "tdd" }], ["exa"], 80);
+    const text = banner.map((line) => line.map((s) => s.text).join("")).join("\n");
+    expect(text).toContain("[Skills]");
+    expect(text).toContain("scribe, tdd");
+    expect(text).toContain("[Plugins]");
+    expect(text).toContain("exa");
+    expect(buildResourceBanner([], [], 80)).toEqual([]);
   });
 
   const planBlock: ContentBlock = {

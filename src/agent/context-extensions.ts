@@ -27,3 +27,37 @@ export async function loadAgentContextExtensions(cwd: string): Promise<string[]>
   }
   return extensions;
 }
+
+export interface SystemPromptOverrides {
+  // SYSTEM.md content — replaces the static base block (role + harness facts + guidelines).
+  base?: string;
+  // APPEND_SYSTEM.md content — appended as an extra section after the base.
+  append: string[];
+}
+
+// Project-level system-prompt overrides, resolved repo-root first then .intercode/.
+// SYSTEM.md replaces the base block; APPEND_SYSTEM.md is appended. Mirrors Pi's
+// SYSTEM.md / APPEND_SYSTEM.md convention.
+export async function loadSystemPromptOverrides(cwd: string): Promise<SystemPromptOverrides> {
+  const dirs = [cwd, join(cwd, ".intercode")];
+  const base = await firstFile(dirs, "SYSTEM.md");
+  const appendBody = await firstFile(dirs, "APPEND_SYSTEM.md");
+  return {
+    ...(base !== undefined ? { base } : {}),
+    append: appendBody !== undefined ? [appendBody] : [],
+  };
+}
+
+async function firstFile(dirs: string[], name: string): Promise<string | undefined> {
+  for (const dir of dirs) {
+    try {
+      const content = (await Bun.file(join(dir, name)).text()).trim();
+      if (content.length > 0) return content;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        process.stderr.write(`[interchange] Warning: could not read ${name}: ${String(err)}\n`);
+      }
+    }
+  }
+  return undefined;
+}

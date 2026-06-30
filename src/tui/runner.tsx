@@ -34,7 +34,7 @@ import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
-import { formatSkillDirective, resolveSkillBody } from "../extensions/skills.js";
+import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { setModelContextWindows } from "../provider/context-window.js";
@@ -47,7 +47,7 @@ import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
-import { loadAgentContextExtensions } from "../agent/context-extensions.js";
+import { loadAgentContextExtensions, loadSystemPromptOverrides } from "../agent/context-extensions.js";
 import { buildMainSessionSources } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
@@ -404,9 +404,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 
+  // Skill directories from enabled plugins, in addition to the project-local and
+  // bundled defaults that discoverSkills/resolveSkillBody always check.
+  const skillDirs = pluginModules
+    .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
+    .map((m) => m.dir!);
+
+  // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
+  const activePlugins = pluginModules
+    .filter((m) => m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
+    .map((m) => m.manifest!.name ?? m.manifest!.id);
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
+    skillDirs,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
@@ -425,9 +437,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
-  const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
+  const overrides = await loadSystemPromptOverrides(config.cwd);
+  const extensions = [
+    ...agentExtensions,
+    ...(config.systemPromptExtensions ?? []),
+    ...overrides.append,
+  ];
   const environment = await gatherEnvironment(config.cwd);
-  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined, environment);
+  const skills = await discoverSkills(config.cwd, skillDirs);
+  const systemPrompt = buildChatSystemPrompt(
+    extensions.length > 0 ? extensions : undefined,
+    environment,
+    overrides.base,
+    skills,
+  );
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
@@ -944,15 +967,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         liveSubAgentProvider.current = provider;
       }}
       onStartWorkflow={(name) => workflowController.start(name)}
-      onInjectSkill={async (ref) => {
-        const dirs = pluginModules
-          .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
-          .map((m) => m.dir!);
-        const body = await resolveSkillBody(config.cwd, ref, dirs);
-        if (body === undefined) return;
-        directorHolder.instance?.setPendingSkillDirective(formatSkillDirective(ref, body));
-      }}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
+      loadedSkills={skills}
+      activePlugins={activePlugins}
       initialWorkflowStatus={workflowController.status()}
       mouseEvents={mouseEvents}
       sessionStartedAt={startedAt}
