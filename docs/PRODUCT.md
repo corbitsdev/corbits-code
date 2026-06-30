@@ -94,6 +94,12 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 Providers and models are configured in `~/.intercode/settings.json` (holds providers + credentials), with a selection-only per-repo `.intercode/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. Credentials are read only from these settings files — there is no environment-variable override and `.env` files are not loaded, so a stale or exported key can't shadow the configured provider. The agent is denied read access to both settings files.
 
+## Optional Capabilities (plugins)
+
+Capabilities beyond the core toolset are opt-in plugins, enabled per workspace through the `/plugins` UI — nothing is wired in until enabled.
+
+- **Web search and fetch** — `web_search`/`web_fetch` are provided by an optional web plugin (e.g. Exa). There is no built-in web access: with no web plugin enabled the tools are simply absent (so they are not advertised in the base prompt), and network egress lives in the external provider rather than the agent's own process.
+
 ## Roadmap (planned, not yet shipped)
 
 - **Fast provider/model switching** in the TUI with a persisted default (CL-1221).
