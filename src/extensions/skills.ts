@@ -3,6 +3,10 @@ import { join } from "node:path";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
 
+// Skills that ship with the binary, resolved as a last-resort fallback so a
+// plugin- or project-provided skill of the same name takes precedence.
+const BUNDLED_SKILLS_DIR = join(import.meta.dirname, "../../skills/bundled");
+
 function parseSkillRef(ref: string): { plugin: string | undefined; name: string } {
   const idx = ref.indexOf(":");
   if (idx === -1) return { plugin: undefined, name: ref };
@@ -28,22 +32,16 @@ async function readSkillFile(path: string): Promise<string | undefined> {
 
 // Resolve a skill reference (e.g. gaas:scribe or scribe) to prompt text for injection.
 export async function resolveSkillBody(cwd: string, ref: string, pluginDirs: string[] = []): Promise<string | undefined> {
-  const { plugin, name } = parseSkillRef(ref);
+  const { name } = parseSkillRef(ref);
 
-  if (plugin === "gaas" && name === "scribe") {
-    const bundled = join(import.meta.dirname, "../../skills/bundled/scribe/SKILL.md");
-    const fromBundled = await readSkillFile(bundled);
-    if (fromBundled !== undefined) return fromBundled;
-  }
+  // Precedence: installed plugins, then project-local dirs, then bundled.
+  const candidates = [
+    ...pluginDirs.map((dir) => join(dir, "skills", name, "SKILL.md")),
+    ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel, name, "SKILL.md")),
+    join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
+  ];
 
-  for (const dir of pluginDirs) {
-    const candidate = join(dir, "skills", name, "SKILL.md");
-    const body = await readSkillFile(candidate);
-    if (body !== undefined) return body;
-  }
-
-  for (const rel of FALLBACK_SKILL_DIRS) {
-    const candidate = join(cwd, rel, name, "SKILL.md");
+  for (const candidate of candidates) {
     const body = await readSkillFile(candidate);
     if (body !== undefined) return body;
   }
