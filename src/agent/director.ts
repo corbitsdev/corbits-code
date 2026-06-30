@@ -62,7 +62,14 @@ export const presentDefinition: ToolDefinition = {
     properties: {
       view: {
         type: "object",
-        description: "The root view node (typically a stack of building-block nodes).",
+        description: "The root view node (typically a stack of building-block nodes). Must be a single node object, not an array — wrap multiple nodes in a stack. Every node, including nested children, must include a `type` field naming one of: stack, heading, text, divider, badge, progress, list, keyValue, table, card.",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["stack", "heading", "text", "divider", "badge", "progress", "list", "keyValue", "table", "card"],
+          },
+        },
+        required: ["type"],
       },
     },
     required: ["view"],
