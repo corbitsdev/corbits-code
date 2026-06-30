@@ -163,12 +163,6 @@ export class WorkflowController {
     return `Started ${name} workflow.`;
   }
 
-  // Kept for compatibility with older callers; workflows are manual-only slash
-  // commands and profile metadata must never start them implicitly.
-  autoInvoke(_name: string): string | null {
-    return null;
-  }
-
   // Restore a persisted workflow for the current session, if any.
   async resume(): Promise<void> {
     const state = await loadWorkflowState(this.args.cwd, this.args.getSessionId());

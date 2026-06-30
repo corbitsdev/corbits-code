@@ -66,8 +66,8 @@ import { removeXaiProfile } from "../auth/xai/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProviderName, xaiProfileFromProviderName } from "../config/xai-providers.js";
-import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, recordCodexUsage } from "../auth/codex/usage.js";
-import { fetchXaiUsage, formatXaiUsage, recordXaiUsage } from "../auth/xai/usage.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage } from "../auth/codex/usage.js";
+import { fetchXaiUsage, formatXaiUsage } from "../auth/xai/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -568,8 +568,6 @@ export function App({
           defaultModel,
           xaiProfile: name,
         });
-        // Populate usage for header immediately (xAI has no per-response headers yet).
-        void fetchXaiUsage(name).then((u) => recordXaiUsage(u)).catch(() => {});
         refreshAuthState();
       },
       (err: unknown) => {
@@ -1125,7 +1123,6 @@ export function App({
       if (codexName !== undefined) {
         void fetchCodexUsage(codexName).then(
           (usage) => {
-            recordCodexUsage(usage);
             setAgentModalUsage(formatCodexUsage(usage));
           },
           () => setAgentModalUsage(null),
@@ -1133,7 +1130,6 @@ export function App({
       } else if (xaiName !== undefined) {
         void fetchXaiUsage(xaiName).then(
           (usage) => {
-            recordXaiUsage(usage);
             setAgentModalUsage(formatXaiUsage(usage));
           },
           () => setAgentModalUsage(null),
@@ -1265,12 +1261,12 @@ export function App({
           setAgentModalUsage(null);
           if (kind === "codex") {
             void fetchCodexUsage(profile).then(
-              (u) => { recordCodexUsage(u); setAgentModalUsage(formatCodexUsage(u)); },
+              (u) => { setAgentModalUsage(formatCodexUsage(u)); },
               () => {},
             );
           } else {
             void fetchXaiUsage(profile).then(
-              (u) => { recordXaiUsage(u); setAgentModalUsage(formatXaiUsage(u)); },
+              (u) => { setAgentModalUsage(formatXaiUsage(u)); },
               () => {},
             );
           }
