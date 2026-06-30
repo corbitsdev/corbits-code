@@ -63,6 +63,19 @@ test("chat prompt advertises core tools but never enumerates MCP integrations", 
   expect(prompt).not.toContain("Discoverable tools");
 });
 
+test("lists skills and advertises use_skill when skills exist", () => {
+  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [
+    { name: "scribe", description: "write docs" },
+  ]);
+  expect(prompt).toContain("Skills (");
+  expect(prompt).toContain("- scribe: write docs");
+  expect(prompt).toContain("use_skill");
+});
+
+test("omits the skills section when no skills are available", () => {
+  expect(buildChatSystemPrompt()).not.toContain("Skills (");
+});
+
 test("a SYSTEM.md base override replaces the static base but keeps tools and context", () => {
   const override = "You are a custom agent with project-specific rules.";
   const prompt = buildChatSystemPrompt(undefined, undefined, override);
