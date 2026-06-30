@@ -269,11 +269,11 @@ describe("buildTurnSummary via createPruningCompactor", () => {
         ],
       }),
       makeTurn({
-        role: "tool",
+        role: "user",
         content: [
-          { type: "tool_result", toolCallId: "c1", content: "file contents here" },
+          { type: "tool_result", callId: "c1", content: [{ type: "text", text: "file contents here" }] },
         ],
-      } as unknown as ConversationTurn),
+      }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
     ];
 

@@ -42,3 +42,9 @@ export const XAI_REFRESH_SKEW_MS = 5 * 60 * 1000;
 // Billing snapshot for prepaid plans (subscription tier + credit %). The CLI
 // chat proxy mirrors the grok.com billing surface so the same OAuth token works.
 export const XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
+
+// Cap every token and billing request to the xAI proxy. The refresh runs on the
+// send path before the inference fetch arms its inactivity/total timers, so a
+// stalled token endpoint would otherwise freeze the agent at turn 0 (the send
+// promise never settles). Aborting here surfaces a refresh failure instead.
+export const XAI_TOKEN_TIMEOUT_MS = 15_000;
