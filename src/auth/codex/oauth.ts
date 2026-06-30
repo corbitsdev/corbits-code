@@ -4,6 +4,7 @@ import {
   CODEX_CLIENT_ID,
   CODEX_REDIRECT_URI,
   CODEX_SCOPES,
+  CODEX_TOKEN_TIMEOUT_MS,
   CODEX_TOKEN_URL,
 } from "./constants.js";
 import type { Pkce } from "./pkce.js";
@@ -100,6 +101,7 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
     body: body.toString(),
+    signal: AbortSignal.timeout(CODEX_TOKEN_TIMEOUT_MS),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

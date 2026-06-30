@@ -1,8 +1,11 @@
+import { type } from "arktype";
+
 import {
   XAI_AUTHORIZE_URL,
   XAI_CLIENT_ID,
   XAI_REDIRECT_URI,
   XAI_SCOPES,
+  XAI_TOKEN_TIMEOUT_MS,
   XAI_TOKEN_URL,
 } from "./constants.js";
 import type { Pkce } from "./pkce.js";
@@ -20,20 +23,16 @@ export function buildAuthorizeUrl(pkce: Pkce, state: string): string {
   return url.toString();
 }
 
-type TokenResponse = {
-  access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-  id_token?: string;
-};
-
-function isTokenResponse(value: unknown): value is TokenResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Record<string, unknown>).access_token === "string"
-  );
-}
+// Validate the whole token response, not just access_token: a malformed
+// expires_in (e.g. the string "soon") would otherwise survive and compute a NaN
+// expiry, which never compares as expired, so the token would never refresh.
+const TokenResponseSchema = type({
+  access_token: "string",
+  "refresh_token?": "string",
+  "expires_in?": "number",
+  "id_token?": "string",
+});
+type TokenResponse = typeof TokenResponseSchema.infer;
 
 const DEFAULT_EXPIRES_IN_S = 3600;
 
@@ -56,18 +55,24 @@ export function tokensFromResponse(
 }
 
 async function postToken(body: URLSearchParams): Promise<TokenResponse> {
+  // Refresh runs on the send path before inference, outside the harness timers,
+  // so the token request must abort within the bounded timeout rather than hang
+  // the agent forever when the proxy stalls.
   const res = await fetch(XAI_TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
     body: body.toString(),
+    signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`xAI token endpoint returned ${String(res.status)}${detail ? `: ${detail}` : ""}`);
   }
-  const json = (await res.json()) as unknown;
-  if (!isTokenResponse(json)) {
-    throw new Error("xAI token endpoint returned an unexpected payload (no access_token).");
+  // AbortSignal.timeout throws a DOMException (name "TimeoutError") when it
+  // fires; its message ("The operation timed out") is what callers report.
+  const json = TokenResponseSchema(await res.json());
+  if (json instanceof type.errors) {
+    throw new Error(`xAI token endpoint returned an unexpected payload: ${json.summary}`);
   }
   return json;
 }

@@ -80,7 +80,10 @@ export function splitChainedCommand(command: string): string[] {
       i++;
       continue;
     }
-    if (ch === "|" || ch === ";" || ch === "\n") {
+    // A lone "&" backgrounds the preceding command and starts a new one, so it
+    // is a chain boundary. Without this, "ls & rm -rf foo" is treated as a
+    // single segment and the approval scope is derived from the benign head.
+    if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
       push();
       continue;
     }

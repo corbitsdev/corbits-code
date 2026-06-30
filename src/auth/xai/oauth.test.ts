@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { XAI_CLIENT_ID, XAI_REDIRECT_URI, XAI_TOKEN_URL } from "./constants.js";
+import { XAI_CLIENT_ID, XAI_REDIRECT_URI, XAI_TOKEN_URL, XAI_TOKEN_TIMEOUT_MS } from "./constants.js";
 import { buildAuthorizeUrl, exchangeCode, refreshTokens, tokensFromResponse } from "./oauth.js";
 
 const originalFetch = globalThis.fetch;
@@ -64,5 +64,32 @@ describe("xAI OAuth", () => {
 
   test("requires a refresh token on initial exchange", () => {
     expect(() => tokensFromResponse({ access_token: "access" }, 0)).toThrow(/no refresh_token/);
+  });
+});
+
+describe("xAI token request timeout", () => {
+  // A refresh fired on the send path (before each inference call) must not be
+  // able to hang forever: an unresponsive token endpoint would otherwise freeze
+  // the agent at turn 0 because the send promise never settles and the harness
+  // never arms its inference timers. Passing a timeout-backed signal is the
+  // regression guard; the platform owns firing that signal after the bound.
+  test("passes a timeout signal to the token endpoint", async () => {
+    let signal: AbortSignal | undefined;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Response(JSON.stringify({ access_token: "new-access", expires_in: 5 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await expect(refreshTokens("old-refresh", 2000)).resolves.toEqual({
+      access: "new-access",
+      refresh: "old-refresh",
+      expiresAt: 7000,
+    });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+    expect(XAI_TOKEN_TIMEOUT_MS).toBeGreaterThan(0);
   });
 });
