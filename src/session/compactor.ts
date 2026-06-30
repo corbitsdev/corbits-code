@@ -246,6 +246,28 @@ function buildCallIndex(turns: ConversationTurn[]): Map<string, ToolCallInfo> {
   return index;
 }
 
+// Locate the turn index of each tool_call and its matching tool_result. In this
+// runtime a call lives on one turn and its result on the following turn, so the
+// two halves of a pair can straddle a keep/summarize boundary.
+type PairLocation = { callIdx?: number; resultIdx?: number };
+function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
+  const pairs = new Map<string, PairLocation>();
+  turns.forEach((turn, idx) => {
+    for (const block of turn.content) {
+      if (block.type === "tool_call") {
+        const loc = pairs.get(block.id) ?? {};
+        loc.callIdx = idx;
+        pairs.set(block.id, loc);
+      } else if (block.type === "tool_result") {
+        const loc = pairs.get(block.callId) ?? {};
+        loc.resultIdx = idx;
+        pairs.set(block.callId, loc);
+      }
+    }
+  });
+  return pairs;
+}
+
 // Score a turn by its anchor importance. Turns that write files, update
 // tasks, or contain errors are load-bearing regardless of age.
 function anchorScore(turn: ConversationTurn): number {
@@ -327,11 +349,31 @@ export function createPruningCompactor(
       // Pull high-importance turns forward regardless of age. Take from the
       // tail of the older set so the most recent anchors survive.
       const scoredOlder = olderTurns.map((t, i) => ({ turn: t, index: i, score: anchorScore(t) }));
-      const anchorCandidates = scoredOlder
-        .filter(({ score }) => score >= ANCHOR_SCORE_THRESHOLD)
-        .slice(-cfg.maxAnchorTurns);
-      const anchorIndices = new Set(anchorCandidates.map(({ index }) => index));
-      const anchorTurns = anchorCandidates.map(({ turn }) => turn);
+      const anchorIndices = new Set(
+        scoredOlder
+          .filter(({ score }) => score >= ANCHOR_SCORE_THRESHOLD)
+          .slice(-cfg.maxAnchorTurns)
+          .map(({ index }) => index),
+      );
+
+      // Keep tool_call/tool_result pairs together across the keep/summarize
+      // boundary. A turn that survives (anchored, or in the recent window) whose
+      // partner would be summarized leaves a dangling tool_call or an orphaned
+      // tool_result, which the inference layer rejects. Pull the older partner
+      // forward as an anchor so the surviving sequence stays well-formed.
+      // Pairing wins over maxAnchorTurns: correctness outranks the size target.
+      const pairs = buildPairIndex(turns);
+      const isKept = (idx: number): boolean => idx >= keepFrom || anchorIndices.has(idx);
+      for (const { callIdx, resultIdx } of pairs.values()) {
+        if (callIdx === undefined || resultIdx === undefined) continue;
+        if (isKept(callIdx) && !isKept(resultIdx) && resultIdx < keepFrom) anchorIndices.add(resultIdx);
+        else if (isKept(resultIdx) && !isKept(callIdx) && callIdx < keepFrom) anchorIndices.add(callIdx);
+      }
+
+      // Ascending original order keeps the concatenated [anchors, recent]
+      // sequence globally index-ordered, so every result still follows its call.
+      const sortedAnchorIndices = [...anchorIndices].sort((a, b) => a - b);
+      const anchorTurns = sortedAnchorIndices.map((i) => olderTurns[i]!);
       const summarizedTurns = olderTurns.filter((_, i) => !anchorIndices.has(i));
 
       const summary = cfg.summarize !== undefined
@@ -392,7 +434,7 @@ export function buildTurnSummary(
         totalTokens += Math.ceil(JSON.stringify(block.arguments).length / 4);
       }
       if (block.type === "tool_result") {
-        totalTokens += Math.ceil(String(block.content ?? "").length / 4);
+        totalTokens += Math.ceil(resultContentSize(block) / 4);
       }
     }
     if (turn.role === "user") {

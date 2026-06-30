@@ -14,6 +14,11 @@ export const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 export const CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 export const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 
+// Token refresh runs on the send path before inference, outside the harness
+// timers, so the request must abort rather than hang the agent if the endpoint
+// stalls.
+export const CODEX_TOKEN_TIMEOUT_MS = 15_000;
+
 // The Codex CLI registers a fixed loopback redirect on port 1455; the
 // authorization server only accepts this exact redirect_uri for this client, so
 // (unlike the MCP flow) the callback port is not free to vary.
