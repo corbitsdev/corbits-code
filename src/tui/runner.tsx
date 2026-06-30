@@ -410,6 +410,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
     .map((m) => m.dir!);
 
+  // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
+  const activePlugins = pluginModules
+    .filter((m) => m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
+    .map((m) => m.manifest!.name ?? m.manifest!.id);
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
@@ -963,6 +968,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }}
       onStartWorkflow={(name) => workflowController.start(name)}
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
+      loadedSkills={skills}
+      activePlugins={activePlugins}
       initialWorkflowStatus={workflowController.status()}
       mouseEvents={mouseEvents}
       sessionStartedAt={startedAt}
