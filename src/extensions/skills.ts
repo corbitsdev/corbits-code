@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
@@ -7,10 +7,27 @@ const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"
 // plugin- or project-provided skill of the same name takes precedence.
 const BUNDLED_SKILLS_DIR = join(import.meta.dirname, "../../skills/bundled");
 
-function parseSkillRef(ref: string): { plugin: string | undefined; name: string } {
+export type SkillSummary = { name: string; description: string };
+
+// The directories that hold skill subfolders, highest precedence first:
+// installed plugins, then project-local dirs, then bundled.
+function skillBaseDirs(cwd: string, pluginDirs: string[]): string[] {
+  return [
+    ...pluginDirs.map((dir) => join(dir, "skills")),
+    ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel)),
+    BUNDLED_SKILLS_DIR,
+  ];
+}
+
+function parseSkillRef(ref: string): string {
   const idx = ref.indexOf(":");
-  if (idx === -1) return { plugin: undefined, name: ref };
-  return { plugin: ref.slice(0, idx), name: ref.slice(idx + 1) };
+  return idx === -1 ? ref : ref.slice(idx + 1);
+}
+
+function frontmatterBlock(raw: string): string | undefined {
+  if (!raw.startsWith("---")) return undefined;
+  const end = raw.indexOf("---", 3);
+  return end === -1 ? undefined : raw.slice(3, end);
 }
 
 function stripFrontmatter(raw: string): string {
@@ -20,35 +37,53 @@ function stripFrontmatter(raw: string): string {
   return raw.slice(end + 3).trim();
 }
 
-async function readSkillFile(path: string): Promise<string | undefined> {
+function parseSkillFrontmatter(raw: string): { name?: string; description?: string } {
+  const block = frontmatterBlock(raw);
+  if (block === undefined) return {};
+  const out: { name?: string; description?: string } = {};
+  for (const line of block.split("\n")) {
+    const match = /^(name|description):\s*(.+)$/.exec(line.trim());
+    if (match) out[match[1] as "name" | "description"] = match[2]!.trim();
+  }
+  return out;
+}
+
+async function readRaw(path: string): Promise<string | undefined> {
   try {
-    const raw = await readFile(path, "utf8");
-    const body = stripFrontmatter(raw);
-    return body.length > 0 ? body : undefined;
+    return await readFile(path, "utf8");
   } catch {
     return undefined;
   }
 }
 
-// Resolve a skill reference (e.g. gaas:scribe or scribe) to prompt text for injection.
+// Resolve a skill reference (e.g. scribe or gaas:scribe) to its body text — the
+// frontmatter is stripped, leaving the instructions to inject into context.
 export async function resolveSkillBody(cwd: string, ref: string, pluginDirs: string[] = []): Promise<string | undefined> {
-  const { name } = parseSkillRef(ref);
-
-  // Precedence: installed plugins, then project-local dirs, then bundled.
-  const candidates = [
-    ...pluginDirs.map((dir) => join(dir, "skills", name, "SKILL.md")),
-    ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel, name, "SKILL.md")),
-    join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
-  ];
-
-  for (const candidate of candidates) {
-    const body = await readSkillFile(candidate);
-    if (body !== undefined) return body;
+  const name = parseSkillRef(ref);
+  for (const base of skillBaseDirs(cwd, pluginDirs)) {
+    const raw = await readRaw(join(base, name, "SKILL.md"));
+    if (raw === undefined) continue;
+    const body = stripFrontmatter(raw);
+    if (body.length > 0) return body;
   }
-
   return undefined;
 }
 
-export function formatSkillDirective(ref: string, body: string): string {
-  return [`[Skill: ${ref}]`, "", body].join("\n");
+// Discover every available skill (name + one-line description) for the lazy
+// listing in the system prompt. Deduped by name: the first base dir that
+// provides a skill wins, so a plugin or project skill shadows a bundled one.
+export async function discoverSkills(cwd: string, pluginDirs: string[] = []): Promise<SkillSummary[]> {
+  const seen = new Map<string, SkillSummary>();
+  for (const base of skillBaseDirs(cwd, pluginDirs)) {
+    const entries = await readdir(base, { withFileTypes: true }).catch(() => undefined);
+    if (entries === undefined) continue;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || seen.has(entry.name)) continue;
+      const raw = await readRaw(join(base, entry.name, "SKILL.md"));
+      if (raw === undefined) continue;
+      const fm = parseSkillFrontmatter(raw);
+      seen.set(entry.name, { name: entry.name, description: fm.description ?? "" });
+    }
+  }
+  return [...seen.values()];
 }
