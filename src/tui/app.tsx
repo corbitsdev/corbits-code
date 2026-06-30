@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLinesIncremental, maxLineOffset, TEXT_GUTTER, type IncrementalLinesState } from "./components/event-log.js";
+import { EventLog, buildLinesIncremental, buildResourceBanner, maxLineOffset, TEXT_GUTTER, type IncrementalLinesState } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -284,6 +284,10 @@ export type AppProps = {
   onAgentProfilesChange?: (profiles: AgentProfile[]) => void;
   onStartWorkflow?: (name: string) => string;
   onToggleCapability?: (name: CapabilityName) => void;
+  /** Skills loaded for this session — listed in the top-of-scrollback banner. */
+  loadedSkills?: readonly { name: string }[];
+  /** Active (enabled) plugin names — listed in the top-of-scrollback banner. */
+  activePlugins?: readonly string[];
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
   profilesDir?: string;
@@ -339,6 +343,8 @@ export function App({
   onAgentProfilesChange,
   onStartWorkflow,
   onToggleCapability,
+  loadedSkills,
+  activePlugins,
   initialWorkflowStatus,
   initialProfiles = [],
   profilesDir,
@@ -703,17 +709,18 @@ export function App({
         linesLayoutKey,
       );
       incrementalLinesRef.current = next;
+      const banner = buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth);
       if (state.trimmedBlockCount > 0) {
         const marker: StyledLine = [
           { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
         ];
-        return [marker, [], ...next.lines];
+        return [...banner, marker, [], ...next.lines];
       }
-      return next.lines;
+      return [...banner, ...next.lines];
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [state.contentBlocks, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated, loadedSkills, activePlugins],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
