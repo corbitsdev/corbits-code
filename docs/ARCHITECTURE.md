@@ -136,10 +136,15 @@ Invocation: workflows are **not** top-level slash commands. Recipe definitions l
 
 ### System Prompt (`src/agent/prompts.ts`)
 
-The agent's identity is **Intercode**, framed as a senior teammate who owns the outcome (not an assistant). The prompt is composed from small, individually-exported sections so they can be tested and reused.
+The agent's identity is **Intercode**, framed as a senior teammate who owns the outcome (not an assistant). The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
 
-- `buildSystemPrompt` — Autonomous loop: identity + quality bar, tool-call discipline, completion rules, encoded code standards (the core `style`/`philosophy` rules — scope discipline, match surrounding code, delete superseded code, comment the why, validate at boundaries), instruction hierarchy and scoped project-guidance rules, efficiency/tool-layer limits, review-mode criteria, communication rules, self-verification, authorization/escalation, plan contract, a risk-and-reversibility plan-decision rubric (not file counts), and a few-shot "locate → understand → change → verify → submit" sequence.
-- `buildChatSystemPrompt` — TUI chat: same Intercode identity, code standards, instruction hierarchy, review-mode criteria, and communication rules, conversational, without the submit/plan-required loop mechanics.
+- `buildChatRole` — one-line identity and quality bar.
+- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs need approval, `.agent-state`/gitignored paths are off-limits, only core tools are resident (load the rest via `tool_search`), workflows are slash-command only, tool results render richly (use `present`), and session memory lives at `.intercode/MEMORY.md`.
+- `buildGuidelines` — be concise, stay in scope, `lsp` before large files, verify before finishing.
+
+`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → live `<env>` block → appended extensions. Everything beyond core tools — built-in catalog tools, MCP integrations, skills — is loaded dynamically rather than enumerated in the prompt.
+
+**Overrides.** `loadSystemPromptOverrides` (`src/agent/context-extensions.ts`) resolves a project `SYSTEM.md` (repo root, then `.intercode/`) that **replaces** the static base block, and an `APPEND_SYSTEM.md` that is **appended** as an extension. These compose with `config.systemPromptExtensions` (profile config) and the auto-discovered `AGENTS.md`, all of which attach as appended sections after the base.
 
 ### State Persistence (`src/session/state.ts`)
 
