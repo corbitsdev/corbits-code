@@ -1,5 +1,6 @@
 import {
   XAI_BILLING_URL,
+  XAI_TOKEN_TIMEOUT_MS,
   XAI_USER_AGENT,
 } from "./constants.js";
 import { getValidXaiToken } from "./session.js";
@@ -63,8 +64,12 @@ async function xaiAuthHeaders(profileName: string): Promise<Record<string, strin
 
 // Fetch the live usage/quota snapshot for an xAI/Grok profile.
 export async function fetchXaiUsage(profileName: string): Promise<XaiUsage> {
+  // Bound the billing fetch: it runs on profile switch and modal open, neither
+  // of which sits behind the inference timers, so an unresponsive proxy must
+  // abort rather than hang the UI.
   const res = await fetch(XAI_BILLING_URL, {
     headers: await xaiAuthHeaders(profileName),
+    signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`xAI usage request failed (HTTP ${String(res.status)}).`);
@@ -90,25 +95,4 @@ export function formatXaiUsage(usage: XaiUsage): string {
 export function formatXaiUsageCompact(usage: XaiUsage): string {
   const tier = usage.subscriptionTier && usage.subscriptionTier !== "unknown" ? `Grok ${usage.subscriptionTier}` : "Grok";
   return `${tier} ${String(Math.round(usage.creditUsagePercent))}%`;
-}
-
-// Parse the (future?) rate-limit headers the backend might return on responses.
-// Currently a no-op stub; usage is populated via fetchXaiUsage.
-export function parseXaiRateLimitHeaders(headers: Headers): XaiUsage | undefined {
-  const pct = headers.get("x-grok-credit-used-percent") ?? headers.get("x-grok-usage-percent");
-  if (pct === null) return undefined;
-  return {
-    subscriptionTier: "grok",
-    creditUsagePercent: Number(pct) || 0,
-  };
-}
-
-// Latest usage observed from fetch (or headers). Updated on profile switch and
-// modal open so the header can render without waiting for a stream.
-let latestUsage: XaiUsage | undefined;
-export function recordXaiUsage(usage: XaiUsage): void {
-  latestUsage = usage;
-}
-export function getLatestXaiUsage(): XaiUsage | undefined {
-  return latestUsage;
 }

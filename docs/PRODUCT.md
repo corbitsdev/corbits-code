@@ -21,10 +21,9 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
 5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.
-6. **Post-submit critique** — Build, type-check, and tests run before a result is accepted.
-7. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
-8. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
-9. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
+6. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
+7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
+8. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
 
 ## User Experience
 
@@ -84,12 +83,6 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 **What the user sees:** In a non-interactive run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
 
 **Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, or re-run with `--dangerously-skip-permissions`.
-
-### Critique failure
-
-**What the user sees:** The agent calls `submit_output` but the post-submit critique fails (build, type, or test error). The run ends `failed` with the critique error.
-
-**Recovery:** State is preserved; inspect the error, fix the issue, or start a new, more specific run.
 
 ### Resume after interruption
 
