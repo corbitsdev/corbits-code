@@ -16,6 +16,17 @@ export type StyledSegment = {
   backgroundColor?: string;
 };
 
+// Inline-markdown matchers. Hoisted to module scope so they are not re-created
+// per loop iteration. All are anchored and stateless (no /g, /y) — safe to share.
+const BOLD_RE = /^\*\*(.+?)\*\*|^__(.+?)__/;
+const STRIKE_RE = /^~~(.+?)~~/;
+const STAR_ITALIC_RE = /^(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/;
+const UNDERSCORE_ITALIC_RE = /^_(?!_)(.+?)_(?!_)/;
+const WORD_CHAR_RE = /[a-zA-Z0-9_]/;
+const CODE_RE = /^`(.+?)`/;
+const LINK_RE = /^\[([^\]]+)\]\(([^)]*(?:\([^)]*\))?[^)]*)\)/;
+const PLAIN_RE = /^[^*_`~[]+/;
+
 function parseSegments(text: string): StyledSegment[] {
   const segments: StyledSegment[] = [];
   let remaining = text;
@@ -23,7 +34,7 @@ function parseSegments(text: string): StyledSegment[] {
 
   while (remaining.length > 0) {
     // Bold: **text** or __text__
-    const boldMatch = remaining.match(/^\*\*(.+?)\*\*|^__(.+?)__/);
+    const boldMatch = remaining.match(BOLD_RE);
     if (boldMatch) {
       const content = boldMatch[1] || boldMatch[2] || "";
       if (content) {
@@ -35,7 +46,7 @@ function parseSegments(text: string): StyledSegment[] {
     }
 
     // Strikethrough: ~~text~~
-    const strikeMatch = remaining.match(/^~~(.+?)~~/);
+    const strikeMatch = remaining.match(STRIKE_RE);
     if (strikeMatch && strikeMatch[1]) {
       segments.push({ text: strikeMatch[1], strikethrough: true });
       remaining = remaining.slice(strikeMatch[0].length);
@@ -46,7 +57,7 @@ function parseSegments(text: string): StyledSegment[] {
     // Italic: *text* or _text_ (but not ** or __)
     // For _, enforce word boundaries: must open after start/whitespace/punctuation
     // and close before end/whitespace/punctuation. For *, intraword is allowed.
-    const starMatch = remaining.match(/^(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/);
+    const starMatch = remaining.match(STAR_ITALIC_RE);
     if (starMatch && starMatch[1]) {
       segments.push({ text: starMatch[1], italic: true });
       remaining = remaining.slice(starMatch[0].length);
@@ -59,10 +70,10 @@ function parseSegments(text: string): StyledSegment[] {
     // not a word character, or we're at the start of the string.
     if (remaining[0] === "_" && remaining[1] !== "_") {
       const prevChar = offset > 0 ? text[offset - 1] : null;
-      const isPrecededByNonWord = !prevChar || !/[a-zA-Z0-9_]/.test(prevChar);
+      const isPrecededByNonWord = !prevChar || !WORD_CHAR_RE.test(prevChar);
 
       if (isPrecededByNonWord) {
-        const closeMatch = remaining.match(/^_(?!_)(.+?)_(?!_)/);
+        const closeMatch = remaining.match(UNDERSCORE_ITALIC_RE);
         if (closeMatch && closeMatch[1]) {
           segments.push({ text: closeMatch[1], italic: true });
           remaining = remaining.slice(closeMatch[0].length);
@@ -73,7 +84,7 @@ function parseSegments(text: string): StyledSegment[] {
     }
 
     // Inline code: `text`
-    const codeMatch = remaining.match(/^`(.+?)`/);
+    const codeMatch = remaining.match(CODE_RE);
     if (codeMatch && codeMatch[1]) {
       segments.push({ text: codeMatch[1], code: true });
       remaining = remaining.slice(codeMatch[0].length);
@@ -84,7 +95,7 @@ function parseSegments(text: string): StyledSegment[] {
     // Link: [text](url) — show the text, then the url in parentheses if short.
     // For URLs with balanced parens (e.g., fn(arg)), try to match a single level
     // of nesting. If URL is long (> 40 chars), omit the URL from output.
-    const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]*(?:\([^)]*\))?[^)]*)\)/);
+    const linkMatch = remaining.match(LINK_RE);
     if (linkMatch && linkMatch[1] !== undefined && linkMatch[2] !== undefined) {
       const text = linkMatch[1];
       const url = linkMatch[2];
@@ -100,7 +111,7 @@ function parseSegments(text: string): StyledSegment[] {
     }
 
     // Plain text up to the next possible marker.
-    const plainMatch = remaining.match(/^[^*_`~[]+/);
+    const plainMatch = remaining.match(PLAIN_RE);
     if (plainMatch && plainMatch[0]) {
       segments.push({ text: plainMatch[0] });
       remaining = remaining.slice(plainMatch[0].length);

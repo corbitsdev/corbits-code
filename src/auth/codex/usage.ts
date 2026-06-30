@@ -145,52 +145,6 @@ export function formatCodexUsageCompact(usage: CodexUsage): string {
   return parts.length === 1 ? "Codex" : `${parts[0]} ${parts.slice(1).join(" · ")}`;
 }
 
-// Parse the x-codex-* rate-limit headers the backend returns on every
-// /codex/responses call (per codex-rs). This is the zero-extra-request usage
-// signal: window length arrives in minutes and reset as an absolute unix time,
-// normalized here to the same CodexUsage shape as the /codex/usage endpoint.
-export function parseCodexRateLimitHeaders(headers: Headers, now: number = Date.now()): CodexUsage | undefined {
-  const pct = headers.get("x-codex-primary-used-percent");
-  if (pct === null) return undefined;
-  const nowSec = Math.floor(now / 1000);
-  const window = (prefix: string): CodexWindow | undefined => {
-    const used = headers.get(`x-codex-${prefix}-used-percent`);
-    if (used === null) return undefined;
-    const windowMinutes = Number(headers.get(`x-codex-${prefix}-window-minutes`) ?? 0);
-    const resetAt = Number(headers.get(`x-codex-${prefix}-reset-at`) ?? 0);
-    return {
-      usedPercent: Number(used),
-      windowSeconds: windowMinutes * 60,
-      resetAfterSeconds: resetAt > 0 ? Math.max(0, resetAt - nowSec) : 0,
-      resetAt,
-    };
-  };
-  const primary = window("primary");
-  const secondary = window("secondary");
-  const reachedType = headers.get("x-codex-rate-limit-reached-type") ?? undefined;
-  return {
-    planType: "codex",
-    allowed: reachedType === undefined || reachedType.length === 0,
-    limitReached: reachedType !== undefined && reachedType.length > 0,
-    ...(primary !== undefined ? { primary } : {}),
-    ...(secondary !== undefined ? { secondary } : {}),
-    hasCredits: headers.get("x-codex-credits-has-credits") === "true" || headers.get("x-codex-credits-unlimited") === "true",
-    ...(reachedType !== undefined && reachedType.length > 0 ? { reachedType } : {}),
-  };
-}
-
-// Latest usage observed from response headers, updated by the adapter on every
-// Codex response so the status bar can render it without an extra request. A
-// process-wide singleton: at most one Codex session streams at a time, and the
-// status bar only needs the most recent snapshot.
-let latestUsage: CodexUsage | undefined;
-export function recordCodexUsage(usage: CodexUsage): void {
-  latestUsage = usage;
-}
-export function getLatestCodexUsage(): CodexUsage | undefined {
-  return latestUsage;
-}
-
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return "now";
   const h = Math.floor(seconds / 3600);

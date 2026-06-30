@@ -5,7 +5,7 @@ import type { Agent } from "@intx/agent";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLinesIncremental, maxLineOffset, TEXT_GUTTER, type IncrementalLinesState } from "./components/event-log.js";
+import { EventLog, buildLinesIncremental, buildResourceBanner, maxLineOffset, TEXT_GUTTER, type IncrementalLinesState } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -66,8 +66,8 @@ import { removeXaiProfile } from "../auth/xai/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import { codexProviderName, codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProviderName, xaiProfileFromProviderName } from "../config/xai-providers.js";
-import { fetchCodexUsage, fetchCodexModels, formatCodexUsage, recordCodexUsage } from "../auth/codex/usage.js";
-import { fetchXaiUsage, formatXaiUsage, recordXaiUsage } from "../auth/xai/usage.js";
+import { fetchCodexUsage, fetchCodexModels, formatCodexUsage } from "../auth/codex/usage.js";
+import { fetchXaiUsage, formatXaiUsage } from "../auth/xai/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
@@ -283,8 +283,11 @@ export type AppProps = {
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
   onAgentProfilesChange?: (profiles: AgentProfile[]) => void;
   onStartWorkflow?: (name: string) => string;
-  onInjectSkill?: (skillRef: string) => void | Promise<void>;
   onToggleCapability?: (name: CapabilityName) => void;
+  /** Skills loaded for this session — listed in the top-of-scrollback banner. */
+  loadedSkills?: readonly { name: string }[];
+  /** Active (enabled) plugin names — listed in the top-of-scrollback banner. */
+  activePlugins?: readonly string[];
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
   profilesDir?: string;
@@ -339,8 +342,9 @@ export function App({
   onSubAgentProviderChange,
   onAgentProfilesChange,
   onStartWorkflow,
-  onInjectSkill,
   onToggleCapability,
+  loadedSkills,
+  activePlugins,
   initialWorkflowStatus,
   initialProfiles = [],
   profilesDir,
@@ -568,8 +572,6 @@ export function App({
           defaultModel,
           xaiProfile: name,
         });
-        // Populate usage for header immediately (xAI has no per-response headers yet).
-        void fetchXaiUsage(name).then((u) => recordXaiUsage(u)).catch(() => {});
         refreshAuthState();
       },
       (err: unknown) => {
@@ -707,17 +709,18 @@ export function App({
         linesLayoutKey,
       );
       incrementalLinesRef.current = next;
+      const banner = buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth);
       if (state.trimmedBlockCount > 0) {
         const marker: StyledLine = [
           { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
         ];
-        return [marker, [], ...next.lines];
+        return [...banner, marker, [], ...next.lines];
       }
-      return next.lines;
+      return [...banner, ...next.lines];
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [state.contentBlocks, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated, loadedSkills, activePlugins],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
@@ -1080,16 +1083,6 @@ export function App({
       handleSend(result.text);
       return;
     }
-    if (result.type === "skill") {
-      const run = async (): Promise<void> => {
-        await onInjectSkill?.(result.skill);
-        if (result.text !== undefined && result.text.length > 0) {
-          handleSend(result.text);
-        }
-      };
-      void run();
-      return;
-    }
     if (result.type === "message") {
       setCommandMessage(result.text);
       return;
@@ -1125,7 +1118,6 @@ export function App({
       if (codexName !== undefined) {
         void fetchCodexUsage(codexName).then(
           (usage) => {
-            recordCodexUsage(usage);
             setAgentModalUsage(formatCodexUsage(usage));
           },
           () => setAgentModalUsage(null),
@@ -1133,7 +1125,6 @@ export function App({
       } else if (xaiName !== undefined) {
         void fetchXaiUsage(xaiName).then(
           (usage) => {
-            recordXaiUsage(usage);
             setAgentModalUsage(formatXaiUsage(usage));
           },
           () => setAgentModalUsage(null),
@@ -1265,12 +1256,12 @@ export function App({
           setAgentModalUsage(null);
           if (kind === "codex") {
             void fetchCodexUsage(profile).then(
-              (u) => { recordCodexUsage(u); setAgentModalUsage(formatCodexUsage(u)); },
+              (u) => { setAgentModalUsage(formatCodexUsage(u)); },
               () => {},
             );
           } else {
             void fetchXaiUsage(profile).then(
-              (u) => { recordXaiUsage(u); setAgentModalUsage(formatXaiUsage(u)); },
+              (u) => { setAgentModalUsage(formatXaiUsage(u)); },
               () => {},
             );
           }

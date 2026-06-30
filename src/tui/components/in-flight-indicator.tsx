@@ -73,7 +73,7 @@ export function InFlightIndicator({ active, timingAnchor, label, toolName, workf
 
   if (!active) {
     return (
-      <Box paddingX={1}>
+      <Box paddingX={1} marginTop={1}>
         <Text> </Text>
         {workflowText !== undefined && (
           <Box flexGrow={1} justifyContent="flex-end">
@@ -87,7 +87,7 @@ export function InFlightIndicator({ active, timingAnchor, label, toolName, workf
   const displayLabel = resolveLabel(label);
   const toolText = toolName === null || toolName === undefined ? "" : ` · ${toolName}`;
   return (
-    <Box paddingX={1}>
+    <Box paddingX={1} marginTop={1}>
       <Text color={color("live")}>{frame}</Text>
       <Text color={color("muted")} dimColor>{` ${displayLabel}${toolText}${suffix}`}</Text>
       {workflowText !== undefined && (

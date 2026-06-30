@@ -2,21 +2,18 @@ import { type } from "arktype";
 import type { ToolPlugin, ExtraTool } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
-import type { ProviderResolutionOptions } from "./providers/index.js";
-import { getWebProvider, withRetry, resetWebProvider } from "./providers/index.js";
+import { withRetry } from "./providers/index.js";
 import { scrubSecrets } from "./secret-scrub.js";
 import { WebResultValidator } from "./types.js";
-import type { WebResult } from "./types.js";
-import { isBlockedURL } from "./url-policy.js";
+import type { WebProvider, WebResult } from "./types.js";
 
-// Security note on run_shell network egress: secretGuardPlugin does not scan
-// run_shell command strings for URL access. This means the agent can curl/wget
-// arbitrary URLs today with none of the SSRF or secret-scrub guarantees that
-// web_fetch provides. The web contract is the supervised, auditable,
-// policy-enforced path; run_shell remains an unsupervised escape hatch.
-// Solving shell sandboxing is out of scope for this issue.
+// Web access is delegated entirely to plugins (and, where a model exposes one,
+// its native web tool). There is no built-in fetcher: without a configured web
+// plugin, web_search and web_fetch are simply not registered. This keeps SSRF
+// and network-egress concerns inside the external provider's infrastructure
+// rather than fetching arbitrary URLs from this process.
 
-export type WebToolsPluginOptions = ProviderResolutionOptions;
+export type WebToolsPluginOptions = { provider?: WebProvider };
 
 const WEB_SEARCH_DEFINITION = {
   name: "web_search",
@@ -37,7 +34,7 @@ const WEB_SEARCH_DEFINITION = {
 const WEB_FETCH_DEFINITION = {
   name: "web_fetch",
   description:
-    "Fetch a web page and return its content as markdown. Requests text/markdown by default and falls back to HTML-to-markdown conversion. Use this to read documentation, blog posts, and external references.",
+    "Fetch a web page and return its content as markdown. Use this to read documentation, blog posts, and external references.",
   inputSchema: {
     type: "object",
     properties: {
@@ -68,9 +65,9 @@ function validateResults(raw: unknown[]): WebResult[] {
 }
 
 export function webToolsPlugin(options: WebToolsPluginOptions = {}): ToolPlugin {
-  // Reset the provider holder on each plugin creation so tests don't share
-  // state across plugin instances.
-  resetWebProvider();
+  const provider = options.provider;
+  // Plugin-only: with no provider there is no web access, so register nothing.
+  if (provider === undefined) return { tools: [] };
 
   const searchTool: ExtraTool = {
     definition: WEB_SEARCH_DEFINITION,
@@ -79,18 +76,11 @@ export function webToolsPlugin(options: WebToolsPluginOptions = {}): ToolPlugin 
       if (query instanceof type.errors) {
         return makeErrorResult(call.id, "web_search requires a non-empty query");
       }
-
-      const provider = getWebProvider(options);
       try {
-        const results = await withRetry(
-          () => provider.search(query, signal),
-          "web_search",
-        );
-        const validated = validateResults(results);
-        return makeSuccessResult(call.id, { results: validated });
+        const results = await withRetry(() => provider.search(query, signal), "web_search");
+        return makeSuccessResult(call.id, { results: validateResults(results) });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return makeErrorResult(call.id, message);
+        return makeErrorResult(call.id, err instanceof Error ? err.message : String(err));
       }
     },
   };
@@ -102,27 +92,14 @@ export function webToolsPlugin(options: WebToolsPluginOptions = {}): ToolPlugin 
       if (url instanceof type.errors) {
         return makeErrorResult(call.id, "web_fetch requires a non-empty url");
       }
-
-      const policy = isBlockedURL(url);
-      if (policy.blocked) {
-        return makeErrorResult(call.id, `URL blocked by policy: ${policy.reason}`);
-      }
-
-      const provider = getWebProvider(options);
       try {
-        const content = await withRetry(
-          () => provider.fetch(url, signal),
-          "web_fetch",
-        );
+        const content = await withRetry(() => provider.fetch(url, signal), "web_fetch");
         return makeSuccessResult(call.id, { content });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return makeErrorResult(call.id, message);
+        return makeErrorResult(call.id, err instanceof Error ? err.message : String(err));
       }
     },
   };
 
-  return {
-    tools: [searchTool, fetchTool],
-  };
+  return { tools: [searchTool, fetchTool] };
 }

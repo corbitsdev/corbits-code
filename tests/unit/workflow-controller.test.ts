@@ -63,13 +63,6 @@ test("replacing an active workflow requires a confirming second call", async () 
   });
 });
 
-test("autoInvoke is inert because workflows are manual-only", async () => {
-  await withController([], async (controller) => {
-    expect(controller.autoInvoke("build")).toBeNull();
-    expect(controller.isActive()).toBe(false);
-  });
-});
-
 test("status reports capability connection and override state", async () => {
   await withController([tool("mcp__Linear__save_issue")], async (controller) => {
     const before = controller.status().capabilities.find((c) => c.name === "ticket-tracker");

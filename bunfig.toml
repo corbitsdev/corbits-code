@@ -3,4 +3,5 @@ pathIgnorePatterns = [
   "interchange/**",
   "tests/fixtures/**",
   "eval/tasks/**",
+  "tmp/**",
 ]

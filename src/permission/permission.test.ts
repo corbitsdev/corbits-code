@@ -15,6 +15,12 @@ describe("splitChainedCommand", () => {
     expect(splitChainedCommand("a; b || c")).toEqual(["a", "b", "c"]);
   });
 
+  test("treats a lone & (background operator) as a boundary", () => {
+    // Otherwise the destructive tail rides under the benign head's approval scope.
+    expect(splitChainedCommand("ls & rm -rf foo")).toEqual(["ls", "rm -rf foo"]);
+    expect(splitChainedCommand("sleep 1 & echo done")).toEqual(["sleep 1", "echo done"]);
+  });
+
   test("does not split inside quotes", () => {
     expect(splitChainedCommand(`echo "a && b" | cat`)).toEqual([`echo "a && b"`, "cat"]);
     expect(splitChainedCommand(`grep 'x;y' file`)).toEqual([`grep 'x;y' file`]);

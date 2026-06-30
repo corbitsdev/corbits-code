@@ -2,9 +2,6 @@ import { test, expect, describe } from "bun:test";
 import {
   formatXaiUsage,
   formatXaiUsageCompact,
-  getLatestXaiUsage,
-  parseXaiRateLimitHeaders,
-  recordXaiUsage,
   type XaiUsage,
 } from "../../src/auth/xai/usage.js";
 
@@ -49,21 +46,5 @@ describe("formatXaiUsageCompact", () => {
   test("falls back for unknown tier", () => {
     const usage: XaiUsage = { subscriptionTier: "unknown", creditUsagePercent: 7 };
     expect(formatXaiUsageCompact(usage)).toBe("Grok 7%");
-  });
-});
-
-describe("record / getLatest + header parse (stub)", () => {
-  test("records and retrieves latest usage snapshot", () => {
-    const u: XaiUsage = { subscriptionTier: "pro", creditUsagePercent: 11 };
-    recordXaiUsage(u);
-    expect(getLatestXaiUsage()).toEqual(u);
-  });
-
-  test("parseXaiRateLimitHeaders returns undefined (no headers path yet)", () => {
-    const h = new Headers();
-    expect(parseXaiRateLimitHeaders(h)).toBeUndefined();
-    h.set("x-grok-credit-used-percent", "42");
-    const parsed = parseXaiRateLimitHeaders(h);
-    expect(parsed?.creditUsagePercent).toBe(42);
   });
 });
