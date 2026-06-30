@@ -32,6 +32,7 @@ import type { AgentProfile } from "./profiles.js";
 import { createTaskTool, type SubAgentProvider } from "../subagent/index.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
+import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -62,6 +63,9 @@ export type AgentToolsetArgs = {
   // Pre-resolved tool plugins (enabled + consented kind:"tool" plugins). Their
   // tools are appended to the posix toolset.
   extraToolPlugins?: ToolPlugin[];
+  // Skill directories (from enabled plugins) the use_skill tool resolves bodies
+  // from, in addition to the project-local and bundled defaults.
+  skillDirs?: string[];
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -103,7 +107,7 @@ export type AgentToolset = {
 };
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
-  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [] } = args;
+  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [], skillDirs = [] } = args;
 
   const posixTools = createPosixTools({
     cwd,
@@ -127,6 +131,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools),
     createListDirTool(cwd),
+    createUseSkillTool(cwd, skillDirs),
     ...(args.subAgent !== undefined
       ? [
           createTaskTool({

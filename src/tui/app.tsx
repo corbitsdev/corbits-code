@@ -283,7 +283,6 @@ export type AppProps = {
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
   onAgentProfilesChange?: (profiles: AgentProfile[]) => void;
   onStartWorkflow?: (name: string) => string;
-  onInjectSkill?: (skillRef: string) => void | Promise<void>;
   onToggleCapability?: (name: CapabilityName) => void;
   initialWorkflowStatus?: WorkflowStatus;
   initialProfiles?: AgentProfile[];
@@ -339,7 +338,6 @@ export function App({
   onSubAgentProviderChange,
   onAgentProfilesChange,
   onStartWorkflow,
-  onInjectSkill,
   onToggleCapability,
   initialWorkflowStatus,
   initialProfiles = [],
@@ -1076,16 +1074,6 @@ export function App({
   const handleCommand = (result: CommandResult) => {
     if (result.type === "send") {
       handleSend(result.text);
-      return;
-    }
-    if (result.type === "skill") {
-      const run = async (): Promise<void> => {
-        await onInjectSkill?.(result.skill);
-        if (result.text !== undefined && result.text.length > 0) {
-          handleSend(result.text);
-        }
-      };
-      void run();
       return;
     }
     if (result.type === "message") {

@@ -1,4 +1,5 @@
 import type { EnvironmentInfo } from "./environment.js";
+import type { SkillSummary } from "../extensions/skills.js";
 import { CORE_TOOL_NAMES } from "./tool-search.js";
 
 const defaultChatTools = [
@@ -76,6 +77,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
   present: "render structured data (lists, tables, status) to the user",
   tool_search: "load more tools by capability when you need them",
+  use_skill: "load a listed skill's full instructions before doing work it covers",
 };
 
 export function buildAvailableTools(tools: readonly string[] = CORE_TOOL_NAMES): string {
@@ -130,16 +132,27 @@ function baseSection(baseOverride?: string): string {
   return joinSections([buildChatRole(), buildHarnessFacts(), buildGuidelines()]);
 }
 
+// Lazy skill listing: only names + descriptions, so the model knows what exists
+// without paying for full instructions until it loads one with use_skill.
+export function buildSkillsSection(skills: readonly SkillSummary[]): string {
+  return [
+    "Skills (call use_skill with the name to load the full instructions before doing work it covers):",
+    ...skills.map((s) => `- ${s.name}: ${s.description}`),
+  ].join("\n");
+}
+
 export function buildChatSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
   baseOverride?: string,
+  skills: readonly SkillSummary[] = [],
 ): string {
   const sections = [
     baseSection(baseOverride),
     buildAvailableTools(CORE_TOOL_NAMES),
-    contextSection(env),
   ];
+  if (skills.length > 0) sections.push(buildSkillsSection(skills));
+  sections.push(contextSection(env));
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
