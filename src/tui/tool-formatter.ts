@@ -94,9 +94,11 @@ function toolRole(toolName: string): SemanticRole {
 // itself is the headline.
 export function describeToolCall(toolName: string, rawArgs: string): ToolCallDescriptor {
   // `present` carries a large view spec as its arguments; never dump that JSON.
-  // The rendered view block stands in for the result.
+  // On success the rendered view block stands in for this line; on failure
+  // turns-to-blocks.ts leaves the tool_call in place, so this line is all the
+  // user sees alongside the separate error tool_result — keep it labeled.
   if (toolName === "present") {
-    return { display: "Render view", role: "accent", summary: "", full: "", isShell: false };
+    return { display: "Render view", role: "accent", summary: "(invalid spec)", full: "", isShell: false };
   }
   if (toolName === "run_shell") {
     const shellParsed = ShellArgSchema(tryParseObject(rawArgs));
