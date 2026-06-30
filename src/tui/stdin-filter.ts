@@ -104,9 +104,10 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
     let text = pending + raw;
     pending = "";
 
-    // Buffer a trailing partial FULL-form sequence only (ESC + `[<` ...). The
-    // orphaned-fragment form has no ESC to anchor a reliable partial match, so
-    // it is never buffered — any stray fragment reaches stripAndEmit directly.
+    // Buffer a trailing partial FULL-form sequence (ESC + `[<` ...). Handles two
+    // split cases that otherwise leak out of Ink's escape parser: the trailing
+    // digit and ESC+fragment cases both preserve enough for the pattern to reassemble on
+    // the next read, preventing terminal-side ANSI sequences from leaking into output.
     if (text.includes("\x1b[<")) {
       const partial = TRAILING_PARTIAL.exec(text);
       if (partial) {
