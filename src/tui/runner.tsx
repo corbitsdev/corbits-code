@@ -47,7 +47,7 @@ import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
-import { loadAgentContextExtensions } from "../agent/context-extensions.js";
+import { loadAgentContextExtensions, loadSystemPromptOverrides } from "../agent/context-extensions.js";
 import { buildMainSessionSources } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
@@ -425,9 +425,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
 
   const agentExtensions = await loadAgentContextExtensions(config.cwd);
-  const extensions = [...agentExtensions, ...(config.systemPromptExtensions ?? [])];
+  const overrides = await loadSystemPromptOverrides(config.cwd);
+  const extensions = [
+    ...agentExtensions,
+    ...(config.systemPromptExtensions ?? []),
+    ...overrides.append,
+  ];
   const environment = await gatherEnvironment(config.cwd);
-  const systemPrompt = buildChatSystemPrompt(extensions.length > 0 ? extensions : undefined, environment);
+  const systemPrompt = buildChatSystemPrompt(
+    extensions.length > 0 ? extensions : undefined,
+    environment,
+    overrides.base,
+  );
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 

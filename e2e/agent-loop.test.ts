@@ -4,14 +4,14 @@ import { createCapabilities } from "@intx/inference";
 import { setupHarness } from "@intx/inference-testing";
 
 import { createCodingDirector, submitOutputDefinition } from "../src/agent/director.js";
-import { buildSystemPrompt } from "../src/agent/prompts.js";
+import { buildChatSystemPrompt } from "../src/agent/prompts.js";
 
 describe("agent loop", () => {
   test("director aborts after submitOutput", async () => {
     const harness = setupHarness();
     try {
       const director = createCodingDirector(
-        buildSystemPrompt(),
+        buildChatSystemPrompt(),
         [submitOutputDefinition],
         {
           turnsUsed: 0,
@@ -126,7 +126,7 @@ describe("agent loop", () => {
     const harness = setupHarness();
     try {
       const director = createCodingDirector(
-        buildSystemPrompt(),
+        buildChatSystemPrompt(),
         [submitOutputDefinition],
       );
 
@@ -191,7 +191,7 @@ describe("agent loop", () => {
     const harness = setupHarness();
     try {
       const director = createCodingDirector(
-        buildSystemPrompt(),
+        buildChatSystemPrompt(),
         [submitOutputDefinition],
       );
 
