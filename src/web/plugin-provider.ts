@@ -32,8 +32,8 @@ export function collectWebPlugins(modules: PluginModule[]): WebPluginCandidate[]
 }
 
 // Pick the active web plugin: an explicit `web` override wins; otherwise the
-// single enabled web plugin is used. Returns undefined when none applies so the
-// caller falls back to the built-in local provider.
+// single enabled web plugin is used. Returns undefined when none applies, in
+// which case web_search/web_fetch are not registered (web is plugin-only).
 export function selectWebPlugin(
   candidates: WebPluginCandidate[],
   pluginConfig: Record<string, PluginConfig>,
@@ -55,8 +55,8 @@ export function webBrand(name: string): string {
 export type ActiveWebProvider = { provider: WebProvider; name: string };
 
 // Build the active web provider from the discovered candidates and stored
-// config. On failure logs to stderr and returns undefined so the run degrades
-// to the local provider rather than crashing.
+// config. On failure logs to stderr and returns undefined so the run proceeds
+// with web tools disabled rather than crashing.
 export async function resolveWebProviderFromPlugins(args: {
   candidates: WebPluginCandidate[];
   pluginConfig: Record<string, PluginConfig>;
@@ -72,7 +72,7 @@ export async function resolveWebProviderFromPlugins(args: {
       !args.candidates.some((c) => c.id === args.webOverride)
     ) {
       process.stderr.write(
-        `web-provider: settings.web "${args.webOverride}" matches no discovered web plugin; using the local provider.\n`,
+        `web-provider: settings.web "${args.webOverride}" matches no discovered web plugin; web tools disabled.\n`,
       );
     }
     return undefined;
@@ -84,7 +84,7 @@ export async function resolveWebProviderFromPlugins(args: {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(
-      `web-provider: failed to start plugin "${selected.id}", falling back to local: ${scrubSecrets(message)}\n`,
+      `web-provider: failed to start plugin "${selected.id}", web tools disabled: ${scrubSecrets(message)}\n`,
     );
     return undefined;
   }

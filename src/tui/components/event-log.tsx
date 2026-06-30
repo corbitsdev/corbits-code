@@ -144,6 +144,27 @@ function plainLines(content: string, base: Partial<StyledSegment>, width: number
     .flatMap((line) => wrapLines(line, width).map((row) => [{ ...base, text: row }]));
 }
 
+// A static header for the top of the scrollback that lists the skills and
+// plugins loaded for this session, so they are visible on load and a scroll-up
+// away thereafter. Returns nothing when there is nothing to show.
+export function buildResourceBanner(
+  skills: readonly { name: string }[],
+  plugins: readonly string[],
+  width: number,
+): StyledLine[] {
+  const lines: StyledLine[] = [];
+  const section = (label: string, items: readonly string[]): void => {
+    if (items.length === 0) return;
+    if (lines.length > 0) lines.push([]);
+    lines.push([{ text: `[${label}]`, color: color("brand") }]);
+    lines.push(...plainLines(items.join(", "), { color: color("muted") }, width));
+  };
+  section("Skills", skills.map((s) => s.name));
+  section("Plugins", plugins);
+  if (lines.length > 0) lines.push([]);
+  return lines;
+}
+
 function compactUserCodeBlocks(content: string): string {
   return content.replace(/```([^\n`]*)\n([\s\S]*?)\n```/g, (match, language: string, body: string) => {
     const lineCount = body.length === 0 ? 0 : body.split("\n").length;
@@ -343,30 +364,29 @@ function blockToLines(
       ];
     }
     case "user": {
-      const accentBg = color("brand");
-      const bg = "#050505";
-      // The banner is a 2-col brand rail, a 1-col gap, the text, then a 1-col
-      // right margin. Wrap the content to that inner budget so a full line lands
-      // flush inside the banner instead of spilling past the terminal edge.
-      const RAIL = 2;
-      const GAP = 1;
+      // A subtle, neutral-grey box with a blank padded row above and below so the
+      // text has breathing room. Text starts at column 1 to line up with the
+      // assistant's "●" marker; a 1-col right margin keeps the fill off the edge.
+      const bg = "#45454a";
+      const LEFT = 1;
       const RIGHT = 1;
-      const innerWidth = Math.max(1, width - RAIL - GAP - RIGHT);
+      const innerWidth = Math.max(1, width - LEFT - RIGHT);
+      const blankRow = [{ text: " ".repeat(width), backgroundColor: bg }];
       const userLines = plainLines(
         compactUserCodeBlocks(block.content),
-        { color: "#ffffff", backgroundColor: bg },
+        { color: color("text"), backgroundColor: bg },
         innerWidth,
       );
-      return userLines.map((line) => {
+      const body = userLines.map((line) => {
         const textLen = line.reduce((n, s) => n + s.text.length, 0);
         const pad = Math.max(0, innerWidth - textLen + RIGHT);
         return [
-          { text: " ".repeat(RAIL), backgroundColor: accentBg },
-          { text: " ".repeat(GAP), backgroundColor: bg },
+          { text: " ".repeat(LEFT), backgroundColor: bg },
           ...line,
           { text: " ".repeat(pad), backgroundColor: bg },
         ];
       });
+      return [blankRow, ...body, blankRow];
     }
     case "text": {
       const textLines = markdownLines(block.content, width);

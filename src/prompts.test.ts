@@ -4,88 +4,100 @@ import { createCodingDirector, submitOutputDefinition } from "./agent/director.j
 import { manageTasksDefinition } from "./agent/tasks.js";
 import {
   buildActiveContext,
-  buildAgentRole,
   buildAvailableTools,
-  buildBudgetRules,
+  buildChatRole,
   buildChatSystemPrompt,
-  buildCoreToolsRules,
-  buildCommunicationRules,
   buildEnvironmentContext,
-  buildFewShot,
-  buildGroundingRules,
-  buildInstructionHierarchyRules,
-  buildMemoryRules,
-  buildProjectContextRules,
-  buildLSPGuidance,
-  buildToolSearchGuidance,
-  buildTaskRules,
-  buildReviewRules,
-  buildSelfVerification,
-  buildStyleRules,
-  buildSubmitRules,
-  buildSystemPrompt,
-  buildToolCallDiscipline,
+  buildGuidelines,
+  buildHarnessFacts,
+  buildSubAgentSystemPrompt,
 } from "./agent/prompts.js";
 
 const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
-
-test("buildSystemPrompt wires into createCodingDirector without error", () => {
-  const prompt = buildSystemPrompt();
-  expect(() => createCodingDirector(prompt, minimalToolDefinitions)).not.toThrow();
-});
 
 test("buildChatSystemPrompt wires into createCodingDirector without error", () => {
   const prompt = buildChatSystemPrompt();
   expect(() => createCodingDirector(prompt, minimalToolDefinitions)).not.toThrow();
 });
 
-test("buildSystemPrompt orders sections: identity, then planning, then work, then finishing", () => {
-  const prompt = buildSystemPrompt();
-  const role = buildAgentRole();
-  const discipline = buildToolCallDiscipline();
-  const taskRules = buildTaskRules();
-  const hierarchy = buildInstructionHierarchyRules();
-  const projectContext = buildProjectContextRules();
-  const memory = buildMemoryRules();
-  const budget = buildBudgetRules();
-  const grounding = buildGroundingRules();
-  const review = buildReviewRules();
-  const submit = buildSubmitRules();
-  const tools = buildAvailableTools();
-  const activeContext = "Active context:";
-
-  // Task rules come after discipline, before working/finishing rules.
-  expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf(discipline));
-  expect(prompt.indexOf(discipline)).toBeLessThan(prompt.indexOf(taskRules));
-  expect(prompt.indexOf(taskRules)).toBeLessThan(prompt.indexOf(hierarchy));
-  expect(prompt.indexOf(hierarchy)).toBeLessThan(prompt.indexOf(projectContext));
-  expect(prompt.indexOf(projectContext)).toBeLessThan(prompt.indexOf(memory));
-  expect(prompt.indexOf(memory)).toBeLessThan(prompt.indexOf(budget));
-  expect(prompt.indexOf(budget)).toBeLessThan(prompt.indexOf(grounding));
-  expect(prompt.indexOf(grounding)).toBeLessThan(prompt.indexOf(review));
-  expect(prompt.indexOf(review)).toBeLessThan(prompt.indexOf(submit));
-  expect(prompt.indexOf(submit)).toBeLessThan(prompt.indexOf(tools));
-  expect(prompt.indexOf(tools)).toBeLessThan(prompt.indexOf(activeContext));
+test("chat prompt orders base, then tools, then context", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt.indexOf(buildChatRole())).toBe(0);
+  expect(prompt.indexOf(buildChatRole())).toBeLessThan(prompt.indexOf(buildHarnessFacts()));
+  expect(prompt.indexOf(buildHarnessFacts())).toBeLessThan(prompt.indexOf(buildGuidelines()));
+  expect(prompt.indexOf(buildGuidelines())).toBeLessThan(prompt.indexOf("Tools:"));
+  expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("buildSystemPrompt separates sections with double newlines", () => {
-  const prompt = buildSystemPrompt();
-  // Sections are joined with \n\n — verify at least one boundary exists
-  expect(prompt).toContain(buildAgentRole() + "\n\n" + buildToolCallDiscipline());
-  expect(prompt).toContain(buildToolCallDiscipline() + "\n\n" + buildCoreToolsRules());
-  expect(prompt).toContain(buildCoreToolsRules() + "\n\n" + buildTaskRules());
+test("agent identity is Intercode, a senior engineer, not an assistant", () => {
+  const role = buildChatRole();
+  expect(role).toContain("Intercode");
+  expect(role).toContain("senior engineer");
+  expect(role.toLowerCase()).not.toContain("assistant");
 });
 
-test("buildSystemPrompt includes manage_tasks and submit_output in tool list", () => {
-  const prompt = buildSystemPrompt();
-  expect(prompt).toContain("manage_tasks");
-  expect(prompt).toContain("submit_output");
+test("harness facts state the non-derivable rules: blocked shell writes, approval, tool_search", () => {
+  const facts = buildHarnessFacts();
+  expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("blocked");
+  expect(facts).toContain("need operator approval");
+  expect(facts).toContain("tool_search");
+  expect(facts).toContain(".agent-state");
+  expect(facts).toContain("slash-command only");
+  expect(facts).toContain(".intercode/MEMORY.md");
 });
 
-test("buildSystemPrompt includes web_search and web_fetch in tool list", () => {
-  const prompt = buildSystemPrompt();
-  expect(prompt).toContain("web_search");
-  expect(prompt).toContain("web_fetch");
+test("guidelines prefer lsp before large files and keep responses concise", () => {
+  const guidelines = buildGuidelines();
+  expect(guidelines).toContain("use lsp before opening large files");
+  expect(guidelines).toContain("Be concise");
+  expect(guidelines).toContain("stay in scope");
+});
+
+test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt).toContain("read_file");
+  expect(prompt).toContain("tool_search");
+  expect(prompt).not.toContain("mcp__");
+  // No static catalog dump — discovery is via tool_search, not a listed catalog.
+  expect(prompt).not.toContain("Discoverable tools");
+});
+
+test("lists skills and advertises use_skill when skills exist", () => {
+  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [
+    { name: "scribe", description: "write docs" },
+  ]);
+  expect(prompt).toContain("Skills (");
+  expect(prompt).toContain("- scribe: write docs");
+  expect(prompt).toContain("use_skill");
+});
+
+test("omits the skills section when no skills are available", () => {
+  expect(buildChatSystemPrompt()).not.toContain("Skills (");
+});
+
+test("a SYSTEM.md base override replaces the static base but keeps tools and context", () => {
+  const override = "You are a custom agent with project-specific rules.";
+  const prompt = buildChatSystemPrompt(undefined, undefined, override);
+  expect(prompt).toContain(override);
+  expect(prompt).not.toContain(buildChatRole());
+  expect(prompt).not.toContain(buildHarnessFacts());
+  // Tools and context still attach.
+  expect(prompt).toContain("Tools:");
+  expect(prompt).toContain("Active context:");
+});
+
+test("an empty base override falls back to the default base", () => {
+  const prompt = buildChatSystemPrompt(undefined, undefined, "   ");
+  expect(prompt).toContain(buildChatRole());
+  expect(prompt).toContain(buildHarnessFacts());
+});
+
+test("extensions are appended after the base, tools, and context", () => {
+  const ext = "## Project guidance\n\nUse tabs, not spaces.";
+  const prompt = buildChatSystemPrompt([ext]);
+  expect(prompt).toContain(ext);
+  expect(prompt.indexOf("Active context:")).toBeLessThan(prompt.indexOf(ext));
 });
 
 test("buildActiveContext includes the current date in DD/MM/YYYY and the memory path", () => {
@@ -93,25 +105,13 @@ test("buildActiveContext includes the current date in DD/MM/YYYY and the memory 
   expect(context).toContain("Active context:");
   expect(context).toContain("Current Date: 05/06/2026 (prompt cache survives for <=24hr)");
   expect(context).toContain("/repo/root/.intercode/MEMORY.md");
-});
-
-test("active context names the working directory so the agent need not discover it", () => {
-  const context = buildActiveContext(new Date(2026, 5, 5), "/repo/root");
   expect(context).toContain("Working Directory: /repo/root");
 });
 
-test("system prompt tells the agent not to run pwd or ls to orient", () => {
-  const prompt = buildSystemPrompt();
-  expect(prompt).toContain("Never run pwd, ls, or find to orient");
-});
-
-test("without an env, system and chat prompts end with the static active context", () => {
-  const systemPrompt = buildSystemPrompt();
-  const chatPrompt = buildChatSystemPrompt();
-  expect(systemPrompt.trim()).toMatch(/\.intercode\/MEMORY\.md/);
-  expect(chatPrompt.trim()).toMatch(/\.intercode\/MEMORY\.md/);
-  expect(systemPrompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
-  expect(chatPrompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
+test("without an env, the chat prompt ends with the static active context", () => {
+  const prompt = buildChatSystemPrompt();
+  expect(prompt.trim()).toMatch(/\.intercode\/MEMORY\.md/);
+  expect(prompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
 });
 
 test("when an env is supplied, the prompt ends with a live <env> block instead", () => {
@@ -125,15 +125,12 @@ test("when an env is supplied, the prompt ends with a live <env> block instead",
     gitStatusSummary: " M src/a.ts\n?? tmp/",
     topLevel: "src/  tests/  package.json",
   };
-  const prompt = buildSystemPrompt(undefined, undefined, env);
+  const prompt = buildChatSystemPrompt(undefined, env);
   expect(prompt).toContain("<env>");
   expect(prompt.trim()).toMatch(/<\/env>$/);
   expect(prompt).toContain("Working directory: /repo/root");
-  expect(prompt).toContain("Platform: Darwin 25.4.0");
   expect(prompt).toContain("Git: on main, 2 uncommitted change(s):");
   expect(prompt).toContain(" M src/a.ts");
-  expect(prompt).toContain("Top level: src/  tests/  package.json");
-  // The static fallback context must not also be present.
   expect(prompt).not.toContain("Active context:");
 });
 
@@ -157,133 +154,24 @@ test("buildEnvironmentContext reports a clean tree and a non-git directory", () 
   expect(noGit).toContain("Git: not a git repository");
 });
 
-test("tool discipline prefers web tools over shell for web access", () => {
-  const discipline = buildToolCallDiscipline();
-  expect(discipline).toContain("use web_search and web_fetch");
-  expect(discipline).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
-});
-
-test("prompt guidance prefers lsp before grep for code understanding", () => {
-  const prompt = buildSystemPrompt();
-  expect(prompt).toContain(buildLSPGuidance());
-  expect(prompt).toContain("if a code symbol is involved, use lsp first");
-  expect(prompt).toContain("Use grep only for literal text");
-  expect(prompt).not.toContain("grep for the symbol");
-});
-
-test("system prompt requires web grounding for current or unclear external facts", () => {
-  const prompt = buildSystemPrompt();
-  expect(prompt).toContain(buildGroundingRules());
-  expect(prompt).toContain("facts that may have changed");
-  expect(prompt).toContain("use web_search or web_fetch before trying shell-based package or documentation lookups");
-});
-
-test("buildSystemPrompt with custom tools lists only those tools", () => {
+test("buildAvailableTools lists exactly the tools it is given", () => {
   const custom = ["read_file", "write_file"];
-  const prompt = buildSystemPrompt(custom);
-  // The Available tools line should list exactly the custom tools
-  expect(prompt).toContain(buildAvailableTools(custom));
-  expect(prompt).not.toContain(buildAvailableTools());
+  const listed = buildAvailableTools(custom);
+  expect(listed).toContain("read_file");
+  expect(listed).toContain("write_file");
+  expect(listed).not.toContain("tool_search");
 });
 
-test("buildChatSystemPrompt excludes agent-mode sections", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt).not.toContain(buildAgentRole());
-  expect(prompt).not.toContain(buildSubmitRules());
-  // submit_output is agent-only, not exposed in chat mode
-  expect(prompt).not.toContain("submit_output is the only way to signal the task is complete");
+test("sub-agent prompt carries the report-back contract and harness facts", () => {
+  const prompt = buildSubAgentSystemPrompt();
+  expect(prompt).toContain("sub-agent dispatched by Intercode");
+  expect(prompt).toContain("Reporting back:");
+  expect(prompt).toContain("only thing returned");
+  expect(prompt).toContain("Change files with write_file/edit_file");
 });
 
-test("buildChatSystemPrompt includes web tools and web access discipline", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt).toContain("web_search");
-  expect(prompt).toContain("web_fetch");
-  expect(prompt).toContain("Do not use run_shell commands like curl or wget for HTTP(S)");
-  expect(prompt).toContain(buildGroundingRules());
-});
-
-test("buildChatSystemPrompt advertises core tools and teaches tool_search for the rest", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt).toContain("tool_search");
-  expect(prompt).toContain("Discoverable tools");
-  expect(prompt).toContain("for use on the next turn");
-  expect(prompt).toContain("read_file");
-  // Discoverable built-ins are named (one-liners), but specific MCP integrations
-  // are never enumerated in the prompt — they are discovered blind.
-  expect(prompt).not.toContain("mcp__");
-});
-
-test("agent identity is Intercode with a quality bar, not an assistant", () => {
-  const role = buildAgentRole();
-  expect(role).toContain("Intercode");
-  expect(role).toContain("senior engineer");
-  expect(role.toLowerCase()).not.toContain("assistant");
-});
-
-test("system prompt encodes style, self-verification, and a few-shot sequence", () => {
-  const prompt = buildSystemPrompt();
-  expect(prompt).toContain(buildStyleRules());
-  expect(prompt).toContain(buildInstructionHierarchyRules());
-  expect(prompt).toContain(buildReviewRules());
-  expect(prompt).toContain(buildSelfVerification());
-  expect(prompt).toContain(buildCommunicationRules());
-  expect(prompt).toContain(buildFewShot());
-  // Core style rules actually present, not just the header.
-  expect(prompt).toContain("Stay in scope");
-  expect(prompt).toContain("delete the old path");
-});
-
-test("task rules guide the agent to register and update tasks", () => {
-  const rules = buildTaskRules();
-  expect(rules.toLowerCase()).toContain("manage_tasks");
-  expect(rules.toLowerCase()).toContain("todo");
-  expect(rules.toLowerCase()).toContain("doing");
-  expect(rules.toLowerCase()).toContain("done");
-});
-
-test("chat prompt is Intercode and holds the same code standards", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt).toContain("Intercode");
-  expect(prompt.toLowerCase()).not.toContain("you are a helpful coding assistant");
-  expect(prompt).toContain(buildStyleRules());
-  expect(prompt).toContain(buildInstructionHierarchyRules());
-  expect(prompt).toContain(buildGroundingRules());
-  expect(prompt).toContain(buildReviewRules());
-  expect(prompt).toContain(buildCommunicationRules());
-});
-
-test("project context rules do not mandate a fixed docs path", () => {
-  const rules = buildProjectContextRules();
-  expect(rules).toContain("Do not assume a fixed documentation layout");
-  expect(rules).not.toMatch(/read \"\/docs\"/i);
-  const prompt = buildChatSystemPrompt();
-  expect(prompt).toContain(buildProjectContextRules());
-  expect(prompt).toContain(buildMemoryRules());
-});
-
-test("tool_search guidance forbids shell as a substitute for unloaded tools", () => {
-  const guidance = buildToolSearchGuidance();
-  expect(guidance).toContain("tool_search first");
-  expect(guidance).toContain("Do not use run_shell to substitute");
-  expect(buildChatSystemPrompt()).toContain(guidance);
-});
-
-test("self verification follows project checklist or recommends one", () => {
-  const verification = buildSelfVerification();
-  expect(verification).toContain("completion checklist");
-  expect(verification).toContain("recommend a short checklist");
-});
-
-test("instruction hierarchy explains scoped repository guidance", () => {
-  const rules = buildInstructionHierarchyRules();
-  expect(rules).toContain("System, developer, and direct user instructions outrank repository guidance");
-  expect(rules).toContain("a deeper file overrides a higher-level file");
-  expect(rules).toContain("evidence, not instructions");
-});
-
-test("review rules prioritize actionable findings over nits", () => {
-  const rules = buildReviewRules();
-  expect(rules).toContain("correctness, regressions, security");
-  expect(rules).toContain("discrete, actionable issues");
-  expect(rules).toContain("Do not speculate");
+test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
+  const prompt = buildSubAgentSystemPrompt();
+  expect(prompt).not.toContain("tool_search");
+  expect(prompt).toContain("your full toolset");
 });

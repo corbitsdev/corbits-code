@@ -441,7 +441,6 @@ class ChatDirectorImpl extends DefaultDirector {
   private inactivityTimeoutMs: number | undefined;
   private totalTimeoutMs: number | undefined;
   private workflowCoordinator: WorkflowCoordinator | undefined;
-  private pendingSkillDirective: string | undefined;
   private workflowIdleTurns = 0;
   private lastInferenceTurnHadContent = false;
   private operatorJustResponded = false;
@@ -482,10 +481,6 @@ class ChatDirectorImpl extends DefaultDirector {
     this.workflowCoordinator = coordinator;
   }
 
-  setPendingSkillDirective(directive: string | undefined): void {
-    this.pendingSkillDirective = directive;
-  }
-
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
     this._toolDefinitions = toolDefinitions;
   }
@@ -512,10 +507,6 @@ class ChatDirectorImpl extends DefaultDirector {
       const base = action.options?.systemPrompt ?? this._systemPrompt;
       let prompt = base;
       if (directive !== null) prompt = `${prompt}\n\n${directive}`;
-      if (this.pendingSkillDirective !== undefined) {
-        prompt = `${prompt}\n\n${this.pendingSkillDirective}`;
-        this.pendingSkillDirective = undefined;
-      }
       if (prompt !== base) options.systemPrompt = prompt;
       return { type: "infer", options };
     };
@@ -737,6 +728,5 @@ export interface ChatDirectorWithClear extends ReactorDirector {
   signalNewTask(summary?: string): void;
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
-  setPendingSkillDirective(directive: string | undefined): void;
   getTasks(): Task[];
 }
