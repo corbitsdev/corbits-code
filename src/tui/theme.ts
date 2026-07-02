@@ -17,10 +17,12 @@ const breakthroughOrange: ColorValue = { hex: "#f5933a", ansi256: 173 };
 const summitBlue: ColorValue = { hex: "#7ea2c4", ansi256: 74 };
 const ridgeGreen: ColorValue = { hex: "#94b889", ansi256: 108 };
 const bedrockCharcoal: ColorValue = { hex: "#2b2627", ansi256: 235 };
-const canvasCream: ColorValue = { hex: "#faf1e2", ansi256: 230 };
-// One step brighter than the cream body text — carries inline emphasis so
-// strong text reads as brighter rather than shouting in bold weight.
-const brightWhite: ColorValue = { hex: "#ffffff", ansi256: 231 };
+// Body prose. A calm warm off-white rather than near-white cream so a wall of
+// text does not read as heavy; emphasis and headings sit above it in brightness.
+const bodyOffWhite: ColorValue = { hex: "#d0c7bb", ansi256: 250 };
+// The brightest step in the ladder — carries inline emphasis so strong text
+// reads as brighter rather than shouting in bold weight.
+const emphasisCream: ColorValue = { hex: "#faf1e2", ansi256: 230 };
 const dangerRed: ColorValue = { hex: "#e0594d", ansi256: 167 };
 const mutedGray: ColorValue = { hex: "#a89f96", ansi256: 247 };
 // One step dimmer than muted — used for tool args, collapsed results, thinking gutter.
@@ -36,8 +38,8 @@ export const palette: Record<SemanticRole, ColorValue> = {
   dim: dimGray,
   // Spinner/streaming indicator color — calm blue rather than brand orange.
   live: summitBlue,
-  text: canvasCream,
-  emphasis: brightWhite,
+  text: bodyOffWhite,
+  emphasis: emphasisCream,
   surface: bedrockCharcoal,
 };
 

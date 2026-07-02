@@ -55,7 +55,6 @@ export function renderableBlocks(blocks: ContentBlock[]): RenderableBlock[] {
 }
 
 type RenderProps = {
-  bold?: boolean;
   italic?: boolean;
   underline?: boolean;
   strikethrough?: boolean;
@@ -72,8 +71,9 @@ function segmentProps(seg: StyledSegment): RenderProps {
   if (seg.bold) props.color = color("emphasis");
   if (seg.italic) props.italic = true;
   if (seg.strikethrough) props.strikethrough = true;
+  // Headings read as section anchors through colour alone; adding bold weight on
+  // top made the transcript feel heavy, so hue carries the hierarchy.
   if (seg.heading !== undefined) {
-    props.bold = true;
     if (seg.heading === 1) props.color = color("brand");
     else if (seg.heading === 2) props.color = color("accent");
     else props.color = color("success");
