@@ -1,4 +1,4 @@
-import { wrapRanges } from "./view/height.js";
+import { wrapRanges, stringWidth } from "./view/height.js";
 
 export type StyledSegment = {
   text: string;
@@ -228,7 +228,7 @@ const TABLE_SEP = " | ";
 const MIN_COL_WIDTH = 6;
 
 function renderedLength(segments: StyledSegment[]): number {
-  return segments.reduce((sum, seg) => sum + seg.text.length, 0);
+  return segments.reduce((sum, seg) => sum + stringWidth(seg.text), 0);
 }
 
 // Slice a styled cell's segments to the character range [start, end), preserving
