@@ -358,6 +358,46 @@ describe("multi-line", () => {
   });
 });
 
+describe("borderless pipe tables the model emits", () => {
+  test("no border pipes and no separator row still aligns into a grid", () => {
+    const lines = parseMarkdown(
+      "Word | What it means\nDeploy | Register a recipe\nStart | Run it once",
+    );
+    expect(lines).toHaveLength(3);
+    expect(allText(lines[0] ?? []).trimEnd()).toBe("Word   | What it means");
+    expect(allText(lines[1] ?? []).trimEnd()).toBe("Deploy | Register a recipe");
+    expect(allText(lines[2] ?? []).trimEnd()).toBe("Start  | Run it once");
+  });
+
+  test("borderless table with a separator row drops the separator", () => {
+    const lines = parseMarkdown(
+      "Name | Value\n--- | ---\nfoo | bar",
+    );
+    expect(lines).toHaveLength(2);
+    expect(allText(lines[0] ?? []).trimEnd()).toBe("Name | Value");
+    expect(allText(lines[1] ?? []).trimEnd()).toBe("foo  | bar");
+  });
+
+  test("inline markdown inside borderless cells is parsed", () => {
+    const lines = parseMarkdown("Item | Status\nname | **done**");
+    for (const line of lines) expect(allText(line)).not.toContain("**");
+    const cell = (lines[1] ?? []).find((s) => s.text === "done");
+    expect(cell?.bold).toBe(true);
+  });
+
+  test("a single pipe line in prose is not treated as a table", () => {
+    const lines = parseMarkdown("run ls | grep foo to filter");
+    expect(lines).toHaveLength(1);
+    expect(allText(lines[0] ?? [])).toBe("run ls | grep foo to filter");
+  });
+
+  test("a logical-or expression across lines is not a table", () => {
+    const lines = parseMarkdown("if a || b\nthen c || d");
+    expect(lines).toHaveLength(2);
+    expect(allText(lines[0] ?? [])).toBe("if a || b");
+  });
+});
+
 test("link with an empty URL still renders as styled text, not raw characters", () => {
   const lines = parseMarkdown("see [docs]() here");
   const segs = lines[0] ?? [];
