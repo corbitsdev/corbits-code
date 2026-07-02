@@ -39,6 +39,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 const AskOperatorArgs = type({
   question: "string",
   options: "string[]",
+  "command?": "string",
 });
 
 const AdvanceWorkflowArgs = type({
@@ -162,7 +163,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (parsed instanceof type.errors) {
           return "Error: ask_operator requires question (string) and options (array of strings).";
         }
-        const { question, options } = parsed;
+        const { question, options, command } = parsed;
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
@@ -177,7 +178,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (index < 0 || index >= options.length) {
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
-        return options[index]!;
+        const chosen = options[index]!;
+        // The operator just approved this exact answer by selecting it. The model
+        // declares the command it's really asking about via `command`, so the
+        // follow-up run_shell call for that exact string does not prompt again.
+        if (command !== undefined) permissionGate.preApprove("run_shell", command);
+        return chosen;
       },
     }),
     stringTool({

@@ -39,7 +39,7 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean } = {}): string
     "Harness facts:",
     "- Change files with write_file/edit_file. Shell file-writes (redirects, tee, sed -i, interpreter scripts) are blocked and will not run.",
     "- Use read_file/list_dir/search_files/grep, not cat/ls/find.",
-    "- Dependency installs (npm/pip/cargo/brew install or add, npx/bunx) need operator approval and never run unattended; you may request them.",
+    "- Dependency installs (npm/pip/cargo/brew install or add, npx/bunx) need operator approval and never run unattended; you may request them via ask_operator, passing the exact command as `command` so approval covers the run_shell call too — the operator should not be asked twice.",
     "- The .agent-state directory and gitignored paths are off-limits unless the task genuinely needs them, and reaching in prompts an approval.",
     ...(dynamicTools
       ? ["- Only the core tools below are loaded. Call tool_search with a short capability description to load more (file search, web, sub-agents, MCP integrations); then call the loaded tool. Never shell out to substitute for a tool."]

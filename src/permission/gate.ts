@@ -63,6 +63,10 @@ export type PermissionGate = {
   // Turn auto mode on or off for the rest of the session. The /auto command
   // wires the TUI toggle here so a switch takes effect on the next tool call.
   setAuto: (value: boolean) => void;
+  // Grant a session-only approval outside the normal ask flow, e.g. when the
+  // operator already approved a literal command through ask_operator — so the
+  // matching run_shell call that follows does not prompt a second time.
+  preApprove: (tool: string, pattern: string) => void;
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
@@ -168,6 +172,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     approvals.push(...seeded, ...sessionGrants);
   };
 
+  const preApprove = (tool: string, pattern: string): void => {
+    const approval: Approval = { tool, pattern };
+    approvals.push(approval);
+    sessionGrants.push(approval);
+  };
+
   return {
     evaluate,
     getApprovals: () => approvals,
@@ -179,5 +189,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     setAuto: (value: boolean) => {
       auto = value;
     },
+    preApprove,
   };
 }

@@ -25,7 +25,10 @@ const PathArgSchema = type({ path: "string" });
 export const askOperatorDefinition: ToolDefinition = {
   name: "ask_operator",
   description:
-    "Pause execution and ask the operator a clarifying question. Execution resumes when the operator selects an option.",
+    "Pause execution and ask the operator a clarifying question. Execution resumes when the operator selects an option. " +
+    "If the question is really asking permission to run one specific shell command, pass that exact command as `command` " +
+    "instead of just describing it in the option text — approval here then covers the matching run_shell call too, so the " +
+    "operator is not asked to approve the same action twice.",
   inputSchema: {
     type: "object",
     properties: {
@@ -38,6 +41,12 @@ export const askOperatorDefinition: ToolDefinition = {
         description: "List of options the operator can choose from",
         items: { type: "string" },
         minItems: 1,
+      },
+      command: {
+        type: "string",
+        description:
+          "The exact shell command this question is asking permission to run, verbatim, if applicable. " +
+          "Approving an option here pre-authorizes the run_shell call for this exact command.",
       },
     },
     required: ["question", "options"],
