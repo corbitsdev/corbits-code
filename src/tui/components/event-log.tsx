@@ -8,7 +8,7 @@ import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
 import { viewToLines, type StyledLine } from "../view/index.js";
-import { wrapLines, wrapRanges } from "../view/height.js";
+import { wrapLines, wrapRanges, stringWidth } from "../view/height.js";
 import { color } from "../theme.js";
 import { editDiffFromArgs, renderDiff } from "../diff.js";
 
@@ -134,8 +134,8 @@ function mergeAdjacentSegments(line: StyledLine): StyledSegment[] {
 }
 
 function renderLine(line: StyledLine, key: string, width: number): ReactNode {
-  const textLength = line.reduce((n, s) => n + s.text.length, 0);
-  const pad = Math.max(0, width - textLength);
+  const textWidth = line.reduce((n, s) => n + stringWidth(s.text), 0);
+  const pad = Math.max(0, width - textWidth);
   const padded = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
   const segments = mergeAdjacentSegments(padded);
 
