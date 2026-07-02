@@ -205,7 +205,15 @@ export function parseMarkdown(text: string, width = Infinity): StyledSegment[][]
       continue;
     }
 
-    lines.push(parseLine(line));
+    const parsed = parseLine(line);
+    // Give a heading air above it so each section reads as a distinct block
+    // rather than crowding the paragraph that precedes it. Skip when the heading
+    // opens the message or already follows a blank line.
+    if (parsed[0]?.heading !== undefined) {
+      const last = lines[lines.length - 1];
+      if (last !== undefined && last.length > 0) lines.push([]);
+    }
+    lines.push(parsed);
   }
 
   return lines;
