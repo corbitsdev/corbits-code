@@ -87,8 +87,13 @@ function segmentProps(seg: StyledSegment): RenderProps {
     props.color = color("muted");
   }
   if (seg.rule) props.color = color("muted");
-  if (seg.bullet && /^\s*(•|\d+\.)/.test(seg.text)) props.color = color("accent");
-  if (seg.code) props.color = color("warning");
+  // List markers are structure, not signal — keep them quiet so a bulleted
+  // message does not read as a wall of accent colour.
+  if (seg.bullet && /^\s*(•|\d+\.)/.test(seg.text)) props.color = color("muted");
+  // Inline code (paths, identifiers, commands) is reference, not a warning.
+  // Loud brand orange on every backtick swamped the transcript; a calm muted
+  // tone keeps it distinct from prose without shouting.
+  if (seg.code) props.color = color("muted");
   // Explicit per-segment styling (views, shell prefix) wins over flag-derived
   // colours so the one render path serves both markdown and the view spec.
   if (seg.color !== undefined) props.color = seg.color;
