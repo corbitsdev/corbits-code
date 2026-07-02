@@ -247,18 +247,31 @@ function padCell(segments: StyledSegment[], width: number): StyledSegment[] {
 
 function parseTableBlock(lines: string[], startIndex: number, width: number): ParsedTable | null {
   const header = lines[startIndex];
-  const separator = lines[startIndex + 1];
-  if (header === undefined || separator === undefined) return null;
-  if (!isTableRow(header) || !isTableSeparator(separator)) return null;
+  if (header === undefined || !looksLikeTableRow(header)) return null;
+
+  const next = lines[startIndex + 1];
+  const hasSeparator = next !== undefined && isTableSeparator(next);
 
   const rawRows: string[][] = [extractTableCells(header)];
-  let consumed = 2;
+  let consumed = hasSeparator ? 2 : 1;
 
-  for (let i = startIndex + 2; i < lines.length; i++) {
+  for (let i = startIndex + consumed; i < lines.length; i++) {
     const line = lines[i];
-    if (line === undefined || !isTableRow(line)) break;
+    if (line === undefined || !looksLikeTableRow(line) || isTableSeparator(line)) break;
     rawRows.push(extractTableCells(line));
     consumed++;
+  }
+
+  // The model routinely emits borderless tables with no separator row. Those are
+  // only distinguishable from prose that happens to contain a pipe by their
+  // shape: a header plus at least one data row, every row the same number of
+  // multi-column cells. A proper GFM separator row removes that ambiguity, so
+  // strict tables skip the shape guard.
+  if (!hasSeparator) {
+    const cols0 = rawRows[0]?.length ?? 0;
+    if (rawRows.length < 2 || cols0 < 2 || !rawRows.every((row) => row.length === cols0)) {
+      return null;
+    }
   }
 
   const cols = Math.max(...rawRows.map((row) => row.length));
@@ -359,8 +372,13 @@ function renderKeyValue(cells: StyledSegment[][][]): StyledSegment[][] {
   return out;
 }
 
-function isTableRow(line: string): boolean {
-  return /^\s*\|.*\|\s*$/.test(line);
+// A table row is either a bordered GFM row (leading pipe) or a borderless row
+// whose cells are split by a spaced pipe. Escaped pipes (\|) are literal content
+// and a `||` is a logical-or operator, so neither counts as a cell separator.
+function looksLikeTableRow(line: string): boolean {
+  const stripped = line.replace(/\\\|/g, "");
+  if (/\|\|/.test(stripped)) return false;
+  return /^\s*\|/.test(stripped) || / \| /.test(stripped);
 }
 
 function isTableSeparator(line: string): boolean {
