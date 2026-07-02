@@ -58,6 +58,7 @@ const { createAgentToolset } = await import("../../../src/agent/tools.js");
 
 const fakePermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
+  preApprove: mock(() => {}),
 };
 
 const callOperator = async (
@@ -125,6 +126,39 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
   expect(capturedQuestion).toBe("Which approach?");
   expect(capturedOptions).toEqual(["A", "B", "C"]);
   expect(result).toBe("B");
+});
+
+test("operator tool pre-approves the declared command for run_shell when an option is chosen", async () => {
+  fakePermissionGate.preApprove.mockClear();
+
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  await callOperator(toolset, {
+    question: "What would you like to install?",
+    options: ["Project dependencies"],
+    command: "bun install",
+  });
+
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "bun install");
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledTimes(1);
+});
+
+test("operator tool does not pre-approve anything when no command is declared", async () => {
+  fakePermissionGate.preApprove.mockClear();
+
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  await callOperator(toolset, { question: "Which approach?", options: ["A", "B"] });
+
+  expect(fakePermissionGate.preApprove).not.toHaveBeenCalled();
 });
 
 test("operator tool returns the operator's free-form answer", async () => {
