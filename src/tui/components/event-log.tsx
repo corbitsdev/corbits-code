@@ -66,7 +66,10 @@ type RenderProps = {
 
 function segmentProps(seg: StyledSegment): RenderProps {
   const props: RenderProps = {};
-  if (seg.bold) props.bold = true;
+  // Inline emphasis reads as brighter text rather than heavy bold, so a paragraph
+  // peppered with **strong** spans stays calm. Structural headings still carry
+  // weight through the heading branch below.
+  if (seg.bold) props.color = color("emphasis");
   if (seg.italic) props.italic = true;
   if (seg.strikethrough) props.strikethrough = true;
   if (seg.heading !== undefined) {
