@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState, useEffect, useRef } from "react";
 import { color } from "../theme.js";
+import pkg from "../../../package.json" with { type: "json" };
 
 export type OnboardingAnimationProps = {
   onComplete: () => void;
@@ -123,6 +124,10 @@ export function OnboardingAnimation({ onComplete, rows, columns, isFirstTime }: 
             </Box>
           )}
         </Box>
+      </Box>
+      <Box flexGrow={1} />
+      <Box paddingLeft={1}>
+        <Text color={color("muted")} dimColor>{`v${pkg.version}`}</Text>
       </Box>
     </Box>
   );
