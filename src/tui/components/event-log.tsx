@@ -97,14 +97,51 @@ function segmentProps(seg: StyledSegment): RenderProps {
   return props;
 }
 
+function styleKey(seg: StyledSegment): string {
+  return [
+    seg.bold ? "b" : "",
+    seg.italic ? "i" : "",
+    seg.strikethrough ? "s" : "",
+    seg.heading ?? "",
+    seg.link ? "l" : "",
+    seg.blockquote ? "q" : "",
+    seg.rule ? "r" : "",
+    seg.bullet ? "u" : "",
+    seg.code ? "c" : "",
+    seg.color ?? "",
+    seg.dim ? "d" : "",
+    seg.backgroundColor ?? "",
+  ].join("\x1f");
+}
+
+// Ink lays out and diffs one node per <Text> every frame, so collapsing runs of
+// identically styled segments into a single node cuts the per-frame cost of the
+// visible window — most visibly on tables, whose padding fragments each row.
+function mergeAdjacentSegments(line: StyledLine): StyledSegment[] {
+  const out: StyledSegment[] = [];
+  let prevKey: string | undefined;
+  for (const seg of line) {
+    const key = styleKey(seg);
+    const last = out[out.length - 1];
+    if (last !== undefined && key === prevKey) {
+      last.text += seg.text;
+    } else {
+      out.push({ ...seg });
+      prevKey = key;
+    }
+  }
+  return out;
+}
+
 function renderLine(line: StyledLine, key: string, width: number): ReactNode {
-  const text = line.map((s) => s.text).join("");
-  const pad = Math.max(0, width - text.length);
-  const paddedLine = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
+  const textLength = line.reduce((n, s) => n + s.text.length, 0);
+  const pad = Math.max(0, width - textLength);
+  const padded = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
+  const segments = mergeAdjacentSegments(padded);
 
   return (
     <Text key={key}>
-      {paddedLine.map((seg, i) => (
+      {segments.map((seg, i) => (
         <Text key={`${key}-${i}`} {...segmentProps(seg)}>
           {seg.text}
         </Text>
