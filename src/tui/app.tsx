@@ -1227,59 +1227,61 @@ export function App({
           </Box>
         )}
       </Box>
-      <ModalStack
-        hooks={state.hooks}
-        hookPanelOpen={hookPanelOpen}
-        helpOpen={helpOpen}
-        onCloseHelp={() => setHelpOpen(false)}
-        agentModalOpen={agentModalOpen}
-        agentProviders={toAgentProviders(providerCatalog)}
-        activeProvider={provider}
-        activeModel={model}
-        activeEffort={reasoningEffort}
-        onAgentApply={applySelection}
-        onAgentPersistDefault={persistSelection}
-        onAgentSaveProvider={upsertProvider}
-        onAgentDeleteProvider={deleteProvider}
-        onCloseAgentModal={() => setAgentModalOpen(false)}
-        agentTiers={tiers}
-        onSaveTier={saveTierAssignment}
-        onCycleTierMode={cycleTierMode}
-        onClearTier={clearTier}
-        onRemoveTierLeg={removeTierLegAt}
-        onMoveTierLeg={moveTierLegAt}
-        agentProfiles={profiles}
-        onSaveAgentProfile={saveProfile}
-        onDeleteAgentProfile={deleteProfile}
-        usage={agentModalUsage ?? undefined}
-        onRequestAgentUsage={(kind, profile) => {
-          setAgentModalUsage(null);
-          if (kind === "codex") {
-            void fetchCodexUsage(profile).then(
-              (u) => { setAgentModalUsage(formatCodexUsage(u)); },
-              () => {},
-            );
-          } else {
-            void fetchXaiUsage(profile).then(
-              (u) => { setAgentModalUsage(formatXaiUsage(u)); },
-              () => {},
-            );
-          }
-        }}
-        unauthedProviders={unauthedProviders}
-        onRequestAgentLogin={(kind, profile) => {
-          setAutoLoginProfile(profile);
-          setLoginModal(kind);
-        }}
-        pendingPlan={gates.pendingPlan}
-        onApprove={gates.approve}
-        onReject={gates.reject}
-        pendingOperator={gates.pendingOperator}
-        onSelectOperator={gates.selectOperator}
-        pendingPermission={gates.pendingPermission}
-        onResolvePermission={gates.resolvePermission}
-        width={columns}
-      />
+      <Box flexShrink={0} flexDirection="column">
+        <ModalStack
+          hooks={state.hooks}
+          hookPanelOpen={hookPanelOpen}
+          helpOpen={helpOpen}
+          onCloseHelp={() => setHelpOpen(false)}
+          agentModalOpen={agentModalOpen}
+          agentProviders={toAgentProviders(providerCatalog)}
+          activeProvider={provider}
+          activeModel={model}
+          activeEffort={reasoningEffort}
+          onAgentApply={applySelection}
+          onAgentPersistDefault={persistSelection}
+          onAgentSaveProvider={upsertProvider}
+          onAgentDeleteProvider={deleteProvider}
+          onCloseAgentModal={() => setAgentModalOpen(false)}
+          agentTiers={tiers}
+          onSaveTier={saveTierAssignment}
+          onCycleTierMode={cycleTierMode}
+          onClearTier={clearTier}
+          onRemoveTierLeg={removeTierLegAt}
+          onMoveTierLeg={moveTierLegAt}
+          agentProfiles={profiles}
+          onSaveAgentProfile={saveProfile}
+          onDeleteAgentProfile={deleteProfile}
+          usage={agentModalUsage ?? undefined}
+          onRequestAgentUsage={(kind, profile) => {
+            setAgentModalUsage(null);
+            if (kind === "codex") {
+              void fetchCodexUsage(profile).then(
+                (u) => { setAgentModalUsage(formatCodexUsage(u)); },
+                () => {},
+              );
+            } else {
+              void fetchXaiUsage(profile).then(
+                (u) => { setAgentModalUsage(formatXaiUsage(u)); },
+                () => {},
+              );
+            }
+          }}
+          unauthedProviders={unauthedProviders}
+          onRequestAgentLogin={(kind, profile) => {
+            setAutoLoginProfile(profile);
+            setLoginModal(kind);
+          }}
+          pendingPlan={gates.pendingPlan}
+          onApprove={gates.approve}
+          onReject={gates.reject}
+          pendingOperator={gates.pendingOperator}
+          onSelectOperator={gates.selectOperator}
+          pendingPermission={gates.pendingPermission}
+          onResolvePermission={gates.resolvePermission}
+          width={columns}
+        />
+      </Box>
       {permissionsOpen && (
         <PermissionsManager
           entries={permissionEntries}
