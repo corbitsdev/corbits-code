@@ -297,6 +297,21 @@ describe("F3: GFM table relaxation", () => {
 });
 
 describe("multi-line", () => {
+  test("a heading gains a blank line above it when it follows content", () => {
+    const lines = parseMarkdown("body text\n## Section\nmore text");
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toEqual([{ text: "body text" }]);
+    expect(lines[1]).toEqual([]);
+    expect(lines[2]?.[0]?.heading).toBe(2);
+    expect(lines[3]).toEqual([{ text: "more text" }]);
+  });
+
+  test("a leading heading gains no blank line above it", () => {
+    const lines = parseMarkdown("# Title\nbody");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.[0]?.heading).toBe(1);
+  });
+
   test("each line parses independently", () => {
     const lines = parseMarkdown("# Heading\n- item\nplain");
     expect(lines).toHaveLength(3);
