@@ -734,8 +734,13 @@ export function App({
 
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
-  const latestUserMessageInLog = state.contentBlocks.some((block) =>
-    block.type === "user" && block.content === state.latestUserMessage
+  // Scanning every block on each render walks the whole transcript on keystrokes
+  // and scroll ticks, so memoize on the two inputs that actually change it.
+  const latestUserMessageInLog = useMemo(
+    () => state.contentBlocks.some(
+      (block) => block.type === "user" && block.content === state.latestUserMessage,
+    ),
+    [state.contentBlocks, state.latestUserMessage],
   );
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
