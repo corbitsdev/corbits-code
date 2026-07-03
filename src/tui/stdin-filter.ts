@@ -18,11 +18,13 @@ const MOUSE_FRAGMENT = /\[<(\d+);\d+;\d+[Mm]/g;
 
 // A trailing, not-yet-terminated mouse sequence at the end of a chunk. A single
 // logical sequence can be split across two `read()` calls, so the tail is held
-// back and prepended to the next chunk rather than leaked. `[<` is the SGR
-// private marker — no key other than the mouse emits it — so buffering this is
-// unambiguous and never swallows a boundary-split Esc or arrow key (those start
-// with a bare `ESC` / `ESC[`, which is deliberately not buffered).
-const TRAILING_PARTIAL = /\x1b\[<[\d;]*$/;
+// back and prepended to the next chunk rather than leaked. The leading ESC is
+// optional: it is dropped whenever Ink's escape parser consumed it in a prior
+// read, leaving a bare `[<...` fragment (the same case MOUSE_FRAGMENT handles).
+// `[<` is the SGR private marker — no key other than the mouse emits it — so
+// buffering either form is unambiguous and never swallows a boundary-split Esc
+// or arrow key (those start with a bare `ESC` / `ESC[`, never `[<`).
+const TRAILING_PARTIAL = /(?:\x1b)?\[<[\d;]*$/;
 
 // Wheel events encode button 64 (up) / 65 (down). They are the one class of
 // mouse input we still act on, re-routed through a dedicated channel since they
@@ -104,11 +106,11 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
     let text = pending + raw;
     pending = "";
 
-    // Buffer a trailing partial FULL-form sequence (ESC + `[<` ...). Handles two
-    // split cases that otherwise leak out of Ink's escape parser: the trailing
-    // digit and ESC+fragment cases both preserve enough for the pattern to reassemble on
-    // the next read, preventing terminal-side ANSI sequences from leaking into output.
-    if (text.includes("\x1b[<")) {
+    // Buffer a trailing, not-yet-terminated mouse sequence so a wheel event split
+    // across two reads reassembles on the next one instead of leaking. Both the
+    // ESC-prefixed form and the bare `[<...` fragment (ESC already consumed by
+    // Ink) are held back — the guard keys off `[<` so neither slips through.
+    if (text.includes("[<")) {
       const partial = TRAILING_PARTIAL.exec(text);
       if (partial) {
         pending = partial[0];
