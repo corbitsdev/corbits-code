@@ -130,6 +130,13 @@ export type ToolResultSummary = {
 
 const ARG_VALUE_MAX = 48;
 
+// Rendering JSON as a document runs it through the markdown parser, whose cost is
+// roughly quadratic in content length (a 320KB API dump takes ~half a second and
+// blocks every frame while it runs). Past this size the document is shown as plain
+// text instead, which wraps in about a millisecond. Markdown styling on a raw JSON
+// blob adds nothing anyway — it only misreads JSON punctuation as emphasis.
+const MAX_JSON_DOCUMENT_CHARS = 32 * 1024;
+
 function shortenPath(p: string): string {
   if (!isAbsolute(p)) return p;
   const rel = relative(process.cwd(), p);
@@ -516,10 +523,12 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
  * (the shapes a real document takes). Bare scalars ("null", "42", quoted
  * strings) and empty containers are not documents — they are almost always
  * status values, not something the user authored or wants pretty-printed.
+ * Documents above MAX_JSON_DOCUMENT_CHARS are excluded so the markdown renderer
+ * never chokes on a huge blob (see the constant for why).
  */
 export function isUserFacingJSON(raw: string): boolean {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return false;
+  if (trimmed.length === 0 || trimmed.length > MAX_JSON_DOCUMENT_CHARS) return false;
   const first = trimmed[0];
   if (first !== "{" && first !== "[") return false;
   let parsed: unknown;
