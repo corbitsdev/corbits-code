@@ -229,6 +229,14 @@ describe("isUserFacingJSON", () => {
     expect(isUserFacingJSON("[]")).toBe(false);
   });
 
+  // A huge API dump must not be treated as a document: the markdown renderer is
+  // roughly quadratic and would freeze the TUI on it. It falls back to plain text.
+  test("oversized JSON is not treated as a document", () => {
+    const huge = JSON.stringify({ data: Array.from({ length: 4000 }, (_, i) => ({ id: i, name: "agent" })) });
+    expect(huge.length).toBeGreaterThan(32 * 1024);
+    expect(isUserFacingJSON(huge)).toBe(false);
+  });
+
   test("read_file of a .json file surfaces as JSON document (line numbers stripped)", () => {
     const lineNumbered = ['     1\t{', '     2\t  "strict": true', "     3\t}"].join("\n");
     expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(true);
