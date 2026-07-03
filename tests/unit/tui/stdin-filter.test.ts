@@ -114,6 +114,18 @@ test("strips an orphaned mouse fragment whose ESC arrived in a prior read", () =
   expect(events).toEqual(["down"]);
 });
 
+// Regression: a wheel event whose ESC was consumed by Ink and whose body then
+// splits across two reads (`[<64;64` then `;58M`) must be buffered and stripped,
+// not leaked as literal `[<64;64;58M` into the prompt.
+test("buffers an ESC-less mouse fragment split across two reads", () => {
+  const { stdin, mouse } = createFilteredStdin(fakeStdin(["a[<64;64", ";58M"]));
+  const events: string[] = [];
+  mouse.on("scrollUp", () => events.push("up"));
+  expect(stdin.read()).toBe("a");
+  expect(stdin.read()).toBe("");
+  expect(events).toEqual(["up"]);
+});
+
 test("does not double-count a scroll when the full sequence is intact", () => {
   const { stdin, mouse } = createFilteredStdin(fakeStdin(["\x1b[<65;1;1m"]));
   const events: string[] = [];
