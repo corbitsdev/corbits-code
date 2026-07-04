@@ -467,6 +467,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private lastTaskSummary: string | undefined;
   private startedAt = Date.now();
   private compactionPending = false;
+  private idleCompactionPending = false;
   private postCompactInfer = false;
   private readonly requestContinuation: (() => void) | undefined;
 
@@ -542,11 +543,20 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
-    if (event.type === "message.received" && this.postCompactInfer) {
+    if (event.type === "message.received") {
       const content = typeof event.message.content === "string" ? event.message.content : "";
-      if (content.length === 0) {
+      if (content.length === 0 && this.postCompactInfer) {
         this.postCompactInfer = false;
         return capabilities.infer();
+      }
+      if (this.idleCompactionPending && (content.length === 0 || this.requestContinuation !== undefined)) {
+        this.idleCompactionPending = false;
+        this.compactionPending = false;
+        if (content.length > 0) {
+          this.postCompactInfer = true;
+          this.requestContinuation?.();
+        }
+        return capabilities.compact("pruning-compactor", "context-threshold");
       }
     }
 
@@ -658,6 +668,16 @@ class ChatDirectorImpl extends DefaultDirector {
     }
 
     const base = await super.decide(event, state, capabilities);
+
+    if (this.compactionPending && event.type === "inference.done") {
+      const actions = Array.isArray(base) ? base : [base];
+      const terminalWithoutFollowup = actions.some((a) => a.type === "reply" || a.type === "wait") &&
+        !actions.some((a) => a.type === "infer" || a.type === "execute_tools");
+      if (terminalWithoutFollowup && !this.idleCompactionPending) {
+        this.idleCompactionPending = true;
+        this.requestContinuation?.();
+      }
+    }
 
     if (
       this.compactionPending &&

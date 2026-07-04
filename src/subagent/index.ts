@@ -13,7 +13,7 @@ import {
 } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
-import { createIsogitStore } from "@intx/storage-isogit";
+import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
@@ -181,7 +181,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     },
   });
 
-  const storage = await createIsogitStore(workdir);
+  const storage = await createOptimizedContextStore(workdir);
 
   const head = { provider: params.provider.providerName, model: params.provider.model };
   const bundle =
