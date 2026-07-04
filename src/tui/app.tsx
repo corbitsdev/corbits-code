@@ -662,7 +662,7 @@ export function App({
       pendingOperator: gates.pendingOperator,
     },
     modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen: permissionsOpen || settingsOpen, permissionEntryCount: permissionEntries.length },
-    hookCount: state.hooks.length,
+    hookCount: state.hookCount,
     providerCatalog,
     extraChromeRows,
   });
@@ -735,13 +735,8 @@ export function App({
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
   // Scanning every block on each render walks the whole transcript on keystrokes
-  // and scroll ticks, so memoize on the two inputs that actually change it.
-  const latestUserMessageInLog = useMemo(
-    () => state.contentBlocks.some(
-      (block) => block.type === "user" && block.content === state.latestUserMessage,
-    ),
-    [state.contentBlocks, state.latestUserMessage],
-  );
+  // and scroll ticks, so the stream state tracks this incrementally instead.
+  const latestUserMessageInLog = state.latestUserMessageLogged;
   const headerLatestUserMessage = latestUserMessageInLog ? "" : state.latestUserMessage;
 
   const modeColor = color("warning");
@@ -761,8 +756,13 @@ export function App({
     copyModeIndex !== null
   );
 
-  const copyTargetList = useMemo(() => copyTargets(state.contentBlocks), [state.contentBlocks]);
   const copyModeOpen = copyModeIndex !== null;
+  // Only compute when copy mode is open — copyTargets builds an LCS diff for
+  // every edit block in history, so running it during streaming stalls deep chats.
+  const copyTargetList = useMemo(
+    () => (copyModeOpen ? copyTargets(state.contentBlocks) : []),
+    [copyModeOpen, state.contentBlocks],
+  );
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
   // active run. Aborting rejects the send promise; the reactor's current cycle
@@ -1049,11 +1049,12 @@ export function App({
           setCommandMessage(`Copied authorization URL for ${first.name}`);
           return;
         }
-        if (copyTargetList.length === 0) {
+        const targets = copyTargets(state.contentBlocks);
+        if (targets.length === 0) {
           setCommandMessage("Nothing to copy yet");
           return;
         }
-        setCopyModeIndex(copyTargetList.length - 1);
+        setCopyModeIndex(targets.length - 1);
       },
       copyModePrev: () => setCopyModeIndex((i) => (i === null ? null : Math.max(0, i - 1))),
       copyModeNext: () => setCopyModeIndex((i) => (i === null ? null : Math.min(copyTargetList.length - 1, i + 1))),
@@ -1439,9 +1440,9 @@ export function App({
               {...(revolvingVerb !== undefined ? { verb: revolvingVerb } : {})}
             />
           )}
-          {state.subAgents.some((a) => a.status !== "done") && (
+          {activeSubAgents.length > 0 && (
             <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={state.subAgents.filter((a) => a.status !== "done")} title="Agents" />
+              <TaskView tasks={activeSubAgents} title="Agents" />
             </Box>
           )}
         <StatusBar

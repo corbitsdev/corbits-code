@@ -89,6 +89,8 @@ const emptyUsage: TokenUsage = {
   thinking: 0,
 };
 
+export const RETAINED_TURN_CONTEXT_LIMIT = 200;
+
 export function hooksDirectory(): string {
   return globalHooksDirectory();
 }
@@ -164,10 +166,12 @@ export function createTurnContextCollector(
 ): {
   observe(event: ReactorEmittedEvent): void;
   getTurns(): TurnContext[];
+  getTurnCount(): number;
   getTokenUsage(): TokenUsage;
   getToolCallCount(): number;
 } {
   const turns: TurnContext[] = [];
+  let turnCount = 0;
   let pending: PendingTurn | null = null;
   let cycleStartedAt = now();
   let tokenUsage: TokenUsage = { ...emptyUsage };
@@ -186,6 +190,10 @@ export function createTurnContextCollector(
       durationMs: Math.max(0, now() - pending.startedAt),
     };
     turns.push(ctx);
+    turnCount++;
+    if (turns.length > RETAINED_TURN_CONTEXT_LIMIT) {
+      turns.splice(0, turns.length - RETAINED_TURN_CONTEXT_LIMIT);
+    }
     pending = null;
     cycleStartedAt = now();
     onTurn(ctx);
@@ -210,7 +218,7 @@ export function createTurnContextCollector(
         tokenUsage = addUsage(tokenUsage, event.data.usage);
         pending = {
           startedAt: cycleStartedAt,
-          turnIndex: turns.length,
+          turnIndex: turnCount,
           assistantTurn: event.data.turn,
           toolCalls,
           toolResults: [],
@@ -228,6 +236,9 @@ export function createTurnContextCollector(
     },
     getTurns(): TurnContext[] {
       return [...turns];
+    },
+    getTurnCount(): number {
+      return turnCount;
     },
     getTokenUsage(): TokenUsage {
       return { ...tokenUsage };

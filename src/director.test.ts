@@ -252,6 +252,47 @@ describe("getTurnsUsed", () => {
   });
 });
 
+describe("chatDirector compaction", () => {
+  function textInferenceDone(inputTokens: number): ReactorInboundEvent {
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [{ type: "text", text: "done" }],
+      },
+      usage: { input: inputTokens, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { model: "test-model" },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function messageReceived(content: string): ReactorInboundEvent {
+    return {
+      type: "message.received",
+      message: { role: "user", content },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  test("schedules idle compaction after an over-threshold text-only reply", async () => {
+    let continuations = 0;
+    const director = createChatDirector("", [], undefined, undefined, undefined, undefined, undefined, undefined, () => {
+      continuations++;
+    });
+    const longState = { turns: Array.from({ length: 7 }, () => ({ role: "user", content: [], timestamp: 0 })) } as unknown as ReactorState;
+
+    const replyActions = actionsArray(await director.decide(textInferenceDone(999_999), longState, mockCapabilities));
+    expect(replyActions.some((a) => a.type === "reply")).toBe(true);
+    expect(replyActions.some((a) => a.type === "compact")).toBe(false);
+    expect(continuations).toBe(1);
+
+    const compactActions = actionsArray(await director.decide(messageReceived(""), longState, mockCapabilities));
+    expect(compactActions).toEqual([
+      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
+    ]);
+  });
+});
+
 describe("chatDirector.signalNewTask", () => {
   function makeMessageReceivedEvent(content: string) {
     return {

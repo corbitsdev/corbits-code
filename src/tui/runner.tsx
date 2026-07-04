@@ -10,7 +10,7 @@ import {
   type Agent,
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
-import { createIsogitStore } from "@intx/storage-isogit";
+import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
 import {
@@ -85,7 +85,7 @@ import { generateSessionId, initSessionDir, renameSession, sessionContextDir, se
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
 import { loadState, saveState, type RunState } from "../session/state.js";
 import { pickSession } from "./pick-session.js";
-import { turnsToContentBlocks } from "./turns-to-blocks.js";
+import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import type { ContentBlockData } from "./use-stream.js";
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
@@ -610,7 +610,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let liveCompactionMode = config.settings?.compactionMode ?? "llm";
 
   const buildAgent = async (): Promise<Agent> => {
-    const storage = await createIsogitStore(workdir);
+    const storage = await createOptimizedContextStore(workdir);
     const sources = liveSources.length > 0 ? liveSources : [liveSource];
     const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
     return createAgent(def, {
@@ -640,7 +640,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   ): Promise<void> => {
     await saveState(config.cwd, sessionId, {
       status,
-      turnsUsed: runSink.getTurnCollector().getTurns().length,
+      turnsUsed: runSink.getTurnCollector().getTurnCount(),
       task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
       startedAt,
       ...extra,
@@ -661,7 +661,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let currentAgent = await buildAgent();
   try {
     const turns = await currentAgent.history();
-    initialTranscriptBlocks = turnsToContentBlocks(turns);
+    initialTranscriptBlocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
   } catch {
     initialTranscriptBlocks = [];
   }
@@ -1025,7 +1025,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     status: summaryStatus,
     startedAt,
     finishedAt,
-    turnsUsed: turnCollector.getTurns().length,
+    turnsUsed: turnCollector.getTurnCount(),
     tokenUsage: turnCollector.getTokenUsage(),
     turns: turnCollector.getTurns(),
     toolCallCount: turnCollector.getToolCallCount(),
