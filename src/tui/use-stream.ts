@@ -66,7 +66,14 @@ export type AgentStreamState = {
   contextTokens: number;
   formattedCost: string;
   latestUserMessage: string;
+  // Whether the latest user message is already visible as a block in the log,
+  // so the header can stop showing it. Tracked incrementally to avoid an O(n)
+  // block scan on every render.
+  latestUserMessageLogged: boolean;
   hooks: LifecycleHookStatus[];
+  // Cheap count accessor that avoids allocating the full hooks snapshot when
+  // only the count is needed.
+  hookCount: number;
   tasks: Task[];
   subAgents: Task[];
   elapsedMs: number;
@@ -202,6 +209,10 @@ export function createAgentStreamState(
   const callIdToName = new Map<string, string>();
   const callIdToArguments = new Map<string, string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
+  // Cached snapshot of hooks — rebuilt lazily only when the underlying map is
+  // mutated, so repeated reads within one render return the same reference.
+  let hooksSnapshot: LifecycleHookStatus[] = [];
+  let hooksDirty = true;
   let turnsUsed = 0;
   let status: AgentStatus = "idle";
   let stopRequested = false;
@@ -211,6 +222,10 @@ export function createAgentStreamState(
   let awaitingResponse = false;
   let isProcessing = false;
   let latestUserMessage = "";
+  // Whether the latestUserMessage is already represented by a user block in
+  // contentBlocks. Both are set atomically in addEvent, so this tracks the
+  // edge case where the header needs to show a message before its block lands.
+  let latestUserMessageLogged = true;
   let tasks: Task[] = [];
   let subAgents: Task[] = [];
   let quotaError: { retryAfterMs: number; retryAt: number } | null = null;
@@ -240,6 +255,7 @@ export function createAgentStreamState(
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
   }
+  hooksDirty = true;
   for (const block of initialContentBlocks) {
     pushBlock(block);
   }
@@ -282,8 +298,18 @@ export function createAgentStreamState(
     get latestUserMessage() {
       return latestUserMessage;
     },
+    get latestUserMessageLogged() {
+      return latestUserMessageLogged;
+    },
     get hooks() {
-      return [...hooksById.values()].map((hook) => ({ ...hook }));
+      if (hooksDirty) {
+        hooksSnapshot = [...hooksById.values()].map((hook) => ({ ...hook }));
+        hooksDirty = false;
+      }
+      return hooksSnapshot;
+    },
+    get hookCount() {
+      return hooksById.size;
     },
     get tasks() {
       return tasks;
@@ -380,6 +406,7 @@ export function createAgentStreamState(
     clear(): void {
       contentBlocks.length = 0;
       contentBlocksDirty = true;
+      hooksDirty = true;
       blockSeq = 0;
       callIdToName.clear();
       callIdToArguments.clear();
@@ -390,6 +417,7 @@ export function createAgentStreamState(
       awaitingResponse = false;
       isProcessing = false;
       latestUserMessage = "";
+      latestUserMessageLogged = true;
       tasks = [];
       subAgents = [];
       quotaError = null;
@@ -412,6 +440,7 @@ export function createAgentStreamState(
         case "message.received": {
           const data = event.data as { message: { content: string } };
           latestUserMessage = data.message.content;
+          latestUserMessageLogged = true;
           pushBlock({ type: "user", content: data.message.content });
           break;
         }
@@ -728,10 +757,12 @@ export function createAgentStreamState(
           for (const hook of event.hooks) {
             hooksById.set(hook.id, { ...hook });
           }
+          hooksDirty = true;
           break;
         }
         case "hook.updated": {
           hooksById.set(event.hook.id, { ...event.hook });
+          hooksDirty = true;
           break;
         }
       }

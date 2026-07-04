@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import type { ConversationTurn } from "@intx/types/runtime";
+import { createTurnContextCollector, RETAINED_TURN_CONTEXT_LIMIT } from "../session/hooks.js";
 import { createAgentStreamState } from "./use-stream.js";
+import { turnsToContentBlocks } from "./turns-to-blocks.js";
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
   return { type, seq: 1, data } as ReactorEmittedEvent;
@@ -120,5 +123,84 @@ describe("createAgentStreamState", () => {
     expect(state.quotaError).toBeNull();
     expect(state.status).toBe("stopped");
     expect(state.isProcessing).toBe(false);
+  });
+
+  test("latestUserMessageLogged is true after message.received and resets on clear", () => {
+    const state = createAgentStreamState();
+
+    expect(state.latestUserMessageLogged).toBe(true);
+
+    state.clear();
+    state.addEvent(event("message.received", { message: { content: "hello" } }));
+
+    expect(state.latestUserMessage).toBe("hello");
+    expect(state.latestUserMessageLogged).toBe(true);
+
+    state.clear();
+    expect(state.latestUserMessage).toBe("");
+    expect(state.latestUserMessageLogged).toBe(true);
+  });
+
+  test("hookCount returns the number of hooks without allocating a snapshot", () => {
+    const state = createAgentStreamState([
+      { id: "h1", name: "lint.ts", type: "typescript", path: "/hooks/lint.ts", enabled: true },
+      { id: "h2", name: "fmt.sh", type: "shell", path: "/hooks/fmt.sh", enabled: false },
+    ]);
+
+    expect(state.hookCount).toBe(2);
+  });
+
+  test("hooks getter returns a cached snapshot across reads", () => {
+    const state = createAgentStreamState([
+      { id: "h1", name: "lint.ts", type: "typescript", path: "/hooks/lint.ts", enabled: true },
+    ]);
+
+    const first = state.hooks;
+    const second = state.hooks;
+    // Same reference — not re-allocated on every access.
+    expect(first).toBe(second);
+
+    state.addHookEvent({ type: "hook.updated", hook: { id: "h1", name: "lint.ts", type: "typescript", path: "/hooks/lint.ts", enabled: false, lastFiredAt: 123 } });
+    const afterUpdate = state.hooks;
+    expect(afterUpdate).not.toBe(first);
+    expect(afterUpdate[0]?.enabled).toBe(false);
+  });
+});
+
+describe("createTurnContextCollector", () => {
+  test("retains a bounded tail while preserving the total turn count", () => {
+    const collector = createTurnContextCollector(() => {});
+
+    for (let i = 0; i < RETAINED_TURN_CONTEXT_LIMIT + 5; i++) {
+      collector.observe(event("inference.done", {
+        turn: {
+          role: "assistant",
+          content: [{ type: "text", text: `turn ${i}` }],
+          model: "test",
+          timestamp: i,
+        },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }));
+    }
+
+    expect(collector.getTurnCount()).toBe(RETAINED_TURN_CONTEXT_LIMIT + 5);
+    expect(collector.getTurns()).toHaveLength(RETAINED_TURN_CONTEXT_LIMIT);
+    expect(collector.getTurns()[0]?.turnIndex).toBe(5);
+  });
+});
+
+describe("turnsToContentBlocks", () => {
+  test("hydrates only the retained tail when a resume transcript is capped", () => {
+    const turns: ConversationTurn[] = Array.from({ length: 5 }, (_, i) => ({
+      role: "user",
+      content: [{ type: "text", text: `message ${i}` }],
+      timestamp: i,
+    }));
+
+    expect(turnsToContentBlocks(turns, { maxBlocks: 2 })).toEqual([
+      { type: "user", content: "message 3" },
+      { type: "user", content: "message 4" },
+    ]);
   });
 });

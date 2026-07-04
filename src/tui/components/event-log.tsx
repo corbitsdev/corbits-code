@@ -559,7 +559,12 @@ export function buildLinesIncremental(
   layoutKey?: string,
 ): IncrementalLinesState {
   const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
-  if (cache !== undefined) pruneBlockLineCache(cache, blocks);
+  // Prune stale cache entries only when blocks were removed (cache has more
+  // entries than active blocks). During streaming only the tail changes, so
+  // this skips the O(cache+n) scan on every frame.
+  if (cache !== undefined && cache.size > blocks.length) {
+    pruneBlockLineCache(cache, blocks);
+  }
 
   const key = layoutKey ?? "";
 
