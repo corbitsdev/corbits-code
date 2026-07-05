@@ -11,6 +11,8 @@ import { wrapLines } from "../view/height.js";
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
   onCommand: (result: CommandResult) => void;
+  onPasteImage?: () => void;
+  onPasteText?: (text: string) => boolean;
   commandContext: CommandContext;
   value: string;
   onChange: (value: string) => void;
@@ -43,6 +45,8 @@ export type ChatInputProps = {
   rows?: number;
   // Terminal column count, used to pre-wrap prompt text before Ink lays it out.
   columns?: number;
+  attachmentSummary?: string;
+  canSubmitEmpty?: boolean;
 };
 
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
@@ -225,6 +229,8 @@ function slashPrefix(value: string): string | null {
 export function ChatInput({
   onSubmit,
   onCommand,
+  onPasteImage,
+  onPasteText,
   commandContext,
   value,
   onChange,
@@ -243,6 +249,8 @@ export function ChatInput({
   verb,
   rows,
   columns,
+  attachmentSummary,
+  canSubmitEmpty = false,
 }: ChatInputProps): ReactNode {
   const [cursor, setCursor] = useState(value.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -318,6 +326,11 @@ export function ChatInput({
   };
 
   useInput((input, key) => {
+    if (((key.ctrl && input === "v") || input === "\u0016") && onPasteImage !== undefined) {
+      onPasteImage();
+      return;
+    }
+
     // @ picker takes priority over slash suggestions (they are mutually exclusive
     // by construction: slash state only fires when value starts with /).
     if (atMention.suggestions.length > 0) {
@@ -414,7 +427,7 @@ export function ChatInput({
 
     if (isProcessing && input.includes("\u001B") && (input.includes("\r") || input.includes("\n"))) {
       const trimmed = value.trim();
-      if (trimmed.length > 0) {
+      if (trimmed.length > 0 || canSubmitEmpty) {
         onSubmit(trimmed);
         resetField();
       }
@@ -425,7 +438,7 @@ export function ChatInput({
 
     if (key.return && !key.shift && !key.meta) {
       const trimmed = value.trim();
-      if (trimmed.length > 0) {
+      if (trimmed.length > 0 || canSubmitEmpty) {
         if (isProcessing && onInterrupt !== undefined) {
           // Interrupt the running agent and redirect with this message.
           onInterrupt(trimmed);
@@ -443,7 +456,7 @@ export function ChatInput({
     // inserting a newline, which is the usual meta+return behaviour.
     if (key.return && key.meta && !key.shift && isProcessing) {
       const trimmed = value.trim();
-      if (trimmed.length > 0) {
+      if (trimmed.length > 0 || canSubmitEmpty) {
         onSubmit(trimmed);
         resetField();
       }
@@ -471,6 +484,7 @@ export function ChatInput({
   // useInput — this avoids 10K+ individual re-renders on a large paste.
   usePaste((text) => {
     if (!active) return;
+    if (onPasteText?.(text) === true) return;
     const next = applyPaste({ value, cursor }, text);
     if (next.value === value) return; // empty text — nothing changed
     selfSetValue.current = next.value;
@@ -549,9 +563,13 @@ export function ChatInput({
           ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
           : "Enter steer · Alt+Enter queue";
         const modelText = effort !== undefined && effort.length > 0 ? `${model} · ${effort}` : model;
-        if (!showSteerHint && model === undefined) return null;
+        const showAttachments = attachmentSummary !== undefined && attachmentSummary.length > 0;
+        if (!showSteerHint && model === undefined && !showAttachments) return null;
         return (
           <Box flexDirection="row" marginX={1} gap={1}>
+            {showAttachments && (
+              <Text color={color("accent")}>{attachmentSummary}</Text>
+            )}
             {showSteerHint && (
               <Text dimColor>
                 {verb !== undefined && verb.length > 0 ? `${verb} · ` : ""}{steerText}

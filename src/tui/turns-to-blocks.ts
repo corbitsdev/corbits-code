@@ -5,10 +5,15 @@ import type { ContentBlockData } from "./use-stream.js";
 
 function textFromBlocks(blocks: RuntimeContentBlock[]): string {
   const parts: string[] = [];
+  let imageCount = 0;
   for (const block of blocks) {
     if (block.type === "text") parts.push(block.text);
+    if (block.type === "image") imageCount += 1;
   }
-  return parts.join("");
+  if (imageCount > 0) {
+    parts.push(`[Attached ${imageCount} image${imageCount === 1 ? "" : "s"}]`);
+  }
+  return parts.join("\n");
 }
 
 function stringifyToolContent(content: unknown): string {

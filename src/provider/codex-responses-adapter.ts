@@ -46,7 +46,8 @@ const EMPTY_PARTIAL: PartialMessage = { text: "" };
 
 type ResponsesContentPart =
   | { type: "input_text"; text: string }
-  | { type: "output_text"; text: string };
+  | { type: "output_text"; text: string }
+  | { type: "input_image"; image_url: string };
 
 type ResponsesInputItem =
   | { type: "message"; role: "user" | "assistant" | "system" | "developer"; content: ResponsesContentPart[] }
@@ -76,6 +77,14 @@ function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
   for (const block of turn.content) {
     if (block.type === "text") {
       textParts.push({ type: textKind, text: block.text } as ResponsesContentPart);
+    } else if (block.type === "image") {
+      if (block.source.kind === "base64") {
+        textParts.push({ type: "input_image", image_url: `data:${block.source.mimeType};base64,${block.source.data}` });
+      } else if (block.source.kind === "url") {
+        textParts.push({ type: "input_image", image_url: block.source.url });
+      } else {
+        textParts.push({ type: textKind, text: `[Unsupported image reference omitted: ${block.source.reference}]` } as ResponsesContentPart);
+      }
     } else if (block.type === "tool_call") {
       flushText();
       items.push({
