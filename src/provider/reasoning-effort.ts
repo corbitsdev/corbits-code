@@ -3,13 +3,12 @@
 // "variant" or a separate model — the same model accepts an effort level that
 // trades latency and cost against reasoning depth.
 
-// The selectable effort levels — all real request values the model is asked to
-// honor. `none` is OpenAI's value for disabling reasoning (gpt-5.1+), distinct
-// from "no override": no override means the field is omitted and the model's own
-// default applies, while `none` actively turns reasoning off. "No override" is
-// represented as the absence of a value (undefined), not a member here.
-export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+// The canonical literal set lives in @intercode/default-agents so plugin
+// authors and the runtime cannot drift. Re-exported here for callers that
+// already import from this module.
+import { REASONING_EFFORTS as CANONICAL_EFFORTS } from "@intercode/default-agents";
 
+export const REASONING_EFFORTS = CANONICAL_EFFORTS;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {

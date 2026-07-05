@@ -12,9 +12,15 @@ import { type } from "arktype";
 // rather than crashing the sub-agent dispatcher. Enabled-only gating (no
 // consent) is sufficient: an agent profile is configuration data (tier,
 // capabilities, role prompt), not in-process code execution.
+//
+// `onWarning` is invoked with a human-readable diagnostic whenever a profile
+// is rejected, so JS-plugin authors get the same feedback loop data-only
+// plugin authors already enjoy. Optional; absent warnings are silently
+// dropped (the profile is still skipped either way).
 export async function resolveAgentPluginProfiles(
   modules: PluginModule[],
   config: Record<string, PluginConfig>,
+  onWarning: (msg: string) => void = () => {},
 ): Promise<AgentProfile[]> {
   const out: AgentProfile[] = [];
   for (const mod of modules) {
@@ -26,7 +32,15 @@ export async function resolveAgentPluginProfiles(
     if (!Array.isArray(rawAgents)) continue;
     for (const raw of rawAgents) {
       const result = AgentProfileSchema(raw);
-      if (result instanceof type.errors) continue;
+      if (result instanceof type.errors) {
+        const id = typeof raw === "object" && raw !== null && "id" in raw
+          ? String((raw as { id: unknown }).id)
+          : "<no id>";
+        onWarning(
+          `plugin "${mod.manifest.id}" agent "${id}" skipped: ${result.summary}`,
+        );
+        continue;
+      }
       const profile = result as AgentProfile;
       // Resolve systemPromptPath relative to the plugin directory. The file
       // content becomes systemPromptRole; an explicit systemPromptRole wins.

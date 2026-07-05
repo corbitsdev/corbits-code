@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   createTaskTool,
   runSubAgent,
@@ -183,4 +183,185 @@ test("handler sends prompt without context block when context is empty or omitte
 
 test("runSubAgent is wired as the default task runner", () => {
   expect(typeof runSubAgent).toBe("function");
+});
+
+// Profile-driven dispatch: an agent frontmatter can pin inference
+// (provider/model/reasoningEffort) with a mode that says whether to fall back
+// to the active session when no leg is viable. These tests pin both branches
+// of that decision and the pre-dispatch validateEffort check, so a regression
+// in the resolver→dispatcher contract surfaces here rather than as a wrong-
+// provider sub-agent run.
+describe("createTaskTool profile resolution", () => {
+  const baseSettings = {
+    providers: {
+      anthropic: {
+        name: "Anthropic",
+        baseURL: "https://api.anthropic.com",
+        models: ["claude-sonnet-4", "claude-haiku-4"],
+      },
+    },
+  } as const;
+
+  test("mode: pin agent with an unconfigured provider surfaces an unavailable error and never runs", async () => {
+    let runs = 0;
+    const tool = createTaskTool({
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider,
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        {
+          id: "p",
+          systemPromptRole: "You are p.",
+          inference: {
+            mode: "pin",
+            order: [{ provider: "openai", model: "gpt-5" }],
+          },
+        },
+      ],
+      run: async () => {
+        runs += 1;
+        return "should-not-be-called";
+      },
+    });
+
+    const result = await callHandler(tool, {
+      description: "task",
+      prompt: "do it",
+      agent: "p",
+    });
+
+    expect(runs).toBe(0);
+    expect(result).toContain('Error: agent "p" unavailable');
+    expect(result).toContain("openai/gpt-5");
+    // Actionable hint pointing the user at the remediation paths.
+    expect(result.toLowerCase()).toContain("agentmodelfallback");
+  });
+
+  test("mode: prefer agent with an unconfigured provider falls back to the active session provider", async () => {
+    let received: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider,
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        {
+          id: "p",
+          systemPromptRole: "You are p.",
+          inference: {
+            mode: "prefer",
+            order: [{ provider: "openai", model: "gpt-5" }],
+          },
+        },
+      ],
+      run: async (params) => {
+        received = params;
+        return "ran";
+      },
+    });
+
+    await callHandler(tool, { description: "task", prompt: "do it", agent: "p" });
+
+    // Falls through to the parent's provider (test/test-model from the
+    // module-level `provider` constant).
+    expect(received?.provider.providerName).toBe("test");
+    expect(received?.provider.model).toBe("test-model");
+  });
+
+  test("a pinned inference leg whose model is incompatible with its reasoningEffort fails before run", async () => {
+    let runs = 0;
+    const tool = createTaskTool({
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider,
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        {
+          id: "p",
+          systemPromptRole: "You are p.",
+          inference: {
+            mode: "pin",
+            order: [
+              // haiku is unknown to the validator → only low/medium/high are
+              // accepted; xhigh is restricted to the gpt-5.1 family / codex.
+              { provider: "anthropic", model: "claude-haiku-4", reasoningEffort: "xhigh" },
+            ],
+          },
+        },
+      ],
+      run: async () => {
+        runs += 1;
+        return "should-not-be-called";
+      },
+    });
+
+    const result = await callHandler(tool, {
+      description: "task",
+      prompt: "do it",
+      agent: "p",
+    });
+
+    expect(runs).toBe(0);
+    expect(result).toContain('Error: agent "p" has incompatible inference');
+  });
+
+  test("parent reasoningEffort is inherited when the resolved leg does not declare its own", async () => {
+    // Regression guard for the P0 fix: an agent that pins inference without a
+    // per-leg reasoningEffort still inherits the parent session's effort, so
+    // a /agent effort selection propagates uniformly across pinned and
+    // fall-through dispatch paths.
+    let received: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider: { ...provider, reasoningEffort: "high" },
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        {
+          id: "p",
+          systemPromptRole: "You are p.",
+          inference: {
+            mode: "pin",
+            order: [{ provider: "anthropic", model: "claude-sonnet-4" }],
+          },
+        },
+      ],
+      run: async (params) => {
+        received = params;
+        return "ran";
+      },
+    });
+
+    await callHandler(tool, { description: "task", prompt: "do it", agent: "p" });
+
+    expect(received?.provider.providerName).toBe("anthropic");
+    expect(received?.provider.model).toBe("claude-sonnet-4");
+    expect(received?.provider.reasoningEffort).toBe("high");
+  });
+
+  test("orchestrator profile flag flows through to the runner params", async () => {
+    // Pins the dispatcher wiring for the orchestrator exception: a profile
+    // with `orchestrator: true` causes RunSubAgentParams.orchestrator to be
+    // set, which buildSubAgentSystemPrompt then uses to grant the recursion
+    // exception in the appendix (covered in src/prompts.test.ts).
+    let received: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider,
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        { id: "karen", systemPromptRole: "You are karen.", orchestrator: true },
+      ],
+      run: async (params) => {
+        received = params;
+        return "ran";
+      },
+    });
+
+    await callHandler(tool, { description: "task", prompt: "do it", agent: "karen" });
+
+    expect(received?.orchestrator).toBe(true);
+  });
 });

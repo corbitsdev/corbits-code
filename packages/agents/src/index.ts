@@ -1,4 +1,13 @@
-export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode } from "./types.js";
+export type {
+  AgentProfile,
+  AgentPlugin,
+  CapabilityFilter,
+  CapabilityMode,
+  InferenceLeg,
+  InferenceSpec,
+  ReasoningEffort,
+} from "./types.js";
+export { REASONING_EFFORTS } from "./types.js";
 
 import type { AgentPlugin } from "./types.js";
 

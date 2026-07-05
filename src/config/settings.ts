@@ -77,6 +77,12 @@ export type Settings = {
   // "pruning" uses fast deterministic pruning with no LLM call.
   compactionMode?: "llm" | "pruning";
   maxConcurrentSubAgents?: number;
+  // When an agent profile pins a provider/model combo (via its `inference`
+  // field) and none of the listed legs are available in the user's configured
+  // providers, this controls what happens. "active" (default) silently falls
+  // back to whatever the user's main session is currently using so the agent
+  // still runs; "none" treats it as a hard error and the profile fails to load.
+  agentModelFallback?: "active" | "none";
 };
 
 export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
@@ -577,4 +583,80 @@ export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignm
   const first = def?.order[0];
   if (first === undefined) return null;
   return { provider: first.provider, model: first.model };
+}
+
+import type { InferenceSpec } from "@intercode/default-agents";
+
+// A resolved inference leg, with reasoningEffort threaded through.
+export type ResolvedInference = {
+  provider: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
+// True when the configured providers actually expose this provider+model.
+function isLegViable(leg: { provider: string; model: string }, settings: Settings): boolean {
+  const p = settings.providers[leg.provider];
+  if (p === undefined) return false;
+  // Empty models list = accept anything (e.g. an unrestricted gateway).
+  if (p.models.length === 0) return true;
+  return p.models.includes(leg.model);
+}
+
+// The dispatch-time outcome of resolving an agent's inference spec. `kind`
+// tells the caller what to do when no leg was viable, taking the spec's
+// `mode` and the global `agentModelFallback` setting into account:
+//
+//   - "resolved"      — a viable leg was found, returned in `value`.
+//   - "fallback"      — no viable leg, but the agent permits fallback (the
+//                       caller falls through to tier / active session).
+//   - "unavailable"   — no viable leg, and the spec forbids fallback
+//                       (`mode: "pin"` or `agentModelFallback: "none"`). The
+//                       caller must surface this as an error rather than
+//                       silently run on the wrong provider.
+export type ResolvedInferenceOutcome =
+  | { kind: "resolved"; value: ResolvedInference }
+  | { kind: "fallback" }
+  | { kind: "unavailable"; reason: string };
+
+// Resolve an agent's pinned inference spec against the configured providers.
+// See ResolvedInferenceOutcome for the policy encoded in the result kind.
+export function resolveInferenceSpec(
+  spec: InferenceSpec | undefined,
+  settings: Settings,
+): ResolvedInference | null {
+  if (spec === undefined) return null;
+  for (const leg of spec.order) {
+    if (isLegViable(leg, settings)) {
+      return {
+        provider: leg.provider,
+        model: leg.model,
+        ...(leg.reasoningEffort !== undefined ? { reasoningEffort: leg.reasoningEffort } : {}),
+      };
+    }
+  }
+  return null;
+}
+
+// Resolve with policy. Used by the sub-agent dispatcher to decide between
+// fallback and hard failure based on the spec's mode and the user's setting.
+export function resolveInferenceWithPolicy(
+  spec: InferenceSpec | undefined,
+  settings: Settings,
+): ResolvedInferenceOutcome {
+  if (spec === undefined) return { kind: "fallback" };
+  const resolved = resolveInferenceSpec(spec, settings);
+  if (resolved !== null) return { kind: "resolved", value: resolved };
+
+  // No viable leg. `mode: "pin"` and `agentModelFallback: "none"` both mean
+  // "do not silently fall through"; any other combination permits fallback.
+  const forbidFallback = spec.mode === "pin" || settings.agentModelFallback === "none";
+  if (forbidFallback) {
+    const legs = spec.order.map((l) => `${l.provider}/${l.model}`).join(", ");
+    return {
+      kind: "unavailable",
+      reason: `none of the configured providers expose the requested model(s): ${legs}`,
+    };
+  }
+  return { kind: "fallback" };
 }

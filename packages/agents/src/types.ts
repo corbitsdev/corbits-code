@@ -1,5 +1,13 @@
 // Public contract for agent plugin authors.
 
+// Reasoning-effort levels carried through to the provider. The canonical
+// definition lives here so plugin authors and runtime stay in sync without
+// re-declaring the literal set. Mirrored as a runtime array by
+// src/provider/reasoning-effort.ts.
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
 export type CapabilityMode = "exclude" | "allow";
 
 export type CapabilityFilter = {
@@ -7,13 +15,35 @@ export type CapabilityFilter = {
   tools: string[];
 };
 
+// A single provider/model/effort combo an agent can run on. Mirrors a tier leg
+// but carries an optional reasoningEffort so an agent can pin "Sonnet + medium"
+// or "Grok + high" without going through the tier abstraction.
+export type InferenceLeg = {
+  provider: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
+// Per-agent model selection spec, evaluated at dispatch time against the user's
+// configured providers. `mode: "pin"` requires one of the legs to be available
+// (else error / fallback per settings.agentModelFallback); `mode: "prefer"`
+// (default) walks the chain and falls back if none are viable.
+export type InferenceSpec = {
+  mode?: "pin" | "prefer";
+  order: InferenceLeg[];
+};
+
 export type AgentProfile = {
   // Unique identifier, used in workflow steps as `agent: "greybeard"`.
   id: string;
   description?: string;
-  // Provider tier for this agent. Resolved via settings.tiers to a concrete
-  // provider and model assignment.
+  // Provider tier alias for this agent. Resolved via settings.tiers to a
+  // concrete provider and model assignment. Used when `inference` is absent.
   tier?: "fast" | "standard" | "clever";
+  // Explicit per-agent model selection. Takes precedence over `tier` when set,
+  // so an agent can declare "Sonnet + medium reasoning" without going through
+  // the user's tier config. See InferenceSpec for resolution rules.
+  inference?: InferenceSpec;
   // Optional tool restriction. Controls which tools the sub-agent can call.
   capabilities?: CapabilityFilter;
   // Appended to the sub-agent's base system prompt to specialize its behavior.
@@ -23,6 +53,12 @@ export type AgentProfile = {
   // plugin-contributed profiles, or .agents/agents/ for local profiles. When both
   // systemPromptRole and systemPromptPath are set, systemPromptRole wins.
   systemPromptPath?: string;
+  // Orchestrator agents are an explicit exception to the "sub-agents do not
+  // recurse" rule. When true, the dispatch-time appendix grants this profile
+  // permission to call `task` to spawn other agents. Reserved for top-level
+  // coordinators (e.g. a planning agent that fans work out to specialists);
+  // leaf-task agents should leave this unset.
+  orchestrator?: boolean;
 };
 
 // The shape every agent plugin package must export as "plugin" or as the
