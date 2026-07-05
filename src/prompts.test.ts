@@ -45,6 +45,8 @@ test("harness facts state the non-derivable rules: blocked shell writes, approva
   expect(facts).toContain(".agent-state");
   expect(facts).toContain("slash-command only");
   expect(facts).toContain(".intercode/MEMORY.md");
+  expect(facts).toContain("Attached images are native multimodal input");
+  expect(facts).toContain("Do not run shell commands to decode, identify, or inspect an attached image");
 });
 
 test("guidelines prefer lsp before large files and keep responses concise", () => {
