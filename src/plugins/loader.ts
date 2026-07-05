@@ -1,9 +1,10 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
+import { loadDataOnlyAgentPlugin } from "./data-only-agent.js";
 
 export type PluginModule = {
   // Self-description (id, name, kind, credential fields), when the module
@@ -40,23 +41,52 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 // Attempt to load a single plugin directory entry (a file or a directory with
 // an index file). Returns null if the entry cannot be resolved to a module.
 // Exported so the /plugins UI can register a plugin from an arbitrary path.
-export async function loadPluginEntry(entryPath: string): Promise<PluginModule | null> {
+//
+// `cwd` is the project root used for skill resolution inside data-only plugins
+// (corbitsdev-format agents declare skills by name; the resolver searches
+// <cwd>/.intercode/skills and bundled skills relative to cwd). Defaults to
+// process.cwd() for direct callers; internal discovery functions thread the
+// session cwd through so a non-default working directory (test harness,
+// future server-mode) resolves skills correctly.
+export async function loadPluginEntry(
+  entryPath: string,
+  opts: { cwd?: string; onWarning?: (msg: string) => void } = {},
+): Promise<PluginModule | null> {
+  const cwd = opts.cwd ?? process.cwd();
+  const onWarning = opts.onWarning ?? ((msg: string) => process.stderr.write(`plugins: ${msg}\n`));
   let target = entryPath;
   try {
     const info = await stat(entryPath);
     if (info.isDirectory()) {
       // Prefer src/index.ts, then index.ts, then index.js.
       for (const candidate of ["src/index.ts", "index.ts", "index.js"]) {
-        const candidate_path = join(entryPath, candidate);
+        const candidatePath = join(entryPath, candidate);
         try {
-          await stat(candidate_path);
-          target = candidate_path;
+          await stat(candidatePath);
+          target = candidatePath;
           break;
         } catch {
           // not found, try next
         }
       }
-      if (target === entryPath) return null;
+      // No JS entry — fall back to a data-only agent plugin if agents/ exists.
+      // Lets a plugin be just a directory of agent markdown files.
+      if (target === entryPath) {
+        // pluginId defaults to basename(pluginDir) inside the loader; don't
+        // pass it here so there's a single source of truth for the default.
+        const dataOnly = await loadDataOnlyAgentPlugin(entryPath, {
+          cwd,
+          onWarning,
+        });
+        if (dataOnly !== null) {
+          return {
+            dir: entryPath,
+            manifest: dataOnly.manifest,
+            agentPlugin: dataOnly.agentPlugin,
+          };
+        }
+        return null;
+      }
     }
   } catch {
     return null;
@@ -101,7 +131,8 @@ export async function loadPluginEntry(entryPath: string): Promise<PluginModule |
 }
 
 // Scan a plugins root directory and return all loaded plugin modules.
-async function scanPluginsDir(dir: string): Promise<PluginModule[]> {
+// `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
+async function scanPluginsDir(dir: string, cwd: string): Promise<PluginModule[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -111,7 +142,7 @@ async function scanPluginsDir(dir: string): Promise<PluginModule[]> {
 
   const results: PluginModule[] = [];
   for (const entry of entries) {
-    const plugin = await loadPluginEntry(join(dir, entry));
+    const plugin = await loadPluginEntry(join(dir, entry), { cwd });
     if (plugin !== null) results.push(plugin);
   }
   return results;
@@ -125,7 +156,7 @@ export async function discoverUserPlugins(cwd: string): Promise<PluginModule[]> 
     join(cwd, ".intercode", "plugins"),
     join(homedir(), ".intercode", "plugins"),
   ];
-  const batches = await Promise.all(dirs.map(scanPluginsDir));
+  const batches = await Promise.all(dirs.map((d) => scanPluginsDir(d, cwd)));
   return batches.flat();
 }
 
@@ -158,15 +189,18 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
 // Relative paths resolve against cwd. Unresolvable entries are skipped.
 export async function loadPluginsFromPaths(paths: string[], cwd: string): Promise<PluginModule[]> {
   const loaded = await Promise.all(
-    paths.map((p) => loadPluginEntry(isAbsolute(p) ? p : join(cwd, p))),
+    paths.map((p) => loadPluginEntry(isAbsolute(p) ? p : join(cwd, p), { cwd })),
   );
   return loaded.filter((m): m is PluginModule => m !== null);
 }
 
 // Discover built-in repo plugins from the plugins/ directory that lives
 // alongside this source file (two levels up: src/plugins/ -> plugins/).
-export async function discoverRepoPlugins(): Promise<PluginModule[]> {
+// Repo plugins resolve skills against the session cwd, not the repo root,
+// so a project's bundled skills still win when Intercode is invoked from a
+// different working directory.
+export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> {
   const repoRoot = new URL("../../", import.meta.url).pathname;
   const pluginsDir = join(repoRoot, "plugins");
-  return scanPluginsDir(pluginsDir);
+  return scanPluginsDir(pluginsDir, cwd);
 }

@@ -2,6 +2,20 @@
 name: critique
 description: Critical code reviewer that tests assumptions and reports quality issues without fixing them
 mode: subagent
+tier: standard
+# Read-mostly reviewer. write_file is granted only so critique can drop
+# throwaway tests under tmp/critique-tests/; the body prohibition on fixing
+# source is enforced by prompt, not by capability. Excludes edit_file and
+# run_shell-with-mutation outright by simply not listing them.
+capabilities:
+  mode: allow
+  tools:
+    - read_file
+    - search_files
+    - grep
+    - list_dir
+    - lsp
+    - write_file
 ---
 
 # Session Initialization
@@ -103,7 +117,7 @@ Only report issues you have verified or have high confidence in. Do not report s
 
 **Recommended Tests for Permanent Inclusion** (if applicable)
 
-⚠️ **CRITICAL**: If you wrote any high-quality temporary tests that should be part of the permanent test suite, document them here. The calling agent needs this information to commit the tests for future use.
+**CRITICAL**: If you wrote any high-quality temporary tests that should be part of the permanent test suite, document them here. The calling agent needs this information to commit the tests for future use.
 
 For each test that should be kept permanently, provide:
 

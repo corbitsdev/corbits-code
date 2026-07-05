@@ -159,10 +159,34 @@ export function buildChatSystemPrompt(
   return joinSections(sections);
 }
 
+// Notes appended to every sub-agent's system prompt so corbitsdev-format
+// agent definitions translate cleanly to Intercode: the `task` tool is the
+// dispatch surface, tool names are Intercode-native, and the upstream
+// `mode: primary` distinction collapses (every dispatched agent is a
+// `task`-launched sub-agent here).
+//
+// `orchestrator` flips the recursion rule: by default a sub-agent must NOT
+// call `task` (no recursion past depth 1). An orchestrator profile is the
+// documented exception — its purpose IS to fan work out to other agents —
+// so the appendix grants permission and links the syntax.
+export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
+  const recursionRule = opts.orchestrator === true
+    ? "- You are an orchestrator: you MAY call `task` to spawn other team members (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf-task sub-agents — use it to delegate specialist work, then synthesize their reports into your own."
+    : "- Only the primary Intercode session may call `task`; if you are running as a sub-agent, return a concrete report to the caller instead of spawning further agents.";
+  return [
+    "## Intercode notes",
+    "",
+    `- Spawn other team members with the \`task\` tool and \`agent\`: e.g. task(agent="greybeard", prompt="..."). ${recursionRule}`,
+    "- Tools use Intercode names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp.",
+    "- Upstream `mode: primary` is not encoded — every agent here is a `task`-dispatchable sub-agent profile.",
+  ].join("\n");
+}
+
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
   baseOverride?: string,
+  opts: { orchestrator?: boolean } = {},
 ): string {
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
@@ -181,5 +205,10 @@ export function buildSubAgentSystemPrompt(
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
+  // Always-last: the Intercode translation notes apply to every dispatched
+  // agent, regardless of whether its definition came from a JS plugin or a
+  // corbitsdev-format markdown file. The orchestrator flag rewrites the
+  // recursion rule for profiles whose purpose is to dispatch other agents.
+  sections.push(buildSubAgentAppendix(opts));
   return joinSections(sections);
 }

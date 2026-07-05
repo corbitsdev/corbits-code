@@ -3,11 +3,14 @@ import { join } from "node:path";
 
 import { type } from "arktype";
 
-import { plugin as defaultPlugin } from "@intercode/default-agents";
+import {
+  plugin as defaultPlugin,
+  REASONING_EFFORTS,
+} from "@intercode/default-agents";
 
 // Public agent profile types live in @intercode/default-agents so plugin
 // authors can depend on that package without pulling in the full runtime.
-export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode } from "@intercode/default-agents";
+export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode, InferenceLeg, InferenceSpec, ReasoningEffort } from "@intercode/default-agents";
 import type { AgentProfile } from "@intercode/default-agents";
 
 // Exported so agent-kind plugins can validate contributed profiles.
@@ -18,13 +21,35 @@ const CapabilityFilterSchema = type({
   tools: "string[]",
 });
 
+// Reasoning-effort schema derived from the canonical array. arktype's `type()`
+// is statically typed for literal strings; a computed string requires a cast
+// through `unknown`. The schema is exercised by tests/unit/data-only-agent
+// and the runtime ReasoningEffort re-export, so drift is caught.
+const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(" | ");
+const ReasoningEffortSchema = type(
+  reasoningEffortLiteral as unknown as "'none'",
+);
+
+const InferenceLegSchema = type({
+  provider: "string>0",
+  model: "string>0",
+  "reasoningEffort?": ReasoningEffortSchema,
+});
+
+const InferenceSpecSchema = type({
+  "mode?": "'pin' | 'prefer'",
+  order: InferenceLegSchema.array(),
+});
+
 const AgentProfileSchema = type({
   id: "string",
   "description?": "string",
   "tier?": "'fast' | 'standard' | 'clever'",
+  "inference?": InferenceSpecSchema,
   "capabilities?": CapabilityFilterSchema,
   "systemPromptRole?": "string",
   "systemPromptPath?": "string",
+  "orchestrator?": "boolean",
 });
 
 function isENOENT(err: unknown): boolean {
