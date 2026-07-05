@@ -45,7 +45,9 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { withSubAgentSlot } from "./concurrency.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { Settings, ProviderTier } from "../config/settings.js";
-import { resolveTier } from "../config/settings.js";
+import { resolveTier, resolveInferenceWithPolicy } from "../config/settings.js";
+import { validateEffort } from "../provider/reasoning-effort.js";
+import { isCodexProviderName } from "../config/codex-providers.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
@@ -110,6 +112,10 @@ export type RunSubAgentParams = {
   onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
+  // When true, the assembled system prompt grants this sub-agent permission
+  // to call `task` to spawn further agents (orchestrator exception to the
+  // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.
+  orchestrator?: boolean;
 };
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
@@ -153,7 +159,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const environment = await gatherEnvironment(params.cwd);
   const extensions =
     params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
-  const systemPrompt = buildSubAgentSystemPrompt(extensions, environment);
+  const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
+    orchestrator: params.orchestrator === true,
+  });
 
   const directorDef = defineDirector({
     id: "intercode/subagent",
@@ -332,6 +340,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         typeof deps.provider === "function" ? deps.provider() : deps.provider;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
+      let orchestrator = false;
       let tier: ProviderTier | undefined;
       const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
@@ -346,22 +355,68 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.systemPromptRole !== undefined) {
             systemPromptRole = profile.systemPromptRole;
           }
-          if (profile.tier !== undefined && settings !== undefined) {
-            tier = profile.tier as ProviderTier;
-            const assignment = resolveTier(tier, settings);
-            if (assignment !== null) {
-              const providerSettings = settings.providers[assignment.provider];
+          if (profile.orchestrator === true) {
+            orchestrator = true;
+          }
+          if (settings !== undefined) {
+            // Per-agent pinned inference (provider/model/effort) wins over the
+            // tier alias when both are declared. Resolution uses policy
+            // (mode: pin / agentModelFallback: none) so a forbidden fallback
+            // surfaces as a dispatch error rather than silently running on the
+            // parent's provider.
+            let resolved:
+              | { provider: string; model: string; reasoningEffort?: import("../provider/reasoning-effort.js").ReasoningEffort }
+              | null = null;
+            if (profile.inference !== undefined) {
+              const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+              if (outcome.kind === "unavailable") {
+                return `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`;
+              }
+              if (outcome.kind === "resolved") resolved = outcome.value;
+            }
+            if (resolved === null && profile.tier !== undefined) {
+              const assignment = resolveTier(profile.tier as ProviderTier, settings);
+              if (assignment !== null) {
+                resolved = assignment;
+              }
+            }
+            if (resolved !== null) {
+              // Validate model/effort compatibility before dispatch so the
+              // agent fails fast with a clear message instead of sending a
+              // request the provider will reject mid-task. Mirrors the main
+              // session bootstrap in src/config/index.ts.
+              if (resolved.reasoningEffort !== undefined) {
+                const verdict = validateEffort(
+                  resolved.model,
+                  resolved.reasoningEffort,
+                  isCodexProviderName(resolved.provider),
+                );
+                if (!verdict.ok) {
+                  return `Error: agent "${agentId}" has incompatible inference: ${verdict.error}`;
+                }
+              }
+              const providerSettings = settings.providers[resolved.provider];
               if (providerSettings !== undefined) {
+                // An inference leg or tier assignment that doesn't carry its
+                // own reasoningEffort still inherits the parent session's
+                // effort — keeps "/agent" effort propagation uniform across
+                // pinned-resolution and fall-through-to-active paths.
+                const effort =
+                  resolved.reasoningEffort ?? provider.reasoningEffort;
                 provider = {
-                  providerName: assignment.provider,
+                  providerName: resolved.provider,
                   baseURL: providerSettings.baseURL,
                   ...(providerSettings.keyless === true ? { keyless: true } : {}),
                   ...(providerSettings.apiKey !== undefined
                     ? { apiKey: providerSettings.apiKey }
                     : {}),
-                  model: assignment.model,
+                  model: resolved.model,
+                  ...(effort !== undefined ? { reasoningEffort: effort } : {}),
                 };
               }
+            }
+            if (profile.tier !== undefined) {
+              tier = profile.tier as ProviderTier;
             }
           }
         }
@@ -382,6 +437,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
           ...(capabilities !== undefined ? { capabilities } : {}),
           ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
+          ...(orchestrator ? { orchestrator: true } : {}),
         };
         const result = await run(params);
         return `Sub-agent "${description}" reported:\n\n${result}`;

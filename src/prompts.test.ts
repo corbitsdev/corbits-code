@@ -175,3 +175,40 @@ test("sub-agent prompt does not advertise tool_search (it gets the full toolset)
   expect(prompt).not.toContain("tool_search");
   expect(prompt).toContain("your full toolset");
 });
+
+// Pins the appendix-last invariant for JS-plugin agents: regardless of how the
+// systemPromptRole is sourced (data-only markdown vs. a JS plugin's
+// `agentPlugin.agents[i].systemPromptRole`), `buildSubAgentSystemPrompt` is
+// the single point that appends the Intercode translation notes — so a
+// JS-plugin-only path that bypasses the data-only loader still gets them.
+test("sub-agent prompt always appends Intercode notes, even with a JS-plugin-style systemPromptRole", () => {
+  const role = "You are a JS-plugin scout. Map the call graph and report.";
+  const prompt = buildSubAgentSystemPrompt([role]);
+  expect(prompt).toContain(role);
+  expect(prompt).toContain("## Intercode notes");
+  expect(prompt).toContain('task(agent="');
+  // Agent voice leads; translation notes are the last section.
+  expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Intercode notes"));
+});
+
+// Default sub-agents must NOT recurse — the appendix tells them to return a
+// concrete report instead of spawning further agents. This is the rule that
+// stops a fan-out of sub-agents each fanning out further.
+test("default sub-agent prompt forbids recursion", () => {
+  const prompt = buildSubAgentSystemPrompt();
+  expect(prompt).toContain("Only the primary Intercode session may call `task`");
+});
+
+// Orchestrator profiles (frontmatter `orchestrator: true`) are the documented
+// exception to the no-recursion rule — their purpose IS to fan work out to
+// other agents. The appendix grants them permission and links the syntax.
+test("orchestrator sub-agent prompt grants the task-tool recursion exception", () => {
+  const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+    orchestrator: true,
+  });
+  expect(prompt).toContain("You are an orchestrator");
+  expect(prompt).toContain("MAY call `task`");
+  // Must NOT contain the default no-recursion line — that would contradict
+  // the permission grant in the same appendix.
+  expect(prompt).not.toContain("Only the primary Intercode session may call `task`");
+});

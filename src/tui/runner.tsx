@@ -118,7 +118,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
   const pluginModules = dedupePluginModules([
-    ...(await discoverRepoPlugins()),
+    ...(await discoverRepoPlugins(config.cwd)),
     ...(await discoverUserPlugins(config.cwd)),
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
   ]);
@@ -319,7 +319,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // that each profile's tier resolves to a configured provider.
       const agentMod = pluginModules.find((m) => m.manifest?.id === id && m.manifest?.kind === "agent");
       if (agentMod !== undefined) {
-        const profiles = await resolveAgentPluginProfiles([agentMod], { [id]: { enabled: true } });
+        const profiles = await resolveAgentPluginProfiles(
+          [agentMod],
+          { [id]: { enabled: true } },
+          (msg) => process.stderr.write(`plugins: ${msg}\n`),
+        );
         if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
         // Check tier resolution so the user knows if the provider is configured.
         const unresolved = profiles.filter(
@@ -362,7 +366,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const path = rawPath.trim();
       if (path.length === 0) return { ok: false, message: "Enter a path" };
       const abs = isAbsolute(path) ? path : resolvePath(config.cwd, path);
-      const mod = await loadPluginEntry(abs);
+      const mod = await loadPluginEntry(abs, { cwd: config.cwd });
       if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
         return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
@@ -400,6 +404,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const pluginAgentProfiles = await resolveAgentPluginProfiles(
     pluginModules,
     config.settings?.plugins ?? {},
+    (msg) => process.stderr.write(`plugins: ${msg}\n`),
   );
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;

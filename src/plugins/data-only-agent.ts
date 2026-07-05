@@ -1,0 +1,497 @@
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
+import type {
+  AgentProfile,
+  CapabilityFilter,
+  InferenceLeg,
+  InferenceSpec,
+  ReasoningEffort,
+} from "../agent/profiles.js";
+import { AgentProfileSchema } from "../agent/profiles.js";
+import { type } from "arktype";
+
+// A data-only agent plugin is just a directory with `agents/*.md` (and optional
+// `skills/<name>/SKILL.md` files). The loader recognizes it without an index.ts
+// by walking the markdown files and synthesizing the same `agentPlugin.agents[]`
+// shape a JS plugin would export. The validation path is identical: every
+// synthesized profile passes through AgentProfileSchema, so a malformed entry is
+// skipped rather than reaching the dispatcher.
+//
+// Frontmatter is accepted from any of three live dialects, normalized to a
+// single AgentProfile:
+//
+//   - Claude Code:   name, description, tools[], disallowedTools[], model, effort
+//   - OpenCode:      name, description, mode, permission: { tool: "*": deny, read: allow }
+//                    (legacy: tools: { read: true, bash: false })
+//   - corbitsdev:    name, description, mode, color, permission: { read: "allow", bash: "deny" }
+//
+// Native Intercode keys also work and win ties: tier, inference, capabilities,
+// skills (frontmatter list, in addition to body `Load the X skill` lines).
+
+// Upstream tool-name aliases mapped to Intercode tool ids. Case-insensitive.
+const TOOL_ALIASES: Record<string, string> = {
+  read: "read_file",
+  write: "write_file",
+  edit: "edit_file",
+  bash: "run_shell",
+  shell: "run_shell",
+  glob: "search_files",
+  find: "search_files",
+  grep: "grep",
+  ls: "list_dir",
+  task: "task",
+  subagent: "task",
+  websearch: "web_search",
+  webfetch: "web_fetch",
+  fetch: "web_fetch",
+  lsp: "lsp",
+};
+
+function aliasTool(raw: string): string {
+  const lower = raw.trim().toLowerCase();
+  if (lower.length === 0) return raw;
+  return TOOL_ALIASES[lower] ?? raw;
+}
+
+const REASONING_EFFORTS: readonly ReasoningEffort[] = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
+
+function isReasoningEffort(v: unknown): v is ReasoningEffort {
+  return typeof v === "string" && (REASONING_EFFORTS as readonly string[]).includes(v);
+}
+
+// Strip leading YAML frontmatter (---\n...\n---) and return { frontmatter, body }.
+// Frontmatter is parsed via Bun.YAML. Returns an empty object when no
+// frontmatter block is present (agents can legitimately have none); returns
+// null only when a block is present but malformed.
+type ParsedMarkdown = { frontmatter: Record<string, unknown> | null; body: string };
+
+function splitFrontmatter(raw: string): ParsedMarkdown {
+  if (!raw.startsWith("---")) return { frontmatter: {}, body: raw.trim() };
+  const end = raw.indexOf("\n---", 3);
+  if (end === -1) return { frontmatter: {}, body: raw.trim() };
+  const yaml = raw.slice(3, end).trim();
+  const body = raw.slice(end + 4).trim();
+  if (yaml.length === 0) return { frontmatter: {}, body };
+  try {
+    const parsed = Bun.YAML.parse(yaml);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { frontmatter: {}, body };
+    }
+    return { frontmatter: parsed as Record<string, unknown>, body };
+  } catch {
+    return { frontmatter: null, body };
+  }
+}
+
+// Resolve the agent id: frontmatter `id` wins, then `name`, then the file stem.
+function pickId(
+  fm: Record<string, unknown> | null,
+  filename: string,
+): string | undefined {
+  if (fm !== null) {
+    const fromId = typeof fm.id === "string" ? fm.id.trim() : "";
+    if (fromId.length > 0) return fromId;
+    const fromName = typeof fm.name === "string" ? fm.name.trim() : "";
+    if (fromName.length > 0) return fromName;
+  }
+  // Filename stem (karen.md -> karen).
+  const base = filename.replace(/\.md$/i, "");
+  return base.length > 0 ? base : undefined;
+}
+
+// Normalize the union of `tools` / `disallowedTools` / `permission` shapes from
+// the three dialects into a single CapabilityFilter. Returns undefined when no
+// restriction was declared (agent inherits all tools).
+function normalizeCapabilities(
+  fm: Record<string, unknown> | null,
+): CapabilityFilter | undefined {
+  if (fm === null) return undefined;
+
+  // Native: capabilities: { mode, tools[] } — accept verbatim if it survives
+  // schema validation later.
+  if (
+    fm.capabilities !== undefined &&
+    typeof fm.capabilities === "object" &&
+    fm.capabilities !== null
+  ) {
+    const cap = fm.capabilities as { mode?: unknown; tools?: unknown };
+    if (
+      (cap.mode === "allow" || cap.mode === "exclude") &&
+      Array.isArray(cap.tools)
+    ) {
+      return {
+        mode: cap.mode,
+        tools: (cap.tools as unknown[]).filter((t): t is string => typeof t === "string").map(aliasTool),
+      };
+    }
+  }
+
+  // Claude Code: tools: [Read, Grep]  (allowlist)
+  if (Array.isArray(fm.tools) && fm.tools.length > 0 && fm.disallowedTools === undefined) {
+    const tools = fm.tools.filter((t): t is string => typeof t === "string").map(aliasTool);
+    if (tools.length > 0) return { mode: "allow", tools };
+  }
+
+  // Claude Code: disallowedTools: [...]  (denylist → exclude mode)
+  if (Array.isArray(fm.disallowedTools) && fm.disallowedTools.length > 0) {
+    const tools = fm.disallowedTools
+      .filter((t): t is string => typeof t === "string")
+      .map(aliasTool);
+    if (tools.length > 0) return { mode: "exclude", tools };
+  }
+
+  // OpenCode legacy: tools: { read: true, bash: false }
+  // Pick the smaller set: if false-list is shorter, use exclude; else allow.
+  if (
+    fm.tools !== undefined &&
+    typeof fm.tools === "object" &&
+    fm.tools !== null &&
+    !Array.isArray(fm.tools)
+  ) {
+    const map = fm.tools as Record<string, unknown>;
+    const allowed: string[] = [];
+    const excluded: string[] = [];
+    for (const [k, v] of Object.entries(map)) {
+      if (v === true) allowed.push(aliasTool(k));
+      else if (v === false) excluded.push(aliasTool(k));
+    }
+    if (allowed.length > 0 && excluded.length === 0) return { mode: "allow", tools: allowed };
+    if (excluded.length > 0 && allowed.length === 0) return { mode: "exclude", tools: excluded };
+    if (allowed.length > 0 && excluded.length > 0) {
+      // Mixed: pick whichever is shorter to minimize the filter size.
+      return excluded.length <= allowed.length
+        ? { mode: "exclude", tools: excluded }
+        : { mode: "allow", tools: allowed };
+    }
+  }
+
+  // corbitsdev / OpenCode permission: flat or nested map of allow/deny values.
+  // `mode: primary` upstream means "the host granted the agent its full set of
+  // tools" — so allow entries are descriptive, not restrictive, and would
+  // wrongly narrow the agent to only the listed tools. Deny entries are real
+  // restrictions and stay. (Subagents' allow entries are real allowlists
+  // because there's no inheritance intent.)
+  if (
+    fm.permission !== undefined &&
+    typeof fm.permission === "object" &&
+    fm.permission !== null
+  ) {
+    const isPrimary = fm.mode === "primary" || fm.mode === "all";
+    if (!isPrimary) {
+      return normalizePermission(fm.permission as Record<string, unknown>);
+    }
+    const fromPermission = normalizePermission(fm.permission as Record<string, unknown>);
+    if (fromPermission === undefined) return undefined;
+    if (fromPermission.mode === "exclude") return fromPermission; // deny list — keep
+    // primary + allow list → agent inherits all tools (no restriction).
+    return undefined;
+  }
+
+  return undefined;
+}
+
+// Permission accepts two shapes:
+//   flat (corbitsdev):     { read: "allow", bash: "deny", write: "allow" }
+//   nested (OpenCode):     { tool: { "*": "deny", read: "allow" } }
+// Resource types other than "tool" (skill, mcp) are ignored in v1.
+function normalizePermission(
+  perm: Record<string, unknown>,
+): CapabilityFilter | undefined {
+  let flat: Record<string, unknown> | undefined;
+
+  if (perm.tool !== undefined && typeof perm.tool === "object" && perm.tool !== null) {
+    flat = perm.tool as Record<string, unknown>;
+  } else {
+    // flat shape — every value should be "allow" / "deny" / "ask".
+    const values = Object.values(perm);
+    const looksFlat = values.every((v) => typeof v === "string");
+    if (looksFlat) flat = perm;
+  }
+  if (flat === undefined) return undefined;
+
+  const hasWildcardDeny = flat["*"] === "deny" || flat["**"] === "deny";
+  const allowed: string[] = [];
+  const denied: string[] = [];
+  for (const [k, v] of Object.entries(flat)) {
+    if (k === "*" || k === "**") continue;
+    if (v === "allow") allowed.push(aliasTool(k));
+    else if (v === "deny") denied.push(aliasTool(k));
+    // "ask" is treated as allowed for v1 — the ask-vs-allow distinction needs
+    // a permission UI that doesn't exist for sub-agents yet.
+    else if (v === "ask") allowed.push(aliasTool(k));
+  }
+
+  if (hasWildcardDeny && allowed.length > 0) {
+    return { mode: "allow", tools: allowed };
+  }
+  if (denied.length > 0) return { mode: "exclude", tools: denied };
+  if (allowed.length > 0) return { mode: "allow", tools: allowed };
+  return undefined;
+}
+
+// Normalize the union of `tier` / `model` / `effort` / `inference` shapes into
+// either a tier alias or an explicit InferenceSpec. Native `inference` wins;
+// then `tier`; then `model` (object or array) with optional `effort`.
+function normalizeInference(
+  fm: Record<string, unknown> | null,
+): { tier?: "fast" | "standard" | "clever"; inference?: InferenceSpec } {
+  if (fm === null) return {};
+
+  // Native explicit inference spec.
+  if (
+    fm.inference !== undefined &&
+    typeof fm.inference === "object" &&
+    fm.inference !== null
+  ) {
+    const spec = normalizeInferenceSpec(fm.inference as Record<string, unknown>);
+    if (spec !== undefined) return { inference: spec };
+  }
+
+  // Native tier alias.
+  if (fm.tier === "fast" || fm.tier === "standard" || fm.tier === "clever") {
+    return { tier: fm.tier };
+  }
+
+  // Claude Code `effort: high` — maps to a tier alias.
+  if (typeof fm.effort === "string") {
+    const tierFromEffort: Record<string, "fast" | "standard" | "clever"> = {
+      low: "fast",
+      medium: "standard",
+      high: "clever",
+    };
+    const tier = tierFromEffort[fm.effort];
+    if (tier !== undefined) return { tier };
+  }
+
+  // `model` block: object, array, or (rejected in v1) string.
+  if (fm.model !== undefined) {
+    const spec = normalizeModelField(fm.model, fm.effort);
+    if (spec !== undefined) return { inference: spec };
+  }
+
+  return {};
+}
+
+function normalizeInferenceSpec(raw: Record<string, unknown>): InferenceSpec | undefined {
+  const orderRaw = raw.order;
+  if (!Array.isArray(orderRaw)) return undefined;
+  const order: InferenceLeg[] = [];
+  for (const leg of orderRaw) {
+    if (typeof leg !== "object" || leg === null) continue;
+    const l = leg as { provider?: unknown; model?: unknown; reasoningEffort?: unknown };
+    if (typeof l.provider !== "string" || typeof l.model !== "string") continue;
+    if (l.provider.length === 0 || l.model.length === 0) continue;
+    const entry: InferenceLeg = { provider: l.provider, model: l.model };
+    if (isReasoningEffort(l.reasoningEffort)) entry.reasoningEffort = l.reasoningEffort;
+    order.push(entry);
+  }
+  if (order.length === 0) return undefined;
+  const mode = raw.mode === "pin" ? "pin" : "prefer";
+  return { mode, order };
+}
+
+// Accept either a single leg object or an array of legs. An optional top-level
+// `effort` is applied to legs that don't declare their own.
+function normalizeModelField(
+  model: unknown,
+  effort: unknown,
+): InferenceSpec | undefined {
+  const legs: InferenceLeg[] = [];
+
+  const asLeg = (raw: unknown): InferenceLeg | undefined => {
+    if (typeof raw !== "object" || raw === null) return undefined;
+    const l = raw as { provider?: unknown; model?: unknown; reasoningEffort?: unknown };
+    if (typeof l.provider !== "string" || typeof l.model !== "string") return undefined;
+    if (l.provider.length === 0 || l.model.length === 0) return undefined;
+    const leg: InferenceLeg = { provider: l.provider, model: l.model };
+    const effortForLeg = l.reasoningEffort ?? effort;
+    if (isReasoningEffort(effortForLeg)) leg.reasoningEffort = effortForLeg;
+    return leg;
+  };
+
+  if (Array.isArray(model)) {
+    for (const m of model) {
+      const leg = asLeg(m);
+      if (leg !== undefined) legs.push(leg);
+    }
+  } else {
+    const leg = asLeg(model);
+    if (leg !== undefined) legs.push(leg);
+  }
+
+  if (legs.length === 0) return undefined;
+  return { mode: "prefer", order: legs };
+}
+
+// Appendix injected into every data-only agent's system prompt so the upstream
+// markdown does not need to know Intercode-specific tool names or task rules.
+// Resolve a skill body via the shared skill resolver so data-only plugins and
+// the main session's `use_skill` tool agree on what a skill name means. The
+// plugin's own skills/ directory is prepended to the search path so a bundled
+// skill shadows a same-named project or bundled skill.
+import { resolveSkillBody } from "../extensions/skills.js";
+
+async function loadSkillText(
+  cwd: string,
+  skillName: string,
+  pluginDir: string,
+  extraPluginDirs: readonly string[],
+): Promise<string | undefined> {
+  // resolveSkillBody prepends `<pluginDir>/skills` for each entry in pluginDirs.
+  // Prepend the data-only plugin's own directory so its skills/ wins.
+  return resolveSkillBody(cwd, skillName, [pluginDir, ...extraPluginDirs]);
+}
+
+// Parse "Load the `style` skill" lines from the body. corbitsdev agents declare
+// skills in prose rather than frontmatter; this recognizes that convention so
+// those files load with bundled skills without modification.
+function parseSkillReferencesFromBody(body: string): string[] {
+  const out: string[] = [];
+  // Match: load the `style` skill  /  Load the \`philosophy\` skill
+  const re = /\bload\s+the\s+`([a-z0-9_-]+)`\s+skill\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(body)) !== null) {
+    out.push(match[1]!);
+  }
+  return out;
+}
+
+export type DataOnlyAgentPlugin = {
+  manifest: { id: string; name: string; kind: "agent"; description?: string };
+  agentPlugin: { agents: unknown[] };
+};
+
+// Build a data-only agent plugin module from a directory containing agents/*.md.
+// Returns null if the directory has no usable agent files.
+//
+// `pluginId` defaults to the directory basename; an explicit id can be supplied
+// by the caller (e.g. read from a sibling plugin.yaml in the future).
+export async function loadDataOnlyAgentPlugin(
+  pluginDir: string,
+  options?: {
+    pluginId?: string;
+    cwd?: string;
+    skillSearchDirs?: readonly string[];
+    onWarning?: (msg: string) => void;
+  },
+): Promise<DataOnlyAgentPlugin | null> {
+  const agentsDir = join(pluginDir, "agents");
+  let entries: string[];
+  try {
+    entries = await readdir(agentsDir);
+  } catch {
+    return null;
+  }
+  const mdFiles = entries.filter((f) => /\.md$/i.test(f));
+  if (mdFiles.length === 0) return null;
+
+  const cwd = options?.cwd ?? process.cwd();
+  const extraPluginDirs = options?.skillSearchDirs ?? [];
+
+  const agents: unknown[] = [];
+  for (const filename of mdFiles) {
+    const fullPath = join(agentsDir, filename);
+    const warning = options?.onWarning;
+    let raw: string;
+    try {
+      raw = await readFile(fullPath, "utf8");
+    } catch (err) {
+      warning?.(`failed to read ${filename}: ${String(err)}`);
+      continue;
+    }
+    const { frontmatter, body } = splitFrontmatter(raw);
+    if (frontmatter === null) {
+      warning?.(`skipping ${filename}: malformed frontmatter`);
+      continue;
+    }
+    const id = pickId(frontmatter, filename);
+    if (id === undefined) {
+      warning?.(`skipping ${filename}: no id and unrecognizable filename`);
+      continue;
+    }
+    const description =
+      typeof frontmatter.description === "string" ? frontmatter.description : undefined;
+
+    // Skill names: frontmatter list wins; fall back to body references.
+    const fmSkillsRaw = frontmatter.skills;
+    let skillNames: string[] = [];
+    if (Array.isArray(fmSkillsRaw)) {
+      skillNames = fmSkillsRaw.filter((s): s is string => typeof s === "string");
+    } else if (typeof fmSkillsRaw === "string") {
+      skillNames = [fmSkillsRaw];
+    }
+    if (skillNames.length === 0) {
+      skillNames = parseSkillReferencesFromBody(body);
+    }
+
+    // Bundle skills as text prepended to the prompt body.
+    const skillBlocks: string[] = [];
+    for (const name of skillNames) {
+      const text = await loadSkillText(cwd, name, pluginDir, extraPluginDirs);
+      if (text === undefined) {
+        warning?.(
+          `agent ${id}: skill "${name}" referenced but not found in skill search path`,
+        );
+        continue;
+      }
+      skillBlocks.push(`# Bundled skill: ${name}\n\n${text}`);
+    }
+
+    const promptBody =
+      skillBlocks.length > 0
+        ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}`
+        : body;
+    // The Intercode translation appendix is appended at prompt-build time by
+    // buildSubAgentSystemPrompt, so the systemPromptRole stays focused on the
+    // agent's own definition (skills + body) and the appendix applies uniformly
+    // to JS-plugin agents too.
+    const systemPromptRole = promptBody;
+
+    const { tier, inference } = normalizeInference(frontmatter);
+    const capabilities = normalizeCapabilities(frontmatter);
+
+    const profile: Record<string, unknown> = { id };
+    if (description !== undefined) profile.description = description;
+    if (tier !== undefined) profile.tier = tier;
+    if (inference !== undefined) profile.inference = inference;
+    if (capabilities !== undefined) profile.capabilities = capabilities;
+    // `orchestrator: true` opts the agent into the recursion exception. Stored
+    // as a boolean rather than inferred from `mode: primary` because primary
+    // also collapses to "inherit all tools" for permissions — conflating the
+    // two would force every primary-style agent to recurse, which is wrong.
+    if (frontmatter.orchestrator === true) profile.orchestrator = true;
+    profile.systemPromptRole = systemPromptRole;
+
+    // Schema-validate the synthesized profile. Same path as JS plugins, so a
+    // malformed entry is skipped instead of reaching the dispatcher.
+    const result = AgentProfileSchema(profile);
+    if (result instanceof type.errors) {
+      warning?.(`skipping ${id}: profile failed schema validation: ${result.summary}`);
+      continue;
+    }
+    agents.push(result as AgentProfile);
+  }
+
+  if (agents.length === 0) return null;
+
+  const pluginId = options?.pluginId ?? pathBasename(pluginDir);
+  return {
+    manifest: {
+      id: pluginId,
+      name: pluginId,
+      kind: "agent",
+    },
+    agentPlugin: { agents },
+  };
+}
+
+// Resolve the directory's basename for use as the default plugin id.
+// Split out so callers can override via pluginId without this running.
+import { basename as pathBasename } from "node:path";

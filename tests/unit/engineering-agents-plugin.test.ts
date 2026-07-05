@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { loadPluginEntry } from "../../src/plugins/loader.js";
 import { resolveAgentPluginProfiles } from "../../src/plugins/agent-plugins.js";
+import { buildSubAgentSystemPrompt } from "../../src/agent/prompts.js";
 
 
 const pluginRoot = join(import.meta.dirname, "../../intercode-engineering-agents-plugin");
@@ -25,6 +26,11 @@ test("engineering-agents plugin loads profiles with expected ids", async () => {
   expect(neck?.capabilities?.mode).toBe("allow");
   expect(neck?.capabilities?.tools).toContain("read_file");
   expect(neck?.capabilities?.tools).not.toContain("run_shell");
-  expect(neck?.systemPromptRole).toContain("Intercode notes");
+  expect(neck?.systemPromptRole).not.toContain("Intercode notes");
+  // The appendix is appended at prompt-build time, so a dispatched neckbeard
+  // still receives the Intercode translation notes.
+  if (neck?.systemPromptRole === undefined) throw new Error("missing systemPromptRole");
+  const prompt = buildSubAgentSystemPrompt([neck.systemPromptRole]);
+  expect(prompt).toContain("Intercode notes");
 });
 
