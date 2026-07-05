@@ -438,10 +438,15 @@ export function createAgentStreamState(
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
         case "message.received": {
-          const data = event.data as { message: { content: string } };
-          latestUserMessage = data.message.content;
+          const data = event.data as { message: { content?: string; attachments?: Array<{ name: string; contentType: string }> } };
+          const content = data.message.content ?? "";
+          const attachments = data.message.attachments ?? [];
+          const attachmentText = attachments.length > 0
+            ? `\n[Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}: ${attachments.map((att) => att.name).join(", ")}]`
+            : "";
+          latestUserMessage = `${content}${attachmentText}`;
           latestUserMessageLogged = true;
-          pushBlock({ type: "user", content: data.message.content });
+          pushBlock({ type: "user", content: latestUserMessage });
           break;
         }
         case "inference.thinking.delta": {

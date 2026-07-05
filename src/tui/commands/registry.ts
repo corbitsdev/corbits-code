@@ -14,6 +14,7 @@ export type CommandResult =
   | { type: "overlay"; overlay: "help" | "permissions" | "plugins" | "settings" }
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" | "login" }
   | { type: "workflow"; name: string; args?: string }
+  | { type: "paste-image" }
   | { type: "noop" };
 
 export type SubcommandDefinition = {
