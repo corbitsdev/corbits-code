@@ -21,6 +21,22 @@ describe("splitChainedCommand", () => {
     expect(splitChainedCommand("sleep 1 & echo done")).toEqual(["sleep 1", "echo done"]);
   });
 
+  test("does not split a redirect that duplicates a fd with >& or <&", () => {
+    // `2>&1` is one redirect token, not "command 2>" backgrounded then "1".
+    expect(splitChainedCommand("bun run build 2>&1")).toEqual(["bun run build 2>&1"]);
+    expect(splitChainedCommand("echo hi > /dev/null 2>&1")).toEqual(["echo hi > /dev/null 2>&1"]);
+    expect(splitChainedCommand("cmd 2>&1 | tee log")).toEqual(["cmd 2>&1", "tee log"]);
+    expect(splitChainedCommand("cmd <&-")).toEqual(["cmd <&-"]);
+  });
+
+  test("does not split the bash &> combined redirect", () => {
+    expect(splitChainedCommand("ls &> out.log")).toEqual(["ls &> out.log"]);
+  });
+
+  test("still backgrounds when & is not part of a redirect", () => {
+    expect(splitChainedCommand("sleep 1 & cmd 2>&1")).toEqual(["sleep 1", "cmd 2>&1"]);
+  });
+
   test("does not split inside quotes", () => {
     expect(splitChainedCommand(`echo "a && b" | cat`)).toEqual([`echo "a && b"`, "cat"]);
     expect(splitChainedCommand(`grep 'x;y' file`)).toEqual([`grep 'x;y' file`]);

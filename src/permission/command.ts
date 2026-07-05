@@ -80,6 +80,15 @@ export function splitChainedCommand(command: string): string[] {
       i++;
       continue;
     }
+    // `&` participates in a redirect when it opens a bash combined redirect
+    // (`&>file`) or duplicates a fd after `>`/`<` (`2>&1`, `<&-`). In those
+    // positions it is not a background operator and must not split the chain —
+    // otherwise `bun run build 2>&1` fragments into a real command and a stray
+    // `1`, and the operator gets a separate approval prompt for "1".
+    if (ch === "&" && isRedirectAmpersand(next)) {
+      current += ch;
+      continue;
+    }
     // A lone "&" backgrounds the preceding command and starts a new one, so it
     // is a chain boundary. Without this, "ls & rm -rf foo" is treated as a
     // single segment and the approval scope is derived from the benign head.
@@ -123,6 +132,13 @@ export function tokenize(command: string): string[] {
   }
   push();
   return tokens;
+}
+
+// `&` is the background operator when it stands alone as a word — followed by
+// whitespace or end of input. Anywhere else it is part of a redirect token:
+// `2>&1`, `<&-`, `&>file`.
+function isRedirectAmpersand(next: string | undefined): boolean {
+  return !(next === undefined || next === " " || next === "\t");
 }
 
 const MAX_PREFIX_SCOPES = 3;
