@@ -2,6 +2,7 @@ import { Box, Text, useApp } from "ink";
 import type { AgentStatus, ContentBlockData } from "./use-stream.js";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
+import type { InboundMessage } from "@intx/types/runtime";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
@@ -79,6 +80,14 @@ import type { WorkflowStatus, WorkflowControllerState } from "./workflow-control
 import type { CapabilityName } from "../workflows/types.js";
 import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  extractPastedImagePaths,
+  findImagePathMentions,
+  formatAttachmentSummary,
+  imageAttachmentFromPath,
+  readClipboardImage,
+  type PendingImageAttachment,
+} from "./image-attachments.js";
 import "./commands/built-in.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
@@ -86,6 +95,11 @@ const MAX_MENTION_TOTAL_BYTES = 400_000;
 const MAX_MENTION_COUNT = 5;
 const MAX_DIRECTORY_SUMMARY_ENTRIES = 200;
 const MAX_DIRECTORY_NAMES = 20;
+
+type OutboundUserMessage = {
+  text: string;
+  attachments: PendingImageAttachment[];
+};
 
 async function resolveMentionPath(cwd: string, path: string): Promise<{ ok: true; abs: string } | { ok: false; reason: string }> {
   if (path === "~" || path.startsWith("~/")) {
@@ -445,8 +459,9 @@ export function App({
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
-  const pendingQueueRef = useRef<string[]>([]);
+  const pendingQueueRef = useRef<OutboundUserMessage[]>([]);
   const [queuedCount, setQueuedCount] = useState(0);
+  const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([]);
 
   const providerManager = useProviderManager({
     initialProvider,
@@ -775,10 +790,10 @@ export function App({
   const lastSentMessageRef = useRef<string>("");
   const quotaAutoRetryFiredRef = useRef(false);
 
-  const sendMessageRef = useRef<(message: string) => void>(null!);
-  sendMessageRef.current = (message: string) => {
-    lastSentMessageRef.current = message;
-    const trimmed = message.trim();
+  const sendMessageRef = useRef<(message: OutboundUserMessage) => void>(null!);
+  sendMessageRef.current = (message: OutboundUserMessage) => {
+    lastSentMessageRef.current = message.text;
+    const trimmed = message.text.trim();
     if (trimmed.length > 0 && getSessionId !== undefined) {
       const sid = getSessionId();
       void appendSentMessage(cwd, sid, trimmed).then(() => {
@@ -794,13 +809,27 @@ export function App({
     forceRender((n) => n + 1);
     const controller = new AbortController();
     sendAbortRef.current = controller;
-    agent.send(message, { signal: controller.signal }).catch((err: unknown) => {
+    const inbound: InboundMessage = {
+      ref: { uid: 1, mailbox: "INBOX" },
+      headers: {
+        from: "user@local",
+        to: ["agent@local"],
+        date: new Date().toISOString(),
+        messageId: `<${crypto.randomUUID()}@local>`,
+        interchangeType: "conversation.message",
+      },
+      flags: [],
+      signatureStatus: "missing",
+      content: message.text.length > 0 ? message.text : "Please inspect the attached image.",
+      ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+    };
+    agent.send(inbound, { signal: controller.signal }).catch((err: unknown) => {
       // A user-initiated stop aborts the send; that is expected, not an error.
       if (controller.signal.aborted) return;
       onAgentError?.(err);
     });
   };
-  const sendMessage = (message: string) => sendMessageRef.current(message);
+  const sendMessage = (message: OutboundUserMessage) => sendMessageRef.current(message);
 
   const requestStop = () => {
     quotaAutoRetryFiredRef.current = true;
@@ -884,7 +913,7 @@ export function App({
       if (qe === null || quotaAutoRetryFiredRef.current) return;
       if (Date.now() < qe.retryAt) return;
       quotaAutoRetryFiredRef.current = true;
-      sendMessageRef.current(lastSentMessageRef.current);
+      sendMessageRef.current({ text: lastSentMessageRef.current, attachments: [] });
     }, 1000);
     return () => clearInterval(interval);
   // `state` is a stable mutable object — only `quotaError` drives re-subscription.
@@ -924,19 +953,74 @@ export function App({
     if (didSendInitial.current) return;
     didSendInitial.current = true;
     if (skipInitialTask) return;
-    if (initialTask.length > 0) sendMessage(initialTask);
+    if (initialTask.length > 0) sendMessage({ text: initialTask, attachments: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const addPendingImage = (attachment: PendingImageAttachment): void => {
+    setPendingImages((prev) => [...prev, attachment]);
+    setCommandMessage(`Attached image: ${attachment.name}`);
+  };
+
+  const handlePasteImage = (): void => {
+    setCommandMessage("Reading clipboard image...");
+    void readClipboardImage().then((result) => {
+      if (!result.ok) {
+        setCommandMessage(`Image paste failed: ${result.reason}`);
+        return;
+      }
+      addPendingImage(result.attachment);
+    });
+  };
+
+  const handlePasteText = (text: string): boolean => {
+    const paths = extractPastedImagePaths(text, cwd);
+    if (paths.length === 0) return false;
+    setCommandMessage(`Attaching ${paths.length} image${paths.length === 1 ? "" : "s"}...`);
+    void Promise.all(paths.map((path) => imageAttachmentFromPath(path))).then((results) => {
+      const attached = results.filter((result): result is { ok: true; attachment: PendingImageAttachment } => result.ok);
+      const failed = results.length - attached.length;
+      if (attached.length > 0) {
+        setPendingImages((prev) => [...prev, ...attached.map((result) => result.attachment)]);
+      }
+      setCommandMessage(
+        failed > 0
+          ? `Attached ${attached.length} image${attached.length === 1 ? "" : "s"}; ${failed} failed.`
+          : `Attached ${attached.length} image${attached.length === 1 ? "" : "s"}.`,
+      );
+    });
+    return true;
+  };
+
+  const prepareOutboundMessage = async (
+    message: string,
+    baseAttachments: PendingImageAttachment[],
+  ): Promise<OutboundUserMessage> => {
+    let text = message;
+    const mentions = findImagePathMentions(message, cwd);
+    const loaded = await Promise.all(mentions.map((mention) => imageAttachmentFromPath(mention.path)));
+    const attachments = [...baseAttachments];
+    for (let i = 0; i < mentions.length; i++) {
+      const mention = mentions[i];
+      const result = loaded[i];
+      if (mention === undefined || result === undefined || !result.ok) continue;
+      attachments.push(result.attachment);
+      text = text.replace(mention.raw, `[Attached image: ${result.attachment.name}]`);
+    }
+    return { text: await resolveAtMentions(text, cwd), attachments };
+  };
+
   const handleSend = (message: string) => {
     setCommandMessage(null);
-    void resolveAtMentions(message, cwd).then((resolved) => {
+    const attachments = pendingImages;
+    setPendingImages([]);
+    void prepareOutboundMessage(message, attachments).then((outbound) => {
       if (state.isProcessing) {
-        pendingQueueRef.current.push(resolved);
+        pendingQueueRef.current.push(outbound);
         setQueuedCount((c) => c + 1);
         return;
       }
-      sendMessage(resolved);
+      sendMessage(outbound);
     });
   };
 
@@ -947,9 +1031,9 @@ export function App({
     // has a chance to yield, preventing a stale connector.reply from racing
     // the new turn's state.
     requestStop();
-    void resolveAtMentions(message, cwd).then((resolved) => {
-      sendMessage(resolved);
-    });
+    const attachments = pendingImages;
+    setPendingImages([]);
+    void prepareOutboundMessage(message, attachments).then(sendMessage);
   };
 
   // Spin for the full duration of a send cycle (markRunning → connector.reply).
@@ -1143,13 +1227,17 @@ export function App({
       if (result.modal === "login") setLoginModal("choose");
       else setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
     }
+    if (result.type === "paste-image") {
+      handlePasteImage();
+      return;
+    }
     if (result.type === "workflow") {
       if (onStartWorkflow === undefined) {
         setCommandMessage("Workflows are not available in this context.");
       } else {
         const msg = onStartWorkflow(result.name);
         if (msg.startsWith("Started")) {
-          sendMessage(workflowKickoffUserMessage(result.args));
+          sendMessage({ text: workflowKickoffUserMessage(result.args), attachments: [] });
         } else {
           setCommandMessage(msg);
         }
@@ -1406,6 +1494,8 @@ export function App({
             <ChatInput
               onSubmit={handleSend}
               onCommand={handleCommand}
+              onPasteImage={handlePasteImage}
+              onPasteText={handlePasteText}
               commandContext={commandContext}
               value={inputValue}
               onChange={setInputValue}
@@ -1436,6 +1526,8 @@ export function App({
               model={model}
               rows={rows}
               columns={columns}
+              attachmentSummary={formatAttachmentSummary(pendingImages)}
+              canSubmitEmpty={pendingImages.length > 0}
               {...(reasoningEffort !== undefined ? { effort: reasoningEffort } : {})}
               {...(revolvingVerb !== undefined ? { verb: revolvingVerb } : {})}
             />

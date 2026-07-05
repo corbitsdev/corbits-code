@@ -20,6 +20,29 @@ function bodyFor(options: InferenceOptions): Record<string, unknown> {
   return JSON.parse(built.body) as Record<string, unknown>;
 }
 
+describe("openai-compatible adapter image input", () => {
+  test("preserves user image blocks as OpenAI image_url content", () => {
+    const adapter = createOpenAICompatibleAdapter(source);
+    const turns: ConversationTurn[] = [
+      {
+        role: "user",
+        timestamp: 0,
+        content: [
+          { type: "text", text: "what is this?" },
+          { type: "image", source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" } },
+        ],
+      },
+    ];
+    const built = adapter.buildRequest(turns, "gpt-5.1", {} as InferenceOptions);
+    const body = JSON.parse(built.body) as { messages: Array<{ content: unknown }> };
+
+    expect(body.messages[0]?.content).toEqual([
+      "what is this?",
+      { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+    ]);
+  });
+});
+
 describe("openai-compatible adapter providerOptions passthrough", () => {
   test("merges reasoning_effort from providerOptions into the request body", () => {
     const body = bodyFor({ providerOptions: { reasoning_effort: "high" } } as InferenceOptions);

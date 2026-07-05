@@ -30,8 +30,12 @@ export const GROK_RESPONSES_PROVIDER = "grok-responses";
 // Key the source stashes in defaults.providerOptions for this adapter.
 export const GROK_USER_ID_OPTION = "grokUserId";
 
+type ResponsesInputContentPart =
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string };
+
 type ResponsesInputItem =
-  | { type: "message"; role: "user" | "assistant" | "system"; content: string }
+  | { type: "message"; role: "user" | "assistant" | "system"; content: string | ResponsesInputContentPart[] }
   | { type: "function_call"; name: string; arguments: string; call_id: string }
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
@@ -45,27 +49,41 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
   return parts.join("");
 }
 
-// Map one internal turn to Responses items. Text blocks collapse into a single
-// string-content message (the shape grok sends); tool calls and results become
-// function_call / function_call_output items; reasoning blocks are echoed back
-// only when they carry the opaque encrypted_content the backend issued.
+// Map one internal turn to Responses items. Text-only messages keep the string
+// shape grok sends; messages with image blocks switch to Responses content parts
+// so the model receives the actual pixels instead of only a text placeholder.
 function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const role = turn.role;
-  const textChunks: string[] = [];
+  const parts: ResponsesInputContentPart[] = [];
+  let hasImage = false;
 
-  const flushText = (): void => {
-    if (textChunks.length > 0) {
-      items.push({ type: "message", role, content: textChunks.join("") });
-      textChunks.length = 0;
-    }
+  const flushMessage = (): void => {
+    if (parts.length === 0) return;
+    items.push({
+      type: "message",
+      role,
+      content: hasImage ? [...parts] : parts.map((part) => part.type === "input_text" ? part.text : "").join(""),
+    });
+    parts.length = 0;
+    hasImage = false;
   };
 
   for (const block of turn.content) {
     if (block.type === "text") {
-      textChunks.push(block.text);
+      parts.push({ type: "input_text", text: block.text });
+    } else if (block.type === "image") {
+      if (block.source.kind === "base64") {
+        hasImage = true;
+        parts.push({ type: "input_image", image_url: `data:${block.source.mimeType};base64,${block.source.data}` });
+      } else if (block.source.kind === "url") {
+        hasImage = true;
+        parts.push({ type: "input_image", image_url: block.source.url });
+      } else {
+        parts.push({ type: "input_text", text: `[Unsupported image reference omitted: ${block.source.reference}]` });
+      }
     } else if (block.type === "tool_call") {
-      flushText();
+      flushMessage();
       items.push({
         type: "function_call",
         name: block.name,
@@ -73,14 +91,14 @@ function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
         call_id: block.id,
       });
     } else if (block.type === "tool_result") {
-      flushText();
+      flushMessage();
       items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
     } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
-      flushText();
+      flushMessage();
       items.push({ type: "reasoning", summary: [], encrypted_content: block.signature });
     }
   }
-  flushText();
+  flushMessage();
   return items;
 }
 

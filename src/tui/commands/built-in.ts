@@ -91,6 +91,12 @@ registerCommand({
 });
 
 registerCommand({
+  name: "paste-image",
+  description: "Attach the current clipboard image to the next message",
+  handler: (_args, _ctx) => ({ type: "paste-image" }),
+});
+
+registerCommand({
   name: "mcp",
   description: "List connected MCP servers and their available tools",
   handler: (_args, ctx) => {
