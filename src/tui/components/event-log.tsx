@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
@@ -138,22 +138,29 @@ function mergeAdjacentSegments(line: StyledLine): StyledSegment[] {
   return out;
 }
 
-function renderLine(line: StyledLine, key: string, width: number): ReactNode {
-  const textWidth = line.reduce((n, s) => n + stringWidth(s.text), 0);
-  const pad = Math.max(0, width - textWidth);
-  const padded = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
-  const segments = mergeAdjacentSegments(padded);
+type RenderedLineProps = {
+  line: StyledLine;
+  width: number;
+};
+
+const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLineProps): ReactNode {
+  const segments = useMemo(() => {
+    const textWidth = line.reduce((n, s) => n + stringWidth(s.text), 0);
+    const pad = Math.max(0, width - textWidth);
+    const padded = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
+    return mergeAdjacentSegments(padded);
+  }, [line, width]);
 
   return (
-    <Text key={key}>
+    <Text>
       {segments.map((seg, i) => (
-        <Text key={`${key}-${i}`} {...segmentProps(seg)}>
+        <Text key={i} {...segmentProps(seg)}>
           {seg.text}
         </Text>
       ))}
     </Text>
   );
-}
+}, (prev, next) => prev.line === next.line && prev.width === next.width);
 
 function wrapStyledLine(segments: StyledSegment[], width: number): StyledLine[] {
   if (segments.length === 0) return [[]];
@@ -657,8 +664,8 @@ export const EventLog = memo(function EventLog({
   // flush with the prompt chrome instead of leaving a dead band at the bottom.
   return (
     <Box flexDirection="column">
-      {Array.from({ length: missingRows }, (_, i) => renderLine([], `blank-top-${i}`, contentWidth))}
-      {visible.map((line, i) => renderLine(line, `line-${start + i}`, contentWidth))}
+      {Array.from({ length: missingRows }, (_, i) => <RenderedLine key={`blank-top-${i}`} line={[]} width={contentWidth} />)}
+      {visible.map((line, i) => <RenderedLine key={`line-${start + i}`} line={line} width={contentWidth} />)}
     </Box>
   );
 });

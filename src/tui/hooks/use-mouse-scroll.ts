@@ -10,25 +10,45 @@ import type { EventEmitter } from "node:events";
 // the right tool: with a stable `mouseEvents` it runs once on mount and tears
 // down on unmount — it does not re-subscribe per render. The callback refs keep
 // the latest handlers without widening the effect's dependencies.
+type ScrollHandler = (ticks: number) => void;
+
 export function useMouseScroll(
   mouseEvents: EventEmitter | undefined,
-  onScrollUp: () => void,
-  onScrollDown: () => void,
+  onScrollUp: ScrollHandler,
+  onScrollDown: ScrollHandler,
 ): void {
   const onScrollUpRef = useRef(onScrollUp);
   onScrollUpRef.current = onScrollUp;
   const onScrollDownRef = useRef(onScrollDown);
   onScrollDownRef.current = onScrollDown;
+  const pendingTicksRef = useRef(0);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!mouseEvents) return;
-    const up = () => onScrollUpRef.current();
-    const down = () => onScrollDownRef.current();
+
+    const flush = () => {
+      flushTimerRef.current = null;
+      const ticks = pendingTicksRef.current;
+      pendingTicksRef.current = 0;
+      if (ticks < 0) onScrollUpRef.current(Math.abs(ticks));
+      if (ticks > 0) onScrollDownRef.current(ticks);
+    };
+    const queue = (delta: number) => {
+      pendingTicksRef.current += delta;
+      if (flushTimerRef.current === null) flushTimerRef.current = setTimeout(flush, 0);
+    };
+    const up = () => queue(-1);
+    const down = () => queue(1);
+
     mouseEvents.on("scrollUp", up);
     mouseEvents.on("scrollDown", down);
     return () => {
       mouseEvents.off("scrollUp", up);
       mouseEvents.off("scrollDown", down);
+      if (flushTimerRef.current !== null) clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+      pendingTicksRef.current = 0;
     };
   }, [mouseEvents]);
 }
