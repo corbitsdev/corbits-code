@@ -187,6 +187,26 @@ describe("createAgentStreamState", () => {
     expect(state.latestUserMessageLogged).toBe(true);
   });
 
+  test("appendUserMessage shows input immediately and message.received does not duplicate the block", () => {
+    const state = createAgentStreamState();
+
+    state.appendUserMessage("hello world");
+    expect(state.latestUserMessage).toBe("hello world");
+    expect(state.latestUserMessageLogged).toBe(true);
+    expect(state.contentBlocks.filter((b) => b.type === "user")).toHaveLength(1);
+    expect(state.contentBlocks.at(-1)).toMatchObject({ type: "user", content: "hello world" });
+
+    // Simulates the event arriving after a delayed deliver (e.g. token refresh).
+    state.addEvent(event("message.received", { message: { content: "hello world" } }));
+    // Still exactly one user block; no duplicate.
+    expect(state.contentBlocks.filter((b) => b.type === "user")).toHaveLength(1);
+
+    // A different message still appends.
+    state.addEvent(event("message.received", { message: { content: "second" } }));
+    expect(state.contentBlocks.filter((b) => b.type === "user")).toHaveLength(2);
+    expect(state.contentBlocks.at(-1)).toMatchObject({ type: "user", content: "second" });
+  });
+
   test("hookCount returns the number of hooks without allocating a snapshot", () => {
     const state = createAgentStreamState([
       { id: "h1", name: "lint.ts", type: "typescript", path: "/hooks/lint.ts", enabled: true },
