@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { createTurnContextCollector, RETAINED_TURN_CONTEXT_LIMIT } from "../session/hooks.js";
-import { createAgentStreamState } from "./use-stream.js";
+import {
+  MAX_STORED_TOOL_RESULT_CHARS,
+  capStoredToolResultContent,
+  createAgentStreamState,
+} from "./use-stream.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
@@ -41,12 +45,33 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks).toMatchObject([{ type: "text", content: "hello" }]);
   });
 
+  test("caps oversized tool results at ingress", () => {
+    const state = createAgentStreamState();
+    const huge = "x".repeat(MAX_STORED_TOOL_RESULT_CHARS + 5_000);
+
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "call-huge",
+      name: "read_file",
+      arguments: { path: "big.txt" },
+    }));
+    state.addEvent(event("tool.done", {
+      result: { callId: "call-huge", content: huge, isError: false },
+    }));
+
+    const result = state.contentBlocks.find((b) => b.type === "tool_result");
+    expect(result?.type).toBe("tool_result");
+    if (result?.type !== "tool_result") return;
+    expect(result.content.length).toBeLessThan(huge.length);
+    expect(result.content).toContain("characters omitted from stored tool output");
+    expect(capStoredToolResultContent(huge).length).toBeLessThan(huge.length);
+  });
+
   test("caps the retained block tail and reports the trimmed count", () => {
     const state = createAgentStreamState();
 
     // Drive well past the retention cap with distinct tool_call/result pairs so
     // every event pushes a fresh block rather than appending to the last one.
-    for (let i = 0; i < 1200; i++) {
+    for (let i = 0; i < 400; i++) {
       state.addEvent(event("inference.tool_call.end", {
         callId: `call-${i}`,
         name: "read_file",
@@ -57,7 +82,7 @@ describe("createAgentStreamState", () => {
       }));
     }
 
-    expect(state.contentBlocks.length).toBeLessThanOrEqual(2000);
+    expect(state.contentBlocks.length).toBeLessThanOrEqual(600);
     expect(state.trimmedBlockCount).toBeGreaterThan(0);
     // The most recent work is always retained; the oldest is what gets dropped.
     const last = state.contentBlocks.at(-1);

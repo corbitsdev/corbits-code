@@ -102,9 +102,38 @@ export type AgentStreamState = {
   clear(): void;
 };
 
-// Generous enough that no normal session ever notices, low enough that a
-// multi-hour run can't exhaust memory or stall the per-render block scan.
-const MAX_RETAINED_BLOCKS = 2000;
+// This is display-only state; the agent context is retained separately. Keep the
+// TUI tail bounded so long tool-heavy runs do not stall every streaming render.
+const MAX_RETAINED_BLOCKS = 600;
+
+// Ingress caps keep a single block from forcing a full-history wrap on every frame.
+export const MAX_STORED_TOOL_RESULT_CHARS = 48_000;
+export const MAX_STORED_TOOL_ARGUMENT_CHARS = 24_000;
+export const MAX_STORED_ASSISTANT_BLOCK_CHARS = 128_000;
+
+function capWithOmissionSuffix(content: string, maxChars: number, label: string): string {
+  if (content.length <= maxChars) return content;
+  const omitted = content.length - maxChars;
+  return `${content.slice(0, maxChars)}\n\n… ${omitted} characters omitted from ${label}`;
+}
+
+export function capStoredToolResultContent(content: string): string {
+  return capWithOmissionSuffix(content, MAX_STORED_TOOL_RESULT_CHARS, "stored tool output");
+}
+
+export function capStoredToolArguments(argumentsText: string): string {
+  return capWithOmissionSuffix(argumentsText, MAX_STORED_TOOL_ARGUMENT_CHARS, "stored tool arguments");
+}
+
+function capStoredAssistantContent(content: string): string {
+  return capWithOmissionSuffix(content, MAX_STORED_ASSISTANT_BLOCK_CHARS, "stored assistant text");
+}
+
+function appendBoundedInPlace(content: string, fragment: string, maxChars: number): string {
+  if (content.length >= maxChars) return content;
+  const room = maxChars - content.length;
+  return content + (fragment.length <= room ? fragment : fragment.slice(0, room));
+}
 
 function stringifyToolContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -456,7 +485,7 @@ export function createAgentStreamState(
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "thinking") {
-            last.content += token;
+            last.content = appendBoundedInPlace(last.content, token, MAX_STORED_ASSISTANT_BLOCK_CHARS);
             contentBlocksDirty = true;
           } else {
             pushBlock({ type: "thinking", content: token });
@@ -471,10 +500,10 @@ export function createAgentStreamState(
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "text") {
-            last.content += token;
+            last.content = appendBoundedInPlace(last.content, token, MAX_STORED_ASSISTANT_BLOCK_CHARS);
             contentBlocksDirty = true;
           } else {
-            pushBlock({ type: "text", content: token });
+            pushBlock({ type: "text", content: capStoredAssistantContent(token) });
           }
           break;
         }
@@ -494,11 +523,12 @@ export function createAgentStreamState(
           const fragment = (event.data as { argumentFragment: string }).argumentFragment;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "tool_call") {
-            last.arguments += fragment;
+            last.arguments = appendBoundedInPlace(last.arguments, fragment, MAX_STORED_TOOL_ARGUMENT_CHARS);
             contentBlocksDirty = true;
           }
           if (openCallId !== null) {
-            callIdToArguments.set(openCallId, (callIdToArguments.get(openCallId) ?? "") + fragment);
+            const prev = callIdToArguments.get(openCallId) ?? "";
+            callIdToArguments.set(openCallId, appendBoundedInPlace(prev, fragment, MAX_STORED_TOOL_ARGUMENT_CHARS));
           }
           break;
         }
@@ -509,7 +539,8 @@ export function createAgentStreamState(
           currentToolName = data.name;
           callIdToName.set(data.callId, data.name);
           const existingArguments = callIdToArguments.get(data.callId) ?? "";
-          const argumentText = data.arguments === undefined ? existingArguments : stringifyToolArguments(data.arguments);
+          const rawArgumentText = data.arguments === undefined ? existingArguments : stringifyToolArguments(data.arguments);
+          const argumentText = capStoredToolArguments(rawArgumentText);
           callIdToArguments.set(data.callId, argumentText);
           openCallId = null;
           const last = contentBlocks[contentBlocks.length - 1];
@@ -553,7 +584,7 @@ export function createAgentStreamState(
           const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
-          const content = stringifyToolContent(result.content);
+          const content = capStoredToolResultContent(stringifyToolContent(result.content));
 
           if (name === "task") {
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
