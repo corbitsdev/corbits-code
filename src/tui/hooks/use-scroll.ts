@@ -12,27 +12,30 @@ export type UseScrollArgs = {
   maxOffset: number;
 };
 
-export function useScroll({ maxOffset }: UseScrollArgs): ScrollController {
-  const [storedOffset, setStoredOffset] = useState(0);
-  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+type ScrollState = {
+  storedOffset: number;
+  pinnedToBottom: boolean;
+};
 
-  const scrollOffset = pinnedToBottom ? maxOffset : Math.min(storedOffset, maxOffset);
-  const atBottom = pinnedToBottom || scrollOffset >= maxOffset;
+export function useScroll({ maxOffset }: UseScrollArgs): ScrollController {
+  const [state, setState] = useState<ScrollState>({ storedOffset: 0, pinnedToBottom: true });
+
+  const scrollOffset = state.pinnedToBottom ? maxOffset : Math.min(state.storedOffset, maxOffset);
+  const atBottom = state.pinnedToBottom || scrollOffset >= maxOffset;
 
   return {
     scrollOffset,
     atBottom,
     scrollUp: (by = 1) => {
-      setPinnedToBottom(false);
-      setStoredOffset(Math.max(0, scrollOffset - by));
+      const next = Math.max(0, scrollOffset - by);
+      setState({ storedOffset: next, pinnedToBottom: false });
     },
     scrollDown: (by = 1) => {
       const next = Math.min(maxOffset, scrollOffset + by);
-      setPinnedToBottom(next >= maxOffset);
-      setStoredOffset(next);
+      setState({ storedOffset: next, pinnedToBottom: next >= maxOffset });
     },
     scrollToBottom: () => {
-      setPinnedToBottom(true);
+      setState((prev) => prev.pinnedToBottom ? prev : { ...prev, pinnedToBottom: true });
     },
   };
 }
