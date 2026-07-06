@@ -231,6 +231,10 @@ function renderedLength(segments: StyledSegment[]): number {
   return segments.reduce((sum, seg) => sum + stringWidth(seg.text), 0);
 }
 
+function renderedText(segments: StyledSegment[]): string {
+  return segments.map((seg) => seg.text).join("");
+}
+
 // Slice a styled cell's segments to the character range [start, end), preserving
 // each surviving segment's styling, so a cell that wraps across visual rows keeps
 // its inline markdown.
@@ -299,6 +303,10 @@ function parseTableBlock(lines: string[], startIndex: number, width: number): Pa
     return { lines: renderGrid(cells, naturalWidths), consumed };
   }
 
+  if (isDescriptorTable(cells)) {
+    return { lines: renderDescriptorList(cells), consumed };
+  }
+
   const targetContent = width - sepTotal;
   if (targetContent < cols * MIN_COL_WIDTH) {
     return { lines: renderKeyValue(cells), consumed };
@@ -358,6 +366,27 @@ function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegm
     }
   }
 
+  return out;
+}
+
+const DESCRIPTOR_KEY_HEADERS = new Set(["id", "name", "agent", "tool", "key"]);
+const DESCRIPTOR_VALUE_HEADERS = new Set(["role", "description", "summary", "details", "value"]);
+
+function isDescriptorTable(cells: StyledSegment[][][]): boolean {
+  const headers = cells[0];
+  if (headers === undefined || headers.length !== 2 || cells.length < 2) return false;
+  const keyHeader = renderedText(headers[0] ?? []).trim().toLowerCase();
+  const valueHeader = renderedText(headers[1] ?? []).trim().toLowerCase();
+  return DESCRIPTOR_KEY_HEADERS.has(keyHeader) && DESCRIPTOR_VALUE_HEADERS.has(valueHeader);
+}
+
+function renderDescriptorList(cells: StyledSegment[][][]): StyledSegment[][] {
+  const [, ...dataRows] = cells;
+  const out: StyledSegment[][] = [];
+  dataRows.forEach((row, ri) => {
+    if (ri > 0) out.push([]);
+    out.push([...applyFlag(row[0] ?? [], { bold: true }), { text: " - " }, ...(row[1] ?? [])]);
+  });
   return out;
 }
 
