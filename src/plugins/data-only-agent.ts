@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, basename, dirname } from "node:path";
 import type {
   AgentProfile,
   CapabilityFilter,
@@ -10,12 +10,15 @@ import type {
 import { AgentProfileSchema } from "../agent/profiles.js";
 import { type } from "arktype";
 
-// A data-only agent plugin is just a directory with `agents/*.md` (and optional
-// `skills/<name>/SKILL.md` files). The loader recognizes it without an index.ts
-// by walking the markdown files and synthesizing the same `agentPlugin.agents[]`
-// shape a JS plugin would export. The validation path is identical: every
-// synthesized profile passes through AgentProfileSchema, so a malformed entry is
-// skipped rather than reaching the dispatcher.
+// A data-only agent plugin is a directory containing either:
+//   • an `agents/` subfolder holding `*.md` files (standard layout), or
+//   • the `*.md` files directly (e.g. you point the plugin path at an `agents/`
+//     folder itself).
+// Optional `skills/<name>/SKILL.md` live beside the chosen agents container
+// (or inside it for a flat layout). The loader recognizes it without an
+// index.ts by walking the markdown files and synthesizing the same
+// `agentPlugin.agents[]` shape a JS plugin would export. Validation is
+// identical: every synthesized profile passes through AgentProfileSchema.
 //
 // Frontmatter is accepted from any of three live dialects, normalized to a
 // single AgentProfile:
@@ -382,12 +385,25 @@ export async function loadDataOnlyAgentPlugin(
     onWarning?: (msg: string) => void;
   },
 ): Promise<DataOnlyAgentPlugin | null> {
-  const agentsDir = join(pluginDir, "agents");
+  // Support two layouts:
+  // 1. pluginDir/agents/*.md  (typical)
+  // 2. pluginDir/*.md directly (when the given path points at agents/ itself)
+  // Pick the skills root so skills/ is found sibling to the agents container.
+  let agentsContainer = join(pluginDir, "agents");
+  let pluginRoot = pluginDir;
   let entries: string[];
   try {
-    entries = await readdir(agentsDir);
+    entries = await readdir(agentsContainer);
   } catch {
-    return null;
+    agentsContainer = pluginDir;
+    try {
+      entries = await readdir(agentsContainer);
+    } catch {
+      return null;
+    }
+    if (basename(agentsContainer) === "agents") {
+      pluginRoot = dirname(agentsContainer);
+    }
   }
   const mdFiles = entries.filter((f) => /\.md$/i.test(f));
   if (mdFiles.length === 0) return null;
@@ -397,7 +413,7 @@ export async function loadDataOnlyAgentPlugin(
 
   const agents: unknown[] = [];
   for (const filename of mdFiles) {
-    const fullPath = join(agentsDir, filename);
+    const fullPath = join(agentsContainer, filename);
     const warning = options?.onWarning;
     let raw: string;
     try {
@@ -434,7 +450,7 @@ export async function loadDataOnlyAgentPlugin(
     // Bundle skills as text prepended to the prompt body.
     const skillBlocks: string[] = [];
     for (const name of skillNames) {
-      const text = await loadSkillText(cwd, name, pluginDir, extraPluginDirs);
+      const text = await loadSkillText(cwd, name, pluginRoot, extraPluginDirs);
       if (text === undefined) {
         warning?.(
           `agent ${id}: skill "${name}" referenced but not found in skill search path`,
@@ -481,7 +497,7 @@ export async function loadDataOnlyAgentPlugin(
 
   if (agents.length === 0) return null;
 
-  const pluginId = options?.pluginId ?? pathBasename(pluginDir);
+  const pluginId = options?.pluginId ?? basename(pluginRoot);
   return {
     manifest: {
       id: pluginId,
@@ -491,7 +507,3 @@ export async function loadDataOnlyAgentPlugin(
     agentPlugin: { agents },
   };
 }
-
-// Resolve the directory's basename for use as the default plugin id.
-// Split out so callers can override via pluginId without this running.
-import { basename as pathBasename } from "node:path";

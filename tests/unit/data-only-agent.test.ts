@@ -31,8 +31,8 @@ async function mkdtemp(): Promise<string> {
 }
 
 describe("loadDataOnlyAgentPlugin", () => {
-  test("returns null when there is no agents/ directory", async () => {
-    const dir = await makePlugin({ "README.md": "hi" });
+  test("returns null when there are no *.md files (neither in agents/ nor at root)", async () => {
+    const dir = await makePlugin({ "README": "hi", "notes.txt": "no" });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "x" });
     expect(plugin).toBeNull();
   });
@@ -269,5 +269,36 @@ describe("loadDataOnlyAgentPlugin", () => {
     const expected = dir.split("/").pop() as string;
     expect(plugin).not.toBeNull();
     expect(plugin!.manifest.id).toBe(expected);
+  });
+
+  test("loads agents directly in the plugin dir (no agents/ subfolder)", async () => {
+    const dir = await makePlugin({
+      "alpha.md": "---\nid: alpha\ndescription: direct\n---\nDirect agent body",
+    });
+    const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "flat" });
+    expect(plugin).not.toBeNull();
+    expect(plugin!.manifest.id).toBe("flat");
+    expect(plugin!.agentPlugin.agents.length).toBe(1);
+    expect((plugin!.agentPlugin.agents[0] as any).id).toBe("alpha");
+    expect((plugin!.agentPlugin.agents[0] as any).systemPromptRole).toContain("Direct agent body");
+  });
+
+  test("supports pointing at agents/ subdir directly; id comes from parent; skills resolve from sibling", async () => {
+    const dir = await makePlugin({
+      "agents/beta.md": "---\nname: beta\n---\nLoad the `style` skill\n\nbeta body here",
+      "skills/style/SKILL.md": "Style rules: be concise.",
+    });
+    const agentsSub = join(dir, "agents");
+    const plugin = await loadDataOnlyAgentPlugin(agentsSub);
+    expect(plugin).not.toBeNull();
+    // id derives from parent dir name, not "agents"
+    const expectedId = dir.split("/").pop() as string;
+    expect(plugin!.manifest.id).toBe(expectedId);
+    expect(plugin!.agentPlugin.agents.length).toBe(1);
+    const prof = plugin!.agentPlugin.agents[0] as any;
+    expect(prof.id).toBe("beta");
+    expect(prof.systemPromptRole).toContain("Bundled skill: style");
+    expect(prof.systemPromptRole).toContain("Style rules: be concise.");
+    expect(prof.systemPromptRole).toContain("beta body here");
   });
 });
