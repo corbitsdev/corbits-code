@@ -43,7 +43,10 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean } = {}): string
     "- Dependency installs (npm/pip/cargo/brew install or add, npx/bunx) need operator approval and never run unattended; you may request them via ask_operator, passing the exact command as `command` so approval covers the run_shell call too — the operator should not be asked twice.",
     "- The .agent-state directory and gitignored paths are off-limits unless the task genuinely needs them, and reaching in prompts an approval.",
     ...(dynamicTools
-      ? ["- Only the core tools below are loaded. Call tool_search with a short capability description to load more (file search, web, sub-agents, MCP integrations); then call the loaded tool. Never shell out to substitute for a tool."]
+      ? [
+          "- Only the core tools below are loaded. Call tool_search with a short capability description to load more (file search, web, sub-agents, MCP integrations); then call the loaded tool. Never shell out to substitute for a tool.",
+          "- To spin up specialists or a team (e.g. review), call search_agents with the user's intent, then task(agent=<id>, ...) for each profile — parallel task calls when work is independent.",
+        ]
       : ["- The tools below are your full toolset. Never shell out to substitute for a tool."]),
     "- Workflows are slash-command only — never auto-invoke or suggest one. Execute a [WORKFLOW STEP …] block when present; do not ask the operator to re-run the command.",
     "- Tool results already render richly to the user — do not restate or reformat them; call present for structured data instead of writing Markdown tables.",
@@ -73,6 +76,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
   task: "delegate a self-contained subtask to a sub-agent",
+  search_agents: "find agent profiles by role or team before calling task(agent=...)",
   manage_tasks: "maintain your own task list (create/update status)",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",

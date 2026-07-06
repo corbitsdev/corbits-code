@@ -34,6 +34,7 @@ import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
 import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
+import { createSearchAgentsTool } from "./agent-search.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 const AskOperatorArgs = type({
@@ -144,6 +145,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
             ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
           }),
+          ...(args.subAgent.profiles !== undefined
+            ? [
+                createSearchAgentsTool(() => {
+                  const profiles = args.subAgent!.profiles;
+                  return typeof profiles === "function" ? profiles() : profiles ?? [];
+                }),
+              ]
+            : []),
         ]
       : []),
     stringTool({

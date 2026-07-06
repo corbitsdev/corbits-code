@@ -17,6 +17,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "present",
   "tool_search",
   "use_skill",
+  "search_agents",
 ];
 
 // Built-in tools surfaced in the prompt as one-line summaries (no schema) so the
