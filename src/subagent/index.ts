@@ -293,7 +293,7 @@ export const taskToolDefinition: ToolDefinition = {
       agent: {
         type: "string",
         description:
-          "Optional named agent profile from .agents/agents/ to use for this task. Profiles specify tier, capability restrictions, and role. Omit to use the default provider.",
+          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify tier, capability restrictions, and role. Omit for a generic sub-agent on the default provider.",
       },
     },
     required: ["description", "prompt"],
