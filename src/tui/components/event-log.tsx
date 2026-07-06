@@ -640,11 +640,15 @@ export type IncrementalLinesState = {
 };
 
 function blockLineCountsFromStarts(blockLineStarts: number[], lineCount: number): number[] {
+  // assembleRenderableBlocks leaves indices below startBlockIndex sparse. Treat
+  // any hole as zero-width so downstream sums never see NaN — `??` does not
+  // catch NaN once it propagates, so the guard belongs here at the source.
   const counts = new Array<number>(blockLineStarts.length);
   for (let i = 0; i < blockLineStarts.length; i++) {
     const start = blockLineStarts[i] ?? 0;
-    const nextStart = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1]! : lineCount;
-    counts[i] = Math.max(0, nextStart - start);
+    const rawNext = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1] : lineCount;
+    const next = rawNext ?? start;
+    counts[i] = Math.max(0, next - start);
   }
   return counts;
 }
@@ -856,7 +860,8 @@ export function buildLinesIncremental(
     for (let i = 0; i < startBlockIndex; i++) {
       blockLineStarts[i] = prev.blockLineStarts[i] ?? 0;
       if (i < prev.blockRenderLineCounts.length) {
-        blockRenderLineCounts[i] = prev.blockRenderLineCounts[i] ?? blockRenderLineCounts[i]!;
+        const prevCount = prev.blockRenderLineCounts[i];
+        if (prevCount !== undefined) blockRenderLineCounts[i] = prevCount;
       }
     }
   }
