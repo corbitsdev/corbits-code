@@ -23,6 +23,7 @@ export type EventLogProps = {
 
 const SHELL_PREFIX = "$ ";
 const USER_CODE_BLOCK_LINE_LIMIT = 12;
+const EXPANDED_TOOL_RESULT_LINE_LIMIT = 200;
 // Tool calls and results sit one level below assistant prose so the model's
 // text draws the eye and tools read as subordinate actions.
 const TOOL_INDENT = 2;
@@ -213,6 +214,13 @@ function plainLines(content: string, base: Partial<StyledSegment>, width: number
     .flatMap((line) => wrapLines(line, width).map((row) => [{ ...base, text: row }]));
 }
 
+function limitLines(content: string, maxLines: number): string {
+  const lines = content.split("\n");
+  if (lines.length <= maxLines) return content;
+  const hidden = lines.length - maxLines;
+  return [...lines.slice(0, maxLines), `[${hidden} more lines hidden]`].join("\n");
+}
+
 // A static header for the top of the scrollback that lists the skills and
 // plugins loaded for this session, so they are visible on load and a scroll-up
 // away thereafter. Returns nothing when there is nothing to show.
@@ -303,6 +311,16 @@ function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, w
   );
 }
 
+function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
+  return wrapStyledLine(
+    [
+      { text: "● ", color: color("success"), dim: true },
+      { text: `Edited ${count} files`, color: color("muted"), dim: true },
+    ],
+    width,
+  );
+}
+
 function mergedToolLines(
   call: Extract<RenderableBlock, { type: "tool_call" }>,
   result: Extract<RenderableBlock, { type: "tool_result" }>,
@@ -357,7 +375,8 @@ function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }
 
   const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
   if (expanded) {
-    return isJSONDocument ? markdownLines(full, width) : plainLines(full, { color: color("muted") }, width);
+    const limited = limitLines(full, EXPANDED_TOOL_RESULT_LINE_LIMIT);
+    return isJSONDocument ? markdownLines(limited, width) : plainLines(limited, { color: color("muted") }, width);
   }
   return plainLines(preview, { color: color("muted"), dim: true }, width);
 }
@@ -528,6 +547,39 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
 
     if (
       block.type === "tool_call"
+      && (block.name === "edit_file" || block.name === "write_file")
+      && !isExpanded(block)
+    ) {
+      let j = i;
+      let pairCount = 0;
+      while (j + 1 < blocks.length) {
+        const call = blocks[j];
+        const result = blocks[j + 1];
+        if (
+          call?.type !== "tool_call"
+          || result?.type !== "tool_result"
+          || (call.name !== "edit_file" && call.name !== "write_file")
+          || result.name !== call.name
+          || isExpanded(call)
+          || isExpanded(result)
+        ) break;
+        pairCount++;
+        j += 2;
+      }
+      if (pairCount >= 3) {
+        const groupLines = indentLines(
+          mergedFileEditGroupLines(pairCount, Math.max(8, columns) - TOOL_INDENT),
+          TOOL_INDENT,
+        );
+        lines.push(...groupLines);
+        for (let k = i + 1; k < j; k++) blockLineStarts[k] = lines.length;
+        i = j - 1;
+        continue;
+      }
+    }
+
+    if (
+      block.type === "tool_call"
       && next?.type === "tool_result"
       && next.name === block.name
       && !isExpanded(block)
@@ -565,12 +617,104 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
   return { lines, blockLineStarts };
 }
 
+export const DEFAULT_MAX_RENDERED_LOG_LINES = 2000;
+
 export type IncrementalLinesState = {
   blocks: RenderableBlock[];
   lines: StyledLine[];
   blockLineStarts: number[];
   layoutKey: string;
+  firstRenderedBlockIndex: number;
+  hiddenRenderedLineCount: number;
 };
+
+function hiddenLinesMarker(hidden: number): StyledLine {
+  return [
+    { text: `↑ ${hidden} earlier rendered lines hidden to keep the UI responsive`, dim: true },
+  ];
+}
+
+function trimBuiltLinesToMax(
+  lines: StyledLine[],
+  blockLineStarts: number[],
+  blocks: RenderableBlock[],
+  maxLines: number,
+): Pick<IncrementalLinesState, "lines" | "blockLineStarts" | "firstRenderedBlockIndex" | "hiddenRenderedLineCount"> {
+  if (lines.length <= maxLines) {
+    return {
+      lines,
+      blockLineStarts,
+      firstRenderedBlockIndex: 0,
+      hiddenRenderedLineCount: 0,
+    };
+  }
+
+  const keptLineCount = maxLines - 2;
+  const cutAt = lines.length - keptLineCount;
+  let firstRenderedBlockIndex = 0;
+  for (let i = 0; i < blocks.length; i++) {
+    if ((blockLineStarts[i] ?? 0) >= cutAt) {
+      firstRenderedBlockIndex = i;
+      break;
+    }
+  }
+
+  const trimmed = [
+    hiddenLinesMarker(lines.length - keptLineCount),
+    [] satisfies StyledLine,
+    ...lines.slice(cutAt),
+  ];
+  const offset = cutAt - 2;
+  const nextStarts = blockLineStarts.map((start, i) =>
+    i < firstRenderedBlockIndex ? 0 : Math.max(0, start - offset),
+  );
+
+  return {
+    lines: trimmed,
+    blockLineStarts: nextStarts,
+    firstRenderedBlockIndex,
+    hiddenRenderedLineCount: lines.length - keptLineCount,
+  };
+}
+
+function estimateBlockLineCount(
+  block: RenderableBlock,
+  columns: number,
+  expanded: boolean,
+  cache?: Map<string, StyledLine[]>,
+): number {
+  const cached = cache?.get(blockCacheKey(block, columns, expanded));
+  if (cached !== undefined) return cached.length;
+  if (block.type === "tool_call" || block.type === "tool_result") return 1;
+  if (block.type === "view") return 4;
+  let chars = 40;
+  if (block.type === "user" || block.type === "text" || block.type === "thinking") {
+    chars = block.content.length;
+  } else if (block.type === "error") {
+    chars = block.message.length;
+  }
+  return Math.max(1, Math.ceil(chars / Math.max(8, columns)));
+}
+
+function findColdPathStartIndex(
+  blocks: RenderableBlock[],
+  columns: number,
+  isExpanded: (block: RenderableBlock) => boolean,
+  cache: Map<string, StyledLine[]> | undefined,
+  maxLines: number,
+): number {
+  const budget = maxLines - 4;
+  let accumulated = 0;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i]!;
+    const expanded = isExpanded(block);
+    const turnGap = block.type === "user" || block.type === "text" ? 1 : 0;
+    const count = estimateBlockLineCount(block, columns, expanded, cache) + turnGap;
+    if (accumulated + count > budget && i < blocks.length - 1) return i + 1;
+    accumulated += count;
+  }
+  return 0;
+}
 
 export function buildLinesIncremental(
   prev: IncrementalLinesState | undefined,
@@ -581,6 +725,7 @@ export function buildLinesIncremental(
   cache?: Map<string, StyledLine[]>,
   planCtx?: PlanContext,
   layoutKey?: string,
+  maxRenderedLines: number = DEFAULT_MAX_RENDERED_LOG_LINES,
 ): IncrementalLinesState {
   const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
   // Prune stale cache entries only when blocks were removed (cache has more
@@ -595,6 +740,8 @@ export function buildLinesIncremental(
   let startBlockIndex = 0;
   let prefixLines: StyledLine[] = [];
 
+  const prevTailStart = prev?.firstRenderedBlockIndex ?? 0;
+
   if (
     prev !== undefined
     && prev.layoutKey === key
@@ -608,13 +755,25 @@ export function buildLinesIncremental(
         break;
       }
     }
-    if (firstDiff >= blocks.length - 1) {
+    if (firstDiff < prevTailStart) {
+      startBlockIndex = prevTailStart;
+      prefixLines = [];
+    } else if (firstDiff >= blocks.length - 1) {
       startBlockIndex = firstDiff >= blocks.length ? blocks.length - 1 : firstDiff;
       prefixLines = prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
     }
+  } else if (prev === undefined && blocks.length > 60 && startBlockIndex === 0) {
+    const coldStart = findColdPathStartIndex(blocks, columns, isExpanded, cache, maxRenderedLines);
+    if (coldStart > 0) {
+      startBlockIndex = coldStart;
+      prefixLines = [
+        [{ text: `↑ ${coldStart} earlier blocks skipped during initial layout to keep the UI responsive`, dim: true }],
+        [],
+      ];
+    }
   }
 
-  const { lines, blockLineStarts } = assembleRenderableBlocks({
+  const { lines: rawLines, blockLineStarts: rawStarts } = assembleRenderableBlocks({
     blocks,
     columns,
     thinkingExpanded,
@@ -625,13 +784,27 @@ export function buildLinesIncremental(
     prefixLines,
   });
 
+  let blockLineStarts = rawStarts;
+  let lines = rawLines;
+
   if (prev !== undefined && startBlockIndex > 0) {
     for (let i = 0; i < startBlockIndex; i++) {
       blockLineStarts[i] = prev.blockLineStarts[i] ?? 0;
     }
   }
 
-  return { blocks, lines, blockLineStarts, layoutKey: key };
+  const trimmed = trimBuiltLinesToMax(lines, blockLineStarts, blocks, maxRenderedLines);
+  lines = trimmed.lines;
+  blockLineStarts = trimmed.blockLineStarts;
+
+  return {
+    blocks,
+    lines,
+    blockLineStarts,
+    layoutKey: key,
+    firstRenderedBlockIndex: trimmed.firstRenderedBlockIndex,
+    hiddenRenderedLineCount: trimmed.hiddenRenderedLineCount,
+  };
 }
 
 export function buildLines(
