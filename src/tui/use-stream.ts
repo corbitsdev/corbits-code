@@ -100,6 +100,7 @@ export type AgentStreamState = {
   setGatePending(pending: boolean): void;
   requestStop(): void;
   markRunning(): void;
+  appendUserMessage(content: string): void;
   clear(): void;
 };
 
@@ -256,6 +257,15 @@ export function createAgentStreamState(
     contentBlocksDirty = true;
   };
 
+  const ensureUserBlock = (fullContent: string): void => {
+    latestUserMessage = fullContent;
+    latestUserMessageLogged = true;
+    const last = contentBlocks[contentBlocks.length - 1];
+    if (!last || last.type !== "user" || last.content !== fullContent) {
+      pushBlock({ type: "user", content: fullContent });
+    }
+  };
+
   const callIdToName = new Map<string, string>();
   const callIdToArguments = new Map<string, string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
@@ -273,8 +283,9 @@ export function createAgentStreamState(
   let isProcessing = false;
   let latestUserMessage = "";
   // Whether the latestUserMessage is already represented by a user block in
-  // contentBlocks. Both are set atomically in addEvent, so this tracks the
-  // edge case where the header needs to show a message before its block lands.
+  // contentBlocks. Used by the header to avoid duplicating the message preview
+  // once the block has landed in the transcript (via appendUserMessage on submit
+  // or message.received).
   let latestUserMessageLogged = true;
   let tasks: Task[] = [];
   let subAgents: Task[] = [];
@@ -453,6 +464,9 @@ export function createAgentStreamState(
       // watchdog's first tick against a stale timestamp.
       lastActivityAt = Date.now();
     },
+    appendUserMessage(content: string): void {
+      ensureUserBlock(content);
+    },
     clear(): void {
       contentBlocks.length = 0;
       contentBlocksDirty = true;
@@ -494,9 +508,8 @@ export function createAgentStreamState(
           const attachmentText = attachments.length > 0
             ? `\n[Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}: ${attachments.map((att) => att.name).join(", ")}]`
             : "";
-          latestUserMessage = `${content}${attachmentText}`;
-          latestUserMessageLogged = true;
-          pushBlock({ type: "user", content: latestUserMessage });
+          const full = `${content}${attachmentText}`;
+          ensureUserBlock(full);
           break;
         }
         case "inference.thinking.delta": {
