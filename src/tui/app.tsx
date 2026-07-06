@@ -1015,7 +1015,12 @@ export function App({
     const attachments = pendingImages;
     setPendingImages([]);
     void prepareOutboundMessage(message, attachments).then((outbound) => {
-      if (state.isProcessing) {
+      // Read live state from the ref — prepareOutboundMessage is async (it does
+      // @-mention resolution + disk I/O), so the closed-over state.isProcessing
+      // can be stale by the time this resolves. A previous turn can finish and
+      // drain the queue during the async window; reading the stale value would
+      // then queue a message nothing will ever drain, leaving the UI stuck.
+      if (stateRef.current.isProcessing) {
         pendingQueueRef.current.push(outbound);
         setQueuedCount((c) => c + 1);
         return;
