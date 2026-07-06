@@ -815,6 +815,17 @@ export function App({
     sendCounterRef.current += 1;
     state.markRunning();
     scroll.scrollToBottom();
+
+    // Append the user message to the transcript immediately (optimistic echo).
+    // This ensures the input is visible even when send() is delayed by pre-send
+    // work such as Codex/XAI token refresh. The subsequent message.received will
+    // no-op the duplicate push.
+    const displayContent = message.text.length > 0 ? message.text : "Please inspect the attached image.";
+    const attachmentText = message.attachments.length > 0
+      ? `\n[Attached ${message.attachments.length} image${message.attachments.length === 1 ? "" : "s"}: ${message.attachments.map((att) => att.name).join(", ")}]`
+      : "";
+    state.appendUserMessage(`${displayContent}${attachmentText}`);
+
     // Nudge a re-render so the in-flight indicator and interval timer activate
     // immediately rather than waiting for the first event from the new run.
     forceRender((n) => n + 1);
