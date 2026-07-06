@@ -205,7 +205,7 @@ describe("flat line buffer", () => {
     expect(text).not.toContain("\u001B");
   });
 
-  test("expanded tool results are bounded", () => {
+  test("expanded tool results are bounded and tail-anchored", () => {
     const block: ContentBlock = {
       type: "tool_result",
       id: "large-result",
@@ -216,9 +216,12 @@ describe("flat line buffer", () => {
     };
 
     const text = lineText(buildLines([block], COLUMNS, false, () => true)).join("\n");
-    expect(text).toContain("line 199");
-    expect(text).not.toContain("line 200");
+    // Tail-anchored: the conclusion (line 249) survives alongside a small head
+    // stub (lines 0-2). The early-middle (lines 3-53) is elided.
+    expect(text).toContain("line 249");
+    expect(text).toContain("line 0");
     expect(text).toContain("[50 more lines hidden]");
+    expect(text).not.toContain("line 40");
   });
 
   test("cached assistant output rewraps when the terminal width changes", () => {
