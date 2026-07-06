@@ -164,6 +164,23 @@ const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLinePro
 
 function wrapStyledLine(segments: StyledSegment[], width: number): StyledLine[] {
   if (segments.length === 0) return [[]];
+
+  const first = segments[0];
+  const markerWidth = first?.bullet === true && /^\s*(?:•|\d+\.)\s+/.test(first.text)
+    ? stringWidth(first.text)
+    : 0;
+  if (first !== undefined && markerWidth > 0) {
+    const marker = first;
+    const body = segments.slice(1);
+    if (body.length === 0) return [segments];
+    const bodyText = body.map((s) => s.text).join("");
+    const bodyWidth = Math.max(1, width - markerWidth);
+    return wrapRanges(bodyText, bodyWidth).map((range, index) => [
+      index === 0 ? marker : { text: " ".repeat(markerWidth) },
+      ...sliceSegments(body, range.start, range.end),
+    ]);
+  }
+
   const text = segments.map((s) => s.text).join("");
   return wrapRanges(text, width).map((range) => sliceSegments(segments, range.start, range.end));
 }

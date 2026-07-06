@@ -29,31 +29,32 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Intercode, a senior engineer, not an assistant", () => {
+test("agent identity is Intercode with a minimal coding-assistant role", () => {
   const role = buildChatRole();
   expect(role).toContain("Intercode");
-  expect(role).toContain("senior engineer");
-  expect(role.toLowerCase()).not.toContain("assistant");
+  expect(role).toContain("senior coding assistant");
+  expect(role).toContain("understand, edit, and verify code");
 });
 
-test("harness facts state the non-derivable rules: blocked shell writes, approval, tool_search", () => {
+test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
   expect(facts).toContain("write_file/edit_file");
   expect(facts).toContain("blocked");
-  expect(facts).toContain("need operator approval");
+  expect(facts).toContain("operator approval");
   expect(facts).toContain("tool_search");
-  expect(facts).toContain(".agent-state");
-  expect(facts).toContain("slash-command only");
+  expect(facts).toContain("plugins or integrations");
+  expect(facts).toContain("slash-command steps");
   expect(facts).toContain(".intercode/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
-  expect(facts).toContain("Do not run shell commands to decode, identify, or inspect an attached image");
+  expect(facts).not.toContain("Tool results already render richly");
 });
 
-test("guidelines prefer lsp before large files and keep responses concise", () => {
+test("guidelines keep the default prompt concise and defer capability details", () => {
   const guidelines = buildGuidelines();
-  expect(guidelines).toContain("use lsp before opening large files");
   expect(guidelines).toContain("Be concise");
-  expect(guidelines).toContain("stay in scope");
+  expect(guidelines).toContain("diagnose product or visual feedback before editing code");
+  expect(guidelines).toContain("For explicit coding tasks, work autonomously");
+  expect(guidelines).toContain("Use lsp for symbols");
 });
 
 test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
