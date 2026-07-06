@@ -3,19 +3,13 @@ import { join } from "node:path";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
 
-// Skills that ship with the binary, resolved as a last-resort fallback so a
-// plugin- or project-provided skill of the same name takes precedence.
-const BUNDLED_SKILLS_DIR = join(import.meta.dirname, "../../skills/bundled");
-
 export type SkillSummary = { name: string; description: string };
 
-// The directories that hold skill subfolders, highest precedence first:
-// installed plugins, then project-local dirs, then bundled.
+// Skill subfolders live under enabled plugin dirs first, then project-local dirs.
 function skillBaseDirs(cwd: string, pluginDirs: string[]): string[] {
   return [
     ...pluginDirs.map((dir) => join(dir, "skills")),
     ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel)),
-    BUNDLED_SKILLS_DIR,
   ];
 }
 
@@ -71,7 +65,7 @@ export async function resolveSkillBody(cwd: string, ref: string, pluginDirs: str
 
 // Discover every available skill (name + one-line description) for the lazy
 // listing in the system prompt. Deduped by name: the first base dir that
-// provides a skill wins, so a plugin or project skill shadows a bundled one.
+// provides a skill wins, so a higher-precedence dir shadows a lower one.
 export async function discoverSkills(cwd: string, pluginDirs: string[] = []): Promise<SkillSummary[]> {
   const seen = new Map<string, SkillSummary>();
   for (const base of skillBaseDirs(cwd, pluginDirs)) {

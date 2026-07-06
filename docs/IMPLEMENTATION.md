@@ -1,6 +1,6 @@
 # Intercode — Implementation
 
-Package version: **0.2.1**. CLI binary: `intercode` (`./dist/index.js`).
+Package version: **0.2.5**. CLI binary: `intercode` (`./dist/index.js`).
 
 ## Runtime
 
@@ -72,6 +72,7 @@ src/
     prompts.ts            System prompt builders (agent + chat)
     critic.ts             Post-submit critique (build, typecheck, test)
     tools.ts              Agent tool registration helpers
+    agent-search.ts       search_agents tool + profile lexical index
     renderer.ts           Headless event-stream renderer (stderr + live cost)
     run-agent.ts          Headless runner: tools, director, hooks, critique
   session/
@@ -105,6 +106,8 @@ src/
     store.ts              Per-directory approval persistence
     types.ts              Approval / scope / request / outcome types
   plugins/
+    data-only-agent.ts         Markdown-only agent plugins (agents/*.md)
+    loader.ts                  Plugin discovery + loadPluginEntry
     path-escape-plugin.ts      Path sandboxing (first)
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
     secret-guard-plugin.ts     Hard-deny secret files
@@ -254,7 +257,7 @@ Positional arguments are joined into the task description. In headless mode a ta
 ### Inference
 
 - OpenAI-compatible chat completions, streamed via `@intx/inference`
-- JSON-schema tool definitions for `submit_plan`, `ask_operator`, `submit_output`
+- JSON-schema tool definitions for director-layer tools (`ask_operator`, `present`, `submit_output`, `advance_workflow`) and agent tools (`manage_tasks`, `tool_search`, `use_skill`, `search_agents`, …)
 
 ### State Persistence
 
