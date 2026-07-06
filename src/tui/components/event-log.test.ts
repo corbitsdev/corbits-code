@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { buildLines, buildResourceBanner, maxLineOffset, lineWindow } from "./event-log.js";
+import {
+  buildLines,
+  buildLinesIncremental,
+  buildResourceBanner,
+  maxLineOffset,
+  lineWindow,
+} from "./event-log.js";
 import type { ContentBlock } from "../use-stream.js";
 
 const COLUMNS = 80;
@@ -24,7 +30,51 @@ function lineText(lines: ReturnType<typeof buildLines>): string[] {
   return lines.map((line) => line.map((segment) => segment.text).join(""));
 }
 
+function editPair(index: number): ContentBlock[] {
+  const callId = `edit-${index}`;
+  return [
+    {
+      type: "tool_call",
+      id: callId,
+      name: "edit_file",
+      arguments: JSON.stringify({ path: `src/file-${index}.ts` }),
+    },
+    {
+      type: "tool_result",
+      id: `edit-result-${index}`,
+      callId,
+      name: "edit_file",
+      content: `replaced 1 occurrence(s) in src/file-${index}.ts`,
+      isError: false,
+    },
+  ];
+}
+
 describe("flat line buffer", () => {
+  test("incremental line build trims to the default rendered line budget", () => {
+    const blocks: ContentBlock[] = Array.from({ length: 55 }, (_, i) => ({
+      ...bigShellBlock(40),
+      id: `shell-${i}`,
+    }));
+    const maxLines = 100;
+
+    const state = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      () => true,
+      new Map(),
+      undefined,
+      "layout",
+      maxLines,
+    );
+
+    expect(state.lines.length).toBeLessThanOrEqual(maxLines);
+    expect(state.hiddenRenderedLineCount).toBeGreaterThan(0);
+    expect(lineText(state.lines).join("\n")).toContain("earlier rendered lines hidden");
+  });
+
   test("a multi-line shell command decomposes into one line per visual row", () => {
     const lines = buildLines([bigShellBlock(50)], COLUMNS, false, isExpanded);
     // Each entry is a single visual row (an array of styled segments), never a
@@ -93,6 +143,24 @@ describe("flat line buffer", () => {
     expect(lineText(buildLines([block], COLUMNS, false, isExpanded))).toEqual(["  Read 1 line"]);
   });
 
+  test("consecutive file edits collapse into one group", () => {
+    const blocks = [0, 1, 2, 3].flatMap(editPair);
+
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Edited 4 files"]);
+  });
+
+  test("expanded file edits render individually", () => {
+    const blocks = [0, 1, 2].flatMap(editPair);
+    const expandedIds = new Set(["edit-1"]);
+    const text = lineText(buildLines(blocks, COLUMNS, false, (block) => expandedIds.has(block.id))).join("\n");
+
+    expect(text).toContain("Edited src/file-0.ts");
+    expect(text).toContain("● Edit");
+    expect(text).toContain("src/file-1.ts");
+    expect(text).toContain("Edited src/file-2.ts");
+    expect(text).not.toContain("Edited 3 files");
+  });
+
   test("large user code fences are compacted in the log", () => {
     const block: ContentBlock = {
       type: "user",
@@ -119,6 +187,22 @@ describe("flat line buffer", () => {
     expect(text).toContain("error: failed  badly");
     expect(text).not.toContain("[<0;29;35M");
     expect(text).not.toContain("\u001B");
+  });
+
+  test("expanded tool results are bounded", () => {
+    const block: ContentBlock = {
+      type: "tool_result",
+      id: "large-result",
+      callId: "shell-1",
+      name: "run_shell",
+      content: Array.from({ length: 250 }, (_, i) => `line ${i}`).join("\n"),
+      isError: false,
+    };
+
+    const text = lineText(buildLines([block], COLUMNS, false, () => true)).join("\n");
+    expect(text).toContain("line 199");
+    expect(text).not.toContain("line 200");
+    expect(text).toContain("[50 more lines hidden]");
   });
 
   test("cached assistant output rewraps when the terminal width changes", () => {

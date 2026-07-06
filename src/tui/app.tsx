@@ -6,7 +6,15 @@ import type { InboundMessage } from "@intx/types/runtime";
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
-import { EventLog, buildLinesIncremental, buildResourceBanner, maxLineOffset, TEXT_GUTTER, type IncrementalLinesState } from "./components/event-log.js";
+import {
+  EventLog,
+  buildLinesIncremental,
+  buildResourceBanner,
+  DEFAULT_MAX_RENDERED_LOG_LINES,
+  maxLineOffset,
+  TEXT_GUTTER,
+  type IncrementalLinesState,
+} from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -95,7 +103,6 @@ const MAX_MENTION_TOTAL_BYTES = 400_000;
 const MAX_MENTION_COUNT = 5;
 const MAX_DIRECTORY_SUMMARY_ENTRIES = 200;
 const MAX_DIRECTORY_NAMES = 20;
-
 type OutboundUserMessage = {
   text: string;
   attachments: PendingImageAttachment[];
@@ -722,16 +729,20 @@ export function App({
         lineCacheRef.current,
         { currentStep: state.currentPlanStep, deviated: state.planDeviated },
         linesLayoutKey,
+        DEFAULT_MAX_RENDERED_LOG_LINES,
       );
       incrementalLinesRef.current = next;
       const banner = buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth);
-      if (state.trimmedBlockCount > 0) {
-        const marker: StyledLine = [
-          { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
-        ];
-        return [...banner, marker, [], ...next.lines];
-      }
-      return [...banner, ...next.lines];
+      return state.trimmedBlockCount > 0
+        ? [
+            ...banner,
+            [
+              { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
+            ] satisfies StyledLine,
+            [],
+            ...next.lines,
+          ]
+        : [...banner, ...next.lines];
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
