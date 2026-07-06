@@ -69,8 +69,8 @@ export async function loadPluginEntry(
           // not found, try next
         }
       }
-      // No JS entry — fall back to a data-only agent plugin if agents/ exists.
-      // Lets a plugin be just a directory of agent markdown files.
+      // No JS entry — fall back to a data-only agent plugin if it contains
+      // agents/*.md (or *.md directly). Lets a plugin be just agents/ + skills/.
       if (target === entryPath) {
         // pluginId defaults to basename(pluginDir) inside the loader; don't
         // pass it here so there's a single source of truth for the default.
