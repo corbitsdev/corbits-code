@@ -1,7 +1,8 @@
 import { Box, Text, useInput } from "ink";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
+import { listPathSuggestions } from "./at-mention/index.js";
 import type { PluginConfig } from "../../config/settings.js";
 import type { PluginCredentialField, PluginKind } from "../../plugins/manifest.js";
 
@@ -34,6 +35,7 @@ export type PluginsAdmin = {
 export type PluginsManagerProps = {
   admin: PluginsAdmin;
   onClose: () => void;
+  cwd: string;
 };
 
 type Status = { busy?: boolean; ok?: boolean; message?: string };
@@ -44,7 +46,7 @@ function maskSecret(value: string): string {
   return `••••${value.slice(-4)}`;
 }
 
-export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNode {
+export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): ReactNode {
   // Bumped after an add so admin.list() (a live mutable array) is re-read.
   const [, setVersion] = useState(0);
   const plugins = admin.list();
@@ -60,12 +62,44 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
   // Consent mode: when set to a plugin id, a tool plugin is awaiting y/n consent.
   const [consenting, setConsenting] = useState<string | null>(null);
 
+  // Path suggestions (and selection index) for add-by-path, modeled on the @-path
+  // behavior in the main prompt so typing a prefix immediately shows matching
+  // files/dirs and arrows/tab let you pick.
+  const [pathSuggestions, setPathSuggestions] = useState<string[]>([]);
+  const [pathSelectedIdx, setPathSelectedIdx] = useState(0);
+  const pathGeneration = useRef(0);
+  const lastPathPrefix = useRef<string | null>(null);
+
   const active = plugins.length > 0 ? Math.min(selected, plugins.length - 1) : 0;
   const current = plugins[active];
 
   const credValue = (id: string, key: string): string => config[id]?.credentials?.[key] ?? "";
   const isEnabled = (id: string): boolean => config[id]?.enabled === true;
   const isConsented = (id: string): boolean => config[id]?.consented === true;
+
+  useEffect(() => {
+    if (addingPath === null) {
+      pathGeneration.current++;
+      lastPathPrefix.current = null;
+      setPathSuggestions([]);
+      setPathSelectedIdx(0);
+    }
+  }, [addingPath]);
+
+  const fetchPathSuggestions = (prefix: string, gen: number) => {
+    void listPathSuggestions(prefix, cwd).then((results) => {
+      if (pathGeneration.current !== gen) return;
+      setPathSuggestions(results);
+      setPathSelectedIdx(0);
+    });
+  };
+
+  const refreshPathSuggestions = (prefix: string) => {
+    if (prefix === lastPathPrefix.current) return;
+    lastPathPrefix.current = prefix;
+    const gen = ++pathGeneration.current;
+    fetchPathSuggestions(prefix, gen);
+  };
 
   const persist = (id: string, cfg: PluginConfig): void => {
     setConfig((prev) => ({ ...prev, [id]: cfg }));
@@ -93,8 +127,8 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
     );
   };
 
-  const commitAddPath = (): void => {
-    const path = addingPath ?? "";
+  const commitAddPath = (explicit?: string): void => {
+    const path = explicit ?? addingPath ?? "";
     setAddStatus({ busy: true });
     void Promise.resolve(admin.addPath(path)).then(
       (result) => {
@@ -116,10 +150,83 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
     }
 
     if (addingPath !== null) {
-      if (key.escape) { setAddingPath(null); setAddStatus(null); return; }
-      if (key.return) { commitAddPath(); return; }
-      if (key.backspace || key.delete) { setAddingPath((p) => (p ?? "").slice(0, -1)); return; }
-      if (input.length > 0 && !key.ctrl && !key.meta) setAddingPath((p) => (p ?? "") + input);
+      if (key.escape) {
+        setAddingPath(null);
+        setAddStatus(null);
+        return;
+      }
+      // Arrow and tab navigation inside path suggestions (modeled on prompt @ paths).
+      const clampedIdx = pathSuggestions.length > 0 ? Math.min(pathSelectedIdx, pathSuggestions.length - 1) : 0;
+      if (key.upArrow) {
+        if (pathSelectedIdx > 0) {
+          setPathSelectedIdx(pathSelectedIdx - 1);
+          return;
+        }
+        // Ascend to parent dir, like at-mention selectUp.
+        const p = lastPathPrefix.current;
+        if (p && p !== "") {
+          const stripped = p.endsWith("/") ? p.slice(0, -1) : p;
+          const lastSlash = stripped.lastIndexOf("/");
+          const parent = lastSlash === -1 ? "" : stripped.slice(0, lastSlash + 1);
+          if (parent !== p) {
+            setAddingPath(parent);
+            lastPathPrefix.current = parent;
+            const gen = ++pathGeneration.current;
+            fetchPathSuggestions(parent, gen);
+            setPathSelectedIdx(0);
+          }
+        }
+        return;
+      }
+      if (key.downArrow) {
+        const last = Math.max(0, pathSuggestions.length - 1);
+        if (pathSelectedIdx < last) {
+          setPathSelectedIdx(pathSelectedIdx + 1);
+          return;
+        }
+        // Drill into dir if at bottom of list.
+        const sel = pathSuggestions[clampedIdx];
+        if (sel !== undefined && sel.endsWith("/")) {
+          setAddingPath(sel);
+          lastPathPrefix.current = sel;
+          const gen = ++pathGeneration.current;
+          fetchPathSuggestions(sel, gen);
+          setPathSelectedIdx(0);
+        }
+        return;
+      }
+      if (key.tab) {
+        const sel = pathSuggestions[clampedIdx];
+        if (sel !== undefined) {
+          setAddingPath(sel);
+          lastPathPrefix.current = sel;
+          const gen = ++pathGeneration.current;
+          fetchPathSuggestions(sel, gen);
+          setPathSelectedIdx(0);
+        }
+        return;
+      }
+      if (key.return) {
+        let toCommit = addingPath ?? "";
+        if (pathSuggestions.length > 0) {
+          const sel = pathSuggestions[clampedIdx];
+          if (sel !== undefined) toCommit = sel;
+        }
+        commitAddPath(toCommit);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        const next = (addingPath ?? "").slice(0, -1);
+        setAddingPath(next);
+        refreshPathSuggestions(next);
+        return;
+      }
+      if (input.length > 0 && !key.ctrl && !key.meta) {
+        const next = (addingPath ?? "") + input;
+        setAddingPath(next);
+        refreshPathSuggestions(next);
+        return;
+      }
       return;
     }
 
@@ -132,7 +239,17 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
     }
 
     if (key.escape) { onClose(); return; }
-    if (input === "a") { setAddingPath(""); setAddStatus(null); return; }
+    if (input === "a") {
+      const init = "";
+      setAddingPath(init);
+      setAddStatus(null);
+      setPathSuggestions([]);
+      setPathSelectedIdx(0);
+      lastPathPrefix.current = null;
+      const gen = ++pathGeneration.current;
+      fetchPathSuggestions(init, gen);
+      return;
+    }
     if (plugins.length === 0) return;
     if (key.upArrow) { setSelected((s) => (s > 0 ? s - 1 : plugins.length - 1)); return; }
     if (key.downArrow) { setSelected((s) => (s < plugins.length - 1 ? s + 1 : 0)); return; }
@@ -239,6 +356,20 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
             <Text color={color("accent")}>Add plugin path:</Text>
             <Text color={color("brand")}>{`${addingPath}▏`}</Text>
           </Box>
+          {pathSuggestions.length > 0 && (
+            <Box flexDirection="column" paddingX={1} paddingBottom={0}>
+              {pathSuggestions.map((s, i) => {
+                const clamped = Math.min(pathSelectedIdx, pathSuggestions.length - 1);
+                return (
+                  <Box key={s} flexDirection="row">
+                    <Text color={i === clamped ? "cyan" : "white"} bold={i === clamped} wrap="truncate-end">
+                      {s}
+                    </Text>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
           {addStatus !== null && (
             <Text color={addStatus.busy ? color("muted") : addStatus.ok ? color("success") : color("danger")}>
               {addStatus.busy ? "loading…" : `${addStatus.ok ? "✓" : "✗"} ${addStatus.message ?? ""}`}
@@ -263,7 +394,7 @@ export function PluginsManager({ admin, onClose }: PluginsManagerProps): ReactNo
           {consenting !== null
             ? "y to consent and enable · any other key to cancel"
             : addingPath !== null
-              ? "type a file or directory path · Enter add · Esc cancel"
+              ? "type path · ↑↓/Tab pick · Enter add · Esc cancel"
               : editing !== null
                 ? "type value · Enter save · Esc cancel"
                 : "↑↓ select · 1-9 edit credential · e enable · w web override · v verify · a add by path · Esc close"}

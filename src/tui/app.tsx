@@ -1164,8 +1164,8 @@ export function App({
 
   useMouseScroll(
     mouseEvents,
-    () => scroll.scrollUp(3),
-    () => scroll.scrollDown(3),
+    (ticks) => scroll.scrollUp(ticks * 3),
+    (ticks) => scroll.scrollDown(ticks * 3),
   );
 
   const handleCommand = (result: CommandResult) => {
@@ -1403,7 +1403,7 @@ export function App({
         />
       )}
       {pluginsOpen && pluginsAdmin !== undefined && (
-        <PluginsManager admin={pluginsAdmin} onClose={() => setPluginsOpen(false)} />
+        <PluginsManager admin={pluginsAdmin} onClose={() => setPluginsOpen(false)} cwd={cwd} />
       )}
       {loginModal === "choose" && (
         <LoginProviderPicker
