@@ -63,7 +63,28 @@ describe("createAgentStreamState", () => {
     if (result?.type !== "tool_result") return;
     expect(result.content.length).toBeLessThan(huge.length);
     expect(result.content).toContain("characters omitted from stored tool output");
+    // Tail-anchored: the suffix of a long shell dump is what the user needs
+    // (exit codes, totals) — verify the tail survives and the head is dropped.
+    expect(result.content.endsWith(huge.slice(-200))).toBe(true);
     expect(capStoredToolResultContent(huge).length).toBeLessThan(huge.length);
+  });
+
+  test("streaming text cap appends an omission marker on the crossing frame", () => {
+    const state = createAgentStreamState();
+    const callId = "stream-text";
+    const tokenA = "a".repeat(100);
+    const tokenB = "b".repeat(200_000);
+
+    state.addEvent(event("inference.text.delta", { token: tokenA }));
+    // Second token blows well past MAX_STORED_ASSISTANT_BLOCK_CHARS.
+    state.addEvent(event("inference.text.delta", { token: tokenB }));
+    state.addEvent(event("inference.text.delta", { token: "ignored tail" }));
+
+    const block = state.contentBlocks.find((b) => b.type === "text");
+    expect(block?.type).toBe("text");
+    if (block?.type !== "text") return;
+    expect(block.content).toContain("additional streaming content omitted");
+    expect(block.content.endsWith("ignored tail")).toBe(false);
   });
 
   test("caps the retained block tail and reports the trimmed count", () => {
