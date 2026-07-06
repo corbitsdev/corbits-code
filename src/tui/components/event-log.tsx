@@ -214,11 +214,20 @@ function plainLines(content: string, base: Partial<StyledSegment>, width: number
     .flatMap((line) => wrapLines(line, width).map((row) => [{ ...base, text: row }]));
 }
 
+// Expanded tool output is tail-anchored to match the ingress cap policy: exit
+// codes, error summaries, and test totals live at the end. A small head stub
+// keeps enough context to orient the reader before the elision.
 function limitLines(content: string, maxLines: number): string {
   const lines = content.split("\n");
   if (lines.length <= maxLines) return content;
   const hidden = lines.length - maxLines;
-  return [...lines.slice(0, maxLines), `[${hidden} more lines hidden]`].join("\n");
+  const headStub = Math.min(3, maxLines - 1);
+  const tailKeep = maxLines - headStub - 1;
+  return [
+    ...lines.slice(0, headStub),
+    `[${hidden} more lines hidden]`,
+    ...lines.slice(lines.length - tailKeep),
+  ].join("\n");
 }
 
 // A static header for the top of the scrollback that lists the skills and

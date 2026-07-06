@@ -112,14 +112,27 @@ export const MAX_STORED_TOOL_RESULT_CHARS = 48_000;
 export const MAX_STORED_TOOL_ARGUMENT_CHARS = 24_000;
 export const MAX_STORED_ASSISTANT_BLOCK_CHARS = 128_000;
 
-function capWithOmissionSuffix(content: string, maxChars: number, label: string): string {
+// Tool output pays off at the end (exit codes, error summaries, test totals),
+// so the kept window anchors on the tail. Arguments and prose are head-anchored
+// because the meaningful prefix (command path, opening sentences) comes first.
+type CapAnchor = "head" | "tail";
+
+function capWithOmissionSuffix(
+  content: string,
+  maxChars: number,
+  label: string,
+  anchor: CapAnchor = "head",
+): string {
   if (content.length <= maxChars) return content;
   const omitted = content.length - maxChars;
-  return `${content.slice(0, maxChars)}\n\n… ${omitted} characters omitted from ${label}`;
+  const marker = `\n\n… ${omitted} characters omitted from ${label}`;
+  const budget = maxChars - marker.length;
+  const kept = anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
+  return anchor === "tail" ? `${marker}\n\n${kept}` : `${kept}${marker}`;
 }
 
 export function capStoredToolResultContent(content: string): string {
-  return capWithOmissionSuffix(content, MAX_STORED_TOOL_RESULT_CHARS, "stored tool output");
+  return capWithOmissionSuffix(content, MAX_STORED_TOOL_RESULT_CHARS, "stored tool output", "tail");
 }
 
 export function capStoredToolArguments(argumentsText: string): string {
@@ -130,10 +143,17 @@ function capStoredAssistantContent(content: string): string {
   return capWithOmissionSuffix(content, MAX_STORED_ASSISTANT_BLOCK_CHARS, "stored assistant text");
 }
 
+const OMITTED_STREAMING_SUFFIX = "… additional streaming content omitted";
+
+// Appends a fragment to a bounded buffer. The first frame that crosses the cap
+// stitches in an omission marker; every subsequent frame short-circuits because
+// the marker pushed content past the threshold, so the suffix appears once.
 function appendBoundedInPlace(content: string, fragment: string, maxChars: number): string {
   if (content.length >= maxChars) return content;
   const room = maxChars - content.length;
-  return content + (fragment.length <= room ? fragment : fragment.slice(0, room));
+  if (fragment.length <= room) return content + fragment;
+  const head = content + fragment.slice(0, room);
+  return `${head}\n\n${OMITTED_STREAMING_SUFFIX}`;
 }
 
 function stringifyToolContent(content: unknown): string {
