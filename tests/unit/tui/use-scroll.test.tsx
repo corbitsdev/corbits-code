@@ -1,8 +1,10 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
+import { EventEmitter } from "node:events";
 import { Text } from "ink";
 import { useInput } from "ink";
 import type { ReactNode } from "react";
+import { useMouseScroll } from "../../../src/tui/hooks/use-mouse-scroll.js";
 import { useScroll } from "../../../src/tui/hooks/use-scroll.js";
 
 function Harness({ maxOffset }: { maxOffset: number }): ReactNode {
@@ -12,6 +14,16 @@ function Harness({ maxOffset }: { maxOffset: number }): ReactNode {
     if (input === "d") scroll.scrollDown();
     if (input === "b") scroll.scrollToBottom();
   });
+  return <Text>{`offset=${scroll.scrollOffset} bottom=${scroll.atBottom ? "1" : "0"}`}</Text>;
+}
+
+function MouseHarness({ mouseEvents }: { mouseEvents: EventEmitter }): ReactNode {
+  const scroll = useScroll({ maxOffset: 50 });
+  useMouseScroll(
+    mouseEvents,
+    (ticks) => scroll.scrollUp(ticks * 3),
+    (ticks) => scroll.scrollDown(ticks * 3),
+  );
   return <Text>{`offset=${scroll.scrollOffset} bottom=${scroll.atBottom ? "1" : "0"}`}</Text>;
 }
 
@@ -80,4 +92,19 @@ test("scrollToBottom re-pins after scrolling up", async () => {
   stdin.write("b");
   await tick();
   expect(lastFrame()).toContain("offset=19 bottom=1");
+});
+
+test("mouse wheel bursts coalesce into one scroll update", async () => {
+  const mouseEvents = new EventEmitter();
+  const { lastFrame } = render(<MouseHarness mouseEvents={mouseEvents} />);
+  await tick();
+  expect(lastFrame()).toContain("offset=50 bottom=1");
+
+  mouseEvents.emit("scrollUp");
+  mouseEvents.emit("scrollUp");
+  mouseEvents.emit("scrollUp");
+  expect(lastFrame()).toContain("offset=50 bottom=1");
+
+  await tick();
+  expect(lastFrame()).toContain("offset=41 bottom=0");
 });
