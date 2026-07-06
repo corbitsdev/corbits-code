@@ -341,3 +341,86 @@ describe("flat line buffer", () => {
     expect(text[2]).toContain("edit src/c.ts");
   });
 });
+
+describe("incremental layout fast paths", () => {
+  // MAX is intentionally tiny so trim and cold-path-skip both engage without
+  // needing hundreds of blocks. Each block contributes multiple rendered lines.
+  const MAX = 30;
+
+  // 80 multi-line text blocks — enough to trip the cold-path-skip (>60) and to
+  // overflow MAX so trim runs on the same frame.
+  function manyTextBlocks(count: number): ContentBlock[] {
+    return Array.from({ length: count }, (_, i) => ({
+      type: "text" as const,
+      id: `t${i}`,
+      content: `block ${i}\nsecond line\nthird line`,
+    }));
+  }
+
+  test("blockRenderLineCounts stays NaN-free after the cold path skips blocks", () => {
+    const first = manyTextBlocks(80);
+    const state = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    // Cold path triggers when blocks.length > 60 and startBlockIndex lands past 0,
+    // leaving blockLineStarts sparse below startBlockIndex. The counts array
+    // must remain dense numeric (no NaN) for findTailStartFromLineCounts.
+    for (const count of state.blockRenderLineCounts) {
+      expect(Number.isFinite(count)).toBe(true);
+      expect(count).toBeGreaterThanOrEqual(0);
+    }
+    expect(state.firstRenderedBlockIndex).toBeGreaterThan(0);
+  });
+
+  test("appendedOnly fast path preserves the rendered tail and stays bounded", () => {
+    const first = manyTextBlocks(70);
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    const appended = [...first, { type: "text" as const, id: "t70", content: "block 70" }];
+    const state2 = buildLinesIncremental(state1, appended, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    expect(state2.lines.length).toBeLessThanOrEqual(MAX);
+    // The prior tail is reused verbatim (no re-trim of the existing lines).
+    expect(lineText(state2.lines).join("\n")).toContain("block 69");
+    expect(lineText(state2.lines).join("\n")).toContain("block 70");
+    // Counts array matches the new block count and stays NaN-free.
+    expect(state2.blockRenderLineCounts.length).toBe(appended.length);
+    for (const count of state2.blockRenderLineCounts) {
+      expect(Number.isFinite(count)).toBe(true);
+    }
+  });
+
+  test("suffixMatches fast path keeps the tail after the head is dropped", () => {
+    // Seed past the retention cadence by building directly: 80 blocks, then
+    // simulate compaction dropping the oldest 10. The 70-block suffix must
+    // match prev[i + dropped], triggering the suffixMatches branch.
+    const first = manyTextBlocks(80);
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    const compacted = first.slice(10);
+    const state2 = buildLinesIncremental(state1, compacted, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    // The retained tail (last block) survives across the compaction seam.
+    expect(lineText(state2.lines).join("\n")).toContain("block 79");
+    expect(state2.lines.length).toBeLessThanOrEqual(MAX);
+    for (const count of state2.blockRenderLineCounts) {
+      expect(Number.isFinite(count)).toBe(true);
+    }
+  });
+
+  test("at most one hidden-lines marker survives across appendedOnly rebuilds", () => {
+    const first = manyTextBlocks(80);
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    // Append a block large enough to push past the budget on the next frame.
+    const appended = [...first, {
+      type: "text" as const,
+      id: "t80",
+      content: Array.from({ length: 80 }, () => "x".repeat(80)).join("\n"),
+    }];
+    const state2 = buildLinesIncremental(state1, appended, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+
+    const text = lineText(state2.lines).join("\n");
+    const markerHits = text.match(/earlier rendered lines hidden/g) ?? [];
+    expect(markerHits.length).toBeLessThanOrEqual(1);
+  });
+});
