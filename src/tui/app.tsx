@@ -746,7 +746,7 @@ export function App({
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.contentBlocks, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated, loadedSkills, activePlugins],
+    [state.displayRevision, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated, loadedSkills, activePlugins],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 

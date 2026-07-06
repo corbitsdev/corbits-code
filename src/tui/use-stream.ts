@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useMemo } from "react";
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { type } from "arktype";
@@ -814,6 +815,8 @@ const TOKEN_EVENTS = new Set([
   "inference.tool_call.delta",
 ]);
 
+export type AgentStreamView = AgentStreamState & { displayRevision: number };
+
 export function useAgentStream(
   emitter: EventEmitter,
   initialHooks: LifecycleHookStatus[] = [],
@@ -821,16 +824,23 @@ export function useAgentStream(
   onInferenceTimeout?: () => void,
   initialContentBlocks: ContentBlockData[] = [],
   onCredentialFailure?: () => void,
-): AgentStreamState {
+): AgentStreamView {
   // getModel is read live by the faremeter's pricing resolver, so a
   // mid-session model switch is priced correctly without recreating the state.
   const [state] = useState(() => createAgentStreamState(initialHooks, getModel, initialContentBlocks));
   const [tick, setTick] = useState(0);
+  const [displayRevision, setDisplayRevision] = useState(0);
   const onInferenceTimeoutRef = useRef(onInferenceTimeout);
   onInferenceTimeoutRef.current = onInferenceTimeout;
   const onCredentialFailureRef = useRef(onCredentialFailure);
   onCredentialFailureRef.current = onCredentialFailure;
   const pendingRenderRef = useRef(false);
+  const pendingLineRevisionRef = useRef(false);
+
+  const bumpDisplayRevision = (): void => {
+    pendingLineRevisionRef.current = false;
+    setDisplayRevision((r) => r + 1);
+  };
 
   // ~30fps drain makes streaming feel metronomic rather than bursty.
   useEffect(() => {
@@ -843,13 +853,25 @@ export function useAgentStream(
     return () => clearInterval(interval);
   }, []);
 
+  // Line layout is heavier than chrome updates; coalesce it during token streaming.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (pendingLineRevisionRef.current) {
+        bumpDisplayRevision();
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     const handler = (event: ReactorEmittedEvent) => {
       state.addEvent(event);
       if (TOKEN_EVENTS.has(event.type)) {
         pendingRenderRef.current = true;
+        pendingLineRevisionRef.current = true;
       } else {
         setTick((t) => t + 1);
+        bumpDisplayRevision();
       }
       if (event.type === "inference.error") {
         const category = (event.data as { error: { category: string } }).error.category;
@@ -860,6 +882,7 @@ export function useAgentStream(
     const hookHandler = (event: LifecycleHookEvent) => {
       state.addHookEvent(event);
       setTick((t) => t + 1);
+      bumpDisplayRevision();
     };
     emitter.on("event", handler);
     emitter.on("hook", hookHandler);
@@ -881,5 +904,8 @@ export function useAgentStream(
 
   void tick;
 
-  return state;
+  return useMemo(
+    () => Object.assign(Object.create(state), { displayRevision }),
+    [state, displayRevision],
+  );
 }
