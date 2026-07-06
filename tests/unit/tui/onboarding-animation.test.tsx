@@ -16,7 +16,8 @@ test("returning user shows the 'Welcome back' greeting", async () => {
   const { lastFrame } = render(
     <OnboardingAnimation onComplete={() => {}} rows={20} columns={80} isFirstTime={false} />,
   );
-  await tick(1000);
+  // "Welcome back to Intercode" is longer than the first-run phrase; wait for typewriter.
+  await tick(2000);
   expect(lastFrame()).toContain("Welcome back");
 }, 6000);
 

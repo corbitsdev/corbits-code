@@ -409,8 +409,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 
-  // Skill directories from enabled plugins, in addition to the project-local and
-  // bundled defaults that discoverSkills/resolveSkillBody always check.
+  // Skill directories from enabled plugins, in addition to project-local
+  // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
   const skillDirs = pluginModules
     .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
     .map((m) => m.dir!);

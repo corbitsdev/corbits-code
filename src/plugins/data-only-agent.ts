@@ -337,8 +337,8 @@ function normalizeModelField(
 // markdown does not need to know Intercode-specific tool names or task rules.
 // Resolve a skill body via the shared skill resolver so data-only plugins and
 // the main session's `use_skill` tool agree on what a skill name means. The
-// plugin's own skills/ directory is prepended to the search path so a bundled
-// skill shadows a same-named project or bundled skill.
+// plugin's own skills/ directory is prepended to the search path so it shadows
+// same-named skills from project-local directories.
 import { resolveSkillBody } from "../extensions/skills.js";
 
 async function loadSkillText(
@@ -354,7 +354,7 @@ async function loadSkillText(
 
 // Parse "Load the `style` skill" lines from the body. corbitsdev agents declare
 // skills in prose rather than frontmatter; this recognizes that convention so
-// those files load with bundled skills without modification.
+// those files can load co-located or project-provided skills without modification.
 function parseSkillReferencesFromBody(body: string): string[] {
   const out: string[] = [];
   // Match: load the `style` skill  /  Load the \`philosophy\` skill

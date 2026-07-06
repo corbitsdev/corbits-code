@@ -50,10 +50,10 @@ Net: what exists is a *web-provider plugin system*, not *the* plugin system.
 ### One manifest, kind-routed
 
 Every installable plugin exports a `manifest`. `kind` decides how it is wired.
-The taxonomy is deliberately small — **`web | command | tool | agent`**:
+The taxonomy is deliberately small — **`web | command | workflow | tool | agent`**:
 
 ```ts
-export type PluginKind = "web" | "command" | "tool" | "agent";
+export type PluginKind = "web" | "command" | "workflow" | "tool" | "agent";
 
 export type PluginManifest = {
   id: string;                 // stable, unique (e.g. "exa")
@@ -64,19 +64,17 @@ export type PluginManifest = {
 };
 ```
 
-Why no `workflow`/`agent` kinds: **a workflow is just a slash command.** A
-command can fan out to a single prompt, a series of prompts, one subagent, or a
-fleet of agents — and it can be invoked by the user (slash) or chosen by the
-agent. So orchestration lives behind a `command` plugin, not a separate kind.
-Workflow recipe names are **not** registered as top-level `/scope` slashes; an integration plugin owns the prefix (e.g. `linear-workflows`, `kind: "workflow"` → `/linear scope`). Types live in `src/workflows/definition.ts`; definitions live beside the plugin under `plugins/<name>/src/workflows/`.
-Subagents/fleets are an implementation detail of what a command does.
+Workflow recipe names are **not** registered as top-level `/scope` slashes; an integration plugin owns the command prefix (e.g. `linear-workflows`, `kind: "workflow"` → `/linear scope`) and contributes workflow definitions beside the plugin under `plugins/<name>/src/workflows/`. Types live in `src/workflows/definition.ts`.
+
+`agent` plugins contribute dispatchable profiles rather than commands. A command or workflow can still fan out to one subagent or a fleet through the normal `task` surface.
 
 The kind-specific export is the implementation hook:
 
 | kind | export | wired into | purpose |
 |---|---|---|---|
 | `web` | `createWebProvider(credentials)` | web_search/web_fetch backend | override the web tools (a specialized tool override) |
-| `command` | `commandPlugin` | slash-command registry | slash commands, incl. workflow orchestration |
+| `command` | `commandPlugin` | slash-command registry | slash commands |
+| `workflow` | `workflowPlugin` + optional `commandPlugin` | workflow registry + slash-command registry | named workflow recipes behind an integration command prefix |
 | `tool` | `toolPlugin` (factory) | posix toolset | add new agent tools (highest trust) |
 | `agent` | `agentPlugin` | sub-agent profiles | contribute `task`-dispatchable agent profiles |
 
@@ -160,12 +158,17 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 - `agent` plugins (`agentPlugin` export) contribute `AgentProfile`s that the
   `task` tool can dispatch to, resolved in `src/plugins/agent-plugins.ts` and
   merged into the profile registry alongside local `.agents/agents/` profiles.
+- **Data-only agent plugins** — a directory with `agents/*.md` (or flat `*.md`)
+  and optional `skills/<name>/SKILL.md` needs no `index.ts`; `loadDataOnlyAgentPlugin`
+  synthesizes the same `agentPlugin` shape after frontmatter validation.
 - An agent plugin is wired in only when `settings.plugins[id].enabled` is true
   (same gating as command plugins — no consent needed, since profiles are
   configuration data, not in-process code).
 - Profile precedence: built-in defaults < plugin profiles < local
   `.agents/agents/*.json` (most specific wins on same-id conflicts).
 - Per-kind verify in `/plugins` (agent = profile count check).
+- Add-by-path (`a`) uses the same path suggestion UX as `@` mentions
+  (`listPathSuggestions`) so registering a plugin from disk can browse directories.
 
 ## Decisions (locked)
 
