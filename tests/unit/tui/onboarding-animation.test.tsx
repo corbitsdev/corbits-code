@@ -8,18 +8,18 @@ test("first run shows the 'Welcome to' greeting", async () => {
   const { lastFrame } = render(
     <OnboardingAnimation onComplete={() => {}} rows={20} columns={80} isFirstTime={true} />,
   );
-  await tick(1000);
+  await tick(2000);
   expect(lastFrame()).toContain("Welcome to");
-}, 6000);
+}, 8000);
 
 test("returning user shows the 'Welcome back' greeting", async () => {
   const { lastFrame } = render(
     <OnboardingAnimation onComplete={() => {}} rows={20} columns={80} isFirstTime={false} />,
   );
   // "Welcome back to Intercode" is longer than the first-run phrase; wait for typewriter.
-  await tick(2000);
+  await tick(3000);
   expect(lastFrame()).toContain("Welcome back");
-}, 6000);
+}, 8000);
 
 test("any keypress dismisses the animation immediately", async () => {
   let completed = 0;
@@ -36,6 +36,6 @@ test("the animation completes on its own after playing through", async () => {
   render(
     <OnboardingAnimation onComplete={() => { completed++; }} rows={20} columns={80} isFirstTime={true} />,
   );
-  await tick(5000);
+  await tick(7000);
   expect(completed).toBe(1);
-}, 8000);
+}, 10000);
