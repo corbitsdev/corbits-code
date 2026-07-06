@@ -12,10 +12,10 @@ async function resolveDirectory(dir: string, cwd: string): Promise<string | null
   }
 }
 
-// Given what the user has typed after @, return up to MAX_SUGGESTIONS matching
-// filesystem paths. Directories get a trailing / so the user can drill in.
-// Never throws — returns [] on any fs error.
-export async function listAtSuggestions(prefix: string, cwd: string): Promise<string[]> {
+// Given a path prefix the user has typed (e.g. after @ or in a path field),
+// return up to MAX_SUGGESTIONS matching filesystem entries. Directories get a
+// trailing / so the user can drill in. Never throws — returns [] on any fs error.
+export async function listPathSuggestions(prefix: string, cwd: string): Promise<string[]> {
   if (prefix === "~" || prefix.startsWith("~/")) return [];
 
   try {

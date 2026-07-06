@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { parseAtState, type AtState } from "./parse.js";
-import { listAtSuggestions } from "./list.js";
+import { listPathSuggestions } from "./list.js";
 
 export type AtSuggestionsHook = {
   atState: AtState | null;
@@ -29,7 +29,7 @@ export function useAtSuggestions(cwd: string): AtSuggestionsHook {
   // Shared async helper: fetch entries for a given prefix and apply results if
   // the generation still matches.
   const fetchFor = (prefix: string, gen: number) => {
-    void listAtSuggestions(prefix, cwd).then((results) => {
+    void listPathSuggestions(prefix, cwd).then((results) => {
       if (generation.current !== gen) return;
       setSuggestions(results);
       setSelectedIdx(0);
