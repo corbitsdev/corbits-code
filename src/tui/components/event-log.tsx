@@ -623,10 +623,33 @@ export type IncrementalLinesState = {
   blocks: RenderableBlock[];
   lines: StyledLine[];
   blockLineStarts: number[];
+  /** Visual line contribution per block index from the last raw assemble (pre-trim). */
+  blockRenderLineCounts: number[];
   layoutKey: string;
   firstRenderedBlockIndex: number;
   hiddenRenderedLineCount: number;
 };
+
+function blockLineCountsFromStarts(blockLineStarts: number[], lineCount: number): number[] {
+  const counts = new Array<number>(blockLineStarts.length);
+  for (let i = 0; i < blockLineStarts.length; i++) {
+    const start = blockLineStarts[i] ?? 0;
+    const nextStart = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1]! : lineCount;
+    counts[i] = Math.max(0, nextStart - start);
+  }
+  return counts;
+}
+
+function findTailStartFromLineCounts(counts: number[], maxLines: number, markerReserve: number): number {
+  const budget = maxLines - markerReserve;
+  let accumulated = 0;
+  for (let i = counts.length - 1; i >= 0; i--) {
+    const count = counts[i] ?? 0;
+    if (accumulated + count > budget && i < counts.length - 1) return i + 1;
+    accumulated += count;
+  }
+  return 0;
+}
 
 function hiddenLinesMarker(hidden: number): StyledLine {
   return [
@@ -702,7 +725,11 @@ function findColdPathStartIndex(
   isExpanded: (block: RenderableBlock) => boolean,
   cache: Map<string, StyledLine[]> | undefined,
   maxLines: number,
+  knownCounts?: number[],
 ): number {
+  if (knownCounts !== undefined && knownCounts.length === blocks.length) {
+    return findTailStartFromLineCounts(knownCounts, maxLines, 4);
+  }
   const budget = maxLines - 4;
   let accumulated = 0;
   for (let i = blocks.length - 1; i >= 0; i--) {
@@ -742,28 +769,56 @@ export function buildLinesIncremental(
 
   const prevTailStart = prev?.firstRenderedBlockIndex ?? 0;
 
-  if (
-    prev !== undefined
-    && prev.layoutKey === key
-    && prev.blocks.length === blocks.length
-    && blocks.length > 0
-  ) {
-    let firstDiff = blocks.length;
-    for (let i = 0; i < blocks.length; i++) {
-      if (blocks[i] !== prev.blocks[i]) {
-        firstDiff = i;
-        break;
+  if (prev !== undefined && prev.layoutKey === key && blocks.length > 0) {
+    const sameLength = prev.blocks.length === blocks.length;
+    const appendedOnly =
+      !sameLength
+      && blocks.length === prev.blocks.length + 1
+      && blocks.slice(0, -1).every((b, i) => b === prev.blocks[i]);
+
+    if (appendedOnly) {
+      startBlockIndex = blocks.length - 1;
+      prefixLines = prev.lines;
+    } else if (sameLength) {
+      let firstDiff = blocks.length;
+      for (let i = 0; i < blocks.length; i++) {
+        if (blocks[i] !== prev.blocks[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      if (firstDiff < prevTailStart) {
+        startBlockIndex = prevTailStart;
+        prefixLines = [];
+      } else if (firstDiff >= blocks.length - 1) {
+        startBlockIndex = firstDiff >= blocks.length ? blocks.length - 1 : firstDiff;
+        prefixLines = prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
+      }
+    } else if (blocks.length < prev.blocks.length) {
+      const dropped = prev.blocks.length - blocks.length;
+      const suffixMatches = blocks.every((b, i) => b === prev.blocks[i + dropped]);
+      if (suffixMatches) {
+        startBlockIndex = Math.max(0, prevTailStart - dropped);
+        prefixLines = [];
       }
     }
-    if (firstDiff < prevTailStart) {
-      startBlockIndex = prevTailStart;
-      prefixLines = [];
-    } else if (firstDiff >= blocks.length - 1) {
-      startBlockIndex = firstDiff >= blocks.length ? blocks.length - 1 : firstDiff;
-      prefixLines = prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
-    }
-  } else if (prev === undefined && blocks.length > 60 && startBlockIndex === 0) {
-    const coldStart = findColdPathStartIndex(blocks, columns, isExpanded, cache, maxRenderedLines);
+  }
+
+  if (startBlockIndex === 0 && blocks.length > 60) {
+    const knownCounts =
+      prev !== undefined
+      && prev.layoutKey === key
+      && prev.blockRenderLineCounts.length === blocks.length
+        ? prev.blockRenderLineCounts
+        : undefined;
+    const coldStart = findColdPathStartIndex(
+      blocks,
+      columns,
+      isExpanded,
+      cache,
+      maxRenderedLines,
+      knownCounts,
+    );
     if (coldStart > 0) {
       startBlockIndex = coldStart;
       prefixLines = [
@@ -786,10 +841,14 @@ export function buildLinesIncremental(
 
   let blockLineStarts = rawStarts;
   let lines = rawLines;
+  let blockRenderLineCounts = blockLineCountsFromStarts(rawStarts, rawLines.length);
 
   if (prev !== undefined && startBlockIndex > 0) {
     for (let i = 0; i < startBlockIndex; i++) {
       blockLineStarts[i] = prev.blockLineStarts[i] ?? 0;
+      if (i < prev.blockRenderLineCounts.length) {
+        blockRenderLineCounts[i] = prev.blockRenderLineCounts[i] ?? blockRenderLineCounts[i]!;
+      }
     }
   }
 
@@ -801,6 +860,7 @@ export function buildLinesIncremental(
     blocks,
     lines,
     blockLineStarts,
+    blockRenderLineCounts,
     layoutKey: key,
     firstRenderedBlockIndex: trimmed.firstRenderedBlockIndex,
     hiddenRenderedLineCount: trimmed.hiddenRenderedLineCount,

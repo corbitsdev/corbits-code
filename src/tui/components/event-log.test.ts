@@ -51,6 +51,22 @@ function editPair(index: number): ContentBlock[] {
 }
 
 describe("flat line buffer", () => {
+  test("appending a block reuses the prior rendered tail", () => {
+    const first: ContentBlock[] = [
+      { type: "text", id: "a1", content: "First assistant reply." },
+    ];
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded);
+    const second: ContentBlock[] = [
+      ...first,
+      { type: "text", id: "a2", content: "Second assistant reply." },
+    ];
+    const state2 = buildLinesIncremental(state1, second, COLUMNS, false, isExpanded);
+
+    expect(state2.blockRenderLineCounts.length).toBe(2);
+    expect(lineText(state2.lines.slice(0, state1.lines.length))).toEqual(lineText(state1.lines));
+    expect(lineText(state2.lines).join("\n")).toContain("Second assistant reply");
+  });
+
   test("incremental line build trims to the default rendered line budget", () => {
     const blocks: ContentBlock[] = Array.from({ length: 55 }, (_, i) => ({
       ...bigShellBlock(40),
