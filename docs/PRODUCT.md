@@ -17,7 +17,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 ## Key Value Propositions
 
 1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
-2. **Plan as contract** — The agent declares a structured plan on turn 1 and the system enforces that `submit_output` cannot fire without one.
+2. **Task tracking** — The agent can maintain a `manage_tasks` list for multi-step work; headless `submit_output` is blocked while tasks remain open.
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
 5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.

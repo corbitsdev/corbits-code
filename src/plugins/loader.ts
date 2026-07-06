@@ -44,7 +44,7 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 //
 // `cwd` is the project root used for skill resolution inside data-only plugins
 // (corbitsdev-format agents declare skills by name; the resolver searches
-// <cwd>/.intercode/skills and bundled skills relative to cwd). Defaults to
+// project-local skill directories relative to cwd). Defaults to
 // process.cwd() for direct callers; internal discovery functions thread the
 // session cwd through so a non-default working directory (test harness,
 // future server-mode) resolves skills correctly.
@@ -197,7 +197,7 @@ export async function loadPluginsFromPaths(paths: string[], cwd: string): Promis
 // Discover built-in repo plugins from the plugins/ directory that lives
 // alongside this source file (two levels up: src/plugins/ -> plugins/).
 // Repo plugins resolve skills against the session cwd, not the repo root,
-// so a project's bundled skills still win when Intercode is invoked from a
+// so project-local skills stay in scope when Intercode is invoked from a
 // different working directory.
 export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> {
   const repoRoot = new URL("../../", import.meta.url).pathname;

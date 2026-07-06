@@ -30,12 +30,11 @@ The director returns actions that shape the loop:
 - `capabilities.checkpoint(label)` — persist a named checkpoint to `.agent-state/`.
 - `capabilities.done()` — terminate the loop.
 
-### Mandatory director-layer tools
+### Director-layer termination (headless)
 
-Two tools exist only at the director layer and gate the loop:
+In headless mode, **`submit_output`** is the clean completion signal. The **CodingDirector** rejects `submit_output` while the agent's **`manage_tasks`** list still has open items (todo/doing), nudging the model to update tasks first. Conversational text without `submit_output` does not end a headless run; the reactor keeps running until `submit_output` succeeds or the director aborts on a stall.
 
-- **`submit_plan`** — records the plan into durable director state; required before `submit_output` is accepted.
-- **`submit_output`** — the only signal that terminates cleanly. Conversational text without it does not end the session; the reactor keeps running inference turns until `submit_output` is called or the director aborts on a stall.
+In TUI chat mode there is no `submit_output` gate — the session stays open across turns until the operator clears or starts a new session.
 
 ## Components
 
@@ -61,14 +60,14 @@ Two tools exist only at the director layer and gate the loop:
 - Builds the lifecycle hook manager from discovered hooks
 - Constructs the permission gate (seeded with persisted approvals; non-interactive in headless)
 - Creates sandboxed POSIX tools wrapped in the plugin chain
-- Registers director-layer tools (`submit_plan`, `ask_operator`, `submit_output`)
+- Registers director-layer tools (`ask_operator`, `submit_output`, `advance_workflow` when a workflow is active)
 - Creates the `CodingDirector` and the agent (`createAgent`), with a git-backed context dir at `.agent-state/context`
 - Streams events through a turn-context collector (feeding `postTurn` hooks) and a renderer
 - Saves run + director state on each turn; runs critique; dispatches the `postRun` summary; cleans up
 
 ### TUI Runner (`src/tui/runner.tsx`)
 
-- Builds a chat-mode agent using the `ChatDirector` (with an optional plan-approval gate)
+- Builds a chat-mode agent using the `ChatDirector`
 - Wires `ask_operator` to an operator-gate event resolved by a modal
 - Drives the terminal alternate-screen buffer manually (Ink 7 has no alt-screen option) and renders the Ink app
 - Bridges reactor events to React via an `EventEmitter`
@@ -83,24 +82,17 @@ Two tools exist only at the director layer and gate the loop:
 
 Two directors, selected by front end:
 
-- **CodingDirector** (headless) — Extends `DefaultDirector` with stall detection and plan enforcement.
-- **ChatDirector** (TUI) — `DefaultDirector` plus the plan-approval gate: when a plan is submitted it pauses for approve/reject before continuing. There is a single, opinionated mode — no Manager/Teammate toggle. (`createChatDirector` retains a no-gate fallback to `DefaultDirector` as an implementation detail, but the product runs one mode with the gate present.)
+- **CodingDirector** (headless) — Extends `DefaultDirector` with stall detection, workflow coordination, and `submit_output` + `manage_tasks` completion gating.
+- **ChatDirector** (TUI) — Extends `DefaultDirector` with the same task list tracking, workflow nudges, context compaction, and multi-turn chat semantics. SHIFT+TAB toggles **auto mode** (auto-approve non-destructive consequential actions through the permission gate); it is not a separate edit/plan mode.
 
-**ChatDirector** (TUI) operates in three modes, cycled by the user with SHIFT+TAB:
+The agent maintains an optional **`manage_tasks`** list (create/update via the homonymous tool). The TUI task panel reflects director task state; `manage_tasks` tool calls are collapsed into a dedicated content block in the event stream.
 
-- **Edit** — full tool access; the agent can read, write, and run shell commands.
-- **Auto** — same as Edit, but the agent runs continuously without per-action approval gates. Auto mode is not a blanket bypass: the auto-shell policy still denies file mutations attempted through shell tooling (steering them to `write_file`/`edit_file`) and still routes dependency installs to an operator prompt (see Permission System).
-- **Plan** — write-restricted; `write_file` and `edit_file` are stripped from the infer action set. The agent may only read, search, and reason. `submit_plan` is promoted into the active tool set exactly when the user enters Plan mode (not globally), so the chat model is never advertised a tool it cannot call. When the user cycles out of Plan mode, `exitPlanPhase()` on the director undoes the write restriction. The TUI resets to Edit when the director emits a `"plan-phase"` event signaling plan approval.
-
-Plan steps auto-show in the sidebar when `submit_plan` has been called — no manual `/plan` command is needed. The sidebar also auto-shows when a workflow is active.
-
-**CodingDirector** behavior:
-- **Idle cycle detection** — Counts consecutive turns without tool calls; after 3, checkpoints and aborts.
-- **Plan storage** — Captures `submit_plan` arguments into durable director state.
-- **Submit gating** — `submit_output` is rejected by its tool handler unless a plan was submitted; if a multi-turn task completes with no plan, the director appends a warning.
+**Shared director behavior:**
+- **Idle cycle detection** — Counts consecutive turns without tool calls; after 3 (when no workflow is active), checkpoints and aborts in headless mode.
+- **Submit gating (headless)** — Successful `submit_output` is blocked while incomplete tasks remain; the director re-infers with a nudge listing open tasks.
 - **Read tracking** — Records the turn at which each file was read (`filesReadAtTurn`), which the re-read-block plugin consults to prevent redundant re-reads.
 
-Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`, `idleCycles`, `planSubmitted`, `plan` steps, and `filesRead` (path → turn).
+Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`, `idleCycles`, `tasks`, and `filesRead` (path → turn).
 
 #### Context compaction (ChatDirector)
 
@@ -116,11 +108,12 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 
 ### Director-Layer Tools (`src/agent/director.ts`)
 
-- `submit_plan` — Ordered steps of `{ file, action, reason }` plus an optional `goal`; declared on turn 1. In the TUI, promoted into the active tool set only when the user enters Plan mode.
-- `ask_operator` — Pauses for a clarifying question with a list of options.
-- `submit_output` — The only clean termination signal; requires a prior plan.
+- `ask_operator` — Pauses for a clarifying question with a list of options (and optional shell pre-approval via `command`).
+- `present` — Renders structured UI from a JSON view spec instead of pasting tables into chat.
+- `submit_output` — Headless clean termination (and workflow step advancement when `step` is set). Gated on an empty or completed `manage_tasks` list.
 - `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
-- `plan_enter` — Signals the director to enter plan phase; advertised in `CORE_TOOL_NAMES` for the chat model to invoke when it decides to plan before acting.
+
+Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, and **`search_agents`** when sub-agent profiles are available — see Sub-agents below.
 
 ### Workflows (`src/workflows/`)
 
@@ -132,17 +125,23 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
-Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled `kind: "workflow"` plugins** at startup (`registerWorkflowPlugins`); command surfaces on those plugins (e.g. `plugins/linear-workflows` → `/linear scope`, `/linear build`). The model never suggests or auto-starts workflows from ordinary chat. Documentation work uses the bundled **scribe** skill, which the model loads on demand via `use_skill` (see the skill model below) rather than a workflow recipe. The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
+Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled workflow/command plugins** at startup; command surfaces on those plugins (e.g. `plugins/linear-workflows` → `/linear scope`, `/linear build`). The model never suggests or auto-starts workflows from ordinary chat. Optional documentation skills (e.g. from an enabled agent plugin or `.agents/skills/`) load on demand via `use_skill` (see Skills below). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
+
+### Sub-agents (`src/subagent/`, `src/agent/agent-search.ts`)
+
+The **`task`** tool dispatches a self-contained subtask to a child agent on a separate inference source (tier/profile resolved from settings). When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `task(agent=...)`.
+
+Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlugin.agents[]` from `agents/*.md` or flat `*.md` in the plugin directory, with optional co-located `skills/`. `loadPluginEntry` tries JS entrypoints first, then falls back to this layout (`/plugins` add-by-path supports filesystem completion via `listPathSuggestions`).
 
 ### System Prompt (`src/agent/prompts.ts`)
 
-The agent's identity is **Intercode**, framed as a senior teammate who owns the outcome (not an assistant). The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
+The agent's identity is **Intercode**, framed as a senior coding assistant running in a terminal harness. The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
 
-- `buildChatRole` — one-line identity and quality bar.
-- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs need approval, `.agent-state`/gitignored paths are off-limits, only core tools are resident (load the rest via `tool_search`), workflows are slash-command only, tool results render richly (use `present`), and session memory lives at `.intercode/MEMORY.md`.
-- `buildGuidelines` — be concise, stay in scope, `lsp` before large files, verify before finishing.
+- `buildChatRole` — one-line identity and purpose.
+- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.intercode/MEMORY.md`.
+- `buildGuidelines` — be concise, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
 
-`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → lazy skills listing → live `<env>` block → appended extensions. Built-in catalog tools and MCP integrations load dynamically via `tool_search` rather than being enumerated. Skills follow the same lazy principle pi-style: each discovered skill contributes only its name + one-line description to the prompt, and the model pulls a skill's full instructions into context on demand by calling `use_skill`. Skill loading is entirely model-driven — there is no operator invocation. Skills are discovered (and deduped by name) from enabled plugin dirs, then `.agents`/`.claude`/`.codex/skills`, then the bundled set, in that precedence.
+`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → lazy skills listing → live `<env>` block → appended extensions. Built-in catalog tools and MCP integrations load dynamically via `tool_search` rather than being enumerated. Skills follow the same lazy principle pi-style: each discovered skill contributes only its name + one-line description to the prompt, and the model pulls a skill's full instructions into context on demand by calling `use_skill`. Skill loading is entirely model-driven — there is no operator invocation. Skills are discovered (and deduped by name) from enabled plugin dirs, then `.agents`/`.claude`/`.codex/skills`, in that precedence. Intercode does not ship a bundled skill catalog — skills come from plugins and the project tree.
 
 **Overrides.** `loadSystemPromptOverrides` (`src/agent/context-extensions.ts`) resolves a project `SYSTEM.md` (repo root, then `.intercode/`) that **replaces** the static base block, and an `APPEND_SYSTEM.md` that is **appended** as an extension. These compose with `config.systemPromptExtensions` (profile config) and the auto-discovered `AGENTS.md`, all of which attach as appended sections after the base.
 
@@ -249,7 +248,7 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
 - **Collapsed tool calls** — Non-danger tools render dimmed with a muted summary suffix. Danger-role tools (destructive shell, writes under risk paths) retain their role color when collapsed so they remain visually salient.
 - **Thinking gutter** — When `thinkingExpanded` is true, thinking content lines are prefixed with `│ ` in the `dim` color, separating them visually from model output without requiring a header.
-- **Block-level cache** — `buildLines` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick.
+- **Block-level cache** — `buildLines` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick. Individual log lines use a memoized `RenderedLine` component so padding/segment merge work is not repeated when only the viewport scroll offset changes.
 
 #### Input handling
 
@@ -257,7 +256,7 @@ Ink reads stdin, parses it into string events, and broadcasts every event to *al
 
 Rather than filter per component, `stdin-filter.ts` (`createFilteredStdin`) wraps `process.stdin` and is passed to Ink's `render` via the `stdin` option. It proxies the stream, intercepting `read()` to strip all `ESC[<…M/m` sequences before Ink's parser sees them — so no component's `useInput` ever receives one. A sequence split across two `read()` calls is handled by holding back an incomplete trailing `ESC[<…` (the SGR private marker is unambiguous, so this never swallows a boundary-split Esc or arrow key) and prepending it to the next chunk. This depends on Ink 7 driving its input pipeline off `stdin.read()`; bytes Ink consumes via its transient Kitty-keyboard probe are `unshift`ed back and re-enter through `read()`, so they pass through the filter too.
 
-Mouse-wheel events are the one class of mouse input the UI acts on. Since they can no longer arrive through `useInput`, the filter detects wheel buttons (64 = up, 65 = down) and re-emits them as `scrollUp`/`scrollDown` on a dedicated `EventEmitter`. `use-mouse-scroll` subscribes to that emitter (and still owns enabling/disabling SGR mouse mode on the terminal).
+Mouse-wheel events are the one class of mouse input the UI acts on. Since they can no longer arrive through `useInput`, the filter detects wheel buttons (64 = up, 65 = down) and re-emits them as `scrollUp`/`scrollDown` on a dedicated `EventEmitter`. `use-mouse-scroll` subscribes to that emitter (and still owns enabling/disabling SGR mouse mode on the terminal). Bursts of wheel events within one frame are coalesced before updating scroll offset so rapid scrolling stays smooth.
 
 ### Skills (`src/extensions/skills.ts`)
 
@@ -273,9 +272,8 @@ Skills are Markdown capability packages (`SKILL.md`) that the model loads on dem
 | `.agents/skills/` | Shared across runtimes |
 | `.claude/skills/` | Claude Code workspace skills |
 | `.codex/skills/` | Codex workspace skills |
-| `skills/bundled/` | Ships with the binary (lowest precedence) |
 
-Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory name: the first base dir that provides a given name wins, so a plugin- or project-provided skill shadows a bundled one of the same name. `resolveSkillBody(cwd, ref, pluginDirs)` resolves a skill's body using the same ordered list (it accepts a bare name or a `plugin:name` ref, keying on the name).
+Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory name: the first base dir that provides a given name wins, so an enabled plugin skill shadows a project-local skill of the same name. `resolveSkillBody(cwd, ref, pluginDirs)` resolves a skill's body using the same ordered list (it accepts a bare name or a `plugin:name` ref, keying on the name).
 
 #### SKILL.md format
 
@@ -292,7 +290,7 @@ There are no `type`, `argument-hint`, or `disable-model-invocation` fields — a
 
 `buildSkillsSection` lists each discovered skill as `- name: description` in the system prompt — descriptions only, so the prompt stays small regardless of how many skills exist. The full instructions enter context only when the model calls the `use_skill` core tool (`src/agent/use-skill.ts`) with a skill name; the handler calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result. There is no slash-command surface and no operator-side injection — the model decides when a skill applies and loads it itself.
 
-Which plugin skill directories are in scope is decided in `runner.tsx`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). The `.agents`/`.claude`/`.codex/skills` and bundled directories are always searched.
+Which plugin skill directories are in scope is decided in `runner.tsx`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched.
 
 ## Data Flow
 
