@@ -362,6 +362,21 @@ describe("multi-line", () => {
     expect(lines.length).toBeGreaterThan(2);
   });
 
+  test("wide descriptor table renders as readable entries", () => {
+    const table =
+      "ID | Role\n" +
+      "greybeard | Seasoned engineer review of product, architecture, and implementation docs\n" +
+      "critique | Critical code reviewer - tests assumptions, reports quality issues, doesn't fix";
+    const lines = parseMarkdown(table, 56);
+    const texts = lines.map(allText);
+    expect(texts).toEqual([
+      "greybeard - Seasoned engineer review of product, architecture, and implementation docs",
+      "",
+      "critique - Critical code reviewer - tests assumptions, reports quality issues, doesn't fix",
+    ]);
+    expect(lines[0]?.[0]?.bold).toBe(true);
+  });
+
   test("table too narrow to shrink falls back to stacked key-value lines", () => {
     const wide =
       "| Suggestion | Status |\n| --- | --- |\n" +

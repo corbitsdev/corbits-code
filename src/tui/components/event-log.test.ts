@@ -157,6 +157,21 @@ describe("flat line buffer", () => {
     }
   });
 
+  test("wrapped markdown bullets use a hanging indent", () => {
+    const width = 44;
+    const block: ContentBlock = {
+      type: "text",
+      id: "wrapped-bullet",
+      content: "- Added description-table detection and readable list rendering at src/tui/markdown-parser.ts:372.",
+    };
+    const text = lineText(buildLines([block], width, false, isExpanded));
+    expect(text.length).toBeGreaterThan(1);
+    expect(text[0]?.startsWith(" ● • ")).toBe(true);
+    expect(text[1]?.startsWith("  ")).toBe(true);
+    expect(text[1]?.startsWith("rendering")).toBe(false);
+    for (const line of text) expect(line.length).toBeLessThanOrEqual(width);
+  });
+
   test("user banner wraps within the column instead of spilling past the rail", () => {
     const width = 40;
     const block: ContentBlock = { type: "user", id: "wide-user", content: "y".repeat(120) };
