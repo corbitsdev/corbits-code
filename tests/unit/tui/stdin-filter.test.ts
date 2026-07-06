@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { test, expect } from "bun:test";
 import { createFilteredStdin } from "../../../src/tui/stdin-filter.js";
 
@@ -9,6 +10,13 @@ function fakeStdin(chunks: string[]): NodeJS.ReadStream {
     isTTY: true,
     read: () => (queue.length > 0 ? queue.shift()! : null),
   } as unknown as NodeJS.ReadStream;
+}
+
+function fakeEventStdin(): NodeJS.ReadStream & EventEmitter {
+  const stream = new EventEmitter() as NodeJS.ReadStream & EventEmitter;
+  stream.isTTY = true;
+  stream.read = () => null;
+  return stream;
 }
 
 test("strips SGR mouse sequences before Ink sees them", () => {
@@ -132,4 +140,45 @@ test("does not double-count a scroll when the full sequence is intact", () => {
   mouse.on("scrollDown", () => events.push("down"));
   stdin.read();
   expect(events).toEqual(["down"]);
+});
+
+test("strips mouse sequences from data events", () => {
+  const source = fakeEventStdin();
+  const { stdin, mouse } = createFilteredStdin(source);
+  const chunks: string[] = [];
+  const events: string[] = [];
+
+  stdin.on("data", (chunk) => chunks.push(String(chunk)));
+  mouse.on("scrollDown", () => events.push("down"));
+  source.emit("data", "hello[<67;88;45M\x1b[<65;1;1Mworld");
+
+  expect(chunks).toEqual(["helloworld"]);
+  expect(events).toEqual(["down"]);
+});
+
+test("buffers split mouse fragments from data events", () => {
+  const source = fakeEventStdin();
+  const { stdin, mouse } = createFilteredStdin(source);
+  const chunks: string[] = [];
+  const events: string[] = [];
+
+  stdin.on("data", (chunk) => chunks.push(String(chunk)));
+  mouse.on("scrollUp", () => events.push("up"));
+  source.emit("data", "type [<64;88");
+  source.emit("data", ";45M more");
+
+  expect(chunks).toEqual(["type ", " more"]);
+  expect(events).toEqual(["up"]);
+});
+
+test("once data listeners ignore empty mouse-only chunks", () => {
+  const source = fakeEventStdin();
+  const { stdin } = createFilteredStdin(source);
+  const chunks: string[] = [];
+
+  stdin.once("data", (chunk) => chunks.push(String(chunk)));
+  source.emit("data", "[<67;88;45M");
+  source.emit("data", "typed");
+
+  expect(chunks).toEqual(["typed"]);
 });

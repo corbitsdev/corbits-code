@@ -95,19 +95,21 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
     else if (button === SCROLL_DOWN_BUTTON) mouse.emit("scrollDown");
   }
 
-  // Carries an incomplete trailing mouse sequence from one read to the next.
+  // Carries an incomplete trailing mouse sequence from one read/data chunk to the next.
   let pending = "";
 
-  const read = (size?: number): string | null => {
-    const chunk = size === undefined ? source.read() : source.read(size);
-    if (chunk === null || chunk === undefined) return null;
-    const raw = typeof chunk === "string" ? chunk : (chunk as Buffer).toString("utf8");
+  const filterChunk = (chunk: unknown): string => {
+    const raw = typeof chunk === "string"
+      ? chunk
+      : Buffer.isBuffer(chunk)
+        ? chunk.toString("utf8")
+        : String(chunk ?? "");
 
     let text = pending + raw;
     pending = "";
 
     // Buffer a trailing, not-yet-terminated mouse sequence so a wheel event split
-    // across two reads reassembles on the next one instead of leaking. Both the
+    // across chunks reassembles on the next one instead of leaking. Both the
     // ESC-prefixed form and the bare `[<...` fragment (ESC already consumed by
     // Ink) are held back — the guard keys off `[<` so neither slips through.
     if (text.includes("[<")) {
@@ -121,9 +123,79 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
     return stripAndEmit(text);
   };
 
-  const stdin = new Proxy(source, {
+  const read = (size?: number): string | null => {
+    const chunk = size === undefined ? source.read() : source.read(size);
+    if (chunk === null || chunk === undefined) return null;
+    return filterChunk(chunk);
+  };
+
+  const dataListeners = new WeakMap<(...args: unknown[]) => void, (...args: unknown[]) => void>();
+  let stdin: NodeJS.ReadStream;
+
+  const wrapDataListener = (listener: (...args: unknown[]) => void): ((...args: unknown[]) => void) => {
+    const existing = dataListeners.get(listener);
+    if (existing !== undefined) return existing;
+    const wrapped = (chunk: unknown): void => {
+      const filtered = filterChunk(chunk);
+      if (filtered.length > 0) listener(filtered);
+    };
+    dataListeners.set(listener, wrapped);
+    return wrapped;
+  };
+
+  stdin = new Proxy(source, {
     get(target, prop) {
       if (prop === "read") return read;
+      if (prop === "on" || prop === "addListener" || prop === "prependListener") {
+        return (event: string | symbol, listener: (...args: unknown[]) => void) => {
+          const method = Reflect.get(target, prop, target) as (
+            event: string | symbol,
+            listener: (...args: unknown[]) => void,
+          ) => NodeJS.ReadStream;
+          method.call(target, event, event === "data" ? wrapDataListener(listener) : listener);
+          return stdin;
+        };
+      }
+      if (prop === "once" || prop === "prependOnceListener") {
+        return (event: string | symbol, listener: (...args: unknown[]) => void) => {
+          if (event !== "data") {
+            const method = Reflect.get(target, prop, target) as (
+              event: string | symbol,
+              listener: (...args: unknown[]) => void,
+            ) => NodeJS.ReadStream;
+            method.call(target, event, listener);
+            return stdin;
+          }
+          const addMethod = Reflect.get(
+            target,
+            prop === "once" ? "on" : "prependListener",
+            target,
+          ) as (event: string | symbol, listener: (...args: unknown[]) => void) => NodeJS.ReadStream;
+          const removeMethod = Reflect.get(target, "removeListener", target) as (
+            event: string | symbol,
+            listener: (...args: unknown[]) => void,
+          ) => NodeJS.ReadStream;
+          const wrapped = (chunk: unknown): void => {
+            const filtered = filterChunk(chunk);
+            if (filtered.length === 0) return;
+            removeMethod.call(target, event, wrapped);
+            listener(filtered);
+          };
+          addMethod.call(target, event, wrapped);
+          return stdin;
+        };
+      }
+      if (prop === "off" || prop === "removeListener") {
+        return (event: string | symbol, listener: (...args: unknown[]) => void) => {
+          const method = Reflect.get(target, prop, target) as (
+            event: string | symbol,
+            listener: (...args: unknown[]) => void,
+          ) => NodeJS.ReadStream;
+          method.call(target, event, event === "data" ? dataListeners.get(listener) ?? listener : listener);
+          if (event === "data") dataListeners.delete(listener);
+          return stdin;
+        };
+      }
       const value = Reflect.get(target, prop, target);
       return typeof value === "function" ? value.bind(target) : value;
     },
