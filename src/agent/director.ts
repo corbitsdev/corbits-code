@@ -64,24 +64,98 @@ export const presentDefinition: ToolDefinition = {
     "box{border?, padding?, children:[node]}; divider; " +
     "grid{columns?:[{align?}], rows: [ [cellNode, ...], ... ] } for aligned columns (cells are usually text nodes). " +
     "tone is one of default|muted|success|warning|danger|accent. " +
-    "Keep it compact; the UI handles width and scrolling. Compose freely rather than targeting named shapes.",
+    "Keep it compact; the UI handles width and scrolling. Compose freely rather than targeting named shapes. " +
+    'Example: {"view":{"type":"stack","children":[{"type":"text","text":"Build","bold":true},{"type":"row","gap":1,"children":[{"type":"text","text":"status:"},{"type":"text","text":"ok","tone":"success"}]}]}}',
   inputSchema: {
     type: "object",
     properties: {
-      view: {
-        type: "object",
-        description:
-          "The root view node. Must be a single node object (wrap multiples in a stack). Every node must have a `type` naming one of the layout primitives: text, stack, row, box, divider, grid. See the tool description for the exact shape of each.",
-        properties: {
-          type: {
-            type: "string",
-            enum: ["text", "stack", "row", "box", "divider", "grid"],
-          },
-        },
-        required: ["type"],
-      },
+      view: { $ref: "#/$defs/ViewNode" },
     },
     required: ["view"],
+    $defs: {
+      ViewNode: {
+        oneOf: [
+          { $ref: "#/$defs/Text" },
+          { $ref: "#/$defs/Stack" },
+          { $ref: "#/$defs/Row" },
+          { $ref: "#/$defs/Box" },
+          { $ref: "#/$defs/Divider" },
+          { $ref: "#/$defs/Grid" },
+        ],
+      },
+      Text: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["text"] },
+          text: { type: "string" },
+          tone: { type: "string", enum: ["default", "muted", "success", "warning", "danger", "accent"] },
+          bold: { type: "boolean" },
+          dim: { type: "boolean" },
+        },
+        required: ["type", "text"],
+        additionalProperties: false,
+      },
+      Stack: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["stack"] },
+          children: { type: "array", items: { $ref: "#/$defs/ViewNode" } },
+          gap: { type: "integer", enum: [0, 1] },
+        },
+        required: ["type", "children"],
+        additionalProperties: false,
+      },
+      Row: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["row"] },
+          children: { type: "array", items: { $ref: "#/$defs/ViewNode" } },
+          gap: { type: "integer", enum: [0, 1] },
+        },
+        required: ["type", "children"],
+        additionalProperties: false,
+      },
+      Box: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["box"] },
+          children: { type: "array", items: { $ref: "#/$defs/ViewNode" } },
+          border: { type: "boolean" },
+          padding: { type: "integer", enum: [0, 1] },
+        },
+        required: ["type", "children"],
+        additionalProperties: false,
+      },
+      Divider: {
+        type: "object",
+        properties: { type: { type: "string", enum: ["divider"] } },
+        required: ["type"],
+        additionalProperties: false,
+      },
+      Grid: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["grid"] },
+          columns: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { align: { type: "string", enum: ["left", "right", "center"] } },
+              additionalProperties: false,
+            },
+          },
+          rows: {
+            type: "array",
+            items: {
+              type: "array",
+              items: { $ref: "#/$defs/ViewNode" },
+            },
+          },
+        },
+        required: ["type", "rows"],
+        additionalProperties: false,
+      },
+    },
   },
 };
 

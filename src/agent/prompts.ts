@@ -191,7 +191,7 @@ export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
   baseOverride?: string,
-  opts: { orchestrator?: boolean } = {},
+  opts: { orchestrator?: boolean; toolNames?: readonly string[] } = {},
 ): string {
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
@@ -206,7 +206,9 @@ export function buildSubAgentSystemPrompt(
             "- Do not ask the dispatcher questions; you cannot receive answers. Make the best-judgment call, act, and note any assumption in your result.",
           ].join("\n"),
         ]);
-  const sections = [base, buildAvailableTools(defaultChatTools), contextSection(env)];
+  const toolListForPrompt =
+    opts.toolNames && opts.toolNames.length > 0 ? opts.toolNames : defaultChatTools;
+  const sections = [base, buildAvailableTools(toolListForPrompt), contextSection(env)];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }

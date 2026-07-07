@@ -62,7 +62,7 @@ export type ModalStackProps = {
   onDeleteAgentProfile: (id: string) => void;
   usage?: string | undefined;
   /** Forwarded to AgentModal for live usage fetch on hover/select of codex/xai providers. */
-  onRequestAgentUsage?: (kind: "codex" | "xai", profile: string) => void;
+  onRequestAgentUsage?: (kind: "codex" | "xai", profile: string, baseURL?: string) => void;
   unauthedProviders?: ReadonlySet<string>;
   onRequestAgentLogin?: (kind: "codex" | "xai", profile: string) => void;
 
