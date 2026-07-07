@@ -722,7 +722,10 @@ function estimateBlockLineCount(
   const cached = cache?.get(blockCacheKey(block, columns, expanded));
   if (cached !== undefined) return cached.length;
   if (block.type === "tool_call" || block.type === "tool_result") return 1;
-  if (block.type === "view") return 4;
+  if (block.type === "view") {
+    // Use real layout so tall grids / stacks from present get accurate virtual scroll estimates.
+    return viewToLines(block.node, columns).length;
+  }
   let chars = 40;
   if (block.type === "user" || block.type === "text" || block.type === "thinking") {
     chars = block.content.length;
