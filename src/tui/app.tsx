@@ -42,6 +42,7 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import {
   markOnboarded,
   resolveMaxConcurrentSubAgents,
+  tierDefinitionAt,
   type Settings,
 } from "../config/settings.js";
 import { getLogger } from "@intx/log";
@@ -96,7 +97,7 @@ import {
   readClipboardImage,
   type PendingImageAttachment,
 } from "./image-attachments.js";
-import "./commands/built-in.js";
+import { setConfiguredTiers } from "./commands/built-in.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
 const MAX_MENTION_TOTAL_BYTES = 400_000;
@@ -508,6 +509,13 @@ export function App({
   // Safe to mutate during render: the ref is only read later by the faremeter's
   // pricing resolver at usage-event time, never during this render pass.
   modelRef.current = model;
+
+  // Tier slash commands (/fast etc.) appear in the menu only for tiers the user
+  // has actually assigned, so the list tracks live tier state rather than the
+  // static PROVIDER_TIERS enum.
+  useEffect(() => {
+    setConfiguredTiers(tiers);
+  }, [tiers]);
 
   const codexProfileNames = useMemo(
     () =>
@@ -1202,6 +1210,24 @@ export function App({
     }
     if (result.type === "message") {
       setCommandMessage(result.text);
+      return;
+    }
+    if (result.type === "tier") {
+      // Resolve strictly against the named tier (no fast→standard→clever
+      // fallback walk) so /fast means "the fast tier's model", not "whatever
+      // resolves." Provider names come from the live catalog so a tier assigned
+      // this session is recognised without a restart.
+      const settings: Settings = {
+        providers: Object.fromEntries(providerCatalog.map((p) => [p.name, p])),
+        tiers,
+      };
+      const leg = tierDefinitionAt(result.tier, settings)?.order[0];
+      if (leg === undefined) {
+        setCommandMessage(`The ${result.tier} tier is not configured. Assign it in /model.`);
+        return;
+      }
+      applySelection(leg.provider, leg.model, reasoningEffort);
+      setCommandMessage(`Switched to ${result.tier} tier (${leg.model}).`);
       return;
     }
     if (result.type === "view") {

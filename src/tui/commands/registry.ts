@@ -1,3 +1,5 @@
+import type { ProviderTier } from "../../config/settings.js";
+
 export type CommandContext = {
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
@@ -15,6 +17,7 @@ export type CommandResult =
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" | "login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "paste-image" }
+  | { type: "tier"; tier: ProviderTier }
   | { type: "noop" };
 
 export type SubcommandDefinition = {
@@ -27,6 +30,10 @@ export type CommandDefinition = {
   description: string;
   subcommands?: readonly SubcommandDefinition[];
   handler: (args: string, ctx: CommandContext) => CommandResult;
+  // Optional visibility gate. When present and returns false the command is
+  // omitted from listCommands (the slash menu) but still callable via
+  // getCommand — so a tier command stays resolvable even mid-reconfigure.
+  available?: () => boolean;
 };
 
 export type CommandPlugin = {
@@ -57,6 +64,6 @@ export function getCommand(name: string): CommandDefinition | undefined {
 
 export function listCommands(): CommandDefinition[] {
   return [...registry.values()]
-    .filter((c) => !hidden.has(c.name))
+    .filter((c) => !hidden.has(c.name) && (c.available === undefined || c.available()))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
