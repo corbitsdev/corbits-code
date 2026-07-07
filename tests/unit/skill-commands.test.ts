@@ -40,53 +40,41 @@ describe("loadSkillCommands", () => {
     expect(await loadSkillCommands(dir)).toBeNull();
   });
 
-  test("returns null when no skill is tagged user-invocable", async () => {
-    const dir = await makePlugin({
-      "skills/plain/SKILL.md": "---\nname: plain\ndescription: d\n---\nBody.",
-    });
-    expect(await loadSkillCommands(dir)).toBeNull();
-  });
-
-  test("promotes a skill tagged disable-model-invocation: true", async () => {
+  test("promotes every skill to a slash command, tagged or not", async () => {
     const dir = await makePlugin({
       "skills/linear-issue-workflow/SKILL.md":
         "---\nname: linear-issue-workflow\ndescription: Implement a Linear issue\nargument-hint: \"<issue-id>\"\ndisable-model-invocation: true\n---\nImplement the issue.",
+      "skills/linear-create/SKILL.md":
+        "---\nname: linear-create\ndescription: Create Linear issues\n---\nCreate the artifacts.",
     });
     const cmds = await loadSkillCommands(dir);
-    expect(cmds).not.toBeNull();
-    const cmd = cmds!.find((c) => c.name === "linear-issue-workflow");
-    expect(cmd).toBeDefined();
-    expect(cmd!.description).toBe("Implement a Linear issue");
-    // No $ARGUMENTS in body -> args append.
-    expect(cmd!.handler("ABC-123", ctx)).toEqual({
+    expect(cmds!.map((c) => c.name).sort()).toEqual(["linear-create", "linear-issue-workflow"]);
+
+    // Tagged skill, no $ARGUMENTS in body -> args append.
+    const workflow = cmds!.find((c) => c.name === "linear-issue-workflow")!;
+    expect(workflow.description).toBe("Implement a Linear issue");
+    expect(workflow.handler("ABC-123", ctx)).toEqual({
       type: "send",
       text: "Implement the issue.\n\nABC-123",
     });
+
+    // Untagged skill still becomes a command.
+    expect(cmds!.find((c) => c.name === "linear-create")).toBeDefined();
   });
 
-  test("promotes a skill tagged user-invocable: true (Agent Skills spec)", async () => {
+  test("$ARGUMENTS in a skill body interpolates inline", async () => {
     const dir = await makePlugin({
       "skills/hiring/SKILL.md":
-        "---\nname: hiring\ndescription: Hiring\nuser-invocable: true\n---\nRun the loop on $ARGUMENTS.",
+        "---\nname: hiring\ndescription: Hiring\n---\nRun the loop on $ARGUMENTS.",
     });
-    const cmds = await loadSkillCommands(dir);
-    expect(cmds!.find((c) => c.name === "hiring")).toBeDefined();
-    const res = cmds!.find((c) => c.name === "hiring")!.handler("analyze", ctx);
-    expect(res).toEqual({ type: "send", text: "Run the loop on analyze." });
-  });
-
-  test("only tagged skills become commands; untagged siblings are skipped", async () => {
-    const dir = await makePlugin({
-      "skills/tagged/SKILL.md": "---\nname: tagged\ndisable-model-invocation: true\n---\nT.",
-      "skills/plain/SKILL.md": "---\nname: plain\n---\nP.",
-    });
-    const cmds = await loadSkillCommands(dir);
-    expect(cmds!.map((c) => c.name)).toEqual(["tagged"]);
+    const cmd = (await loadSkillCommands(dir))!.find((c) => c.name === "hiring")!;
+    expect(cmd.handler("analyze", ctx)).toEqual({ type: "send", text: "Run the loop on analyze." });
+    expect(cmd.handler("", ctx)).toEqual({ type: "send", text: "Run the loop on ." });
   });
 
   test("falls back to the directory name when frontmatter omits name", async () => {
     const dir = await makePlugin({
-      "skills/custom-name/SKILL.md": "---\ndisable-model-invocation: true\ndescription: d\n---\nBody.",
+      "skills/custom-name/SKILL.md": "---\ndescription: d\n---\nBody.",
     });
     const cmds = await loadSkillCommands(dir);
     expect(cmds!.map((c) => c.name)).toEqual(["custom-name"]);
@@ -102,6 +90,7 @@ describe("loadDataOnlyPlugin — Claude marketplace adapter", () => {
         version: "1.9.0",
       }),
       "agents/karen.md": "You orchestrate.",
+      "skills/linear-create/SKILL.md": "---\nname: linear-create\n---\nDo it.",
       "skills/linear-issue-workflow/SKILL.md":
         "---\nname: linear-issue-workflow\ndisable-model-invocation: true\n---\nDo it.",
     });
@@ -112,9 +101,12 @@ describe("loadDataOnlyPlugin — Claude marketplace adapter", () => {
       kind: "agent",
       description: "Dev skills and agents",
     });
-    // Agents wire (kind agent) AND the tagged skill wires as a command.
+    // Agents wire (kind agent) AND every skill wires as a command.
     expect(plugin!.agentPlugin).toBeDefined();
-    expect(plugin!.commandPlugin?.commands.map((c) => c.name)).toEqual(["linear-issue-workflow"]);
+    expect(plugin!.commandPlugin?.commands.map((c) => c.name).sort()).toEqual([
+      "linear-create",
+      "linear-issue-workflow",
+    ]);
   });
 
   test("native manifest.json is preferred over .claude-plugin/plugin.json", async () => {
@@ -129,24 +121,17 @@ describe("loadDataOnlyPlugin — Claude marketplace adapter", () => {
     expect(plugin!.manifest.description).toBeUndefined();
   });
 
-  test("a skills-only plugin with tagged skills infers kind command", async () => {
+  test("a skills-only plugin infers kind command (every skill is a command)", async () => {
     const dir = await makePlugin({
-      "skills/hiring/SKILL.md": "---\nname: hiring\nuser-invocable: true\n---\nHire.",
+      "skills/hiring/SKILL.md": "---\nname: hiring\n---\nHire.",
+      "skills/brand-identity/SKILL.md": "---\nname: brand-identity\n---\nBrand.",
     });
     const plugin = await loadDataOnlyPlugin(dir);
     expect(plugin!.manifest.kind).toBe("command");
-    expect(plugin!.commandPlugin?.commands.map((c) => c.name)).toEqual(["hiring"]);
+    expect(plugin!.commandPlugin?.commands.map((c) => c.name).sort()).toEqual([
+      "brand-identity",
+      "hiring",
+    ]);
     expect(plugin!.agentPlugin).toBeUndefined();
-  });
-
-  test("a skills-only plugin with no tagged skills is still loadable (enables use_skill)", async () => {
-    const dir = await makePlugin({
-      "skills/brand-identity/SKILL.md": "---\nname: brand-identity\ndescription: brand\n---\nBrand rules.",
-    });
-    const plugin = await loadDataOnlyPlugin(dir);
-    expect(plugin).not.toBeNull();
-    expect(plugin!.manifest.kind).toBe("agent");
-    expect(plugin!.agentPlugin).toBeUndefined();
-    expect(plugin!.commandPlugin).toBeUndefined();
   });
 });

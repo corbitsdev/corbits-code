@@ -3,23 +3,14 @@ import { join } from "node:path";
 import type { CommandDefinition, CommandResult } from "../tui/commands/registry.js";
 import { splitFrontmatter } from "./frontmatter.js";
 
-// Skills authored as `skills/<name>/SKILL.md` are normally model-invoked via the
-// `use_skill` tool. A skill may opt into ALSO being a user-facing slash command
-// by tagging its frontmatter — either Claude Code's `disable-model-invocation:
-// true` or the Agent Skills spec's `user-invocable: true`. Both mean "the user
-// triggers this explicitly," so we surface them as `/<skill-name> [args]` that
-// sends the skill body (plus any args) to the agent.
-//
-// This is an additional surface only: `discoverSkills` still lists every skill
-// for model auto-invocation (per the chosen design). Tagged skills simply gain
-// a `/` entry point in addition to `use_skill`.
+// Every skill in an enabled plugin is surfaced as a user slash command:
+// `/<skill-name> [args]` sends the skill body (plus args) to the agent. A skill
+// authored as `skills/<name>/SKILL.md` is normally model-invoked via the
+// `use_skill` tool; exposing it as a /command adds a direct user entry point
+// without removing the model-invoked path — `discoverSkills` is unchanged, so
+// the model can still auto-invoke any skill.
 
 const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-function isUserInvocable(fm: Record<string, unknown> | null): boolean {
-  if (fm === null) return false;
-  return fm["disable-model-invocation"] === true || fm["user-invocable"] === true;
-}
 
 // `$ARGUMENTS` (Claude Code convention) interpolates inline when the author used
 // it; otherwise args append after the body so the skill instructions run against
@@ -31,9 +22,9 @@ function buildPrompt(body: string, args: string): string {
   return args.length > 0 ? `${body}\n\n${args}` : body;
 }
 
-// Read `skills/<name>/SKILL.md` and return a slash command for each skill tagged
-// user-invocable. Returns null when the plugin has no skills root or no tagged
-// skills, so the orchestrator can treat skill-commands as optional.
+// Read `skills/<name>/SKILL.md` and return a slash command for each skill.
+// Returns null when the plugin has no skills root or no loadable skill files,
+// so the orchestrator can treat skill-commands as optional.
 export async function loadSkillCommands(
   pluginDir: string,
   opts: { onWarning?: (msg: string) => void } = {},
@@ -61,7 +52,6 @@ export async function loadSkillCommands(
       warn(`skipping skills/${entry.name}/SKILL.md: malformed frontmatter`);
       continue;
     }
-    if (!isUserInvocable(frontmatter)) continue;
 
     const name =
       typeof frontmatter.name === "string" && frontmatter.name.trim().length > 0

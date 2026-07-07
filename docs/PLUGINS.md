@@ -197,20 +197,30 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
   exist. So a marketplace plugin (e.g. `agents/plugins/gaas`) loads as-is via
   `/plugins` add-by-path: its `agents/*.md` wire as profiles and its
   `skills/*/SKILL.md` resolve through `use_skill` with no porting.
-- **Skill-commands.** A skill tagged user-invocable — frontmatter
-  `disable-model-invocation: true` (Claude Code) or `user-invocable: true`
-  (Agent Skills spec) — is also surfaced as a `/<skill-name> [args]` slash command
-  that sends the skill body (plus args) to the agent. `loadSkillCommands`
-  (`src/plugins/skill-commands.ts`) synthesizes them; they merge into the same
-  `commandPlugin` as `commands/*.md`. This is an additional surface:
-  `discoverSkills` still lists every skill for model auto-invocation, so an
-  untagged skill like `linear-create` stays `use_skill`-only while a tagged one
-  like `linear-issue-workflow` gains `/linear-issue-workflow` too.
+- **Skill-commands.** Every skill in an enabled plugin is also surfaced as a
+  `/<skill-name> [args]` slash command that sends the skill body (plus args) to
+  the agent. `loadSkillCommands` (`src/plugins/skill-commands.ts`) synthesizes
+  them; they merge into the same `commandPlugin` as `commands/*.md`. This is an
+  additional surface: `discoverSkills` is unchanged, so the model can still
+  auto-invoke any skill via `use_skill` — the slash command is a direct user
+  entry point on top. (An earlier revision gated this on the
+  `disable-model-invocation`/`user-invocable` frontmatter tags; that gate was
+  dropped so untagged skills like `linear-create` are reachable too.)
 - **Mixed plugins wire both sides.** A plugin contributing agents AND commands
   (the common marketplace shape) infers `kind: "agent"` so profiles wire, and
   `isEnabledCommandPlugin` (`src/plugins/register.ts`) also wires commands for
   `kind: "agent"` — commands are a low-trust, additive surface. `web`/`tool`
   kinds still do not auto-wire commands.
+
+**Phase 7 — Claude marketplaces (done).**
+- A plugin path may point at a Claude Code marketplace: a directory with
+  `.claude-plugin/marketplace.json` declaring `plugins: [{ name, source }]`.
+  `expandPluginPath` (`src/plugins/loader.ts`) resolves each `source` (relative
+  to the marketplace root) and loads it as its own plugin — one id, one enable
+  toggle per member. A path with no marketplace.json but a `plugins/` subtree
+  (and no single-plugin markers at its root) expands the same way, so a plain
+  checkout works too. Point `/plugins` add-by-path at the marketplace root and
+  every member appears; enable the ones you want.
 
 ## Decisions (locked)
 
