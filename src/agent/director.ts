@@ -56,26 +56,26 @@ export const askOperatorDefinition: ToolDefinition = {
 export const presentDefinition: ToolDefinition = {
   name: "present",
   description:
-    "Render a rich UI for the user from a JSON view spec built from a fixed set of building blocks. " +
-    "Use this to show structured data (lists, records, comparisons, status) instead of writing a Markdown table or pasting raw output. " +
-    "The `view` is a node tree. Node types: " +
-    "stack{children:[node],gap?:0|1} (vertical container); " +
-    "heading{value,level?:1|2|3}; text{value,tone?,bold?,dim?}; divider; badge{label,tone?}; progress{value,max?,label?}; " +
-    "list{items:[string],ordered?}; keyValue{pairs:[{label,value,tone?}]}; " +
-    "table{columns:[{header,field,align?,colorRole?}],rows:[{<field>:string}]}; " +
-    "card{title?,subtitle?,fields:[{label,value,tone?}],badges?:[{label,tone?}]}. " +
-    "tone is one of default|muted|success|warning|danger|accent. colorRole may be a tone or \"status\"/\"priority\" to auto-color a cell by its value. " +
-    "Keep it compact; the UI handles width and scrolling.",
+    "Render structured output for the user via a dynamic layout tree. " +
+    "Use this (instead of markdown tables or raw dumps) when you want aligned columns, grouped records, status, or other composed blocks. " +
+    "The `view` is a single root node tree built from generic layout primitives only — no fixed widget catalog. " +
+    "Primitives: text{text, tone?, bold?, dim?}; " +
+    "stack{children:[node], gap?:0|1}; row{children:[node], gap?:0|1}; " +
+    "box{border?, padding?, children:[node]}; divider; " +
+    "grid{columns?:[{align?}], rows: [ [cellNode, ...], ... ] } for aligned columns (cells are usually text nodes). " +
+    "tone is one of default|muted|success|warning|danger|accent. " +
+    "Keep it compact; the UI handles width and scrolling. Compose freely rather than targeting named shapes.",
   inputSchema: {
     type: "object",
     properties: {
       view: {
         type: "object",
-        description: "The root view node (typically a stack of building-block nodes). Must be a single node object, not an array — wrap multiple nodes in a stack. Every node, including nested children, must include a `type` field naming one of: stack, heading, text, divider, badge, progress, list, keyValue, table, card.",
+        description:
+          "The root view node. Must be a single node object (wrap multiples in a stack). Every node must have a `type` naming one of the layout primitives: text, stack, row, box, divider, grid. See the tool description for the exact shape of each.",
         properties: {
           type: {
             type: "string",
-            enum: ["stack", "heading", "text", "divider", "badge", "progress", "list", "keyValue", "table", "card"],
+            enum: ["text", "stack", "row", "box", "divider", "grid"],
           },
         },
         required: ["type"],

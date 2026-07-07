@@ -80,7 +80,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   manage_tasks: "maintain your own task list (create/update status)",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
-  present: "render structured data (lists, tables, status) to the user",
+  present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
   use_skill: "load a listed skill's full instructions before doing work it covers",
 };

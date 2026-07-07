@@ -555,8 +555,8 @@ test("E1: status returns to running when all gates resolve", () => {
 // H3: a successful present must splice out the originating tool_call block.
 test("H3: present success removes the tool_call block from the log", () => {
   const state = createAgentStreamState();
-  // validateView expects { type: "text", value: "..." } — not content.
-  const view = { type: "text", value: "hi" };
+  // validateView expects { type: "text", text: "..." }
+  const view = { type: "text", text: "hi" };
   state.addEvent({
     type: "inference.tool_call.start",
     seq: 1,

@@ -90,7 +90,7 @@ test("present validates the view spec and gives self-correcting errors", async (
     onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
   expect(toolset.dynamicRunner.currentDefinitions().map((d) => d.name)).toContain("present");
-  expect(await callPresent(toolset, { type: "heading", value: "Hi" })).toBe("Rendered.");
+  expect(await callPresent(toolset, { type: "text", text: "Hi" })).toBe("Rendered.");
   expect(await callPresent(toolset, { type: "chart" })).toMatch(/Invalid view spec/);
 });
 
