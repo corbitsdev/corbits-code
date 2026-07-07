@@ -242,57 +242,54 @@ describe("F2: link URL handling", () => {
 describe("F3: GFM table relaxation", () => {
   test("table with single dashes in separator", () => {
     const lines = parseMarkdown("| a | b |\n|-|-|\n| 1 | 2 |");
-    expect(lines).toHaveLength(2);
+    // Header + header rule + data row.
+    expect(lines).toHaveLength(3);
     expect(allText(lines[0] ?? [])).toContain("a");
     expect(allText(lines[0] ?? [])).toContain("b");
-    expect(allText(lines[1] ?? [])).toContain("1");
+    expect(allText(lines[2] ?? [])).toContain("1");
   });
 
   test("table with two dashes in separator", () => {
     const lines = parseMarkdown("| name | value |\n|--|--|\n| foo | bar |");
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3);
     expect(allText(lines[0] ?? [])).toContain("name");
   });
 
   test("table with default three dashes still works", () => {
     const lines = parseMarkdown("| x | y |\n|---|---|\n| 1 | 2 |");
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3);
     expect(allText(lines[0] ?? [])).toContain("x");
   });
 
   test("table separator with alignment colons", () => {
     const lines = parseMarkdown("| left | center | right |\n|:---|:--:|--:|\n| a | b | c |");
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3);
     expect(allText(lines[0] ?? [])).toContain("left");
   });
 
   test("cell with escaped pipe is not split into columns", () => {
     const lines = parseMarkdown("| code | desc |\n|---|---|\n| a\\|b | test |");
-    expect(lines).toHaveLength(2);
-    const row = allText(lines[1] ?? []);
+    expect(lines).toHaveLength(3);
+    const row = allText(lines[2] ?? []);
     // The escaped pipe stays inside one cell rather than splitting it.
     expect(row).toContain("a|b");
   });
 
   test("escaped pipe renders as a literal pipe, not a backslash escape", () => {
     const lines = parseMarkdown("| a | b |\n|---|---|\n| x\\|y | z |");
-    const row = allText(lines[1] ?? []);
+    const row = allText(lines[2] ?? []);
     expect(row).toContain("x|y");
     expect(row).not.toContain("x\\|y");
   });
 
   test("trailing empty cell is preserved to match header column count", () => {
     const lines = parseMarkdown("| a | b | c |\n|---|---|---|\n| x | y | |");
-    expect(lines).toHaveLength(2);
-    // The rendered output shows: "a | b | c" and "x | y |  "
-    // With 3 columns, we should see two pipe separators " | " in each row.
+    expect(lines).toHaveLength(3);
+    // 3 columns render two unicode column separators in the header and data row.
     const header = allText(lines[0] ?? []);
-    const dataRow = allText(lines[1] ?? []);
-    const headerPipes = (header.match(/\s\|\s/g) ?? []).length;
-    const dataPipes = (dataRow.match(/\s\|\s/g) ?? []).length;
-    // 3 columns = 2 pipe separators in each row
-    expect(headerPipes).toBe(2);
-    expect(dataPipes).toBe(2);
+    const dataRow = allText(lines[2] ?? []);
+    expect((header.match(/│/g) ?? []).length).toBe(2);
+    expect((dataRow.match(/│/g) ?? []).length).toBe(2);
   });
 });
 
@@ -324,10 +321,12 @@ describe("multi-line", () => {
     const lines = parseMarkdown(
       "| Game | Date | Location |\n| --- | --- | --- |\n| Game 3 | June 7 | Vegas |\n| Game 4 | June 9 | Vegas |",
     );
-    expect(lines).toHaveLength(3);
-    expect(allText(lines[0] ?? [])).toBe("Game   | Date   | Location");
-    expect(allText(lines[1] ?? [])).toBe("Game 3 | June 7 | Vegas   ");
-    expect(allText(lines[2] ?? [])).toBe("Game 4 | June 9 | Vegas   ");
+    // Header, header rule, then two data rows.
+    expect(lines).toHaveLength(4);
+    expect(allText(lines[0] ?? [])).toBe(" Game   │ Date   │ Location ");
+    expect(allText(lines[1] ?? [])).toBe("────────┼────────┼──────────");
+    expect(allText(lines[2] ?? [])).toBe(" Game 3 │ June 7 │ Vegas    ");
+    expect(allText(lines[3] ?? [])).toBe(" Game 4 │ June 9 │ Vegas    ");
   });
 
   test("inline markdown inside table cells is parsed, not left literal", () => {
@@ -335,7 +334,7 @@ describe("multi-line", () => {
     for (const line of lines) {
       expect(allText(line)).not.toContain("**");
     }
-    const statusCell = (lines[1] ?? []).find((s) => s.text === "done");
+    const statusCell = (lines[2] ?? []).find((s) => s.text === "done");
     expect(statusCell?.bold).toBe(true);
   });
 
@@ -347,7 +346,7 @@ describe("multi-line", () => {
     for (const line of lines) {
       expect(allText(line).length).toBeLessThanOrEqual(40);
     }
-    expect(allText(lines[0] ?? [])).toContain(" | ");
+    expect(allText(lines[0] ?? [])).toContain("│");
   });
 
   test("wide table shrinks columns proportionally to fit the budget", () => {
@@ -358,8 +357,9 @@ describe("multi-line", () => {
     for (const line of lines) {
       expect(allText(line).length).toBeLessThanOrEqual(40);
     }
-    // A single logical row wraps into multiple aligned visual rows.
-    expect(lines.length).toBeGreaterThan(2);
+    // Header + header rule already account for 2 lines, so a wrapped data row
+    // pushes the count past 3.
+    expect(lines.length).toBeGreaterThan(3);
   });
 
   test("wide descriptor table renders as readable entries", () => {
@@ -393,25 +393,26 @@ describe("borderless pipe tables the model emits", () => {
     const lines = parseMarkdown(
       "Word | What it means\nDeploy | Register a recipe\nStart | Run it once",
     );
-    expect(lines).toHaveLength(3);
-    expect(allText(lines[0] ?? []).trimEnd()).toBe("Word   | What it means");
-    expect(allText(lines[1] ?? []).trimEnd()).toBe("Deploy | Register a recipe");
-    expect(allText(lines[2] ?? []).trimEnd()).toBe("Start  | Run it once");
+    // Header, header rule, then two data rows.
+    expect(lines).toHaveLength(4);
+    expect(allText(lines[0] ?? []).trim()).toBe("Word   │ What it means");
+    expect(allText(lines[2] ?? []).trim()).toBe("Deploy │ Register a recipe");
+    expect(allText(lines[3] ?? []).trim()).toBe("Start  │ Run it once");
   });
 
   test("borderless table with a separator row drops the separator", () => {
     const lines = parseMarkdown(
       "Name | Value\n--- | ---\nfoo | bar",
     );
-    expect(lines).toHaveLength(2);
-    expect(allText(lines[0] ?? []).trimEnd()).toBe("Name | Value");
-    expect(allText(lines[1] ?? []).trimEnd()).toBe("foo  | bar");
+    expect(lines).toHaveLength(3);
+    expect(allText(lines[0] ?? []).trim()).toBe("Name │ Value");
+    expect(allText(lines[2] ?? []).trim()).toBe("foo  │ bar");
   });
 
   test("inline markdown inside borderless cells is parsed", () => {
     const lines = parseMarkdown("Item | Status\nname | **done**");
     for (const line of lines) expect(allText(line)).not.toContain("**");
-    const cell = (lines[1] ?? []).find((s) => s.text === "done");
+    const cell = (lines[2] ?? []).find((s) => s.text === "done");
     expect(cell?.bold).toBe(true);
   });
 
