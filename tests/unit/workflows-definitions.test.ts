@@ -48,13 +48,13 @@ test("build workflow completes with no capabilities, skipping ticket steps", () 
   expect(ids).toContain("gate");
 });
 
-test("autoAdvance is set on linear plugin workflows", () => {
+test("autoAdvance is set on sample workflows", () => {
   for (const name of ["scope", "build", "review"]) {
     expect(findWorkflow(name)?.autoAdvance).toBe(true);
   }
 });
 
-test("every linear workflow drains to completion under full capabilities", () => {
+test("every sample workflow drains to completion under full capabilities", () => {
   for (const name of ["scope", "review", "build"]) {
     expect(() => drive(name, fullCaps)).not.toThrow();
   }
