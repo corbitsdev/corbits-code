@@ -1,7 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import "./built-in.js";
-import { getCommand } from "./registry.js";
+import { getCommand, listCommands } from "./registry.js";
 import type { CommandContext } from "./registry.js";
+import { setConfiguredTiers } from "./built-in.js";
 
 const makeCtx = (): CommandContext => ({
   signalClear: () => {},
@@ -83,5 +84,39 @@ describe("/new command", () => {
     ctx.signalClear = () => { called = true; };
     getCommand("new")!.handler("", ctx);
     expect(called).toBe(true);
+  });
+});
+
+describe("tier commands", () => {
+  it("registers a slash command for each provider tier", () => {
+    expect(getCommand("fast")).toBeDefined();
+    expect(getCommand("standard")).toBeDefined();
+    expect(getCommand("clever")).toBeDefined();
+  });
+
+  it("each emits a tier-switch intent carrying its tier name", () => {
+    for (const tier of ["fast", "standard", "clever"] as const) {
+      expect(getCommand(tier)!.handler("", makeCtx())).toEqual({ type: "tier", tier });
+    }
+  });
+
+  it("are hidden from the menu until configured, then appear", () => {
+    // Reset to nothing configured: no tier command surfaces in the menu.
+    setConfiguredTiers({});
+    let names = listCommands().map((c) => c.name);
+    expect(names).not.toContain("fast");
+    expect(names).not.toContain("standard");
+    expect(names).not.toContain("clever");
+
+    // Still callable directly — visibility is display-only, never a hard gate.
+    expect(getCommand("fast")).toBeDefined();
+
+    setConfiguredTiers({ fast: { provider: "fp", model: "fp-large" } });
+    names = listCommands().map((c) => c.name);
+    expect(names).toContain("fast");
+    expect(names).not.toContain("standard");
+    expect(names).not.toContain("clever");
+
+    setConfiguredTiers({});
   });
 });
