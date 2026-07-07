@@ -1473,8 +1473,13 @@ export function App({
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
           {state.tasks.length > 0 && (
-            <Box flexDirection="column" marginTop={1} marginBottom={1}>
+            <Box flexDirection="column" marginTop={1}>
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />
+            </Box>
+          )}
+          {activeSubAgents.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              <TaskView tasks={activeSubAgents} title="Agents" />
             </Box>
           )}
           <InFlightIndicator
@@ -1559,15 +1564,12 @@ export function App({
               {...(revolvingVerb !== undefined ? { verb: revolvingVerb } : {})}
             />
           )}
-          {activeSubAgents.length > 0 && (
-            <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={activeSubAgents} title="Agents" />
-            </Box>
-          )}
-        <StatusBar
-          sessionElapsedMs={sessionElapsedMs}
-          mcpCount={mcpStatus.connected.length}
-        />
+        <Box marginTop={1}>
+          <StatusBar
+            sessionElapsedMs={sessionElapsedMs}
+            mcpCount={mcpStatus.connected.length}
+          />
+        </Box>
         </Box>
       )}
     </Box>

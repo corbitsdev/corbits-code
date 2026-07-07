@@ -224,8 +224,22 @@ type ParsedTable = {
   consumed: number;
 };
 
-const TABLE_SEP = " | ";
+// Internal separators only (no outer frame), matching how opencode/Glamour draw
+// tables: a unicode bar between columns and a header rule of box-drawing dashes.
+// Outer borders were deliberately avoided — they add width overhead and neither
+// reference TUI draws them in the chat transcript.
+const COL_SEP = "│";
+const HEADER_RULE = "─";
+const HEADER_CROSS = "┼";
 const MIN_COL_WIDTH = 6;
+
+// Each cell slot is the content padded to its column width plus a leading and
+// trailing space, so cell text never butts against the bar. Columns are joined
+// by a single bar, so the per-row overhead is one bar per gap plus two spaces
+// of slot padding on every column.
+function tableRowOverhead(cols: number): number {
+  return cols - 1 + cols * 2;
+}
 
 function renderedLength(segments: StyledSegment[]): number {
   return segments.reduce((sum, seg) => sum + stringWidth(seg.text), 0);
@@ -296,7 +310,7 @@ function parseTableBlock(lines: string[], startIndex: number, width: number): Pa
     Math.max(...cells.map((row) => renderedLength(row[col] ?? []))),
   );
 
-  const sepTotal = TABLE_SEP.length * (cols - 1);
+  const sepTotal = tableRowOverhead(cols);
   const naturalWidth = naturalWidths.reduce((a, b) => a + b, 0) + sepTotal;
 
   if (!Number.isFinite(width) || naturalWidth <= width) {
@@ -340,11 +354,12 @@ function fitColumnWidths(naturalWidths: number[], targetContent: number): number
 }
 
 // Lay cells into an aligned grid, wrapping each cell to its column width and
-// stacking the wrapped lines so columns stay aligned across visual rows.
+// stacking the wrapped lines so columns stay aligned across visual rows. The
+// first row is the header: it renders bold and is underlined by a dash rule.
 function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegment[][] {
   const out: StyledSegment[][] = [];
 
-  for (const row of cells) {
+  cells.forEach((row, rowIdx) => {
     const wrapped = row.map((cell, col) => {
       const colWidth = colWidths[col] ?? 0;
       const text = cell.map((s) => s.text).join("");
@@ -354,17 +369,32 @@ function renderGrid(cells: StyledSegment[][][], colWidths: number[]): StyledSegm
     });
 
     const height = Math.max(1, ...wrapped.map((lines) => lines.length));
+    const isHeader = rowIdx === 0;
     for (let r = 0; r < height; r++) {
       const line: StyledSegment[] = [];
       for (let col = 0; col < colWidths.length; col++) {
         const colWidth = colWidths[col] ?? 0;
         const cellLine = wrapped[col]?.[r] ?? [{ text: " ".repeat(colWidth) }];
-        line.push(...cellLine);
-        if (col < colWidths.length - 1) line.push({ text: TABLE_SEP });
+        // Slot = leading space, content padded to colWidth, trailing space.
+        const slot: StyledSegment[] = [{ text: " " }, ...cellLine, { text: " " }];
+        line.push(...(isHeader ? applyFlag(slot, { bold: true }) : slot));
+        if (col < colWidths.length - 1) line.push({ text: COL_SEP, rule: true });
       }
       out.push(line);
     }
-  }
+
+    // Underline the header with a dash rule so the table reads as a table,
+    // not a column of pipe-separated prose.
+    if (isHeader) {
+      const rule: StyledSegment[] = [];
+      for (let col = 0; col < colWidths.length; col++) {
+        const colWidth = colWidths[col] ?? 0;
+        rule.push({ text: HEADER_RULE.repeat(colWidth + 2), rule: true });
+        if (col < colWidths.length - 1) rule.push({ text: HEADER_CROSS, rule: true });
+      }
+      out.push(rule);
+    }
+  });
 
   return out;
 }

@@ -27,9 +27,9 @@ const EXPANDED_TOOL_RESULT_LINE_LIMIT = 200;
 // Tool calls and results sit one level below assistant prose so the model's
 // text draws the eye and tools read as subordinate actions.
 const TOOL_INDENT = 2;
-// Horizontal gutters keep prose off the terminal edges so wrapped lines
-// don't sit flush against the window border.
-export const TEXT_GUTTER = 2;
+// One-column gutter shared by the transcript, the chrome (header/tasks/status),
+// and the prompt-box border, so every left edge lines up at the same column.
+export const TEXT_GUTTER = 1;
 
 function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   if (spaces <= 0) return lines;
