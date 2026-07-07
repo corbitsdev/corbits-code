@@ -1,0 +1,6 @@
+{
+  "id": "example-commands",
+  "name": "Example Commands",
+  "kind": "command",
+  "description": "Data-only slash commands authored as markdown"
+}
