@@ -10,8 +10,11 @@ export function isPluginEnabled(config: Record<string, PluginConfig>, id: string
 export function isEnabledCommandPlugin(mod: PluginModule, config: Record<string, PluginConfig>): boolean {
   if (mod.commandPlugin === undefined) return false;
   const kind = mod.manifest?.kind;
+  // command/workflow plugins own their slash commands; agent plugins may also
+  // contribute commands (e.g. a Claude marketplace plugin's tagged skills), so
+  // commands wire as an added surface without changing the plugin's primary kind.
   return (
-    (kind === "command" || kind === "workflow") &&
+    (kind === "command" || kind === "workflow" || kind === "agent") &&
     isPluginEnabled(config, mod.manifest!.id)
   );
 }

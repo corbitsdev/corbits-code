@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
-import { loadDataOnlyAgentPlugin } from "./data-only-agent.js";
+import { loadDataOnlyPlugin } from "./data-only.js";
 
 export type PluginModule = {
   // Self-description (id, name, kind, credential fields), when the module
@@ -69,21 +69,15 @@ export async function loadPluginEntry(
           // not found, try next
         }
       }
-      // No JS entry — fall back to a data-only agent plugin if it contains
-      // agents/*.md (or *.md directly). Lets a plugin be just agents/ + skills/.
+      // No JS entry — fall back to a data-only plugin (agents/*.md and/or
+      // commands/*.md). Lets a plugin be pure data + skills, no index.ts.
       if (target === entryPath) {
-        // pluginId defaults to basename(pluginDir) inside the loader; don't
-        // pass it here so there's a single source of truth for the default.
-        const dataOnly = await loadDataOnlyAgentPlugin(entryPath, {
-          cwd,
-          onWarning,
-        });
+        const dataOnly = await loadDataOnlyPlugin(entryPath, { cwd, onWarning });
         if (dataOnly !== null) {
-          return {
-            dir: entryPath,
-            manifest: dataOnly.manifest,
-            agentPlugin: dataOnly.agentPlugin,
-          };
+          const mod: PluginModule = { dir: entryPath, manifest: dataOnly.manifest };
+          if (dataOnly.agentPlugin !== undefined) mod.agentPlugin = dataOnly.agentPlugin;
+          if (dataOnly.commandPlugin !== undefined) mod.commandPlugin = dataOnly.commandPlugin;
+          return mod;
         }
         return null;
       }
