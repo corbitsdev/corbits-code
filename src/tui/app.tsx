@@ -1266,7 +1266,8 @@ export function App({
           () => setAgentModalUsage(null),
         );
       } else if (xaiName !== undefined) {
-        void fetchXaiUsage(xaiName).then(
+        const entry = providerCatalog.find((e) => e.name === provider);
+        void fetchXaiUsage(xaiName, entry?.baseURL).then(
           (usage) => {
             setAgentModalUsage(formatXaiUsage(usage));
           },
@@ -1400,7 +1401,7 @@ export function App({
           onSaveAgentProfile={saveProfile}
           onDeleteAgentProfile={deleteProfile}
           usage={agentModalUsage ?? undefined}
-          onRequestAgentUsage={(kind, profile) => {
+          onRequestAgentUsage={(kind, profile, baseURL) => {
             setAgentModalUsage(null);
             if (kind === "codex") {
               void fetchCodexUsage(profile).then(
@@ -1408,7 +1409,7 @@ export function App({
                 () => {},
               );
             } else {
-              void fetchXaiUsage(profile).then(
+              void fetchXaiUsage(profile, baseURL).then(
                 (u) => { setAgentModalUsage(formatXaiUsage(u)); },
                 () => {},
               );

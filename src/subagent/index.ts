@@ -159,8 +159,10 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const environment = await gatherEnvironment(params.cwd);
   const extensions =
     params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
+  const toolNames = tools.map((t) => t.definition.name);
   const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
     orchestrator: params.orchestrator === true,
+    toolNames,
   });
 
   const directorDef = defineDirector({
@@ -236,13 +238,29 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     const fullPrompt = params.context
       ? `${params.description}\n\n## Context\n${params.context}\n\n## Task\n${params.prompt}`
       : `${params.description}\n\n${params.prompt}`;
-    const result = await agent.send(
-      fullPrompt,
-      params.signal !== undefined ? { signal: params.signal } : undefined,
-    );
-    return result.reply.trim().length > 0
-      ? result.reply.trim()
-      : "Sub-agent finished without a textual result.";
+    const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
+
+    // Local retry for sub-agents on transient network errors (including 426
+    // "Upgrade Required" from gateways). Complements the Accept header fix.
+    // Does not touch interchange.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const result = await agent.send(fullPrompt, sendOpts);
+        return result.reply.trim().length > 0
+          ? result.reply.trim()
+          : "Sub-agent finished without a textual result.";
+      } catch (e) {
+        lastErr = e;
+        const m = String(e);
+        const transient = /426|Upgrade Required|5\d\d|timeout|ECONN|fetch failed|network/i.test(m);
+        if (!transient || attempt >= 2 || params.signal?.aborted) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+    throw lastErr ?? new Error("sub-agent failed");
   } finally {
     try {
       await agent.close();
