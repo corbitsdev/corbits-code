@@ -8,16 +8,23 @@ const textLines = (node: ViewNode, columns = 80): string[] =>
 const frameOf = (node: ViewNode, columns = 80): string => textLines(node, columns).join("\n");
 
 describe("View rendering", () => {
-  test("renders a table with headers, values, and colored-by-role cells, fitting width", () => {
+  test("renders a grid (table equivalent) with headers and colored cells, fitting width", () => {
     const node: ViewNode = {
-      type: "table",
-      columns: [
-        { header: "Name", field: "name" },
-        { header: "Status", field: "status", colorRole: "status" },
-      ],
+      type: "grid",
+      columns: [{}, { align: "left" }],
       rows: [
-        { name: "Alpha", status: "Active" },
-        { name: "Beta", status: "Blocked" },
+        [
+          { type: "text", text: "Name", bold: true, tone: "muted" },
+          { type: "text", text: "Status", bold: true, tone: "muted" },
+        ],
+        [
+          { type: "text", text: "Alpha" },
+          { type: "text", text: "Active", tone: "success" },
+        ],
+        [
+          { type: "text", text: "Beta" },
+          { type: "text", text: "Blocked", tone: "danger" },
+        ],
       ],
     };
     const frame = frameOf(node, 60);
@@ -27,12 +34,21 @@ describe("View rendering", () => {
     for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(60);
   });
 
-  test("renders a card with title and fields", () => {
+  test("renders a stack as card-like with title and rows for fields", () => {
     const node: ViewNode = {
-      type: "card",
-      title: "Mobile launch",
-      fields: [{ label: "Status", value: "In Progress", tone: "accent" }],
-      badges: [{ label: "High", tone: "warning" }],
+      type: "stack",
+      children: [
+        { type: "text", text: "Mobile launch", bold: true, tone: "accent" },
+        {
+          type: "row",
+          gap: 1,
+          children: [
+            { type: "text", text: "Status", tone: "muted" },
+            { type: "text", text: "In Progress", tone: "accent" },
+          ],
+        },
+        { type: "text", text: "[High]", tone: "warning" },
+      ],
     };
     const frame = frameOf(node);
     expect(frame).toContain("Mobile launch");
@@ -40,12 +56,13 @@ describe("View rendering", () => {
     expect(frame).toContain("[High]");
   });
 
-  test("renders a stack of heading + list", () => {
+  test("renders a stack of bold text + bullet list equivalent", () => {
     const node: ViewNode = {
       type: "stack",
       children: [
-        { type: "heading", value: "Items" },
-        { type: "list", items: ["one", "two"] },
+        { type: "text", text: "Items", bold: true },
+        { type: "text", text: "• one" },
+        { type: "text", text: "• two" },
       ],
     };
     const frame = frameOf(node);
@@ -58,10 +75,25 @@ describe("View rendering", () => {
     const node: ViewNode = {
       type: "stack",
       children: [
-        { type: "heading", value: "Projects" },
-        { type: "table", columns: [{ header: "N", field: "n" }], rows: [{ n: "a" }, { n: "b" }, { n: "c" }] },
+        { type: "text", text: "Projects", bold: true },
+        {
+          type: "grid",
+          rows: [
+            [{ type: "text", text: "N", bold: true }],
+            [{ type: "text", text: "a" }],
+            [{ type: "text", text: "b" }],
+            [{ type: "text", text: "c" }],
+          ],
+        },
         { type: "divider" },
-        { type: "keyValue", pairs: [{ label: "total", value: "3" }] },
+        {
+          type: "row",
+          gap: 1,
+          children: [
+            { type: "text", text: "total", tone: "muted" },
+            { type: "text", text: "3" },
+          ],
+        },
       ],
     };
     const columns = 80;
