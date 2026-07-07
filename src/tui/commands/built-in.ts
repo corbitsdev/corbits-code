@@ -1,4 +1,18 @@
 import { registerCommand } from "./registry.js";
+import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
+
+// Which tiers are currently assigned. Defaults to empty so /fast, /standard,
+// /clever stay out of the slash menu until the user configures one; app.tsx
+// syncs this whenever tier state changes. getCommand still resolves them
+// regardless, so an in-flight reconfigure never strands a typed command.
+const configuredTiers = new Set<ProviderTier>();
+
+export function setConfiguredTiers(tiers: Partial<Record<ProviderTier, TierConfig>>): void {
+  configuredTiers.clear();
+  for (const tier of PROVIDER_TIERS) {
+    if (tiers[tier] !== undefined) configuredTiers.add(tier);
+  }
+}
 
 registerCommand({
   name: "help",
@@ -111,3 +125,16 @@ registerCommand({
     return { type: "message", text: lines.join("\n") };
   },
 });
+
+// One slash command per provider tier so a configured tier is one keystroke to
+// switch to. The handler only emits the intent; app.tsx resolves the tier's
+// current provider+model against live state and applies it, so a tier reassigned
+// mid-session via /model takes effect immediately on the next /<tier> call.
+for (const tier of PROVIDER_TIERS) {
+  registerCommand({
+    name: tier,
+    description: `Switch the active model to the ${tier} tier`,
+    handler: () => ({ type: "tier", tier: tier as ProviderTier }),
+    available: () => configuredTiers.has(tier),
+  });
+}
