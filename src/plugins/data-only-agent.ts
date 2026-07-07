@@ -8,6 +8,7 @@ import type {
   ReasoningEffort,
 } from "../agent/profiles.js";
 import { AgentProfileSchema } from "../agent/profiles.js";
+import { splitFrontmatter } from "./frontmatter.js";
 import { type } from "arktype";
 
 // A data-only agent plugin is a directory containing either:
@@ -67,30 +68,6 @@ const REASONING_EFFORTS: readonly ReasoningEffort[] = [
 
 function isReasoningEffort(v: unknown): v is ReasoningEffort {
   return typeof v === "string" && (REASONING_EFFORTS as readonly string[]).includes(v);
-}
-
-// Strip leading YAML frontmatter (---\n...\n---) and return { frontmatter, body }.
-// Frontmatter is parsed via Bun.YAML. Returns an empty object when no
-// frontmatter block is present (agents can legitimately have none); returns
-// null only when a block is present but malformed.
-type ParsedMarkdown = { frontmatter: Record<string, unknown> | null; body: string };
-
-function splitFrontmatter(raw: string): ParsedMarkdown {
-  if (!raw.startsWith("---")) return { frontmatter: {}, body: raw.trim() };
-  const end = raw.indexOf("\n---", 3);
-  if (end === -1) return { frontmatter: {}, body: raw.trim() };
-  const yaml = raw.slice(3, end).trim();
-  const body = raw.slice(end + 4).trim();
-  if (yaml.length === 0) return { frontmatter: {}, body };
-  try {
-    const parsed = Bun.YAML.parse(yaml);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      return { frontmatter: {}, body };
-    }
-    return { frontmatter: parsed as Record<string, unknown>, body };
-  } catch {
-    return { frontmatter: null, body };
-  }
 }
 
 // Resolve the agent id: frontmatter `id` wins, then `name`, then the file stem.

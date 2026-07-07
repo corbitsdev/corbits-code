@@ -64,7 +64,7 @@ export type PluginManifest = {
 };
 ```
 
-Workflow recipe names are **not** registered as top-level `/scope` slashes; an integration plugin owns the command prefix (e.g. `linear-workflows`, `kind: "workflow"` → `/linear scope`) and contributes workflow definitions beside the plugin under `plugins/<name>/src/workflows/`. Types live in `src/workflows/definition.ts`.
+Workflow recipe names are **not** registered as top-level `/scope` slashes; an integration plugin owns the command prefix (e.g. a `kind: "workflow"` plugin → `/mywf scope`) and contributes workflow definitions beside the plugin under `plugins/<name>/src/workflows/`. Types live in `src/workflows/definition.ts`.
 
 `agent` plugins contribute dispatchable profiles rather than commands. A command or workflow can still fan out to one subagent or a fleet through the normal `task` surface.
 
@@ -138,8 +138,9 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 - `command` plugins (`commandPlugin` export) register their slash commands only
   when `settings.plugins[id].enabled` is true, via `registerCommandPlugins`
   (`src/plugins/register.ts`); enabling one in `/plugins` wires it in live.
-- The bundled `linear-workflows` plugin declares a manifest and is gated this way
-  (it no longer auto-loads).
+- A `command` plugin declares a manifest and is gated this way; enabling one in
+  `/plugins` wires it in live. Commands may also be authored as data-only
+  markdown (Phase 5).
 - Removed `settings.workflowPlugins`/`agentPlugins` and their loaders.
 
 **Phase 2 — tool kind with consent (done).**
@@ -170,6 +171,47 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 - Add-by-path (`a`) uses the same path suggestion UX as `@` mentions
   (`listPathSuggestions`) so registering a plugin from disk can browse directories.
 
+**Phase 5 — data-only command plugins (done).**
+- `command` plugins may be authored as pure markdown, the same convention as
+  Claude Code (`.claude/commands/`), OpenCode (`.opencode/command/`), and Codex:
+  a `commands/` directory where each file is a slash command. No `index.ts`.
+- `loadDataOnlyCommands` (`src/plugins/data-only-commands.ts`) reads the files and
+  synthesizes a `commandPlugin`. Two layouts:
+  - `commands/<name>.md` → `/<name>` (flat). The body is sent to the agent, with
+    `$ARGUMENTS` replaced by the args the user typed.
+  - `commands/<ns>/<sub>.md` → `/<ns> <sub>` (namespaced). The first arg selects
+    the subcommand file; the remaining args interpolate into its body.
+- Frontmatter is optional. `description` populates the command list / `/help`;
+  other fields (e.g. `argument-hint`) are accepted and ignored in v1.
+- A directory with commands and no agents is recognized as `kind: "command"`
+  (inferred when no `manifest.json` is present; an explicit `manifest.json`
+  always wins). `loadDataOnlyPlugin` (`src/plugins/data-only.ts`) unifies agent
+  and command data loading and routes by kind, so `loadPluginEntry` has a single
+  data-only entry point.
+
+**Phase 6 — Claude marketplace + skill-commands (done).**
+- Plugins authored for the Claude Code marketplace self-describe via
+  `.claude-plugin/plugin.json` (`{ name, description?, ... }`, no `id`/`kind`).
+  `readClaudePluginManifest` adapts it: `name` becomes `id`+`name`, `kind` is
+  inferred from contents. A native `manifest.json` is always preferred when both
+  exist. So a marketplace plugin (e.g. `agents/plugins/gaas`) loads as-is via
+  `/plugins` add-by-path: its `agents/*.md` wire as profiles and its
+  `skills/*/SKILL.md` resolve through `use_skill` with no porting.
+- **Skill-commands.** A skill tagged user-invocable — frontmatter
+  `disable-model-invocation: true` (Claude Code) or `user-invocable: true`
+  (Agent Skills spec) — is also surfaced as a `/<skill-name> [args]` slash command
+  that sends the skill body (plus args) to the agent. `loadSkillCommands`
+  (`src/plugins/skill-commands.ts`) synthesizes them; they merge into the same
+  `commandPlugin` as `commands/*.md`. This is an additional surface:
+  `discoverSkills` still lists every skill for model auto-invocation, so an
+  untagged skill like `linear-create` stays `use_skill`-only while a tagged one
+  like `linear-issue-workflow` gains `/linear-issue-workflow` too.
+- **Mixed plugins wire both sides.** A plugin contributing agents AND commands
+  (the common marketplace shape) infers `kind: "agent"` so profiles wire, and
+  `isEnabledCommandPlugin` (`src/plugins/register.ts`) also wires commands for
+  `kind: "agent"` — commands are a low-trust, additive surface. `web`/`tool`
+  kinds still do not auto-wire commands.
+
 ## Decisions (locked)
 
 1. **Specifier arrays removed now.** `settings.workflowPlugins` and
@@ -180,7 +222,7 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 3. **Always explicit enable.** Every discovered plugin (built-in or user-added)
    starts disabled. Nothing is wired in until `settings.plugins[id].enabled` is
    true — set in `/plugins`. (Note: this changes today's behavior where repo
-   command plugins like linear-workflows auto-load; they must now be enabled.)
+   command plugins auto-load; they must now be enabled.)
 4. **Tool plugins require explicit consent.** Enabling a `kind: "tool"` plugin
    prompts a one-time confirmation in `/plugins` before its tools are wired in
    (they run in-process — the highest-trust surface). Consent is recorded in

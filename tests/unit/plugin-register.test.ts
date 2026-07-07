@@ -17,6 +17,20 @@ test("isEnabledCommandPlugin requires command kind + export + enabled", () => {
   expect(isEnabledCommandPlugin({ commandPlugin: { commands: [] } }, {})).toBe(false); // no manifest
 });
 
+test("isEnabledCommandPlugin allows agent-kind plugins to contribute commands (mixed plugins)", () => {
+  const agentWithCmd: PluginModule = {
+    manifest: { id: "mix", name: "mix", kind: "agent" },
+    commandPlugin: { commands: [{ name: "mix", description: "d", handler: () => ({ type: "noop" }) }] },
+  };
+  expect(isEnabledCommandPlugin(agentWithCmd, { mix: { enabled: true } })).toBe(true);
+  // web/tool kinds still do not auto-wire commands.
+  const webWithCmd: PluginModule = {
+    manifest: { id: "w", name: "w", kind: "web" },
+    commandPlugin: { commands: [{ name: "w", description: "d", handler: () => ({ type: "noop" }) }] },
+  };
+  expect(isEnabledCommandPlugin(webWithCmd, { w: { enabled: true } })).toBe(false);
+});
+
 test("registerCommandPlugins registers only enabled command plugins", () => {
   const mods = [cmdModule("reg-on"), cmdModule("reg-off")];
   const registered = registerCommandPlugins(mods, { "reg-on": { enabled: true } });
