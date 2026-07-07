@@ -1,9 +1,11 @@
 import {
   XAI_BILLING_URL,
+  XAI_CLIENT_IDENTIFIER,
+  XAI_CLIENT_VERSION,
   XAI_TOKEN_TIMEOUT_MS,
   XAI_USER_AGENT,
 } from "./constants.js";
-import { getValidXaiToken } from "./session.js";
+import { getValidXaiToken, xaiUserIdFromAccessToken } from "./session.js";
 
 // Live usage/quota for a Grok prepaid plan. Fetched from the CLI chat proxy
 // (which accepts our OAuth token) and mirrors the shape returned by
@@ -56,25 +58,48 @@ function parseXaiUsage(payload: unknown): XaiUsage {
 
 async function xaiAuthHeaders(profileName: string): Promise<Record<string, string>> {
   const { access } = await getValidXaiToken(profileName);
-  return {
+  const headers: Record<string, string> = {
     authorization: `Bearer ${access}`,
     "user-agent": XAI_USER_AGENT,
+    "x-grok-client-identifier": XAI_CLIENT_IDENTIFIER,
+    "x-grok-client-version": XAI_CLIENT_VERSION,
   };
+  const userId = xaiUserIdFromAccessToken(access);
+  if (userId !== undefined) headers["x-grok-user-id"] = userId;
+  return headers;
 }
 
 // Fetch the live usage/quota snapshot for an xAI/Grok profile.
-export async function fetchXaiUsage(profileName: string): Promise<XaiUsage> {
+// On network/HTTP error (common for local grok proxies or unauthenticated),
+// returns a neutral "unknown" record so the UI can still render a placeholder
+// instead of leaving the usage area blank.
+// If baseURL is supplied (and differs from the official), billing is resolved
+// relative to it so local grok-compatible proxies can serve usage.
+export async function fetchXaiUsage(profileName: string, baseURL?: string): Promise<XaiUsage> {
+  const billingURL = baseURL
+    ? `${baseURL.replace(/\/$/, "")}/billing`
+    : XAI_BILLING_URL;
   // Bound the billing fetch: it runs on profile switch and modal open, neither
   // of which sits behind the inference timers, so an unresponsive proxy must
   // abort rather than hang the UI.
-  const res = await fetch(XAI_BILLING_URL, {
-    headers: await xaiAuthHeaders(profileName),
-    signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    throw new Error(`xAI usage request failed (HTTP ${String(res.status)}).`);
+  try {
+    const res = await fetch(billingURL, {
+      headers: await xaiAuthHeaders(profileName),
+      signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return {
+        subscriptionTier: "unknown",
+        creditUsagePercent: 0,
+      };
+    }
+    return parseXaiUsage(await res.json());
+  } catch {
+    return {
+      subscriptionTier: "unknown",
+      creditUsagePercent: 0,
+    };
   }
-  return parseXaiUsage(await res.json());
 }
 
 // Render a multi-line usage summary (for the agent modal).

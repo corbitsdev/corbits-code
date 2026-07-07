@@ -20,6 +20,16 @@ type AdapterSource = Parameters<typeof createOpenAIAdapter>[0];
 
 export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAdapter {
   const base = createOpenAIAdapter(source);
+
+  const ensureAccept = (req: BuiltRequest): BuiltRequest => {
+    const has = req.headers.Accept || req.headers.accept;
+    if (has) return req;
+    return {
+      ...req,
+      headers: { ...req.headers, Accept: "text/event-stream" },
+    };
+  };
+
   const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
     // Strip assistant turns with no text or tool_call content (e.g. a turn that
     // produced only thinking blocks). transform.ts should handle this but misses
@@ -37,7 +47,7 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
     // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
     // whereas the base adapter emits it for any model with thinking enabled.
     const stripReasoning = model.toLowerCase().includes("deepseek");
-    if (!hasProviderOptions && !stripReasoning) return built;
+    if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
     if (hasProviderOptions) Object.assign(body, providerOptions);
@@ -47,8 +57,9 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
       }
     }
     const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
-    return merged;
+    return ensureAccept(merged);
   };
+
   // DeepSeek via NVIDIA NIM sends null for delta fields the upstream schema
   // requires to be non-null (role: string, tool_calls: array). Fields that
   // legitimately accept null (content, reasoning_content, etc.) are left alone.

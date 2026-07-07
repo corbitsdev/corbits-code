@@ -123,7 +123,7 @@ export type AgentModalProps = {
   onDeleteProfile: (id: string) => void;
   usage?: string | undefined;
   /** Called when keyboard cursor lands on (or selects) a usage-supporting provider so parent can live-fetch. */
-  onRequestUsage?: (kind: "codex" | "xai", profile: string) => void;
+  onRequestUsage?: (kind: "codex" | "xai", profile: string, baseURL?: string) => void;
   /** Provider names (not profile names) that have expired/missing OAuth tokens. */
   unauthedProviders?: ReadonlySet<string>;
   /** Called when user presses Enter on an unauthed OAuth provider to trigger login. */
@@ -267,8 +267,8 @@ export function AgentModal({
     if (onRequestUsage === undefined) return;
     const p = providers[idx];
     if (p === undefined) return;
-    if (p.codexProfile !== undefined) onRequestUsage("codex", p.codexProfile);
-    else if (p.xaiProfile !== undefined) onRequestUsage("xai", p.xaiProfile);
+    if (p.codexProfile !== undefined) onRequestUsage("codex", p.codexProfile, p.baseURL);
+    else if (p.xaiProfile !== undefined) onRequestUsage("xai", p.xaiProfile, p.baseURL);
   };
   // Real effort levels the selected model accepts, from supportedEfforts().
   // An empty array means no model is selected or the model has no reasoning capability.
