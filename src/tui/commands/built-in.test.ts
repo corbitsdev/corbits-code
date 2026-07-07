@@ -29,7 +29,7 @@ describe("removed commands", () => {
     expect(getCommand("workflows")).toBeUndefined();
   });
 
-  it("/scope is not registered (workflows live under enabled command plugins, e.g. /linear scope)", () => {
+  it("/scope is not registered (slash commands live under enabled command plugins, e.g. a namespaced /ns sub)", () => {
     expect(getCommand("scope")).toBeUndefined();
   });
 });
