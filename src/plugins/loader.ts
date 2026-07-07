@@ -124,6 +124,75 @@ export async function loadPluginEntry(
   }
 }
 
+// A Claude Code marketplace is a directory that bundles several plugins under a
+// `plugins/` subtree and declares them in `.claude-plugin/marketplace.json`
+// (`{ plugins: [{ name, source: "./plugins/<name>" }] }`). When a path points at
+// a marketplace root, expand it to its member plugin directories so each loads
+// as its own plugin (one id, one enable toggle). A plain plugin directory is
+// returned unchanged as a single-element array.
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function expandPluginPath(path: string): Promise<string[]> {
+  // 1. Declared marketplace: trust its `source` list (relative to the root).
+  try {
+    const raw = await readFile(join(path, ".claude-plugin", "marketplace.json"), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { plugins?: unknown }).plugins)) {
+      const dirs = ((parsed as { plugins: unknown[] }).plugins)
+        .map((p): string | undefined => {
+          if (typeof p !== "object" || p === null) return undefined;
+          const src = (p as { source?: unknown }).source;
+          return typeof src === "string" && src.length > 0 ? resolve(path, src) : undefined;
+        })
+        .filter((d): d is string => d !== undefined);
+      const existing = await Promise.all(dirs.map((d) => pathExists(d)));
+      const resolved = dirs.filter((_, i) => existing[i]);
+      if (resolved.length > 0) return resolved;
+    }
+  } catch {
+    // not a declared marketplace — fall through to the layout heuristic
+  }
+
+  // 2. Layout heuristic: a `plugins/` subdir whose root is not itself a plugin.
+  // Covers a marketplace checkout without a marketplace.json. We only expand
+  // when the root carries no single-plugin markers, so a normal plugin dir that
+  // happens to contain a `plugins/` folder is never mis-expanded.
+  const hasPluginsSubdir = await pathExists(join(path, "plugins"));
+  const rootIsPlugin =
+    (await pathExists(join(path, "agents"))) ||
+    (await pathExists(join(path, "skills"))) ||
+    (await pathExists(join(path, "commands"))) ||
+    (await pathExists(join(path, "command"))) ||
+    (await pathExists(join(path, "manifest.json"))) ||
+    (await pathExists(join(path, ".claude-plugin", "plugin.json"))) ||
+    (await pathExists(join(path, "index.ts"))) ||
+    (await pathExists(join(path, "src", "index.ts")));
+  if (hasPluginsSubdir && !rootIsPlugin) {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await readdir(join(path, "plugins"), { withFileTypes: true });
+    } catch {
+      return [path];
+    }
+    const dirs: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const child = join(path, "plugins", entry.name);
+      if (await pathExists(child)) dirs.push(child);
+    }
+    if (dirs.length > 0) return dirs;
+  }
+
+  return [path];
+}
+
 // Scan a plugins root directory and return all loaded plugin modules.
 // `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
 async function scanPluginsDir(dir: string, cwd: string): Promise<PluginModule[]> {
@@ -136,8 +205,12 @@ async function scanPluginsDir(dir: string, cwd: string): Promise<PluginModule[]>
 
   const results: PluginModule[] = [];
   for (const entry of entries) {
-    const plugin = await loadPluginEntry(join(dir, entry), { cwd });
-    if (plugin !== null) results.push(plugin);
+    // Each entry may itself be a marketplace, so expand before loading.
+    const dirs = await expandPluginPath(join(dir, entry));
+    for (const d of dirs) {
+      const plugin = await loadPluginEntry(d, { cwd });
+      if (plugin !== null) results.push(plugin);
+    }
   }
   return results;
 }
@@ -180,10 +253,18 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
 }
 
 // Load plugins from explicit file/directory paths (from settings.pluginPaths).
-// Relative paths resolve against cwd. Unresolvable entries are skipped.
+// Relative paths resolve against cwd. Unresolvable entries are skipped. A path
+// may point at a Claude Code marketplace, in which case it expands to its member
+// plugin directories before loading.
 export async function loadPluginsFromPaths(paths: string[], cwd: string): Promise<PluginModule[]> {
+  const resolved = await Promise.all(
+    paths.map(async (p) => {
+      const abs = isAbsolute(p) ? p : join(cwd, p);
+      return expandPluginPath(abs);
+    }),
+  );
   const loaded = await Promise.all(
-    paths.map((p) => loadPluginEntry(isAbsolute(p) ? p : join(cwd, p), { cwd })),
+    resolved.flat().map((p) => loadPluginEntry(p, { cwd })),
   );
   return loaded.filter((m): m is PluginModule => m !== null);
 }

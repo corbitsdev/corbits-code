@@ -1,0 +1,8 @@
+{
+  "name": "test-marketplace",
+  "version": "1.0.0",
+  "plugins": [
+    { "name": "alpha", "source": "./plugins/alpha" },
+    { "name": "beta", "source": "./plugins/beta" }
+  ]
+}
