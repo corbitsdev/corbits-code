@@ -1,17 +1,16 @@
 import { recordScalar, type McpRecords } from "./mcp-result-format.js";
-import type { Tone, ViewColumn, ViewNode } from "./view/spec.js";
+import type { Tone, ViewNode } from "./view/spec.js";
 
-// Convert MCP results into view nodes so the heuristic (deterministic) rendering
-// and any future agent-authored views share one renderer and one height function.
-// The column/field choices reproduce the previous native MCP table and card.
+// Convert MCP results into view nodes using only generic layout primitives.
+// This keeps structures dynamic (agent composes the same way) and avoids any
+// hardcoded widget catalog. We use grid for tabular record lists and a stack
+// of rows for single-record detail so the output is aligned and readable.
 
-const COLUMN_DEFS: { key: string; header: string; fields: string[]; colorRole?: ViewColumn["colorRole"]; date?: boolean }[] = [
-  { key: "name", header: "Name", fields: ["name", "title", "identifier", "label", "key", "summary"] },
-  { key: "status", header: "Status", fields: ["status", "state"], colorRole: "status" },
-  { key: "priority", header: "Priority", fields: ["priority"], colorRole: "priority" },
-  { key: "team", header: "Team", fields: ["team"] },
-  { key: "target", header: "Target", fields: ["targetDate", "target", "dueDate"], date: true },
-];
+const NAME_FIELDS = ["name", "title", "identifier", "label", "key", "summary"];
+const STATUS_FIELDS = ["status", "state"];
+const PRIORITY_FIELDS = ["priority"];
+const TEAM_FIELDS = ["team"];
+const TARGET_FIELDS = ["targetDate", "target", "dueDate"];
 
 const DETAIL_ORDER = ["status", "state", "priority", "team", "lead", "assignee", "startDate", "targetDate", "dueDate", "url", "description", "summary"];
 const DETAIL_HIDE = new Set(["id", "createdAt", "updatedAt", "archivedAt", "completedAt", "canceledAt", "icon", "color", "slug"]);
@@ -46,38 +45,69 @@ function priorityTone(value: string): Tone {
   return "muted";
 }
 
+function textNode(t: string, tone?: Tone, bold?: boolean): ViewNode {
+  return { type: "text", text: t, ...(tone ? { tone } : {}), ...(bold ? { bold: true } : {}) };
+}
+
 export function mcpRecordsToView(records: McpRecords): ViewNode {
-  const present = COLUMN_DEFS.filter(
-    (def) => def.key === "name" || records.items.some((r) => firstScalar(r, def.fields) !== undefined),
-  );
-  const columns: ViewColumn[] = [
-    { header: "#", field: "__index", align: "right" },
-    ...present.map((def) => ({ header: def.header, field: def.key, ...(def.colorRole !== undefined ? { colorRole: def.colorRole } : {}) })),
+  // Build a header + data rows using grid for alignment (no "table" widget).
+  const hasStatus = records.items.some((r) => firstScalar(r, STATUS_FIELDS));
+  const hasPriority = records.items.some((r) => firstScalar(r, PRIORITY_FIELDS));
+  const hasTeam = records.items.some((r) => firstScalar(r, TEAM_FIELDS));
+  const hasTarget = records.items.some((r) => firstScalar(r, TARGET_FIELDS));
+
+  type ColDef = { key: string; header: string; get: (r: Record<string, unknown>, i: number) => string; tone?: (v: string) => Tone };
+  const colDefs: ColDef[] = [
+    { key: "#", header: "#", get: (_r, i) => String(i + 1) },
+    { key: "name", header: "Name", get: (r) => firstScalar(r, NAME_FIELDS) ?? "" },
   ];
-  const rows = records.items.map((record, i) => {
-    const row: Record<string, string> = { __index: String(i + 1) };
-    for (const def of present) {
-      const v = firstScalar(record, def.fields);
-      if (v !== undefined) row[def.key] = def.date === true ? v.slice(0, 10) : v;
-    }
-    return row;
-  });
-  return { type: "table", columns, rows };
+  if (hasStatus) colDefs.push({ key: "status", header: "Status", get: (r) => firstScalar(r, STATUS_FIELDS) ?? "", tone: statusTone });
+  if (hasPriority) colDefs.push({ key: "priority", header: "Priority", get: (r) => firstScalar(r, PRIORITY_FIELDS) ?? "", tone: priorityTone });
+  if (hasTeam) colDefs.push({ key: "team", header: "Team", get: (r) => firstScalar(r, TEAM_FIELDS) ?? "" });
+  if (hasTarget) colDefs.push({ key: "target", header: "Target", get: (r) => { const v = firstScalar(r, TARGET_FIELDS) ?? ""; return v.length > 10 ? v.slice(0, 10) : v; } });
+
+  const headerRow: ViewNode[] = colDefs.map((d) => textNode(d.header, "muted", true));
+  const dataRows: ViewNode[][] = records.items.map((rec, i) =>
+    colDefs.map((d) => {
+      const v = d.get(rec, i);
+      const t = d.tone ? d.tone(v) : undefined;
+      return textNode(v, t);
+    }),
+  );
+
+  return {
+    type: "grid",
+    columns: colDefs.map((d) => ({ align: d.key === "#" ? "right" : "left" })),
+    rows: [headerRow, ...dataRows],
+  };
 }
 
 export function mcpRecordToView(record: Record<string, unknown>): ViewNode {
   const titleKey = TITLE_FIELDS.find((f) => (recordScalar(record, f) ?? "").length > 0);
   const title = titleKey !== undefined ? recordScalar(record, titleKey) ?? undefined : undefined;
+
   const present = Object.keys(record).filter(
     (k) => k !== titleKey && !DETAIL_HIDE.has(k) && (recordScalar(record, k) ?? "").length > 0,
   );
   const ordered = [...DETAIL_ORDER.filter((k) => present.includes(k)), ...present.filter((k) => !DETAIL_ORDER.includes(k))];
-  const fields = ordered.map((key) => {
+
+  const children: ViewNode[] = [];
+  if (title) children.push(textNode(title, "accent", true));
+
+  for (const key of ordered) {
     const raw = recordScalar(record, key) ?? "";
     const value = DATE_KEYS.has(key) ? raw.slice(0, 10) : raw;
     const tone: Tone | undefined =
       key === "status" || key === "state" ? statusTone(value) : key === "priority" ? priorityTone(value) : undefined;
-    return { label: humanizeField(key), value, ...(tone !== undefined ? { tone } : {}) };
-  });
-  return { type: "card", fields, ...(title !== undefined ? { title } : {}) };
+    const label = humanizeField(key);
+    // Use a row of two texts for "Label  value" alignment within the record.
+    children.push({
+      type: "row",
+      gap: 1,
+      children: [textNode(label, "muted"), textNode(value, tone)],
+    });
+  }
+
+  // Wrap in a stack (optionally a box if we want visual group; start without border to keep compact)
+  return { type: "stack", gap: 0, children };
 }

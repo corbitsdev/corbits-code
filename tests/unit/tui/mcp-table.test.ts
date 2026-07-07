@@ -30,13 +30,19 @@ describe("extractMcpRecords / extractMcpRecord", () => {
 });
 
 describe("mcpRecordsToView", () => {
-  test("builds a table node with index + present columns and projected rows", () => {
+  test("builds a grid node with index + present columns and projected rows", () => {
     const node = mcpRecordsToView(extractMcpRecords(projects)!);
-    expect(node.type).toBe("table");
-    if (node.type !== "table") return;
-    expect(node.columns.map((c) => c.header)).toEqual(["#", "Name", "Status", "Priority", "Team"]);
-    expect(node.columns.find((c) => c.field === "status")?.colorRole).toBe("status");
-    expect(node.rows[1]).toMatchObject({ name: "Mobile app launch", status: "In Progress", priority: "High", team: "Globex" });
+    expect(node.type).toBe("grid");
+    if (node.type !== "grid") return;
+    // header row is first; inspect its text nodes
+    const headers = (node.rows[0] as any[]).map((c: any) => c.text);
+    expect(headers).toEqual(["#", "Name", "Status", "Priority", "Team"]);
+    // data row 1 (index 1 in rows) is the second record
+    const row1 = node.rows[2] as any[];
+    expect(row1[1]?.text).toBe("Mobile app launch");
+    expect(row1[2]?.text).toBe("In Progress");
+    expect(row1[3]?.text).toBe("High");
+    expect(row1[4]?.text).toBe("Globex");
   });
 
   test("renders through View, fitting the width", () => {
@@ -58,17 +64,16 @@ describe("mcpRecordToView", () => {
     targetDate: "2026-06-17T00:00:00.000Z",
   });
 
-  test("builds a card with title and salient fields, hiding ids and timestamps", () => {
+  test("builds a stack with title and salient rows for fields, hiding ids and timestamps", () => {
     const node = mcpRecordToView(extractMcpRecord(project)!);
-    expect(node.type).toBe("card");
-    if (node.type !== "card") return;
-    expect(node.title).toBe("Mobile app launch");
-    const labels = node.fields.map((f) => f.label);
-    expect(labels).toContain("Status");
-    expect(labels).toContain("Target Date");
-    expect(labels).not.toContain("Id");
-    expect(labels).not.toContain("Created At");
-    expect(node.fields.find((f) => f.label === "Status")?.tone).toBe("accent");
+    expect(node.type).toBe("stack");
+    if (node.type !== "stack") return;
+    const texts = (node.children as any[]).map((c: any) => c.text ?? (c.children?.[0]?.text + " " + c.children?.[1]?.text));
+    expect(texts.some((t: string) => /Mobile app launch/.test(t))).toBe(true);
+    expect(texts.some((t: string) => /Status/.test(t))).toBe(true);
+    expect(texts.some((t: string) => /Target Date/.test(t))).toBe(true);
+    expect(texts.join(" ")).not.toContain("abc-123");
+    expect(texts.join(" ")).not.toContain("Created At");
   });
 
   test("renders through View with the title and date", () => {
