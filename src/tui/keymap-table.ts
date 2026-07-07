@@ -19,7 +19,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
 export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/help", description: "Show the help overlay" },
   { keys: "/tasks", description: "Show the tasks panel" },
-  { keys: "/linear", description: "Linear-integrated coding workflows (scope, build, review)" },
   { keys: "/agent", description: "Configure provider, model, tiers, and profiles" },
   { keys: "/permissions", description: "View and revoke remembered approvals" },
 ];
