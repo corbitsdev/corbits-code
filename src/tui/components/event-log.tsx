@@ -282,12 +282,29 @@ function shellLines(command: string, role: string, width: number): StyledLine[] 
   return lines;
 }
 
+// A collapsed shell row is a headline, not a document. Chained multi-line
+// commands can span dozens of rows; unclamped, their continuation lines have no
+// "$ " anchor and read as detached fragments in the transcript. Show the head,
+// mark the rest; Ctrl+O reveals the full command.
+const COLLAPSED_SHELL_ROW_LIMIT = 4;
+
+function clampedShellLines(command: string, role: string, width: number): StyledLine[] {
+  const all = shellLines(command, role, width);
+  if (all.length <= COLLAPSED_SHELL_ROW_LIMIT) return all;
+  const shown = all.slice(0, COLLAPSED_SHELL_ROW_LIMIT);
+  const last = shown[shown.length - 1]!;
+  return [
+    ...shown.slice(0, -1),
+    [...last, { text: ` … (+${all.length - COLLAPSED_SHELL_ROW_LIMIT} more lines)`, color: color("dim"), dim: true }],
+  ];
+}
+
 function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, width: number, expanded: boolean): StyledLine[] {
   const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
 
   if (isShell) {
-    return shellLines(expanded ? full : summary, roleColor, width);
+    return expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
   }
 
   if (expanded) {
@@ -336,15 +353,16 @@ function mergedToolLines(
   result: Extract<RenderableBlock, { type: "tool_result" }>,
   width: number,
 ): StyledLine[] {
-  const { role, isShell } = describeToolCall(call.name, call.arguments);
+  const { role, isShell, summary } = describeToolCall(call.name, call.arguments);
   const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const roleColor = color(role);
 
-  if (isShell) {
-    const arrow = merged.includes(" → ") ? merged.split(" → ") : [merged];
-    const command = arrow[0] ?? merged;
-    const suffix = arrow[1];
-    const base = shellLines(command, roleColor, width);
+  if (isShell && !result.isError) {
+    // Command and outcome are recomputed from source rather than re-split out of
+    // the merged string — a " → " inside the command or output would corrupt it.
+    const outcome = summarizeToolResult(call.name, result.content).preview;
+    const suffix = outcome === "(no output)" ? undefined : outcome;
+    const base = clampedShellLines(summary, roleColor, width);
     if (suffix === undefined || suffix.length === 0) return base;
     const last = base[base.length - 1];
     if (last === undefined) return base;
