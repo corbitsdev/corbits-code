@@ -189,6 +189,7 @@ export function useProviderManager({
       baseURL: entry.baseURL,
       ...(entry.apiKey !== undefined ? { apiKey: entry.apiKey } : {}),
       ...(entry.keyless === true ? { keyless: true } : {}),
+      ...(entry.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
       model: nextModel,
       ...(nextEffort !== undefined ? { reasoningEffort: nextEffort } : {}),
     });
