@@ -405,6 +405,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       }
 
       if (isOperatorDeclinedToolResult(event.result)) {
+        this.callIdToName.delete(event.result.callId);
+        this.callIdToArgs.delete(event.result.callId);
         this.terminated = true;
         return [
           capabilities.checkpoint("operator-declined"),
@@ -419,6 +421,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
         const unfinished = incompleteTasks(this.tasks);
         if (unfinished.length > 0) {
           this.submitCalled = false;
+          this.callIdToName.delete(event.result.callId);
+          this.callIdToArgs.delete(event.result.callId);
           return capabilities.infer({ systemPrompt: `${this._systemPrompt}\n\n${taskCompletionNudge(unfinished)}` });
         }
         this.submitCalled = true;
@@ -431,6 +435,8 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
           this.filesReadAtTurn.set(path, this._turnsUsed);
         }
       }
+      this.callIdToName.delete(event.result.callId);
+      this.callIdToArgs.delete(event.result.callId);
     }
 
     const base = await super.decide(event, state, capabilities);
