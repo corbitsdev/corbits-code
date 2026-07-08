@@ -102,6 +102,29 @@ describe("codex-responses buildRequest", () => {
     expect(body["reasoning"]).toEqual({ effort: "high", summary: "auto" });
   });
 
+  test("roundtrips encrypted reasoning signature from prior assistant turn into Responses reasoning item", () => {
+    // Prior turn's assistant content included a thinking block with signature.
+    // buildRequest must emit the "reasoning" item (with encrypted_content) before
+    // the assistant message so the backend can continue its hidden reasoning state.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: "ENC_BLOB_123" },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    expect(body["input"]).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "solve the hard problem" }] },
+      { type: "reasoning", summary: [], encrypted_content: "ENC_BLOB_123" },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
+    ]);
+  });
+
   test("omits the account-id header when no account id is supplied", () => {
     const req = adapter().buildRequest([userTurn("x")], "gpt-5-codex", { providerOptions: { [CODEX_SESSION_ID_OPTION]: "s" } });
     expect(req.headers["chatgpt-account-id"]).toBeUndefined();
@@ -170,11 +193,16 @@ describe("codex-responses parseResponse", () => {
     expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC_BLOB", index: 0 } });
   });
 
-  test("does not emit a signature when no thinking block was opened for the item", () => {
+  test("emits empty thinking delta + signature when done provides encrypted_content with no prior delta (pure-encrypted reasoning)", () => {
+    // This supports the case where the backend surfaces only the encrypted blob
+    // (no reasoning_text or summary deltas) and we must still round-trip the
+    // signature for follow-up turns.
     const out = parse([
       { type: "response.output_item.done", item: { type: "reasoning", id: "rs_solo", encrypted_content: "ENC" } },
     ]);
-    expect(out).toHaveLength(0);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { token: "", index: 0 } });
+    expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC", index: 0 } });
   });
 
   test("keys blocks by item_id so interleaved reasoning and tool calls keep distinct indices", () => {

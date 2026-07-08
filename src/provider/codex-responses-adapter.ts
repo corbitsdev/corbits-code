@@ -287,15 +287,19 @@ export function parseResponse(
     }
     case "response.reasoning_summary_text.delta":
     case "response.reasoning_text.delta": {
+      // Always register the block and emit a thinking delta (even for empty
+      // tokens). This ensures a preceding thinking block exists for any
+      // subsequent signature, supporting reasoning items whose visible
+      // summary may be empty or delivered only via the done envelope.
       const token = event["delta"];
       const itemId = typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__thinking__";
-      if (typeof token === "string" && token.length > 0) {
-        events.push({
-          type: "inference.thinking.delta",
-          seq,
-          data: { token, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "thinking") },
-        });
-      }
+      const index = blockIndexFor(indexer, itemId, "thinking");
+      const tok = typeof token === "string" ? token : "";
+      events.push({
+        type: "inference.thinking.delta",
+        seq,
+        data: { token: tok, partial: EMPTY_PARTIAL, index },
+      });
       return events;
     }
     case "response.output_item.added": {
@@ -313,25 +317,46 @@ export function parseResponse(
               data: { callId, name, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "tool_call") },
             });
           }
+        } else if (it["type"] === "reasoning") {
+          // Pre-register reasoning items on added so the index is stable
+          // even if no text deltas follow (pure-encrypted case).
+          const itemId = typeof it["id"] === "string" ? (it["id"] as string) : undefined;
+          if (itemId !== undefined) {
+            const index = blockIndexFor(indexer, itemId, "thinking");
+            events.push({
+              type: "inference.thinking.delta",
+              seq,
+              data: { token: "", partial: EMPTY_PARTIAL, index },
+            });
+          }
         }
       }
       return events;
     }
     case "response.output_item.done": {
-      // Capture the encrypted reasoning blob so it can be echoed back on the
-      // next turn (required for multi-turn reasoning continuity with store:false).
-      // The harness attaches the signature to the thinking block already opened
-      // at this item's index by its summary/text deltas.
+      // Capture the encrypted reasoning blob (signature) so it can be echoed
+      // back on the next turn. Required for multi-turn continuity when the
+      // backend uses store:false + reasoning.encrypted_content.
+      // We ensure a thinking block exists (emitting an empty delta if this
+      // is the first signal for the item) so the harness can attach the
+      // signature without ProtocolMismatchError.
       const item = event["item"] as Record<string, unknown> | undefined;
       if (item?.["type"] === "reasoning" && typeof item["id"] === "string" && typeof item["encrypted_content"] === "string") {
-        const existing = indexer.items.get(item["id"]);
-        if (existing?.kind === "thinking") {
+        const itemId = item["id"] as string;
+        const hadPrior = indexer.items.has(itemId);
+        const index = blockIndexFor(indexer, itemId, "thinking");
+        if (!hadPrior) {
           events.push({
-            type: "inference.thinking.signature",
+            type: "inference.thinking.delta",
             seq,
-            data: { signature: item["encrypted_content"], index: existing.index },
+            data: { token: "", partial: EMPTY_PARTIAL, index },
           });
         }
+        events.push({
+          type: "inference.thinking.signature",
+          seq,
+          data: { signature: item["encrypted_content"], index },
+        });
       }
       return events;
     }
