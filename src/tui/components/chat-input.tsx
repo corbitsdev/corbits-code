@@ -428,7 +428,11 @@ export function ChatInput({
     if (isProcessing && input.includes("\u001B") && (input.includes("\r") || input.includes("\n"))) {
       const trimmed = value.trim();
       if (trimmed.length > 0 || canSubmitEmpty) {
-        onSubmit(trimmed);
+        if (trimmed.startsWith("/")) {
+          dispatchCommand(trimmed);
+        } else {
+          onSubmit(trimmed);
+        }
         resetField();
       }
       return;
@@ -439,11 +443,10 @@ export function ChatInput({
     if (key.return && !key.shift && !key.meta) {
       const trimmed = value.trim();
       if (trimmed.length > 0 || canSubmitEmpty) {
-        if (isProcessing && onInterrupt !== undefined) {
-          // Interrupt the running agent and redirect with this message.
-          onInterrupt(trimmed);
-        } else if (trimmed.startsWith("/")) {
+        if (trimmed.startsWith("/")) {
           dispatchCommand(trimmed);
+        } else if (isProcessing && onInterrupt !== undefined) {
+          onInterrupt(trimmed);
         } else {
           onSubmit(trimmed);
         }
