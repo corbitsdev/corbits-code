@@ -2,8 +2,10 @@ import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
 import { useState } from "react";
 import { ChatInput } from "../../../src/tui/components/chat-input.js";
+// Side-effect import registers built-in slash commands so /help resolves in tests
+import "../../../src/tui/commands/built-in.js";
 
-const noopContext = { getModel: () => "m", setModel: () => {}, getVerbose: () => false, toggleVerbose: () => false };
+const noopContext = { signalClear: () => {} };
 
 test("ChatInput ignores keystrokes when inactive", async () => {
   let submitted: string | null = null;
@@ -178,6 +180,36 @@ test("Alt+Enter while processing queues without inserting escape bytes", async (
   expect(current).toBe("");
 });
 
+test("Enter while processing calls onInterrupt (not onSubmit)", async () => {
+  let current = "steer now";
+  let submitted: string | null = null;
+  let interrupted: string | null = null;
+  function Harness() {
+    const [v, setV] = useState(current);
+    current = v;
+    return (
+      <ChatInput
+        onSubmit={(message) => { submitted = message; }}
+        onCommand={() => {}}
+        onInterrupt={(message) => { interrupted = message; }}
+        commandContext={noopContext}
+        value={v}
+        onChange={(value) => { current = value; setV(value); }}
+        cwd="."
+        isProcessing={true}
+      />
+    );
+  }
+  const { stdin } = render(<Harness />);
+  await Promise.resolve();
+  stdin.write("\r");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(interrupted).toBe("steer now");
+  expect(submitted).toBeNull();
+  expect(current).toBe("");
+});
+
 test("cursor stays mid-string across successive edits", async () => {
   let current = "";
   function Harness() {
@@ -268,4 +300,59 @@ test("ChatInput action bar shows the verb beside the steer hint and the model on
   expect(frame).toContain("gpt-5 · high");
   expect(frame.indexOf("thinking")).toBeLessThan(frame.indexOf("> follow up"));
   expect(frame.indexOf("gpt-5 · high")).toBeLessThan(frame.indexOf("> follow up"));
+});
+
+test("ChatInput dispatches slash command via onCommand even while isProcessing (does not call onInterrupt or onSubmit)", async () => {
+  let commanded: { type: string; overlay?: string } | null = null;
+  let submitted: string | null = null;
+  let interrupted: string | null = null;
+
+  const { stdin } = render(
+    <ChatInput
+      onSubmit={(m) => {
+        submitted = m;
+      }}
+      onCommand={(r) => {
+        commanded = { type: r.type, overlay: r.type === "overlay" ? r.overlay : undefined };
+      }}
+      onInterrupt={(m) => {
+        interrupted = m;
+      }}
+      commandContext={noopContext}
+      value="/help foo"
+      onChange={() => {}}
+      cwd="."
+      isProcessing={true}
+    />,
+  );
+  await Promise.resolve();
+  stdin.write("\r");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(commanded).toEqual({ type: "overlay", overlay: "help" });
+  expect(submitted).toBeNull();
+  expect(interrupted).toBeNull();
+});
+
+test("ChatInput dispatches non-overlay slash command while processing", async () => {
+  let commanded: { type: string; text?: string } | null = null;
+  const { stdin } = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={(r) => {
+        commanded = { type: r.type, text: r.type === "message" ? r.text : undefined };
+      }}
+      onInterrupt={() => {}}
+      commandContext={noopContext}
+      value="/clear foo"
+      onChange={() => {}}
+      cwd="."
+      isProcessing={true}
+    />,
+  );
+  await Promise.resolve();
+  stdin.write("\r");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(commanded).toEqual({ type: "message", text: "Started a fresh session." });
 });
