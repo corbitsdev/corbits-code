@@ -39,6 +39,8 @@ import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
+import { createPruningCompactor } from "../session/compactor.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
@@ -65,8 +67,15 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
 }
 
 class SubAgentDirector extends DefaultDirector {
-  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[]) {
+  private readonly compaction: CompactionGovernor;
+
+  constructor(
+    systemPrompt: string,
+    toolDefinitions: ToolDefinition[],
+    requestContinuation?: () => void,
+  ) {
     super(systemPrompt, toolDefinitions, {});
+    this.compaction = createCompactionGovernor(requestContinuation);
   }
 
   override async decide(
@@ -74,7 +83,14 @@ class SubAgentDirector extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
+    if (this.compaction.resumeAfterCompact(event)) {
+      return capabilities.infer();
+    }
+    const recovery = this.compaction.interceptOverflow(event, capabilities);
+    if (recovery !== null) return recovery;
+
     if (event.type === "inference.done") {
+      this.compaction.noteInferenceDone(event, state.turns.length);
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
       if (!hasToolCalls) {
         return [
@@ -83,7 +99,9 @@ class SubAgentDirector extends DefaultDirector {
         ];
       }
     }
-    return super.decide(event, state, capabilities);
+    const base = await super.decide(event, state, capabilities);
+    const actions = Array.isArray(base) ? base : [base];
+    return this.compaction.interceptActions(event, actions, capabilities) ?? base;
   }
 }
 
@@ -206,11 +224,35 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     toolNames,
   });
 
+  let agentHandle: Awaited<ReturnType<typeof createAgent>> | null = null;
+  const requestContinuation = (): void => {
+    try {
+      agentHandle?.deliver({
+        ref: { uid: 0, mailbox: "system" },
+        headers: {
+          from: "user@local",
+          to: ["agent@local"],
+          date: new Date().toISOString(),
+          messageId: `compact-continue-${Date.now()}@local`,
+        },
+        flags: [],
+        content: "",
+        signatureStatus: "missing",
+      });
+    } catch {
+      // Agent may be closing; a dropped continuation is harmless.
+    }
+  };
+
   const directorDef = defineDirector({
     id: "intercode/subagent",
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
-      new SubAgentDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions]),
+      new SubAgentDirector(
+        agentCtx.systemPrompt,
+        [...agentCtx.toolDefinitions],
+        requestContinuation,
+      ),
   });
 
   const toolsFactory = defineTool({
@@ -259,7 +301,15 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       factories: [directorDef.factory],
       defaultId: "intercode/subagent",
     }),
+    compactors: {
+      "pruning-compactor": createPruningCompactor({
+        keepRecentTurns: 6,
+        summaryMaxChars: 2500,
+        stripResultContent: true,
+      }),
+    },
   });
+  agentHandle = agent;
 
   const streamSink = params.onEvent ?? (() => {});
   const streamPromise = consumeStream(agent.stream(), streamSink);
