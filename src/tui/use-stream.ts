@@ -196,8 +196,12 @@ function parseTaskToolTitle(rawArgs: string): string {
   }
 }
 
+// Done sub-agents are never rendered (the agents strip only shows non-done
+// entries), so drop them here rather than let the array grow for the whole
+// session. This keeps subAgents bounded by concurrently active sub-agents.
 function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">): Task[] {
   const next = tasks.filter((task) => task.id !== callId);
+  if (patch.status === "done") return next;
   return [...next, { id: callId, ...patch }];
 }
 

@@ -139,7 +139,28 @@ describe("createAgentStreamState", () => {
       result: { callId: "call-3", content: "ok", isError: false },
     }));
 
-    expect(state.subAgents).toEqual([{ id: "call-3", title: "greybeard: review correctness", status: "done" }]);
+    // Completed sub-agents are never rendered, so they are pruned rather than
+    // retained for the rest of the session.
+    expect(state.subAgents).toEqual([]);
+  });
+
+  test("keeps failed sub-agent calls but prunes ones that finish cleanly", () => {
+    const state = createAgentStreamState();
+
+    for (let i = 0; i < 200; i++) {
+      state.addEvent(event("inference.tool_call.end", {
+        callId: `sub-${i}`,
+        name: "task",
+        arguments: { agent: "worker", description: `job ${i}`, prompt: "..." },
+      }));
+      state.addEvent(event("tool.done", {
+        result: { callId: `sub-${i}`, content: "ok", isError: i === 199 },
+      }));
+    }
+
+    // Only the failed sub-agent (status "todo") survives; the rest were
+    // pruned on completion instead of accumulating for the whole session.
+    expect(state.subAgents).toEqual([{ id: "sub-199", title: "worker: job 199", status: "todo" }]);
   });
 
   test("labels sub-agents without a named profile as worker", () => {
