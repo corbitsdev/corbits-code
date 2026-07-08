@@ -1,4 +1,50 @@
-import { wrapLines } from "./view/height.js";
+import { wrapLines, wrapRanges } from "./view/height.js";
+
+export type PromptVisualLine = { text: string; logicalStart: number };
+
+// The single source of truth for mapping the prompt value to visual rows.
+// Uses wrapRanges so each row's logicalStart is the row's true index into the
+// value — summing row lengths instead would drop the character each soft break
+// consumes and drift the cursor by one column per wrap.
+export function promptVisualLines(value: string, width: number): PromptVisualLine[] {
+  const visualLines: PromptVisualLine[] = [];
+  let lineStart = 0;
+  for (const logical of value.split("\n")) {
+    for (const range of wrapRanges(logical, width)) {
+      visualLines.push({
+        text: logical.slice(range.start, range.end),
+        logicalStart: lineStart + range.start,
+      });
+    }
+    lineStart += logical.length + 1;
+  }
+  return visualLines;
+}
+
+export type PromptCursor = {
+  cursorLine: number;
+  cursorCol: number;
+  // Code units occupied by the character under the cursor (2 for a surrogate
+  // pair), so highlighting never renders half an emoji.
+  cursorCharLength: number;
+};
+
+export function locatePromptCursor(visualLines: PromptVisualLine[], cursor: number): PromptCursor {
+  let cursorLine = Math.max(0, visualLines.length - 1);
+  for (let i = 0; i < visualLines.length; i++) {
+    const start = visualLines[i]!.logicalStart;
+    const end = start + visualLines[i]!.text.length;
+    if (cursor >= start && cursor <= end) {
+      cursorLine = i;
+      break;
+    }
+  }
+  const line = visualLines[cursorLine]?.text ?? "";
+  const cursorCol = Math.max(0, cursor - (visualLines[cursorLine]?.logicalStart ?? 0));
+  const cp = line.codePointAt(cursorCol);
+  const cursorCharLength = cp !== undefined && cp > 0xffff ? 2 : 1;
+  return { cursorLine, cursorCol, cursorCharLength };
+}
 
 /** Inner text width inside the bordered prompt box (`> ` prefix included in layout). */
 export function promptContentWidth(columns: number): number {
@@ -31,28 +77,9 @@ export function promptScrollWindow(
   cursor = value.length,
 ): PromptWindow {
   const width = promptContentWidth(columns);
-  const visualLines: Array<{ text: string; logicalStart: number }> = [];
-  let logicalStart = 0;
-  for (const logical of value.split("\n")) {
-    const wrapped = wrapLines(logical, width);
-    const rowsForLine = wrapped.length > 0 ? wrapped : [""];
-    let offset = 0;
-    for (const row of rowsForLine) {
-      visualLines.push({ text: row, logicalStart: logicalStart + offset });
-      offset += row.length;
-    }
-    logicalStart += logical.length + 1;
-  }
+  const visualLines = promptVisualLines(value, width);
   const lineCount = visualLines.length;
-  let cursorLine = Math.max(0, lineCount - 1);
-  for (let i = 0; i < visualLines.length; i++) {
-    const start = visualLines[i]!.logicalStart;
-    const end = start + visualLines[i]!.text.length;
-    if (cursor >= start && cursor <= end) {
-      cursorLine = i;
-      break;
-    }
-  }
+  const { cursorLine } = locatePromptCursor(visualLines, cursor);
   const maxBoxRows = Math.max(3, Math.floor(terminalRows * 0.4));
   let windowStart = 0;
   let windowEnd = lineCount;
