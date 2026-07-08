@@ -1,10 +1,9 @@
 import {
-  BEARER_CREDENTIAL_SENTINEL,
   CREDENTIAL_SENTINEL,
   type BuiltRequest,
   type ProviderAdapter,
 } from "@intx/inference";
-import { createOpenAIAdapter } from "@intx/inference/providers";
+import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
 // Small adapter for Bifrost (https://docs.getbifrost.ai).
 // Bifrost is OpenAI-compatible for chat but uses a virtual-key header
@@ -21,10 +20,14 @@ import { createOpenAIAdapter } from "@intx/inference/providers";
 
 export const BIFROST_PROVIDER = "bifrost";
 
-type AdapterSource = Parameters<typeof createOpenAIAdapter>[0];
+type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 
+// Wraps the patched openai-compatible adapter (not the stock one) so Bifrost
+// requests inherit the Accept: text/event-stream header — Bifrost answers a
+// streaming request without it with HTTP 426 — plus the providerOptions merge
+// and delta patching every other OpenAI-shaped source gets.
 export function createBifrostAdapter(source: AdapterSource): ProviderAdapter {
-  const base = createOpenAIAdapter(source);
+  const base = createOpenAICompatibleAdapter(source);
 
   const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
     const req = base.buildRequest(messages, model, options);
