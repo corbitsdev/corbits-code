@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import type { ResolvedProvider, Settings } from "./config/settings.js";
 
@@ -358,6 +358,31 @@ describe("buildOpenAISource", () => {
   });
 });
 
+describe("buildBifrostSource", () => {
+  test("sets provider to bifrost and normalizes baseURL", () => {
+    const source = buildBifrostSource({
+      id: "bf",
+      baseURL: "http://localhost:8080/v1/chat/completions",
+      apiKey: "sk-bf-abc",
+      model: "gpt-4o",
+    });
+    expect(source.provider).toBe("bifrost");
+    expect(source.baseURL).toBe("http://localhost:8080/v1");
+    expect(source.model).toBe("gpt-4o");
+  });
+
+  test("embeds reasoning effort", () => {
+    const source = buildBifrostSource({
+      id: "bf",
+      baseURL: "https://b/v1",
+      apiKey: "k",
+      model: "m",
+      reasoningEffort: "low",
+    });
+    expect(source.defaults?.providerOptions).toEqual({ reasoning_effort: "low" });
+  });
+});
+
 describe("buildProviderCatalog", () => {
   const resolved: ResolvedProvider = {
     providerName: "fp",
@@ -394,6 +419,17 @@ describe("buildProviderCatalog", () => {
     };
     const catalog = buildProviderCatalog(settings, resolved);
     expect(catalog[0]?.baseURL).toBe("https://fp/v1");
+  });
+
+  test("preserves bifrostVirtualKey flag from settings", () => {
+    const settings: Settings = {
+      providers: {
+        bf: { baseURL: "http://b:8080/v1", apiKey: "sk-bf-k", models: ["m"], bifrostVirtualKey: true },
+      },
+    };
+    const catalog = buildProviderCatalog(settings, resolved);
+    const bf = catalog.find((c) => c.name === "bf")!;
+    expect(bf.bifrostVirtualKey).toBe(true);
   });
 
   test("falls back to the single resolved provider when there is no settings file", () => {
@@ -473,6 +509,19 @@ describe("buildProviderCatalog", () => {
       providers: {
         fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
       },
+    });
+  });
+
+  test("persists bifrostVirtualKey flag for virtual-key providers", () => {
+    const catalog = [
+      { name: "bf-prod", baseURL: "http://b:8080/v1", apiKey: "sk-bf-xyz", models: ["m1"], bifrostVirtualKey: true as const },
+    ];
+    const settings = providerCatalogToSettings(catalog, "bf-prod");
+    expect(settings.providers["bf-prod"]).toEqual({
+      baseURL: "http://b:8080/v1",
+      apiKey: "sk-bf-xyz",
+      models: ["m1"],
+      bifrostVirtualKey: true,
     });
   });
 
