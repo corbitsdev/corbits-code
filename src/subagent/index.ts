@@ -26,7 +26,7 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 
-import { buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
+import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
 import { buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
@@ -96,7 +96,28 @@ export type SubAgentProvider = {
   // Subagents inherit the parent's reasoning effort so a /agent selection
   // applies to delegated work, not just the top-level loop.
   reasoningEffort?: ReasoningEffort;
+  // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the generic
+  // (no-tier) dispatch path builds a plain openai-compatible source and the
+  // gateway never receives the x-bf-vk header.
+  bifrostVirtualKey?: boolean;
 };
+
+// The source used when no profile tier resolves. Exported for tests: a
+// Bifrost-backed parent must hand subagents a Bifrost source, not a plain
+// openai-compatible one that drops the virtual-key header.
+export function buildSubAgentPrimarySource(provider: SubAgentProvider) {
+  const build = provider.bifrostVirtualKey === true ? buildBifrostSource : buildOpenAISource;
+  const primarySource = build({
+    id: provider.providerName,
+    baseURL: provider.baseURL,
+    ...(provider.apiKey !== undefined ? { apiKey: provider.apiKey } : {}),
+    model: provider.model,
+    ...(provider.reasoningEffort !== undefined
+      ? { reasoningEffort: provider.reasoningEffort }
+      : {}),
+  });
+  return { sources: [primarySource], defaultSource: primarySource.id };
+}
 
 export type RunSubAgentParams = {
   cwd: string;
@@ -205,18 +226,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
             ? { reasoningEffort: params.provider.reasoningEffort }
             : {}),
         })
-      : (() => {
-          const primarySource = buildOpenAISource({
-            id: params.provider.providerName,
-            baseURL: params.provider.baseURL,
-            ...(params.provider.apiKey !== undefined ? { apiKey: params.provider.apiKey } : {}),
-            model: params.provider.model,
-            ...(params.provider.reasoningEffort !== undefined
-              ? { reasoningEffort: params.provider.reasoningEffort }
-              : {}),
-          });
-          return { sources: [primarySource], defaultSource: primarySource.id };
-        })();
+      : buildSubAgentPrimarySource(params.provider);
   const agent = await createAgent(def, {
     sources: bundle.sources,
     defaultSource: bundle.defaultSource,
@@ -239,28 +249,10 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       ? `${params.description}\n\n## Context\n${params.context}\n\n## Task\n${params.prompt}`
       : `${params.description}\n\n${params.prompt}`;
     const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
-
-    // Local retry for sub-agents on transient network errors (including 426
-    // "Upgrade Required" from gateways). Complements the Accept header fix.
-    // Does not touch interchange.
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const result = await agent.send(fullPrompt, sendOpts);
-        return result.reply.trim().length > 0
-          ? result.reply.trim()
-          : "Sub-agent finished without a textual result.";
-      } catch (e) {
-        lastErr = e;
-        const m = String(e);
-        const transient = /426|Upgrade Required|5\d\d|timeout|ECONN|fetch failed|network/i.test(m);
-        if (!transient || attempt >= 2 || params.signal?.aborted) {
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
-      }
-    }
-    throw lastErr ?? new Error("sub-agent failed");
+    const result = await agent.send(fullPrompt, sendOpts);
+    return result.reply.trim().length > 0
+      ? result.reply.trim()
+      : "Sub-agent finished without a textual result.";
   } finally {
     try {
       await agent.close();
@@ -425,6 +417,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
                   providerName: resolved.provider,
                   baseURL: providerSettings.baseURL,
                   ...(providerSettings.keyless === true ? { keyless: true } : {}),
+                  ...(providerSettings.bifrostVirtualKey === true
+                    ? { bifrostVirtualKey: true }
+                    : {}),
                   ...(providerSettings.apiKey !== undefined
                     ? { apiKey: providerSettings.apiKey }
                     : {}),
