@@ -231,6 +231,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       apiKey: config.apiKey,
       model: config.model,
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+      ...(config.providers.find((p) => p.name === config.providerName)?.bifrostVirtualKey === true
+        ? { bifrostVirtualKey: true }
+        : {}),
     },
   };
 

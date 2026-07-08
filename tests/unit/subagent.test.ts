@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import {
+  buildSubAgentPrimarySource,
   createTaskTool,
   runSubAgent,
   taskToolDefinition,
@@ -183,6 +184,56 @@ test("handler sends prompt without context block when context is empty or omitte
 
 test("runSubAgent is wired as the default task runner", () => {
   expect(typeof runSubAgent).toBe("function");
+});
+
+describe("buildSubAgentPrimarySource", () => {
+  test("builds an openai-compatible source for plain providers", () => {
+    const bundle = buildSubAgentPrimarySource(provider);
+    expect(bundle.sources[0]?.provider).toBe("openai-compatible");
+    expect(bundle.defaultSource).toBe("test");
+  });
+
+  test("builds a bifrost source when the provider carries a virtual key", () => {
+    const bundle = buildSubAgentPrimarySource({ ...provider, bifrostVirtualKey: true });
+    expect(bundle.sources[0]?.provider).toBe("bifrost");
+    expect(bundle.sources[0]?.apiKey).toBe("sk-test");
+  });
+});
+
+test("a profile-resolved provider carries the bifrost virtual-key marker", async () => {
+  let received: RunSubAgentParams | undefined;
+  const settings = {
+    providers: {
+      gateway: {
+        name: "gateway",
+        baseURL: "https://gateway.test/v1",
+        apiKey: "sk-bf-test",
+        models: ["gpt-5.1"],
+        bifrostVirtualKey: true,
+      },
+    },
+  };
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    settings: settings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+    profiles: [
+      {
+        id: "p",
+        inference: { mode: "pin", order: [{ provider: "gateway", model: "gpt-5.1" }] },
+      },
+    ],
+    run: async (params) => {
+      received = params;
+      return "ran";
+    },
+  });
+
+  await callHandler(tool, { description: "task", prompt: "do it", agent: "p" });
+
+  expect(received?.provider.providerName).toBe("gateway");
+  expect(received?.provider.bifrostVirtualKey).toBe(true);
 });
 
 // Profile-driven dispatch: an agent frontmatter can pin inference
