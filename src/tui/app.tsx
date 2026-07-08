@@ -63,7 +63,7 @@ import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
 import { CodexLoginModal } from "./components/codex-login-modal.js";
 import { LoginProviderPicker } from "./components/login-provider-picker.js";
 import { writeClipboard } from "./util/clipboard.js";
-import { copyTargets, transcriptMarkdown } from "./copy.js";
+import { copyTargets, transcriptMarkdown, type CopyTarget } from "./copy.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { startCodexLogin } from "../auth/codex/login.js";
 import { getValidCodexToken, CodexAuthError } from "../auth/codex/session.js";
@@ -791,12 +791,11 @@ export function App({
   );
 
   const copyModeOpen = copyModeIndex !== null;
-  // Only compute when copy mode is open — copyTargets builds an LCS diff for
-  // every edit block in history, so running it during streaming stalls deep chats.
-  const copyTargetList = useMemo(
-    () => (copyModeOpen ? copyTargets(state.contentBlocks) : []),
-    [copyModeOpen, state.contentBlocks],
-  );
+  // Frozen at the moment copy mode opens — copyTargets builds an LCS diff for
+  // every edit block in history, so recomputing it as stream drains arrive
+  // stalls deep chats and shifts the selection out from under the user.
+  const copyTargetsRef = useRef<CopyTarget[]>([]);
+  const copyTargetList = copyModeOpen ? copyTargetsRef.current : [];
 
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
   // active run. Aborting rejects the send promise; the reactor's current cycle
@@ -1173,6 +1172,7 @@ export function App({
           setCommandMessage("Nothing to copy yet");
           return;
         }
+        copyTargetsRef.current = targets;
         setCopyModeIndex(targets.length - 1);
       },
       copyModePrev: () => setCopyModeIndex((i) => (i === null ? null : Math.max(0, i - 1))),
