@@ -806,32 +806,30 @@ export function buildLinesIncremental(
   const prevTailStart = prev?.firstRenderedBlockIndex ?? 0;
 
   if (prev !== undefined && prev.layoutKey === key && blocks.length > 0) {
-    const sameLength = prev.blocks.length === blocks.length;
-    const appendedOnly =
-      !sameLength
-      && blocks.length === prev.blocks.length + 1
-      && blocks.slice(0, -1).every((b, i) => b === prev.blocks[i]);
+    const prevLength = prev.blocks.length;
+    const maxPrefix = Math.min(prevLength, blocks.length);
+    let commonPrefix = 0;
+    while (commonPrefix < maxPrefix && blocks[commonPrefix] === prev.blocks[commonPrefix]) {
+      commonPrefix++;
+    }
 
-    if (appendedOnly) {
-      startBlockIndex = blocks.length - 1;
-      prefixLines = prev.lines;
-    } else if (sameLength) {
-      let firstDiff = blocks.length;
-      for (let i = 0; i < blocks.length; i++) {
-        if (blocks[i] !== prev.blocks[i]) {
-          firstDiff = i;
-          break;
-        }
-      }
-      if (firstDiff < prevTailStart) {
-        startBlockIndex = prevTailStart;
-        prefixLines = [];
-      } else if (firstDiff >= blocks.length - 1) {
-        startBlockIndex = firstDiff >= blocks.length ? blocks.length - 1 : firstDiff;
-        prefixLines = prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
-      }
-    } else if (blocks.length < prev.blocks.length) {
-      const dropped = prev.blocks.length - blocks.length;
+    if (blocks.length >= prevLength && commonPrefix >= prevLength - 1) {
+      // All changes are confined to prev's last block (the one that was
+      // streaming) and any number of appended blocks — covers a drain that
+      // both grew the streaming block and delivered new tool blocks. When the
+      // arrays are identical, the last block is still reassembled so the
+      // streaming path stays uncached.
+      startBlockIndex =
+        commonPrefix === blocks.length ? blocks.length - 1 : Math.min(commonPrefix, blocks.length - 1);
+      prefixLines =
+        startBlockIndex === prevLength
+          ? prev.lines
+          : prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
+    } else if (blocks.length === prevLength && commonPrefix < prevTailStart) {
+      startBlockIndex = prevTailStart;
+      prefixLines = [];
+    } else if (blocks.length < prevLength) {
+      const dropped = prevLength - blocks.length;
       const suffixMatches = blocks.every((b, i) => b === prev.blocks[i + dropped]);
       if (suffixMatches) {
         startBlockIndex = Math.max(0, prevTailStart - dropped);

@@ -67,6 +67,38 @@ describe("flat line buffer", () => {
     expect(lineText(state2.lines).join("\n")).toContain("Second assistant reply");
   });
 
+  test("appending several blocks in one drain reuses the prior rendered tail", () => {
+    const first: ContentBlock[] = [
+      { type: "text", id: "a1", content: "First assistant reply." },
+    ];
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded);
+    const second: ContentBlock[] = [...first, ...editPair(1), ...editPair(2)];
+    const state2 = buildLinesIncremental(state1, second, COLUMNS, false, isExpanded);
+
+    expect(lineText(state2.lines.slice(0, state1.lines.length))).toEqual(lineText(state1.lines));
+    expect(lineText(state2.lines)).toEqual(
+      lineText(buildLines(second, COLUMNS, false, isExpanded)),
+    );
+  });
+
+  test("a grown streaming block plus appended blocks matches a full rebuild", () => {
+    const first: ContentBlock[] = [
+      { type: "text", id: "a1", content: "Stable reply." },
+      { type: "text", id: "a2", content: "Streaming" },
+    ];
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded);
+    const second: ContentBlock[] = [
+      first[0]!,
+      { type: "text", id: "a2", content: "Streaming grew longer." },
+      ...editPair(1),
+    ];
+    const state2 = buildLinesIncremental(state1, second, COLUMNS, false, isExpanded);
+
+    expect(lineText(state2.lines)).toEqual(
+      lineText(buildLines(second, COLUMNS, false, isExpanded)),
+    );
+  });
+
   test("incremental line build trims to the default rendered line budget", () => {
     const blocks: ContentBlock[] = Array.from({ length: 55 }, (_, i) => ({
       ...bigShellBlock(40),
