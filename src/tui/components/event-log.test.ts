@@ -50,6 +50,34 @@ function editPair(index: number): ContentBlock[] {
   ];
 }
 
+describe("collapsed shell rows", () => {
+  test("a long multi-line command is clamped with a more-lines marker", () => {
+    const lines = lineText(buildLines([bigShellBlock(40)], COLUMNS, false, isExpanded));
+    expect(lines.length).toBeLessThanOrEqual(4);
+    expect(lines[0]).toStartWith("  $ ");
+    expect(lines[lines.length - 1]).toMatch(/\+\d+ more lines/);
+  });
+
+  test("a merged call+result keeps the clamp and appends the outcome arrow", () => {
+    const call = bigShellBlock(40);
+    const blocks: ContentBlock[] = [
+      call,
+      { type: "tool_result", id: "r1", callId: "shell-1", name: "run_shell", content: "done", isError: false },
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines.length).toBeLessThanOrEqual(4);
+    expect(lines[lines.length - 1]).toContain("→ done");
+  });
+
+  test("a short command renders in full with no marker", () => {
+    const blocks: ContentBlock[] = [
+      { type: "tool_call", id: "s2", name: "run_shell", arguments: JSON.stringify({ command: "ls -la" }) },
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines).toEqual(["  $ ls -la"]);
+  });
+});
+
 describe("flat line buffer", () => {
   test("appending a block reuses the prior rendered tail", () => {
     const first: ContentBlock[] = [
@@ -124,7 +152,7 @@ describe("flat line buffer", () => {
   });
 
   test("a multi-line shell command decomposes into one line per visual row", () => {
-    const lines = buildLines([bigShellBlock(50)], COLUMNS, false, isExpanded);
+    const lines = buildLines([bigShellBlock(50)], COLUMNS, false, () => true);
     // Each entry is a single visual row (an array of styled segments), never a
     // monolithic block that paints taller than the viewport.
     expect(lines.length).toBeGreaterThanOrEqual(50);
@@ -148,7 +176,7 @@ describe("flat line buffer", () => {
   });
 
   test("pinning to the bottom shows exactly the last visibleRows lines", () => {
-    const lines = buildLines([bigShellBlock(50)], COLUMNS, false, isExpanded);
+    const lines = buildLines([bigShellBlock(50)], COLUMNS, false, () => true);
     const visibleRows = 20;
     const maxOffset = maxLineOffset(lines, visibleRows);
     const { start, end } = lineWindow(lines, maxOffset, visibleRows);
