@@ -1,5 +1,9 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { getLogger } from "@intx/log";
 
+// Stream failures are logged, not written to stderr: raw stderr writes land in
+// the middle of the TUI's frame output and corrupt the screen, which is
+// especially visible when several sub-agent streams fail together.
 export async function consumeStream(
   stream: AsyncIterable<ReactorEmittedEvent>,
   sink: (event: ReactorEmittedEvent) => void,
@@ -9,8 +13,9 @@ export async function consumeStream(
       sink(event);
     }
   } catch (err) {
-    process.stderr.write(
-      `[stream-error] ${err instanceof Error ? err.message : String(err)}\n`,
+    getLogger(["intercode", "session", "stream"]).error(
+      "agent event stream failed: {error}",
+      { error: err instanceof Error ? err.message : String(err) },
     );
   }
 }
