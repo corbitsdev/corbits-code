@@ -26,6 +26,11 @@ export type ProviderSettings = {
   // gateway whose models.dev prices do not apply.
   free?: boolean;
   contextWindow?: number;
+  // When true, this provider uses a Bifrost virtual key (sk-bf-...).
+  // The marker causes the inference source to route through the Bifrost
+  // adapter (which injects the x-bf-vk header) and enables model
+  // auto-discovery via the Bifrost /v1/models endpoint.
+  bifrostVirtualKey?: boolean;
 };
 
 export type ProviderTier = "fast" | "standard" | "clever";

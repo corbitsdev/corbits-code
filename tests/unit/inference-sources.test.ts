@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   appendTierEntry,
+  buildInferenceSourceForRef,
   buildMainSessionSources,
   buildSubagentSources,
   cycleTierMode,
@@ -28,6 +29,14 @@ const catalog: ProviderCatalogEntry[] = [
     keyless: true,
     models: ["llama"],
     defaultModel: "llama",
+  },
+  {
+    name: "bifrost",
+    baseURL: "http://localhost:8080/v1",
+    apiKey: "sk-bf-test",
+    models: ["gpt-4o"],
+    defaultModel: "gpt-4o",
+    bifrostVirtualKey: true,
   },
 ];
 
@@ -58,6 +67,15 @@ test("prefer mode appends settings providers as fallback tail", () => {
   };
   const refs = tierProviderRefs("fast", settings, { fallbackChain: true });
   expect(refs.map((r) => `${r.provider}/${r.model}`)).toEqual(["openai/gpt-4o-mini", "local/llama"]);
+});
+
+test("buildInferenceSourceForRef uses bifrost provider when flag set", () => {
+  const source = buildInferenceSourceForRef(
+    { provider: "bifrost", model: "gpt-4o" },
+    { settings: { providers: {} }, catalog: [...catalog] },
+  );
+  expect(source?.provider).toBe("bifrost");
+  expect(source?.baseURL).toBe("http://localhost:8080/v1");
 });
 
 test("buildMainSessionSources uses standard tier chain with active head", () => {

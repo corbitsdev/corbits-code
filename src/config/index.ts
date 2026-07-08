@@ -16,6 +16,9 @@ import {
   xaiProfilesToCatalogEntries,
   xaiProvidersAsSettings,
 } from "./xai-providers.js";
+import { fetchBifrostModels } from "./bifrost.js";
+
+export { fetchBifrostModels };
 import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
 import {
@@ -24,6 +27,7 @@ import {
   CODEX_SESSION_ID_OPTION,
 } from "../provider/codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER, GROK_USER_ID_OPTION } from "../provider/grok-responses-adapter.js";
+import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 
 import {
@@ -107,6 +111,11 @@ export type ProviderCatalogEntry = {
   // Set when this entry is an xAI/Grok OAuth profile. It still routes through
   // openai-compatible; the marker only controls token refresh and persistence.
   xaiProfile?: string;
+  // When true this provider is backed by a Bifrost virtual key. Inference
+  // sources for it are built with provider "bifrost" so the adapter can
+  // inject the x-bf-vk header (in addition to Authorization). The flag is
+  // also used to enable /models auto-discovery scoped to the key.
+  bifrostVirtualKey?: boolean;
 };
 
 // Build the InferenceSource for a Codex OAuth profile. Routes to the
@@ -154,6 +163,30 @@ export function buildXaiSource(fields: {
     apiKey: fields.apiKey,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
+  };
+}
+
+// Build the InferenceSource for a Bifrost virtual-key provider.
+// Routes to the "bifrost" adapter (a thin wrapper around openai-compatible)
+// which injects the x-bf-vk sentinel header.
+export function buildBifrostSource(fields: {
+  id: string;
+  baseURL: string;
+  apiKey?: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const overrides =
+    fields.reasoningEffort !== undefined
+      ? { providerOptions: { reasoning_effort: fields.reasoningEffort } }
+      : {};
+  return {
+    id: fields.id,
+    provider: BIFROST_PROVIDER,
+    baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
+    apiKey: fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
 }
 
@@ -451,6 +484,7 @@ export function buildProviderCatalog(
       models: p.models,
       ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
       ...(p.free !== undefined ? { free: p.free } : {}),
+      ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
     }));
   }
   return [
@@ -501,6 +535,7 @@ export function providerCatalogToSettings(
           models: p.models,
           ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
           ...(p.free !== undefined ? { free: p.free } : {}),
+          ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
         },
       ]),
     ),
