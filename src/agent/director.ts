@@ -14,6 +14,7 @@ import {
 } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { compactionThresholdFor } from "../provider/context-window.js";
+import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
 import { type } from "arktype";
 import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 import { createIntercodeRetryPolicy } from "./retry-policy.js";
@@ -256,6 +257,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
   private workflowIdleTurns = 0;
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
+  private readonly compaction: CompactionGovernor;
 
   constructor(
     systemPrompt: string,
@@ -265,6 +267,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     inactivityTimeoutMs?: number,
     totalTimeoutMs?: number,
     workflowCoordinator?: WorkflowCoordinator,
+    requestContinuation?: () => void,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
@@ -273,6 +276,7 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     this.inactivityTimeoutMs = inactivityTimeoutMs;
     this.totalTimeoutMs = totalTimeoutMs;
     this.workflowCoordinator = workflowCoordinator;
+    this.compaction = createCompactionGovernor(requestContinuation);
     if (initialState !== undefined) {
       this.setState(initialState);
     }
@@ -330,7 +334,14 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
       return [];
     }
 
+    if (this.compaction.resumeAfterCompact(event)) {
+      return capabilities.infer();
+    }
+    const recovery = this.compaction.interceptOverflow(event, capabilities);
+    if (recovery !== null) return recovery;
+
     if (event.type === "inference.done") {
+      this.compaction.noteInferenceDone(event, state?.turns?.length ?? 0);
       this._turnsUsed++;
 
       if (this.maxTurns !== undefined && this._turnsUsed >= this.maxTurns) {
@@ -440,6 +451,10 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     }
 
     const base = await super.decide(event, state, capabilities);
+
+    const baseActions = Array.isArray(base) ? base : [base];
+    const compacted = this.compaction.interceptActions(event, baseActions, capabilities);
+    if (compacted !== null) return compacted;
 
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
