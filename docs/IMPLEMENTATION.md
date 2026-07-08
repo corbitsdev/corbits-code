@@ -266,6 +266,19 @@ Positional arguments are joined into the task description. In headless mode a ta
 - `.agent-state/context/` — git-backed conversation context (`@intx/storage-isogit`)
 - Atomic JSON writes with schema validation on load
 
+`createOptimizedContextStore` (`src/session/optimized-context-store.ts`) wraps the
+Interchange git store to keep per-checkpoint cost independent of session length.
+The append-only snapshots (`turns.jsonl`, `prompt.jsonl`) are written as rolling
+segments (`turns-0001.jsonl`, ...) that seal at 256KB, so `git add` re-hashes only
+the small active segment instead of the whole growing file. Segment zero keeps the
+original filename, so a legacy monolithic `turns.jsonl` reads back as its own first
+segment. `load` and `readAt` concatenate every segment in order; a torn final line
+in the active segment (from a crash mid-write) is dropped on resume. Only tool-output
+blobs new since the last commit are staged, and stale segments deleted by a
+history rewrite (compaction) are removed from the tree on the next commit. The
+per-commit git tree still grows one entry per spilled tool-output blob across the
+session; that tree re-write is inherent to git and left as residual cost.
+
 ### Crash Logging
 
 `index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each writes a best-effort crash report to `~/.intercode/projects/<project-slug>/errors/<timestamp>.txt`, where the slug is the cwd with non-alphanumeric runs collapsed to `-`. The file records the failure kind, an ISO timestamp, the cwd, and the stack. The logger swallows its own errors so it can never mask the original crash, then exits non-zero after printing a one-line message to stderr.
