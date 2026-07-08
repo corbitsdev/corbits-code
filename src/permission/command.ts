@@ -5,16 +5,27 @@ import type { ApprovalScope } from "./types.js";
 // newline. Splitting is quote-aware — operators inside '...', "..." or `...` are
 // part of an argument, not a separator. Heredoc bodies (<< 'MARKER' ... MARKER)
 // are treated as atomic — newlines inside them are not chain boundaries.
+// Parentheses group: operators inside a subshell or command substitution never
+// split, and a segment that is exactly one `( ... )` group is unwrapped and its
+// inner chain split recursively — so `(cd a && b)` yields `cd a` and `b`, not
+// the fragment `(cd a`.
 export function splitChainedCommand(command: string): string[] {
   const segments: string[] = [];
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
+  let parenDepth = 0;
 
   const push = (): void => {
     const trimmed = current.trim();
-    if (trimmed.length > 0) segments.push(trimmed);
     current = "";
+    if (trimmed.length === 0) return;
+    const inner = unwrapGroup(trimmed);
+    if (inner !== null) {
+      segments.push(...splitChainedCommand(inner));
+      return;
+    }
+    segments.push(trimmed);
   };
 
   for (let i = 0; i < command.length; i++) {
@@ -87,6 +98,21 @@ export function splitChainedCommand(command: string): string[] {
       continue;
     }
 
+    if (ch === "(") {
+      parenDepth++;
+      current += ch;
+      continue;
+    }
+    if (ch === ")") {
+      if (parenDepth > 0) parenDepth--;
+      current += ch;
+      continue;
+    }
+    if (parenDepth > 0) {
+      current += ch;
+      continue;
+    }
+
     const next = command[i + 1];
     if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
       push();
@@ -113,6 +139,33 @@ export function splitChainedCommand(command: string): string[] {
   }
   push();
   return segments;
+}
+
+// The inner chain of a segment that is exactly one parenthesised group, or null
+// when the segment is not a bare group (trailing redirects like `(a && b) 2>&1`
+// keep the segment atomic). Quote-aware so a `)` inside quotes does not close
+// the group early.
+function unwrapGroup(segment: string): string | null {
+  if (segment[0] !== "(" || segment[segment.length - 1] !== ")") return null;
+  let quote: '"' | "'" | "`" | null = null;
+  let depth = 0;
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i] as string;
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") {
+      depth--;
+      if (depth === 0) return i === segment.length - 1 ? segment.slice(1, -1) : null;
+    }
+  }
+  return null;
 }
 
 // Split a single command segment into whitespace-separated tokens, treating a
@@ -171,6 +224,13 @@ const MULTIPLEXERS = new Set([
 export function deriveCommandScopes(command: string): ApprovalScope[] {
   const tokens = tokenize(command);
   if (tokens.length === 0) return [];
+
+  // A segment still carrying subshell syntax has no meaningful program prefix —
+  // a persisted "(cd *" would match any subshell starting with cd, far broader
+  // than what the operator saw. Offer only the exact command.
+  if (command.startsWith("(")) {
+    return [{ id: "exact", label: "Always allow this exact command", pattern: command }];
+  }
 
   const scopes: ApprovalScope[] = [];
   const minPrefix = MULTIPLEXERS.has(tokens[0]!) ? 2 : 1;

@@ -69,6 +69,33 @@ describe("splitChainedCommand", () => {
     // A lone continuation at operator should not yield a "\" segment.
     expect(splitChainedCommand("cmd1 && \\\ncmd2 && \\\ncmd3")).toEqual(["cmd1", "cmd2", "cmd3"]);
   });
+
+  test("does not split inside a subshell; a fully wrapped group splits into its inner commands", () => {
+    expect(splitChainedCommand("(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)")).toEqual([
+      "cd packages/shared",
+      "bunx tsc --noEmit 2>&1",
+      "tail -3",
+    ]);
+    expect(splitChainedCommand("echo start && (cd apps/web && bun test) && echo done")).toEqual([
+      "echo start",
+      "cd apps/web",
+      "bun test",
+      "echo done",
+    ]);
+  });
+
+  test("a subshell with trailing words stays one segment", () => {
+    expect(splitChainedCommand("(cd a && b) 2>&1")).toEqual(["(cd a && b) 2>&1"]);
+    expect(splitChainedCommand("(cd a && b) 2>&1 | tail -5")).toEqual(["(cd a && b) 2>&1", "tail -5"]);
+  });
+
+  test("command substitution is not a chain boundary", () => {
+    expect(splitChainedCommand("echo $(foo && bar)")).toEqual(["echo $(foo && bar)"]);
+  });
+
+  test("parens inside quotes do not affect splitting", () => {
+    expect(splitChainedCommand(`echo "(a && b" && ls`)).toEqual([`echo "(a && b"`, "ls"]);
+  });
 });
 
 describe("tokenize", () => {
@@ -88,6 +115,11 @@ describe("deriveCommandScopes", () => {
   test("a non-multiplexer command may be approved at the program level", () => {
     const patterns = deriveCommandScopes("curl https://a.com/x").map((s) => s.pattern);
     expect(patterns[0]).toBe("curl *");
+  });
+
+  test("a segment that still carries subshell syntax offers only the exact command", () => {
+    const patterns = deriveCommandScopes("(cd a && b) 2>&1").map((s) => s.pattern);
+    expect(patterns).toEqual(["(cd a && b) 2>&1"]);
   });
 
   test("a one-token command yields just the exact scope", () => {
@@ -163,6 +195,40 @@ describe("buildRequests", () => {
     // The raw identifier stays as the subject/pattern so approval matching is unaffected.
     expect(req.subject).toBe("mcp__acme__list_projects");
     expect(req.scopes[0]?.pattern).toBe("mcp__acme__list_projects");
+  });
+});
+
+describe("gate authorizes every subshell segment independently", () => {
+  test("declining a later segment blocks the call even when the first segment is approved", async () => {
+    const prompted: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cd *" }],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("(cd packages/shared && rm -rf dist)"));
+    expect(verdict.allowed).toBe(false);
+    expect(prompted).toEqual(["rm -rf dist"]);
+  });
+
+  test("each unapproved segment of a subshell chain is prompted on its own", async () => {
+    const prompted: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("(cd a && bunx tsc --noEmit) && curl x"));
+    expect(verdict.allowed).toBe(true);
+    expect(prompted).toEqual(["cd a", "bunx tsc --noEmit", "curl x"]);
   });
 });
 
