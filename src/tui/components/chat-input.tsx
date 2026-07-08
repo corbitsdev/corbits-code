@@ -5,8 +5,12 @@ import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
 import { useAtSuggestions, AtSuggestions } from "./at-mention/index.js";
 import { color } from "../theme.js";
-import { promptContentWidth, promptScrollWindow } from "../prompt-layout.js";
-import { wrapLines } from "../view/height.js";
+import {
+  locatePromptCursor,
+  promptContentWidth,
+  promptScrollWindow,
+  promptVisualLines,
+} from "../prompt-layout.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -497,29 +501,9 @@ export function ChatInput({
   }, { isActive: active });
 
   const promptWidth = promptContentWidth(columns ?? 80);
-  const visualLines: Array<{ text: string; logicalStart: number }> = [];
-  let logicalStart = 0;
-  for (const logical of value.split("\n")) {
-    const wrapped = wrapLines(logical, promptWidth);
-    const rowsForLine = wrapped.length > 0 ? wrapped : [""];
-    let offset = 0;
-    for (const row of rowsForLine) {
-      visualLines.push({ text: row, logicalStart: logicalStart + offset });
-      offset += row.length;
-    }
-    logicalStart += logical.length + 1;
-  }
+  const visualLines = promptVisualLines(value, promptWidth);
   const lines = visualLines.map((line) => line.text);
-  let cursorLine = Math.max(0, visualLines.length - 1);
-  for (let i = 0; i < visualLines.length; i++) {
-    const start = visualLines[i]!.logicalStart;
-    const end = start + visualLines[i]!.text.length;
-    if (cursor >= start && cursor <= end) {
-      cursorLine = i;
-      break;
-    }
-  }
-  const cursorCol = Math.max(0, cursor - visualLines[cursorLine]!.logicalStart);
+  const { cursorLine, cursorCol, cursorCharLength } = locatePromptCursor(visualLines, cursor);
 
   const { windowStart, windowEnd, atTopEdge, atBottomEdge } = promptScrollWindow(
     value,
@@ -606,8 +590,8 @@ export function ChatInput({
               continue;
             }
             const head = line.slice(0, cursorCol);
-            const atChar = line.slice(cursorCol, cursorCol + 1);
-            const tail = line.slice(cursorCol + 1);
+            const atChar = line.slice(cursorCol, cursorCol + cursorCharLength);
+            const tail = line.slice(cursorCol + cursorCharLength);
             out.push(
               <Text key={i}>
                 <Text color="green">{prefix}</Text>
