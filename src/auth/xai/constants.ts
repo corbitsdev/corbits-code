@@ -19,11 +19,11 @@ export const XAI_SCOPES = ["openid", "profile", "email", "offline_access", "grok
 // API key). They authenticate against the CLI chat proxy, which exposes the
 // OpenAI-compatible /v1/chat/completions surface.
 export const XAI_BASE_URL = "https://cli-chat-proxy.grok.com/v1";
-// The grok CLI (which our OAuth scope mirrors) exposes only two models: the
-// latest coding model and Composer 2.5 Fast. Mirror that exactly — other model
-// ids are rejected for grok-cli OAuth credentials.
+// The grok CLI (which our OAuth scope mirrors) exposes only two models: Grok 4.5
+// (Grok Build's default coding model) and Composer 2.5 Fast. Mirror `grok models`
+// exactly — other model ids are rejected for grok-cli OAuth credentials.
 export const XAI_DEFAULT_MODELS = [
-  "grok-build",
+  "grok-4.5",
   "grok-composer-2.5-fast",
 ] as const;
 
@@ -32,8 +32,8 @@ export const XAI_DEFAULT_MODELS = [
 // Values mirror the grok CLI's own /v1/responses request (captured live).
 export const XAI_RESPONSES_PATH = "/responses";
 export const XAI_CLIENT_IDENTIFIER = "grok-shell";
-export const XAI_CLIENT_VERSION = "0.2.56";
-export const XAI_USER_AGENT = "grok-shell/0.2.56 (macos; aarch64)";
+export const XAI_CLIENT_VERSION = "0.2.93";
+export const XAI_USER_AGENT = "grok-shell/0.2.93 (macos; aarch64)";
 
 // Refresh xAI access tokens 5 minutes before they expire. xAI issues ~1-hour
 // tokens so a 1-hour skew makes every fresh token immediately stale.

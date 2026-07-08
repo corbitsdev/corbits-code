@@ -5,7 +5,7 @@ import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
 const source: LastCycleSource = {
   sourceId: "xai/test",
   provider: "grok-responses",
-  model: "grok-build",
+  model: "grok-4.5",
 };
 
 describe("createGrokResponsesAdapter", () => {
@@ -22,7 +22,7 @@ describe("createGrokResponsesAdapter", () => {
       },
     ];
 
-    const request = adapter.buildRequest(turns, "grok-build", {});
+    const request = adapter.buildRequest(turns, "grok-4.5", {});
     const body = JSON.parse(request.body) as { input: Array<{ type: string; role?: string; content?: unknown }> };
 
     expect(body.input).toHaveLength(1);
@@ -46,7 +46,7 @@ describe("createGrokResponsesAdapter", () => {
       },
     ];
 
-    const request = adapter.buildRequest(turns, "grok-build", {});
+    const request = adapter.buildRequest(turns, "grok-4.5", {});
     const body = JSON.parse(request.body) as { input: Array<{ content?: unknown }> };
 
     expect(body.input[0]?.content).toBe("hello");
