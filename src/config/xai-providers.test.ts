@@ -12,6 +12,11 @@ import {
 } from "./xai-providers.js";
 
 describe("xAI OAuth provider projection", () => {
+  test("default models mirror grok CLI catalog", () => {
+    expect([...XAI_DEFAULT_MODELS]).toEqual(["grok-4.5", "grok-composer-2.5-fast"]);
+    expect(XAI_DEFAULT_MODELS[0]).toBe("grok-4.5");
+  });
+
   const profile: XaiProfile = {
     name: "work",
     tokens: { access: "access-token", refresh: "refresh-token", expiresAt: 123 },
