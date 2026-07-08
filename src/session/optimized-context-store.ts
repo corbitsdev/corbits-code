@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createIsogitStore } from "@intx/storage-isogit";
+import { createIncrementalJSONLWriter } from "./incremental-jsonl.js";
 import type { ContextCommit, ContextStore } from "@intx/types/runtime";
 
 const TURNS_FILE = "turns.jsonl";
@@ -67,20 +68,16 @@ async function runGit(dir: string, args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
-async function describeHead(dir: string, expectedOid: string, message: string): Promise<ContextCommit> {
-  const hash = await runGit(dir, ["rev-parse", "HEAD"]);
-  if (hash !== expectedOid) {
-    throw new Error(`Unexpected log state after commit: expected ${expectedOid} as HEAD`);
+async function describeHead(dir: string, message: string): Promise<ContextCommit> {
+  const [hash, seconds, parents] = (
+    await runGit(dir, ["log", "-1", "--format=%H%n%ct%n%P"])
+  ).split("\n");
+  if (hash === undefined || hash.length === 0 || seconds === undefined) {
+    throw new Error("Unexpected log state after commit: no HEAD");
   }
-  const timestamp = Number(await runGit(dir, ["show", "-s", "--format=%ct", "HEAD"])) * 1000;
-  let parentHash: string | undefined;
-  try {
-    parentHash = await runGit(dir, ["rev-parse", "HEAD^"]);
-  } catch {
-    parentHash = undefined;
-  }
-  const base = { hash, message: message.trimEnd(), timestamp };
-  return parentHash !== undefined ? { ...base, parentHash } : base;
+  const parentHash = parents?.split(" ")[0];
+  const base = { hash, message: message.trimEnd(), timestamp: Number(seconds) * 1000 };
+  return parentHash !== undefined && parentHash.length > 0 ? { ...base, parentHash } : base;
 }
 
 /**
@@ -90,6 +87,12 @@ async function describeHead(dir: string, expectedOid: string, message: string): 
 export async function createOptimizedContextStore(dir: string): Promise<ContextStore> {
   const base = await createIsogitStore(dir);
   const pendingBlobFilepaths = new Set<string>();
+  // The base store rewrites the full conversation snapshot on every
+  // checkpoint, which is O(session length) of synchronous serialization per
+  // turn and the dominant long-session stall. These writers serialize only
+  // what changed since the last checkpoint.
+  const writeTurnsIncremental = createIncrementalJSONLWriter(path.join(dir, TURNS_FILE));
+  const writePromptIncremental = createIncrementalJSONLWriter(path.join(dir, PROMPT_FILE));
 
   return {
     load: (signal) => base.load(signal),
@@ -98,10 +101,10 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     log: (limit, signal) => base.log(limit, signal),
     readAt: (hash, signal) => base.readAt(hash, signal),
     readBlob: (key, signal) => base.readBlob(key, signal),
-    writePrompt: (turns, signal) => base.writePrompt(turns, signal),
+    writePrompt: (turns) => writePromptIncremental(turns),
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
-    writeTurns: (turns, signal) => base.writeTurns(turns, signal),
+    writeTurns: (turns) => writeTurnsIncremental(turns),
     writeMetadata: (metadata, signal) => base.writeMetadata(metadata, signal),
     readManifestHistory: (limit, signal) => base.readManifestHistory(limit, signal),
     async writeBlob(key, bytes, contentType, signal) {
@@ -124,9 +127,8 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
 
       if (toStage.length > 0) await runGit(dir, ["add", "--", ...toStage]);
       await runGit(dir, ["commit", "-m", options.message, `--author=${AUTHOR.name} <${AUTHOR.email}>`]);
-      const oid = await runGit(dir, ["rev-parse", "HEAD"]);
       pendingBlobFilepaths.clear();
-      return describeHead(dir, oid, options.message);
+      return describeHead(dir, options.message);
     },
   };
 }
