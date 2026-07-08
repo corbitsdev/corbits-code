@@ -671,7 +671,10 @@ export function App({
 
   // McpAuthPrompt and commandMessage render outside the overlay region, so
   // their rows must be subtracted explicitly to prevent the log from overpainting.
-  const activeSubAgents = state.subAgents.filter((a) => a.status !== "done");
+  const activeSubAgents = useMemo(
+    () => state.subAgents.filter((a) => a.status !== "done"),
+    [state.subAgents],
+  );
   const subAgentChromeRows = activeSubAgents.length > 0 ? activeSubAgents.length + 2 : 0;
 
   const extraChromeRows =
