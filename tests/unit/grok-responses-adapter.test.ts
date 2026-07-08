@@ -6,7 +6,7 @@ import {
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 
-const SOURCE: LastCycleSource = { sourceId: "xai/default", provider: "grok-responses", model: "grok-build" };
+const SOURCE: LastCycleSource = { sourceId: "xai/default", provider: "grok-responses", model: "grok-4.5" };
 
 function adapter() {
   return createGrokResponsesAdapter(SOURCE);
@@ -22,23 +22,23 @@ describe("grok-responses buildRequest", () => {
   };
 
   test("targets the Responses path with the grok-cli client headers", () => {
-    const req = adapter().buildRequest([userTurn("hi")], "grok-build", baseOptions);
+    const req = adapter().buildRequest([userTurn("hi")], "grok-4.5", baseOptions);
     expect(req.url).toBe("/responses");
     expect(req.headers["authorization"]).toBe(BEARER_CREDENTIAL_SENTINEL);
     expect(req.headers["x-grok-client-identifier"]).toBe("grok-shell");
-    expect(req.headers["x-grok-client-version"]).toBe("0.2.56");
-    expect(req.headers["x-grok-model-override"]).toBe("grok-build");
+    expect(req.headers["x-grok-client-version"]).toBe("0.2.93");
+    expect(req.headers["x-grok-model-override"]).toBe("grok-4.5");
     expect(req.headers["x-grok-user-id"]).toBe("user-123");
     expect(req.headers["accept"]).toBe("text/event-stream");
   });
 
   test("builds a Responses body with string-content input, store off, reasoning summary", () => {
-    const req = adapter().buildRequest([userTurn("hello")], "grok-build", {
+    const req = adapter().buildRequest([userTurn("hello")], "grok-4.5", {
       ...baseOptions,
       systemPrompt: "You are a coding agent.",
     });
     const body = JSON.parse(req.body) as Record<string, unknown>;
-    expect(body["model"]).toBe("grok-build");
+    expect(body["model"]).toBe("grok-4.5");
     expect(body["stream"]).toBe(true);
     expect(body["store"]).toBe(false);
     expect(body["include"]).toEqual(["reasoning.encrypted_content"]);
@@ -55,7 +55,7 @@ describe("grok-responses buildRequest", () => {
       { role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } }], timestamp: 0 },
       { role: "user", content: [{ type: "tool_result", callId: "call-1", content: [{ type: "text", text: "ok" }] }], timestamp: 0 },
     ];
-    const req = adapter().buildRequest(turns, "grok-build", {
+    const req = adapter().buildRequest(turns, "grok-4.5", {
       ...baseOptions,
       tools: [{ name: "read_file", description: "Read a file", inputSchema: { type: "object", properties: {}, required: [] } }],
     });
