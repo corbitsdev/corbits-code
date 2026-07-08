@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { InferenceSource } from "@intx/types/runtime";
 import {
+  buildBifrostSource,
   buildCodexSource,
   buildOpenAISource,
   buildXaiSource,
@@ -122,6 +123,23 @@ export function buildInferenceSourceForRef(
       apiKey: entry.apiKey ?? "",
       model: ref.model,
     });
+  }
+  if (entry?.bifrostVirtualKey === true) {
+    const src = buildBifrostSource({
+      id: ref.provider,
+      baseURL,
+      ...(entry?.apiKey !== undefined
+        ? { apiKey: entry.apiKey }
+        : providerSettings?.apiKey !== undefined
+          ? { apiKey: providerSettings.apiKey }
+          : {}),
+      model: ref.model,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    });
+    return {
+      ...src,
+      defaults: { ...src.defaults, maxTokens },
+    };
   }
 
   const src = buildOpenAISource({

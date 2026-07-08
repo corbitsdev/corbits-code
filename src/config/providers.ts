@@ -8,6 +8,7 @@ export type ProviderSubmission = {
   models: string[];
   defaultModel?: string;
   keyless?: boolean;
+  bifrostVirtualKey?: boolean;
 };
 
 export type ProviderEntryResult =
@@ -40,6 +41,7 @@ export function buildProviderEntry(
     ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
     ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
+    ...(submission.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
   };
   const catalog = currentCatalog
     .filter((p) => p.name !== submission.name && p.name !== submission.originalName)

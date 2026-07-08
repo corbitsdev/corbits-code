@@ -3,8 +3,10 @@ import { loadAdapterRegistry } from "@intx/inference/providers";
 import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as codexResponses from "./codex-responses-adapter.js";
 import * as grokResponses from "./grok-responses-adapter.js";
+import * as bifrostAdapter from "./bifrost-adapter.js";
 import { CODEX_RESPONSES_PROVIDER } from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
+import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 
 // Intercode ships three first-party adapters on top of the built-in provider
 // set: a providerOptions-aware "openai-compatible" override, plus the Codex and
@@ -28,12 +30,18 @@ const manifest: AdapterManifest = [
     specifier: "grok-responses-adapter",
     export: "createGrokResponsesAdapter",
   },
+  {
+    provider: BIFROST_PROVIDER,
+    specifier: "bifrost-adapter",
+    export: "createBifrostAdapter",
+  },
 ];
 
 const localModules: Record<string, unknown> = {
   "openai-compatible-adapter": openaiCompatible,
   "codex-responses-adapter": codexResponses,
   "grok-responses-adapter": grokResponses,
+	  "bifrost-adapter": bifrostAdapter,
 };
 
 let cached: Promise<Dependencies> | undefined;
