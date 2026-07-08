@@ -198,6 +198,57 @@ describe("buildSubAgentPrimarySource", () => {
     expect(bundle.sources[0]?.provider).toBe("bifrost");
     expect(bundle.sources[0]?.apiKey).toBe("sk-test");
   });
+
+  test("routes an xAI OAuth profile through the grok-responses adapter", () => {
+    const catalog = [
+      {
+        name: "test",
+        baseURL: provider.baseURL,
+        apiKey: "sk-test",
+        models: ["grok-composer-2.5-fast"],
+        xaiProfile: "me@example.com",
+      },
+    ];
+    const bundle = buildSubAgentPrimarySource(
+      { ...provider, model: "grok-composer-2.5-fast" },
+      catalog,
+    );
+    expect(bundle.sources[0]?.provider).toBe("grok-responses");
+  });
+
+  test("routes a Codex OAuth profile through the codex-responses adapter", () => {
+    const catalog = [
+      {
+        name: "test",
+        baseURL: provider.baseURL,
+        apiKey: "sk-test",
+        models: ["gpt-5.1-codex"],
+        codexProfile: "me@example.com",
+      },
+    ];
+    const bundle = buildSubAgentPrimarySource({ ...provider, model: "gpt-5.1-codex" }, catalog);
+    expect(bundle.sources[0]?.provider).toBe("codex-responses");
+  });
+
+  test("routes a catalog bifrost entry through the bifrost adapter", () => {
+    const catalog = [
+      {
+        name: "test",
+        baseURL: provider.baseURL,
+        apiKey: "sk-bf-test",
+        models: ["gpt-5.1"],
+        bifrostVirtualKey: true,
+      },
+    ];
+    const bundle = buildSubAgentPrimarySource(provider, catalog);
+    expect(bundle.sources[0]?.provider).toBe("bifrost");
+  });
+
+  test("falls back to the provider fields when the catalog lacks the provider", () => {
+    const bundle = buildSubAgentPrimarySource(provider, []);
+    expect(bundle.sources[0]?.provider).toBe("openai-compatible");
+    expect(bundle.sources[0]?.baseURL).toContain("example.test");
+  });
 });
 
 test("a profile-resolved provider carries the bifrost virtual-key marker", async () => {

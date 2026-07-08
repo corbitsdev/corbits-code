@@ -27,7 +27,7 @@ import type {
 } from "@intx/types/runtime";
 
 import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
-import { buildSubagentSources } from "../config/inference-sources.js";
+import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
@@ -102,10 +102,30 @@ export type SubAgentProvider = {
   bifrostVirtualKey?: boolean;
 };
 
-// The source used when no profile tier resolves. Exported for tests: a
-// Bifrost-backed parent must hand subagents a Bifrost source, not a plain
-// openai-compatible one that drops the virtual-key header.
-export function buildSubAgentPrimarySource(provider: SubAgentProvider) {
+// The source used when no profile tier resolves. Exported for tests: the
+// parent's provider may need a non-default adapter (Bifrost virtual keys,
+// Codex or xAI OAuth profiles speak the Responses API and reject plain Chat
+// Completions requests with HTTP 426), so the catalog entry's markers pick
+// the adapter exactly as the tiered path does.
+export function buildSubAgentPrimarySource(
+  provider: SubAgentProvider,
+  catalog?: readonly ProviderCatalogEntry[],
+  settings?: Settings,
+) {
+  if (catalog !== undefined) {
+    const source = buildInferenceSourceForRef(
+      { provider: provider.providerName, model: provider.model },
+      {
+        sessionId: generateSessionId(),
+        catalog,
+        ...(provider.reasoningEffort !== undefined
+          ? { reasoningEffort: provider.reasoningEffort }
+          : {}),
+      },
+      settings,
+    );
+    if (source !== null) return { sources: [source], defaultSource: source.id };
+  }
   const build = provider.bifrostVirtualKey === true ? buildBifrostSource : buildOpenAISource;
   const primarySource = build({
     id: provider.providerName,
@@ -226,7 +246,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
             ? { reasoningEffort: params.provider.reasoningEffort }
             : {}),
         })
-      : buildSubAgentPrimarySource(params.provider);
+      : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
   const agent = await createAgent(def, {
     sources: bundle.sources,
     defaultSource: bundle.defaultSource,
