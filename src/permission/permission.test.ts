@@ -60,6 +60,15 @@ describe("splitChainedCommand", () => {
     const cmd = "mkdir -p /tmp && cat > /tmp/out.md << 'EOF'\nhello\nEOF";
     expect(splitChainedCommand(cmd)).toHaveLength(2);
   });
+
+  test("treats shell line continuation (backslash + newline) as glue, not a chain split", () => {
+    // Common pattern from agents emitting readable multi-line shell calls.
+    expect(splitChainedCommand("cd foo && \\\nbun test")).toEqual(["cd foo", "bun test"]);
+    expect(splitChainedCommand("echo hello\\\nworld")).toEqual(["echo helloworld"]);
+    expect(splitChainedCommand("ls -l \\\n  | \\\n  cat")).toEqual(["ls -l", "cat"]);
+    // A lone continuation at operator should not yield a "\" segment.
+    expect(splitChainedCommand("cmd1 && \\\ncmd2 && \\\ncmd3")).toEqual(["cmd1", "cmd2", "cmd3"]);
+  });
 });
 
 describe("tokenize", () => {

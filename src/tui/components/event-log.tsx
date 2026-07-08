@@ -546,13 +546,22 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
   const lines = [...prefixLines];
   const blockLineStarts = new Array<number>(blocks.length);
   const lastIdx = blocks.length - 1;
+  let lastWasAction = false;
 
   for (let i = startBlockIndex; i < blocks.length; i++) {
     blockLineStarts[i] = lines.length;
     const block = blocks[i]!;
     const next = blocks[i + 1];
     const startsTurn = block.type === "user" || block.type === "text";
-    if (startsTurn && lines.length > 0) lines.push([]);
+    const isAction = block.type === "tool_call" || block.type === "tool_result";
+    // Insert a blank line before a new turn or before an action group that
+    // follows prose. This keeps model text from butting directly into tool
+    // headlines (the main source of the "smashed together" complaint).
+    // Consecutive actions stay compact (no extra blank between them).
+    if ((startsTurn || (isAction && !lastWasAction)) && lines.length > 0) {
+      const last = lines[lines.length - 1];
+      if (last && last.length > 0) lines.push([]);
+    }
 
     if (
       block.type === "tool_call"
@@ -583,6 +592,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
         lines.push(...groupLines);
         for (let k = i + 1; k < j; k++) blockLineStarts[k] = lines.length;
         i = j - 1;
+        lastWasAction = true;
         continue;
       }
     }
@@ -601,6 +611,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       lines.push(...mergedLines);
       if (i + 1 < blocks.length) blockLineStarts[i + 1] = lines.length;
       i++;
+      lastWasAction = true;
       continue;
     }
 
@@ -621,6 +632,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx);
     }
     lines.push(...blockLines);
+    lastWasAction = isAction;
   }
 
   return { lines, blockLineStarts };

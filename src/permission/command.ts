@@ -45,6 +45,19 @@ export function splitChainedCommand(command: string): string[] {
       continue;
     }
 
+    // Shell line continuation: a backslash immediately before a newline is
+    // consumed by the shell (elides the newline for chaining purposes). Do not
+    // append the \ or split the segment; this prevents fragments like "\" from
+    // becoming approval subjects when agents emit continued commands.
+    if (ch === "\\") {
+      const after = command[i + 1];
+      if (after === "\n" || after === "\r") {
+        i += 1;
+        if (after === "\r" && command[i + 1] === "\n") i += 1;
+        continue;
+      }
+    }
+
     // Detect heredoc redirect: << or <<-
     if (ch === "<" && command[i + 1] === "<") {
       let j = i + 2;

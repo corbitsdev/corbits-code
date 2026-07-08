@@ -340,6 +340,49 @@ describe("flat line buffer", () => {
     expect(text[2]).toContain("cancelled");
     expect(text[2]).toContain("edit src/c.ts");
   });
+
+  test("inserts a separator blank between assistant prose and following tool actions (but not between consecutive tools)", () => {
+    const blocks: ContentBlock[] = [
+      { type: "text", id: "t1", content: "I'll read the config then edit it." },
+      {
+        type: "tool_call",
+        id: "c1",
+        name: "read_file",
+        arguments: JSON.stringify({ path: "package.json" }),
+      },
+      {
+        type: "tool_result",
+        id: "r1",
+        callId: "c1",
+        name: "read_file",
+        content: '{"name":"demo"}',
+        isError: false,
+      },
+      {
+        type: "tool_call",
+        id: "c2",
+        name: "edit_file",
+        arguments: JSON.stringify({ path: "package.json" }),
+      },
+      {
+        type: "tool_result",
+        id: "r2",
+        callId: "c2",
+        name: "edit_file",
+        content: "replaced 1 occurrence(s)",
+        isError: false,
+      },
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    // After text there should be a blank line (represented as ""), then the first tool.
+    // The two action lines are adjacent (no extra blank between merged pairs).
+    expect(lines).toEqual([
+      " ● I'll read the config then edit it.",
+      "",
+      "  ● Read 1 line of package.json",
+      "  ● Edited package.json (1 replacement)",
+    ]);
+  });
 });
 
 describe("incremental layout fast paths", () => {
