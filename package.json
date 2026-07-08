@@ -16,7 +16,7 @@
   "workspaces": [
     ".",
     "./interchange/packages/agent",
-    "./interchange/packages/inference",
+    "./vendor/intx-inference",
     "./interchange/packages/inference-testing",
     "./interchange/packages/inference-discovery",
     "./interchange/packages/tools-posix",

@@ -50,18 +50,6 @@
         "@intx/types": "workspace:*",
       },
     },
-    "interchange/packages/inference": {
-      "name": "@intx/inference",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/log": "workspace:*",
-        "@intx/types": "workspace:*",
-        "arktype": "catalog:",
-      },
-      "devDependencies": {
-        "@intx/mime": "workspace:*",
-      },
-    },
     "interchange/packages/inference-discovery": {
       "name": "@intx/inference-discovery",
       "version": "0.1.2",
@@ -154,6 +142,18 @@
       "name": "@intercode/default-agents",
       "version": "0.1.0",
     },
+    "vendor/intx-inference": {
+      "name": "@intx/inference",
+      "version": "0.1.2",
+      "dependencies": {
+        "@intx/log": "workspace:*",
+        "@intx/types": "workspace:*",
+        "arktype": "catalog:",
+      },
+      "devDependencies": {
+        "@intx/mime": "workspace:*",
+      },
+    },
   },
   "catalog": {
     "@types/semver": "^7.7.1",
@@ -181,7 +181,7 @@
 
     "@intx/crypto-node": ["@intx/crypto-node@workspace:interchange/packages/crypto-node"],
 
-    "@intx/inference": ["@intx/inference@workspace:interchange/packages/inference"],
+    "@intx/inference": ["@intx/inference@workspace:vendor/intx-inference"],
 
     "@intx/inference-discovery": ["@intx/inference-discovery@workspace:interchange/packages/inference-discovery"],
 
