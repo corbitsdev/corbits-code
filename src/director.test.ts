@@ -104,6 +104,33 @@ describe("filesRead tracking", () => {
   });
 });
 
+describe("callIdToName/callIdToArgs pruning", () => {
+  test("completed tool calls are pruned from callIdToName after tool.done", async () => {
+    const director = createCodingDirector("", []);
+    for (let i = 0; i < 50; i++) {
+      const callId = `call-${i}`;
+      await director.decide(
+        makeInferenceDoneEvent([{ id: callId, name: "read_file", args: { path: `src/f${i}.ts` } }]),
+        mockState,
+        mockCapabilities,
+      );
+      await director.decide(makeToolDoneEvent(callId), mockState, mockCapabilities);
+    }
+    expect(Object.keys(director.getState().callIdToName).length).toBe(0);
+  });
+
+  test("in-flight tool calls (no tool.done yet) remain in callIdToName", async () => {
+    const director = createCodingDirector("", []);
+    const callId = "call-inflight";
+    await director.decide(
+      makeInferenceDoneEvent([{ id: callId, name: "read_file", args: { path: "src/foo.ts" } }]),
+      mockState,
+      mockCapabilities,
+    );
+    expect(director.getState().callIdToName[callId]).toBe("read_file");
+  });
+});
+
 describe("submit_output without plan", () => {
   async function submitWithoutPlan(turnsUsed: number) {
     const director = createCodingDirector("", []);
