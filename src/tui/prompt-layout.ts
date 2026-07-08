@@ -1,4 +1,4 @@
-import { wrapLines, wrapRanges } from "./view/height.js";
+import { wrapRanges } from "./view/height.js";
 
 export type PromptVisualLine = { text: string; logicalStart: number };
 
@@ -6,7 +6,15 @@ export type PromptVisualLine = { text: string; logicalStart: number };
 // Uses wrapRanges so each row's logicalStart is the row's true index into the
 // value — summing row lengths instead would drop the character each soft break
 // consumes and drift the cursor by one column per wrap.
+// One slot is enough: within a render pass the same (value, width) is wrapped
+// by the chrome-row estimate, the scroll window, and the input component, and
+// the App re-renders up to 30 times a second while streaming.
+let wrapCache: { value: string; width: number; lines: PromptVisualLine[] } | null = null;
+
 export function promptVisualLines(value: string, width: number): PromptVisualLine[] {
+  if (wrapCache !== null && wrapCache.width === width && wrapCache.value === value) {
+    return wrapCache.lines;
+  }
   const visualLines: PromptVisualLine[] = [];
   let lineStart = 0;
   for (const logical of value.split("\n")) {
@@ -18,6 +26,7 @@ export function promptVisualLines(value: string, width: number): PromptVisualLin
     }
     lineStart += logical.length + 1;
   }
+  wrapCache = { value, width, lines: visualLines };
   return visualLines;
 }
 
@@ -53,13 +62,7 @@ export function promptContentWidth(columns: number): number {
 
 /** Logical visual rows inside the prompt (wrapped), before the 40vh cap. */
 export function countPromptVisualLines(value: string, columns: number): number {
-  const width = promptContentWidth(columns);
-  let count = 0;
-  for (const logical of value.split("\n")) {
-    const wrapped = wrapLines(logical, width);
-    count += wrapped.length > 0 ? wrapped.length : 1;
-  }
-  return Math.max(1, count);
+  return Math.max(1, promptVisualLines(value, promptContentWidth(columns)).length);
 }
 
 export type PromptWindow = {
