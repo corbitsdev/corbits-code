@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
 import { memo, useMemo, type ReactNode } from "react";
 import { parseMarkdown } from "../markdown-parser.js";
+import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
 import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
@@ -437,12 +438,17 @@ function planStepLines(
   return lines;
 }
 
+// One cache slot is enough: only the transcript's last text block streams, and
+// any content replacement or width change resets it.
+const streamingTextLines = createIncrementalMarkdown(markdownLines);
+
 function blockToLines(
   block: RenderableBlock,
   columns: number,
   expanded: boolean,
   thinkingExpanded: boolean,
   planCtx?: PlanContext,
+  streaming = false,
 ): StyledLine[] {
   const width = Math.max(8, columns);
 
@@ -486,7 +492,9 @@ function blockToLines(
       return [blankRow, ...body, blankRow];
     }
     case "text": {
-      const textLines = markdownLines(block.content, width);
+      const textLines = streaming
+        ? streamingTextLines(block.content, width)
+        : markdownLines(block.content, width);
       // Leading marker keeps assistant prose visually separate from the colored
       // user banner while staying quiet in the layout.
       if (textLines.length === 0) return textLines;
@@ -629,7 +637,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
         cache.set(key, blockLines);
       }
     } else {
-      blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx);
+      blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx, isStreaming);
     }
     lines.push(...blockLines);
     lastWasAction = isAction;
