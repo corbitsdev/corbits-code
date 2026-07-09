@@ -282,6 +282,15 @@ function anchorScore(turn: ConversationTurn): number {
   return score;
 }
 
+// Index of the first turn carrying the user's own words. This is the
+// initiating task; it must survive compaction so the agent never loses what
+// it was asked to do, even when it falls far outside the recent window.
+function firstUserTurnIndex(turns: ConversationTurn[]): number {
+  return turns.findIndex(
+    (t) => t.role === "user" && t.content.some((b) => b.type === "text"),
+  );
+}
+
 function resultContentSize(block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>): number {
   return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
 }
@@ -312,6 +321,40 @@ function stripTurnResults(
     return { ...block, content: [{ type: "text", text: buildResultStub(block, callIndex) }] };
   });
   return { ...turn, content };
+}
+
+// True when a turn carries no tool_call/tool_result blocks.
+function isPlainTextTurn(turn: ConversationTurn): boolean {
+  return !turn.content.some((b) => b.type === "tool_call" || b.type === "tool_result");
+}
+
+// Merge each adjacent same-role turn whose later half is plain text into the
+// turn before it. Pulling anchors out of the middle of the history and
+// prepending the summary turn can place two same-role turns next to each
+// other, which the Anthropic Messages API rejects.
+//
+// Given well-formed alternating input, every same-role adjacency compaction
+// itself introduces has a plain-text later turn — the pairing pass keeps each
+// tool_result next to its tool_call, so tool-bearing turns stay alternating —
+// so this removes all of them. It does not repair a non-alternating sequence
+// that was already present in the input.
+//
+// Only the later turn must be plain text; the earlier one may carry a
+// tool_result. A surviving tool_result is always immediately preceded by its
+// assistant tool_call, never by a text turn, so it only ever merges as the
+// first block of the combined turn — its position relative to its tool_call is
+// preserved, and no tool_call/tool_result sequence is disturbed.
+function coalesceAdjacentTextTurns(turns: ConversationTurn[]): ConversationTurn[] {
+  const out: ConversationTurn[] = [];
+  for (const turn of turns) {
+    const prev = out[out.length - 1];
+    if (prev !== undefined && prev.role === turn.role && isPlainTextTurn(turn)) {
+      out[out.length - 1] = { ...prev, content: [...prev.content, ...turn.content] };
+    } else {
+      out.push(turn);
+    }
+  }
+  return out;
 }
 
 export function createPruningCompactor(
@@ -356,6 +399,12 @@ export function createPruningCompactor(
           .map(({ index }) => index),
       );
 
+      // Always keep the initiating task verbatim, outside the maxAnchorTurns
+      // cap. Losing the oldest user turn is how the agent forgets what it was
+      // asked to do; correctness outranks the size target here.
+      const initiatingIdx = firstUserTurnIndex(olderTurns);
+      if (initiatingIdx >= 0) anchorIndices.add(initiatingIdx);
+
       // Keep tool_call/tool_result pairs together across the keep/summarize
       // boundary. A turn that survives (anchored, or in the recent window) whose
       // partner would be summarized leaves a dangling tool_call or an orphaned
@@ -380,8 +429,13 @@ export function createPruningCompactor(
         ? await cfg.summarize(summarizedTurns)
         : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
 
+      // A user-role turn survives every adapter unchanged. A system-role turn
+      // does not: the Anthropic builder drops mid-conversation system turns
+      // whenever a system-prompt override is set, and the Grok builder emits
+      // them as a stray mid-stream system message. Framing the summary as user
+      // content keeps it in the conversation on every provider.
       const summaryTurn: ConversationTurn = {
-        role: "system",
+        role: "user",
         content: [{ type: "text", text: `[Compacted prior context]\n${summary}` }],
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
@@ -389,8 +443,14 @@ export function createPruningCompactor(
       const process = (t: ConversationTurn): ConversationTurn =>
         cfg.stripResultContent ? stripTurnResults(t, callIndex) : t;
 
+      const output = coalesceAdjacentTextTurns([
+        summaryTurn,
+        ...anchorTurns.map(process),
+        ...recentTurns.map(process),
+      ]);
+
       return {
-        output: [summaryTurn, ...anchorTurns.map(process), ...recentTurns.map(process)],
+        output,
         record: {
           strategy: this.name,
           version: this.version,
