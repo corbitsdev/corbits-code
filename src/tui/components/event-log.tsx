@@ -949,6 +949,45 @@ export function lineWindow(lines: StyledLine[], scrollOffset: number, visibleRow
   return { start, end };
 }
 
+/**
+ * Map a line window onto block ids using collapsed (or base) layout metrics.
+ * Zero-width slots left by merged call+result pairs are recovered by pairing:
+ * if either half of a tool call/result pair is selected, both are.
+ */
+export function blockIdsInLineRange(
+  blocks: readonly RenderableBlock[],
+  blockLineStarts: readonly number[],
+  lineCount: number,
+  lineStart: number,
+  lineEnd: number,
+): Set<string> {
+  const ids = new Set<string>();
+  if (blocks.length === 0 || lineEnd <= lineStart) return ids;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const start = blockLineStarts[i] ?? 0;
+    const rawNext = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1] : lineCount;
+    const end = rawNext ?? start;
+    if (end > lineStart && start < lineEnd) {
+      ids.add(blocks[i]!.id);
+    }
+  }
+
+  // Merged tool pairs put all lines on the call; the result is zero-width at the
+  // same index. Expand both so the merge breaks and the result body can show.
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const call = blocks[i]!;
+    const result = blocks[i + 1]!;
+    if (call.type !== "tool_call" || result.type !== "tool_result" || result.name !== call.name) {
+      continue;
+    }
+    if (ids.has(call.id)) ids.add(result.id);
+    else if (ids.has(result.id)) ids.add(call.id);
+  }
+
+  return ids;
+}
+
 // Memoized so typing in the prompt — which re-renders the App shell on every
 // keystroke — does not re-walk the visible window unless the lines, scroll
 // position, or viewport actually change.
