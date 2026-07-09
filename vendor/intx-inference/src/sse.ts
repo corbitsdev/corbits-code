@@ -11,6 +11,15 @@
 
 const decoder = new TextDecoder();
 
+// A single SSE line has no defined upper bound, but an unbounded run of
+// characters with no newline is indistinguishable from a stuck or hostile
+// stream and would grow `buffer` until the process runs out of memory. Cap the
+// unterminated tail generously — real `data:` lines, even large tool-call
+// payloads, sit far below this — and fail loudly instead of consuming all
+// memory. The limit is on `buffer.length` (UTF-16 code units), which bounds the
+// retained string regardless of the source encoding's bytes-per-character.
+const MAX_LINE_LENGTH = 16 * 1024 * 1024;
+
 export async function* parseSSE(
   stream: ReadableStream<Uint8Array>,
 ): AsyncIterable<string> {
@@ -59,6 +68,15 @@ export async function* parseSSE(
         }
 
         yield payload;
+      }
+
+      // After draining complete lines, `buffer` holds only the unterminated
+      // tail. A tail past the cap means the stream is emitting bytes without a
+      // newline delimiter unboundedly — abort rather than accumulate to OOM.
+      if (buffer.length > MAX_LINE_LENGTH) {
+        throw new Error(
+          `SSE line exceeded ${String(MAX_LINE_LENGTH)} characters without a newline delimiter`,
+        );
       }
     }
   } finally {

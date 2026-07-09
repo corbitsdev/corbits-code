@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
-import { createCodexResponsesAdapter } from "./codex-responses-adapter.js";
+import {
+  createCodexResponsesAdapter,
+  isResponsesStreamTerminal,
+} from "./codex-responses-adapter.js";
 
 const source: LastCycleSource = {
   sourceId: "codex/test",
@@ -49,5 +52,38 @@ describe("createCodexResponsesAdapter", () => {
     const body = JSON.parse(request.body) as { input: Array<{ content?: unknown }> };
 
     expect(body.input[0]?.content).toEqual([{ type: "input_text", text: "hello" }]);
+  });
+
+  test("reports the adapter as terminating on response.completed", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    expect(adapter.isStreamTerminal).toBe(isResponsesStreamTerminal);
+  });
+});
+
+describe("isResponsesStreamTerminal", () => {
+  test("is true for the Responses end-of-turn events", () => {
+    for (const type of [
+      "response.completed",
+      "response.incomplete",
+      "response.done",
+    ]) {
+      expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(true);
+    }
+  });
+
+  test("is false for streaming and lifecycle events", () => {
+    for (const type of [
+      "response.output_text.delta",
+      "response.created",
+      "response.in_progress",
+    ]) {
+      expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(false);
+    }
+  });
+
+  test("is false for malformed or non-object payloads", () => {
+    expect(isResponsesStreamTerminal("{not json")).toBe(false);
+    expect(isResponsesStreamTerminal("null")).toBe(false);
+    expect(isResponsesStreamTerminal('"just a string"')).toBe(false);
   });
 });
