@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
+  blockIdsInLineRange,
   buildLines,
   buildLinesIncremental,
   buildResourceBanner,
+  capViewportToolIds,
+  DEFAULT_MAX_RENDERED_LOG_LINES,
+  DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
   maxLineOffset,
   lineWindow,
+  resolveViewportExpandIds,
+  viewportToolIds,
 } from "./event-log.js";
 import type { ContentBlock } from "../use-stream.js";
 
@@ -525,5 +531,433 @@ describe("incremental layout fast paths", () => {
     const text = lineText(state2.lines).join("\n");
     const markerHits = text.match(/earlier rendered lines hidden/g) ?? [];
     expect(markerHits.length).toBeLessThanOrEqual(1);
+  });
+});
+
+function bigToolResult(id: string, callId: string, lineCount: number): ContentBlock {
+  return {
+    type: "tool_result",
+    id,
+    callId,
+    name: "run_shell",
+    content: Array.from({ length: lineCount }, (_, i) => `output line ${i} for ${callId}`).join("\n"),
+    isError: false,
+  };
+}
+
+function toolPair(index: number, resultLines: number): ContentBlock[] {
+  const callId = `shell-${index}`;
+  return [
+    {
+      type: "tool_call",
+      id: callId,
+      name: "run_shell",
+      arguments: JSON.stringify({ command: `echo tool-${index}` }),
+    },
+    bigToolResult(`result-${index}`, callId, resultLines),
+  ];
+}
+
+describe("blockIdsInLineRange", () => {
+  test("selects only tools whose line ranges intersect the window", () => {
+    const blocks: ContentBlock[] = [
+      { type: "text", id: "t0", content: "hello" },
+      ...toolPair(0, 3),
+      { type: "text", id: "t1", content: "between" },
+      ...toolPair(1, 3),
+    ];
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // shell-1 is at block index 4 (t0, shell-0, result-0, t1, shell-1, result-1)
+    const shell1Start = state.blockLineStarts[4] ?? 0;
+    const ids = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      shell1Start,
+      shell1Start + 1,
+    );
+    expect(ids.has("shell-1")).toBe(true);
+    expect(ids.has("result-1")).toBe(true);
+    expect(ids.has("shell-0")).toBe(false);
+    // Prose never enters the expand set — it would only churn layoutKey.
+    expect(ids.has("t0")).toBe(false);
+    expect(ids.has("t1")).toBe(false);
+  });
+
+  test("pairs a merged tool call with its zero-width result", () => {
+    const blocks = toolPair(0, 5);
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // Collapsed merge puts lines on the call; result is zero-width after it.
+    const ids = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      0,
+      state.lines.length,
+    );
+    expect(ids.has("shell-0")).toBe(true);
+    expect(ids.has("result-0")).toBe(true);
+  });
+
+  test("returns an empty set for an empty window", () => {
+    const blocks = toolPair(0, 5);
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const ids = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      2,
+      2,
+    );
+    expect(ids.size).toBe(0);
+  });
+
+  test("expands an entire collapsed file-edit group when any member hits", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 4; i++) {
+      blocks.push({
+        type: "tool_call",
+        id: `edit-${i}`,
+        name: "edit_file",
+        arguments: JSON.stringify({ path: `f${i}.ts` }),
+      });
+      blocks.push({
+        type: "tool_result",
+        id: `edit-result-${i}`,
+        callId: `edit-${i}`,
+        name: "edit_file",
+        content: "ok",
+        isError: false,
+      });
+    }
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // Group summary lives on the first call; hit just that one-line window.
+    const firstStart = state.blockLineStarts[0] ?? 0;
+    const ids = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      firstStart,
+      firstStart + 1,
+    );
+    for (let i = 0; i < 4; i++) {
+      expect(ids.has(`edit-${i}`)).toBe(true);
+      expect(ids.has(`edit-result-${i}`)).toBe(true);
+    }
+  });
+});
+
+describe("viewportToolIds", () => {
+  test("atBottom selects tools at the base tail", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 10; i++) blocks.push(...toolPair(i, 5));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const visibleRows = 6;
+    const ids = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: 0,
+      atBottom: true,
+      bufferRows: 0,
+    });
+    expect(ids.has("shell-9")).toBe(true);
+    expect(ids.has("result-9")).toBe(true);
+    expect(ids.has("shell-0")).toBe(false);
+  });
+
+  test("expanded scroll offset maps correctly when layout is expanded (no base clamp)", () => {
+    // Reproduces the mid-scroll bug: after expanding mid tools, an expanded
+    // scrollOffset larger than the collapsed maxOff must still select mid tools
+    // when membership uses the expanded layout metrics.
+    const RESULT_LINES = 40;
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 10; i++) blocks.push(...toolPair(i, RESULT_LINES));
+
+    const collapsed = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const midIds = new Set(["shell-3", "result-3", "shell-4", "result-4", "shell-5", "result-5"]);
+    const expanded = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      (block) => midIds.has(block.id),
+    );
+
+    const visibleRows = 20;
+    const collapsedMaxOff = Math.max(0, collapsed.lines.length - visibleRows);
+    // Scroll into the expanded mid band — past collapsed maxOff.
+    const midStart = expanded.blockLineStarts[6] ?? 0; // shell-3 index after 3 pairs
+    const scrollOffset = Math.min(
+      midStart,
+      Math.max(0, expanded.lines.length - visibleRows),
+    );
+    expect(scrollOffset).toBeGreaterThan(collapsedMaxOff);
+
+    const ids = viewportToolIds({
+      blocks: expanded.blocks,
+      blockLineStarts: expanded.blockLineStarts,
+      lineCount: expanded.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset,
+      atBottom: false,
+      bufferRows: 0,
+    });
+
+    // Must stay on mid tools, not clamp to the base tail.
+    expect(ids.has("shell-3") || ids.has("shell-4") || ids.has("shell-5")).toBe(true);
+    expect(ids.has("shell-9")).toBe(false);
+  });
+
+  test("prefix lines shift the window into content coordinates", () => {
+    const blocks = toolPair(0, 5);
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // Window entirely inside the prefix → no tools.
+    const empty = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 10,
+      visibleRows: 5,
+      scrollOffset: 0,
+      atBottom: false,
+      bufferRows: 0,
+    });
+    expect(empty.size).toBe(0);
+
+    // Window past the prefix hits the tools.
+    const hit = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 2,
+      visibleRows: 5,
+      scrollOffset: 2,
+      atBottom: false,
+      bufferRows: 0,
+    });
+    expect(hit.has("shell-0")).toBe(true);
+  });
+});
+
+describe("capViewportToolIds", () => {
+  test("keeps tools closest to the viewport center under the hang-safe budget", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 20; i++) blocks.push(...toolPair(i, 1));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const all = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      0,
+      state.lines.length,
+    );
+    const center = state.lines.length / 2;
+    const capped = capViewportToolIds(
+      all,
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      center,
+      4,
+    );
+    const callCount = [...capped].filter((id) => id.startsWith("shell-")).length;
+    expect(callCount).toBe(4);
+    // Mid-band tools win over the ends.
+    expect(capped.has("shell-0")).toBe(false);
+    expect(capped.has("shell-19")).toBe(false);
+    expect(capped.has("shell-9") || capped.has("shell-10")).toBe(true);
+  });
+});
+
+describe("resolveViewportExpandIds", () => {
+  test("holds previously expanded tools until they leave the hold buffer", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 12; i++) blocks.push(...toolPair(i, 5));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const visibleRows = 6;
+    // Enter with a tight buffer around the tail.
+    const first = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: 0,
+      atBottom: true,
+      previousIds: new Set(),
+      enterBufferRows: 0,
+      holdBufferRows: 40,
+      maxToolCalls: DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+    });
+    expect(first.has("shell-11")).toBe(true);
+
+    // Scroll up so shell-11 is outside the enter window but still inside hold.
+    const midOffset = Math.max(0, state.lines.length - visibleRows - 15);
+    const held = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: midOffset,
+      atBottom: false,
+      previousIds: first,
+      enterBufferRows: 0,
+      holdBufferRows: 40,
+      maxToolCalls: DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+    });
+    // Sticky: shell-11 remains even though enter buffer would drop it.
+    const enterOnly = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: midOffset,
+      atBottom: false,
+      bufferRows: 0,
+    });
+    if (!enterOnly.has("shell-11")) {
+      expect(held.has("shell-11")).toBe(true);
+    }
+  });
+
+  test("drops sticky tools once they leave the hold buffer", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 20; i++) blocks.push(...toolPair(i, 8));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const visibleRows = 6;
+    const previous = new Set(["shell-0", "result-0"]);
+    const next = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: 0,
+      atBottom: true,
+      previousIds: previous,
+      enterBufferRows: 0,
+      holdBufferRows: 0,
+      maxToolCalls: DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+    });
+    expect(next.has("shell-0")).toBe(false);
+    expect(next.has("shell-19")).toBe(true);
+  });
+
+  test("caps dense enter sets to the hang-safe budget", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 40; i++) blocks.push(...toolPair(i, 1));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const next = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows: 80,
+      scrollOffset: 0,
+      atBottom: true,
+      previousIds: new Set(),
+      enterBufferRows: 80,
+      holdBufferRows: 160,
+      maxToolCalls: 6,
+    });
+    const callCount = [...next].filter((id) => id.startsWith("shell-")).length;
+    expect(callCount).toBeLessThanOrEqual(6);
+  });
+});
+
+describe("viewport-local expand", () => {
+  test("expanding only a subset keeps far tools collapsed", () => {
+    const RESULT_LINES = 80;
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 10; i++) {
+      blocks.push(...toolPair(i, RESULT_LINES));
+    }
+
+    const collapsed = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const collapsedLen = collapsed.lines.length;
+
+    // Expand only the last pair (simulating a bottom-pinned viewport).
+    const expandedIds = new Set(["shell-9", "result-9"]);
+    const partial = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      (block) => expandedIds.has(block.id),
+    );
+
+    // Fully expanded would be many times larger; partial should grow by roughly
+    // one tool's expanded body, not ten.
+    const fullyExpanded = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      () => true,
+    );
+
+    expect(partial.lines.length).toBeGreaterThan(collapsedLen);
+    expect(partial.lines.length).toBeLessThan(fullyExpanded.lines.length / 2);
+    // Off-viewport early tools stay short: the first call's line span should
+    // remain near the collapsed single-row merge height.
+    const firstCallLines = partial.blockRenderLineCounts[0] ?? 0;
+    expect(firstCallLines).toBeLessThanOrEqual(4);
+  });
+
+  test("explicit expand still works outside the viewport set", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 5; i++) {
+      blocks.push(...toolPair(i, 60));
+    }
+    // Viewport set empty; only explicit Ctrl+R on an early tool.
+    const explicit = new Set(["shell-0", "result-0"]);
+    const state = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      (block) => explicit.has(block.id),
+    );
+    // Expanded body lives on the tool_result; the call is still a short header.
+    const firstResultLines = state.blockRenderLineCounts[1] ?? 0;
+    // Last pair stays merged/collapsed — lines land on the call (index n-2).
+    const lastCallLines = state.blockRenderLineCounts[state.blocks.length - 2] ?? 0;
+    expect(firstResultLines).toBeGreaterThan(4);
+    expect(lastCallLines).toBeLessThanOrEqual(4);
+  });
+
+  test("partial expand line count scales with the set size, not total tools", () => {
+    const RESULT_LINES = 100;
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 20; i++) {
+      blocks.push(...toolPair(i, RESULT_LINES));
+    }
+
+    const expandTwo = new Set(["shell-18", "result-18", "shell-19", "result-19"]);
+    const two = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      (block) => expandTwo.has(block.id),
+    );
+
+    const expandAll = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      () => true,
+    );
+
+    // Full expand hits the rendered-line budget; two tools stay well under it.
+    expect(two.lines.length).toBeLessThan(expandAll.lines.length);
+    expect(two.lines.length).toBeLessThan(Math.floor(DEFAULT_MAX_RENDERED_LOG_LINES / 2));
   });
 });

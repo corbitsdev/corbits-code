@@ -3,7 +3,7 @@ import type { AgentStatus, ContentBlockData } from "./use-stream.js";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
 import type { InboundMessage } from "@intx/types/runtime";
-import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import {
@@ -13,7 +13,9 @@ import {
   DEFAULT_MAX_RENDERED_LOG_LINES,
   maxLineOffset,
   TEXT_GUTTER,
+  resolveViewportExpandIds,
   type IncrementalLinesState,
+  type RenderableBlock,
 } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
@@ -246,6 +248,19 @@ async function writeProfileFile(dir: string, profile: AgentProfile): Promise<voi
 
 async function deleteProfileFile(dir: string, id: string): Promise<void> {
   await unlink(`${dir}/${id}.json`).catch(() => {});
+}
+
+function sortedSetKey(ids: ReadonlySet<string>): string {
+  const values: string[] = [];
+  ids.forEach((id) => {
+    values.push(id);
+  });
+  return values.sort().join("\x1f");
+}
+
+function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  return sortedSetKey(a) === sortedSetKey(b);
 }
 
 function formatCountdown(ms: number): string {
@@ -703,61 +718,139 @@ export function App({
   // Text wraps and renders inside the gutter so prose never touches the edges.
   const contentWidth = Math.max(8, leftWidth - TEXT_GUTTER * 2);
 
-  // Cleared when layout width or display options change — those affect all blocks.
+  // Cleared when layout width or thinking expand change — those affect all blocks.
+  // Verbose no longer invalidates the cache: each block already keys collapsed vs
+  // expanded layouts separately, and Ctrl+O only expands a viewport-local subset.
   const lineCacheRef = useRef(new Map<string, StyledLine[]>());
+  const baseLinesRef = useRef<IncrementalLinesState | undefined>(undefined);
   const incrementalLinesRef = useRef<IncrementalLinesState | undefined>(undefined);
-  const lineCacheKeysRef = useRef({ contentWidth, thinkingExpanded, verbose });
+  const lineCacheKeysRef = useRef({ contentWidth, thinkingExpanded });
   if (
     lineCacheKeysRef.current.contentWidth !== contentWidth ||
-    lineCacheKeysRef.current.thinkingExpanded !== thinkingExpanded ||
-    lineCacheKeysRef.current.verbose !== verbose
+    lineCacheKeysRef.current.thinkingExpanded !== thinkingExpanded
   ) {
     lineCacheRef.current.clear();
+    baseLinesRef.current = undefined;
     incrementalLinesRef.current = undefined;
-    lineCacheKeysRef.current = { contentWidth, thinkingExpanded, verbose };
+    lineCacheKeysRef.current = { contentWidth, thinkingExpanded };
   }
 
-  const linesLayoutKey = useMemo(
+  // Tools Ctrl+O expands for the current viewport (± buffer). Refreshed after
+  // scroll in a layout effect so line layout can depend on a stable Set.
+  const [viewportExpandedIds, setViewportExpandedIds] = useState<Set<string>>(() => new Set());
+
+  const explicitExpandKey = useMemo(
+    () => sortedSetKey(expandedTools),
+    [expandedTools],
+  );
+
+  const baseLayoutKey = useMemo(
     () => [
       contentWidth,
       thinkingExpanded ? "1" : "0",
-      verbose ? "1" : "0",
-      [...expandedTools].sort().join("\x1f"),
+      explicitExpandKey,
       String(state.currentPlanStep),
       state.planDeviated ? "1" : "0",
     ].join("|"),
-    [contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated],
+    [contentWidth, thinkingExpanded, explicitExpandKey, state.currentPlanStep, state.planDeviated],
+  );
+
+  const isExplicitlyExpanded = useMemo(
+    () => (block: RenderableBlock) => expandedTools.has(block.id),
+    [expandedTools],
+  );
+
+  // Collapsed layout (explicit Ctrl+R expands only). Reused as the display when
+  // verbose is off so toggling Ctrl+O does not throw away the warm incremental state.
+  const membershipBase = useMemo(
+    () => {
+      const next = buildLinesIncremental(
+        baseLinesRef.current,
+        state.contentBlocks,
+        contentWidth,
+        thinkingExpanded,
+        isExplicitlyExpanded,
+        lineCacheRef.current,
+        { currentStep: state.currentPlanStep, deviated: state.planDeviated },
+        baseLayoutKey,
+        DEFAULT_MAX_RENDERED_LOG_LINES,
+      );
+      baseLinesRef.current = next;
+      return next;
+    },
+    // lineCacheRef is a stable ref — intentionally not in the dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.displayRevision, baseLayoutKey, contentWidth, thinkingExpanded, isExplicitlyExpanded, state.currentPlanStep, state.planDeviated],
+  );
+
+  const resourceBanner = useMemo(
+    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth),
+    [loadedSkills, activePlugins, contentWidth],
+  );
+
+  const prefixLineCount =
+    resourceBanner.length + (state.trimmedBlockCount > 0 ? 2 : 0);
+
+  const viewportExpandKey = useMemo(
+    () => {
+      if (!verbose || viewportExpandedIds.size === 0) return "";
+      return sortedSetKey(viewportExpandedIds);
+    },
+    [verbose, viewportExpandedIds],
+  );
+
+  const linesLayoutKey = useMemo(
+    () => [
+      baseLayoutKey,
+      verbose ? "1" : "0",
+      viewportExpandKey,
+    ].join("|"),
+    [baseLayoutKey, verbose, viewportExpandKey],
+  );
+
+  const isViewportExpanded = useMemo(
+    () => {
+      if (!verbose || viewportExpandedIds.size === 0) return isExplicitlyExpanded;
+      return (block: RenderableBlock) =>
+        expandedTools.has(block.id) || viewportExpandedIds.has(block.id);
+    },
+    [verbose, viewportExpandedIds, expandedTools, isExplicitlyExpanded],
   );
 
   const eventLogLines = useMemo(
     () => {
-      const next = buildLinesIncremental(
-        incrementalLinesRef.current,
-        state.contentBlocks,
-        contentWidth,
-        thinkingExpanded,
-        (block) => verbose || expandedTools.has(block.id),
-        lineCacheRef.current,
-        { currentStep: state.currentPlanStep, deviated: state.planDeviated },
-        linesLayoutKey,
-        DEFAULT_MAX_RENDERED_LOG_LINES,
-      );
-      incrementalLinesRef.current = next;
-      const banner = buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth);
+      let next: IncrementalLinesState;
+      if (!verbose) {
+        next = membershipBase;
+        incrementalLinesRef.current = next;
+      } else {
+        next = buildLinesIncremental(
+          incrementalLinesRef.current,
+          state.contentBlocks,
+          contentWidth,
+          thinkingExpanded,
+          isViewportExpanded,
+          lineCacheRef.current,
+          { currentStep: state.currentPlanStep, deviated: state.planDeviated },
+          linesLayoutKey,
+          DEFAULT_MAX_RENDERED_LOG_LINES,
+        );
+        incrementalLinesRef.current = next;
+      }
       return state.trimmedBlockCount > 0
         ? [
-            ...banner,
+            ...resourceBanner,
             [
               { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
             ] satisfies StyledLine,
             [],
             ...next.lines,
           ]
-        : [...banner, ...next.lines];
+        : [...resourceBanner, ...next.lines];
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.displayRevision, state.trimmedBlockCount, linesLayoutKey, contentWidth, thinkingExpanded, verbose, expandedTools, state.currentPlanStep, state.planDeviated, loadedSkills, activePlugins],
+    [state.displayRevision, state.trimmedBlockCount, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated, resourceBanner],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
@@ -770,6 +863,45 @@ export function App({
   }, [state.contentBlocks]);
 
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
+
+  // Ctrl+O expands tools intersecting the visible window. Membership uses the
+  // *display* layout (same line space as scrollOffset) so mid-scroll tracking
+  // stays correct after tools grow. Sticky hold + tool-count cap keep the set
+  // from thrashing or exploding under dense tool rows. Toggle seeds the set
+  // synchronously so the first verbose paint is already expanded.
+  useLayoutEffect(() => {
+    if (!verbose) {
+      if (viewportExpandedIds.size > 0) setViewportExpandedIds(new Set());
+      return;
+    }
+
+    const layout = incrementalLinesRef.current;
+    if (layout === undefined) return;
+
+    const nextIds = resolveViewportExpandIds({
+      blocks: layout.blocks,
+      blockLineStarts: layout.blockLineStarts,
+      lineCount: layout.lines.length,
+      prefixLineCount,
+      visibleRows,
+      scrollOffset: scroll.scrollOffset,
+      atBottom: scroll.atBottom,
+      previousIds: viewportExpandedIds,
+    });
+
+    if (sameStringSet(nextIds, viewportExpandedIds)) return;
+    setViewportExpandedIds(nextIds);
+  }, [
+    verbose,
+    scroll.scrollOffset,
+    scroll.atBottom,
+    visibleRows,
+    // Recompute when either layout changes (content, expand set, prefix).
+    membershipBase,
+    eventLogLines,
+    prefixLineCount,
+    viewportExpandedIds,
+  ]);
 
   // Scanning every block on each render walks the whole transcript on keystrokes
   // and scroll ticks, so the stream state tracks this incrementally instead.
@@ -1136,7 +1268,27 @@ export function App({
       scrollDown: () => scroll.scrollDown(visibleRows),
       scrollToBottom: () => scroll.scrollToBottom(),
       toggleVerbose: () => {
-        setVerbose((v) => !v);
+        if (verbose) {
+          setVerbose(false);
+          setViewportExpandedIds(new Set());
+          return;
+        }
+        // Seed from the current (collapsed) layout so the first verbose paint
+        // expands the viewport set instead of flashing a collapsed frame.
+        const layout = incrementalLinesRef.current ?? baseLinesRef.current;
+        if (layout !== undefined) {
+          setViewportExpandedIds(resolveViewportExpandIds({
+            blocks: layout.blocks,
+            blockLineStarts: layout.blockLineStarts,
+            lineCount: layout.lines.length,
+            prefixLineCount,
+            visibleRows,
+            scrollOffset: scroll.scrollOffset,
+            atBottom: scroll.atBottom,
+            previousIds: new Set(),
+          }));
+        }
+        setVerbose(true);
       },
       toggleTaskPanel: () => setTasksExpanded((open) => !open),
       toggleThinking: () => setThinkingExpanded((e) => !e),

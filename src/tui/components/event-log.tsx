@@ -949,6 +949,246 @@ export function lineWindow(lines: StyledLine[], scrollOffset: number, visibleRow
   return { start, end };
 }
 
+function isFileEditTool(name: string): boolean {
+  return name === "edit_file" || name === "write_file";
+}
+
+/** Adjacent call+result with matching name — same rule as the merge assembler. */
+function isAdjacentToolPair(
+  call: RenderableBlock,
+  result: RenderableBlock,
+): boolean {
+  return call.type === "tool_call"
+    && result.type === "tool_result"
+    && result.name === call.name;
+}
+
+/**
+ * Recover zero-width partners: paired results, and whole file-edit groups (≥3 pairs).
+ * Mutates `ids` in place.
+ */
+function recoverCollapsedPartners(
+  blocks: readonly RenderableBlock[],
+  ids: Set<string>,
+): void {
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const call = blocks[i]!;
+    const result = blocks[i + 1]!;
+    if (!isAdjacentToolPair(call, result)) continue;
+    if (ids.has(call.id)) ids.add(result.id);
+    else if (ids.has(result.id)) ids.add(call.id);
+  }
+
+  // Collapsed file-edit groups (≥3 pairs) draw one summary on the first call and
+  // leave every other block zero-width. Expand the whole group when any member hits.
+  for (let i = 0; i < blocks.length; ) {
+    const head = blocks[i]!;
+    if (head.type !== "tool_call" || !isFileEditTool(head.name)) {
+      i++;
+      continue;
+    }
+    let j = i;
+    let pairCount = 0;
+    const groupIds: string[] = [];
+    while (j + 1 < blocks.length) {
+      const call = blocks[j]!;
+      const result = blocks[j + 1]!;
+      if (!isAdjacentToolPair(call, result) || !isFileEditTool(call.name)) break;
+      groupIds.push(call.id, result.id);
+      pairCount++;
+      j += 2;
+    }
+    if (pairCount >= 3 && groupIds.some((id) => ids.has(id))) {
+      for (const id of groupIds) ids.add(id);
+    }
+    i = j > i ? j : i + 1;
+  }
+}
+
+/**
+ * Map a line window onto tool block ids in the same line space as `blockLineStarts`.
+ * Callers must pass metrics from the layout that produced the scroll offset
+ * (display layout while verbose) so membership tracks what is on screen.
+ *
+ * Zero-width slots left by collapsed merges are recovered:
+ * - adjacent tool call/result pairs (same name) expand together
+ * - collapsed file-edit groups (≥3 pairs) expand as a whole when any member hits
+ */
+export function blockIdsInLineRange(
+  blocks: readonly RenderableBlock[],
+  blockLineStarts: readonly number[],
+  lineCount: number,
+  lineStart: number,
+  lineEnd: number,
+): Set<string> {
+  const ids = new Set<string>();
+  if (blocks.length === 0 || lineEnd <= lineStart) return ids;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+    if (block.type !== "tool_call" && block.type !== "tool_result") continue;
+    const start = blockLineStarts[i] ?? 0;
+    const rawNext = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1] : lineCount;
+    const end = rawNext ?? start;
+    if (end > lineStart && start < lineEnd) {
+      ids.add(block.id);
+    }
+  }
+
+  recoverCollapsedPartners(blocks, ids);
+  return ids;
+}
+
+/** Hard cap on tool_call blocks expanded by Ctrl+O for one viewport. */
+export const DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS = 12;
+
+export type ViewportToolIdsArgs = {
+  blocks: readonly RenderableBlock[];
+  blockLineStarts: readonly number[];
+  lineCount: number;
+  prefixLineCount: number;
+  visibleRows: number;
+  scrollOffset: number;
+  atBottom: boolean;
+  /** Extra lines above/below the visible window (defaults to one screen). */
+  bufferRows?: number;
+};
+
+function contentWindowRange(args: {
+  prefixLineCount: number;
+  lineCount: number;
+  visibleRows: number;
+  scrollOffset: number;
+  atBottom: boolean;
+  bufferRows: number;
+}): { lineStart: number; lineEnd: number; contentCenter: number } {
+  const visibleRows = Math.max(1, args.visibleRows);
+  const buffer = Math.max(0, args.bufferRows);
+  const total = args.prefixLineCount + args.lineCount;
+  const maxOff = Math.max(0, total - visibleRows);
+  const windowStart = args.atBottom
+    ? maxOff
+    : Math.min(Math.max(0, args.scrollOffset), maxOff);
+  const windowEnd = windowStart + visibleRows;
+  const lineStart = Math.max(0, windowStart - args.prefixLineCount - buffer);
+  const lineEnd = Math.max(0, windowEnd - args.prefixLineCount + buffer);
+  const contentCenter = Math.max(
+    0,
+    (windowStart + windowEnd) / 2 - args.prefixLineCount,
+  );
+  return { lineStart, lineEnd, contentCenter };
+}
+
+/**
+ * Tools intersecting the visible window (± buffer) in the given layout's line space.
+ * `scrollOffset` / `atBottom` must come from the same layout as `lineCount`.
+ */
+export function viewportToolIds(args: ViewportToolIdsArgs): Set<string> {
+  const visibleRows = Math.max(1, args.visibleRows);
+  const buffer = Math.max(0, args.bufferRows ?? visibleRows);
+  const { lineStart, lineEnd } = contentWindowRange({
+    prefixLineCount: args.prefixLineCount,
+    lineCount: args.lineCount,
+    visibleRows,
+    scrollOffset: args.scrollOffset,
+    atBottom: args.atBottom,
+    bufferRows: buffer,
+  });
+  return blockIdsInLineRange(
+    args.blocks,
+    args.blockLineStarts,
+    args.lineCount,
+    lineStart,
+    lineEnd,
+  );
+}
+
+/**
+ * Prefer tools closest to the viewport center when the raw set is denser than the
+ * hang-safe budget. Keeps paired results and file-edit groups intact after the cut.
+ */
+export function capViewportToolIds(
+  ids: ReadonlySet<string>,
+  blocks: readonly RenderableBlock[],
+  blockLineStarts: readonly number[],
+  lineCount: number,
+  contentCenter: number,
+  maxToolCalls: number = DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+): Set<string> {
+  if (ids.size === 0 || maxToolCalls <= 0) return new Set();
+
+  const scored: { id: string; dist: number }[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+    if (block.type !== "tool_call" || !ids.has(block.id)) continue;
+    const start = blockLineStarts[i] ?? 0;
+    const rawNext = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1] : lineCount;
+    const end = rawNext ?? start;
+    const mid = end > start ? (start + end) / 2 : start;
+    scored.push({ id: block.id, dist: Math.abs(mid - contentCenter) });
+  }
+
+  if (scored.length <= maxToolCalls) {
+    return new Set(ids);
+  }
+
+  scored.sort((a, b) => a.dist - b.dist || a.id.localeCompare(b.id));
+  const kept = new Set<string>();
+  for (let i = 0; i < maxToolCalls; i++) kept.add(scored[i]!.id);
+  recoverCollapsedPartners(blocks, kept);
+  return kept;
+}
+
+export type ResolveViewportExpandIdsArgs = ViewportToolIdsArgs & {
+  previousIds?: ReadonlySet<string>;
+  /** Buffer for entering the expand set (defaults to one screen). */
+  enterBufferRows?: number;
+  /** Buffer for staying expanded once entered (defaults to two screens). */
+  holdBufferRows?: number;
+  maxToolCalls?: number;
+};
+
+/**
+ * Sticky viewport membership: tools enter at the enter buffer, stay expanded
+ * until they leave the hold buffer, then drop. Caps density near the viewport
+ * center so a tool-packed screen cannot expand unbounded.
+ */
+export function resolveViewportExpandIds(args: ResolveViewportExpandIdsArgs): Set<string> {
+  const visibleRows = Math.max(1, args.visibleRows);
+  const enterBuffer = Math.max(0, args.enterBufferRows ?? visibleRows);
+  const holdBuffer = Math.max(enterBuffer, args.holdBufferRows ?? visibleRows * 2);
+  const maxToolCalls = args.maxToolCalls ?? DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS;
+  const previous = args.previousIds ?? new Set<string>();
+
+  const enter = viewportToolIds({ ...args, bufferRows: enterBuffer });
+  const hold = holdBuffer === enterBuffer
+    ? enter
+    : viewportToolIds({ ...args, bufferRows: holdBuffer });
+
+  const sticky = new Set(enter);
+  for (const id of previous) {
+    if (hold.has(id)) sticky.add(id);
+  }
+
+  const { contentCenter } = contentWindowRange({
+    prefixLineCount: args.prefixLineCount,
+    lineCount: args.lineCount,
+    visibleRows,
+    scrollOffset: args.scrollOffset,
+    atBottom: args.atBottom,
+    bufferRows: 0,
+  });
+
+  return capViewportToolIds(
+    sticky,
+    args.blocks,
+    args.blockLineStarts,
+    args.lineCount,
+    contentCenter,
+    maxToolCalls,
+  );
+}
+
 // Memoized so typing in the prompt — which re-renders the App shell on every
 // keystroke — does not re-walk the visible window unless the lines, scroll
 // position, or viewport actually change.
