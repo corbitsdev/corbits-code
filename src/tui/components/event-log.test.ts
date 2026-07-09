@@ -7,6 +7,7 @@ import {
   DEFAULT_MAX_RENDERED_LOG_LINES,
   maxLineOffset,
   lineWindow,
+  viewportToolIds,
 } from "./event-log.js";
 import type { ContentBlock } from "../use-stream.js";
 
@@ -555,7 +556,7 @@ function toolPair(index: number, resultLines: number): ContentBlock[] {
 }
 
 describe("blockIdsInLineRange", () => {
-  test("returns ids whose line ranges intersect the window", () => {
+  test("selects only tools whose line ranges intersect the window", () => {
     const blocks: ContentBlock[] = [
       { type: "text", id: "t0", content: "hello" },
       ...toolPair(0, 3),
@@ -563,17 +564,21 @@ describe("blockIdsInLineRange", () => {
       ...toolPair(1, 3),
     ];
     const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
-    const midStart = state.blockLineStarts[3] ?? 0;
+    // shell-1 is at block index 4 (t0, shell-0, result-0, t1, shell-1, result-1)
+    const shell1Start = state.blockLineStarts[4] ?? 0;
     const ids = blockIdsInLineRange(
       state.blocks,
       state.blockLineStarts,
       state.lines.length,
-      midStart,
-      midStart + 1,
+      shell1Start,
+      shell1Start + 1,
     );
-    // block index 3 is text "between" after tool pair 0 (call+result merged)
-    expect(ids.has("t1")).toBe(true);
+    expect(ids.has("shell-1")).toBe(true);
+    expect(ids.has("result-1")).toBe(true);
     expect(ids.has("shell-0")).toBe(false);
+    // Prose never enters the expand set — it would only churn layoutKey.
+    expect(ids.has("t0")).toBe(false);
+    expect(ids.has("t1")).toBe(false);
   });
 
   test("pairs a merged tool call with its zero-width result", () => {
@@ -602,6 +607,136 @@ describe("blockIdsInLineRange", () => {
       2,
     );
     expect(ids.size).toBe(0);
+  });
+
+  test("expands an entire collapsed file-edit group when any member hits", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 4; i++) {
+      blocks.push({
+        type: "tool_call",
+        id: `edit-${i}`,
+        name: "edit_file",
+        arguments: JSON.stringify({ path: `f${i}.ts` }),
+      });
+      blocks.push({
+        type: "tool_result",
+        id: `edit-result-${i}`,
+        callId: `edit-${i}`,
+        name: "edit_file",
+        content: "ok",
+        isError: false,
+      });
+    }
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // Group summary lives on the first call; hit just that one-line window.
+    const firstStart = state.blockLineStarts[0] ?? 0;
+    const ids = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      firstStart,
+      firstStart + 1,
+    );
+    for (let i = 0; i < 4; i++) {
+      expect(ids.has(`edit-${i}`)).toBe(true);
+      expect(ids.has(`edit-result-${i}`)).toBe(true);
+    }
+  });
+});
+
+describe("viewportToolIds", () => {
+  test("atBottom selects tools at the base tail", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 10; i++) blocks.push(...toolPair(i, 5));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const visibleRows = 6;
+    const ids = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: 0,
+      atBottom: true,
+      bufferRows: 0,
+    });
+    expect(ids.has("shell-9")).toBe(true);
+    expect(ids.has("result-9")).toBe(true);
+    expect(ids.has("shell-0")).toBe(false);
+  });
+
+  test("expanded scroll offset maps correctly when layout is expanded (no base clamp)", () => {
+    // Reproduces the mid-scroll bug: after expanding mid tools, an expanded
+    // scrollOffset larger than the collapsed maxOff must still select mid tools
+    // when membership uses the expanded layout metrics.
+    const RESULT_LINES = 40;
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 10; i++) blocks.push(...toolPair(i, RESULT_LINES));
+
+    const collapsed = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const midIds = new Set(["shell-3", "result-3", "shell-4", "result-4", "shell-5", "result-5"]);
+    const expanded = buildLinesIncremental(
+      undefined,
+      blocks,
+      COLUMNS,
+      false,
+      (block) => midIds.has(block.id),
+    );
+
+    const visibleRows = 20;
+    const collapsedMaxOff = Math.max(0, collapsed.lines.length - visibleRows);
+    // Scroll into the expanded mid band — past collapsed maxOff.
+    const midStart = expanded.blockLineStarts[6] ?? 0; // shell-3 index after 3 pairs
+    const scrollOffset = Math.min(
+      midStart,
+      Math.max(0, expanded.lines.length - visibleRows),
+    );
+    expect(scrollOffset).toBeGreaterThan(collapsedMaxOff);
+
+    const ids = viewportToolIds({
+      blocks: expanded.blocks,
+      blockLineStarts: expanded.blockLineStarts,
+      lineCount: expanded.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset,
+      atBottom: false,
+      bufferRows: 0,
+    });
+
+    // Must stay on mid tools, not clamp to the base tail.
+    expect(ids.has("shell-3") || ids.has("shell-4") || ids.has("shell-5")).toBe(true);
+    expect(ids.has("shell-9")).toBe(false);
+  });
+
+  test("prefix lines shift the window into content coordinates", () => {
+    const blocks = toolPair(0, 5);
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // Window entirely inside the prefix → no tools.
+    const empty = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 10,
+      visibleRows: 5,
+      scrollOffset: 0,
+      atBottom: false,
+      bufferRows: 0,
+    });
+    expect(empty.size).toBe(0);
+
+    // Window past the prefix hits the tools.
+    const hit = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 2,
+      visibleRows: 5,
+      scrollOffset: 2,
+      atBottom: false,
+      bufferRows: 0,
+    });
+    expect(hit.has("shell-0")).toBe(true);
   });
 });
 

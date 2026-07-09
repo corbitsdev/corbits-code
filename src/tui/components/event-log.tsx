@@ -949,10 +949,18 @@ export function lineWindow(lines: StyledLine[], scrollOffset: number, visibleRow
   return { start, end };
 }
 
+function isFileEditTool(name: string): boolean {
+  return name === "edit_file" || name === "write_file";
+}
+
 /**
- * Map a line window onto block ids using collapsed (or base) layout metrics.
- * Zero-width slots left by merged call+result pairs are recovered by pairing:
- * if either half of a tool call/result pair is selected, both are.
+ * Map a line window onto tool block ids in the same line space as `blockLineStarts`.
+ * Callers must pass metrics from the layout that produced the scroll offset
+ * (display layout while verbose) so membership tracks what is on screen.
+ *
+ * Zero-width slots left by collapsed merges are recovered:
+ * - adjacent tool call/result pairs (same name) expand together
+ * - collapsed file-edit groups (≥3 pairs) expand as a whole when any member hits
  */
 export function blockIdsInLineRange(
   blocks: readonly RenderableBlock[],
@@ -965,16 +973,18 @@ export function blockIdsInLineRange(
   if (blocks.length === 0 || lineEnd <= lineStart) return ids;
 
   for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+    if (block.type !== "tool_call" && block.type !== "tool_result") continue;
     const start = blockLineStarts[i] ?? 0;
     const rawNext = i + 1 < blockLineStarts.length ? blockLineStarts[i + 1] : lineCount;
     const end = rawNext ?? start;
     if (end > lineStart && start < lineEnd) {
-      ids.add(blocks[i]!.id);
+      ids.add(block.id);
     }
   }
 
-  // Merged tool pairs put all lines on the call; the result is zero-width at the
-  // same index. Expand both so the merge breaks and the result body can show.
+  // Merged tool pairs put all lines on the call; the result is zero-width after it.
+  // Expand both so the merge breaks and the result body can show.
   for (let i = 0; i < blocks.length - 1; i++) {
     const call = blocks[i]!;
     const result = blocks[i + 1]!;
@@ -985,7 +995,77 @@ export function blockIdsInLineRange(
     else if (ids.has(result.id)) ids.add(call.id);
   }
 
+  // Collapsed file-edit groups (≥3 pairs) draw one summary line on the first call
+  // and leave every other block zero-width. If any member is selected, expand the
+  // whole group so Ctrl+O does not peel off only the first file.
+  for (let i = 0; i < blocks.length; ) {
+    const head = blocks[i]!;
+    if (head.type !== "tool_call" || !isFileEditTool(head.name)) {
+      i++;
+      continue;
+    }
+    let j = i;
+    let pairCount = 0;
+    const groupIds: string[] = [];
+    while (j + 1 < blocks.length) {
+      const call = blocks[j]!;
+      const result = blocks[j + 1]!;
+      if (
+        call.type !== "tool_call"
+        || result.type !== "tool_result"
+        || !isFileEditTool(call.name)
+        || result.name !== call.name
+      ) break;
+      groupIds.push(call.id, result.id);
+      pairCount++;
+      j += 2;
+    }
+    if (pairCount >= 3) {
+      const hit = groupIds.some((id) => ids.has(id));
+      if (hit) {
+        for (const id of groupIds) ids.add(id);
+      }
+    }
+    i = j > i ? j : i + 1;
+  }
+
   return ids;
+}
+
+export type ViewportToolIdsArgs = {
+  blocks: readonly RenderableBlock[];
+  blockLineStarts: readonly number[];
+  lineCount: number;
+  prefixLineCount: number;
+  visibleRows: number;
+  scrollOffset: number;
+  atBottom: boolean;
+  /** Extra lines above/below the visible window (defaults to one screen). */
+  bufferRows?: number;
+};
+
+/**
+ * Tools intersecting the visible window (± buffer) in the given layout's line space.
+ * `scrollOffset` / `atBottom` must come from the same layout as `lineCount`.
+ */
+export function viewportToolIds(args: ViewportToolIdsArgs): Set<string> {
+  const visibleRows = Math.max(1, args.visibleRows);
+  const buffer = Math.max(0, args.bufferRows ?? visibleRows);
+  const total = args.prefixLineCount + args.lineCount;
+  const maxOff = Math.max(0, total - visibleRows);
+  const windowStart = args.atBottom
+    ? maxOff
+    : Math.min(Math.max(0, args.scrollOffset), maxOff);
+  const windowEnd = windowStart + visibleRows;
+  const lineStart = Math.max(0, windowStart - args.prefixLineCount - buffer);
+  const lineEnd = Math.max(0, windowEnd - args.prefixLineCount + buffer);
+  return blockIdsInLineRange(
+    args.blocks,
+    args.blockLineStarts,
+    args.lineCount,
+    lineStart,
+    lineEnd,
+  );
 }
 
 // Memoized so typing in the prompt — which re-renders the App shell on every

@@ -8,12 +8,12 @@ import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import {
   EventLog,
-  blockIdsInLineRange,
   buildLinesIncremental,
   buildResourceBanner,
   DEFAULT_MAX_RENDERED_LOG_LINES,
   maxLineOffset,
   TEXT_GUTTER,
+  viewportToolIds,
   type IncrementalLinesState,
   type RenderableBlock,
 } from "./components/event-log.js";
@@ -760,8 +760,8 @@ export function App({
     [expandedTools],
   );
 
-  // Collapsed-base layout (explicit Ctrl+R expands only). Used both as the
-  // display when verbose is off and as the metric space for viewport membership.
+  // Collapsed layout (explicit Ctrl+R expands only). Reused as the display when
+  // verbose is off so toggling Ctrl+O does not throw away the warm incremental state.
   const membershipBase = useMemo(
     () => {
       const next = buildLinesIncremental(
@@ -864,37 +864,30 @@ export function App({
 
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
-  // Ctrl+O expands only tools whose collapsed line range intersects the viewport
-  // (± one screen of buffer). Membership is computed from the base layout so the
-  // expand set does not thrash as expanded heights change. One-frame lag is fine:
-  // lines depend on viewportExpandedIds state, which this effect refreshes after
-  // scroll/content settle.
+  // Ctrl+O expands tools intersecting the visible window (± one screen of buffer).
+  // Membership uses the *display* layout (same line space as scrollOffset) so
+  // mid-scroll tracking stays correct after tools grow. First verbose frame still
+  // builds collapsed (empty expand set) so the effect seeds from base metrics;
+  // the next commit expands. sameStringSet avoids setState thrash when the set
+  // is unchanged.
   useLayoutEffect(() => {
     if (!verbose) {
       if (viewportExpandedIds.size > 0) setViewportExpandedIds(new Set());
       return;
     }
 
-    const buffer = Math.max(1, visibleRows);
-    const baseLineCount = membershipBase.lines.length;
-    const totalForMembership = prefixLineCount + baseLineCount;
-    const maxOff = Math.max(0, totalForMembership - visibleRows);
-    const windowStart = scroll.atBottom
-      ? maxOff
-      : Math.min(Math.max(0, scroll.scrollOffset), maxOff);
-    const windowEnd = windowStart + Math.max(1, visibleRows);
+    const layout = incrementalLinesRef.current;
+    if (layout === undefined) return;
 
-    // Translate the full-transcript window into base-layout coordinates.
-    const baseStart = Math.max(0, windowStart - prefixLineCount - buffer);
-    const baseEnd = Math.max(0, windowEnd - prefixLineCount + buffer);
-
-    const nextIds = blockIdsInLineRange(
-      membershipBase.blocks,
-      membershipBase.blockLineStarts,
-      baseLineCount,
-      baseStart,
-      baseEnd,
-    );
+    const nextIds = viewportToolIds({
+      blocks: layout.blocks,
+      blockLineStarts: layout.blockLineStarts,
+      lineCount: layout.lines.length,
+      prefixLineCount,
+      visibleRows,
+      scrollOffset: scroll.scrollOffset,
+      atBottom: scroll.atBottom,
+    });
 
     if (sameStringSet(nextIds, viewportExpandedIds)) return;
     setViewportExpandedIds(nextIds);
@@ -903,7 +896,9 @@ export function App({
     scroll.scrollOffset,
     scroll.atBottom,
     visibleRows,
+    // Recompute when either layout changes (content, expand set, prefix).
     membershipBase,
+    eventLogLines,
     prefixLineCount,
     viewportExpandedIds,
   ]);
