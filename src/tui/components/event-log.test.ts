@@ -4,9 +4,12 @@ import {
   buildLines,
   buildLinesIncremental,
   buildResourceBanner,
+  capViewportToolIds,
   DEFAULT_MAX_RENDERED_LOG_LINES,
+  DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
   maxLineOffset,
   lineWindow,
+  resolveViewportExpandIds,
   viewportToolIds,
 } from "./event-log.js";
 import type { ContentBlock } from "../use-stream.js";
@@ -737,6 +740,134 @@ describe("viewportToolIds", () => {
       bufferRows: 0,
     });
     expect(hit.has("shell-0")).toBe(true);
+  });
+});
+
+describe("capViewportToolIds", () => {
+  test("keeps tools closest to the viewport center under the hang-safe budget", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 20; i++) blocks.push(...toolPair(i, 1));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const all = blockIdsInLineRange(
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      0,
+      state.lines.length,
+    );
+    const center = state.lines.length / 2;
+    const capped = capViewportToolIds(
+      all,
+      state.blocks,
+      state.blockLineStarts,
+      state.lines.length,
+      center,
+      4,
+    );
+    const callCount = [...capped].filter((id) => id.startsWith("shell-")).length;
+    expect(callCount).toBe(4);
+    // Mid-band tools win over the ends.
+    expect(capped.has("shell-0")).toBe(false);
+    expect(capped.has("shell-19")).toBe(false);
+    expect(capped.has("shell-9") || capped.has("shell-10")).toBe(true);
+  });
+});
+
+describe("resolveViewportExpandIds", () => {
+  test("holds previously expanded tools until they leave the hold buffer", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 12; i++) blocks.push(...toolPair(i, 5));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const visibleRows = 6;
+    // Enter with a tight buffer around the tail.
+    const first = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: 0,
+      atBottom: true,
+      previousIds: new Set(),
+      enterBufferRows: 0,
+      holdBufferRows: 40,
+      maxToolCalls: DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+    });
+    expect(first.has("shell-11")).toBe(true);
+
+    // Scroll up so shell-11 is outside the enter window but still inside hold.
+    const midOffset = Math.max(0, state.lines.length - visibleRows - 15);
+    const held = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: midOffset,
+      atBottom: false,
+      previousIds: first,
+      enterBufferRows: 0,
+      holdBufferRows: 40,
+      maxToolCalls: DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+    });
+    // Sticky: shell-11 remains even though enter buffer would drop it.
+    const enterOnly = viewportToolIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: midOffset,
+      atBottom: false,
+      bufferRows: 0,
+    });
+    if (!enterOnly.has("shell-11")) {
+      expect(held.has("shell-11")).toBe(true);
+    }
+  });
+
+  test("drops sticky tools once they leave the hold buffer", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 20; i++) blocks.push(...toolPair(i, 8));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const visibleRows = 6;
+    const previous = new Set(["shell-0", "result-0"]);
+    const next = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows,
+      scrollOffset: 0,
+      atBottom: true,
+      previousIds: previous,
+      enterBufferRows: 0,
+      holdBufferRows: 0,
+      maxToolCalls: DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
+    });
+    expect(next.has("shell-0")).toBe(false);
+    expect(next.has("shell-19")).toBe(true);
+  });
+
+  test("caps dense enter sets to the hang-safe budget", () => {
+    const blocks: ContentBlock[] = [];
+    for (let i = 0; i < 40; i++) blocks.push(...toolPair(i, 1));
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    const next = resolveViewportExpandIds({
+      blocks: state.blocks,
+      blockLineStarts: state.blockLineStarts,
+      lineCount: state.lines.length,
+      prefixLineCount: 0,
+      visibleRows: 80,
+      scrollOffset: 0,
+      atBottom: true,
+      previousIds: new Set(),
+      enterBufferRows: 80,
+      holdBufferRows: 160,
+      maxToolCalls: 6,
+    });
+    const callCount = [...next].filter((id) => id.startsWith("shell-")).length;
+    expect(callCount).toBeLessThanOrEqual(6);
   });
 });
 

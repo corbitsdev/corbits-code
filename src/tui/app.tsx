@@ -13,7 +13,7 @@ import {
   DEFAULT_MAX_RENDERED_LOG_LINES,
   maxLineOffset,
   TEXT_GUTTER,
-  viewportToolIds,
+  resolveViewportExpandIds,
   type IncrementalLinesState,
   type RenderableBlock,
 } from "./components/event-log.js";
@@ -864,12 +864,11 @@ export function App({
 
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
-  // Ctrl+O expands tools intersecting the visible window (± one screen of buffer).
-  // Membership uses the *display* layout (same line space as scrollOffset) so
-  // mid-scroll tracking stays correct after tools grow. First verbose frame still
-  // builds collapsed (empty expand set) so the effect seeds from base metrics;
-  // the next commit expands. sameStringSet avoids setState thrash when the set
-  // is unchanged.
+  // Ctrl+O expands tools intersecting the visible window. Membership uses the
+  // *display* layout (same line space as scrollOffset) so mid-scroll tracking
+  // stays correct after tools grow. Sticky hold + tool-count cap keep the set
+  // from thrashing or exploding under dense tool rows. Toggle seeds the set
+  // synchronously so the first verbose paint is already expanded.
   useLayoutEffect(() => {
     if (!verbose) {
       if (viewportExpandedIds.size > 0) setViewportExpandedIds(new Set());
@@ -879,7 +878,7 @@ export function App({
     const layout = incrementalLinesRef.current;
     if (layout === undefined) return;
 
-    const nextIds = viewportToolIds({
+    const nextIds = resolveViewportExpandIds({
       blocks: layout.blocks,
       blockLineStarts: layout.blockLineStarts,
       lineCount: layout.lines.length,
@@ -887,6 +886,7 @@ export function App({
       visibleRows,
       scrollOffset: scroll.scrollOffset,
       atBottom: scroll.atBottom,
+      previousIds: viewportExpandedIds,
     });
 
     if (sameStringSet(nextIds, viewportExpandedIds)) return;
@@ -1268,7 +1268,27 @@ export function App({
       scrollDown: () => scroll.scrollDown(visibleRows),
       scrollToBottom: () => scroll.scrollToBottom(),
       toggleVerbose: () => {
-        setVerbose((v) => !v);
+        if (verbose) {
+          setVerbose(false);
+          setViewportExpandedIds(new Set());
+          return;
+        }
+        // Seed from the current (collapsed) layout so the first verbose paint
+        // expands the viewport set instead of flashing a collapsed frame.
+        const layout = incrementalLinesRef.current ?? baseLinesRef.current;
+        if (layout !== undefined) {
+          setViewportExpandedIds(resolveViewportExpandIds({
+            blocks: layout.blocks,
+            blockLineStarts: layout.blockLineStarts,
+            lineCount: layout.lines.length,
+            prefixLineCount,
+            visibleRows,
+            scrollOffset: scroll.scrollOffset,
+            atBottom: scroll.atBottom,
+            previousIds: new Set(),
+          }));
+        }
+        setVerbose(true);
       },
       toggleTaskPanel: () => setTasksExpanded((open) => !open),
       toggleThinking: () => setThinkingExpanded((e) => !e),
