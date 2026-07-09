@@ -4,7 +4,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+C", description: "Exit (with confirm)" },
   { keys: "Ctrl+H", description: "Toggle hooks panel" },
   { keys: "Ctrl+T", description: "Toggle task panel" },
-  { keys: "Ctrl+O", description: "Toggle expand all tool output" },
+  { keys: "Ctrl+O", description: "Toggle expand tool output (visible area)" },
   { keys: "Ctrl+R", description: "Expand/collapse last tool" },
   { keys: "Ctrl+P", description: "Toggle tasks full-screen" },
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
