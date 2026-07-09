@@ -50,11 +50,24 @@ export type RetryAfterExtractor = (headers: Headers) => number | undefined;
 // wait before the next request, or undefined if no pacing is needed.
 export type PacingExtractor = (headers: Headers) => number | undefined;
 
+// Reports whether an SSE data payload is the protocol's end-of-turn signal.
+// Most protocols end the stream with the `[DONE]` sentinel (stripped by
+// `parseSSE`) or by closing the socket, and need no such predicate. The
+// OpenAI Responses protocol does neither: it marks completion with a semantic
+// `response.completed` event and holds the connection open, so a client that
+// waits for socket close hangs. Adapters for those protocols implement this so
+// the harness stops reading once the terminal event is processed.
+export type StreamTerminalDetector = (sseData: string) => boolean;
+
 export type ProviderAdapter = {
   buildRequest: RequestBuilder;
   parseResponse: ResponseParser;
   extractRetryAfterMs?: RetryAfterExtractor;
   extractPacingDelayMs?: PacingExtractor;
+  // When present, the harness stops reading the SSE stream after processing
+  // the events from the chunk this returns true for. Absent means the stream
+  // ends only on `[DONE]` or socket close.
+  isStreamTerminal?: StreamTerminalDetector;
 };
 
 // Builds a fresh adapter for one inference call. Invoked per call so the

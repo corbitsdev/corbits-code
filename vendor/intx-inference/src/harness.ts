@@ -920,6 +920,14 @@ async function* runSingleAttempt(
               break;
           }
         }
+
+        // Protocols whose end-of-turn is a semantic event (OpenAI Responses)
+        // rather than `[DONE]` or a socket close would otherwise block on the
+        // next read forever. Stop once the terminal event's own events (e.g.
+        // its usage) have been processed above.
+        if (adapter.isStreamTerminal?.(sseData)) {
+          break;
+        }
       }
     } catch (cause) {
       if (timeoutReason !== null) {
