@@ -403,6 +403,32 @@ export function parseResponse(
   }
 }
 
+// The Responses stream ends on a semantic lifecycle event, not `[DONE]` or a
+// socket close: `response.completed` on success, `response.incomplete` when the
+// backend truncates, `response.done` as an alias some backends emit. The
+// harness reads this to stop the loop once the terminal event is processed;
+// failure envelopes (`response.failed`, `error`) already throw in
+// `parseResponse`, which terminates the loop through the harness's catch.
+const RESPONSES_TERMINAL_EVENTS = new Set([
+  "response.completed",
+  "response.incomplete",
+  "response.done",
+]);
+
+export function isResponsesStreamTerminal(sseData: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(sseData);
+  } catch {
+    // parseResponse re-parses the same payload and raises the protocol error;
+    // reporting "not terminal" here defers to that single throw site.
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null) return false;
+  const eventType = (parsed as Record<string, unknown>)["type"];
+  return typeof eventType === "string" && RESPONSES_TERMINAL_EVENTS.has(eventType);
+}
+
 export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAdapter {
   const indexer: CodexBlockIndexer = {
     nextIndex: 0,
@@ -411,5 +437,6 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
   return {
     buildRequest,
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
+    isStreamTerminal: isResponsesStreamTerminal,
   };
 }

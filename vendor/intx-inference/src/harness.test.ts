@@ -12,7 +12,8 @@ import {
   createDefaultDependencies,
   loadAdapterRegistry,
 } from "./providers";
-import type { AdapterFactory } from "./adapter";
+import { createAdapterRegistry, type AdapterFactory } from "./adapter";
+import { ProtocolMismatchError } from "./errors";
 import type {
   ConversationTurn,
   InferenceEvent,
@@ -668,5 +669,150 @@ describe("runInference — source-identity stamping", () => {
       provider: "anthropic",
       model: "claude-pre",
     });
+  });
+});
+
+describe("runInference — adapter-signalled stream termination", () => {
+  // A Responses-style protocol whose end-of-turn is a semantic event
+  // (`response.completed`), not `[DONE]` or a socket close. The adapter reports
+  // that event as terminal via `isStreamTerminal`; the harness must stop
+  // reading once it is processed rather than blocking on the next read.
+  const RESPONSES_SOURCE: InferenceSource = {
+    id: "test-responses:model",
+    provider: "test-responses",
+    baseURL: "https://example.test",
+    apiKey: "test",
+    model: "model",
+  };
+
+  const responsesAdapterFactory: AdapterFactory = (source) => ({
+    buildRequest: () => ({
+      url: "https://example.test/responses",
+      headers: {},
+      body: "{}",
+    }),
+    parseResponse: (sseData) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(sseData);
+      } catch (cause) {
+        throw new ProtocolMismatchError(
+          `test-responses: malformed JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+          sseData,
+        );
+      }
+      const event = parsed as Record<string, unknown>;
+      if (event["type"] === "response.output_text.delta") {
+        return [
+          {
+            type: "inference.text.delta",
+            seq: 0,
+            data: {
+              token: String(event["delta"]),
+              partial: { text: "" },
+              index: 0,
+            },
+          },
+        ];
+      }
+      if (event["type"] === "response.completed") {
+        return [
+          {
+            type: "inference.usage",
+            seq: 0,
+            data: {
+              usage: {
+                input: 3,
+                output: 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+                thinking: 0,
+              },
+              source,
+            },
+          },
+        ];
+      }
+      return [];
+    },
+    isStreamTerminal: (sseData) => {
+      try {
+        return (
+          (JSON.parse(sseData) as Record<string, unknown>)["type"] ===
+          "response.completed"
+        );
+      } catch {
+        return false;
+      }
+    },
+  });
+
+  function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    let i = 0;
+    return new ReadableStream({
+      pull(controller) {
+        const chunk = chunks[i];
+        if (chunk === undefined) {
+          controller.close();
+          return;
+        }
+        i += 1;
+        controller.enqueue(encoder.encode(chunk));
+      },
+    });
+  }
+
+  test("stops reading after the terminal event and does not consume later chunks", async () => {
+    // A poison chunk of malformed JSON sits AFTER `response.completed`. If the
+    // harness kept reading past the terminal event it would parse the poison
+    // and surface an `inference.error`; breaking on the terminal event means it
+    // is never read, so the turn finishes clean. This is the regression guard
+    // for the freeze: on the real Codex backend the post-completion chunk is an
+    // open connection rather than poison, but the read discipline is identical.
+    const deps: Dependencies = {
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            sseStream([
+              `data: {"type":"response.output_text.delta","delta":"hi"}\n\n`,
+              `data: {"type":"response.completed","response":{}}\n\n`,
+              `data: {not valid json\n\n`,
+            ]),
+            {
+              status: 200,
+              headers: { "content-type": "text/event-stream" },
+            },
+          ),
+        ),
+      scheduler: createDefaultScheduler(),
+      adapters: createAdapterRegistry({
+        "test-responses": responsesAdapterFactory,
+      }),
+    };
+
+    let seq = 0;
+    const events = await collect(
+      runInference({
+        turns: [userTurn("hello")],
+        source: RESPONSES_SOURCE,
+        nextSeq: () => ++seq,
+        deps,
+      }),
+    );
+
+    const errorEvent = events.find((e) => e.type === "inference.error");
+    expect(errorEvent).toBeUndefined();
+
+    const doneEvent = events.find((e) => e.type === "inference.done");
+    if (doneEvent === undefined) throw new Error("missing inference.done");
+
+    const textBlock = doneEvent.data.turn.content.find(
+      (b) => b.type === "text",
+    );
+    if (textBlock === undefined || textBlock.type !== "text") {
+      throw new Error("expected a text block in the finalized turn");
+    }
+    expect(textBlock.text).toBe("hi");
   });
 });
