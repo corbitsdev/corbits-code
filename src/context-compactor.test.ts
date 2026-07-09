@@ -22,6 +22,18 @@ function makeTurn(overrides: Partial<ConversationTurn> & { role: ConversationTur
   };
 }
 
+// Every text block across every turn, so assertions can check that content
+// survives compaction without depending on how turns are merged.
+function allText(turns: ConversationTurn[]): string {
+  return turns
+    .flatMap((t) => t.content.filter((b) => b.type === "text").map((b) => b.text))
+    .join("\n");
+}
+
+function hasConsecutiveSameRole(turns: ConversationTurn[]): boolean {
+  return turns.some((t, i) => i > 0 && turns[i - 1]!.role === t.role);
+}
+
 describe("createPruningCompactor", () => {
   test("returns turns unchanged when under the keep threshold", async () => {
     const compactor = createPruningCompactor({ keepRecentTurns: 5, summaryMaxChars: 500 });
@@ -47,16 +59,14 @@ describe("createPruningCompactor", () => {
 
     const result = await compactor.apply(turns, mockStrategyCtx);
 
-    // Should have 3 turns: the summary + 2 recent
-    expect(result.output.length).toBe(3);
-    expect(result.output[0]!.role).toBe("system");
-    expect(result.output[0]!.content[0]!.type).toBe("text");
-    expect((result.output[0]!.content[0]! as { text: string }).text).toContain("[Compacted prior context]");
-    // Recent turns preserved in full
-    expect(result.output[1]!.role).toBe("user");
-    expect((result.output[1]!.content[0]! as { text: string }).text).toBe("recent message");
-    expect(result.output[2]!.role).toBe("assistant");
-    expect((result.output[2]!.content[0]! as { text: string }).text).toBe("recent response");
+    // Summary leads as a user turn (survives every adapter).
+    expect(result.output[0]!.role).toBe("user");
+    expect(allText(result.output)).toContain("[Compacted prior context]");
+    // The initiating user message and the recent turn both survive.
+    expect(allText(result.output)).toContain("old message 1");
+    expect(allText(result.output)).toContain("recent response");
+    // Compaction never emits a non-alternating role sequence.
+    expect(hasConsecutiveSameRole(result.output)).toBe(false);
   });
 
   test("handles empty turn list", async () => {
@@ -68,7 +78,7 @@ describe("createPruningCompactor", () => {
   test("preserves tool_call and tool_result blocks in recent turns", async () => {
     const compactor = createPruningCompactor({ keepRecentTurns: 1, summaryMaxChars: 500 });
     const turns: ConversationTurn[] = [
-      makeTurn({ role: "user", content: [{ type: "text", text: "old" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "old" }] }),
       makeTurn({
         role: "assistant",
         content: [
@@ -86,6 +96,76 @@ describe("createPruningCompactor", () => {
     const toolCalls = recentTurn.content.filter((b) => b.type === "tool_call");
     expect(toolCalls.length).toBe(1);
     expect(toolCalls[0]!.name).toBe("read_file");
+  });
+});
+
+describe("createPruningCompactor — initiating task preservation", () => {
+  test("keeps the initiating task verbatim even when it is far outside the recent window", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 2, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const goal = "GOAL: migrate the auth module to opaque tokens";
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: goal }] }),
+    ];
+    for (let i = 0; i < 8; i++) {
+      turns.push(makeTurn({ role: "assistant", content: [{ type: "text", text: `step ${i}` }] }));
+    }
+    // A later user turn would win the single anchor slot on recency alone;
+    // the initiating task must still survive.
+    turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "also handle refresh" }] }));
+    turns.push(makeTurn({ role: "assistant", content: [{ type: "text", text: "recent reply" }] }));
+    turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }));
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+
+    const preservedVerbatim = result.output.some(
+      (t) => t.role === "user" && t.content.some((b) => b.type === "text" && b.text === goal),
+    );
+    expect(preservedVerbatim).toBe(true);
+  });
+
+  test("emits the compaction summary as a user turn, never system", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 1, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "b" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(result.output[0]!.role).toBe("user");
+    expect(result.output.every((t) => t.role !== "system")).toBe(true);
+  });
+
+  test("never emits consecutive same-role turns, even with adjacent user anchors", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 2, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "b" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "a follow-up ask" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "c" }] }),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(hasConsecutiveSameRole(result.output)).toBe(false);
+    expect(allText(result.output)).toContain("the initiating task");
+  });
+
+  test("keeps alternating roles when a tool_result user turn abuts a plain user turn", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 3, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "tool_call", id: "c1", name: "edit_file", arguments: { path: "src/a.ts" } }] }),
+      makeTurn({ role: "user", content: [{ type: "tool_result", callId: "c1", content: [{ type: "text", text: "edited" }] }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "reasoning that gets summarized" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "the recent ask" }] }),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    // The summarized assistant turn would leave the tool_result user turn next
+    // to the recent user turn; coalescing must still alternate.
+    expect(hasConsecutiveSameRole(result.output)).toBe(false);
+    // The tool_result stays paired with its tool_call.
+    const callTurnIdx = result.output.findIndex((t) => t.content.some((b) => b.type === "tool_call" && b.id === "c1"));
+    const resultTurn = result.output[callTurnIdx + 1];
+    expect(resultTurn?.content.some((b) => b.type === "tool_result" && b.callId === "c1")).toBe(true);
   });
 });
 
