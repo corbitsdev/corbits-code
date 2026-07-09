@@ -50,14 +50,19 @@ export function CodexLoginModal({
   onClose,
   autoLoginProfile,
 }: CodexLoginModalProps): ReactNode {
-  const autoIdx = autoLoginProfile !== undefined ? profiles.indexOf(autoLoginProfile) : -1;
-  const autoStart = autoLoginProfile !== undefined && autoIdx >= 0;
+  // Re-auth is driven by profile name, not list membership: a dead refresh
+  // token still has a profile on disk (and in the list), but a missing profile
+  // (never authorized / removed mid-session) must still be able to start the
+  // browser flow when the runtime names it in autoLoginProfile.
+  const autoProfile = autoLoginProfile;
+  const autoIdx = autoProfile !== undefined ? profiles.indexOf(autoProfile) : -1;
+  const autoStart = autoProfile !== undefined;
   const [step, setStep] = useState<Step>(autoStart ? "pending" : profiles.length > 0 ? "list" : "name");
   const [cursor, setCursor] = useState(autoIdx >= 0 ? autoIdx : 0);
   const [nameValue, setNameValue] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null);
-  const [pendingName, setPendingName] = useState<string>(autoStart ? autoLoginProfile : "");
+  const [pendingName, setPendingName] = useState<string>(autoProfile ?? "");
   const [resultMessage, setResultMessage] = useState<string>("");
   const [handle, setHandle] = useState<CodexLoginStart | null>(null);
 
@@ -92,9 +97,9 @@ export function CodexLoginModal({
   // re-firing on re-renders. State is pre-initialized to "pending" so the UI
   // is already in the right shape; this just attaches the async handle.
   const autoLoginFired = useRef(false);
-  if (!autoLoginFired.current && autoStart) {
+  if (!autoLoginFired.current && autoProfile !== undefined) {
     autoLoginFired.current = true;
-    void onStartLogin(autoLoginProfile).then(
+    void onStartLogin(autoProfile).then(
       (started) => {
         setHandle(started);
         setAuthorizeUrl(started.authorizeUrl);

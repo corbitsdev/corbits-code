@@ -456,6 +456,8 @@ export function App({
         },
       );
     } else if (codexName !== undefined) {
+      // Access token rejected by the provider (or refresh already dead): open
+      // the browser re-auth flow instead of leaving the user on a 401 banner.
       setAutoLoginProfile(codexName);
       setLoginModal("codex");
     } else {
@@ -568,6 +570,18 @@ export function App({
   };
 
 
+  // Open the OAuth re-login modal for a dead/missing profile instead of dumping
+  // the raw 401. The modal's autoLoginProfile path starts the browser flow
+  // immediately so the user does not have to dig through a profile list first.
+  const promptCodexRelogin = (name: string): void => {
+    setAutoLoginProfile(name);
+    setLoginModal("codex");
+  };
+  const promptXaiRelogin = (name: string): void => {
+    setAutoLoginProfile(name);
+    setLoginModal("xai");
+  };
+
   const switchToCodexProfile = (name: string): void => {
     void refreshCodexInstructions().catch(() => {});
     void Promise.all([getValidCodexToken(name), fetchCodexModels(name).catch(() => [])]).then(
@@ -588,10 +602,14 @@ export function App({
         });
       },
       (err: unknown) => {
+        // Refresh/token missing: drop the user into the browser re-auth flow
+        // rather than surfacing the provider's 401 JSON as a status line.
+        if (err instanceof CodexAuthError) {
+          promptCodexRelogin(name);
+          return;
+        }
         setCommandMessage(
-          err instanceof CodexAuthError
-            ? err.message
-            : `Could not use Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
+          `Could not use Codex profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
         );
       },
     );
@@ -620,10 +638,12 @@ export function App({
         refreshAuthState();
       },
       (err: unknown) => {
+        if (err instanceof XaiAuthError) {
+          promptXaiRelogin(name);
+          return;
+        }
         setCommandMessage(
-          err instanceof XaiAuthError
-            ? err.message
-            : `Could not use xAI profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
+          `Could not use xAI profile "${name}": ${err instanceof Error ? err.message : String(err)}`,
         );
       },
     );
@@ -990,6 +1010,22 @@ export function App({
     agent.send(inbound, { signal: controller.signal }).catch((err: unknown) => {
       // A user-initiated stop aborts the send; that is expected, not an error.
       if (controller.signal.aborted) return;
+      // Pre-send token refresh failed: park the run and open re-auth rather than
+      // dumping the raw 401 and leaving the spinner stuck on "running".
+      if (err instanceof CodexAuthError) {
+        state.requestStop();
+        gates.resetGates();
+        forceRender((n) => n + 1);
+        promptCodexRelogin(err.profile);
+        return;
+      }
+      if (err instanceof XaiAuthError) {
+        state.requestStop();
+        gates.resetGates();
+        forceRender((n) => n + 1);
+        promptXaiRelogin(err.profile);
+        return;
+      }
       onAgentError?.(err);
     });
   };

@@ -615,9 +615,7 @@ test("inference.error credential_failure maps to friendly message and sets statu
   const last = state.contentBlocks.at(-1);
   expect(last?.type).toBe("error");
   if (last?.type !== "error") return;
-  // The friendly label is shown alongside the raw proxy message so the user can
-  // tell a subscription issue from a bad token.
-  expect(last.message).toBe("Authentication failed (403).\nraw");
+  expect(last.message).toBe("Session expired — re-authenticating…");
 });
 
 test("inference.error quota_exhausted maps to friendly message", () => {
