@@ -117,12 +117,25 @@ function optionString(options: InferenceOptions, key: string): string | undefine
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function dedupeToolOutputs(items: ResponsesInputItem[]): ResponsesInputItem[] {
+  const seen = new Set<string>();
+  const deduped: ResponsesInputItem[] = [];
+  for (const item of items) {
+    if (item.type === "function_call_output") {
+      if (seen.has(item.call_id)) continue;
+      seen.add(item.call_id);
+    }
+    deduped.push(item);
+  }
+  return deduped;
+}
+
 function buildRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
 ): BuiltRequest {
-  const conversation = messages.flatMap(toResponsesItems);
+  const conversation = dedupeToolOutputs(messages.flatMap(toResponsesItems));
   const systemMessage: ResponsesInputItem | undefined =
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }
