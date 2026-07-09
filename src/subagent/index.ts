@@ -41,6 +41,7 @@ import { webToolsPlugin } from "../web/plugin.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { createPruningCompactor } from "../session/compactor.js";
+import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
@@ -289,12 +290,15 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
             : {}),
         })
       : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
+  const inferenceDeps = await createInferenceDependencies();
+  const subagentSource =
+    bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
   const agent = await createAgent(def, {
     sources: bundle.sources,
     defaultSource: bundle.defaultSource,
     storage,
     workdir,
-    deps: await createInferenceDependencies(),
+    deps: inferenceDeps,
     audit: noopAuditStore(),
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({
@@ -306,6 +310,11 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         keepRecentTurns: 6,
         summaryMaxChars: 2500,
         stripResultContent: true,
+        // A structured model summary keeps sub-agent context useful across a
+        // compaction; the deterministic stub remains the fallback on failure.
+        ...(subagentSource !== undefined
+          ? { summarize: createModelSummarizer({ getSource: () => subagentSource, deps: inferenceDeps }) }
+          : {}),
       }),
     },
   });
