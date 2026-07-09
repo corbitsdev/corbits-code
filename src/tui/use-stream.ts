@@ -768,7 +768,9 @@ export function createAgentStreamState(
         case "inference.error": {
           const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
           const friendly: Record<string, string> = {
-            credential_failure: "Authentication failed (403).",
+            // The App opens the OAuth re-login modal on this category; keep the
+            // transcript line short and free of raw 401 JSON from the provider.
+            credential_failure: "Session expired — re-authenticating…",
             quota_exhausted: "Quota exhausted — usage limit reached.",
             context_overflow: "Context window full — compaction could not keep up. Try /clear to start fresh.",
             retryable: "Request failed — will retry.",
@@ -782,13 +784,7 @@ export function createAgentStreamState(
           // over the category when it clearly describes a context overflow, so the
           // user gets the right guidance instead of a misleading "quota" error.
           const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
-          // For credential failures, show the raw proxy message (if any) alongside
-          // the friendly label so the user can see whether it's a subscription issue
-          // vs. a bad token.
-          const base = friendly[category] ?? err.message;
-          const msg = category === "credential_failure" && err.message && err.message !== base
-            ? `${base}\n${err.message}`
-            : base;
+          const msg = friendly[category] ?? err.message;
           pushBlock({ type: "error", message: msg });
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
             quotaError = { retryAfterMs: err.retryAfterMs, retryAt: Date.now() + err.retryAfterMs };
