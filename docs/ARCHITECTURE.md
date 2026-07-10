@@ -195,8 +195,9 @@ tool call
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
 - **Tool-output URI** (`tool-output-uri-plugin.ts`) — Normalizes mistaken `read_file` blob URIs to `tool-output:///id` (intercode-only; interchange stays unpatched).
 - **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls that would expose a sensitive file: path-keyed arguments (`read_file`, `write_file`, …) and `run_shell` command strings, which are tokenized so `cat .env` or `cat ~/.intercode/settings.json` are blocked the same as a direct read. Runs before the permission plugin, so the deny holds even under `--dangerously-skip-permissions`. Shell containment is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly).
-- **Authorization** (`authz-plugin.ts`) — Denies catastrophic shell command patterns by regex.
+- **Authorization** (`authz-plugin.ts`) — Denies catastrophic shell command patterns by regex, and hard-blocks open-ended shell searches (`find`, `rg`, `grep -r`) that OOM the host; those must go through the bounded `grep`/`search_files`/`list_dir` tools.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
+- **Shell Guard** (`shell-guard-plugin.ts`) — Intercode-only replacement for stock `run_shell` (interchange stays unpatched): 10s default timeout, 512KB output cap, process-group kill on timeout/oversize/abort. Also applies a 10s wall-clock budget to `grep`/`search_files`.
 - **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch. Per-path serialization (`file-mutation-lock.ts`) prevents parallel edits on one file from tripping verification.
 - **LSP hint** (`lsp-hint-plugin.ts`) — Appends a typescript-language-server install hint when the stock `lsp` tool reports no server for TS/JS paths.
 - **Re-read Block** (`re-read-block-plugin.ts`) — Consults the director's read tracking to block re-reading an already-read file.

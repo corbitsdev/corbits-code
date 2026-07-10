@@ -33,6 +33,10 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
+import {
+  advertiseShellGuardTimeout,
+  shellGuardPlugin,
+} from "../plugins/shell-guard-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
@@ -203,6 +207,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       toolOutputUriPlugin(),
       secretGuardPlugin(),
       authzPlugin(),
+      shellGuardPlugin(params.cwd),
       ripgrepPlugin(params.cwd),
       verifyPlugin(),
       webToolsPlugin(),
@@ -210,7 +215,11 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       createLSPPlugin({ cwd: params.cwd, minSeverity: 1 }),
     ],
   });
-  let tools = fromToolRunner(posixTools);
+  // Align advertised run_shell timeout with shell-guard's 10s default.
+  let tools = fromToolRunner(posixTools).map((tool) => ({
+    ...tool,
+    definition: advertiseShellGuardTimeout(tool.definition),
+  }));
 
   if (params.capabilities !== undefined) {
     tools = applyCapabilityFilter(tools, params.capabilities);

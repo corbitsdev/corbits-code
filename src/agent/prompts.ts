@@ -39,6 +39,8 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean } = {}): string
     "Harness facts:",
     "- Change files with write_file/edit_file; shell file-writes are blocked.",
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
+    "- run_shell defaults to a 10s timeout; pass timeout for builds, tests, and other long commands.",
+    "- Shell find, rg, and grep -r are blocked — they OOM the host. Use grep, search_files, and list_dir.",
     "- Dependency installs and gitignored/off-limits paths need operator approval.",
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools

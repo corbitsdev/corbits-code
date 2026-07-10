@@ -11,9 +11,12 @@ import type { ToolPlugin } from "@intx/tools-posix";
 // built-in posix tool otherwise, so behavior degrades gracefully on hosts
 // without ripgrep.
 
-const RG_TIMEOUT_MS = 20_000;
+const RG_TIMEOUT_MS = 10_000;
 const DEFAULT_GREP_MAX = 500;
 const DEFAULT_SEARCH_MAX = 1000;
+// Cap collected stdout so a runaway pattern cannot OOM the process before the
+// line-cap post-processing runs.
+const MAX_OUTPUT_BYTES = 512_000;
 
 type RgResult =
   | { kind: "output"; stdout: string }
@@ -23,7 +26,12 @@ type RgResult =
 
 function runRg(rgArgs: string[], cwd: string, signal: AbortSignal): Promise<RgResult> {
   return new Promise((resolve) => {
-    const child = spawn("rg", rgArgs, { cwd, signal });
+    const child = spawn("rg", rgArgs, {
+      cwd,
+      signal,
+      // Process-group leader so timeout kills any grandchildren.
+      detached: process.platform !== "win32",
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -33,13 +41,36 @@ function runRg(rgArgs: string[], cwd: string, signal: AbortSignal): Promise<RgRe
       resolve(result);
     };
 
+    const killTree = (): void => {
+      if (child.pid === undefined) return;
+      try {
+        if (process.platform === "win32") child.kill("SIGKILL");
+        else process.kill(-child.pid, "SIGKILL");
+      } catch {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already dead
+        }
+      }
+    };
+
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish({ kind: "error", message: `ripgrep timed out after ${RG_TIMEOUT_MS}ms` });
+      killTree();
+      finish({ kind: "error", message: `ripgrep timed out after ${RG_TIMEOUT_MS}ms — narrow path/glob` });
     }, RG_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk) => {
+      if (settled) return;
       stdout += String(chunk);
+      if (stdout.length > MAX_OUTPUT_BYTES) {
+        killTree();
+        clearTimeout(timer);
+        finish({
+          kind: "error",
+          message: `ripgrep output exceeded ${MAX_OUTPUT_BYTES} bytes — narrow path/glob or pattern`,
+        });
+      }
     });
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
@@ -52,6 +83,7 @@ function runRg(rgArgs: string[], cwd: string, signal: AbortSignal): Promise<RgRe
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (settled) return;
       if (code === 0) finish({ kind: "output", stdout });
       else if (code === 1) finish({ kind: "no-match" });
       else finish({ kind: "error", message: stderr.trim() || `ripgrep exited with code ${code}` });
@@ -62,7 +94,7 @@ function runRg(rgArgs: string[], cwd: string, signal: AbortSignal): Promise<RgRe
 function capLines(text: string, max: number): string {
   const lines = text.split("\n").filter((line) => line.length > 0);
   if (lines.length <= max) return lines.join("\n");
-  return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length} lines)`;
+  return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length}+ lines; narrow path/glob)`;
 }
 
 function str(value: unknown): string | undefined {
@@ -99,6 +131,8 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
         const rgArgs = ["--line-number", "--no-heading", "--color", "never"];
+        // Per-file match cap; total output is also byte- and line-capped below.
+        rgArgs.push("--max-count", String(maxResults));
         if (context > 0) rgArgs.push("-C", String(context));
         if (glob !== undefined) rgArgs.push("-g", glob);
         rgArgs.push("--regexp", pattern, target);
