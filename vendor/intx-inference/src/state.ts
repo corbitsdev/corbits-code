@@ -120,36 +120,31 @@ export function createStateManager(
   }
 
   function snapshot(): ReactorState {
-    // Every field is a lazy, memoized getter. High-frequency events (tool.done,
-    // inference.error) reach directors that never inspect `turns`, so paying an
-    // O(history) copy on every decision made per-event cost scale with session
-    // length. Deferring each field's copy to first access keeps read-only
-    // decisions O(fields they actually read) while preserving isolation: turns
-    // are deep-frozen at append, and every derived collection is a fresh copy.
+    // `turns` is a lazy, memoized getter: high-frequency events (tool.done,
+    // inference.error) reach directors that never inspect it, so paying an
+    // O(history) copy on every decision would make per-event cost scale with
+    // session length. Deferring to first access keeps those decisions cheap.
+    //
+    // The remaining collections are small, so they are copied eagerly here to
+    // stay true point-in-time snapshots: a mutation between snapshot() and a
+    // later read must not leak into the view. Only `turns` trades that guarantee
+    // for the perf win, and its elements are deep-frozen at append, so a
+    // deferred read still cannot observe a mutated turn.
     let turnsView: ConversationTurn[] | undefined;
-    let pendingView: PendingOperation[] | undefined;
-    let gatesView: ReactorState["activeGates"] | undefined;
-    let forksView: ReactorState["activeForks"] | undefined;
     return {
       sessionId,
       get turns() {
         return (turnsView ??= turns.slice());
       },
-      get pendingOperations() {
-        return (pendingView ??= Array.from(pendingOperations.values()).map(
-          (op) => ({ ...op }),
-        ));
-      },
-      get activeGates() {
-        return (gatesView ??= activeGatesSnapshot.map((g) => ({
-          gateId: g.gateId,
-          type: g.type,
-          timeoutAt: g.timeoutAt,
-        })));
-      },
-      get activeForks() {
-        return (forksView ??= activeForks.map((f) => ({ ...f })));
-      },
+      pendingOperations: Array.from(pendingOperations.values()).map((op) => ({
+        ...op,
+      })),
+      activeGates: activeGatesSnapshot.map((g) => ({
+        gateId: g.gateId,
+        type: g.type,
+        timeoutAt: g.timeoutAt,
+      })),
+      activeForks: activeForks.map((f) => ({ ...f })),
       tokenUsage: { ...tokenUsage },
       lastCycleUsage: lastCycleUsage !== null ? { ...lastCycleUsage } : null,
       lastCycleSource: lastCycleSource !== null ? { ...lastCycleSource } : null,
