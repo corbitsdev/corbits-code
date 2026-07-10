@@ -75,4 +75,31 @@ describe("renderDiff", () => {
     const text = lines.map((line) => line.map((seg) => seg.text).join("")).join("\n");
     expect(text).toContain("unchanged line");
   });
+
+  test("word-level LCS keeps shared tokens as context and paints only the delta", () => {
+    const lines = renderDiff(
+      "const foo = bar(x, y);",
+      "const foo = baz(x, y);",
+      80,
+    );
+    const delBody = lines[0]!.slice(1);
+    const addBody = lines[1]!.slice(1);
+    // Shared prefix tokens should not carry the add/remove colors.
+    const delChanged = delBody.filter((s) => s.color === color("diffRemoved")).map((s) => s.text).join("");
+    const addChanged = addBody.filter((s) => s.color === color("diffAdded")).map((s) => s.text).join("");
+    expect(delChanged).toContain("bar");
+    expect(addChanged).toContain("baz");
+    expect(delChanged).not.toContain("const");
+    expect(addChanged).not.toContain("const");
+    // Shared tokens keep the context color.
+    expect(delBody.some((s) => s.text.includes("const") && s.color === color("diffContext"))).toBe(true);
+  });
+
+  test("word-level LCS is not positional — reordered shared words stay context", () => {
+    // Positional compare would mark every token changed; LCS keeps "a" and "c".
+    const lines = renderDiff("a b c", "a x c", 40);
+    const delBody = lines[0]!.slice(1);
+    const changed = delBody.filter((s) => s.color === color("diffRemoved")).map((s) => s.text.trim()).filter(Boolean);
+    expect(changed).toEqual(["b"]);
+  });
 });

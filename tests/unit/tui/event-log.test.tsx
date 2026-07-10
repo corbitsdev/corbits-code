@@ -41,7 +41,9 @@ function renderLog(blocks: ContentBlockData[], overrides: Overrides = {}) {
         : b.type === "tool_result"
           ? { ...b, finishedAt: b.finishedAt ?? 1_000 }
           : b;
-    return { ...data, id: `fixture-${i}` } as ContentBlock;
+    // Preserve caller-supplied ids so expandedTools lookups match the fixtures.
+    const id = typeof (b as { id?: unknown }).id === "string" ? (b as { id: string }).id : `fixture-${i}`;
+    return { ...data, id } as ContentBlock;
   });
   const columns = overrides.columns ?? 200;
   const expandedTools = overrides.expandedTools ?? new Set<string>();
