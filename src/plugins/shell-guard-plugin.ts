@@ -7,8 +7,13 @@ import type { ToolDefinition } from "@intx/types/runtime";
 // enforces a short default timeout, an output-byte cap, and process-group kill
 // so open-ended walks cannot OOM the host.
 
-export const DEFAULT_SHELL_TIMEOUT_MS = 10_000;
+export const DEFAULT_SHELL_TIMEOUT_MS = 15_000;
+// Upper bound on a per-command timeout override, so the model cannot ask for an
+// effectively unbounded wait. Configurable via settings.
+export const MAX_SHELL_TIMEOUT_MS = 600_000;
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
+
+export type ShellTimeoutConfig = { defaultMs?: number; maxMs?: number };
 
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
@@ -17,6 +22,7 @@ export const MAX_SHELL_OUTPUT_BYTES = 512_000;
  */
 export function advertiseShellGuardTimeout(
   definition: ToolDefinition,
+  defaultMs: number = DEFAULT_SHELL_TIMEOUT_MS,
 ): ToolDefinition {
   if (definition.name !== "run_shell") return definition;
   const schema = definition.inputSchema;
@@ -37,7 +43,7 @@ export function advertiseShellGuardTimeout(
         ...properties,
         timeout: {
           ...(timeout as Record<string, unknown>),
-          description: `Timeout in milliseconds (default: ${DEFAULT_SHELL_TIMEOUT_MS})`,
+          description: `Timeout in milliseconds (default: ${defaultMs})`,
         },
       },
     },
@@ -76,7 +82,7 @@ function killProcessTree(child: ChildProcess): void {
 export async function runGuardedShell(
   args: RunShellArgs,
   signal: AbortSignal,
-): Promise<{ output: string; exitCode: number }> {
+): Promise<{ output: string; exitCode: number; timedOut: boolean }> {
   signal.throwIfAborted();
 
   const timeoutMs = args.timeout ?? DEFAULT_SHELL_TIMEOUT_MS;
@@ -132,9 +138,13 @@ export async function runGuardedShell(
 
     const timer = setTimeout(() => {
       killProcessTree(child);
-      settle(
-        new Error(`command timed out after ${timeoutMs}ms: ${args.command}`),
-      );
+      // A timeout is not a failure the agent should be denied output for: return
+      // whatever the command produced before the kill, plus the timed-out notice
+      // the caller appends from `timedOut`.
+      if (settled) return;
+      settled = true;
+      abortCleanup();
+      resolve({ output: chunks.join(""), exitCode: 124, timedOut: true });
     }, timeoutMs);
 
     const onAbort = () => {
@@ -162,7 +172,7 @@ export async function runGuardedShell(
 
       const output = chunks.join("");
       const exitCode = code ?? (sig !== null ? 128 : 1);
-      resolve({ output, exitCode });
+      resolve({ output, exitCode, timedOut: false });
     });
   });
 }
@@ -208,7 +218,12 @@ function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
  * 10s wall-clock budget to grep/search_files when the agent does not abort
  * earlier. Does not modify interchange — short-circuits before the base tool.
  */
-export function shellGuardPlugin(cwd: string): ToolPlugin {
+export function shellGuardPlugin(
+  cwd: string,
+  timeoutConfig?: ShellTimeoutConfig,
+): ToolPlugin {
+  const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
+  const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
@@ -220,18 +235,18 @@ export function shellGuardPlugin(cwd: string): ToolPlugin {
             isError: true,
           };
         }
-        const timeout = optionalNumber(call.arguments.timeout);
+        const requested = optionalNumber(call.arguments.timeout);
+        const effectiveTimeout = Math.min(requested ?? defaultMs, maxMs);
         try {
-          const { output, exitCode } = await runGuardedShell(
-            {
-              command,
-              cwd,
-              ...(timeout !== undefined ? { timeout } : {}),
-            },
+          const { output, exitCode, timedOut } = await runGuardedShell(
+            { command, cwd, timeout: effectiveTimeout },
             signal,
           );
-          const content =
+          const base =
             exitCode === 0 ? output : `exit code ${exitCode}\n${output}`;
+          const content = timedOut
+            ? `${base}${base.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`
+            : base;
           return { callId: call.id, content };
         } catch (err) {
           return {
