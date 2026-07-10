@@ -6,7 +6,7 @@ import {
   isCodexProviderName,
 } from "../../src/config/codex-providers.js";
 import { providerCatalogToSettings, type ProviderCatalogEntry } from "../../src/config/index.js";
-import { CODEX_BASE_URL } from "../../src/auth/codex/constants.js";
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../../src/auth/codex/constants.js";
 import type { CodexProfile } from "../../src/auth/codex/store.js";
 
 describe("codex provider naming", () => {
@@ -16,6 +16,15 @@ describe("codex provider naming", () => {
     expect(isCodexProviderName("openai")).toBe(false);
     expect(codexProfileFromProviderName("codex/work")).toBe("work");
     expect(codexProfileFromProviderName("openai")).toBeUndefined();
+  });
+});
+
+describe("CODEX_DEFAULT_MODELS", () => {
+  test("includes the gpt-5.6 model family while keeping gpt-5.5 as the default", () => {
+    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-sol");
+    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-terra");
+    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-luna");
+    expect(CODEX_DEFAULT_MODELS[0]).toBe("gpt-5.5");
   });
 });
 
