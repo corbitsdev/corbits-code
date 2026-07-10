@@ -40,6 +40,8 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
   expect(facts).toContain("write_file/edit_file");
   expect(facts).toContain("blocked");
+  expect(facts).toContain("10s timeout");
+  expect(facts).toContain("find, rg, and grep -r");
   expect(facts).toContain("operator approval");
   expect(facts).toContain("tool_search");
   expect(facts).toContain("plugins or integrations");

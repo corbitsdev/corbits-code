@@ -20,6 +20,7 @@ import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
+import { shellGuardPlugin } from "../plugins/shell-guard-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -119,6 +120,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       secretGuardPlugin(),
       authzPlugin(),
       permissionPlugin(permissionGate),
+      // After authz/permission so blocked commands never spawn; short-circuits
+      // stock tools-posix run_shell without patching interchange.
+      shellGuardPlugin(cwd),
       ripgrepPlugin(cwd),
       verifyPlugin(),
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),

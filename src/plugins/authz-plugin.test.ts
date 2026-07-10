@@ -270,8 +270,10 @@ describe("authzPlugin", () => {
     "npm exec prettier -- --write .",
     "prettier --format check src",
     "git log --format=oneline",
-    "grep -r 'evaluate' src",
+    // Single-file grep is fine; recursive shell greps are blocked below.
+    "grep -n evaluate src/plugins/authz-plugin.ts",
     "python3 -c 'print(1)'",
+    "git log --oneline | head -20",
   ];
 
   for (const command of allowed) {
@@ -287,4 +289,36 @@ describe("authzPlugin", () => {
       expect(result.isError).not.toBe(true);
     });
   }
+
+  const openEndedSearches = [
+    "find . -name '*.ts'",
+    "find src -type f | head -40",
+    "find . | tail -40",
+    "rg timeout src",
+    "grep -r evaluate src",
+    "grep -rn pattern .",
+    "grep --recursive foo .",
+    "egrep -r foo src",
+  ];
+
+  for (const command of openEndedSearches) {
+    test(`blocks open-ended shell search: ${command}`, async () => {
+      const plugin = authzPlugin();
+      const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+      const result = await handler(makeShellCall(command), new AbortController().signal);
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/Open-ended shell search blocked/);
+    });
+  }
+
+  // Non-walk pipes are allowed; the shell output-byte cap is the OOM backstop.
+  test("allows git log | tail (not an open-ended tree walk)", async () => {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const result = await handler(
+      makeShellCall("git log --oneline | tail -20"),
+      new AbortController().signal,
+    );
+    expect(result.isError).not.toBe(true);
+  });
 });
