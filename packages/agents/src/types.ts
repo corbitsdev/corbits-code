@@ -3,8 +3,20 @@
 // Reasoning-effort levels carried through to the provider. The canonical
 // definition lives here so plugin authors and runtime stay in sync without
 // re-declaring the literal set. Mirrored as a runtime array by
-// src/provider/reasoning-effort.ts.
-export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+// src/provider/reasoning-effort.ts. Ordered from least to most effort; "ultra"
+// is not simply a bigger thinking budget than "max" — it additionally enables
+// automatic sub-task delegation, so code that treats effort as a scalar dial
+// may need to branch on it separately.
+export const REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+] as const;
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 

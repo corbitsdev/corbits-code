@@ -22,10 +22,15 @@ const EFFORT_DESCRIPTIONS: Partial<Record<ReasoningEffort, string>> = {
   medium: "Balances speed and reasoning depth for everyday tasks",
   high: "Greater reasoning depth for complex problems",
   xhigh: "Extra high reasoning depth for complex problems",
+  max: "Maximum reasoning depth for the hardest problems",
+  ultra: "Maximum reasoning with automatic task delegation",
 };
 
 const MODEL_DESCRIPTIONS: Record<string, string> = {
   "gpt-5.5": "Frontier model for complex coding, research, and real-world work",
+  "gpt-5.6-sol": "Latest frontier agentic coding model",
+  "gpt-5.6-terra": "Balanced agentic coding model for everyday work",
+  "gpt-5.6-luna": "Fast and affordable agentic coding model",
   "gpt-5.4": "Strong model for everyday coding",
   "gpt-5.4-mini": "Small, fast, and cost-efficient model for simpler coding tasks",
 };
