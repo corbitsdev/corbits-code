@@ -731,6 +731,7 @@ export function createReactor(config: ReactorConfig): Reactor {
 
     stateManager.replaceTurns(result.output);
     await contextStore.writeTurns(result.output);
+    lastWrittenTurnsRevision = stateManager.getTurnsRevision();
     await persistBlobs(result.blobs);
     manifestBuffer.push(result.record);
     cycleCompactorName = compactor.name;
@@ -790,7 +791,11 @@ export function createReactor(config: ReactorConfig): Reactor {
     const message = buildCycleMessage();
 
     try {
-      await contextStore.writeTurns(stateManager.getTurns());
+      const currentRevision = stateManager.getTurnsRevision();
+      if (currentRevision !== lastWrittenTurnsRevision) {
+        await contextStore.writeTurns(stateManager.getTurns());
+        lastWrittenTurnsRevision = currentRevision;
+      }
       await contextStore.writeManifest(manifestBuffer);
       await writeMetadata();
       const commit = await contextStore.commit({ message });
@@ -1090,6 +1095,12 @@ export function createReactor(config: ReactorConfig): Reactor {
   }
 
   let lastCheckpointHash: string | undefined;
+
+  // Turns revision most recently serialized to the context store. A checkpoint
+  // whose history has not changed since this revision skips writeTurns rather
+  // than re-serializing the entire (potentially large) conversation and its
+  // historical tool-output blobs.
+  let lastWrittenTurnsRevision = 0;
 
   async function initiateShutdown(): Promise<void> {
     if (shutdownStarted) return;
