@@ -72,6 +72,114 @@ const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
   ),
 ];
 
+// Commands that follow forever or page interactively never exit under the agent
+// (stdin is not a terminal and nothing consumes the pager), so they hang the run
+// until the shell timeout kills them. Deny them at any command position so a
+// piped pager (`… | less`) is caught as well as a bare one.
+const NEVER_TERMINATING_PATTERNS: RegExp[] = [
+  // `tail -f` / `-F` follow a file forever (flag alone or clustered).
+  new RegExp(
+    String.raw`${CMD}tail\b[^\n|;]*?\s-[A-Za-z]*[fF][A-Za-z]*\b`,
+  ),
+  cmd("watch"),
+  cmd("top"),
+  cmd("htop"),
+  cmd("less"),
+  cmd("more"),
+];
+
+// Programs that read standard input when given no file operand. Invoked with no
+// file (and not downstream of a pipe) they block on a terminal that never
+// arrives. `git log | tail` is fine (tail reads the pipe); `tail -n 50 file.log`
+// is fine (it has a file); a bare `tail`, `cat`, or `grep pattern` is not.
+const STDIN_READERS = new Set([
+  "cat",
+  "tac",
+  "nl",
+  "rev",
+  "head",
+  "tail",
+  "sort",
+  "uniq",
+  "wc",
+]);
+
+// Short flags that consume the following token as their value, so the value is
+// not mistaken for a file operand (e.g. the `50` in `tail -n 50`).
+const VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
+const GREP_VALUE_FLAGS = new Set([
+  "-e",
+  "-f",
+  "-m",
+  "-A",
+  "-B",
+  "-C",
+  "--regexp",
+  "--file",
+]);
+
+// The head of each pipeline (the stage before the first `|`) is the only stage
+// that reads the terminal's stdin; later stages read the pipe. Split on pipeline
+// separators, then take the first pipe stage of each.
+function pipelineHeads(command: string): string[] {
+  return command
+    .split(/\n|;|&&|\|\|/)
+    .map((pipeline) => pipeline.split(/(?<!\|)\|(?!\|)/)[0] ?? pipeline);
+}
+
+function tokenizeSegment(segment: string): string[] {
+  const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
+  let i = 0;
+  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  return tokens.slice(i);
+}
+
+// Count file operands, skipping flags and the values that value-taking flags
+// consume. For grep the first operand is the pattern, so callers require one
+// more operand than for the plain readers.
+function fileOperandCount(args: string[], valueFlags: Set<string>): number {
+  let count = 0;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") continue;
+    if (arg.startsWith("-")) {
+      if (valueFlags.has(arg)) i++;
+      continue;
+    }
+    count++;
+  }
+  return count;
+}
+
+function readsStdinWithoutInput(head: string): boolean {
+  const tokens = tokenizeSegment(head);
+  const exec = tokens[0];
+  if (exec === undefined) return false;
+  const args = tokens.slice(1);
+  if (exec === "grep" || exec === "egrep" || exec === "fgrep") {
+    // grep reads stdin unless given a file in addition to the pattern; a `-e`
+    // or `-f` flag supplies the pattern, so then a single operand is the file.
+    const suppliesPatternViaFlag = args.some(
+      (a) => a === "-e" || a === "-f" || a === "--regexp" || a === "--file",
+    );
+    const operands = fileOperandCount(args, GREP_VALUE_FLAGS);
+    return suppliesPatternViaFlag ? operands < 1 : operands < 2;
+  }
+  if (STDIN_READERS.has(exec)) {
+    return fileOperandCount(args, VALUE_FLAGS) < 1;
+  }
+  return false;
+}
+
+function isNeverTerminating(command: string): boolean {
+  return NEVER_TERMINATING_PATTERNS.some((pattern) => pattern.test(command));
+}
+
+function blocksOnStdin(command: string): boolean {
+  return pipelineHeads(command).some(readsStdinWithoutInput);
+}
+
 // Transparent exec wrappers that pass their argument straight through to another
 // program: `command find`, `env find`, `builtin cd`. Unlike `sudo`/`exec`, these
 // are not themselves blocked, so stripping them at command position exposes the
@@ -146,6 +254,20 @@ function blockReason(command: string): string | undefined {
     return (
       `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
       `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +
+      `Command: ${command}`
+    );
+  }
+  if (isNeverTerminating(normalized)) {
+    return (
+      `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
+      `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
+      `alternative (e.g. tail -n 50 file). Command: ${command}`
+    );
+  }
+  if (blocksOnStdin(normalized)) {
+    return (
+      `Command reads standard input with no file operand and would hang, since stdin is ` +
+      `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +
       `Command: ${command}`
     );
   }
