@@ -17,6 +17,21 @@ test("rejects control characters in the URL and returns bare label", () => {
   expect(isSafeOsc8Url("")).toBe(false);
 });
 
+test("rejects schemes outside the allowlist", () => {
+  expect(isSafeOsc8Url("https://ok.com/path")).toBe(true);
+  expect(isSafeOsc8Url("http://ok.com")).toBe(true);
+  expect(isSafeOsc8Url("mailto:a@b.c")).toBe(true);
+  expect(isSafeOsc8Url("file:///tmp/x")).toBe(true);
+  expect(isSafeOsc8Url("./rel")).toBe(true);
+  expect(isSafeOsc8Url("/abs")).toBe(true);
+  expect(isSafeOsc8Url("#frag")).toBe(true);
+  expect(isSafeOsc8Url("ftp://evil")).toBe(false);
+  expect(isSafeOsc8Url("data://text/html,hi")).toBe(false);
+  expect(isSafeOsc8Url("javascript://comment")).toBe(false);
+  expect(isSafeOsc8Url("vbscript://x")).toBe(false);
+  expect(isSafeOsc8Url("git://host/repo")).toBe(false);
+});
+
 test("strips controls from the visible label", () => {
   const out = osc8Hyperlink("https://example.com", "hi\x1b[0m");
   expect(out).not.toContain("\x1b[0m");
