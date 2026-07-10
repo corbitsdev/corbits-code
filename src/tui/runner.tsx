@@ -438,6 +438,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     subAgent: {
       provider: () => liveSubAgentProvider.current,
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
+      // Progress only — not the full event stream. Forwarding every sub-agent
+      // inference.delta into the parent transcript interleaves worker text with
+      // the parent turn; progress keeps the status bar alive and the Agents
+      // strip current without that pollution.
+      onProgress: (info) => {
+        emitter.emit("subagent.progress", info);
+      },
       ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
       catalog: () => config.providers,
       profiles: () => liveAgentProfiles,

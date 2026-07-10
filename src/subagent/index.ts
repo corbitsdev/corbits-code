@@ -55,6 +55,8 @@ import type { Settings, ProviderTier } from "../config/settings.js";
 import { resolveTier, resolveInferenceWithPolicy } from "../config/settings.js";
 import { validateEffort } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
+import { createSearchAgentsTool } from "../agent/agent-search.js";
+import type { ReactorEmittedEvent } from "@intx/inference";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
@@ -162,6 +164,21 @@ export function buildSubAgentPrimarySource(
   return { sources: [primarySource], defaultSource: primarySource.id };
 }
 
+// Dependencies an orchestrator sub-agent needs to spawn further workers via
+// `task`. Nested dispatch always sets allowOrchestrator: false so the
+// recursion bottoms out at one hop of orchestration.
+export type NestedDispatchDeps = {
+  getWorkdirBase: () => string;
+  provider: SubAgentProvider | (() => SubAgentProvider);
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  // Fired on each tool_call.end so the parent can surface live activity without
+  // replaying the full sub-agent event stream into the chat transcript.
+  onProgress?: (info: { description: string; toolName: string }) => void;
+  settings?: Settings | (() => Settings | undefined);
+  catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  profiles?: AgentProfile[] | (() => AgentProfile[]);
+};
+
 export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
@@ -173,13 +190,19 @@ export type RunSubAgentParams = {
   context?: string;
   prompt: string;
   signal?: AbortSignal;
-  onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  onProgress?: (info: { description: string; toolName: string }) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
   // When true, the assembled system prompt grants this sub-agent permission
   // to call `task` to spawn further agents (orchestrator exception to the
   // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.
+  // Requires nestedDispatch so the task tool can actually be installed —
+  // advertising permission without the tool is a hard break.
   orchestrator?: boolean;
+  // Present only when orchestrator is true. Installs task + search_agents so
+  // the orchestrator can actually dispatch workers.
+  nestedDispatch?: NestedDispatchDeps;
 };
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
@@ -188,6 +211,29 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
     return tools.filter((t) => !nameSet.has(t.definition.name));
   }
   return tools.filter((t) => nameSet.has(t.definition.name));
+}
+
+// Extract the tool name from a sub-agent stream event. tool.start carries the
+// call name at execution time; counting starts only (not ends) keeps the
+// activity summary at one entry per invocation.
+export function subAgentToolName(event: ReactorEmittedEvent): string | null {
+  if (event.type !== "tool.start") return null;
+  const call = (event as { data?: { call?: { name?: unknown } } }).data?.call;
+  if (typeof call?.name === "string" && call.name.length > 0) return call.name;
+  return null;
+}
+
+// Append a short activity footer so the parent model (and the operator reading
+// the tool result) can see what the sub-agent actually did. Without this the
+// only signal is the free-form reply, which models often omit tool details from.
+export function appendActivitySummary(reply: string, toolNames: readonly string[]): string {
+  if (toolNames.length === 0) return reply;
+  const counts = new Map<string, number>();
+  for (const name of toolNames) {
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].map(([name, n]) => (n > 1 ? `${name}×${n}` : name));
+  return `${reply}\n\n[tools: ${parts.join(", ")}]`;
 }
 
 // Spin up an isolated, autonomous agent loop against the same working tree,
@@ -223,6 +269,40 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   if (params.capabilities !== undefined) {
     tools = applyCapabilityFilter(tools, params.capabilities);
+  }
+
+  // Orchestrators need task + search_agents installed, not just mentioned in
+  // the prompt. Nested dispatch always forbids further orchestration so the
+  // tree bottoms out after one hop.
+  if (params.orchestrator === true) {
+    if (params.nestedDispatch === undefined) {
+      throw new Error(
+        "runSubAgent: orchestrator=true requires nestedDispatch so the task tool can be installed",
+      );
+    }
+    const nd = params.nestedDispatch;
+    tools = [
+      ...tools,
+      createTaskTool({
+        cwd: params.cwd,
+        getWorkdirBase: nd.getWorkdirBase,
+        provider: nd.provider,
+        allowOrchestrator: false,
+        ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
+        ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
+        ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
+        ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
+        ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
+      }),
+      ...(nd.profiles !== undefined
+        ? [
+            createSearchAgentsTool(() => {
+              const profiles = nd.profiles;
+              return typeof profiles === "function" ? profiles() : (profiles ?? []);
+            }),
+          ]
+        : []),
+    ];
   }
 
   const environment = await gatherEnvironment(params.cwd);
@@ -329,7 +409,18 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   });
   agentHandle = agent;
 
-  const streamSink = params.onEvent ?? (() => {});
+  // Collect tool activity for the parent-facing report, and optionally forward
+  // progress without dumping the full sub-agent event stream into the chat
+  // transcript (which would interleave sub-agent text with the parent turn).
+  const toolNamesUsed: string[] = [];
+  const streamSink = (event: ReactorEmittedEvent): void => {
+    const name = subAgentToolName(event);
+    if (name !== null) {
+      toolNamesUsed.push(name);
+      params.onProgress?.({ description: params.description, toolName: name });
+    }
+    params.onEvent?.(event);
+  };
   const streamPromise = consumeStream(agent.stream(), streamSink);
 
   try {
@@ -338,9 +429,11 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       : `${params.description}\n\n${params.prompt}`;
     const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
     const result = await agent.send(fullPrompt, sendOpts);
-    return result.reply.trim().length > 0
-      ? result.reply.trim()
-      : "Sub-agent finished without a textual result.";
+    const reply =
+      result.reply.trim().length > 0
+        ? result.reply.trim()
+        : "Sub-agent finished without a textual result.";
+    return appendActivitySummary(reply, toolNamesUsed);
   } finally {
     try {
       await agent.close();
@@ -411,10 +504,14 @@ export type TaskToolDeps = {
   provider: SubAgentProvider | (() => SubAgentProvider);
   // Injectable for tests; defaults to the real runSubAgent.
   run?: (params: RunSubAgentParams) => Promise<string>;
-  onEvent?: (event: import("@intx/inference").ReactorEmittedEvent) => void;
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  onProgress?: (info: { description: string; toolName: string }) => void;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   profiles?: AgentProfile[] | (() => AgentProfile[]);
+  // When false, profile.orchestrator is ignored so nested workers cannot
+  // themselves become orchestrators. Defaults to true for the primary session.
+  allowOrchestrator?: boolean;
 };
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
@@ -444,86 +541,111 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
 
-      if (agentId !== undefined && agentId.length > 0 && profiles !== undefined) {
+      if (agentId !== undefined && agentId.length > 0) {
+        // Fail closed: an explicit agent= that cannot be resolved is an error,
+        // not a silent fall-through to a generic worker. Silent fall-through
+        // made typos and stale ids look like successful generic dispatches.
+        if (profiles === undefined) {
+          return `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`;
+        }
         const profile = profiles.find((p) => p.id === agentId);
-        if (profile !== undefined) {
-          if (profile.capabilities !== undefined) {
-            capabilities = profile.capabilities;
+        if (profile === undefined) {
+          const known = profiles.map((p) => p.id).sort();
+          const hint =
+            known.length > 0
+              ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more.`
+              : " No profiles are currently loaded. Call search_agents to discover available agents.";
+          return `Error: unknown agent profile "${agentId}".${hint}`;
+        }
+        if (profile.capabilities !== undefined) {
+          capabilities = profile.capabilities;
+        }
+        if (profile.systemPromptRole !== undefined) {
+          systemPromptRole = profile.systemPromptRole;
+        }
+        // Nested workers (allowOrchestrator: false) cannot re-enter orchestration
+        // even if their profile is marked orchestrator — recursion bottoms out.
+        if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
+          orchestrator = true;
+        }
+        if (settings !== undefined) {
+          // Per-agent pinned inference (provider/model/effort) wins over the
+          // tier alias when both are declared. Resolution uses policy
+          // (mode: pin / agentModelFallback: none) so a forbidden fallback
+          // surfaces as a dispatch error rather than silently running on the
+          // parent's provider.
+          let resolved:
+            | { provider: string; model: string; reasoningEffort?: import("../provider/reasoning-effort.js").ReasoningEffort }
+            | null = null;
+          if (profile.inference !== undefined) {
+            const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+            if (outcome.kind === "unavailable") {
+              return `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`;
+            }
+            if (outcome.kind === "resolved") resolved = outcome.value;
           }
-          if (profile.systemPromptRole !== undefined) {
-            systemPromptRole = profile.systemPromptRole;
+          if (resolved === null && profile.tier !== undefined) {
+            const assignment = resolveTier(profile.tier as ProviderTier, settings);
+            if (assignment !== null) {
+              resolved = assignment;
+            }
           }
-          if (profile.orchestrator === true) {
-            orchestrator = true;
+          if (resolved !== null) {
+            // Validate model/effort compatibility before dispatch so the
+            // agent fails fast with a clear message instead of sending a
+            // request the provider will reject mid-task. Mirrors the main
+            // session bootstrap in src/config/index.ts.
+            if (resolved.reasoningEffort !== undefined) {
+              const verdict = validateEffort(
+                resolved.model,
+                resolved.reasoningEffort,
+                isCodexProviderName(resolved.provider),
+              );
+              if (!verdict.ok) {
+                return `Error: agent "${agentId}" has incompatible inference: ${verdict.error}`;
+              }
+            }
+            const providerSettings = settings.providers[resolved.provider];
+            if (providerSettings !== undefined) {
+              // An inference leg or tier assignment that doesn't carry its
+              // own reasoningEffort still inherits the parent session's
+              // effort — keeps "/agent" effort propagation uniform across
+              // pinned-resolution and fall-through-to-active paths.
+              const effort =
+                resolved.reasoningEffort ?? provider.reasoningEffort;
+              provider = {
+                providerName: resolved.provider,
+                baseURL: providerSettings.baseURL,
+                ...(providerSettings.keyless === true ? { keyless: true } : {}),
+                ...(providerSettings.bifrostVirtualKey === true
+                  ? { bifrostVirtualKey: true }
+                  : {}),
+                ...(providerSettings.apiKey !== undefined
+                  ? { apiKey: providerSettings.apiKey }
+                  : {}),
+                model: resolved.model,
+                ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+              };
+            }
           }
-          if (settings !== undefined) {
-            // Per-agent pinned inference (provider/model/effort) wins over the
-            // tier alias when both are declared. Resolution uses policy
-            // (mode: pin / agentModelFallback: none) so a forbidden fallback
-            // surfaces as a dispatch error rather than silently running on the
-            // parent's provider.
-            let resolved:
-              | { provider: string; model: string; reasoningEffort?: import("../provider/reasoning-effort.js").ReasoningEffort }
-              | null = null;
-            if (profile.inference !== undefined) {
-              const outcome = resolveInferenceWithPolicy(profile.inference, settings);
-              if (outcome.kind === "unavailable") {
-                return `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`;
-              }
-              if (outcome.kind === "resolved") resolved = outcome.value;
-            }
-            if (resolved === null && profile.tier !== undefined) {
-              const assignment = resolveTier(profile.tier as ProviderTier, settings);
-              if (assignment !== null) {
-                resolved = assignment;
-              }
-            }
-            if (resolved !== null) {
-              // Validate model/effort compatibility before dispatch so the
-              // agent fails fast with a clear message instead of sending a
-              // request the provider will reject mid-task. Mirrors the main
-              // session bootstrap in src/config/index.ts.
-              if (resolved.reasoningEffort !== undefined) {
-                const verdict = validateEffort(
-                  resolved.model,
-                  resolved.reasoningEffort,
-                  isCodexProviderName(resolved.provider),
-                );
-                if (!verdict.ok) {
-                  return `Error: agent "${agentId}" has incompatible inference: ${verdict.error}`;
-                }
-              }
-              const providerSettings = settings.providers[resolved.provider];
-              if (providerSettings !== undefined) {
-                // An inference leg or tier assignment that doesn't carry its
-                // own reasoningEffort still inherits the parent session's
-                // effort — keeps "/agent" effort propagation uniform across
-                // pinned-resolution and fall-through-to-active paths.
-                const effort =
-                  resolved.reasoningEffort ?? provider.reasoningEffort;
-                provider = {
-                  providerName: resolved.provider,
-                  baseURL: providerSettings.baseURL,
-                  ...(providerSettings.keyless === true ? { keyless: true } : {}),
-                  ...(providerSettings.bifrostVirtualKey === true
-                    ? { bifrostVirtualKey: true }
-                    : {}),
-                  ...(providerSettings.apiKey !== undefined
-                    ? { apiKey: providerSettings.apiKey }
-                    : {}),
-                  model: resolved.model,
-                  ...(effort !== undefined ? { reasoningEffort: effort } : {}),
-                };
-              }
-            }
-            if (profile.tier !== undefined) {
-              tier = profile.tier as ProviderTier;
-            }
+          if (profile.tier !== undefined) {
+            tier = profile.tier as ProviderTier;
           }
         }
       }
 
       try {
+        const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
+          ? {
+              getWorkdirBase: deps.getWorkdirBase,
+              provider: deps.provider,
+              ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+              ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+              ...(deps.settings !== undefined ? { settings: deps.settings } : {}),
+              ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
+              ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
+            }
+          : undefined;
         const params: RunSubAgentParams = {
           cwd: deps.cwd,
           workdirBase: deps.getWorkdirBase(),
@@ -536,9 +658,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           prompt,
           signal,
           ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+          ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
           ...(capabilities !== undefined ? { capabilities } : {}),
           ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
-          ...(orchestrator ? { orchestrator: true } : {}),
+          ...(orchestrator
+            ? { orchestrator: true, nestedDispatch: nestedDispatch! }
+            : {}),
         };
         const result = await run(params);
         return `Sub-agent "${description}" reported:\n\n${result}`;
