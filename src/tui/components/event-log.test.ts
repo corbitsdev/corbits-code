@@ -110,6 +110,71 @@ describe("collapsed shell rows", () => {
   });
 });
 
+describe("tool row backgrounds", () => {
+  // Status-tinted tool fills (PR #74 / CL-3116) painted every successful tool
+  // green and never padded to full width, so the transcript became green soup.
+  // Tool rows stay un-backed; only user banners and diff hunks keep fills.
+  function segmentBackgrounds(lines: ReturnType<typeof buildLines>): Array<string | undefined> {
+    return lines.flatMap((line) => line.map((seg) => seg.backgroundColor));
+  }
+
+  test("pending and completed tool rows have no status background", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "bg1",
+      callId: "bg1",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "src/foo.ts" }),
+      startedAt: 0,
+    };
+    const pending = segmentBackgrounds(buildLines([call], COLUMNS, false, isExpanded));
+    expect(pending.every((bg) => bg === undefined)).toBe(true);
+
+    const done = segmentBackgrounds(
+      buildLines(
+        [
+          call,
+          {
+            type: "tool_result",
+            id: "bg1-r",
+            callId: "bg1",
+            name: "read_file",
+            content: "export const x = 1;\n",
+            isError: false,
+            finishedAt: 100,
+          },
+        ],
+        COLUMNS,
+        false,
+        isExpanded,
+      ),
+    );
+    expect(done.every((bg) => bg === undefined)).toBe(true);
+  });
+
+  test("error tool results keep danger text without a background fill", () => {
+    const lines = buildLines(
+      [
+        {
+          type: "tool_result",
+          id: "err1",
+          callId: "err1",
+          name: "run_shell",
+          content: "permission denied",
+          isError: true,
+          finishedAt: 1,
+        },
+      ],
+      COLUMNS,
+      false,
+      isExpanded,
+    );
+    const segs = lines.flat();
+    expect(segs.every((seg) => seg.backgroundColor === undefined)).toBe(true);
+    expect(segs.some((seg) => seg.color !== undefined && seg.text.includes("error:"))).toBe(true);
+  });
+});
+
 describe("flat line buffer", () => {
   test("appending a block reuses the prior rendered tail", () => {
     const first: ContentBlock[] = [
