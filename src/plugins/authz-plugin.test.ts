@@ -334,4 +334,49 @@ describe("authzPlugin", () => {
     );
     expect(result.isError).not.toBe(true);
   });
+
+  async function evaluate(command: string): Promise<ToolResult> {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    return handler(makeShellCall(command), new AbortController().signal);
+  }
+
+  describe("never-terminating commands", () => {
+    for (const command of [
+      "tail -f server.log",
+      "tail -F server.log",
+      "watch -n1 ls",
+      "top",
+      "less README.md",
+      "more file.txt",
+      "cat access.log | less",
+    ]) {
+      test(`blocks ${command}`, async () => {
+        expect((await evaluate(command)).isError).toBe(true);
+      });
+    }
+  });
+
+  describe("stdin-blocking commands with no file operand", () => {
+    for (const command of ["cat", "tail", "tail -n 50", "head -c 20", "grep pattern", "sort", "wc -l"]) {
+      test(`blocks bare ${command}`, async () => {
+        expect((await evaluate(command)).isError).toBe(true);
+      });
+    }
+
+    for (const command of [
+      "tail -n 50 file.log",
+      "cat file.txt",
+      "grep pattern file.txt",
+      "grep -e pattern file.txt",
+      "head -c 20 data.bin",
+      "git log --oneline | tail -20",
+      "echo hi | cat",
+      "printf x | wc -l",
+    ]) {
+      test(`allows ${command}`, async () => {
+        expect((await evaluate(command)).isError).not.toBe(true);
+      });
+    }
+  });
 });
