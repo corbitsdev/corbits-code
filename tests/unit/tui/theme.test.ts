@@ -53,6 +53,10 @@ test("diff foregrounds alias the semantic status colors", () => {
 
 test("diff and tool-status backgrounds are distinct dark tints", () => {
   expect(palette.diffAddedBg.hex).not.toBe(palette.diffRemovedBg.hex);
+  // The tints must stay apart in the 256-color tier too; the nearest-match
+  // fallback for both hexes is the same neutral gray, which would erase the
+  // added/removed distinction on non-truecolor terminals.
+  expect(palette.diffAddedBg.ansi256).not.toBe(palette.diffRemovedBg.ansi256);
   expect(palette.toolSuccessBg).toEqual(palette.diffAddedBg);
   expect(palette.toolErrorBg).toEqual(palette.diffRemovedBg);
   for (const role of ["diffAddedBg", "diffRemovedBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg", "userMessageBg"] as const) {
