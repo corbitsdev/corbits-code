@@ -1,4 +1,7 @@
-import hljs from "highlight.js";
+// The common-language build (~40 grammars) instead of the full ~190-grammar
+// bundle: it keeps startup and bundle size in check, and unknown languages
+// already fall back to plain code.
+import hljs from "highlight.js/lib/common";
 import type { StyledSegment } from "./markdown-parser.js";
 import { color, type SemanticRole } from "./theme.js";
 
