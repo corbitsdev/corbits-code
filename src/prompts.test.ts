@@ -49,7 +49,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain(".intercode/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
   expect(facts).toContain("10s timeout");
-  expect(facts).toContain("find, rg, grep -r");
+  expect(facts).toContain("find, rg, and grep -r");
   expect(facts).not.toContain("Tool results already render richly");
 });
 
@@ -171,9 +171,9 @@ test("buildAvailableTools lists exactly the tools it is given", () => {
 
 test("sub-agent prompt carries the report-back contract and harness facts", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("sub-agent dispatched by Intercode");
+  expect(prompt).toContain("short-lived child agent dispatched by Intercode");
   expect(prompt).toContain("Reporting back:");
-  expect(prompt).toContain("only thing returned");
+  expect(prompt).toContain("only thing returned to the parent");
   expect(prompt).toContain("Change files with write_file/edit_file");
 });
 
@@ -221,4 +221,14 @@ test("orchestrator sub-agent prompt grants the task-tool recursion exception", (
   // Must NOT contain the default no-recursion line — that would contradict
   // the permission grant in the same appendix.
   expect(prompt).not.toContain("Only the primary Intercode session (or an orchestrator profile) may call `task`");
+});
+
+test("sub-agent prompt requires structured report envelope and stick-to-brief", () => {
+  const prompt = buildSubAgentSystemPrompt();
+  expect(prompt).toContain("## Summary");
+  expect(prompt).toContain("## Findings");
+  expect(prompt).toContain("## Blockers");
+  expect(prompt).toContain("## Paths");
+  expect(prompt).toContain("Stick to the dispatch brief");
+  expect(prompt).toContain("manage_tasks checklist");
 });
