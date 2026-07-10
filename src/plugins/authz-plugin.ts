@@ -56,6 +56,44 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /(?:^|[\n;&|(])\s*init\s+[06]\b/,
 ];
 
+// Open-ended tree walks via the shell OOM the host: `find | tail` still forces
+// the full stream through the collector, and recursive grep/rg walks huge trees
+// before any pipe limit applies. Route those through the bounded tools instead.
+// (`git log | tail` and similar non-walk pipes are fine — the 512KB shell
+// output cap is the backstop for those.)
+const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
+  // `find` is almost always a full-tree walk.
+  cmd("find"),
+  // ripgrep via shell — the `grep` tool already routes through rg with caps.
+  cmd("rg"),
+  // Recursive grep/egrep/fgrep (flag form -r/-R/--recursive, alone or clustered).
+  new RegExp(
+    String.raw`${CMD}(?:grep|egrep|fgrep)\b[^\n|;]*?(?:\s-[A-Za-z0-9]*[rR][A-Za-z0-9]*\b|\s--recursive\b)`,
+  ),
+];
+
+// Transparent exec wrappers that pass their argument straight through to another
+// program: `command find`, `env find`, `builtin cd`. Unlike `sudo`/`exec`, these
+// are not themselves blocked, so stripping them at command position exposes the
+// real executable to the deny patterns. `env` may also carry NAME=value prefixes.
+const STRIP_WRAPPER = String.raw`(?:command|env|builtin)`;
+
+// At every command position, drop leading NAME=value assignments and transparent
+// wrappers, then strip an absolute directory path off the executable so
+// `/usr/bin/find`, `command find`, and `env FOO=bar find` all reduce to `find`
+// before the deny patterns run. Only the executable token is rewritten, so
+// redirect targets and later arguments are left intact.
+const NORMALIZE_COMMAND_POSITION = new RegExp(
+  String.raw`(^|[\n;&|(` +
+    "`" +
+    String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
+  "g",
+);
+
+function normalizeCommand(command: string): string {
+  return command.replace(NORMALIZE_COMMAND_POSITION, "$1");
+}
+
 const CHAIN = /[\n;]|&&|\|\||\|/;
 const ENV_ASSIGNMENT = /^\w+=/;
 const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
@@ -90,9 +128,28 @@ function isCatastrophicRm(segment: string): boolean {
   return targets.length === 0 || targets.some(isDangerousTarget);
 }
 
-function isBlocked(command: string): boolean {
+function isDestructive(command: string): boolean {
   if (BLOCKED_PATTERNS.some((pattern) => pattern.test(command))) return true;
   return command.split(CHAIN).some(isCatastrophicRm);
+}
+
+function isOpenEndedSearch(command: string): boolean {
+  return OPEN_ENDED_SEARCH_PATTERNS.some((pattern) => pattern.test(command));
+}
+
+function blockReason(command: string): string | undefined {
+  const normalized = normalizeCommand(command);
+  if (isDestructive(normalized)) {
+    return `Destructive command blocked by policy: ${command}`;
+  }
+  if (isOpenEndedSearch(normalized)) {
+    return (
+      `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
+      `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +
+      `Command: ${command}`
+    );
+  }
+  return undefined;
 }
 
 export function authzPlugin(): ToolPlugin {
@@ -100,10 +157,11 @@ export function authzPlugin(): ToolPlugin {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
         const command = String(call.arguments.command ?? "");
-        if (isBlocked(command)) {
+        const reason = blockReason(command);
+        if (reason !== undefined) {
           return {
             callId: call.id,
-            content: `Destructive command blocked by policy: ${command}`,
+            content: reason,
             isError: true,
           };
         }
