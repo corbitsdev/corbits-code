@@ -46,9 +46,9 @@ export function diffLines(oldText: string, newText: string): DiffRow[] {
 const GUTTER: Record<DiffRowKind, string> = { add: "+ ", del: "- ", context: "  " };
 
 function rowColor(kind: DiffRowKind): string {
-  if (kind === "add") return color("success");
-  if (kind === "del") return color("danger");
-  return color("muted");
+  if (kind === "add") return color("diffAdded");
+  if (kind === "del") return color("diffRemoved");
+  return color("diffContext");
 }
 
 // Collapse long unchanged stretches to a few lines of context on each side of a
@@ -95,12 +95,11 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
   for (const row of rows) {
     const gutter = GUTTER[row.kind];
     const segColor = rowColor(row.kind);
-    const dim = row.kind === "context";
     const wrapped = row.text.length === 0 ? [""] : wrapLines(row.text, bodyWidth);
     wrapped.forEach((piece, idx) => {
       lines.push([
-        { text: idx === 0 ? gutter : "  ", color: segColor, dim },
-        { text: piece, color: segColor, dim },
+        { text: idx === 0 ? gutter : "  ", color: segColor },
+        { text: piece, color: segColor },
       ]);
     });
   }

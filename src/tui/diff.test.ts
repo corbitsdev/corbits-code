@@ -1,5 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { diffLines, diffStat, editDiffFromArgs, renderDiff } from "./diff.js";
+import { color } from "./theme.js";
+
+describe("renderDiff colors", () => {
+  test("rows resolve from the diff token family", () => {
+    const lines = renderDiff("a\nb", "a\nB", 40);
+    const rowColors = lines.map((line) => line[0]!.color);
+    expect(rowColors).toEqual([color("diffContext"), color("diffRemoved"), color("diffAdded")]);
+  });
+
+  test("context rows carry no dim attribute — the token owns the full appearance", () => {
+    const lines = renderDiff("a\nb", "a\nB", 40);
+    for (const line of lines) {
+      for (const segment of line) expect(segment).not.toHaveProperty("dim");
+    }
+  });
+});
 
 describe("diffLines", () => {
   test("marks added, removed, and context lines", () => {
