@@ -34,6 +34,23 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks.some((block) => block.type === "tool_call" && block.name === "manage_tasks")).toBe(false);
   });
 
+  test("hydrateHistory prepends resumed transcript ahead of live blocks", () => {
+    const state = createAgentStreamState();
+
+    // A block streamed into the fresh transcript before history lands.
+    state.addEvent(event("inference.text.delta", { token: "live" }));
+
+    state.hydrateHistory([
+      { type: "user", content: "first" },
+      { type: "text", content: "past reply" },
+    ]);
+
+    expect(state.contentBlocks.map((b) => b.type)).toEqual(["user", "text", "text"]);
+    expect(state.contentBlocks[0]).toMatchObject({ type: "user", content: "first" });
+    expect(state.contentBlocks[1]).toMatchObject({ type: "text", content: "past reply" });
+    expect(state.contentBlocks[2]).toMatchObject({ type: "text", content: "live" });
+  });
+
   test("streams text deltas into the active text block", () => {
     const state = createAgentStreamState();
 

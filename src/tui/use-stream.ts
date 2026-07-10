@@ -96,6 +96,7 @@ export type AgentStreamState = {
   // history; the UI surfaces this so the trim is never silent.
   trimmedBlockCount: number;
   addEvent(event: ReactorEmittedEvent): void;
+  hydrateHistory(blocks: ContentBlockData[]): void;
   addHookEvent(event: LifecycleHookEvent): void;
   // Live sub-agent tool activity from the runner's onProgress channel. Keeps
   // the stall clock and status bar current without replaying the sub-agent
@@ -506,6 +507,14 @@ export function createAgentStreamState(
       lastActivityAt = Date.now();
       contextTokens = 0;
       faremeter = makeFaremeter();
+    },
+    hydrateHistory(blocks: ContentBlockData[]): void {
+      // Resumed-session history lands after first paint. Prepend it so past
+      // turns sit ahead of anything already streamed into the fresh transcript.
+      for (let i = blocks.length - 1; i >= 0; i -= 1) {
+        const block = blocks[i];
+        if (block !== undefined) unshiftBlock(block);
+      }
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {
@@ -956,13 +965,20 @@ export function useAgentStream(
       setTick((t) => t + 1);
       bumpDisplayRevision();
     };
+    const hydrateHandler = (blocks: ContentBlockData[]) => {
+      state.hydrateHistory(blocks);
+      setTick((t) => t + 1);
+      bumpDisplayRevision();
+    };
     emitter.on("event", handler);
     emitter.on("hook", hookHandler);
     emitter.on("subagent.progress", progressHandler);
+    emitter.on("history.hydrate", hydrateHandler);
     return () => {
       emitter.off("event", handler);
       emitter.off("hook", hookHandler);
       emitter.off("subagent.progress", progressHandler);
+      emitter.off("history.hydrate", hydrateHandler);
     };
   }, [emitter, state]);
 
