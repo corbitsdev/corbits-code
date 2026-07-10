@@ -9,10 +9,34 @@ import { formatSessionLabel } from "./agents-strip.js";
 
 export type SubAgentSessionViewProps = {
   session: SubAgentSession;
-  // How many trailing lines of the transcript to show (viewport height).
+  // Total rows the view occupies; the transcript viewport is what remains after
+  // the header block.
   visibleRows: number;
   width: number;
+  // Top line of the transcript window (0 = top, maxOffset = pinned to newest).
+  scrollOffset: number;
 };
+
+// Rows the header block (title, label, status, margin) reserves above the
+// transcript viewport.
+export const SUBAGENT_VIEW_HEADER_ROWS = 3;
+
+export function subAgentTranscriptWidth(width: number): number {
+  return Math.max(20, width - 2);
+}
+
+// Resolve the transcript slice for a given scroll offset. Mirrors the event-log
+// window convention: offset is a clamped top-line index, maxOffset pins newest.
+export function subAgentScrollWindow(
+  lineCount: number,
+  visibleRows: number,
+  scrollOffset: number,
+): { start: number; viewport: number; maxOffset: number } {
+  const viewport = Math.max(1, visibleRows - SUBAGENT_VIEW_HEADER_ROWS);
+  const maxOffset = Math.max(0, lineCount - viewport);
+  const start = Math.min(Math.max(0, scrollOffset), maxOffset);
+  return { start, viewport, maxOffset };
+}
 
 // Read-only observe view for a child agent session. Parent reactor keeps running;
 // this is focus/chrome only — no message injection into the child.
@@ -20,10 +44,11 @@ export function SubAgentSessionView({
   session,
   visibleRows,
   width,
+  scrollOffset,
 }: SubAgentSessionViewProps): ReactNode {
-  const lines = renderTranscriptLines(session.entries, Math.max(20, width - 2));
-  const start = Math.max(0, lines.length - Math.max(1, visibleRows - 3));
-  const visible = lines.slice(start);
+  const lines = renderTranscriptLines(session.entries, subAgentTranscriptWidth(width));
+  const { start, viewport } = subAgentScrollWindow(lines.length, visibleRows, scrollOffset);
+  const visible = lines.slice(start, start + viewport);
 
   return (
     <Box flexDirection="column" width={width}>

@@ -45,7 +45,17 @@ function acquire(): Promise<void> {
   });
 }
 
-export async function withSubAgentSlot<T>(fn: () => Promise<T>): Promise<T> {
+export async function withSubAgentSlot<T>(
+  fn: () => Promise<T>,
+  opts: { reentrant?: boolean } = {},
+): Promise<T> {
+  // A reentrant run belongs to an orchestrator that already holds a slot; it
+  // runs under that slot rather than acquiring its own. Acquiring here would
+  // deadlock the bounded pool: with every slot held (worst at
+  // maxConcurrentSubAgents: 1, or whenever concurrent orchestrators fill the
+  // pool) the nested worker would wait for a slot only its still-running parent
+  // can release.
+  if (opts.reentrant === true) return fn();
   await acquire();
   try {
     return await fn();
