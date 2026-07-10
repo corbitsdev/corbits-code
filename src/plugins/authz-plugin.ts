@@ -72,6 +72,28 @@ const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
   ),
 ];
 
+// Transparent exec wrappers that pass their argument straight through to another
+// program: `command find`, `env find`, `builtin cd`. Unlike `sudo`/`exec`, these
+// are not themselves blocked, so stripping them at command position exposes the
+// real executable to the deny patterns. `env` may also carry NAME=value prefixes.
+const STRIP_WRAPPER = String.raw`(?:command|env|builtin)`;
+
+// At every command position, drop leading NAME=value assignments and transparent
+// wrappers, then strip an absolute directory path off the executable so
+// `/usr/bin/find`, `command find`, and `env FOO=bar find` all reduce to `find`
+// before the deny patterns run. Only the executable token is rewritten, so
+// redirect targets and later arguments are left intact.
+const NORMALIZE_COMMAND_POSITION = new RegExp(
+  String.raw`(^|[\n;&|(` +
+    "`" +
+    String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
+  "g",
+);
+
+function normalizeCommand(command: string): string {
+  return command.replace(NORMALIZE_COMMAND_POSITION, "$1");
+}
+
 const CHAIN = /[\n;]|&&|\|\||\|/;
 const ENV_ASSIGNMENT = /^\w+=/;
 const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
@@ -116,10 +138,11 @@ function isOpenEndedSearch(command: string): boolean {
 }
 
 function blockReason(command: string): string | undefined {
-  if (isDestructive(command)) {
+  const normalized = normalizeCommand(command);
+  if (isDestructive(normalized)) {
     return `Destructive command blocked by policy: ${command}`;
   }
-  if (isOpenEndedSearch(command)) {
+  if (isOpenEndedSearch(normalized)) {
     return (
       `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
       `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +

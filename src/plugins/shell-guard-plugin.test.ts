@@ -175,4 +175,22 @@ describe("shellGuardPlugin", () => {
     expect(sawAbort).toBe(true);
     expect(result.isError).toBe(true);
   });
+
+  test("returns promptly when the search tool ignores the budget", async () => {
+    // Reproduces the non-abortable fallback grep: next() never settles and never
+    // observes the abort. The guard must stop waiting once the budget fires
+    // instead of awaiting the walk forever.
+    const hangs = (): Promise<ToolResult> => new Promise<ToolResult>(() => {});
+    const plugin = shellGuardPlugin(process.cwd());
+    const controller = new AbortController();
+    const handler = plugin.middleware!(hangs);
+    const promise = handler(
+      { id: "c5", name: "grep", arguments: { pattern: "x" } },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 30);
+    const result = await promise;
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/aborted/);
+  });
 });
