@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { ProviderCatalogEntry } from "../../config/index.js";
+import { sumChromeZoneRows } from "../chrome-zones.js";
 
 export type GateContext = {
   pendingPermission: {
@@ -92,8 +93,9 @@ export type LayoutGeometry = {
   permissionsOverlayRows: number;
 };
 
-// Header (up to 2) + in-flight (1) + model bar (1) + prompt box (3) + status (1).
-export const CHROME_ROWS = 8;
+// Zone breakdown and per-zone budgets live in chrome-zones.ts so App layout and
+// the visible-row reservation cannot drift.
+export const CHROME_ROWS = sumChromeZoneRows();
 
 export type ComputeOverlayRowsArgs = {
   gateContext: GateContext;

@@ -29,9 +29,10 @@ test("computeVisibleRows: clamps to minimum of 1", () => {
   expect(computeVisibleRows({ rows: 10, chromeRows: 12, effectiveOverlayRows: 20, extraChromeRows: 5 })).toBe(1);
 });
 
-test("computeVisibleRows: CHROME_ROWS=8 reserves room for header second line", () => {
-  // 24 rows terminal - 8 chrome - 0 overlay - 0 extra = 16 visible rows
-  expect(computeVisibleRows({ rows: 24, chromeRows: 8, effectiveOverlayRows: 0, extraChromeRows: 0 })).toBe(16);
+test("computeVisibleRows: CHROME_ROWS reserves header, divider, progress, prompt, status", () => {
+  // sumChromeZoneRows() = 9: header(2)+divider(1)+progress(1)+modelBar(1)+prompt(3)+status(1)
+  // 24 rows terminal - 9 chrome - 0 overlay - 0 extra = 15 visible rows
+  expect(computeVisibleRows({ rows: 24, chromeRows: 9, effectiveOverlayRows: 0, extraChromeRows: 0 })).toBe(15);
 });
 
 test("wrappedLineCount: single line fits width", () => {
