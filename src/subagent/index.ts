@@ -56,6 +56,7 @@ import { resolveTier, resolveInferenceWithPolicy } from "../config/settings.js";
 import { validateEffort } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
+import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
@@ -189,6 +190,10 @@ export type RunSubAgentParams = {
   description: string;
   context?: string;
   prompt: string;
+  // Optional ordered goals the parent wants the worker to track. Surfaced in
+  // the dispatch brief as a suggested manage_tasks seed — the child's list is
+  // still its own; the parent does not share a checklist.
+  goals?: readonly string[];
   signal?: AbortSignal;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
@@ -236,6 +241,95 @@ export function appendActivitySummary(reply: string, toolNames: readonly string[
   return `${reply}\n\n[tools: ${parts.join(", ")}]`;
 }
 
+// Build the user message handed to a sub-agent. Separates durable context from
+// the actionable goal so workers follow the brief instead of treating one
+// free-form blob as optional color. Optional goals seed a checklist hint
+// (manage_tasks on the child owns the real list).
+export type DispatchBrief = {
+  description: string;
+  prompt: string;
+  context?: string;
+  goals?: readonly string[];
+};
+
+export function buildDispatchBrief(brief: DispatchBrief): string {
+  const parts: string[] = [
+    `# Dispatch brief: ${brief.description}`,
+    "",
+    "## Goal",
+    brief.prompt,
+  ];
+  if (brief.context !== undefined && brief.context.trim().length > 0) {
+    parts.push("", "## Context", brief.context.trim());
+  }
+  if (brief.goals !== undefined && brief.goals.length > 0) {
+    parts.push(
+      "",
+      "## Suggested checklist",
+      "Seed these into manage_tasks if the job is multi-step, then work them in order:",
+      ...brief.goals.map((g, i) => `${i + 1}. ${g}`),
+    );
+  }
+  parts.push(
+    "",
+    "## Report shape",
+    "When finished, reply with the ## Summary / ## Findings / ## Blockers / ## Paths envelope from your system prompt. Stay inside this brief.",
+  );
+  return parts.join("\n");
+}
+
+// Normalize a worker's final text into the structured report envelope. Missing
+// sections fall back so a partial or free-form reply still returns something
+// useful to the parent instead of a raw dump.
+export type SubAgentReport = {
+  summary: string;
+  findings: string;
+  blockers: string;
+  paths: string;
+};
+
+export function parseSubAgentReport(reply: string): SubAgentReport {
+  const text = reply.trim();
+  const sections: Record<string, string> = {};
+  const headingRe = /^##\s+(Summary|Findings|Blockers|Paths)\s*$/gim;
+  const matches = [...text.matchAll(headingRe)];
+  if (matches.length === 0) {
+    return {
+      summary: text.length > 0 ? text : "Sub-agent finished without a textual result.",
+      findings: "",
+      blockers: "",
+      paths: "",
+    };
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i]!;
+    const name = m[1]!.toLowerCase();
+    const start = (m.index ?? 0) + m[0].length;
+    const end = i + 1 < matches.length ? (matches[i + 1]!.index ?? text.length) : text.length;
+    sections[name] = text.slice(start, end).trim();
+  }
+  return {
+    summary: sections.summary ?? "",
+    findings: sections.findings ?? "",
+    blockers: sections.blockers ?? "",
+    paths: sections.paths ?? "",
+  };
+}
+
+export function formatSubAgentReport(report: SubAgentReport): string {
+  const lines: string[] = ["## Summary", report.summary.length > 0 ? report.summary : "(no summary)"];
+  if (report.findings.length > 0) {
+    lines.push("", "## Findings", report.findings);
+  }
+  if (report.blockers.length > 0) {
+    lines.push("", "## Blockers", report.blockers);
+  }
+  if (report.paths.length > 0) {
+    lines.push("", "## Paths", report.paths);
+  }
+  return lines.join("\n");
+}
+
 // Spin up an isolated, autonomous agent loop against the same working tree,
 // hand it one task, and return its final report. The sub-agent shares the
 // dispatcher's cwd so its edits land in the real repo, but gets its own posix
@@ -270,6 +364,23 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   if (params.capabilities !== undefined) {
     tools = applyCapabilityFilter(tools, params.capabilities);
   }
+
+  // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
+  // checklist. The handler is local to this loop; parent and child never share
+  // a list (the parent TUI tracks only the parent's manage_tasks calls).
+  tools = [
+    ...tools,
+    stringTool({
+      definition: manageTasksDefinition,
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        const parsed = parseManageTasksArgs(rawArgs);
+        if (parsed === null) {
+          return "Error: manage_tasks requires action ('create' or 'update').";
+        }
+        return "Tasks updated.";
+      },
+    }),
+  ];
 
   // Orchestrators need task + search_agents installed, not just mentioned in
   // the prompt. Nested dispatch always forbids further orchestration so the
@@ -424,16 +535,22 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const streamPromise = consumeStream(agent.stream(), streamSink);
 
   try {
-    const fullPrompt = params.context
-      ? `${params.description}\n\n## Context\n${params.context}\n\n## Task\n${params.prompt}`
-      : `${params.description}\n\n${params.prompt}`;
+    const fullPrompt = buildDispatchBrief({
+      description: params.description,
+      prompt: params.prompt,
+      ...(params.context !== undefined ? { context: params.context } : {}),
+      ...(params.goals !== undefined && params.goals.length > 0 ? { goals: params.goals } : {}),
+    });
     const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
     const result = await agent.send(fullPrompt, sendOpts);
     const reply =
       result.reply.trim().length > 0
         ? result.reply.trim()
         : "Sub-agent finished without a textual result.";
-    return appendActivitySummary(reply, toolNamesUsed);
+    // Normalize into the structured envelope so the parent always gets a
+    // consistent shape even when the model rambling-returns free-form prose.
+    const report = formatSubAgentReport(parseSubAgentReport(reply));
+    return appendActivitySummary(report, toolNamesUsed);
   } finally {
     try {
       await agent.close();
@@ -458,28 +575,35 @@ const TaskToolArgs = type({
   prompt: "string",
   "context?": "string",
   "agent?": "string",
+  "goals?": "string[]",
 });
 
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Delegate a self-contained sub-task to an autonomous sub-agent. The sub-agent has the full file, search, and shell toolset, runs without approval prompts, and returns a concise written result. Use it to parallelize exploration (\"map every caller of X\", \"summarize how module Y works\") or to hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in the description and prompt (for review: correctness/regressions, architecture/maintainability, tests/security/performance, UI/UX where relevant) so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree, so give it everything it needs in the prompt. Use the context field for durable background information (codebase structure, conventions, constraints) and the prompt field for the actionable goal, expected lens, and what to report back.",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, runs without approval prompts, and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal and what to report; goals = optional ordered checklist seeds for the child's own manage_tasks list.",
   inputSchema: {
     type: "object",
     properties: {
       description: {
         type: "string",
-        description: "A short label for the sub-task (a few words), shown in the activity log.",
+        description: "A short label for the sub-agent job (a few words), shown in the Agents strip.",
       },
       context: {
         type: "string",
         description:
-          "Optional: durable background information such as codebase structure, conventions, or constraints that provide context for the task.",
+          "Optional durable background (codebase structure, conventions, constraints). Separate from the actionable goal.",
       },
       prompt: {
         type: "string",
         description:
-          "The actionable goal and specific instructions for the sub-agent: what it needs to accomplish and what to report back.",
+          "The actionable goal: what the sub-agent must accomplish and what to put in its report.",
+      },
+      goals: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Optional ordered checklist seeds for the child's own manage_tasks list. Does not affect your manage_tasks list.",
       },
       agent: {
         type: "string",
@@ -523,10 +647,20 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       if (parsed instanceof type.errors) {
         return "Error: task requires description (string) and prompt (string).";
       }
-      const { description: rawDesc, context: rawCtx, prompt: rawPrompt, agent: agentId } = parsed;
+      const {
+        description: rawDesc,
+        context: rawCtx,
+        prompt: rawPrompt,
+        agent: agentId,
+        goals: rawGoals,
+      } = parsed;
       const description = rawDesc.trim();
       const context = rawCtx?.trim();
       const prompt = rawPrompt.trim();
+      const goals =
+        rawGoals
+          ?.map((g) => g.trim())
+          .filter((g) => g.length > 0) ?? [];
       if (description.length === 0 || prompt.length === 0) {
         return "Error: task requires a non-empty description and prompt.";
       }
@@ -656,6 +790,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           description,
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,
+          ...(goals.length > 0 ? { goals } : {}),
           signal,
           ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
           ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),

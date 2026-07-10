@@ -17,7 +17,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 ## Key Value Propositions
 
 1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
-2. **Task tracking** — The agent can maintain a `manage_tasks` list for multi-step work; headless `submit_output` is blocked while tasks remain open.
+2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; headless `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `task` tool / sub-agent surface.)
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
 5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.
@@ -99,6 +99,16 @@ Providers and models are configured in `~/.intercode/settings.json` (holds provi
 Capabilities beyond the core toolset are opt-in plugins, enabled per workspace through the `/plugins` UI — nothing is wired in until enabled.
 
 - **Web search and fetch** — `web_search`/`web_fetch` are provided by an optional web plugin (e.g. Exa). There is no built-in web access: with no web plugin enabled the tools are simply absent (so they are not advertised in the base prompt), and network egress lives in the external provider rather than the agent's own process.
+
+## Multi-agent (sub-agents)
+
+Intercode can fan work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
+
+- **Agents** are runtime entities (primary session or child).
+- **Tasks** are checklist items owned by one agent via `manage_tasks`.
+- **Sub-agents** are spawned with the `task` tool (wire name kept; meaning is "spawn a child agent," not "add a checklist item").
+
+Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip shows who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat.
 
 ## Roadmap (planned, not yet shipped)
 
