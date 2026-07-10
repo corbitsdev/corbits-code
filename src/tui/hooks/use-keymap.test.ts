@@ -30,6 +30,12 @@ const noopActions: KeymapActions = {
   copyModeCopyAll: () => undefined,
   copyModeCancel: () => undefined,
   cycleMode: () => undefined,
+  enterAgentsNav: () => undefined,
+  agentsNavNext: () => undefined,
+  agentsNavPrev: () => undefined,
+  agentsNavConfirm: () => undefined,
+  agentsNavCancel: () => undefined,
+  exitEnteredSession: () => undefined,
 };
 
 const baseContext: KeymapContext = {
@@ -44,6 +50,8 @@ const baseContext: KeymapContext = {
   isRunning: false,
   commandPaletteOpen: false,
   copyModeOpen: false,
+  agentsNavOpen: false,
+  enteredSession: false,
 };
 
 describe("handleKey quota cancel", () => {
@@ -84,5 +92,49 @@ describe("copy mode", () => {
     handleKey("a", key(), ctx, actions, 0, 0);
     handleKey("", key({ escape: true }), ctx, actions, 0, 0);
     expect(calls).toEqual(["next", "prev", "confirm", "all", "cancel"]);
+  });
+});
+
+describe("agents nav and enter-session", () => {
+  test("Ctrl+E opens agents navigation", () => {
+    let opened = false;
+    const actions: KeymapActions = {
+      ...noopActions,
+      enterAgentsNav: () => {
+        opened = true;
+      },
+    };
+    handleKey("e", key({ ctrl: true }), baseContext, actions, 0, 0);
+    expect(opened).toBe(true);
+  });
+
+  test("while agents nav is open, arrows and enter select a session", () => {
+    const calls: string[] = [];
+    const actions: KeymapActions = {
+      ...noopActions,
+      agentsNavNext: () => calls.push("next"),
+      agentsNavPrev: () => calls.push("prev"),
+      agentsNavConfirm: () => calls.push("confirm"),
+      agentsNavCancel: () => calls.push("cancel"),
+    };
+    const ctx: KeymapContext = { ...baseContext, agentsNavOpen: true };
+    handleKey("", key({ downArrow: true }), ctx, actions, 0, 0);
+    handleKey("", key({ upArrow: true }), ctx, actions, 0, 0);
+    handleKey("", key({ return: true }), ctx, actions, 0, 0);
+    handleKey("", key({ escape: true }), ctx, actions, 0, 0);
+    expect(calls).toEqual(["next", "prev", "confirm", "cancel"]);
+  });
+
+  test("while viewing a sub-agent, Esc returns to the parent", () => {
+    let exited = false;
+    const actions: KeymapActions = {
+      ...noopActions,
+      exitEnteredSession: () => {
+        exited = true;
+      },
+    };
+    const ctx: KeymapContext = { ...baseContext, enteredSession: true };
+    handleKey("", key({ escape: true }), ctx, actions, 0, 0);
+    expect(exited).toBe(true);
   });
 });
