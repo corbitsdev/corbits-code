@@ -515,6 +515,12 @@ export function createAgentStreamState(
         const block = blocks[i];
         if (block !== undefined) unshiftBlock(block);
       }
+      // The serial-pushBlock resume path trimmed to MAX_RETAINED_BLOCKS as it
+      // went; prepending bypasses that, so enforce the cap now. trimOldestBlocks
+      // splices from the front, dropping the oldest prepended history and keeping
+      // the most recent turns — matching the old invariant and avoiding a mass
+      // collapse on the user's first post-resume message.
+      trimOldestBlocks();
     },
     addEvent(event: ReactorEmittedEvent): void {
       switch (event.type) {

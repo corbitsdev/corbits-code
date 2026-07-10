@@ -51,6 +51,32 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks[2]).toMatchObject({ type: "text", content: "live" });
   });
 
+  test("hydrateHistory caps resumed history at the retention limit", () => {
+    const state = createAgentStreamState();
+
+    // Resume a transcript larger than the retained tail. The old serial-pushBlock
+    // path trimmed as it seeded; prepending must enforce the same 600-block cap
+    // immediately, not defer it to the first post-resume push.
+    const resumed = Array.from({ length: 2000 }, (_, i) => ({
+      type: "text" as const,
+      content: `turn ${i}`,
+    }));
+    state.hydrateHistory(resumed);
+
+    expect(state.contentBlocks.length).toBe(600);
+    expect(state.trimmedBlockCount).toBe(1400);
+    // The most recent turns survive; the oldest are dropped from the front.
+    expect(state.contentBlocks[0]).toMatchObject({ content: "turn 1400" });
+    expect(state.contentBlocks.at(-1)).toMatchObject({ content: "turn 1999" });
+
+    // A first post-resume message must not trigger a mass collapse: the cap was
+    // already enforced, so only the single incremental trim applies.
+    const trimmedBefore = state.trimmedBlockCount;
+    state.addEvent(event("message.received", { message: { content: "hello" } }));
+    expect(state.trimmedBlockCount).toBe(trimmedBefore + 1);
+    expect(state.contentBlocks.length).toBe(600);
+  });
+
   test("streams text deltas into the active text block", () => {
     const state = createAgentStreamState();
 
