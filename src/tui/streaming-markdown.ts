@@ -16,7 +16,10 @@ type ScanState = {
   boundary: number;
 };
 
-const FENCE_RE = /^\s*(```|~~~)/;
+// Matches parseMarkdown's fence detection so blank-line split points stay in
+// sync with fence parity: a boundary is only taken when no fenced block is open,
+// which keeps a code block (and its incremental highlighting) whole in the tail.
+const FENCE_RE = /^\s*(```+|~~~+)/;
 
 // Incremental renderer for the one block that is still streaming: the render
 // callback (a full markdown parse + wrap) is expensive and the transcript
