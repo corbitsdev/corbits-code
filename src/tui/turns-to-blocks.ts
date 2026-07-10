@@ -1,7 +1,11 @@
 import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@intx/types/runtime";
 
 import { validateView } from "./view/index.js";
-import type { ContentBlockData } from "./use-stream.js";
+import {
+  capStoredToolArguments,
+  capStoredToolResultContent,
+  type ContentBlockData,
+} from "./use-stream.js";
 
 function textFromBlocks(blocks: RuntimeContentBlock[]): string {
   const parts: string[] = [];
@@ -59,11 +63,13 @@ function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
         out.push({
           type: "tool_call",
           name: block.name,
-          arguments: typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments),
+          arguments: capStoredToolArguments(
+            typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments),
+          ),
         });
         break;
       case "tool_result": {
-        const content = stringifyToolContent(block.content);
+        const content = capStoredToolResultContent(stringifyToolContent(block.content));
         out.push({
           type: "tool_result",
           callId: block.callId,
