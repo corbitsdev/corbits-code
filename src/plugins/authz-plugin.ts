@@ -81,6 +81,11 @@ const NEVER_TERMINATING_PATTERNS: RegExp[] = [
   new RegExp(
     String.raw`${CMD}tail\b[^\n|;]*?\s-[A-Za-z]*[fF][A-Za-z]*\b`,
   ),
+  // GNU long form `--follow` / `--follow=name` never matches the clustered
+  // short-flag pattern above, so match it explicitly.
+  new RegExp(
+    String.raw`${CMD}tail\b[^\n|;]*?\s--follow\b`,
+  ),
   cmd("watch"),
   cmd("top"),
   cmd("htop"),
@@ -105,8 +110,11 @@ const STDIN_READERS = new Set([
 ]);
 
 // Short flags that consume the following token as their value, so the value is
-// not mistaken for a file operand (e.g. the `50` in `tail -n 50`).
-const VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
+// not mistaken for a file operand (e.g. the `50` in `tail -n 50`). These are
+// value-taking only for `head` and `tail`; for the other stdin readers the same
+// letters are boolean flags (e.g. `wc -c`, `uniq -c`, `sort -c`), so consuming a
+// following token there would wrongly drop a real file operand.
+const HEAD_TAIL_VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
 const GREP_VALUE_FLAGS = new Set([
   "-e",
   "-f",
@@ -119,12 +127,53 @@ const GREP_VALUE_FLAGS = new Set([
 ]);
 
 // The head of each pipeline (the stage before the first `|`) is the only stage
-// that reads the terminal's stdin; later stages read the pipe. Split on pipeline
-// separators, then take the first pipe stage of each.
+// that reads the terminal's stdin; later stages read the pipe. A naive regex
+// split breaks on separators that appear inside a quoted argument (e.g. the `|`
+// in `grep 'a|b' file`), truncating the command and dropping real operands. Walk
+// the command tracking quote state, break pipelines only on unquoted `;`,
+// newline, `&&`, `||`, and end each head at its first unquoted `|`.
 function pipelineHeads(command: string): string[] {
-  return command
-    .split(/\n|;|&&|\|\|/)
-    .map((pipeline) => pipeline.split(/(?<!\|)\|(?!\|)/)[0] ?? pipeline);
+  const heads: string[] = [];
+  let head = "";
+  let headClosed = false;
+  let quote: '"' | "'" | undefined;
+
+  const flush = () => {
+    heads.push(head);
+    head = "";
+    headClosed = false;
+  };
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (quote !== undefined) {
+      if (ch === quote) quote = undefined;
+      if (!headClosed) head += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      if (!headClosed) head += ch;
+      continue;
+    }
+    const next = command[i + 1];
+    if (ch === "\n" || ch === ";") {
+      flush();
+      continue;
+    }
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
+      flush();
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      headClosed = true;
+      continue;
+    }
+    if (!headClosed) head += ch;
+  }
+  flush();
+  return heads;
 }
 
 function tokenizeSegment(segment: string): string[] {
@@ -167,7 +216,9 @@ function readsStdinWithoutInput(head: string): boolean {
     return suppliesPatternViaFlag ? operands < 1 : operands < 2;
   }
   if (STDIN_READERS.has(exec)) {
-    return fileOperandCount(args, VALUE_FLAGS) < 1;
+    const valueFlags =
+      exec === "head" || exec === "tail" ? HEAD_TAIL_VALUE_FLAGS : new Set<string>();
+    return fileOperandCount(args, valueFlags) < 1;
   }
   return false;
 }

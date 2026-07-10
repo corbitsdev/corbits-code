@@ -345,6 +345,8 @@ describe("authzPlugin", () => {
     for (const command of [
       "tail -f server.log",
       "tail -F server.log",
+      "tail --follow file.log",
+      "tail --follow=name file.log",
       "watch -n1 ls",
       "top",
       "less README.md",
@@ -373,6 +375,14 @@ describe("authzPlugin", () => {
       "git log --oneline | tail -20",
       "echo hi | cat",
       "printf x | wc -l",
+      // `-c`/`-C` are boolean for these readers, so the file operand must survive.
+      "uniq -c file.txt",
+      "wc -c file.txt",
+      "sort -c file.txt",
+      // A separator inside a quoted grep pattern must not truncate the command.
+      "grep 'a|b' file.txt",
+      "grep '|' file.txt",
+      "grep 'a;b' file.txt",
     ]) {
       test(`allows ${command}`, async () => {
         expect((await evaluate(command)).isError).not.toBe(true);
