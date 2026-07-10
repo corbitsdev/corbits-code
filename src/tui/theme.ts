@@ -33,7 +33,8 @@ export type SemanticRole =
   | "diffHunkHeader"
   | "diffAddedBg"
   | "diffRemovedBg"
-  | "userMessageBg";
+  | "userMessageBg"
+  | "toolRunningBg";
 
 const breakthroughOrange: ColorValue = { hex: "#f5933a", ansi256: 173 };
 const summitBlue: ColorValue = { hex: "#7ea2c4", ansi256: 74 };
@@ -63,6 +64,10 @@ const emberShadow: ColorValue = { hex: "#3d2a28", ansi256: 52 };
 // Cool gray in an otherwise warm palette; kept deliberately so the user's own
 // words sit apart from everything the model produces.
 const coolGray: ColorValue = { hex: "#45454a", ansi256: 238 };
+// A cool dark-blue tint keyed to the "live" spinner color, so a tool that is
+// still running reads as active rather than stalled. Kept dim enough to sit
+// behind text without the "green soup" fills an over-saturated status bg makes.
+const tideShadow: ColorValue = { hex: "#24333f", ansi256: 236 };
 
 export const palette: Record<SemanticRole, ColorValue> = {
   brand: breakthroughOrange,
@@ -101,6 +106,7 @@ export const palette: Record<SemanticRole, ColorValue> = {
   diffAddedBg: pineShadow,
   diffRemovedBg: emberShadow,
   userMessageBg: coolGray,
+  toolRunningBg: tideShadow,
 };
 
 export function color(role: SemanticRole): string {
