@@ -44,6 +44,42 @@ test("every role exposes a six-digit hex value", () => {
   }
 });
 
+test("diff foregrounds alias the semantic status colors", () => {
+  expect(palette.diffAdded).toEqual(palette.success);
+  expect(palette.diffRemoved).toEqual(palette.danger);
+  expect(palette.diffContext).toEqual(palette.dim);
+  expect(palette.diffHunkHeader).toEqual(palette.accent);
+});
+
+test("diff and tool-status backgrounds are distinct dark tints", () => {
+  expect(palette.diffAddedBg.hex).not.toBe(palette.diffRemovedBg.hex);
+  expect(palette.toolSuccessBg).toEqual(palette.diffAddedBg);
+  expect(palette.toolErrorBg).toEqual(palette.diffRemovedBg);
+  for (const role of ["diffAddedBg", "diffRemovedBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg", "userMessageBg"] as const) {
+    // Backgrounds must stay dark enough that every foreground reads on top.
+    const channels = [1, 3, 5].map((i) => parseInt(color(role).slice(i, i + 2), 16));
+    for (const channel of channels) expect(channel).toBeLessThan(0x60);
+  }
+});
+
+test("markdown tokens reuse the prose brightness ladder", () => {
+  expect(palette.markdownHeading).toEqual(palette.emphasis);
+  expect(palette.markdownStrong).toEqual(palette.emphasis);
+  expect(palette.markdownLink).toEqual(palette.accent);
+  expect(palette.markdownBlockquote).toEqual(palette.muted);
+  expect(palette.markdownCode).toEqual(palette.brand);
+});
+
+test("syntax comments recede to the dim rung and strings match success green", () => {
+  expect(palette.syntaxComment).toEqual(palette.dim);
+  expect(palette.syntaxString).toEqual(palette.success);
+  expect(palette.syntaxVariable).toEqual(palette.text);
+});
+
+test("userMessageBg preserves the established user box gray", () => {
+  expect(color("userMessageBg")).toBe("#45454a");
+});
+
 test("supportsTrueColor detects truecolor terminals", () => {
   process.env.COLORTERM = "truecolor";
   expect(supportsTrueColor()).toBe(true);
