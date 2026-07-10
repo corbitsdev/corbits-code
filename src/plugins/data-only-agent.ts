@@ -8,6 +8,7 @@ import type {
   ReasoningEffort,
 } from "../agent/profiles.js";
 import { AgentProfileSchema } from "../agent/profiles.js";
+import { REASONING_EFFORTS } from "@intercode/default-agents";
 import { splitFrontmatter } from "./frontmatter.js";
 import { type } from "arktype";
 
@@ -56,15 +57,6 @@ function aliasTool(raw: string): string {
   if (lower.length === 0) return raw;
   return TOOL_ALIASES[lower] ?? raw;
 }
-
-const REASONING_EFFORTS: readonly ReasoningEffort[] = [
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
 
 function isReasoningEffort(v: unknown): v is ReasoningEffort {
   return typeof v === "string" && (REASONING_EFFORTS as readonly string[]).includes(v);

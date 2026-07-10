@@ -27,6 +27,11 @@ const FULL_EFFORT_MODELS: readonly string[] = ["gpt-5.1", "gpt-5.1-codex", "gpt-
 // Codex backend models take low/medium/high/xhigh — no `minimal`, no `none`.
 const CODEX_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 
+// The gpt-5.6 family additionally accepts `max` and `ultra`. Listed explicitly,
+// mirroring FULL_EFFORT_MODELS above, because older Codex models (gpt-5.5,
+// gpt-5.4, gpt-5.4-mini) are not known to support these levels.
+const MAX_EFFORT_CODEX_MODELS: readonly string[] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+
 // The safe subset offered for models we do not recognize. Conservative on
 // purpose: these are the levels the broadest range of reasoning models accept.
 const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"];
@@ -62,7 +67,7 @@ export function supportedEfforts(
     return [];
   }
   if (isCodex) {
-    return [...CODEX_EFFORTS];
+    return MAX_EFFORT_CODEX_MODELS.includes(model) ? [...CODEX_EFFORTS, "max", "ultra"] : [...CODEX_EFFORTS];
   }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];

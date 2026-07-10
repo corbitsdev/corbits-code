@@ -222,7 +222,7 @@ describe("validators", () => {
   });
 
   test("isLocalSettings rejects an invalid reasoningEffort", () => {
-    expect(isLocalSettings({ reasoningEffort: "ultra" })).toBe(false);
+    expect(isLocalSettings({ reasoningEffort: "legendary" })).toBe(false);
     expect(isLocalSettings({ reasoningEffort: 5 })).toBe(false);
   });
 });
@@ -395,7 +395,7 @@ describe("saveLocalSettings", () => {
     try {
       await mkdir(join(dir, ".intercode"), { recursive: true });
       const path = join(dir, ".intercode", "settings.json");
-      await writeFile(path, JSON.stringify({ model: "m", reasoningEffort: "ultra" }));
+      await writeFile(path, JSON.stringify({ model: "m", reasoningEffort: "legendary" }));
       await expect(loadLocalSettings(path)).rejects.toThrow(/reasoningEffort/);
     } finally {
       await rm(dir, { recursive: true, force: true });
