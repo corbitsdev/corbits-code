@@ -113,7 +113,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 - `submit_output` — Headless clean termination (and workflow step advancement when `step` is set). Gated on an empty or completed `manage_tasks` list.
 - `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
 
-Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, and **`search_agents`** when sub-agent profiles are available — see Sub-agents below.
+Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, **`task`** (spawn a sub-agent), and **`search_agents`** when sub-agent profiles are available — see Sub-agents below.
 
 ### Workflows (`src/workflows/`)
 
@@ -129,7 +129,19 @@ Invocation: workflows are **not** top-level slash commands. Recipe definitions l
 
 ### Sub-agents (`src/subagent/`, `src/agent/agent-search.ts`)
 
-The **`task`** tool dispatches a self-contained subtask to a child agent on a separate inference source (tier/profile resolved from settings). When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `task(agent=...)`.
+Three distinct concepts (do not conflate them):
+
+| Concept | What it is | Surface |
+|---|---|---|
+| **Agent** | A runtime entity with its own loop, tools, and context | Primary session or a spawned child |
+| **Task** | A checklist item owned by *one* agent via `manage_tasks` | Local work plan — not a spawn |
+| **Sub-agent** | A short-lived child agent for one self-contained job | Spawned with the **`task`** tool (wire name kept for compatibility) |
+
+The **`task`** tool **spawns a sub-agent** on a separate inference source (tier/profile resolved from settings). The dispatch brief separates durable `context`, actionable `prompt`, and optional `goals` (checklist seeds for the *child's* own `manage_tasks` list). The child returns a structured report (`Summary` / `Findings` / `Blockers` / `Paths`) plus a tools-used footer. Parent and child never share a `manage_tasks` list.
+
+When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `task(agent=...)`. `task` and `search_agents` are core tools on the primary session.
+
+Profiles with `orchestrator: true` may themselves call `task` (one hop only): nested dispatch installs `task` + `search_agents` with `allowOrchestrator: false` so the tree bottoms out. Unknown `agent` ids fail closed.
 
 Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlugin.agents[]` from `agents/*.md` or flat `*.md` in the plugin directory, with optional co-located `skills/`. `loadPluginEntry` tries JS entrypoints first, then falls back to this layout (`/plugins` add-by-path supports filesystem completion via `listPathSuggestions`).
 

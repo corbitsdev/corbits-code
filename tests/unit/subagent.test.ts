@@ -1,8 +1,11 @@
 import { describe, test, expect } from "bun:test";
 import {
   appendActivitySummary,
+  buildDispatchBrief,
   buildSubAgentPrimarySource,
   createTaskTool,
+  formatSubAgentReport,
+  parseSubAgentReport,
   runSubAgent,
   subAgentToolName,
   taskToolDefinition,
@@ -236,7 +239,7 @@ test("subAgentToolName reads tool.start call name", () => {
   ).toBeNull();
 });
 
-test("handler injects context block before task when provided", async () => {
+test("handler injects context and goals into runner params when provided", async () => {
   let received: RunSubAgentParams | undefined;
   const tool = createTaskTool({
     cwd: "/repo",
@@ -252,14 +255,16 @@ test("handler injects context block before task when provided", async () => {
     description: "refactor utils",
     context: "The codebase uses functional programming with no classes.",
     prompt: "Extract duplicated validation logic into a shared function.",
+    goals: [" find duplicates ", "", " extract helper "],
   });
 
   expect(received?.context).toBe("The codebase uses functional programming with no classes.");
   expect(received?.prompt).toBe("Extract duplicated validation logic into a shared function.");
+  expect(received?.goals).toEqual(["find duplicates", "extract helper"]);
   expect(result).toContain("task completed");
 });
 
-test("handler sends prompt without context block when context is empty or omitted", async () => {
+test("handler omits context and goals when empty", async () => {
   let receivedNoContext: RunSubAgentParams | undefined;
   let receivedEmptyContext: RunSubAgentParams | undefined;
 
@@ -292,10 +297,47 @@ test("handler sends prompt without context block when context is empty or omitte
     description: "check code",
     context: "  ",
     prompt: "Review the function signatures.",
+    goals: [],
   });
 
   expect(receivedNoContext?.context).toBeUndefined();
+  expect(receivedNoContext?.goals).toBeUndefined();
   expect(receivedEmptyContext?.context).toBeUndefined();
+  expect(receivedEmptyContext?.goals).toBeUndefined();
+});
+
+test("buildDispatchBrief separates context, goal, and checklist seeds", () => {
+  const brief = buildDispatchBrief({
+    description: "map callers",
+    prompt: "find every caller of X",
+    context: "repo uses ES modules",
+    goals: ["search", "report"],
+  });
+  expect(brief).toContain("# Dispatch brief: map callers");
+  expect(brief).toContain("## Goal");
+  expect(brief).toContain("find every caller of X");
+  expect(brief).toContain("## Context");
+  expect(brief).toContain("repo uses ES modules");
+  expect(brief).toContain("## Suggested checklist");
+  expect(brief).toContain("1. search");
+  expect(brief).toContain("## Report shape");
+});
+
+test("parseSubAgentReport and formatSubAgentReport normalize free-form and structured replies", () => {
+  const free = parseSubAgentReport("just some prose");
+  expect(free.summary).toBe("just some prose");
+  expect(formatSubAgentReport(free)).toContain("## Summary");
+  expect(formatSubAgentReport(free)).toContain("just some prose");
+
+  const structured = parseSubAgentReport(
+    "## Summary\nDid the thing.\n\n## Findings\nFound three callers.\n\n## Paths\nsrc/a.ts\n",
+  );
+  expect(structured.summary).toBe("Did the thing.");
+  expect(structured.findings).toBe("Found three callers.");
+  expect(structured.paths).toBe("src/a.ts");
+  const formatted = formatSubAgentReport(structured);
+  expect(formatted).toContain("## Findings");
+  expect(formatted).not.toContain("## Blockers");
 });
 
 test("runSubAgent is wired as the default task runner", () => {
