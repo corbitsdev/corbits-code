@@ -58,6 +58,10 @@ import { isCodexProviderName } from "../config/codex-providers.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import type { SubAgentSessionStore } from "./session-store.js";
+
+export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
+export { createSubAgentSessionStore } from "./session-store.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
@@ -175,6 +179,7 @@ export type NestedDispatchDeps = {
   // Fired on each tool_call.end so the parent can surface live activity without
   // replaying the full sub-agent event stream into the chat transcript.
   onProgress?: (info: { description: string; toolName: string }) => void;
+  sessions?: SubAgentSessionStore;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   profiles?: AgentProfile[] | (() => AgentProfile[]);
@@ -401,6 +406,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         allowOrchestrator: false,
         ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
+        ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
         ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
         ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
@@ -630,6 +636,10 @@ export type TaskToolDeps = {
   run?: (params: RunSubAgentParams) => Promise<string>;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
+  // When set, each spawn is recorded as an inspectable session (identity,
+  // brief, transcript, status) for the TUI enter-session surface. Events are
+  // written here only — they are not forwarded into the parent chat transcript.
+  sessions?: SubAgentSessionStore;
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   profiles?: AgentProfile[] | (() => AgentProfile[]);
@@ -768,13 +778,40 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         }
       }
 
+      const brief = buildDispatchBrief({
+        description,
+        prompt,
+        ...(context !== undefined && context.length > 0 ? { context } : {}),
+        ...(goals.length > 0 ? { goals } : {}),
+      });
+      const agentLabel = agentId !== undefined && agentId.length > 0 ? agentId : "worker";
+      const session =
+        deps.sessions !== undefined
+          ? deps.sessions.start({
+              description,
+              agentId: agentLabel,
+              brief,
+            })
+          : undefined;
+      const recordEvent =
+        session !== undefined && deps.sessions !== undefined
+          ? (event: ReactorEmittedEvent): void => {
+              deps.sessions!.appendEvent(session.id, event);
+              deps.onEvent?.(event);
+            }
+          : deps.onEvent;
+
       try {
         const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
           ? {
               getWorkdirBase: deps.getWorkdirBase,
               provider: deps.provider,
-              ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+              ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
               ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+              // Nested workers share the same session store so their transcripts
+              // are enterable too; allowOrchestrator is false so they cannot
+              // re-orchestrate indefinitely.
+              ...(deps.sessions !== undefined ? { sessions: deps.sessions } : {}),
               ...(deps.settings !== undefined ? { settings: deps.settings } : {}),
               ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
               ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
@@ -792,7 +829,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           prompt,
           ...(goals.length > 0 ? { goals } : {}),
           signal,
-          ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+          ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
           ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
           ...(capabilities !== undefined ? { capabilities } : {}),
           ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
@@ -801,9 +838,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             : {}),
         };
         const result = await run(params);
+        if (session !== undefined) deps.sessions?.complete(session.id, result);
         return `Sub-agent "${description}" reported:\n\n${result}`;
       } catch (err) {
-        return `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
+        const message = err instanceof Error ? err.message : String(err);
+        if (session !== undefined) deps.sessions?.fail(session.id, message);
+        return `Error: sub-agent "${description}" failed: ${message}`;
       }
     },
   });

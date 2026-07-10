@@ -41,7 +41,7 @@ import { setModelContextWindows } from "../provider/context-window.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
 import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { CORE_TOOL_NAMES } from "../agent/tool-search.js";
-import type { SubAgentProvider } from "../subagent/index.js";
+import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
@@ -236,6 +236,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         : {}),
     },
   };
+
+  // Dedicated child-session records for enter-session inspection. Child events
+  // land here only — never in the parent chat transcript.
+  const subAgentSessions = createSubAgentSessionStore();
 
   const webPluginCandidates = collectWebPlugins(pluginModules);
   const activeWeb = await resolveWebProviderFromPlugins({
@@ -437,6 +441,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
       provider: () => liveSubAgentProvider.current,
+      sessions: subAgentSessions,
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
       // Progress only — not the full event stream. Forwarding every sub-agent
       // inference.delta into the parent transcript interleaves worker text with
