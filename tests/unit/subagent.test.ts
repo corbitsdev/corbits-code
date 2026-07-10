@@ -1,13 +1,16 @@
 import { describe, test, expect } from "bun:test";
 import {
+  appendActivitySummary,
   buildSubAgentPrimarySource,
   createTaskTool,
   runSubAgent,
+  subAgentToolName,
   taskToolDefinition,
   type RunSubAgentParams,
   type SubAgentProvider,
 } from "../../src/subagent/index.js";
 import { buildSubAgentSystemPrompt } from "../../src/agent/prompts.js";
+import type { ReactorEmittedEvent } from "@intx/inference";
 
 const provider: SubAgentProvider = {
   providerName: "test",
@@ -112,12 +115,125 @@ test("handler reports runner failures without throwing", async () => {
   expect(result).toContain("provider exploded");
 });
 
-test("sub-agent prompt is autonomous and does not advertise the task tool", () => {
+test("sub-agent prompt is autonomous and forbids recursion for leaf agents", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain("sub-agent");
   expect(prompt).toContain("without asking for approval");
-  // A sub-agent must never be told it can delegate further (no recursion).
-  expect(prompt).not.toContain("task,");
+  // Leaf agents must not be invited to spawn further agents.
+  expect(prompt).toContain("leaf sub-agent");
+  expect(prompt).not.toContain("MAY call `task`");
+});
+
+test("unknown agent id fails closed instead of silent generic fall-through", async () => {
+  let ran = false;
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    profiles: [{ id: "greybeard", systemPromptRole: "You are greybeard." }],
+    run: async () => {
+      ran = true;
+      return "should not run";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "review",
+    prompt: "look at it",
+    agent: "no-such-agent",
+  });
+  expect(result).toContain("Error:");
+  expect(result).toContain("unknown agent profile");
+  expect(result).toContain("greybeard");
+  expect(ran).toBe(false);
+});
+
+test("unknown agent id fails closed when no profiles are loaded", async () => {
+  let ran = false;
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async () => {
+      ran = true;
+      return "should not run";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "review",
+    prompt: "look at it",
+    agent: "greybeard",
+  });
+  expect(result).toContain("Error:");
+  expect(result).toContain("no agent profiles are loaded");
+  expect(ran).toBe(false);
+});
+
+test("orchestrator profile installs nestedDispatch so task can be re-dispatched", async () => {
+  let received: RunSubAgentParams | undefined;
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    profiles: [
+      {
+        id: "dispatch",
+        orchestrator: true,
+        systemPromptRole: "You coordinate specialists.",
+      },
+    ],
+    run: async (params) => {
+      received = params;
+      return "coordinated";
+    },
+  });
+  await callHandler(tool, {
+    description: "fan out",
+    prompt: "dispatch the team",
+    agent: "dispatch",
+  });
+  expect(received?.orchestrator).toBe(true);
+  expect(received?.nestedDispatch).toBeDefined();
+  expect(received?.systemPromptRole).toContain("coordinate");
+});
+
+test("allowOrchestrator false strips orchestrator even when the profile is marked", async () => {
+  let received: RunSubAgentParams | undefined;
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    allowOrchestrator: false,
+    profiles: [{ id: "dispatch", orchestrator: true }],
+    run: async (params) => {
+      received = params;
+      return "leaf";
+    },
+  });
+  await callHandler(tool, {
+    description: "work",
+    prompt: "do the work",
+    agent: "dispatch",
+  });
+  expect(received?.orchestrator).toBeUndefined();
+  expect(received?.nestedDispatch).toBeUndefined();
+});
+
+test("appendActivitySummary counts tool names", () => {
+  expect(appendActivitySummary("done", [])).toBe("done");
+  expect(appendActivitySummary("done", ["read_file", "read_file", "grep"])).toBe(
+    "done\n\n[tools: read_file×2, grep]",
+  );
+});
+
+test("subAgentToolName reads tool.start call name", () => {
+  const event = {
+    type: "tool.start",
+    data: { call: { name: "grep" } },
+  } as unknown as ReactorEmittedEvent;
+  expect(subAgentToolName(event)).toBe("grep");
+  expect(
+    subAgentToolName({ type: "tool.done", data: {} } as unknown as ReactorEmittedEvent),
+  ).toBeNull();
 });
 
 test("handler injects context block before task when provided", async () => {

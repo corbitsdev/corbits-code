@@ -78,6 +78,9 @@ export type AgentToolsetArgs = {
     provider: SubAgentProvider | (() => SubAgentProvider);
     getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
+    // Live progress for the TUI status bar / Agents strip. Prefer this over
+    // onEvent when the parent transcript must not receive sub-agent text.
+    onProgress?: (info: { description: string; toolName: string }) => void;
     settings?: Settings | (() => Settings | undefined);
     catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
     profiles?: AgentProfile[] | (() => AgentProfile[]);
@@ -152,6 +155,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             getWorkdirBase: args.subAgent.getWorkdirBase,
             provider: args.subAgent.provider,
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
+            ...(args.subAgent.onProgress !== undefined
+              ? { onProgress: args.subAgent.onProgress }
+              : {}),
             ...(args.subAgent.settings !== undefined ? { settings: args.subAgent.settings } : {}),
             ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
             ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
