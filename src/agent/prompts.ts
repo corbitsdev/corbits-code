@@ -70,9 +70,9 @@ const TOOL_SUMMARIES: Record<string, string> = {
   read_file: "read a file",
   write_file: "create or overwrite a file",
   edit_file: "make a surgical edit to an existing file",
-  run_shell: "run a shell command (builds, tests, git; never to read/write files or talk to the user)",
-  search_files: "find files by name or pattern",
-  grep: "search file contents",
+  run_shell: "run a shell command (builds, tests, git; 10s default timeout — pass timeout ms to override; never to read/write files, search trees, or talk to the user)",
+  search_files: "find files by name or pattern (bounded; prefer over shell find)",
+  grep: "search file contents (bounded; prefer over shell grep -r/rg)",
   list_dir: "list a directory's entries (use instead of ls or find)",
   lsp: "resolve symbols — goToDefinition, findReferences, hover",
   web_search: "search the web (use instead of curl or wget)",
@@ -177,13 +177,17 @@ export function buildChatSystemPrompt(
 // documented exception — its purpose IS to fan work out to other agents —
 // so the appendix grants permission and links the syntax.
 export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
-  const recursionRule = opts.orchestrator === true
-    ? "- You are an orchestrator: you MAY call `task` to spawn other team members (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf-task sub-agents — use it to delegate specialist work, then synthesize their reports into your own."
-    : "- Only the primary Intercode session may call `task`; if you are running as a sub-agent, return a concrete report to the caller instead of spawning further agents.";
+  // Leaf agents must not be told both "spawn with task" and "do not call task".
+  // Orchestrators get the spawn instruction; everyone else gets the no-recursion
+  // rule only.
+  const recursionRule =
+    opts.orchestrator === true
+      ? "- You are an orchestrator: you MAY call `task` to spawn other team members (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf-task sub-agents — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist."
+      : "- Only the primary Intercode session (or an orchestrator profile) may call `task`. You are a leaf sub-agent: return a concrete report to the caller instead of spawning further agents.";
   return [
     "## Intercode notes",
     "",
-    `- Spawn other team members with the \`task\` tool and \`agent\`: e.g. task(agent="greybeard", prompt="..."). ${recursionRule}`,
+    recursionRule,
     "- Tools use Intercode names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp.",
     "- Upstream `mode: primary` is not encoded — every agent here is a `task`-dispatchable sub-agent profile.",
   ].join("\n");
