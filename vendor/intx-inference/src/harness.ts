@@ -1190,29 +1190,41 @@ async function* runSingleAttempt(
  * `runSingleAttempt` and consults the configured `RetryPolicy` (or the
  * default from `createDefaultRetryPolicy`) on every `inference.error`.
  *
- * Events from each attempt are buffered until the attempt terminates;
- * the wrapper only flushes them to the caller once it knows whether
- * the attempt resolved (`inference.done` or a policy-approved abort)
- * or whether the attempt's events should be discarded in favour of a
- * retry. The buffer-and-flush model is what guarantees the caller
- * sees a single clean event stream — exactly one `inference.start`,
- * no orphaned partial deltas, no leaked `inference.error`s from
- * attempts the policy chose to retry. The cost is that no events
- * reach the caller until the wrapper knows the attempt's terminal
- * shape, even on a successful first attempt. That trade-off is the
- * deliberate consequence of making "one clean stream" a hard contract
- * rather than a best-effort one. Consumers that need token-by-token
- * partials must pin a custom non-buffering wrapper — no streaming-
- * partials emission API exists today.
+ * Commitment boundary. An attempt is "uncommitted" until it yields its
+ * first content-bearing event — the first `inference.text.delta`,
+ * `inference.thinking.delta`, tool-call event, or any other block
+ * event (see `isCommitting`). Up to that point the only events an
+ * attempt produces are `inference.start` and any message-start
+ * `inference.usage`; those are held in a small pre-commit buffer. The
+ * moment the first committing event arrives the wrapper flushes that
+ * buffer and, from then on, streams every event straight to the caller
+ * as it arrives — token-by-token, no terminal burst.
  *
- * The buffer is per-call and bounded by the size of one attempt's
- * event stream — no cross-call accumulation.
+ * Retry is only possible while an attempt is uncommitted: nothing
+ * visible has reached the caller yet, so discarding a failed
+ * uncommitted attempt leaks no events. A retryable failure that lands
+ * *after* commitment cannot un-emit the deltas already delivered, so
+ * retry is suppressed and the `inference.error` is surfaced on the one
+ * live stream — the caller sees a coherent prefix followed by the
+ * error rather than a silently restarted response. This is the
+ * deliberate cost of incremental delivery.
+ *
+ * The pre-commit buffer holds at most the handful of metadata events
+ * an attempt emits before its first token, so it does not grow with
+ * output length: a long response streams through without the wrapper
+ * ever retaining a per-token snapshot, keeping memory linear in output
+ * size rather than quadratic.
+ *
+ * The single-clean-stream contract still holds: exactly one
+ * `inference.start`, no orphaned partial deltas, and no leaked
+ * `inference.error` from an attempt the policy chose to retry (only
+ * uncommitted attempts are ever retried).
  *
  * Caller-visible seqs stay contiguous across retries. Each attempt
- * runs against a private seq allocator; on flush the wrapper
- * re-stamps the buffered events with seqs from the caller's
- * `nextSeq`, so a retry that discards an attempt does not leave a
- * gap in the consumer's seq stream.
+ * runs against a private seq allocator; the wrapper re-stamps every
+ * event with a seq from the caller's `nextSeq` as it is emitted, so a
+ * retry that discards an attempt does not leave a gap in the
+ * consumer's seq stream.
  *
  * Between attempts the wrapper emits one `inference.retry` event with
  * the failed attempt's number, the policy-chosen `delayMs`, and the
@@ -1235,11 +1247,12 @@ async function* runSingleAttempt(
  *
  * Synchronous throws from `runSingleAttempt` (`ProtocolMismatchError`
  * raised by the streaming parse or the finalization walk, etc.)
- * propagate out of `runInference`. The current attempt's buffered
- * events are discarded along with the throw — those represent
- * protocol bugs the policy mechanism is not equipped to absorb, and
- * the caller's `for await` rejects so the failure surfaces rather
- * than being silently buffered.
+ * propagate out of `runInference`. Any events already streamed for the
+ * committed prefix stay delivered; any still-buffered pre-commit
+ * events are dropped along with the throw. These represent protocol
+ * bugs the policy mechanism is not equipped to absorb, so the caller's
+ * `for await` rejects and the failure surfaces rather than being
+ * silently swallowed.
  */
 export async function* runInference(
   opts: InferenceHarnessOptions,
@@ -1285,8 +1298,15 @@ export async function* runInference(
   const signal = opts.signal;
 
   for (let attempt = 1; ; attempt++) {
-    const buffered: InferenceEvent[] = [];
-    let terminalError: InferenceError | undefined;
+    // Metadata an attempt emits before it commits (see `isCommitting`):
+    // `inference.start` and any message-start `inference.usage`. This
+    // buffer never accumulates per-token deltas — committed content
+    // streams straight to the caller — so it stays bounded regardless
+    // of output length, and a discarded pre-commit retry has nothing
+    // visible to retract.
+    const preCommit: InferenceEvent[] = [];
+    let committed = false;
+    let failure: { event: InferenceEvent; error: InferenceError } | undefined;
 
     // Per-attempt private allocator. `runSingleAttempt` allocates a
     // seq for every event it yields; if the attempt is discarded on
@@ -1294,30 +1314,65 @@ export async function* runInference(
     // gap in the consumer's stream — indistinguishable from the
     // "missed events during brief disconnection" the seq stream is
     // documented to expose. Allocate from a private counter here and
-    // re-stamp the buffer with caller-visible seqs at flush time.
+    // re-stamp each event with a caller-visible seq as it is emitted.
     let attemptSeq = 0;
     const attemptOpts: InferenceHarnessOptions = {
       ...opts,
       nextSeq: () => attemptSeq++,
     };
     for await (const event of runSingleAttempt(attemptOpts)) {
-      buffered.push(event);
+      if (event.type === "inference.done") {
+        // A `done` on an uncommitted attempt (e.g. an empty response)
+        // still needs its buffered metadata flushed ahead of it.
+        if (!committed) {
+          for (const buffered of preCommit) {
+            yield { ...buffered, seq: opts.nextSeq() };
+          }
+        }
+        yield { ...event, seq: opts.nextSeq() };
+        return;
+      }
+
       if (event.type === "inference.error") {
-        terminalError = event.data.error;
+        if (committed) {
+          // Failure after visible output began. The deltas already
+          // delivered cannot be retracted, so retry is off the table:
+          // surface the error on the single live stream and stop.
+          yield { ...event, seq: opts.nextSeq() };
+          return;
+        }
+        failure = { event, error: event.data.error };
         break;
       }
-      if (event.type === "inference.done") {
-        break;
+
+      if (!committed && isCommitting(event)) {
+        committed = true;
+        for (const buffered of preCommit) {
+          yield { ...buffered, seq: opts.nextSeq() };
+        }
+        preCommit.length = 0;
+      }
+
+      if (committed) {
+        yield { ...event, seq: opts.nextSeq() };
+      } else {
+        preCommit.push(event);
       }
     }
 
-    if (terminalError === undefined) {
-      // Successful attempt. Re-stamp the buffer with caller-visible
-      // seqs (the private allocator's values are discarded) and
-      // flush in order.
-      for (const event of buffered) yield { ...event, seq: opts.nextSeq() };
+    // Only an uncommitted terminal error reaches here; the committed
+    // error path and every `done` path returned inside the loop.
+    if (failure === undefined) {
+      // `runSingleAttempt` always ends in error or done; an attempt
+      // that yields neither is an upstream contract violation. Flush
+      // whatever metadata buffered so nothing is silently swallowed.
+      for (const buffered of preCommit) {
+        yield { ...buffered, seq: opts.nextSeq() };
+      }
       return;
     }
+
+    const terminalError = failure.error;
 
     // Consult the policy. Sync throws and Promise rejections both
     // resolve to an abort decision; the original inference.error
@@ -1340,10 +1395,13 @@ export async function* runInference(
     }
 
     if (decision.kind === "abort") {
-      // Flush the buffer (including the terminal inference.error)
-      // with re-stamped caller-visible seqs and return. No
-      // `inference.retry` event is emitted on the abort path.
-      for (const event of buffered) yield { ...event, seq: opts.nextSeq() };
+      // Flush the buffered pre-commit metadata, then the terminal
+      // `inference.error`, all with re-stamped caller-visible seqs, and
+      // return. No `inference.retry` event is emitted on the abort path.
+      for (const buffered of preCommit) {
+        yield { ...buffered, seq: opts.nextSeq() };
+      }
+      yield { ...failure.event, seq: opts.nextSeq() };
       return;
     }
 
@@ -1395,6 +1453,29 @@ export async function* runInference(
         }
       }
     });
+  }
+}
+
+/**
+ * An attempt "commits" the moment it emits its first content-bearing
+ * event — anything the model actually produced (text, thinking, tool
+ * calls, images, code execution, citations, refusals). Once such an
+ * event has been streamed to the caller it cannot be un-emitted, so
+ * `runInference` may no longer retry that attempt.
+ *
+ * `inference.start` and `inference.usage` are metadata, not model
+ * output: they carry nothing the caller would notice as a restarted
+ * response, so they are buffered rather than committing. `inference.done`,
+ * `inference.error`, and `inference.retry` are terminal or wrapper-owned
+ * and are handled by `runInference` before this predicate is consulted.
+ */
+function isCommitting(event: InferenceEvent): boolean {
+  switch (event.type) {
+    case "inference.start":
+    case "inference.usage":
+      return false;
+    default:
+      return true;
   }
 }
 
