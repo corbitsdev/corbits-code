@@ -143,7 +143,9 @@ When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** 
 
 Profiles with `orchestrator: true` may themselves call `task` (one hop only): nested dispatch installs `task` + `search_agents` with `allowOrchestrator: false` so the tree bottoms out. Unknown `agent` ids fail closed.
 
-**Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar / Agents strip. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound. The enter-session TUI reads from this store.
+**Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar / Agents strip. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound.
+
+**Enter-session TUI** (`src/tui/components/agents-strip.tsx`, `subagent-session-view.tsx`): `Ctrl+E` opens Agents-strip navigation (↑/↓ select, Enter observe, Esc cancel). Entering a session swaps the main log for that child's transcript (live while running, historical when done) without stealing the parent reactor. Header chrome shows which agent is focused; Esc returns to the parent. v1 is read-only observe.
 
 Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlugin.agents[]` from `agents/*.md` or flat `*.md` in the plugin directory, with optional co-located `skills/`. `loadPluginEntry` tries JS entrypoints first, then falls back to this layout (`/plugins` add-by-path supports filesystem completion via `listPathSuggestions`).
 
