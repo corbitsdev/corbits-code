@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseMarkdown, type StyledSegment } from "./markdown-parser.js";
+import { color } from "./theme.js";
 
 function firstLine(text: string): StyledSegment[] {
   return parseMarkdown(text)[0] ?? [];
@@ -110,6 +111,28 @@ describe("block elements", () => {
     expect(lines[0]).toEqual([]);
     expect(lines[2]).toEqual([]);
     expect(lines[1]).toEqual([{ text: "const x = **not bold**", code: true }]);
+  });
+
+  test("highlights a fenced block by its language token", () => {
+    const lines = parseMarkdown('```js\nconst x = "hi";\n```');
+    const keyword = lines.flat().find((s) => s.text === "const");
+    expect(keyword?.code).toBe(true);
+    expect(keyword?.color).toBe(color("syntaxKeyword"));
+    const str = lines.flat().find((s) => s.text === '"hi"');
+    expect(str?.color).toBe(color("syntaxString"));
+  });
+
+  test("an unclosed streaming fence still highlights its body", () => {
+    const lines = parseMarkdown("```js\nconst x = 1;");
+    const keyword = lines.flat().find((s) => s.text === "const");
+    expect(keyword?.color).toBe(color("syntaxKeyword"));
+  });
+
+  test("drops a half-typed closing fence from the streaming tail", () => {
+    const lines = parseMarkdown("```js\nconst x = 1;\n``");
+    const rendered = lines.flat().map((s) => s.text).join("");
+    expect(rendered).not.toContain("``");
+    expect(rendered).toContain("const");
   });
 });
 

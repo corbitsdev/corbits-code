@@ -1,6 +1,6 @@
 {
   "name": "intercode",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "private": true,
   "type": "module",
   "bin": {
@@ -49,7 +49,8 @@
     "@intx/tools-posix": "workspace:*",
     "@intx/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "arktype": "catalog:"
+    "arktype": "catalog:",
+    "highlight.js": "^11.11.1"
   },
   "devDependencies": {
     "@intx/inference-testing": "workspace:*",
