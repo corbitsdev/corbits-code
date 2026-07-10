@@ -10,7 +10,7 @@ import {
 
 describe("REASONING_EFFORTS", () => {
   test("is ordered from least to most effort", () => {
-    expect(REASONING_EFFORTS).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(REASONING_EFFORTS).toEqual(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
   });
 });
 
@@ -19,7 +19,7 @@ describe("isReasoningEffort", () => {
     expect(isReasoningEffort("medium")).toBe(true);
   });
   test("rejects unknown values", () => {
-    expect(isReasoningEffort("ultra")).toBe(false);
+    expect(isReasoningEffort("legendary")).toBe(false);
     expect(isReasoningEffort(3)).toBe(false);
   });
 });
@@ -36,6 +36,33 @@ describe("supportedEfforts", () => {
   test("codex provider takes low/medium/high/xhigh, no minimal or none", () => {
     expect(supportedEfforts("gpt-5.5", undefined, true)).toEqual(["low", "medium", "high", "xhigh"]);
     expect(supportedEfforts("gpt-5.4-mini", undefined, true)).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  test("gpt-5.6 family additionally takes max and ultra on the codex backend", () => {
+    expect(supportedEfforts("gpt-5.6-sol", undefined, true)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(supportedEfforts("gpt-5.6-terra", undefined, true)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(supportedEfforts("gpt-5.6-luna", undefined, true)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
   });
 
   test("the model name alone does not imply codex levels", () => {
