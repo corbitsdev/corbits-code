@@ -55,7 +55,14 @@ export const CODEX_AUTHORIZE_EXTRA_PARAMS: Record<string, string> = {
 // backend rotates its serving set (codex-rs no longer hardcodes presets), so
 // the live fetch is authoritative and these are just a current-generation
 // default so the picker is never empty.
-export const CODEX_DEFAULT_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"] as const;
+export const CODEX_DEFAULT_MODELS = [
+  "gpt-5.5",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+] as const;
 
 // Refresh a token this many milliseconds before its stated expiry so a request
 // is never sent with a token about to lapse mid-flight.
