@@ -43,6 +43,10 @@ export function createStateManager(
   initialUsage: TokenUsage,
 ) {
   let turns: ConversationTurn[] = initialTurns.map(deepFreeze);
+  // Monotonic counter bumped whenever `turns` changes. Persistence compares it
+  // against the revision it last wrote so an unchanged history is never
+  // re-serialized on a checkpoint (INFERENCE.md § Cycle boundary commit).
+  let turnsRevision = 0;
   const pendingOperations = new Map<string, PendingOperation>(
     initialOps.map((op) => [op.correlationId, op]),
   );
@@ -54,10 +58,12 @@ export function createStateManager(
 
   function appendTurn(msg: ConversationTurn): void {
     turns.push(deepFreeze(msg));
+    turnsRevision += 1;
   }
 
   function replaceTurns(next: ConversationTurn[]): void {
     turns = next.map(deepFreeze);
+    turnsRevision += 1;
   }
 
   function addPendingOperation(op: PendingOperation): void {
@@ -101,6 +107,10 @@ export function createStateManager(
     return turns;
   }
 
+  function getTurnsRevision(): number {
+    return turnsRevision;
+  }
+
   function getPendingOperations(): PendingOperation[] {
     return Array.from(pendingOperations.values());
   }
@@ -110,21 +120,36 @@ export function createStateManager(
   }
 
   function snapshot(): ReactorState {
+    // Every field is a lazy, memoized getter. High-frequency events (tool.done,
+    // inference.error) reach directors that never inspect `turns`, so paying an
+    // O(history) copy on every decision made per-event cost scale with session
+    // length. Deferring each field's copy to first access keeps read-only
+    // decisions O(fields they actually read) while preserving isolation: turns
+    // are deep-frozen at append, and every derived collection is a fresh copy.
+    let turnsView: ConversationTurn[] | undefined;
+    let pendingView: PendingOperation[] | undefined;
+    let gatesView: ReactorState["activeGates"] | undefined;
+    let forksView: ReactorState["activeForks"] | undefined;
     return {
       sessionId,
-      // Turns are deep-frozen at append, so the snapshot shares their
-      // references. Deep-cloning here made every director decision
-      // O(total history) — O(n^2) over a session.
-      turns: turns.slice(),
-      pendingOperations: Array.from(pendingOperations.values()).map((op) => ({
-        ...op,
-      })),
-      activeGates: activeGatesSnapshot.map((g) => ({
-        gateId: g.gateId,
-        type: g.type,
-        timeoutAt: g.timeoutAt,
-      })),
-      activeForks: activeForks.map((f) => ({ ...f })),
+      get turns() {
+        return (turnsView ??= turns.slice());
+      },
+      get pendingOperations() {
+        return (pendingView ??= Array.from(pendingOperations.values()).map(
+          (op) => ({ ...op }),
+        ));
+      },
+      get activeGates() {
+        return (gatesView ??= activeGatesSnapshot.map((g) => ({
+          gateId: g.gateId,
+          type: g.type,
+          timeoutAt: g.timeoutAt,
+        })));
+      },
+      get activeForks() {
+        return (forksView ??= activeForks.map((f) => ({ ...f })));
+      },
       tokenUsage: { ...tokenUsage },
       lastCycleUsage: lastCycleUsage !== null ? { ...lastCycleUsage } : null,
       lastCycleSource: lastCycleSource !== null ? { ...lastCycleSource } : null,
@@ -143,6 +168,7 @@ export function createStateManager(
     addFork,
     removeFork,
     getTurns,
+    getTurnsRevision,
     getPendingOperations,
     getTokenUsage,
     snapshot,
