@@ -485,10 +485,10 @@ function blockToLines(
       ];
     }
     case "user": {
-      // A subtle, neutral-grey box with a blank padded row above and below so the
-      // text has breathing room. Text starts at column 1 to line up with the
-      // assistant's "●" marker; a 1-col right margin keeps the fill off the edge.
-      const bg = "#45454a";
+      // A subtle box with a blank padded row above and below so the text has
+      // breathing room. Text starts at column 1 to line up with the assistant's
+      // "●" marker; a 1-col right margin keeps the fill off the edge.
+      const bg = color("userMessageBg");
       const LEFT = 1;
       const RIGHT = 1;
       const innerWidth = Math.max(1, width - LEFT - RIGHT);
@@ -993,7 +993,7 @@ function recoverCollapsedPartners(
     while (j + 1 < blocks.length) {
       const call = blocks[j]!;
       const result = blocks[j + 1]!;
-      if (!isAdjacentToolPair(call, result) || !isFileEditTool(call.name)) break;
+      if (call.type !== "tool_call" || !isAdjacentToolPair(call, result) || !isFileEditTool(call.name)) break;
       groupIds.push(call.id, result.id);
       pairCount++;
       j += 2;
