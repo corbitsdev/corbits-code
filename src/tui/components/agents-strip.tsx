@@ -11,7 +11,23 @@ export type AgentsStripProps = {
   enteredId?: string | null;
   // Show selection chrome + hint row.
   navActive?: boolean;
+  // Cap on rendered rows. The store retains far more completed sessions than
+  // belong on screen; without a cap the strip can crowd out the transcript.
+  maxVisible?: number;
 };
+
+// Default row cap for the strip, independent of how many completed sessions the
+// store retains for later inspection.
+export const DEFAULT_STRIP_MAX_VISIBLE = 6;
+
+// Rows the strip occupies for a given session count: the "Agents" header, the
+// capped session rows, and an overflow row when sessions are hidden.
+export function agentsStripRowCount(sessionCount: number, maxVisible: number): number {
+  if (sessionCount === 0) return 0;
+  const shown = Math.min(sessionCount, maxVisible);
+  const overflow = sessionCount > shown ? 1 : 0;
+  return 1 + shown + overflow;
+}
 
 const STATUS_GLYPH: Record<SubAgentSessionStatus, string> = {
   running: "●",
@@ -24,8 +40,14 @@ export function AgentsStrip({
   selectedId = null,
   enteredId = null,
   navActive = false,
+  maxVisible = DEFAULT_STRIP_MAX_VISIBLE,
 }: AgentsStripProps): ReactNode {
   if (sessions.length === 0) return null;
+
+  // sessions arrive running-first then newest, so the head keeps live and
+  // recent work visible while older completed sessions fold into the count.
+  const visible = sessions.slice(0, Math.max(1, maxVisible));
+  const hiddenCount = sessions.length - visible.length;
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -47,7 +69,7 @@ export function AgentsStrip({
           </Text>
         )}
       </Box>
-      {sessions.map((session) => {
+      {visible.map((session) => {
         const selected = session.id === selectedId;
         const entered = session.id === enteredId;
         const prefix = selected ? "› " : entered ? "· " : "  ";
@@ -71,6 +93,11 @@ export function AgentsStrip({
           </Box>
         );
       })}
+      {hiddenCount > 0 && (
+        <Text color={color("dim")} dimColor>
+          {`  … +${hiddenCount} more`}
+        </Text>
+      )}
     </Box>
   );
 }

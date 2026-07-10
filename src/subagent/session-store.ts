@@ -222,14 +222,18 @@ export function createSubAgentSessionStore(
             return;
           }
           case "inference.tool_call.delta": {
-            const fragment = (event.data as { argumentFragment?: unknown })?.argumentFragment;
+            const data = event.data as { argumentFragment?: unknown; callId?: unknown };
+            const fragment = data.argumentFragment;
             if (typeof fragment !== "string" || fragment.length === 0) return;
+            // Parallel tool calls interleave their deltas; match the owning
+            // entry by callId so fragments never attach to a sibling's args.
+            const callId = typeof data.callId === "string" ? data.callId : null;
             for (let i = session.entries.length - 1; i >= 0; i--) {
               const entry = session.entries[i];
-              if (entry?.kind === "tool") {
-                entry.arguments = appendCapped(entry.arguments, fragment, maxEntryChars);
-                return;
-              }
+              if (entry?.kind !== "tool") continue;
+              if (callId !== null && entry.callId !== callId) continue;
+              entry.arguments = appendCapped(entry.arguments, fragment, maxEntryChars);
+              return;
             }
             return;
           }

@@ -213,6 +213,10 @@ export type RunSubAgentParams = {
   // Present only when orchestrator is true. Installs task + search_agents so
   // the orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;
+  // Set when this dispatch is a nested worker spawned by an orchestrator that
+  // already holds a concurrency slot. The nested run reuses the parent's slot
+  // (reentrant) instead of acquiring its own, which would deadlock the pool.
+  nested?: boolean;
 };
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
@@ -341,7 +345,9 @@ export function formatSubAgentReport(report: SubAgentReport): string {
 // tool instances and its own git-backed context store so the two loops never
 // trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
-  return withSubAgentSlot(() => runSubAgentInner(params));
+  return withSubAgentSlot(() => runSubAgentInner(params), {
+    reentrant: params.nested === true,
+  });
 }
 
 async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
@@ -805,7 +811,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ? {
               getWorkdirBase: deps.getWorkdirBase,
               provider: deps.provider,
-              ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
+              // Forward the external sink, not this session's recorder: nested
+              // workers record into their own sessions (deps.sessions below),
+              // so chaining recordEvent here would replay each grandchild event
+              // into the orchestrator's transcript as well.
+              ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
               ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
               // Nested workers share the same session store so their transcripts
               // are enterable too; allowOrchestrator is false so they cannot
@@ -835,6 +845,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(orchestrator
             ? { orchestrator: true, nestedDispatch: nestedDispatch! }
             : {}),
+          // Nested workers (installed by an orchestrator that already holds a
+          // slot) reuse the parent slot rather than acquiring their own.
+          ...(deps.allowOrchestrator === false ? { nested: true } : {}),
         };
         const result = await run(params);
         if (session !== undefined) deps.sessions?.complete(session.id, result);
