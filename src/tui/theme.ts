@@ -33,9 +33,6 @@ export type SemanticRole =
   | "diffHunkHeader"
   | "diffAddedBg"
   | "diffRemovedBg"
-  | "toolPendingBg"
-  | "toolSuccessBg"
-  | "toolErrorBg"
   | "userMessageBg";
 
 const breakthroughOrange: ColorValue = { hex: "#f5933a", ansi256: 173 };
@@ -63,7 +60,6 @@ const graphiteGray: ColorValue = { hex: "#8a827a", ansi256: 244 };
 const parchment: ColorValue = { hex: "#e8ddcc", ansi256: 253 };
 const pineShadow: ColorValue = { hex: "#293a28", ansi256: 22 };
 const emberShadow: ColorValue = { hex: "#3d2a28", ansi256: 52 };
-const slateShadow: ColorValue = { hex: "#35313b", ansi256: 237 };
 // Cool gray in an otherwise warm palette; kept deliberately so the user's own
 // words sit apart from everything the model produces.
 const coolGray: ColorValue = { hex: "#45454a", ansi256: 238 };
@@ -104,9 +100,6 @@ export const palette: Record<SemanticRole, ColorValue> = {
   diffHunkHeader: summitBlue,
   diffAddedBg: pineShadow,
   diffRemovedBg: emberShadow,
-  toolPendingBg: slateShadow,
-  toolSuccessBg: pineShadow,
-  toolErrorBg: emberShadow,
   userMessageBg: coolGray,
 };
 
