@@ -189,6 +189,20 @@ function withTimeout(
   };
 }
 
+const BUDGET_EXPIRED = Symbol("search-budget-expired");
+
+function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(BUDGET_EXPIRED);
+      return;
+    }
+    signal.addEventListener("abort", () => resolve(BUDGET_EXPIRED), {
+      once: true,
+    });
+  });
+}
+
 /**
  * Replaces stock run_shell with a hard-capped implementation, and applies a
  * 10s wall-clock budget to grep/search_files when the agent does not abort
@@ -231,15 +245,31 @@ export function shellGuardPlugin(cwd: string): ToolPlugin {
       if (SEARCH_TOOLS.has(call.name)) {
         const budget = withTimeout(signal, SEARCH_TOOL_TIMEOUT_MS);
         try {
-          const result = await next(call, budget.signal);
-          // If we aborted on budget and the base tool returned a generic abort,
-          // surface a clearer timeout message.
+          // Race the downstream handler against the budget rather than awaiting
+          // it. The fallback grep performs a non-abortable recursive readdir, so
+          // aborting its signal does not stop the walk; without the race a host
+          // without ripgrep could burn the loop far past the wall-clock budget.
+          const outcome = await Promise.race([
+            next(call, budget.signal),
+            budgetExpiry(budget.signal),
+          ]);
+
+          if (outcome === BUDGET_EXPIRED) {
+            const content = signal.aborted
+              ? `${call.name} aborted`
+              : `${call.name} timed out after ${SEARCH_TOOL_TIMEOUT_MS}ms — narrow path/glob`;
+            return { callId: call.id, content, isError: true };
+          }
+
+          // The base tool honored the abort and returned a generic abort error;
+          // surface a clearer timeout message when the budget, not the parent,
+          // triggered it.
           if (
             budget.signal.aborted &&
             !signal.aborted &&
-            result.isError === true &&
-            typeof result.content === "string" &&
-            /abort/i.test(result.content)
+            outcome.isError === true &&
+            typeof outcome.content === "string" &&
+            /abort/i.test(outcome.content)
           ) {
             return {
               callId: call.id,
@@ -247,7 +277,7 @@ export function shellGuardPlugin(cwd: string): ToolPlugin {
               isError: true,
             };
           }
-          return result;
+          return outcome;
         } finally {
           budget.dispose();
         }
