@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { ToolPlugin } from "@intx/tools-posix";
+import type { ToolDefinition } from "@intx/types/runtime";
 
 // Intercode-side replacement for stock `@intx/tools-posix` run_shell.
 // We do not patch interchange: this middleware short-circuits run_shell and
@@ -8,6 +9,40 @@ import type { ToolPlugin } from "@intx/tools-posix";
 
 export const DEFAULT_SHELL_TIMEOUT_MS = 10_000;
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
+
+/**
+ * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
+ * 10s; rewrite the definition the model sees so schema and behavior agree.
+ * Intercode-only — does not patch interchange.
+ */
+export function advertiseShellGuardTimeout(
+  definition: ToolDefinition,
+): ToolDefinition {
+  if (definition.name !== "run_shell") return definition;
+  const schema = definition.inputSchema;
+  const props = schema["properties"];
+  if (props === undefined || typeof props !== "object" || props === null) {
+    return definition;
+  }
+  const properties = props as Record<string, unknown>;
+  const timeout = properties["timeout"];
+  if (timeout === undefined || typeof timeout !== "object" || timeout === null) {
+    return definition;
+  }
+  return {
+    ...definition,
+    inputSchema: {
+      ...schema,
+      properties: {
+        ...properties,
+        timeout: {
+          ...(timeout as Record<string, unknown>),
+          description: `Timeout in milliseconds (default: ${DEFAULT_SHELL_TIMEOUT_MS})`,
+        },
+      },
+    },
+  };
+}
 
 // Search tools that can walk large trees; cap them even when the agent forgets.
 const SEARCH_TOOL_TIMEOUT_MS = 10_000;

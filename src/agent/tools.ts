@@ -20,7 +20,10 @@ import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
-import { shellGuardPlugin } from "../plugins/shell-guard-plugin.js";
+import {
+  advertiseShellGuardTimeout,
+  shellGuardPlugin,
+} from "../plugins/shell-guard-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -134,8 +137,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     ],
   });
 
+  // Align advertised run_shell timeout with shell-guard's 10s default.
   const baseTools: AgentTool[] = [
-    ...fromToolRunner(posixTools),
+    ...fromToolRunner(posixTools).map((tool) => ({
+      ...tool,
+      definition: advertiseShellGuardTimeout(tool.definition),
+    })),
     createListDirTool(cwd),
     createUseSkillTool(cwd, skillDirs),
     ...(args.subAgent !== undefined
