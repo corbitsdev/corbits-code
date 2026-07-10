@@ -4,6 +4,7 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import {
   DEFAULT_SHELL_TIMEOUT_MS,
   MAX_SHELL_OUTPUT_BYTES,
+  advertiseShellGuardTimeout,
   runGuardedShell,
   shellGuardPlugin,
 } from "./shell-guard-plugin.js";
@@ -53,6 +54,40 @@ describe("runGuardedShell", () => {
     );
     setTimeout(() => controller.abort(), 50);
     await expect(promise).rejects.toThrow(/aborted/);
+  });
+});
+
+describe("advertiseShellGuardTimeout", () => {
+  test("rewrites run_shell timeout default to match the guard", () => {
+    const rewritten = advertiseShellGuardTimeout({
+      name: "run_shell",
+      description: "Execute a shell command",
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          timeout: {
+            type: "number",
+            description: "Timeout in milliseconds (default: 30000)",
+          },
+        },
+        required: ["command"],
+      },
+    });
+    const timeout = (
+      rewritten.inputSchema["properties"] as Record<string, { description: string }>
+    )["timeout"];
+    expect(timeout?.description).toContain(String(DEFAULT_SHELL_TIMEOUT_MS));
+    expect(timeout?.description).not.toContain("30000");
+  });
+
+  test("leaves other tools unchanged", () => {
+    const def = {
+      name: "grep",
+      description: "search",
+      inputSchema: { type: "object", properties: {} },
+    };
+    expect(advertiseShellGuardTimeout(def)).toBe(def);
   });
 });
 
