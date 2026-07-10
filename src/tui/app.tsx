@@ -51,6 +51,7 @@ import { getLogger } from "@intx/log";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { extraPromptChromeRows } from "./prompt-layout.js";
+import { CHROME_DIVIDER } from "./chrome-zones.js";
 import { useSessionClock } from "./hooks/use-session-clock.js";
 import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
@@ -1700,6 +1701,7 @@ export function App({
               <TaskView tasks={activeSubAgents} title="Agents" />
             </Box>
           )}
+          <Box paddingX={1}><Text dimColor>{CHROME_DIVIDER}</Text></Box>
           <InFlightIndicator
             active={state.isProcessing}
             timingAnchor={spinnerTiming.anchor}

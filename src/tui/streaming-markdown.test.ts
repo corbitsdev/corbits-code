@@ -51,6 +51,11 @@ describe("createIncrementalMarkdown", () => {
     expect(incremental(content, 20)).toEqual(render(content, 20));
   });
 
+  test("stabilizes long paragraphs at newline boundaries without blank lines", () => {
+    const long = "word ".repeat(120).trim();
+    streamedEqualsWhole([long.slice(0, 40), long.slice(40, 90), long.slice(90)]);
+  });
+
   test("re-renders only the tail once a boundary is behind it", () => {
     const calls: string[] = [];
     const counting = (content: string, width: number): StyledLine[] => {

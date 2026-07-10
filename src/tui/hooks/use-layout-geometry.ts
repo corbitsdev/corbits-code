@@ -93,6 +93,7 @@ export type LayoutGeometry = {
 };
 
 // Header (up to 2) + in-flight (1) + model bar (1) + prompt box (3) + status (1).
+// Zone breakdown: src/tui/chrome-zones.ts (progress/in-flight, prompt, status).
 export const CHROME_ROWS = 8;
 
 export type ComputeOverlayRowsArgs = {

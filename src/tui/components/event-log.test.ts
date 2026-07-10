@@ -12,7 +12,19 @@ import {
   resolveViewportExpandIds,
   viewportToolIds,
 } from "./event-log.js";
-import type { ContentBlock } from "../use-stream.js";
+import type { ContentBlock, ContentBlockData } from "../use-stream.js";
+
+function asBlock(data: ContentBlockData & { id: string }): ContentBlock {
+  return data as ContentBlock;
+}
+
+function toolCallBlock(id: string, name: string, args: string, callId = id): ContentBlock {
+  return asBlock({ type: "tool_call", id, callId, name, arguments: args, startedAt: 0 });
+}
+
+function toolResultBlock(id: string, callId: string, name: string, content: string, isError = false): ContentBlock {
+  return asBlock({ type: "tool_result", id, callId, name, content, isError, finishedAt: 1_000 });
+}
 
 const COLUMNS = 80;
 
@@ -24,12 +36,7 @@ function isExpanded(): boolean {
 // `gh pr comment --body '<huge markdown>'` rendered as one block.
 function bigShellBlock(lineCount: number): ContentBlock {
   const body = Array.from({ length: lineCount }, (_, i) => `review line ${i}`).join("\n");
-  return {
-    type: "tool_call",
-    id: "shell-1",
-    name: "run_shell",
-    arguments: JSON.stringify({ command: `gh pr comment 57 --body '${body}'` }),
-  };
+  return toolCallBlock("shell-1", "run_shell", JSON.stringify({ command: `gh pr comment 57 --body '${body}'` }));
 }
 
 function lineText(lines: ReturnType<typeof buildLines>): string[] {
@@ -39,20 +46,8 @@ function lineText(lines: ReturnType<typeof buildLines>): string[] {
 function editPair(index: number): ContentBlock[] {
   const callId = `edit-${index}`;
   return [
-    {
-      type: "tool_call",
-      id: callId,
-      name: "edit_file",
-      arguments: JSON.stringify({ path: `src/file-${index}.ts` }),
-    },
-    {
-      type: "tool_result",
-      id: `edit-result-${index}`,
-      callId,
-      name: "edit_file",
-      content: `replaced 1 occurrence(s) in src/file-${index}.ts`,
-      isError: false,
-    },
+    toolCallBlock(callId, "edit_file", JSON.stringify({ path: `src/file-${index}.ts` }), callId),
+    toolResultBlock(`edit-result-${index}`, callId, "edit_file", `replaced 1 occurrence(s) in src/file-${index}.ts`),
   ];
 }
 
