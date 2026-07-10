@@ -12,6 +12,7 @@ import {
   type RunSubAgentParams,
   type SubAgentProvider,
 } from "../../src/subagent/index.js";
+import { createSubAgentSessionStore } from "../../src/subagent/session-store.js";
 import { buildSubAgentSystemPrompt } from "../../src/agent/prompts.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -197,6 +198,64 @@ test("orchestrator profile installs nestedDispatch so task can be re-dispatched"
   expect(received?.orchestrator).toBe(true);
   expect(received?.nestedDispatch).toBeDefined();
   expect(received?.systemPromptRole).toContain("coordinate");
+});
+
+test("nested dispatch runs reentrant so a full pool cannot deadlock it", async () => {
+  let received: RunSubAgentParams | undefined;
+  const nestedTool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    allowOrchestrator: false,
+    run: async (params) => {
+      received = params;
+      return "leaf";
+    },
+  });
+  await callHandler(nestedTool, { description: "work", prompt: "do the work" });
+  expect(received?.nested).toBe(true);
+
+  let topReceived: RunSubAgentParams | undefined;
+  const topTool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      topReceived = params;
+      return "worker";
+    },
+  });
+  await callHandler(topTool, { description: "work", prompt: "do the work" });
+  expect(topReceived?.nested).toBeUndefined();
+});
+
+test("nested dispatch forwards the external sink, not the orchestrator recorder", async () => {
+  const store = createSubAgentSessionStore();
+  const external: string[] = [];
+  const tool = createTaskTool({
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    sessions: store,
+    onEvent: (event) => external.push(event.type),
+    profiles: [{ id: "dispatch", orchestrator: true }],
+    run: async (params) => {
+      // While the orchestrator session is still running, a grandchild event
+      // arrives on the nested sink. It must reach the external sink but not be
+      // recorded into the orchestrator's own transcript.
+      params.nestedDispatch?.onEvent?.({
+        type: "inference.text.delta",
+        data: { token: "grandchild" },
+      } as ReactorEmittedEvent);
+      return "coordinated";
+    },
+  });
+  await callHandler(tool, { description: "fan out", prompt: "dispatch", agent: "dispatch" });
+
+  const orchestrator = store.list()[0];
+  expect(orchestrator).toBeDefined();
+  expect(orchestrator!.entries.some((e) => e.kind === "text")).toBe(false);
+  expect(external).toContain("inference.text.delta");
 });
 
 test("allowOrchestrator false strips orchestrator even when the profile is marked", async () => {

@@ -93,6 +93,41 @@ describe("createSubAgentSessionStore", () => {
     ]);
   });
 
+  test("interleaved parallel tool_call deltas attach to their own callId", () => {
+    const store = createSubAgentSessionStore({ createId: () => "s-parallel" });
+    store.start({ description: "job", agentId: "worker", brief: "do it" });
+
+    store.appendEvent(
+      "s-parallel",
+      event("inference.tool_call.start", { name: "read", callId: "a" }),
+    );
+    store.appendEvent(
+      "s-parallel",
+      event("inference.tool_call.start", { name: "grep", callId: "b" }),
+    );
+    // Deltas arrive interleaved for the two open calls; each fragment must land
+    // on the entry that owns its callId, not the most recent tool entry.
+    store.appendEvent(
+      "s-parallel",
+      event("inference.tool_call.delta", { callId: "a", argumentFragment: '{"path":' }),
+    );
+    store.appendEvent(
+      "s-parallel",
+      event("inference.tool_call.delta", { callId: "b", argumentFragment: '{"pattern":' }),
+    );
+    store.appendEvent(
+      "s-parallel",
+      event("inference.tool_call.delta", { callId: "a", argumentFragment: '"a.ts"}' }),
+    );
+
+    const session = store.get("s-parallel");
+    const toolEntries = session?.entries.filter((e) => e.kind === "tool") ?? [];
+    expect(toolEntries).toEqual([
+      { kind: "tool", callId: "a", name: "read", arguments: '{"path":"a.ts"}' },
+      { kind: "tool", callId: "b", name: "grep", arguments: '{"pattern":' },
+    ]);
+  });
+
   test("fail marks status and keeps the session for inspection", () => {
     const store = createSubAgentSessionStore({ createId: () => "s-3" });
     store.start({ description: "boom", agentId: "worker", brief: "x" });

@@ -31,8 +31,17 @@ import {
 } from "./sent-message-history.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
-import { AgentsStrip } from "./components/agents-strip.js";
-import { SubAgentSessionView } from "./components/subagent-session-view.js";
+import {
+  AgentsStrip,
+  agentsStripRowCount,
+  DEFAULT_STRIP_MAX_VISIBLE,
+} from "./components/agents-strip.js";
+import {
+  SubAgentSessionView,
+  subAgentScrollWindow,
+  subAgentTranscriptWidth,
+  renderTranscriptLines,
+} from "./components/subagent-session-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
@@ -739,9 +748,11 @@ export function App({
     () => state.subAgents.filter((a) => a.status !== "done"),
     [state.subAgents],
   );
+  // The strip caps rendered rows so retained history never crowds out the
+  // transcript; +1 accounts for the surrounding marginTop wrapper.
   const agentsStripRows =
     agentSessions.length > 0
-      ? agentSessions.length + 2
+      ? agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
       : activeSubAgents.length > 0
         ? activeSubAgents.length + 2
         : 0;
@@ -919,6 +930,24 @@ export function App({
 
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
+  // The entered child view owns its own scroll: the parent transcript and the
+  // child transcript have unrelated line counts, so one shared offset would
+  // scroll the hidden parent while the child stayed pinned to its newest rows.
+  const enteredTranscriptLineCount = useMemo(() => {
+    if (enteredSession === undefined) return 0;
+    return renderTranscriptLines(
+      enteredSession.entries,
+      subAgentTranscriptWidth(contentWidth),
+    ).length;
+  }, [enteredSession, contentWidth]);
+  const enteredScrollMaxOffset = subAgentScrollWindow(
+    enteredTranscriptLineCount,
+    visibleRows,
+    0,
+  ).maxOffset;
+  const enteredScroll = useScroll({ maxOffset: enteredScrollMaxOffset });
+  const activeScroll = enteredSession !== undefined ? enteredScroll : scroll;
+
   // Ctrl+O expands tools intersecting the visible window. Membership uses the
   // *display* layout (same line space as scrollOffset) so mid-scroll tracking
   // stays correct after tools grow. Sticky hold + tool-count cap keep the set
@@ -977,7 +1006,12 @@ export function App({
     permissionsOpen ||
     settingsOpen ||
     pluginsOpen ||
-    copyModeIndex !== null
+    copyModeIndex !== null ||
+    // Agents navigation and the entered child view own Enter and the arrows;
+    // leaving the prompt active would submit/interrupt the parent draft or edit
+    // it while the operator is only observing.
+    agentsNavOpen ||
+    enteredSessionId !== null
   );
 
   const copyModeOpen = copyModeIndex !== null;
@@ -1341,9 +1375,9 @@ export function App({
         }
       },
       closeHookPanel: () => setHookPanelOpen(false),
-      scrollUp: () => scroll.scrollUp(visibleRows),
-      scrollDown: () => scroll.scrollDown(visibleRows),
-      scrollToBottom: () => scroll.scrollToBottom(),
+      scrollUp: () => activeScroll.scrollUp(visibleRows),
+      scrollDown: () => activeScroll.scrollDown(visibleRows),
+      scrollToBottom: () => activeScroll.scrollToBottom(),
       toggleVerbose: () => {
         if (verbose) {
           setVerbose(false);
@@ -1463,8 +1497,8 @@ export function App({
 
   useMouseScroll(
     mouseEvents,
-    (ticks) => scroll.scrollUp(ticks * 3),
-    (ticks) => scroll.scrollDown(ticks * 3),
+    (ticks) => activeScroll.scrollUp(ticks * 3),
+    (ticks) => activeScroll.scrollDown(ticks * 3),
   );
 
   const handleCommand = (result: CommandResult) => {
@@ -1642,6 +1676,7 @@ export function App({
               session={enteredSession}
               visibleRows={visibleRows}
               width={contentWidth}
+              scrollOffset={enteredScroll.scrollOffset}
             />
           </Box>
         ) : (
