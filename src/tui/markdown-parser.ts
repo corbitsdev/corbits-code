@@ -15,6 +15,8 @@ export type StyledSegment = {
   color?: string;
   dim?: boolean;
   backgroundColor?: string;
+  linkUrl?: string;
+  codeFence?: boolean;
 };
 
 // Inline-markdown matchers. Hoisted to module scope so they are not re-created
@@ -100,9 +102,7 @@ function parseSegments(text: string): StyledSegment[] {
     if (linkMatch && linkMatch[1] !== undefined && linkMatch[2] !== undefined) {
       const text = linkMatch[1];
       const url = linkMatch[2];
-      segments.push({ text, link: true });
-      // Show the URL only when it is present and short enough to be useful;
-      // an empty URL ([text]()) still renders as a styled link, not raw text.
+      segments.push({ text, link: true, ...(url.length > 0 ? { linkUrl: url } : {}) });
       if (url.length > 0 && url.length <= 40) {
         segments.push({ text: ` (${url})` });
       }
@@ -181,11 +181,26 @@ const FENCE_CLOSE_RE = /^\s*(```+|~~~+)\s*$/;
 // a line, not yet the three needed to close. Stripped from the streaming tail so
 // the block does not re-highlight around a half-formed fence each drain.
 const PARTIAL_FENCE_RE = /^\s*[`~]{1,2}\s*$/;
+const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
+const CODE_GUTTER = "▏ ";
 
 type FencedBlock = { lines: StyledSegment[][]; consumed: number };
 
+function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
+  if (line.length === 0) return line;
+  return [{ text: CODE_GUTTER, code: true, dim: true, codeFence: true }, ...line];
+}
+
+function fencedCap(label: string): StyledSegment[] {
+  return [{ text: "╭ ", dim: true, codeFence: true }, { text: label, dim: true, codeFence: true }];
+}
+
+function fencedFoot(): StyledSegment[] {
+  return [{ text: "╰", dim: true, codeFence: true }];
+}
+
 // Collect a fenced block starting at `start`, highlight its body by the fence's
-// language token, and render the delimiters as blank lines. The block may be
+// language token, and frame it with cap/gutter glyphs. The block may be
 // unclosed while it streams; in that case a nascent closing fence is dropped so
 // the trailing block re-highlights cleanly rather than flickering.
 function parseFencedBlock(input: string[], start: number, width: number): FencedBlock {
@@ -206,10 +221,29 @@ function parseFencedBlock(input: string[], start: number, width: number): Fenced
     body.pop();
   }
 
-  const lines: StyledSegment[][] = [[]];
-  if (body.length > 0) lines.push(...highlightCode(body.join("\n"), language, width));
-  if (closed) lines.push([]);
+  const capLabel = language && language.length > 0 ? language : "code";
+  const lines: StyledSegment[][] = [fencedCap(capLabel)];
+  if (body.length > 0) {
+    lines.push(...highlightCode(body.join("\n"), language, width).map(codeGutterPrefix));
+  }
+  if (closed) lines.push(fencedFoot());
   return { lines, consumed };
+}
+
+function parseIndentedCodeBlock(input: string[], start: number, width: number): FencedBlock {
+  const body: string[] = [];
+  let i = start;
+  for (; i < input.length; i++) {
+    const match = input[i]!.match(INDENTED_CODE_RE);
+    if (!match) break;
+    body.push(match[1] ?? "");
+  }
+  const lines: StyledSegment[][] = [fencedCap("code")];
+  if (body.length > 0) {
+    lines.push(...highlightCode(body.join("\n"), undefined, width).map(codeGutterPrefix));
+  }
+  lines.push(fencedFoot());
+  return { lines, consumed: i - start };
 }
 
 // `width` is the column budget the rendered output must fit within (the same
@@ -227,6 +261,13 @@ export function parseMarkdown(text: string, width = Infinity): StyledSegment[][]
     // lines render as blank separators.
     if (FENCE_OPEN_RE.test(line)) {
       const block = parseFencedBlock(input, i, width);
+      lines.push(...block.lines);
+      i += block.consumed - 1;
+      continue;
+    }
+
+    if (INDENTED_CODE_RE.test(line)) {
+      const block = parseIndentedCodeBlock(input, i, width);
       lines.push(...block.lines);
       i += block.consumed - 1;
       continue;

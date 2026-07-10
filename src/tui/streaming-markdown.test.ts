@@ -51,7 +51,17 @@ describe("createIncrementalMarkdown", () => {
     expect(incremental(content, 20)).toEqual(render(content, 20));
   });
 
-  test("re-renders only the tail once a boundary is behind it", () => {
+  test("stabilizes long paragraphs at newline boundaries without blank lines", () => {
+    // Many single-newline lines (no blank paragraphs) past MAX_TAIL_CHARS.
+    const lines = Array.from({ length: 40 }, (_, i) => `line ${i} with enough padding words here`).join("\n");
+    streamedEqualsWhole([
+      lines.slice(0, 200),
+      lines.slice(200, 500),
+      lines.slice(500),
+    ]);
+  });
+
+  test("re-renders only the tail once a blank-line boundary is behind it", () => {
     const calls: string[] = [];
     const counting = (content: string, width: number): StyledLine[] => {
       calls.push(content);
@@ -62,5 +72,23 @@ describe("createIncrementalMarkdown", () => {
     calls.length = 0;
     incremental("stable paragraph.\n\ntail one grows", 80);
     expect(calls).toEqual(["tail one grows"]);
+  });
+
+  test("re-renders only the tail after a long single-newline carve", () => {
+    const pad = Array.from({ length: 30 }, (_, i) => `stable line ${i} xxxxxxxxxx`).join("\n");
+    const calls: string[] = [];
+    const counting = (content: string, width: number): StyledLine[] => {
+      calls.push(content);
+      return render(content, width);
+    };
+    const incremental = createIncrementalMarkdown(counting);
+    const base = `${pad}\ntail start`;
+    incremental(base, 80);
+    calls.length = 0;
+    incremental(`${base} grows`, 80);
+    // After MAX_TAIL carve, only the trailing fragment should re-render.
+    expect(calls.length).toBe(1);
+    expect(calls[0]!).toContain("grows");
+    expect(calls[0]!.length).toBeLessThan(base.length);
   });
 });
