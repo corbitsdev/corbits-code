@@ -407,8 +407,21 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     infer: (opts) => ({ type: "infer", options: opts } as unknown as ReactorAction),
   };
   const lateTool = { name: "mcp__acme__list_issues", description: "list", inputSchema: { type: "object" } };
+  const inferToolNames = (action: Record<string, unknown> | undefined): string[] => {
+    const tools = (action?.options as Record<string, unknown> | undefined)?.tools;
+    return Array.isArray(tools) ? tools.map((t) => (t as { name: string }).name) : [];
+  };
+
   const inferTools = (action: Record<string, unknown> | undefined): unknown =>
     (action?.options as Record<string, unknown> | undefined)?.tools;
+  const firstInferTools = async (
+    director: ReturnType<typeof createChatDirector>,
+    event: ReactorInboundEvent,
+  ): Promise<unknown> => {
+    const result = await director.decide(event, mockState, capabilitiesWithInferArgs);
+    const actions = Array.isArray(result) ? result : [result];
+    return inferTools(actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined);
+  };
 
   test("a tool registered after construction is advertised on the next inference", async () => {
     const director = createChatDirector("base-prompt", []);
@@ -418,7 +431,40 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
-    expect(inferTools(inferAction)).toEqual([lateTool]);
+    expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
+  });
+
+  // The provider cache is a prefix cache keyed on the tools array; a tool_search
+  // between turns must not reshape it.
+  test("wire tools are byte-identical across a turn that ran tool_search", async () => {
+    const director = createChatDirector("base-prompt", [lateTool]);
+
+    const before = await firstInferTools(director, makeMessageReceivedEvent("do work"));
+
+    // A full tool_search round-trip: the model calls it, it resolves. Under the
+    // stable-superset design this promotes nothing, so the advertised set is
+    // untouched.
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "ts", name: "tool_search", args: { query: "find files" } }]),
+      mockState,
+      capabilitiesWithInferArgs,
+    );
+    await director.decide(makeToolDoneEvent("ts"), mockState, capabilitiesWithInferArgs);
+
+    const after = await firstInferTools(director, makeMessageReceivedEvent("continue"));
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+  });
+
+  // advance_workflow is always on the wire so a workflow going active never grows
+  // the array and busts the provider cache prefix.
+  test("advance_workflow is advertised even with no active workflow", async () => {
+    const director = createChatDirector("base-prompt", []);
+    director.updateToolDefinitions([lateTool]);
+
+    const result = await director.decide(makeMessageReceivedEvent("hello"), mockState, capabilitiesWithInferArgs);
+    const actions = Array.isArray(result) ? result : [result];
+    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    expect(inferToolNames(inferAction)).toContain("advance_workflow");
   });
 
   test("the new-task path also carries the current tools", async () => {
@@ -430,7 +476,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
-    expect(inferTools(inferAction)).toEqual([lateTool]);
+    expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
   });
 });
 

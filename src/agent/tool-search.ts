@@ -25,15 +25,36 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "task",
 ];
 
-// Built-in tools surfaced in the prompt as one-line summaries (no schema) so the
-// model knows they exist and can load them with tool_search. MCP tools are not
-// listed at all — they are discovered blind.
+// Built-in file/search tools advertised alongside the core set. They carry full
+// schemas on the wire so the model can call them directly; MCP tools are not
+// listed at all — they are discovered blind via tool_search.
 export const CATALOG_TOOL_NAMES: readonly string[] = [
   "write_file",
   "search_files",
   "grep",
   "list_dir",
 ];
+
+// The complete set of built-in tools whose schemas are always on the wire, in a
+// deterministic order. Provider prompt caches are prefix caches keyed on the
+// tools array (it sits before system + messages), so this order must never shift
+// between turns — a reordered or grown array re-prefills the whole request.
+export const ADVERTISED_TOOL_NAMES: readonly string[] = [
+  ...CORE_TOOL_NAMES,
+  ...CATALOG_TOOL_NAMES,
+];
+
+// Project the live tool registry onto the stable advertised set. Filtering by a
+// fixed name order (rather than the registry's own order) keeps the result
+// byte-identical across turns even as MCP servers append tools or tool_search
+// runs, so the cache prefix survives.
+export function advertisedTools(all: readonly ToolDefinition[]): ToolDefinition[] {
+  const byName = new Map(all.map((def) => [def.name, def]));
+  return ADVERTISED_TOOL_NAMES.flatMap((name) => {
+    const def = byName.get(name);
+    return def !== undefined ? [def] : [];
+  });
+}
 
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
@@ -81,7 +102,7 @@ export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolI
       const queryTokens = tokenize(query);
       if (queryTokens.length === 0) return [];
       return getDefs()
-        .filter((def) => !CORE_TOOL_NAMES.includes(def.name))
+        .filter((def) => !ADVERTISED_TOOL_NAMES.includes(def.name))
         .map((def) => ({ name: def.name, score: score(def, queryTokens, rawQuery) }))
         .filter((entry) => entry.score > 0)
         .sort((a, b) => b.score - a.score)
@@ -94,8 +115,6 @@ export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolI
 export type ToolSearchDeps = {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
-  // Make the matched tools available (advertise their schemas) for subsequent turns.
-  promote: (names: string[]) => void;
 };
 
 const ToolSearchArgs = type({ query: "string" });
@@ -114,9 +133,11 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      deps.promote(names);
+      // Every registered tool is already dispatchable; discovery only needs to
+      // surface names + descriptions so the model knows what it can call. The
+      // wire tools array stays fixed, so this never invalidates the cache prefix.
       const lines = names.map((name) => `- ${name}: ${deps.lookup(name)?.description ?? ""}`);
-      return `Loaded these tools — you can call them now:\n${lines.join("\n")}`;
+      return `These tools are available — you can call them now:\n${lines.join("\n")}`;
     },
   });
 }
