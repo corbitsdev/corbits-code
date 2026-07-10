@@ -498,8 +498,8 @@ describe("turnsToContentBlocks", () => {
     const turns: ConversationTurn[] = [{
       role: "assistant",
       content: [
-        { type: "tool_call", id: "c1", name: "run_shell", arguments: "a".repeat(MAX_STORED_TOOL_ARGUMENT_CHARS + 50_000) },
-        { type: "tool_result", callId: "c1", content: "b".repeat(MAX_STORED_TOOL_RESULT_CHARS + 50_000), isError: false },
+        { type: "tool_call", id: "c1", name: "run_shell", arguments: { command: "a".repeat(MAX_STORED_TOOL_ARGUMENT_CHARS + 50_000) } },
+        { type: "tool_result", callId: "c1", content: [{ type: "text", text: "b".repeat(MAX_STORED_TOOL_RESULT_CHARS + 50_000) }], isError: false },
       ],
       model: "test",
       timestamp: 0,
