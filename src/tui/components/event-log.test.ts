@@ -75,7 +75,38 @@ describe("collapsed shell rows", () => {
       { type: "tool_call", id: "s2", name: "run_shell", arguments: JSON.stringify({ command: "ls -la" }) },
     ];
     const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
-    expect(lines).toEqual(["  $ ls -la"]);
+    expect(lines).toEqual(["  $ ls -la · running"]);
+  });
+
+  test("pending shell shows · running and completed shell shows duration", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "s3",
+      callId: "s3",
+      name: "run_shell",
+      arguments: JSON.stringify({ command: "echo hi" }),
+      startedAt: 1_000,
+    };
+    const pending = lineText(buildLines([call], COLUMNS, false, isExpanded)).join("\n");
+    expect(pending).toContain("· running");
+    expect(pending).toContain("$ echo hi");
+
+    const done: ContentBlock[] = [
+      call,
+      {
+        type: "tool_result",
+        id: "r3",
+        callId: "s3",
+        name: "run_shell",
+        content: "hi\n",
+        isError: false,
+        finishedAt: 3_500,
+      },
+    ];
+    const finished = lineText(buildLines(done, COLUMNS, false, isExpanded)).join("\n");
+    expect(finished).not.toContain("running");
+    expect(finished).toContain("· 2.5s");
+    expect(finished).toContain("→ hi");
   });
 });
 
@@ -205,6 +236,53 @@ describe("flat line buffer", () => {
 
     expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Read 1 line of package.json"]);
     expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
+  });
+
+  test("incremental append of a tool result drops · running and merges with duration", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "call-read",
+      callId: "call-read",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "src/foo.ts" }),
+      startedAt: 1_000,
+    };
+    const cache = new Map();
+    const pending = buildLinesIncremental(undefined, [call], COLUMNS, false, isExpanded, cache);
+    expect(lineText(pending.lines).join("\n")).toContain("· running");
+
+    const result: ContentBlock = {
+      type: "tool_result",
+      id: "result-read",
+      callId: "call-read",
+      name: "read_file",
+      content: "hello",
+      isError: false,
+      finishedAt: 2_500,
+    };
+    const done = buildLinesIncremental(pending, [call, result], COLUMNS, false, isExpanded, cache);
+    const text = lineText(done.lines).join("\n");
+    expect(text).not.toContain("running");
+    expect(text).toContain("· 1.5s");
+    expect(text).toContain("Read 1 line of src/foo.ts");
+    // Matches a full rebuild so the incremental path cannot drift.
+    expect(lineText(done.lines)).toEqual(
+      lineText(buildLines([call, result], COLUMNS, false, isExpanded)),
+    );
+  });
+
+  test("pending non-shell tool shows · running", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "call-read",
+      callId: "call-read",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "src/foo.ts" }),
+      startedAt: 1_000,
+    };
+    const text = lineText(buildLines([call], COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("· running");
+    expect(text).toContain("Read");
   });
 
   test("orphan tool result still renders on its own", () => {

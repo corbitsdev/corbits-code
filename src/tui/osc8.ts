@@ -8,8 +8,9 @@ const CONTROL_OR_BEL = /[\x00-\x1f\x7f]/;
 export function isSafeOsc8Url(url: string): boolean {
   if (url.length === 0 || url.length > 2048) return false;
   if (CONTROL_OR_BEL.test(url)) return false;
-  // Allow absolute http(s) and relative-ish paths/fragments used in docs.
-  return /^(https?:\/\/|mailto:|file:|\/|\.\/|#)/i.test(url) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(url);
+  // Tight allowlist only: model-authored markdown becomes a clickable terminal
+  // link, so catch-all scheme:// would admit data:/ftp:/javascript:// etc.
+  return /^(https?:\/\/|mailto:|file:|\/|\.\/|#)/i.test(url);
 }
 
 export function osc8Hyperlink(url: string, label: string): string {

@@ -64,8 +64,56 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
 
 const CACHE_KEY_SEPARATOR = "\x1f";
 
-function blockCacheKey(block: RenderableBlock, columns: number, expanded: boolean): string {
-  return [block.id, String(columns), expanded ? "1" : "0"].join(CACHE_KEY_SEPARATOR);
+// Tool-call paint depends on whether a matching result exists (pending tint,
+// duration, error). Fold that sibling state into the key so a completed call
+// never reuses a pending cache entry.
+function blockCacheKey(
+  block: RenderableBlock,
+  columns: number,
+  expanded: boolean,
+  allBlocks?: RenderableBlock[],
+): string {
+  const base = [block.id, String(columns), expanded ? "1" : "0"];
+  if (block.type === "tool_call" && allBlocks !== undefined) {
+    const result = toolResultForCall(allBlocks, block.callId ?? block.id);
+    base.push(
+      result === undefined
+        ? "p"
+        : `d${result.finishedAt ?? 0}${result.isError ? "e" : "o"}`,
+    );
+  }
+  return base.join(CACHE_KEY_SEPARATOR);
+}
+
+// When a tool_result is appended after its call was already painted into the
+// incremental prefix, walk the prefix back so the call is reassembled and can
+// merge / drop · running. Only newly appended results (index >= prevLength)
+// trigger a walk-back — completed pairs already in prev stay frozen.
+function earliestCallIndexForNewResults(
+  blocks: RenderableBlock[],
+  fromIndex: number,
+  prevLength: number,
+): number {
+  let earliest = fromIndex;
+  for (let i = Math.max(fromIndex, prevLength); i < blocks.length; i++) {
+    const block = blocks[i];
+    if (block?.type !== "tool_result") continue;
+    const callId = block.callId ?? block.id;
+    for (let j = 0; j < i; j++) {
+      const call = blocks[j];
+      if (call?.type === "tool_call" && (call.callId ?? call.id) === callId) {
+        if (j < earliest) earliest = j;
+        break;
+      }
+    }
+  }
+  return earliest;
+}
+
+function appendTextToLastLine(lines: StyledLine[], text: string, seg: Partial<StyledSegment> = {}): StyledLine[] {
+  if (text.length === 0 || lines.length === 0) return lines;
+  const last = lines[lines.length - 1]!;
+  return [...lines.slice(0, -1), [...last, { text, ...seg }]];
 }
 
 function blockIdFromCacheKey(key: string): string {
@@ -285,17 +333,20 @@ function toolCallLines(
   block: Extract<RenderableBlock, { type: "tool_call" }>,
   width: number,
   expanded: boolean,
-  meta?: { pending?: boolean; durationSuffix?: string },
+  meta?: { pending?: boolean; durationSuffix?: string; isError?: boolean },
 ): StyledLine[] {
   const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
   const durationSuffix = meta?.pending ? " · running" : (meta?.durationSuffix ?? "");
 
-  const bg = toolRowBackground(meta?.pending === true, undefined);
+  const bg = toolRowBackground(meta?.pending === true, meta?.isError);
 
   if (isShell) {
     const rows = expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
-    return paintToolBackground(rows, bg);
+    return paintToolBackground(
+      appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true }),
+      bg,
+    );
   }
 
   if (expanded) {
@@ -353,23 +404,23 @@ function mergedToolLines(
   const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const roleColor = color(role);
 
+  const durationSuffix = formatToolDurationMs((result.finishedAt ?? call.startedAt ?? 0) - (call.startedAt ?? 0));
+  const bg = toolRowBackground(false, result.isError);
+
   if (isShell && !result.isError) {
     // Command and outcome are recomputed from source rather than re-split out of
     // the merged string — a " → " inside the command or output would corrupt it.
     const outcome = summarizeToolResult(call.name, result.content).preview;
     const suffix = outcome === "(no output)" ? undefined : outcome;
-    const base = clampedShellLines(summary, roleColor, width);
-    if (suffix === undefined || suffix.length === 0) return base;
-    const last = base[base.length - 1];
-    if (last === undefined) return base;
-    return [
-      ...base.slice(0, -1),
-      [...last, { text: ` → ${suffix}`, color: color("dim"), dim: true }],
-    ];
+    let rows = clampedShellLines(summary, roleColor, width);
+    if (suffix !== undefined && suffix.length > 0) {
+      rows = appendTextToLastLine(rows, ` → ${suffix}`, { color: color("dim"), dim: true });
+    }
+    rows = appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
+    return paintToolBackground(rows, bg);
   }
 
   const collapsedColor = role === "danger" ? roleColor : color("muted");
-  const durationSuffix = formatToolDurationMs((result.finishedAt ?? call.startedAt ?? 0) - (call.startedAt ?? 0));
   const lines = wrapStyledLine(
     [
       { text: "● ", color: roleColor, dim: role !== "danger" },
@@ -377,7 +428,7 @@ function mergedToolLines(
     ],
     width,
   );
-  return paintToolBackground(lines, toolRowBackground(false, result.isError));
+  return paintToolBackground(lines, bg);
 }
 
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {
@@ -534,7 +585,11 @@ function blockToLines(
       const finished = result?.finishedAt ?? started;
       const durationSuffix = result !== undefined ? formatToolDurationMs(finished - started) : "";
       return indentLines(
-        toolCallLines(block, width - TOOL_INDENT, expanded, { pending, durationSuffix }),
+        toolCallLines(block, width - TOOL_INDENT, expanded, {
+          pending,
+          durationSuffix,
+          ...(result?.isError !== undefined ? { isError: result.isError } : {}),
+        }),
         TOOL_INDENT,
       );
     }
@@ -658,7 +713,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
     let blockLines: StyledLine[];
 
     if (cache !== undefined && !isStreaming) {
-      const key = blockCacheKey(block, columns, expanded);
+      const key = blockCacheKey(block, columns, expanded, blocks);
       const cached = cache.get(key);
       if (cached !== undefined) {
         blockLines = cached;
@@ -768,8 +823,9 @@ function estimateBlockLineCount(
   columns: number,
   expanded: boolean,
   cache?: Map<string, StyledLine[]>,
+  allBlocks?: RenderableBlock[],
 ): number {
-  const cached = cache?.get(blockCacheKey(block, columns, expanded));
+  const cached = cache?.get(blockCacheKey(block, columns, expanded, allBlocks));
   if (cached !== undefined) return cached.length;
   if (block.type === "tool_call" || block.type === "tool_result") return 1;
   if (block.type === "view") {
@@ -802,7 +858,7 @@ function findColdPathStartIndex(
     const block = blocks[i]!;
     const expanded = isExpanded(block);
     const turnGap = block.type === "user" || block.type === "text" ? 1 : 0;
-    const count = estimateBlockLineCount(block, columns, expanded, cache) + turnGap;
+    const count = estimateBlockLineCount(block, columns, expanded, cache, blocks) + turnGap;
     if (accumulated + count > budget && i < blocks.length - 1) return i + 1;
     accumulated += count;
   }
@@ -851,6 +907,10 @@ export function buildLinesIncremental(
       // streaming path stays uncached.
       startBlockIndex =
         commonPrefix === blocks.length ? blocks.length - 1 : Math.min(commonPrefix, blocks.length - 1);
+      // A newly arrived tool_result still shares object identity with its
+      // earlier tool_call. Pull the assemble window back so the call is not
+      // left frozen as · running in the prefix.
+      startBlockIndex = earliestCallIndexForNewResults(blocks, startBlockIndex, prevLength);
       prefixLines =
         startBlockIndex === prevLength
           ? prev.lines
