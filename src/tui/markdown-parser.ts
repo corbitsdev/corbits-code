@@ -1,3 +1,4 @@
+import { highlightCode } from "./syntax-highlight.js";
 import { wrapRanges, stringWidth } from "./view/height.js";
 
 export type StyledSegment = {
@@ -174,27 +175,60 @@ function parseLine(line: string): StyledSegment[] {
   return parseSegments(line);
 }
 
+const FENCE_OPEN_RE = /^\s*(```+|~~~+)/;
+const FENCE_CLOSE_RE = /^\s*(```+|~~~+)\s*$/;
+// A closing fence typed one character at a time: one or two lone fence chars on
+// a line, not yet the three needed to close. Stripped from the streaming tail so
+// the block does not re-highlight around a half-formed fence each drain.
+const PARTIAL_FENCE_RE = /^\s*[`~]{1,2}\s*$/;
+
+type FencedBlock = { lines: StyledSegment[][]; consumed: number };
+
+// Collect a fenced block starting at `start`, highlight its body by the fence's
+// language token, and render the delimiters as blank lines. The block may be
+// unclosed while it streams; in that case a nascent closing fence is dropped so
+// the trailing block re-highlights cleanly rather than flickering.
+function parseFencedBlock(input: string[], start: number, width: number): FencedBlock {
+  const language = input[start]!.match(/^\s*(?:```+|~~~+)\s*([^\s`]*)/)?.[1] || undefined;
+  const body: string[] = [];
+  let i = start + 1;
+  let closed = false;
+  for (; i < input.length; i++) {
+    if (FENCE_CLOSE_RE.test(input[i]!)) {
+      closed = true;
+      break;
+    }
+    body.push(input[i]!);
+  }
+  const consumed = closed ? i - start + 1 : i - start;
+
+  if (!closed && body.length > 0 && PARTIAL_FENCE_RE.test(body[body.length - 1]!)) {
+    body.pop();
+  }
+
+  const lines: StyledSegment[][] = [[]];
+  if (body.length > 0) lines.push(...highlightCode(body.join("\n"), language, width));
+  if (closed) lines.push([]);
+  return { lines, consumed };
+}
+
 // `width` is the column budget the rendered output must fit within (the same
 // width the event log wraps to). Tables use it to decide their layout; default
 // Infinity lays them out at natural width.
 export function parseMarkdown(text: string, width = Infinity): StyledSegment[][] {
   const lines: StyledSegment[][] = [];
-  let inFence = false;
   const input = text.split("\n");
 
   for (let i = 0; i < input.length; i++) {
     const line = input[i]!;
 
-    // Fenced code block delimiters (``` or ~~~). The delimiter line itself is
-    // rendered as a blank separator; lines inside are shown verbatim as code
-    // with no inline parsing.
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      lines.push([]);
-      continue;
-    }
-    if (inFence) {
-      lines.push(line.length === 0 ? [] : [{ text: line, code: true }]);
+    // Fenced code block (``` or ~~~). The whole block is collected so its body
+    // can be syntax-highlighted by the fence's language token; the delimiter
+    // lines render as blank separators.
+    if (FENCE_OPEN_RE.test(line)) {
+      const block = parseFencedBlock(input, i, width);
+      lines.push(...block.lines);
+      i += block.consumed - 1;
       continue;
     }
 
