@@ -1,6 +1,6 @@
 import type { StyledLine } from "./view/index.js";
 import type { StyledSegment } from "./markdown-parser.js";
-import { wrapLines } from "./view/height.js";
+import { wrapRanges } from "./view/height.js";
 import { color } from "./theme.js";
 
 export type DiffRowKind = "add" | "del" | "context";
@@ -91,23 +91,60 @@ function tokenizeWords(line: string): string[] {
   return line.match(/\S+|\s+/g) ?? (line.length === 0 ? [] : [line]);
 }
 
-function wordDiffSegments(line: string, kind: "add" | "del", paired: string): StyledSegment[] {
-  const a = tokenizeWords(line);
-  const b = tokenizeWords(paired);
-  const n = Math.max(a.length, b.length);
-  const out: StyledSegment[] = [];
-  for (let i = 0; i < n; i++) {
-    const ta = a[i] ?? "";
-    const tb = b[i] ?? "";
-    const token = kind === "del" ? ta : tb;
-    if (token.length === 0) continue;
-    const same = ta === tb && ta.length > 0;
-    out.push({
-      text: token,
-      color: same ? color("diffContext") : rowColor(kind),
-    });
+function lcsTable(a: string[], b: string[]): number[][] {
+  const n = a.length;
+  const m = b.length;
+  const table: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      table[i]![j] = a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+    }
   }
+  return table;
+}
+
+// Token LCS over words/whitespace runs so a rename or argument swap only paints
+// the changed tokens, not the whole line. Emits segments for `line` only (the
+// side being rendered); tokens unique to `paired` are skipped on this pass.
+export function wordDiffSegments(line: string, kind: "add" | "del", paired: string): StyledSegment[] {
+  const self = tokenizeWords(line);
+  const other = tokenizeWords(paired);
+  if (self.length === 0) return [{ text: line, color: rowColor(kind) }];
+
+  const lcs = lcsTable(self, other);
+  const out: StyledSegment[] = [];
+  let i = 0;
+  let j = 0;
+  const n = self.length;
+  const m = other.length;
+  while (i < n && j < m) {
+    if (self[i] === other[j]) {
+      out.push({ text: self[i]!, color: color("diffContext") });
+      i++;
+      j++;
+    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
+      out.push({ text: self[i]!, color: rowColor(kind) });
+      i++;
+    } else {
+      j++;
+    }
+  }
+  while (i < n) out.push({ text: self[i++]!, color: rowColor(kind) });
   return out.length > 0 ? out : [{ text: line, color: rowColor(kind) }];
+}
+
+function sliceSegments(segments: StyledSegment[], start: number, end: number): StyledSegment[] {
+  const out: StyledSegment[] = [];
+  let pos = 0;
+  for (const seg of segments) {
+    const segStart = pos;
+    const segEnd = pos + seg.text.length;
+    pos = segEnd;
+    const from = Math.max(start, segStart);
+    const to = Math.min(end, segEnd);
+    if (to > from) out.push({ ...seg, text: seg.text.slice(from - segStart, to - segStart) });
+  }
+  return out;
 }
 
 export function renderDiff(oldText: string, newText: string, width: number, opts: DiffRenderOptions = {}): StyledLine[] {
@@ -123,18 +160,22 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
       row.kind === "del" && rows[r + 1]?.kind === "add" ? rows[r + 1]!.text
       : row.kind === "add" && rows[r - 1]?.kind === "del" ? rows[r - 1]!.text
       : undefined;
-    const useWords = (row.kind === "add" || row.kind === "del") && paired !== undefined && paired !== row.text;
     const segColor = rowColor(row.kind);
-    const wrapped = row.text.length === 0 ? [""] : wrapLines(row.text, bodyWidth);
-    wrapped.forEach((piece, idx) => {
-      const bodySegs = useWords && idx === 0
-        ? wordDiffSegments(piece, row.kind as "add" | "del", paired!)
-        : [{ text: piece, color: segColor }];
+    let bodySegs: StyledSegment[];
+    if ((row.kind === "add" || row.kind === "del") && paired !== undefined && paired !== row.text) {
+      bodySegs = wordDiffSegments(row.text, row.kind, paired);
+    } else {
+      bodySegs = [{ text: row.text, color: segColor }];
+    }
+    const ranges = row.text.length === 0 ? [{ start: 0, end: 0 }] : wrapRanges(row.text, bodyWidth);
+    for (let idx = 0; idx < ranges.length; idx++) {
+      const range = ranges[idx]!;
+      const piece = sliceSegments(bodySegs, range.start, range.end);
       lines.push([
         { text: idx === 0 ? gutter : "  ", color: segColor },
-        ...bodySegs,
+        ...(piece.length > 0 ? piece : [{ text: "", color: segColor }]),
       ]);
-    });
+    }
   }
   return lines;
 }

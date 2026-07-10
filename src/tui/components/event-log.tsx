@@ -91,6 +91,8 @@ function styleKey(seg: StyledSegment): string {
     seg.strikethrough ? "s" : "",
     seg.heading ?? "",
     seg.link ? "l" : "",
+    // Keep distinct link targets unmerged so OSC 8 sequences do not glue.
+    seg.linkUrl ?? "",
     seg.blockquote ? "q" : "",
     seg.rule ? "r" : "",
     seg.bullet ? "u" : "",
