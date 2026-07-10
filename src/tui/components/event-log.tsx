@@ -36,16 +36,6 @@ function formatToolDurationMs(ms: number): string {
   return ` · ${(ms / 1000).toFixed(1)}s`;
 }
 
-function toolRowBackground(pending: boolean, isError: boolean | undefined): string {
-  if (pending) return color("toolPendingBg");
-  if (isError) return color("toolErrorBg");
-  return color("toolSuccessBg");
-}
-
-function paintToolBackground(lines: StyledLine[], bg: string): StyledLine[] {
-  return lines.map((row) => row.map((seg) => ({ ...seg, backgroundColor: seg.backgroundColor ?? bg })));
-}
-
 function toolResultForCall(blocks: RenderableBlock[], callId: string): Extract<RenderableBlock, { type: "tool_result" }> | undefined {
   for (const block of blocks) {
     if (block.type === "tool_result" && block.callId === callId) return block;
@@ -333,20 +323,15 @@ function toolCallLines(
   block: Extract<RenderableBlock, { type: "tool_call" }>,
   width: number,
   expanded: boolean,
-  meta?: { pending?: boolean; durationSuffix?: string; isError?: boolean },
+  meta?: { pending?: boolean; durationSuffix?: string },
 ): StyledLine[] {
   const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
   const durationSuffix = meta?.pending ? " · running" : (meta?.durationSuffix ?? "");
 
-  const bg = toolRowBackground(meta?.pending === true, meta?.isError);
-
   if (isShell) {
     const rows = expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
-    return paintToolBackground(
-      appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true }),
-      bg,
-    );
+    return appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
   }
 
   if (expanded) {
@@ -364,17 +349,16 @@ function toolCallLines(
         width,
         block.name === "write_file" ? { contextLines: 3 } : {},
       );
-      return paintToolBackground([...headline, ...diff], bg);
+      return [...headline, ...diff];
     }
-    const body = full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
-    return paintToolBackground(body, bg);
+    return full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
   }
 
   // Collapsed non-shell tool calls are subordinate — danger stays loud, everything
   // else recedes so the model's actual text output draws the eye instead. The
   // leading bullet stays in the action colour so a call still reads as a call.
   const collapsedColor = role === "danger" ? roleColor : color("muted");
-  const lines = wrapStyledLine(
+  return wrapStyledLine(
     [
       { text: "● ", color: roleColor, dim: role !== "danger" },
       { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
@@ -382,7 +366,6 @@ function toolCallLines(
     ],
     width,
   );
-  return paintToolBackground(lines, bg);
 }
 
 function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
@@ -405,7 +388,6 @@ function mergedToolLines(
   const roleColor = color(role);
 
   const durationSuffix = formatToolDurationMs((result.finishedAt ?? call.startedAt ?? 0) - (call.startedAt ?? 0));
-  const bg = toolRowBackground(false, result.isError);
 
   if (isShell && !result.isError) {
     // Command and outcome are recomputed from source rather than re-split out of
@@ -416,48 +398,44 @@ function mergedToolLines(
     if (suffix !== undefined && suffix.length > 0) {
       rows = appendTextToLastLine(rows, ` → ${suffix}`, { color: color("dim"), dim: true });
     }
-    rows = appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
-    return paintToolBackground(rows, bg);
+    return appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
   }
 
   const collapsedColor = role === "danger" ? roleColor : color("muted");
-  const lines = wrapStyledLine(
+  return wrapStyledLine(
     [
       { text: "● ", color: roleColor, dim: role !== "danger" },
       { text: `${merged}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
     ],
     width,
   );
-  return paintToolBackground(lines, bg);
 }
 
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {
-  const bg = toolRowBackground(false, block.isError);
-  const paint = (rows: StyledLine[]) => paintToolBackground(rows, bg);
   if (block.isError) {
-    return paint(plainLines(
+    return plainLines(
       block.content
         .split("\n")
         .map((line, i) => (i === 0 ? "error: " : "") + line)
         .join("\n"),
       { color: color("danger") },
       width,
-    ));
+    );
   }
 
   if (isMcpToolName(block.name)) {
     const records = extractMcpRecords(block.content);
-    if (records !== null) return paint(viewToLines(mcpRecordsToView(records), columns));
+    if (records !== null) return viewToLines(mcpRecordsToView(records), columns);
     const record = extractMcpRecord(block.content);
-    if (record !== null) return paint(viewToLines(mcpRecordToView(record), columns));
+    if (record !== null) return viewToLines(mcpRecordToView(record), columns);
   }
 
   const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
   if (expanded) {
     const limited = limitLines(full, EXPANDED_TOOL_RESULT_LINE_LIMIT);
-    return paint(isJSONDocument ? markdownLines(limited, width) : plainLines(limited, { color: color("muted") }, width));
+    return isJSONDocument ? markdownLines(limited, width) : plainLines(limited, { color: color("muted") }, width);
   }
-  return paint(plainLines(preview, { color: color("muted"), dim: true }, width));
+  return plainLines(preview, { color: color("muted"), dim: true }, width);
 }
 
 export type PlanContext = {
@@ -588,7 +566,6 @@ function blockToLines(
         toolCallLines(block, width - TOOL_INDENT, expanded, {
           pending,
           durationSuffix,
-          ...(result?.isError !== undefined ? { isError: result.isError } : {}),
         }),
         TOOL_INDENT,
       );
