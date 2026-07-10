@@ -20,6 +20,9 @@ type ScanState = {
 // sync with fence parity: a boundary is only taken when no fenced block is open,
 // which keeps a code block (and its incremental highlighting) whole in the tail.
 const FENCE_RE = /^\s*(```+|~~~+)/;
+// When a single paragraph grows without blank-line boundaries, still carve stable
+// prefix at completed newlines so streaming re-highlight stays bounded.
+const MAX_TAIL_CHARS = 480;
 
 // Incremental renderer for the one block that is still streaming: the render
 // callback (a full markdown parse + wrap) is expensive and the transcript
@@ -56,8 +59,12 @@ export function createIncrementalMarkdown(
     for (let i = content.indexOf("\n", lineStart); i !== -1; i = content.indexOf("\n", lineStart)) {
       if (i === lineStart) {
         if (!state.fenceOpen) state.boundary = lineStart;
-      } else if (FENCE_RE.test(content.slice(lineStart, i))) {
-        state.fenceOpen = !state.fenceOpen;
+      } else {
+        if (FENCE_RE.test(content.slice(lineStart, i))) {
+          state.fenceOpen = !state.fenceOpen;
+        } else if (!state.fenceOpen && content.length - state.tailStart > MAX_TAIL_CHARS) {
+          state.boundary = i + 1;
+        }
       }
       lineStart = i + 1;
     }

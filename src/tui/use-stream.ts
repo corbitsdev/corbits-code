@@ -43,8 +43,8 @@ export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
-  | { type: "tool_call"; name: string; arguments: string }
-  | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean }
+  | { type: "tool_call"; callId?: string; name: string; arguments: string; startedAt?: number }
+  | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean; finishedAt?: number }
   | { type: "reply"; content: string }
   | { type: "tasks"; tasks: Task[] }
   | { type: "plan"; steps: PlanBlockStep[] }
@@ -553,7 +553,7 @@ export function createAgentStreamState(
           callIdToName.set(data.callId, data.name);
           callIdToArguments.set(data.callId, "");
           openCallId = data.callId;
-          pushBlock({ type: "tool_call", name: data.name, arguments: "" });
+          pushBlock({ type: "tool_call", callId: data.callId, name: data.name, arguments: "", startedAt: Date.now() });
           break;
         }
         case "inference.tool_call.delta": {
@@ -586,7 +586,7 @@ export function createAgentStreamState(
             if (argumentText.length > 0) last.arguments = argumentText;
             contentBlocksDirty = true;
           } else {
-            pushBlock({ type: "tool_call", name: data.name, arguments: argumentText });
+            pushBlock({ type: "tool_call", callId: data.callId, name: data.name, arguments: argumentText, startedAt: Date.now() });
           }
           if (data.name === "task") {
             subAgents = updateSubAgent(subAgents, data.callId, {
@@ -757,7 +757,14 @@ export function createAgentStreamState(
           callIdToName.delete(result.callId);
           callIdToArguments.delete(result.callId);
 
-          pushBlock({ type: "tool_result", callId: result.callId, name, content, isError: result.isError });
+          pushBlock({
+            type: "tool_result",
+            callId: result.callId,
+            name,
+            content,
+            isError: result.isError,
+            finishedAt: Date.now(),
+          });
           break;
         }
         case "reactor.error": {

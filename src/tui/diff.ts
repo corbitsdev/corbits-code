@@ -1,4 +1,5 @@
 import type { StyledLine } from "./view/index.js";
+import type { StyledSegment } from "./markdown-parser.js";
 import { wrapLines } from "./view/height.js";
 import { color } from "./theme.js";
 
@@ -86,20 +87,52 @@ export type DiffRenderOptions = {
   contextLines?: number;
 };
 
+function tokenizeWords(line: string): string[] {
+  return line.match(/\S+|\s+/g) ?? (line.length === 0 ? [] : [line]);
+}
+
+function wordDiffSegments(line: string, kind: "add" | "del", paired: string): StyledSegment[] {
+  const a = tokenizeWords(line);
+  const b = tokenizeWords(paired);
+  const n = Math.max(a.length, b.length);
+  const out: StyledSegment[] = [];
+  for (let i = 0; i < n; i++) {
+    const ta = a[i] ?? "";
+    const tb = b[i] ?? "";
+    const token = kind === "del" ? ta : tb;
+    if (token.length === 0) continue;
+    const same = ta === tb && ta.length > 0;
+    out.push({
+      text: token,
+      color: same ? color("diffContext") : rowColor(kind),
+    });
+  }
+  return out.length > 0 ? out : [{ text: line, color: rowColor(kind) }];
+}
+
 export function renderDiff(oldText: string, newText: string, width: number, opts: DiffRenderOptions = {}): StyledLine[] {
   let rows = diffLines(oldText, newText);
   if (opts.contextLines !== undefined) rows = collapseContext(rows, opts.contextLines);
 
   const lines: StyledLine[] = [];
   const bodyWidth = Math.max(1, width - 2);
-  for (const row of rows) {
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r]!;
     const gutter = GUTTER[row.kind];
+    const paired =
+      row.kind === "del" && rows[r + 1]?.kind === "add" ? rows[r + 1]!.text
+      : row.kind === "add" && rows[r - 1]?.kind === "del" ? rows[r - 1]!.text
+      : undefined;
+    const useWords = (row.kind === "add" || row.kind === "del") && paired !== undefined && paired !== row.text;
     const segColor = rowColor(row.kind);
     const wrapped = row.text.length === 0 ? [""] : wrapLines(row.text, bodyWidth);
     wrapped.forEach((piece, idx) => {
+      const bodySegs = useWords && idx === 0
+        ? wordDiffSegments(piece, row.kind as "add" | "del", paired!)
+        : [{ text: piece, color: segColor }];
       lines.push([
         { text: idx === 0 ? gutter : "  ", color: segColor },
-        { text: piece, color: segColor },
+        ...bodySegs,
       ]);
     });
   }
