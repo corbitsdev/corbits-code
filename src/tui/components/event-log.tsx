@@ -993,7 +993,7 @@ function recoverCollapsedPartners(
     while (j + 1 < blocks.length) {
       const call = blocks[j]!;
       const result = blocks[j + 1]!;
-      if (!isAdjacentToolPair(call, result) || !isFileEditTool(call.name)) break;
+      if (call.type !== "tool_call" || !isAdjacentToolPair(call, result) || !isFileEditTool(call.name)) break;
       groupIds.push(call.id, result.id);
       pairCount++;
       j += 2;
