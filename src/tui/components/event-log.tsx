@@ -11,6 +11,8 @@ import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
 import { viewToLines, type StyledLine } from "../view/index.js";
 import { wrapLines, wrapRanges, stringWidth } from "../view/height.js";
 import { color } from "../theme.js";
+import { inkPropsForSegment } from "../styled-segment-props.js";
+import { osc8Hyperlink } from "../osc8.js";
 import { editDiffFromArgs, renderDiff } from "../diff.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
@@ -28,6 +30,28 @@ const EXPANDED_TOOL_RESULT_LINE_LIMIT = 200;
 // Tool calls and results sit one level below assistant prose so the model's
 // text draws the eye and tools read as subordinate actions.
 const TOOL_INDENT = 2;
+
+function formatToolDurationMs(ms: number): string {
+  if (ms < 50) return "";
+  return ` · ${(ms / 1000).toFixed(1)}s`;
+}
+
+function toolRowBackground(pending: boolean, isError: boolean | undefined): string {
+  if (pending) return color("toolPendingBg");
+  if (isError) return color("toolErrorBg");
+  return color("toolSuccessBg");
+}
+
+function paintToolBackground(lines: StyledLine[], bg: string): StyledLine[] {
+  return lines.map((row) => row.map((seg) => ({ ...seg, backgroundColor: seg.backgroundColor ?? bg })));
+}
+
+function toolResultForCall(blocks: RenderableBlock[], callId: string): Extract<RenderableBlock, { type: "tool_result" }> | undefined {
+  for (const block of blocks) {
+    if (block.type === "tool_result" && block.callId === callId) return block;
+  }
+  return undefined;
+}
 // One-column gutter shared by the transcript, the chrome (header/tasks/status),
 // and the prompt-box border, so every left edge lines up at the same column.
 export const TEXT_GUTTER = 1;
@@ -56,52 +80,8 @@ export function renderableBlocks(blocks: ContentBlock[]): RenderableBlock[] {
   return blocks.filter(isRenderable);
 }
 
-type RenderProps = {
-  italic?: boolean;
-  underline?: boolean;
-  strikethrough?: boolean;
-  color?: string;
-  dimColor?: boolean;
-  backgroundColor?: string;
-};
-
-function segmentProps(seg: StyledSegment): RenderProps {
-  const props: RenderProps = {};
-  // Inline emphasis reads as brighter text rather than heavy bold, so a paragraph
-  // peppered with **strong** spans stays calm. Structural headings still carry
-  // weight through the heading branch below.
-  if (seg.bold) props.color = color("emphasis");
-  if (seg.italic) props.italic = true;
-  if (seg.strikethrough) props.strikethrough = true;
-  // Headings read as section anchors through colour alone; adding bold weight on
-  // top made the transcript feel heavy, so hue carries the hierarchy.
-  if (seg.heading !== undefined) {
-    if (seg.heading === 1) props.color = color("brand");
-    else if (seg.heading === 2) props.color = color("accent");
-    else props.color = color("success");
-  }
-  if (seg.link) {
-    props.underline = true;
-    props.color = color("accent");
-  }
-  if (seg.blockquote) {
-    props.italic = true;
-    props.color = color("muted");
-  }
-  if (seg.rule) props.color = color("muted");
-  // List markers are structure, not signal — keep them quiet so a bulleted
-  // message does not read as a wall of accent colour.
-  if (seg.bullet && /^\s*(•|\d+\.)/.test(seg.text)) props.color = color("muted");
-  // Inline code (paths, identifiers, commands) is reference, not a warning.
-  // Loud brand orange on every backtick swamped the transcript; a calm muted
-  // tone keeps it distinct from prose without shouting.
-  if (seg.code) props.color = color("muted");
-  // Explicit per-segment styling (views, shell prefix) wins over flag-derived
-  // colours so the one render path serves both markdown and the view spec.
-  if (seg.color !== undefined) props.color = seg.color;
-  if (seg.dim) props.dimColor = true;
-  if (seg.backgroundColor !== undefined) props.backgroundColor = seg.backgroundColor;
-  return props;
+function segmentProps(seg: StyledSegment) {
+  return inkPropsForSegment(seg);
 }
 
 function styleKey(seg: StyledSegment): string {
@@ -157,7 +137,7 @@ const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLinePro
     <Text>
       {segments.map((seg, i) => (
         <Text key={i} {...segmentProps(seg)}>
-          {seg.text}
+          {seg.linkUrl !== undefined && seg.linkUrl.length > 0 ? osc8Hyperlink(seg.linkUrl, seg.text) : seg.text}
         </Text>
       ))}
     </Text>
@@ -299,16 +279,28 @@ function clampedShellLines(command: string, role: string, width: number): Styled
   ];
 }
 
-function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, width: number, expanded: boolean): StyledLine[] {
+function toolCallLines(
+  block: Extract<RenderableBlock, { type: "tool_call" }>,
+  width: number,
+  expanded: boolean,
+  meta?: { pending?: boolean; durationSuffix?: string },
+): StyledLine[] {
   const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
+  const durationSuffix = meta?.pending ? " · running" : (meta?.durationSuffix ?? "");
+
+  const bg = toolRowBackground(meta?.pending === true, undefined);
 
   if (isShell) {
-    return expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
+    const rows = expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
+    return paintToolBackground(rows, bg);
   }
 
   if (expanded) {
-    const headline = wrapStyledLine([{ text: "● ", color: roleColor }, { text: display, color: roleColor }], width);
+    const headline = wrapStyledLine([
+      { text: "● ", color: roleColor },
+      { text: `${display}${durationSuffix}`, color: roleColor },
+    ], width);
     const edit = editDiffFromArgs(block.name, block.arguments);
     if (edit !== null) {
       // write_file replaces a whole file, so collapse its unchanged context;
@@ -319,23 +311,25 @@ function toolCallLines(block: Extract<RenderableBlock, { type: "tool_call" }>, w
         width,
         block.name === "write_file" ? { contextLines: 3 } : {},
       );
-      return [...headline, ...diff];
+      return paintToolBackground([...headline, ...diff], bg);
     }
-    return full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
+    const body = full.length > 0 ? [...headline, ...plainLines(full, { color: color("muted") }, width)] : headline;
+    return paintToolBackground(body, bg);
   }
 
   // Collapsed non-shell tool calls are subordinate — danger stays loud, everything
   // else recedes so the model's actual text output draws the eye instead. The
   // leading bullet stays in the action colour so a call still reads as a call.
   const collapsedColor = role === "danger" ? roleColor : color("muted");
-  return wrapStyledLine(
+  const lines = wrapStyledLine(
     [
       { text: "● ", color: roleColor, dim: role !== "danger" },
-      { text: display, color: collapsedColor, dim: role !== "danger" },
+      { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
     width,
   );
+  return paintToolBackground(lines, bg);
 }
 
 function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
@@ -373,40 +367,44 @@ function mergedToolLines(
   }
 
   const collapsedColor = role === "danger" ? roleColor : color("muted");
-  return wrapStyledLine(
+  const durationSuffix = formatToolDurationMs((result.finishedAt ?? call.startedAt ?? 0) - (call.startedAt ?? 0));
+  const lines = wrapStyledLine(
     [
       { text: "● ", color: roleColor, dim: role !== "danger" },
-      { text: merged, color: collapsedColor, dim: role !== "danger" },
+      { text: `${merged}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
     ],
     width,
   );
+  return paintToolBackground(lines, toolRowBackground(false, result.isError));
 }
 
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {
+  const bg = toolRowBackground(false, block.isError);
+  const paint = (rows: StyledLine[]) => paintToolBackground(rows, bg);
   if (block.isError) {
-    return plainLines(
+    return paint(plainLines(
       block.content
         .split("\n")
         .map((line, i) => (i === 0 ? "error: " : "") + line)
         .join("\n"),
       { color: color("danger") },
       width,
-    );
+    ));
   }
 
   if (isMcpToolName(block.name)) {
     const records = extractMcpRecords(block.content);
-    if (records !== null) return viewToLines(mcpRecordsToView(records), columns);
+    if (records !== null) return paint(viewToLines(mcpRecordsToView(records), columns));
     const record = extractMcpRecord(block.content);
-    if (record !== null) return viewToLines(mcpRecordToView(record), columns);
+    if (record !== null) return paint(viewToLines(mcpRecordToView(record), columns));
   }
 
   const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
   if (expanded) {
     const limited = limitLines(full, EXPANDED_TOOL_RESULT_LINE_LIMIT);
-    return isJSONDocument ? markdownLines(limited, width) : plainLines(limited, { color: color("muted") }, width);
+    return paint(isJSONDocument ? markdownLines(limited, width) : plainLines(limited, { color: color("muted") }, width));
   }
-  return plainLines(preview, { color: color("muted"), dim: true }, width);
+  return paint(plainLines(preview, { color: color("muted"), dim: true }, width));
 }
 
 export type PlanContext = {
@@ -467,6 +465,7 @@ function blockToLines(
   thinkingExpanded: boolean,
   planCtx?: PlanContext,
   streaming = false,
+  allBlocks?: RenderableBlock[],
 ): StyledLine[] {
   const width = Math.max(8, columns);
 
@@ -525,8 +524,18 @@ function blockToLines(
       );
       return [...firstWrapped, ...textLines.slice(1)];
     }
-    case "tool_call":
-      return indentLines(toolCallLines(block, width - TOOL_INDENT, expanded), TOOL_INDENT);
+    case "tool_call": {
+      const callId = block.callId ?? block.id;
+      const result = allBlocks !== undefined ? toolResultForCall(allBlocks, callId) : undefined;
+      const pending = result === undefined;
+      const started = block.startedAt ?? 0;
+      const finished = result?.finishedAt ?? started;
+      const durationSuffix = result !== undefined ? formatToolDurationMs(finished - started) : "";
+      return indentLines(
+        toolCallLines(block, width - TOOL_INDENT, expanded, { pending, durationSuffix }),
+        TOOL_INDENT,
+      );
+    }
     case "tool_result":
       return indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
     case "view":
@@ -626,6 +635,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
     if (
       block.type === "tool_call"
       && next?.type === "tool_result"
+      && (next.callId ?? next.id) === (block.callId ?? block.id)
       && next.name === block.name
       && !isExpanded(block)
       && !isExpanded(next)
@@ -651,11 +661,11 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       if (cached !== undefined) {
         blockLines = cached;
       } else {
-        blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx);
+        blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx, false, blocks);
         cache.set(key, blockLines);
       }
     } else {
-      blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx, isStreaming);
+      blockLines = blockToLines(block, columns, expanded, thinkingExpanded, planCtx, isStreaming, blocks);
     }
     lines.push(...blockLines);
     lastWasAction = isAction;

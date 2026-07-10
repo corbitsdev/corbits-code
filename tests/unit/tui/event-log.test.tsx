@@ -8,12 +8,18 @@ import {
   renderableBlocks,
 } from "../../../src/tui/components/event-log.js";
 import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
-import type { ContentBlock } from "../../../src/tui/use-stream.js";
+import type { ContentBlock, ContentBlockData } from "../../../src/tui/use-stream.js";
 import { wrapCount, wrapLines } from "../../../src/tui/view/height.js";
 
 let blockSeq = 0;
-function block(data: Omit<ContentBlock, "id">): RenderableBlock {
-  return { ...data, id: `wb${(blockSeq += 1)}` } as RenderableBlock;
+function block(data: ContentBlockData): RenderableBlock {
+  const base: ContentBlockData =
+    data.type === "tool_call"
+      ? { ...data, callId: data.callId ?? "call-fixture", startedAt: data.startedAt ?? 0 }
+      : data.type === "tool_result"
+        ? { ...data, finishedAt: data.finishedAt ?? 1_000 }
+        : data;
+  return { ...base, id: `wb${(blockSeq += 1)}` } as RenderableBlock;
 }
 
 const lineText = (line: { text: string }[]): string => line.map((s) => s.text).join("");
@@ -27,8 +33,16 @@ type Overrides = {
   verbose?: boolean;
 };
 
-function renderLog(blocks: ContentBlock[], overrides: Overrides = {}) {
-  const withIds = blocks.map((b, i) => ("id" in b ? b : { ...b, id: `fixture-${i}` })) as ContentBlock[];
+function renderLog(blocks: ContentBlockData[], overrides: Overrides = {}) {
+  const withIds = blocks.map((b, i) => {
+    const data: ContentBlockData =
+      b.type === "tool_call"
+        ? { ...b, callId: b.callId ?? "call-fixture", startedAt: b.startedAt ?? 0 }
+        : b.type === "tool_result"
+          ? { ...b, finishedAt: b.finishedAt ?? 1_000 }
+          : b;
+    return { ...data, id: `fixture-${i}` } as ContentBlock;
+  });
   const columns = overrides.columns ?? 200;
   const expandedTools = overrides.expandedTools ?? new Set<string>();
   const verbose = overrides.verbose ?? false;
@@ -84,8 +98,10 @@ test("EventLog renders tool call with a humanized name and readable arg summary"
   const { lastFrame } = renderLog([
     {
       type: "tool_call",
+      callId: "c1",
       name: "read_file",
       arguments: '{"path":"/tmp/example"}',
+      startedAt: 0,
     },
   ]);
   const frame = lastFrame() ?? "";
@@ -112,8 +128,10 @@ test("EventLog renders a shell call leanly as the command, not run_shell", () =>
   const { lastFrame } = renderLog([
     {
       type: "tool_call",
+      callId: "c2",
       name: "run_shell",
       arguments: '{"command":"npm test"}',
+      startedAt: 0,
     },
   ]);
   const frame = lastFrame() ?? "";

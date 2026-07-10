@@ -107,10 +107,10 @@ describe("block elements", () => {
 
   test("fenced code block renders inner lines as code without inline parsing", () => {
     const lines = parseMarkdown("```\nconst x = **not bold**\n```");
-    // Opening and closing fences become blank separator lines.
-    expect(lines[0]).toEqual([]);
-    expect(lines[2]).toEqual([]);
-    expect(lines[1]).toEqual([{ text: "const x = **not bold**", code: true }]);
+    const body = lines.flat().find((s) => s.text.includes("const x"));
+    expect(body?.code).toBe(true);
+    expect(body?.text).toContain("const x = **not bold**");
+    expect(lines[0]?.[0]?.text).toContain("╭");
   });
 
   test("highlights a fenced block by its language token", () => {

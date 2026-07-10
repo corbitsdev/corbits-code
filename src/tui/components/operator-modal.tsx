@@ -5,6 +5,7 @@ import type { OperatorResult } from "../../agent/tools.js";
 import { parseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { color } from "../theme.js";
+import { inkPropsForSegment } from "../styled-segment-props.js";
 
 export type OperatorModalProps = {
   question: string;
@@ -14,14 +15,7 @@ export type OperatorModalProps = {
 };
 
 function segmentProps(seg: StyledSegment): Record<string, unknown> {
-  const props: Record<string, unknown> = {};
-  if (seg.bold) props.bold = true;
-  if (seg.italic) props.italic = true;
-  if (seg.strikethrough) props.strikethrough = true;
-  if (seg.code) props.color = color("warning");
-  if (seg.color !== undefined) props.color = seg.color;
-  if (seg.dim) props.dimColor = true;
-  return props;
+  return inkPropsForSegment(seg);
 }
 
 function MarkdownText({ text, width }: { text: string; width: number }): ReactNode {
