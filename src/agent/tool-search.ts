@@ -18,6 +18,11 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "tool_search",
   "use_skill",
   "search_agents",
+  // Multi-agent dispatch is a first-class loop capability — always advertised so
+  // the model can call task immediately after search_agents without a tool_search
+  // round-trip. Catalog-only placement left the model discovering profiles then
+  // failing on an unloaded task tool.
+  "task",
 ];
 
 // Built-in tools surfaced in the prompt as one-line summaries (no schema) so the
@@ -28,13 +33,12 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "search_files",
   "grep",
   "list_dir",
-  "task",
 ];
 
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover and load additional tools by capability. Most tools — file search, web access, sub-agents, and any connected integrations — are not loaded by default. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to load the matching tools, then call them on the next turn.",
+    "Discover and load additional tools by capability. Most tools — file search, web access, and any connected integrations — are not loaded by default. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to load the matching tools, then call them on the next turn.",
   inputSchema: {
     type: "object",
     properties: {

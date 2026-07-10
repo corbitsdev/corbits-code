@@ -2,6 +2,8 @@ import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
 import { CORE_TOOL_NAMES } from "./tool-search.js";
 
+// Fallback tool list for sub-agent prompts when the caller does not pass the
+// installed set. Matches the leaf sub-agent install (posix + manage_tasks).
 const defaultChatTools = [
   "read_file",
   "write_file",
@@ -11,6 +13,7 @@ const defaultChatTools = [
   "grep",
   "list_dir",
   "lsp",
+  "manage_tasks",
 ];
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
@@ -70,16 +73,16 @@ const TOOL_SUMMARIES: Record<string, string> = {
   read_file: "read a file",
   write_file: "create or overwrite a file",
   edit_file: "make a surgical edit to an existing file",
-  run_shell: "run a shell command (builds, tests, git; never to read/write files or talk to the user)",
-  search_files: "find files by name or pattern",
-  grep: "search file contents",
+  run_shell: "run a shell command (builds, tests, git; 10s default timeout — pass timeout ms to override; never to read/write files, search trees, or talk to the user)",
+  search_files: "find files by name or pattern (bounded; prefer over shell find)",
+  grep: "search file contents (bounded; prefer over shell grep -r/rg)",
   list_dir: "list a directory's entries (use instead of ls or find)",
   lsp: "resolve symbols — goToDefinition, findReferences, hover",
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
-  task: "delegate a self-contained subtask to a sub-agent",
-  search_agents: "find agent profiles by role or team before calling task(agent=...)",
-  manage_tasks: "maintain your own task list (create/update status)",
+  task: "spawn a sub-agent for a self-contained job (not a checklist item)",
+  search_agents: "find agent profiles by role or team before spawning with task(agent=...)",
+  manage_tasks: "maintain your own work checklist (create/update status) — separate from spawning sub-agents",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
   present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
@@ -168,24 +171,55 @@ export function buildChatSystemPrompt(
 
 // Notes appended to every sub-agent's system prompt so corbitsdev-format
 // agent definitions translate cleanly to Intercode: the `task` tool is the
-// dispatch surface, tool names are Intercode-native, and the upstream
-// `mode: primary` distinction collapses (every dispatched agent is a
-// `task`-launched sub-agent here).
+// *spawn* surface (wire name kept for compatibility), tool names are
+// Intercode-native, and the upstream `mode: primary` distinction collapses.
+//
+// Vocabulary: an *agent* is a runtime entity; a *task* is a checklist item
+// owned via manage_tasks; a *sub-agent* is a short-lived child agent. Do not
+// conflate spawn with checklist.
 //
 // `orchestrator` flips the recursion rule: by default a sub-agent must NOT
 // call `task` (no recursion past depth 1). An orchestrator profile is the
 // documented exception — its purpose IS to fan work out to other agents —
 // so the appendix grants permission and links the syntax.
 export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
-  const recursionRule = opts.orchestrator === true
-    ? "- You are an orchestrator: you MAY call `task` to spawn other team members (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf-task sub-agents — use it to delegate specialist work, then synthesize their reports into your own."
-    : "- Only the primary Intercode session may call `task`; if you are running as a sub-agent, return a concrete report to the caller instead of spawning further agents.";
+  // Leaf agents must not be told both "spawn with task" and "do not call task".
+  // Orchestrators get the spawn instruction; everyone else gets the no-recursion
+  // rule only.
+  const recursionRule =
+    opts.orchestrator === true
+      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf sub-agents — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
+      : "- Only the primary Intercode session (or an orchestrator profile) may call `task` to spawn sub-agents. You are a leaf sub-agent: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.";
   return [
     "## Intercode notes",
     "",
-    `- Spawn other team members with the \`task\` tool and \`agent\`: e.g. task(agent="greybeard", prompt="..."). ${recursionRule}`,
-    "- Tools use Intercode names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp.",
-    "- Upstream `mode: primary` is not encoded — every agent here is a `task`-dispatchable sub-agent profile.",
+    recursionRule,
+    "- Tools use Intercode names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks.",
+    "- Upstream `mode: primary` is not encoded — every profile here is a spawnable sub-agent definition.",
+  ].join("\n");
+}
+
+// Final-reply envelope the parent can parse. Free-form prose is allowed inside
+// each field; the headings are the structure.
+export function buildSubAgentReportContract(): string {
+  return [
+    "Reporting back:",
+    "- Stick to the dispatch brief. Do not invent scope or wander into unrelated work.",
+    "- When done, stop calling tools and reply with ONLY this markdown envelope (prose inside each section is fine; omit empty sections rather than inventing content):",
+    "",
+    "## Summary",
+    "One or two sentences: what you accomplished or concluded.",
+    "",
+    "## Findings",
+    "The substance the parent needs — results, decisions, evidence.",
+    "",
+    "## Blockers",
+    "Open questions, assumptions, or blockers. Write \"None.\" if clear.",
+    "",
+    "## Paths",
+    "Key file paths you read or changed (one per line). Write \"None.\" if none.",
+    "",
+    "- This message is the only thing returned to the parent. Do not ask the parent questions; you cannot receive answers. Make the best-judgment call, act, and note assumptions under Blockers.",
   ].join("\n");
 }
 
@@ -199,14 +233,10 @@ export function buildSubAgentSystemPrompt(
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
       : joinSections([
-          "You are a sub-agent dispatched by Intercode to carry out one self-contained task autonomously. You have the full file, search, and shell toolset and act without asking for approval — finish the task and report back.",
+          "You are a sub-agent — a short-lived child agent dispatched by Intercode to carry out one self-contained job autonomously. You have the full file, search, and shell toolset and act without asking for approval. Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.",
           buildHarnessFacts({ dynamicTools: false }),
           buildGuidelines(),
-          [
-            "Reporting back:",
-            "- When done, stop calling tools and reply with a concise, self-contained result: what you found or changed, the key file paths, and anything the dispatcher must know. This message is the only thing returned.",
-            "- Do not ask the dispatcher questions; you cannot receive answers. Make the best-judgment call, act, and note any assumption in your result.",
-          ].join("\n"),
+          buildSubAgentReportContract(),
         ]);
   const toolListForPrompt =
     opts.toolNames && opts.toolNames.length > 0 ? opts.toolNames : defaultChatTools;

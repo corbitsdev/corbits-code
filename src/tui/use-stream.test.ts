@@ -144,6 +144,31 @@ describe("createAgentStreamState", () => {
     expect(state.subAgents).toEqual([]);
   });
 
+  test("noteSubAgentProgress updates status tool name and agents strip annotation", () => {
+    const state = createAgentStreamState();
+
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "call-progress",
+      name: "task",
+      arguments: { agent: "greybeard", description: "map callers", prompt: "..." },
+    }));
+
+    const blocksBefore = state.contentBlocks.length;
+    state.noteSubAgentProgress({ description: "map callers", toolName: "grep" });
+
+    expect(state.currentToolName).toBe("grep");
+    expect(state.streamingType).toBe("tool");
+    expect(state.subAgents).toEqual([
+      { id: "call-progress", title: "greybeard: map callers · grep", status: "doing" },
+    ]);
+    // Progress must not inject sub-agent transcript into the parent content.
+    expect(state.contentBlocks.length).toBe(blocksBefore);
+
+    state.noteSubAgentProgress({ description: "map callers", toolName: "read_file" });
+    expect(state.subAgents[0]?.title).toBe("greybeard: map callers · read_file");
+    expect(state.currentToolName).toBe("read_file");
+  });
+
   test("keeps failed sub-agent calls but prunes ones that finish cleanly", () => {
     const state = createAgentStreamState();
 

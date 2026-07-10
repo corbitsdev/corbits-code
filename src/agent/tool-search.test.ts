@@ -35,6 +35,13 @@ describe("createToolIndex", () => {
     expect(index.search("read a file")).not.toContain("read_file");
   });
 
+  // task is a first-class multi-agent surface: always advertised so the model
+  // can dispatch immediately after search_agents without a tool_search hop.
+  test("task is a core tool", () => {
+    expect(CORE_TOOL_NAMES).toContain("task");
+    expect(CORE_TOOL_NAMES).toContain("search_agents");
+  });
+
   test("returns nothing for an empty query", () => {
     expect(index.search("   ")).toEqual([]);
   });
