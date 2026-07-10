@@ -56,6 +56,22 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /(?:^|[\n;&|(])\s*init\s+[06]\b/,
 ];
 
+// Open-ended tree walks via the shell OOM the host: `find | tail` still forces
+// the full stream through the collector, and recursive grep/rg walks huge trees
+// before any pipe limit applies. Route those through the bounded tools instead.
+// (`git log | tail` and similar non-walk pipes are fine — the 512KB shell
+// output cap is the backstop for those.)
+const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
+  // `find` is almost always a full-tree walk.
+  cmd("find"),
+  // ripgrep via shell — the `grep` tool already routes through rg with caps.
+  cmd("rg"),
+  // Recursive grep/egrep/fgrep (flag form -r/-R/--recursive, alone or clustered).
+  new RegExp(
+    String.raw`${CMD}(?:grep|egrep|fgrep)\b[^\n|;]*?(?:\s-[A-Za-z0-9]*[rR][A-Za-z0-9]*\b|\s--recursive\b)`,
+  ),
+];
+
 const CHAIN = /[\n;]|&&|\|\||\|/;
 const ENV_ASSIGNMENT = /^\w+=/;
 const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
@@ -90,9 +106,27 @@ function isCatastrophicRm(segment: string): boolean {
   return targets.length === 0 || targets.some(isDangerousTarget);
 }
 
-function isBlocked(command: string): boolean {
+function isDestructive(command: string): boolean {
   if (BLOCKED_PATTERNS.some((pattern) => pattern.test(command))) return true;
   return command.split(CHAIN).some(isCatastrophicRm);
+}
+
+function isOpenEndedSearch(command: string): boolean {
+  return OPEN_ENDED_SEARCH_PATTERNS.some((pattern) => pattern.test(command));
+}
+
+function blockReason(command: string): string | undefined {
+  if (isDestructive(command)) {
+    return `Destructive command blocked by policy: ${command}`;
+  }
+  if (isOpenEndedSearch(command)) {
+    return (
+      `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
+      `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +
+      `Command: ${command}`
+    );
+  }
+  return undefined;
 }
 
 export function authzPlugin(): ToolPlugin {
@@ -100,10 +134,11 @@ export function authzPlugin(): ToolPlugin {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
         const command = String(call.arguments.command ?? "");
-        if (isBlocked(command)) {
+        const reason = blockReason(command);
+        if (reason !== undefined) {
           return {
             callId: call.id,
-            content: `Destructive command blocked by policy: ${command}`,
+            content: reason,
             isError: true,
           };
         }
