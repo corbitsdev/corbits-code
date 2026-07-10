@@ -21,15 +21,19 @@ describe("runGuardedShell", () => {
     expect(output).toContain("hello");
   });
 
-  test("times out short of the stock 30s default", async () => {
-    expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(10_000);
+  test("defaults to a 15s timeout", () => {
+    expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(15_000);
+  });
+
+  test("returns partial output and a timed-out flag instead of throwing", async () => {
     const start = Date.now();
-    await expect(
-      runGuardedShell(
-        { command: "sleep 60", timeout: 100 },
-        neverAbort(),
-      ),
-    ).rejects.toThrow(/timed out after 100ms/);
+    const { exitCode, timedOut, output } = await runGuardedShell(
+      { command: "echo early; sleep 60", timeout: 200 },
+      neverAbort(),
+    );
+    expect(timedOut).toBe(true);
+    expect(exitCode).toBe(124);
+    expect(output).toContain("early");
     expect(Date.now() - start).toBeLessThan(5_000);
   });
 
@@ -112,14 +116,37 @@ describe("shellGuardPlugin", () => {
     expect(result.content).not.toBe("FALLBACK");
   });
 
-  test("reports timeout as an error result", async () => {
+  test("returns partial output plus a timed-out notice on timeout", async () => {
     const result = await run({
       id: "c2",
       name: "run_shell",
-      arguments: { command: "sleep 60", timeout: 80 },
+      arguments: { command: "echo before; sleep 60", timeout: 120 },
     });
-    expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/timed out/);
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain("before");
+    expect(result.content).toMatch(/timed out after 120ms and was terminated/);
+  });
+
+  test("clamps a per-command timeout override to the configured max", async () => {
+    const handler = shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware!(
+      fallback,
+    );
+    const result = await handler(
+      { id: "c2b", name: "run_shell", arguments: { command: "sleep 60", timeout: 900_000 } },
+      neverAbort(),
+    );
+    expect(result.content).toMatch(/timed out after 100ms/);
+  });
+
+  test("applies a configured default timeout when none is passed", async () => {
+    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware!(
+      fallback,
+    );
+    const result = await handler(
+      { id: "c2c", name: "run_shell", arguments: { command: "sleep 60" } },
+      neverAbort(),
+    );
+    expect(result.content).toMatch(/timed out after 90ms/);
   });
 
   test("passes non-shell tools through", async () => {
