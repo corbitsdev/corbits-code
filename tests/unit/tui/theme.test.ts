@@ -82,6 +82,14 @@ test("userMessageBg preserves the established user box gray", () => {
   expect(color("userMessageBg")).toBe("#45454a");
 });
 
+test("toolRunningBg is a distinct dark tint for the running-tool row", () => {
+  expect(color("toolRunningBg")).toMatch(/^#[0-9a-fA-F]{6}$/);
+  expect(palette.toolRunningBg.hex).not.toBe(palette.userMessageBg.hex);
+  // Must stay dark enough that the tool text reads on top of it.
+  const channels = [1, 3, 5].map((i) => parseInt(color("toolRunningBg").slice(i, i + 2), 16));
+  for (const channel of channels) expect(channel).toBeLessThan(0x60);
+});
+
 test("supportsTrueColor detects truecolor terminals", () => {
   process.env.COLORTERM = "truecolor";
   expect(supportsTrueColor()).toBe(true);
