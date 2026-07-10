@@ -48,6 +48,8 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("slash-command steps");
   expect(facts).toContain(".intercode/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
+  expect(facts).toContain("10s timeout");
+  expect(facts).toContain("find, rg, and grep -r");
   expect(facts).not.toContain("Tool results already render richly");
 });
 
@@ -169,9 +171,9 @@ test("buildAvailableTools lists exactly the tools it is given", () => {
 
 test("sub-agent prompt carries the report-back contract and harness facts", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("sub-agent dispatched by Intercode");
+  expect(prompt).toContain("short-lived child agent dispatched by Intercode");
   expect(prompt).toContain("Reporting back:");
-  expect(prompt).toContain("only thing returned");
+  expect(prompt).toContain("only thing returned to the parent");
   expect(prompt).toContain("Change files with write_file/edit_file");
 });
 
@@ -191,7 +193,8 @@ test("sub-agent prompt always appends Intercode notes, even with a JS-plugin-sty
   const prompt = buildSubAgentSystemPrompt([role]);
   expect(prompt).toContain(role);
   expect(prompt).toContain("## Intercode notes");
-  expect(prompt).toContain('task(agent="');
+  // Leaf agents get the no-recursion rule, not the spawn syntax.
+  expect(prompt).toContain("leaf sub-agent");
   // Agent voice leads; translation notes are the last section.
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Intercode notes"));
 });
@@ -201,7 +204,8 @@ test("sub-agent prompt always appends Intercode notes, even with a JS-plugin-sty
 // stops a fan-out of sub-agents each fanning out further.
 test("default sub-agent prompt forbids recursion", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("Only the primary Intercode session may call `task`");
+  expect(prompt).toContain("Only the primary Intercode session (or an orchestrator profile) may call `task`");
+  expect(prompt).toContain("leaf sub-agent");
 });
 
 // Orchestrator profiles (frontmatter `orchestrator: true`) are the documented
@@ -213,7 +217,18 @@ test("orchestrator sub-agent prompt grants the task-tool recursion exception", (
   });
   expect(prompt).toContain("You are an orchestrator");
   expect(prompt).toContain("MAY call `task`");
+  expect(prompt).toContain('task(agent="');
   // Must NOT contain the default no-recursion line — that would contradict
   // the permission grant in the same appendix.
-  expect(prompt).not.toContain("Only the primary Intercode session may call `task`");
+  expect(prompt).not.toContain("Only the primary Intercode session (or an orchestrator profile) may call `task`");
+});
+
+test("sub-agent prompt requires structured report envelope and stick-to-brief", () => {
+  const prompt = buildSubAgentSystemPrompt();
+  expect(prompt).toContain("## Summary");
+  expect(prompt).toContain("## Findings");
+  expect(prompt).toContain("## Blockers");
+  expect(prompt).toContain("## Paths");
+  expect(prompt).toContain("Stick to the dispatch brief");
+  expect(prompt).toContain("manage_tasks checklist");
 });

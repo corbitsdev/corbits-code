@@ -31,6 +31,17 @@ import {
 } from "./sent-message-history.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
+import {
+  AgentsStrip,
+  agentsStripRowCount,
+  DEFAULT_STRIP_MAX_VISIBLE,
+} from "./components/agents-strip.js";
+import {
+  SubAgentSessionView,
+  subAgentScrollWindow,
+  subAgentTranscriptWidth,
+  renderTranscriptLines,
+} from "./components/subagent-session-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
@@ -48,7 +59,7 @@ import {
   type Settings,
 } from "../config/settings.js";
 import { getLogger } from "@intx/log";
-import type { SubAgentProvider } from "../subagent/index.js";
+import type { SubAgentProvider, SubAgentSessionStore } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
 import { extraPromptChromeRows } from "./prompt-layout.js";
 import { chromeDividerLine } from "./chrome-zones.js";
@@ -349,6 +360,8 @@ export type AppProps = {
   // Wall-clock ms timestamp the session started. Drives the whole-session timer
   // in the status bar; reset on /new.
   sessionStartedAt?: number;
+  // Inspectable child sessions for the Agents strip and enter-session UI.
+  subAgentSessions?: SubAgentSessionStore;
 };
 
 export function App({
@@ -394,6 +407,7 @@ export function App({
   globalOnboardingPath,
   mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
+  subAgentSessions,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -429,6 +443,11 @@ export function App({
   const [helpOpen, setHelpOpen] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
   const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
+  // Tick so Agents strip / enter-view re-render when the session store mutates.
+  const [sessionsTick, setSessionsTick] = useState(0);
+  const [agentsNavOpen, setAgentsNavOpen] = useState(false);
+  const [agentsNavIndex, setAgentsNavIndex] = useState(0);
+  const [enteredSessionId, setEnteredSessionId] = useState<string | null>(null);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [unauthedProviders, setUnauthedProviders] = useState<ReadonlySet<string>>(() => new Set());
@@ -688,6 +707,24 @@ export function App({
     return () => { eventEmitter.off("workflow", onWorkflow); };
   }, [eventEmitter]);
 
+  useEffect(() => {
+    if (subAgentSessions === undefined) return;
+    return subAgentSessions.subscribe(() => {
+      setSessionsTick((n) => n + 1);
+    });
+  }, [subAgentSessions]);
+
+  const agentSessions = useMemo(() => {
+    void sessionsTick;
+    return subAgentSessions?.listForStrip() ?? [];
+  }, [subAgentSessions, sessionsTick]);
+
+  const enteredSession = useMemo(() => {
+    void sessionsTick;
+    if (enteredSessionId === null || subAgentSessions === undefined) return undefined;
+    return subAgentSessions.get(enteredSessionId);
+  }, [enteredSessionId, subAgentSessions, sessionsTick]);
+
   // The task strip renders above the in-flight indicator: one line when compact,
   // the full checklist (plus heading and surrounding margins) when expanded.
   const taskChromeRows =
@@ -705,13 +742,21 @@ export function App({
     return 6 + list.length + widestCreds + 2;
   })();
 
-  // McpAuthPrompt and commandMessage render outside the overlay region, so
-  // their rows must be subtracted explicitly to prevent the log from overpainting.
+  // Agents strip (session store) + live progress fallback for chrome height.
+  // Prefer the session store list once anything has been spawned this session.
   const activeSubAgents = useMemo(
     () => state.subAgents.filter((a) => a.status !== "done"),
     [state.subAgents],
   );
-  const subAgentChromeRows = activeSubAgents.length > 0 ? activeSubAgents.length + 2 : 0;
+  // The strip caps rendered rows so retained history never crowds out the
+  // transcript; +1 accounts for the surrounding marginTop wrapper.
+  const agentsStripRows =
+    agentSessions.length > 0
+      ? agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
+      : activeSubAgents.length > 0
+        ? activeSubAgents.length + 2
+        : 0;
+  const subAgentChromeRows = agentsStripRows;
 
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
@@ -885,6 +930,24 @@ export function App({
 
   const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
+  // The entered child view owns its own scroll: the parent transcript and the
+  // child transcript have unrelated line counts, so one shared offset would
+  // scroll the hidden parent while the child stayed pinned to its newest rows.
+  const enteredTranscriptLineCount = useMemo(() => {
+    if (enteredSession === undefined) return 0;
+    return renderTranscriptLines(
+      enteredSession.entries,
+      subAgentTranscriptWidth(contentWidth),
+    ).length;
+  }, [enteredSession, contentWidth]);
+  const enteredScrollMaxOffset = subAgentScrollWindow(
+    enteredTranscriptLineCount,
+    visibleRows,
+    0,
+  ).maxOffset;
+  const enteredScroll = useScroll({ maxOffset: enteredScrollMaxOffset });
+  const activeScroll = enteredSession !== undefined ? enteredScroll : scroll;
+
   // Ctrl+O expands tools intersecting the visible window. Membership uses the
   // *display* layout (same line space as scrollOffset) so mid-scroll tracking
   // stays correct after tools grow. Sticky hold + tool-count cap keep the set
@@ -943,7 +1006,12 @@ export function App({
     permissionsOpen ||
     settingsOpen ||
     pluginsOpen ||
-    copyModeIndex !== null
+    copyModeIndex !== null ||
+    // Agents navigation and the entered child view own Enter and the arrows;
+    // leaving the prompt active would submit/interrupt the parent draft or edit
+    // it while the operator is only observing.
+    agentsNavOpen ||
+    enteredSessionId !== null
   );
 
   const copyModeOpen = copyModeIndex !== null;
@@ -1058,6 +1126,10 @@ export function App({
     setWorkflowHistory([]);
     setInputValue("");
     setSessionStartedAt(Date.now());
+    setEnteredSessionId(null);
+    setAgentsNavOpen(false);
+    setAgentsNavIndex(0);
+    subAgentSessions?.clear();
     onNewSession?.();
     if (getSessionId !== undefined) {
       void loadSentMessages(cwd, getSessionId()).then((sent) => {
@@ -1275,6 +1347,8 @@ export function App({
       hasInput: inputValue.length > 0,
       inputFocused: inputActive,
       copyModeOpen,
+      agentsNavOpen,
+      enteredSession: enteredSession !== undefined,
       commandPaletteOpen: inputValue.startsWith("/") && (
         !inputValue.includes(" ") ||
         listCommands().some(
@@ -1301,9 +1375,9 @@ export function App({
         }
       },
       closeHookPanel: () => setHookPanelOpen(false),
-      scrollUp: () => scroll.scrollUp(visibleRows),
-      scrollDown: () => scroll.scrollDown(visibleRows),
-      scrollToBottom: () => scroll.scrollToBottom(),
+      scrollUp: () => activeScroll.scrollUp(visibleRows),
+      scrollDown: () => activeScroll.scrollDown(visibleRows),
+      scrollToBottom: () => activeScroll.scrollToBottom(),
       toggleVerbose: () => {
         if (verbose) {
           setVerbose(false);
@@ -1386,13 +1460,45 @@ export function App({
       cycleMode: () => {
         onToggleAuto?.(true);
       },
+      enterAgentsNav: () => {
+        if (agentSessions.length === 0) {
+          setCommandMessage("No sub-agent sessions yet — spawn with task first");
+          return;
+        }
+        // Prefer currently entered, else first running, else top of strip.
+        const preferred =
+          enteredSessionId !== null
+            ? agentSessions.findIndex((s) => s.id === enteredSessionId)
+            : agentSessions.findIndex((s) => s.status === "running");
+        setAgentsNavIndex(preferred >= 0 ? preferred : 0);
+        setAgentsNavOpen(true);
+      },
+      agentsNavPrev: () =>
+        setAgentsNavIndex((i) => Math.max(0, i - 1)),
+      agentsNavNext: () =>
+        setAgentsNavIndex((i) => Math.min(Math.max(0, agentSessions.length - 1), i + 1)),
+      agentsNavConfirm: () => {
+        const pick = agentSessions[agentsNavIndex];
+        if (pick === undefined) {
+          setAgentsNavOpen(false);
+          return;
+        }
+        setEnteredSessionId(pick.id);
+        setAgentsNavOpen(false);
+        setCommandMessage(`Viewing ${pick.agentId}: ${pick.description}`);
+      },
+      agentsNavCancel: () => setAgentsNavOpen(false),
+      exitEnteredSession: () => {
+        setEnteredSessionId(null);
+        setCommandMessage("Back to parent session");
+      },
     },
   );
 
   useMouseScroll(
     mouseEvents,
-    (ticks) => scroll.scrollUp(ticks * 3),
-    (ticks) => scroll.scrollDown(ticks * 3),
+    (ticks) => activeScroll.scrollUp(ticks * 3),
+    (ticks) => activeScroll.scrollDown(ticks * 3),
   );
 
   const handleCommand = (result: CommandResult) => {
@@ -1543,6 +1649,15 @@ export function App({
           latestUserMessage={headerLatestUserMessage}
           width={columns}
           {...(profile !== undefined ? { profile } : {})}
+          {...(enteredSession !== undefined
+            ? {
+                focusedAgent: {
+                  agentId: enteredSession.agentId,
+                  description: enteredSession.description,
+                  status: enteredSession.status,
+                },
+              }
+            : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -1550,6 +1665,20 @@ export function App({
           <TaskView
             tasks={state.tasks}
           />
+        ) : enteredSession !== undefined ? (
+          <Box
+            width={leftWidth}
+            flexDirection="column"
+            overflow="hidden"
+            paddingX={TEXT_GUTTER}
+          >
+            <SubAgentSessionView
+              session={enteredSession}
+              visibleRows={visibleRows}
+              width={contentWidth}
+              scrollOffset={enteredScroll.scrollOffset}
+            />
+          </Box>
         ) : (
           <Box
             width={leftWidth}
@@ -1696,11 +1825,22 @@ export function App({
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />
             </Box>
           )}
-          {activeSubAgents.length > 0 && (
+          {agentSessions.length > 0 ? (
+            <Box flexDirection="column" marginTop={1}>
+              <AgentsStrip
+                sessions={agentSessions}
+                selectedId={
+                  agentsNavOpen ? (agentSessions[agentsNavIndex]?.id ?? null) : null
+                }
+                enteredId={enteredSessionId}
+                navActive={agentsNavOpen}
+              />
+            </Box>
+          ) : activeSubAgents.length > 0 ? (
             <Box flexDirection="column" marginTop={1}>
               <TaskView tasks={activeSubAgents} title="Agents" />
             </Box>
-          )}
+          ) : null}
           <Box paddingX={1}><Text dimColor>{chromeDividerLine(Math.max(8, columns - 2))}</Text></Box>
           <InFlightIndicator
             active={state.isProcessing}

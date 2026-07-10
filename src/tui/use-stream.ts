@@ -97,6 +97,10 @@ export type AgentStreamState = {
   trimmedBlockCount: number;
   addEvent(event: ReactorEmittedEvent): void;
   addHookEvent(event: LifecycleHookEvent): void;
+  // Live sub-agent tool activity from the runner's onProgress channel. Keeps
+  // the stall clock and status bar current without replaying the sub-agent
+  // transcript into the parent content blocks.
+  noteSubAgentProgress(info: { description: string; toolName: string }): void;
   setGatePending(pending: boolean): void;
   requestStop(): void;
   markRunning(): void;
@@ -844,6 +848,27 @@ export function createAgentStreamState(
         }
       }
     },
+    noteSubAgentProgress(info: { description: string; toolName: string }): void {
+      lastActivityAt = Date.now();
+      activityTick++;
+      // Show the worker's current tool in the status bar so a long-running
+      // task does not look stalled while the parent is blocked on its result.
+      currentToolName = info.toolName;
+      streamingType = "tool";
+      // Annotate matching Agents-strip entries with the live tool name.
+      // Title is "agent: description"; match on the description suffix and
+      // rewrite the trailing " · tool" annotation without losing the base.
+      subAgents = subAgents.map((a) => {
+        if (a.status !== "doing") return a;
+        const base = a.title.includes(" · ")
+          ? a.title.slice(0, a.title.lastIndexOf(" · "))
+          : a.title;
+        if (base === info.description || base.endsWith(`: ${info.description}`)) {
+          return { ...a, title: `${base} · ${info.toolName}` };
+        }
+        return a;
+      });
+    },
   };
 }
 
@@ -924,11 +949,20 @@ export function useAgentStream(
       setTick((t) => t + 1);
       bumpDisplayRevision();
     };
+    const progressHandler = (info: { description: string; toolName: string }) => {
+      state.noteSubAgentProgress(info);
+      // Progress is infrequent (per tool call), so render immediately rather
+      // than waiting on the token drain interval.
+      setTick((t) => t + 1);
+      bumpDisplayRevision();
+    };
     emitter.on("event", handler);
     emitter.on("hook", hookHandler);
+    emitter.on("subagent.progress", progressHandler);
     return () => {
       emitter.off("event", handler);
       emitter.off("hook", hookHandler);
+      emitter.off("subagent.progress", progressHandler);
     };
   }, [emitter, state]);
 

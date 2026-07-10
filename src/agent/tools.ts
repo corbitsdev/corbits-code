@@ -33,7 +33,11 @@ import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-
 import type { MCPServerConfig, Settings } from "../config/settings.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
-import { createTaskTool, type SubAgentProvider } from "../subagent/index.js";
+import {
+  createTaskTool,
+  type SubAgentProvider,
+  type SubAgentSessionStore,
+} from "../subagent/index.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
 import { createUseSkillTool } from "./use-skill.js";
@@ -78,6 +82,12 @@ export type AgentToolsetArgs = {
     provider: SubAgentProvider | (() => SubAgentProvider);
     getWorkdirBase: () => string;
     onEvent?: (event: ReactorEmittedEvent) => void;
+    // Live progress for the TUI status bar / Agents strip. Prefer this over
+    // onEvent when the parent transcript must not receive sub-agent text.
+    onProgress?: (info: { description: string; toolName: string }) => void;
+    // Inspectable child session records for enter-session UI. Not the parent
+    // transcript — child events stay in the store only.
+    sessions?: SubAgentSessionStore;
     settings?: Settings | (() => Settings | undefined);
     catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
     profiles?: AgentProfile[] | (() => AgentProfile[]);
@@ -152,6 +162,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             getWorkdirBase: args.subAgent.getWorkdirBase,
             provider: args.subAgent.provider,
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
+            ...(args.subAgent.onProgress !== undefined
+              ? { onProgress: args.subAgent.onProgress }
+              : {}),
+            ...(args.subAgent.sessions !== undefined ? { sessions: args.subAgent.sessions } : {}),
             ...(args.subAgent.settings !== undefined ? { settings: args.subAgent.settings } : {}),
             ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
             ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
