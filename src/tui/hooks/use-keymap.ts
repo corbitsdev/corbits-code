@@ -1,5 +1,4 @@
-import { useInput } from "ink";
-import type { Key } from "ink";
+import { useInput, type Key } from "ink";
 import { useRef } from "react";
 
 // Double-ESC window: a second ESC press within this many ms (with nothing
@@ -18,6 +17,10 @@ export type KeymapContext = {
   isRunning: boolean;
   commandPaletteOpen: boolean;
   copyModeOpen: boolean;
+  // Agents strip navigation (pick a sub-agent to enter).
+  agentsNavOpen: boolean;
+  // Observing a sub-agent session (read-only enter).
+  enteredSession: boolean;
 };
 
 export type KeymapActions = {
@@ -44,6 +47,12 @@ export type KeymapActions = {
   copyModeCopyAll: () => void;
   copyModeCancel: () => void;
   cycleMode: () => void;
+  enterAgentsNav: () => void;
+  agentsNavNext: () => void;
+  agentsNavPrev: () => void;
+  agentsNavConfirm: () => void;
+  agentsNavCancel: () => void;
+  exitEnteredSession: () => void;
 };
 
 // Pure dispatch function — separated from the hook so it can be unit tested
@@ -80,6 +89,39 @@ export function handleKey(
     else if (key.downArrow) actions.copyModeNext();
     else if (key.return || input === "y") actions.copyModeConfirm();
     else if (input === "a") actions.copyModeCopyAll();
+    return lastEscMs;
+  }
+
+  // Agents-nav mode: pick a sub-agent session to enter.
+  if (context.agentsNavOpen) {
+    if (key.escape) actions.agentsNavCancel();
+    else if (key.upArrow) actions.agentsNavPrev();
+    else if (key.downArrow) actions.agentsNavNext();
+    else if (key.return) actions.agentsNavConfirm();
+    return lastEscMs;
+  }
+
+  // Entered sub-agent observe view: Esc returns to the parent session.
+  if (context.enteredSession) {
+    if (key.escape) {
+      actions.exitEnteredSession();
+      return 0;
+    }
+    // Scroll still works (handled above); block other global shortcuts so the
+    // operator is not yanked into help/copy while watching a child.
+    if (key.ctrl && input === "c") {
+      if (context.isRunning) {
+        actions.requestStop();
+        return lastEscMs;
+      }
+      actions.requestExit();
+      return lastEscMs;
+    }
+    // Allow Ctrl+E to re-open the agents strip while viewing a child.
+    if (key.ctrl && input === "e") {
+      actions.enterAgentsNav();
+      return lastEscMs;
+    }
     return lastEscMs;
   }
 
@@ -156,6 +198,10 @@ export function handleKey(
   }
   if (key.ctrl && input === "y") {
     actions.enterCopyMode();
+    return lastEscMs;
+  }
+  if (key.ctrl && input === "e") {
+    actions.enterAgentsNav();
     return lastEscMs;
   }
   if (key.tab && key.shift) {

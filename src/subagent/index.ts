@@ -352,7 +352,6 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       toolOutputUriPlugin(),
       secretGuardPlugin(),
       authzPlugin(),
-      shellGuardPlugin(params.cwd),
       ripgrepPlugin(params.cwd),
       verifyPlugin(),
       webToolsPlugin(),

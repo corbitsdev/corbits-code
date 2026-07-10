@@ -993,6 +993,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       initialWorkflowStatus={workflowController.status()}
       mouseEvents={mouseEvents}
       sessionStartedAt={startedAt}
+      subAgentSessions={subAgentSessions}
     />,
     { exitOnCtrlC: false, stdin: filteredStdin },
   );
