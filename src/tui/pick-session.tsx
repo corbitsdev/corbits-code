@@ -3,13 +3,19 @@ import { render } from "ink";
 import { listSessions, type SessionSummary } from "../session/index.js";
 import { SessionResumePicker } from "./components/session-resume-picker.js";
 
+// Interrupted (cancelled) sessions are prime resume candidates alongside
+// in-progress ones; only done/failed runs need --force to reopen.
+export function isResumableByDefault(session: Pick<SessionSummary, "status">): boolean {
+  return session.status === "running" || session.status === "cancelled";
+}
+
 export async function pickSession(
   cwd: string,
   options?: { includeCompleted?: boolean },
 ): Promise<SessionSummary | null> {
   let sessions = await listSessions(cwd);
   if (options?.includeCompleted !== true) {
-    sessions = sessions.filter((s) => s.status === "running");
+    sessions = sessions.filter(isResumableByDefault);
   }
   if (sessions.length === 0) {
     process.stderr.write(
