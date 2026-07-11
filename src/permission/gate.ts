@@ -59,6 +59,11 @@ export type PermissionGateOptions = {
   // a command whose path arguments resolve outside it is never auto-allowed.
   // Defaults to the process cwd (the workspace) when omitted.
   cwd?: string;
+  // Additional directories that count as inside the workspace boundary — e.g.
+  // the session's other registered git worktrees. Read/write/edit paths inside
+  // these roots are treated the same as paths inside `cwd`; everything outside
+  // every root asks regardless of tool or auto mode.
+  worktreeRoots?: string[];
 };
 
 export type PermissionGate = {
@@ -89,7 +94,7 @@ export type PermissionGate = {
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
-  const pathRestriction = createPathRestriction(cwd ?? process.cwd());
+  const pathRestriction = createPathRestriction(cwd ?? process.cwd(), options.worktreeRoots ?? []);
   const isRestricted = pathRestriction.isRestricted;
   let auto = options.auto;
   // Own a private copy so evaluating a grant never mutates the caller's array.
