@@ -14,7 +14,14 @@ import {
 } from "../../src/subagent/index.js";
 import { createSubAgentSessionStore } from "../../src/subagent/session-store.js";
 import { buildSubAgentSystemPrompt } from "../../src/agent/prompts.js";
+import { createPermissionGate } from "../../src/permission/gate.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
+
+const testPermissionGate = createPermissionGate({
+  approvals: [],
+  interactive: false,
+  skipPermissions: true,
+});
 
 const provider: SubAgentProvider = {
   providerName: "test",
@@ -37,14 +44,14 @@ test("task tool definition requires description and prompt", () => {
 });
 
 test("handler rejects empty description or prompt", async () => {
-  const tool = createTaskTool({ cwd: "/repo", getWorkdirBase: () => "/repo/.ctx", provider });
+  const tool = createTaskTool({ permissionGate: testPermissionGate, cwd: "/repo", getWorkdirBase: () => "/repo/.ctx", provider });
   expect(await callHandler(tool, { description: "", prompt: "do it" })).toContain("Error:");
   expect(await callHandler(tool, { description: "label", prompt: "  " })).toContain("Error:");
 });
 
 test("handler forwards the provider's reasoning effort to the runner", async () => {
   let receivedEffort: RunSubAgentParams | undefined;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider: { ...provider, reasoningEffort: "high" },
@@ -62,7 +69,7 @@ test("handler forwards the provider's reasoning effort to the runner", async () 
 test("a provider getter is resolved at spawn time, so a live switch reaches subagents", async () => {
   let received: RunSubAgentParams | undefined;
   let current: SubAgentProvider = { ...provider, model: "model-a" };
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider: () => current,
@@ -82,7 +89,7 @@ test("a provider getter is resolved at spawn time, so a live switch reaches suba
 
 test("handler forwards trimmed args to the runner and wraps the result", async () => {
   let received: RunSubAgentParams | undefined;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -105,7 +112,7 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
 });
 
 test("handler reports runner failures without throwing", async () => {
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -122,7 +129,8 @@ test("handler reports runner failures without throwing", async () => {
 test("sub-agent prompt is autonomous and forbids recursion for leaf agents", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain("sub-agent");
-  expect(prompt).toContain("without asking for approval");
+  expect(prompt).toContain("permission policy as the parent session");
+  expect(prompt).toContain("parent session's permission gate");
   // Leaf agents must not be invited to spawn further agents.
   expect(prompt).toContain("leaf sub-agent");
   expect(prompt).not.toContain("MAY call `task`");
@@ -130,7 +138,7 @@ test("sub-agent prompt is autonomous and forbids recursion for leaf agents", () 
 
 test("unknown agent id fails closed instead of silent generic fall-through", async () => {
   let ran = false;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -153,7 +161,7 @@ test("unknown agent id fails closed instead of silent generic fall-through", asy
 
 test("unknown agent id fails closed when no profiles are loaded", async () => {
   let ran = false;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -174,7 +182,7 @@ test("unknown agent id fails closed when no profiles are loaded", async () => {
 
 test("orchestrator profile installs nestedDispatch so task can be re-dispatched", async () => {
   let received: RunSubAgentParams | undefined;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -202,7 +210,7 @@ test("orchestrator profile installs nestedDispatch so task can be re-dispatched"
 
 test("nested dispatch runs reentrant so a full pool cannot deadlock it", async () => {
   let received: RunSubAgentParams | undefined;
-  const nestedTool = createTaskTool({
+  const nestedTool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -216,7 +224,7 @@ test("nested dispatch runs reentrant so a full pool cannot deadlock it", async (
   expect(received?.nested).toBe(true);
 
   let topReceived: RunSubAgentParams | undefined;
-  const topTool = createTaskTool({
+  const topTool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -232,7 +240,7 @@ test("nested dispatch runs reentrant so a full pool cannot deadlock it", async (
 test("nested dispatch forwards the external sink, not the orchestrator recorder", async () => {
   const store = createSubAgentSessionStore();
   const external: string[] = [];
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -260,7 +268,7 @@ test("nested dispatch forwards the external sink, not the orchestrator recorder"
 
 test("allowOrchestrator false strips orchestrator even when the profile is marked", async () => {
   let received: RunSubAgentParams | undefined;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -300,7 +308,7 @@ test("subAgentToolName reads tool.start call name", () => {
 
 test("handler injects context and goals into runner params when provided", async () => {
   let received: RunSubAgentParams | undefined;
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -327,7 +335,7 @@ test("handler omits context and goals when empty", async () => {
   let receivedNoContext: RunSubAgentParams | undefined;
   let receivedEmptyContext: RunSubAgentParams | undefined;
 
-  const toolNoContext = createTaskTool({
+  const toolNoContext = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -337,7 +345,7 @@ test("handler omits context and goals when empty", async () => {
     },
   });
 
-  const toolEmptyContext = createTaskTool({
+  const toolEmptyContext = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -481,7 +489,7 @@ test("a profile-resolved provider carries the bifrost virtual-key marker", async
       },
     },
   };
-  const tool = createTaskTool({
+  const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
@@ -523,7 +531,7 @@ describe("createTaskTool profile resolution", () => {
 
   test("mode: pin agent with an unconfigured provider surfaces an unavailable error and never runs", async () => {
     let runs = 0;
-    const tool = createTaskTool({
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
@@ -559,7 +567,7 @@ describe("createTaskTool profile resolution", () => {
 
   test("mode: prefer agent with an unconfigured provider falls back to the active session provider", async () => {
     let received: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
@@ -590,7 +598,7 @@ describe("createTaskTool profile resolution", () => {
 
   test("a pinned inference leg whose model is incompatible with its reasoningEffort fails before run", async () => {
     let runs = 0;
-    const tool = createTaskTool({
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
@@ -631,7 +639,7 @@ describe("createTaskTool profile resolution", () => {
     // a /agent effort selection propagates uniformly across pinned and
     // fall-through dispatch paths.
     let received: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider: { ...provider, reasoningEffort: "high" },
@@ -665,7 +673,7 @@ describe("createTaskTool profile resolution", () => {
     // set, which buildSubAgentSystemPrompt then uses to grant the recursion
     // exception in the appendix (covered in src/prompts.test.ts).
     let received: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
