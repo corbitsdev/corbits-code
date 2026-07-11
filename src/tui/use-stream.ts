@@ -8,6 +8,7 @@ import { lookupModelPricing } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
 import { validateView, type ViewNode } from "./view/index.js";
+import { parsePresentViewFromArgs } from "./tool-args.js";
 import { parseManageTasksArgs, applyManageTasks, type Task } from "../agent/tasks.js";
 
 // Provider-agnostic detection of context-window-overflow error text. The
@@ -1002,13 +1003,7 @@ export function createAgentStreamState(
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
             callIdToName.delete(result.callId);
             callIdToArguments.delete(result.callId);
-            let view: unknown;
-            try {
-              view = (JSON.parse(rawArgs) as { view?: unknown }).view;
-            } catch {
-              view = undefined;
-            }
-            const validated = validateView(view);
+            const validated = validateView(parsePresentViewFromArgs(rawArgs));
             let presentCallIndex = -1;
             for (let i = contentBlocks.length - 1; i >= 0; i--) {
               const b = contentBlocks[i];
@@ -1017,23 +1012,23 @@ export function createAgentStreamState(
                 break;
               }
             }
-            if (validated.ok) {
+            if (!validated.ok) {
               if (presentCallIndex >= 0) {
                 spliceBlocks(presentCallIndex, 1);
               }
-              pushBlock({ type: "view", node: validated.node });
+              pushBlock({
+                type: "tool_result",
+                callId: result.callId,
+                name: "present",
+                content: `present view validation failed: ${validated.error}`,
+                isError: true,
+              });
               break;
             }
             if (presentCallIndex >= 0) {
               spliceBlocks(presentCallIndex, 1);
             }
-            pushBlock({
-              type: "tool_result",
-              callId: result.callId,
-              name: "present",
-              content: `present view validation failed: ${validated.error}`,
-              isError: true,
-            });
+            pushBlock({ type: "view", node: validated.node });
             break;
           }
 
