@@ -460,6 +460,120 @@ describe("createAgentStreamState", () => {
     expect(results[0]?.type === "tool_result" && results[0].isError).toBe(false);
   });
 
+  test("a duplicate tool.done for the same callId does not push a second tool_result block", () => {
+    // Regression: the reactor's retry loop can re-emit a completed cycle's
+    // tool.done alongside the retried cycle's own tool.done for the same
+    // call, which previously produced two tool_result blocks for one call.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-dup", name: "read_file" }));
+    state.addEvent(event("tool.done", { result: { callId: "call-dup", content: "first", isError: false } }));
+    state.addEvent(event("tool.done", { result: { callId: "call-dup", content: "first", isError: false } }));
+
+    const results = state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "call-dup");
+    expect(results).toHaveLength(1);
+  });
+
+  test("inference.retry discards the blocks streamed by the failed attempt", () => {
+    // Regression: the reactor restarts inferenceRunner from scratch on a
+    // same-source or failover retry, re-streaming inference.start through
+    // whatever content the failed attempt already committed. inference.retry
+    // is the marker the reactor emits before restarting; the transcript must
+    // roll back to the attempt boundary so the retried attempt's own content
+    // is not appended on top of the discarded one.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "partial reply from the failed attempt" }));
+    state.addEvent(event("inference.retry", { attempt: 1, delayMs: 0, previousError: { category: "quota_exhausted", message: "429" } }));
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "final reply" }));
+
+    const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.type === "text" && textBlocks[0].content).toBe("final reply");
+  });
+
+  test("a harness pre-commit inference.retry does not splice away the previous cycle's blocks", () => {
+    // The harness emits inference.retry for uncommitted attempts, discarding
+    // the failed attempt's buffered inference.start — so the event reaches
+    // the TUI before any inference.start for its cycle. At that moment the
+    // rollback boundary still describes the previous, completed cycle;
+    // splicing there would destroy settled text and tool results.
+    const state = createAgentStreamState();
+    // Cycle 1 completes normally with text and a tool result.
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "settled reply" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "call-1", name: "read_file" }));
+    state.addEvent(event("inference.tool_call.end", { callId: "call-1", name: "read_file", arguments: { path: "a.txt" } }));
+    state.addEvent(event("inference.done", { turn: { role: "assistant", content: [], model: "test-model", timestamp: 0 }, usage: {}, source: {} }));
+    state.addEvent(event("tool.done", { result: { callId: "call-1", content: "ok", isError: false } }));
+
+    // Cycle 2's first attempt fails pre-commit: harness-style retry arrives
+    // before the cycle's inference.start.
+    state.addEvent(event("inference.retry", { attempt: 1, delayMs: 0, previousError: { category: "retryable", message: "5xx" } }));
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "second reply" }));
+
+    const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+    expect(textBlocks.map((b) => b.type === "text" && b.content)).toEqual(["settled reply", "second reply"]);
+    expect(state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "call-1")).toHaveLength(1);
+  });
+
+  test("a cycle ended by inference.error does not leave the rollback boundary armed", () => {
+    // A cycle can terminate in inference.error with no inference.done (user
+    // abort, fatal, exhausted failover). The boundary must not stay armed
+    // across that terminal error: a later cycle's pre-commit harness retry
+    // would otherwise splice away the aborted partial, the rendered error
+    // block, and any user message pushed in between.
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "aborted partial" }));
+    state.addEvent(event("inference.error", { error: { category: "aborted", message: "Esc" }, partial: { text: "aborted partial" } }));
+
+    state.addEvent(event("message.received", { message: { content: "please continue" } }));
+
+    // Cycle 2's first attempt fails pre-commit: harness retry before start.
+    state.addEvent(event("inference.retry", { attempt: 1, delayMs: 0, previousError: { category: "retryable", message: "5xx" } }));
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "second reply" }));
+
+    const texts = state.contentBlocks.filter((b) => b.type === "text").map((b) => b.type === "text" && b.content);
+    expect(texts).toEqual(["aborted partial", "second reply"]);
+    expect(state.contentBlocks.filter((b) => b.type === "user")).toHaveLength(1);
+  });
+
+  test("an inference.retry immediately after a committed inference.error still rolls back", () => {
+    // The reactor's committed-retry path surfaces the failed attempt's
+    // inference.error and then its own inference.retry back to back; the
+    // rollback must still retract the failed attempt in that shape.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "failed attempt" }));
+    state.addEvent(event("inference.error", { error: { category: "quota_exhausted", message: "429" }, partial: { text: "failed attempt" } }));
+    state.addEvent(event("inference.retry", { attempt: 1, delayMs: 1, previousError: { category: "quota_exhausted", message: "429" } }));
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "final reply" }));
+
+    const texts = state.contentBlocks.filter((b) => b.type === "text").map((b) => b.type === "text" && b.content);
+    expect(texts).toEqual(["final reply"]);
+  });
+
+  test("a callId reused across cycles renders both results", () => {
+    // Index-based providers synthesize callIds unique only within a cycle
+    // ("0", "1", ...), so tool.done dedup must reset at each inference.start.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "1", name: "read_file" }));
+    state.addEvent(event("tool.done", { result: { callId: "1", content: "first cycle", isError: false } }));
+
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "1", name: "run_shell" }));
+    state.addEvent(event("tool.done", { result: { callId: "1", content: "second cycle", isError: false } }));
+
+    const results = state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "1");
+    expect(results).toHaveLength(2);
+  });
+
   test("latestUserMessageLogged is true after message.received and resets on clear", () => {
     const state = createAgentStreamState();
 
