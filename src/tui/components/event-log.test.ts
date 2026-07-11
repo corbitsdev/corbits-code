@@ -14,7 +14,6 @@ import {
   viewportToolIds,
 } from "./event-log.js";
 import { formatElapsed } from "./in-flight-indicator.js";
-import { color } from "../theme.js";
 import type { ContentBlock, ContentBlockData } from "../use-stream.js";
 
 function asBlock(data: ContentBlockData & { id: string }): ContentBlock {
@@ -178,7 +177,7 @@ describe("tool row backgrounds", () => {
     return lines.flatMap((line) => line.map((seg) => seg.backgroundColor));
   }
 
-  test("a pending tool row is tinted with the running background", () => {
+  test("a pending tool row carries no background tint", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "run1",
@@ -188,7 +187,7 @@ describe("tool row backgrounds", () => {
       startedAt: 0,
     };
     const pending = segmentBackgrounds(buildLines([call], COLUMNS, false, isExpanded));
-    expect(pending.some((bg) => bg === color("toolRunningBg"))).toBe(true);
+    expect(pending.every((bg) => bg === undefined)).toBe(true);
   });
 
   test("a completed tool row has no status background", () => {

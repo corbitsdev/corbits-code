@@ -126,7 +126,7 @@ test("EventLog wraps a long line with inline bold instead of overflowing", () =>
   expect(frame).toContain("today");
 });
 
-test("EventLog paints a pending tool call with a spinner and live elapsed", () => {
+test("EventLog paints a pending tool call with a static indicator and elapsed clock", () => {
   const { lastFrame } = renderLog(
     [{ type: "tool_call", callId: "run-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: Date.now() - 3_000 }],
     { columns: 60 },
@@ -135,8 +135,23 @@ test("EventLog paints a pending tool call with a spinner and live elapsed", () =
   expect(frame).toContain("Read");
   // A running row shows the elapsed clock; three seconds have passed since start.
   expect(frame).toContain("3s");
-  // One of the braille spinner glyphs leads the row.
-  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(true);
+  // The pending marker is a fixed glyph, not an animated braille spinner — the
+  // session's one live spinner belongs to the bottom status row only.
+  expect(frame).toContain("○");
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+});
+
+test("EventLog and the in-flight status row never both show a braille spinner", () => {
+  // The pending transcript row uses a static glyph; only InFlightIndicator (the
+  // bottom status row, rendered separately in app.tsx) owns the animated
+  // braille cycle. This guards against a second live spinner creeping back
+  // into the transcript.
+  const { lastFrame } = renderLog(
+    [{ type: "tool_call", callId: "run-2", name: "run_shell", arguments: '{"command":"echo hi"}', startedAt: Date.now() }],
+    { columns: 60 },
+  );
+  const frame = lastFrame() ?? "";
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
 });
 
 test("EventLog shows a completed tool call's duration and no spinner", () => {
