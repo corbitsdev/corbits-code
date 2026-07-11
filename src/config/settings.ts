@@ -88,7 +88,24 @@ export type Settings = {
   // back to whatever the user's main session is currently using so the agent
   // still runs; "none" treats it as a hard error and the profile fails to load.
   agentModelFallback?: "active" | "none";
+  // Shell command timeouts. `timeoutMs` is the default applied when the model
+  // does not pass a per-command timeout; `maxTimeoutMs` caps any per-command
+  // override so a single command cannot wait effectively unbounded.
+  shell?: { timeoutMs?: number; maxTimeoutMs?: number };
 };
+
+// Maps the settings shell block to the shape the shell-guard plugin expects.
+// Returns undefined when unset so the plugin applies its own defaults.
+export function shellTimeoutFromSettings(
+  settings?: Settings | null,
+): { defaultMs?: number; maxMs?: number } | undefined {
+  const shell = settings?.shell;
+  if (shell === undefined) return undefined;
+  return {
+    ...(shell.timeoutMs !== undefined ? { defaultMs: shell.timeoutMs } : {}),
+    ...(shell.maxTimeoutMs !== undefined ? { maxMs: shell.maxTimeoutMs } : {}),
+  };
+}
 
 export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
 
@@ -238,6 +255,7 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "compactionMode?": "'llm' | 'pruning'",
   "maxConcurrentSubAgents?": "number",
+  "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -379,6 +397,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.maxConcurrentSubAgents !== undefined
       ? { maxConcurrentSubAgents: clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number) }
       : {}),
+    ...(s.shell !== undefined ? { shell: s.shell as Settings["shell"] } : {}),
   } as Settings;
 }
 
