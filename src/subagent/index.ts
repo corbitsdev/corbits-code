@@ -15,8 +15,7 @@ import type { AgentTool } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
-import { createPosixTools } from "@intx/tools-posix";
-import { createLSPPlugin } from "@intx/tools-lsp";
+import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
 import { DefaultDirector } from "@intx/inference";
 import type {
   ReactorInboundEvent,
@@ -30,18 +29,14 @@ import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
-import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
-import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
-import { authzPlugin } from "../plugins/authz-plugin.js";
 import {
   advertiseShellGuardTimeout,
-  shellGuardPlugin,
+  type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
-import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
-import { verifyPlugin } from "../plugins/verify-plugin.js";
-import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
-import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
-import { webToolsPlugin } from "../web/plugin.js";
+import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import type { WebProvider } from "../web/types.js";
+import type { PermissionGate } from "../permission/gate.js";
+import { createPermissionGate } from "../permission/gate.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { createPruningCompactor } from "../session/compactor.js";
@@ -98,6 +93,8 @@ class SubAgentDirector extends DefaultDirector {
     if (this.compaction.resumeAfterCompact(event)) {
       return capabilities.infer();
     }
+    const idleCompact = this.compaction.interceptIdleContinuation(event, capabilities);
+    if (idleCompact !== null) return idleCompact;
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
@@ -105,10 +102,14 @@ class SubAgentDirector extends DefaultDirector {
       this.compaction.noteInferenceDone(event, state.turns.length);
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
       if (!hasToolCalls) {
-        return [
+        const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-complete"),
           capabilities.reply(lastText(event.turn.content)),
         ];
+        this.compaction.noteIdleTurn(event, terminal);
+        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
+        if (compacted !== null) return compacted;
+        return terminal;
       }
     }
     const base = await super.decide(event, state, capabilities);
@@ -172,7 +173,15 @@ export function buildSubAgentPrimarySource(
 // Dependencies an orchestrator sub-agent needs to spawn further workers via
 // `task`. Nested dispatch always sets allowOrchestrator: false so the
 // recursion bottoms out at one hop of orchestration.
-export type NestedDispatchDeps = {
+export type SubAgentSandboxDeps = {
+  permissionGate: PermissionGate;
+  inheritMcpTools?: () => readonly AgentTool[];
+  webProvider?: WebProvider;
+  shellTimeout?: ShellTimeoutConfig;
+  extraToolPlugins?: ToolPlugin[];
+};
+
+export type NestedDispatchDeps = SubAgentSandboxDeps & {
   getWorkdirBase: () => string;
   provider: SubAgentProvider | (() => SubAgentProvider);
   onEvent?: (event: ReactorEmittedEvent) => void;
@@ -217,7 +226,7 @@ export type RunSubAgentParams = {
   // already holds a concurrency slot. The nested run reuses the parent's slot
   // (reentrant) instead of acquiring its own, which would deadlock the pool.
   nested?: boolean;
-};
+} & SubAgentSandboxDeps;
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
   const nameSet = new Set(capabilities.tools);
@@ -351,29 +360,27 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 }
 
 async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
+  const permissionGate = params.permissionGate;
   const posixTools = createPosixTools({
     cwd: params.cwd,
-    plugins: [
-      pathEscapePlugin(params.cwd),
-      toolOutputUriPlugin(),
-      secretGuardPlugin(),
-      authzPlugin(),
-      // Sub-agents run the same shell guard as the main agent so their
-      // run_shell calls get the default timeout, output cap, and process-group
-      // kill — autonomous loops are the most likely to spawn a runaway command.
-      shellGuardPlugin(params.cwd),
-      ripgrepPlugin(params.cwd),
-      verifyPlugin(),
-      webToolsPlugin(),
-      lspHintPlugin(),
-      createLSPPlugin({ cwd: params.cwd, minSeverity: 1 }),
-    ],
+    plugins: buildCorePosixToolPlugins({
+      cwd: params.cwd,
+      permissionGate,
+      ...(params.webProvider !== undefined ? { webProvider: params.webProvider } : {}),
+      ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
+      ...(params.extraToolPlugins !== undefined ? { extraToolPlugins: params.extraToolPlugins } : {}),
+    }),
   });
-  // Align the advertised run_shell timeout with shell-guard's resolved default.
+  const shellDefaultMs = params.shellTimeout?.defaultMs;
   let tools = fromToolRunner(posixTools).map((tool) => ({
     ...tool,
-    definition: advertiseShellGuardTimeout(tool.definition),
+    definition: advertiseShellGuardTimeout(tool.definition, shellDefaultMs),
   }));
+
+  const inherited = params.inheritMcpTools?.() ?? [];
+  if (inherited.length > 0) {
+    tools = [...tools, ...inherited];
+  }
 
   if (params.capabilities !== undefined) {
     tools = applyCapabilityFilter(tools, params.capabilities);
@@ -409,6 +416,11 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     tools = [
       ...tools,
       createTaskTool({
+        permissionGate: nd.permissionGate,
+        ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
+        ...(nd.webProvider !== undefined ? { webProvider: nd.webProvider } : {}),
+        ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
+        ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
         cwd: params.cwd,
         getWorkdirBase: nd.getWorkdirBase,
         provider: nd.provider,
@@ -634,7 +646,7 @@ function resolveDep<T>(value: T | (() => T)): T {
   return typeof value === "function" ? (value as () => T)() : value;
 }
 
-export type TaskToolDeps = {
+export type TaskToolDeps = SubAgentSandboxDeps & {
   cwd: string;
   getWorkdirBase: () => string;
   // A getter so a live /agent provider/model/effort switch reaches subagents
@@ -811,8 +823,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           : deps.onEvent;
 
       try {
+        const sandbox: SubAgentSandboxDeps = {
+          permissionGate: deps.permissionGate,
+          ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
+          ...(deps.webProvider !== undefined ? { webProvider: deps.webProvider } : {}),
+          ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+          ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
+        };
         const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
           ? {
+              ...sandbox,
               getWorkdirBase: deps.getWorkdirBase,
               provider: deps.provider,
               // Forward the external sink, not this session's recorder: nested
@@ -831,6 +851,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             }
           : undefined;
         const params: RunSubAgentParams = {
+          ...sandbox,
           cwd: deps.cwd,
           workdirBase: deps.getWorkdirBase(),
           provider,
