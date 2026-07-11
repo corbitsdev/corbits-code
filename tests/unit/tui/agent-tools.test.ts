@@ -58,6 +58,8 @@ const { createAgentToolset } = await import("../../../src/agent/tools.js");
 const fakePermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
   preApprove: mock(() => {}),
+  registerMcpClient: mock(() => {}),
+  unregisterMcpServer: mock(() => {}),
 };
 
 const callOperator = async (
