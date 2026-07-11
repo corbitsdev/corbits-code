@@ -36,6 +36,12 @@ const IDLE_OPEN_TASK_NUDGE =
   "Finish the remaining work and mark each task done or cancelled with " +
   "manage_tasks before ending, or continue working with tools.";
 
+const WORKFLOW_OPEN_TASK_NUDGE =
+  "\n\nYou are ending your turn while tasks are still open (todo/doing) and a " +
+  "workflow step is active. Continue working with tools, call advance_workflow " +
+  "once the step is complete, or mark finished tasks done with manage_tasks. " +
+  "Do not end your turn with tasks still open.";
+
 const DECLINED_OPEN_TASK_NUDGE =
   "\n\nThe operator declined the tool call. Do not retry the declined action. " +
   "Some tasks are still open (todo/doing): either take a different approach " +
@@ -533,9 +539,12 @@ class ChatDirectorImpl extends DefaultDirector {
             (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
               a.type !== "wait" && a.type !== "reply",
           );
+          // Inside a workflow the terminal action is advance_workflow, so point
+          // the nudge at it rather than the general manage_tasks guidance.
+          const nudge = coordinator?.isActive() === true ? WORKFLOW_OPEN_TASK_NUDGE : IDLE_OPEN_TASK_NUDGE;
           return [
             ...passThrough,
-            capabilities.infer({ systemPrompt: `${this._systemPrompt}${IDLE_OPEN_TASK_NUDGE}` }),
+            capabilities.infer({ systemPrompt: `${this._systemPrompt}${nudge}` }),
           ];
         }
         this.logTerminationWithOpenTasks("idle-stall");

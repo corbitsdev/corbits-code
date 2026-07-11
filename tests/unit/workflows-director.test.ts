@@ -160,6 +160,38 @@ function manageTasksTurn(status: "todo" | "doing" | "done"): ReactorInboundEvent
   };
 }
 
+function emptyTurn(): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: { role: "assistant", content: [], model: "test-model", timestamp: 0 },
+    usage,
+    source: { id: "t", provider: "openai", model: "test-model" },
+  };
+}
+
+// A content-free terminal turn inside an active workflow is nudged by the
+// general open-task guard, which must point at advance_workflow rather than the
+// non-workflow manage_tasks guidance.
+test("a content-free workflow turn with open tasks nudges toward advance_workflow", async () => {
+  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  runtime.start(flow);
+  const coordinator = new WorkflowCoordinator(runtime);
+  const director = createChatDirector("BASE", [], undefined, undefined, undefined, undefined, coordinator);
+  const caps = makeCapabilities();
+
+  await director.decide(manageTasksTurn("doing"), state, caps);
+  const result = await director.decide(emptyTurn(), state, caps);
+
+  // The active step directive always appends its own "call advance_workflow"
+  // line, so assert against text unique to the workflow nudge and the absence
+  // of the general nudge's phrasing — otherwise the test passes either way.
+  const infers = inferActions(result);
+  expect(infers.length).toBeGreaterThan(0);
+  const prompt = infers[0]?.options?.systemPrompt ?? "";
+  expect(prompt).toContain("a workflow step is active");
+  expect(prompt).not.toContain("mark each task done or cancelled with manage_tasks before ending");
+});
+
 // With a workflow active, the workflow stuck-cutoff owns termination. Open tasks
 // must not let the general open-task guard override that cutoff into an endless
 // nudge — the workflow path still hands back after 3 idle turns.
