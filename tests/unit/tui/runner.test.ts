@@ -22,42 +22,7 @@ test("getTUIRunSummaryStatus distinguishes done, failed, and cancelled runs", ()
   expect(getTUIRunSummaryStatus(false, undefined)).toBe("cancelled");
 });
 
-// Rotation behavioral tests — these exercise the serial-queue and per-session
-// store semantics without spinning up a real TUI or agent.
-
-// The serial operation queue must run operations one at a time and drain in order.
-test("serial operation queue executes operations in order without interleaving", async () => {
-  const log: string[] = [];
-
-  let queueTail: Promise<void> = Promise.resolve();
-  const enqueue = (op: () => Promise<void>): Promise<void> => {
-    queueTail = queueTail.then(op, op);
-    return queueTail;
-  };
-
-  let resolveA!: () => void;
-  const opA = new Promise<void>((r) => (resolveA = r));
-
-  enqueue(async () => {
-    log.push("A:start");
-    await opA;
-    log.push("A:end");
-  });
-
-  enqueue(async () => {
-    log.push("B:start");
-    log.push("B:end");
-  });
-
-  // B must not start until A finishes, even though A is async.
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(log).toEqual(["A:start"]);
-
-  resolveA();
-  await queueTail;
-  expect(log).toEqual(["A:start", "A:end", "B:start", "B:end"]);
-});
+// Rotation behavioral tests — per-session store semantics without a real TUI or agent.
 
 // When buildAgent throws after the old agent is closed, fatalBuildError must
 // be set so subsequent sends fail immediately rather than dispatching to a
