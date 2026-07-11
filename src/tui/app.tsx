@@ -31,6 +31,7 @@ import {
 } from "./sent-message-history.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
+import { hasActiveTasks } from "../agent/tasks.js";
 import {
   AgentsStrip,
   agentsStripRowCount,
@@ -728,7 +729,7 @@ export function App({
   // The task strip renders above the in-flight indicator: one line when compact,
   // the full checklist (plus heading and surrounding margins) when expanded.
   const taskChromeRows =
-    state.tasks.length === 0
+    !hasActiveTasks(state.tasks)
       ? 0
       : (tasksExpanded ? state.tasks.length + 1 : 1) + 2;
 
@@ -1820,7 +1821,7 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
-          {state.tasks.length > 0 && (
+          {hasActiveTasks(state.tasks) && (
             <Box flexDirection="column" marginTop={1}>
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />
             </Box>
