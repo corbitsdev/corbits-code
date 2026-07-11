@@ -1,4 +1,7 @@
 import { describe, test, expect } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
 import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
@@ -158,6 +161,7 @@ describe("classifyTool", () => {
   test("read-only tools allow, side-effecting tools ask", () => {
     expect(classifyTool("read_file")).toBe("allow");
     expect(classifyTool("grep")).toBe("allow");
+    expect(classifyTool("lsp")).toBe("allow");
     expect(classifyTool("run_shell")).toBe("ask");
     expect(classifyTool("write_file")).toBe("ask");
     expect(classifyTool("edit_file")).toBe("ask");
@@ -1016,5 +1020,139 @@ describe("createPermissionGate restricted paths", () => {
     const verdict = await gate.evaluate({ id: "c", name: "grep", arguments: { pattern: "foo" } });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
+  });
+});
+
+describe("read-only tools in auto mode", () => {
+  const cwd = process.cwd();
+
+  test("lsp is auto-allowed in auto mode without prompting", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "lsp",
+      arguments: { operation: "hover", filePath: "src/index.ts", line: 1, character: 1 },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("a read-only tool on a restricted path still asks", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "lsp",
+      arguments: { operation: "hover", filePath: ".agent-state/run.json", line: 1, character: 1 },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("MCP and unknown tools still ask in auto mode", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    expect((await gate.evaluate({ id: "c", name: "mcp__acme__list_projects", arguments: {} })).allowed).toBe(false);
+    expect((await gate.evaluate({ id: "c", name: "some_unknown_tool", arguments: {} })).allowed).toBe(false);
+    expect(asked).toBe(2);
+  });
+});
+
+describe("workspace-scoped autonomy in auto mode", () => {
+  const cwd = process.cwd();
+
+  test("a write inside the workspace root is auto-allowed", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/permission/scratch.ts" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("a write inside a registered worktree root is auto-allowed", async () => {
+    const worktree = mkdtempSync(join(tmpdir(), "intercode-worktree-"));
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      worktreeRoots: [worktree],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: join(worktree, "notes.md") },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("a write to a secret-guarded (gitignored) path still asks even in auto mode", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "node_modules/foo/index.js" },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("a write outside the workspace and any registered worktree still asks", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "intercode-outside-"));
+    const target = join(outside, "escape.ts");
+    writeFileSync(target, "");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: target } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
   });
 });
