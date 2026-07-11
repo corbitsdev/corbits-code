@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
@@ -77,6 +77,20 @@ describe("deleteFilePlugin", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("escapes working directory");
+    expect(await exists(path)).toBe(true);
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  test("refuses files reached through a directory symlink outside the workspace", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "intercode-delete-symlink-outside-"));
+    const path = join(outside, "keep.txt");
+    await writeFile(path, "keep");
+    await symlink(outside, join(cwd, "linked-outside"));
+
+    const result = await handler()(call("linked-outside/keep.txt"), new AbortController().signal);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("resolves outside the working directory");
     expect(await exists(path)).toBe(true);
     await rm(outside, { recursive: true, force: true });
   });
