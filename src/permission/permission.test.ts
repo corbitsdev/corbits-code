@@ -1393,7 +1393,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     const restriction = createPathRestriction(repo, createWorktreeRootsProvider(repo, lister));
     const outside = mkdtempSync(join(tmpdir(), "intercode-burst-"));
     for (let i = 0; i < 5; i++) {
-      expect(restriction.isRestricted(join(outside, `file-${i}.ts`))).toBe(true);
+      expect(restriction.isRestricted(join(outside, `file-${i}.ts`), false)).toBe(true);
     }
     // One call to seed the initial (empty) roots, and the debounce window
     // suppresses every forced refresh that follows within it.
@@ -1410,8 +1410,8 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     const provider = createWorktreeRootsProvider(repo, lister, 0);
     const restriction = createPathRestriction(repo, provider);
     const outside = mkdtempSync(join(tmpdir(), "intercode-window-"));
-    expect(restriction.isRestricted(join(outside, "a.ts"))).toBe(true);
-    expect(restriction.isRestricted(join(outside, "b.ts"))).toBe(true);
+    expect(restriction.isRestricted(join(outside, "a.ts"), false)).toBe(true);
+    expect(restriction.isRestricted(join(outside, "b.ts"), false)).toBe(true);
     // A zero-width debounce window means the initial listing plus one forced
     // refresh per subsequent check are both eligible to run.
     expect(listCalls).toBeGreaterThan(1);
