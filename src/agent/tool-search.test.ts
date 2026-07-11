@@ -3,6 +3,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import {
   createToolIndex,
   createToolSearchTool,
+  createActivatedToolTracker,
   advertisedTools,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
@@ -70,12 +71,15 @@ function call(tool: ReturnType<typeof createToolSearchTool>, args: Record<string
 }
 
 describe("createToolSearchTool", () => {
-  test("lists matches back to the model without mutating any external set", async () => {
+  test("promotes matches and lists them back to the model", async () => {
+    const promoted: string[] = [];
     const tool = createToolSearchTool({
       search: (q) => index.search(q),
       lookup: (name) => defs.find((d) => d.name === name),
+      promote: (names) => promoted.push(...names),
     });
     const out = await call(tool, { query: "search the web" });
+    expect(promoted).toContain("web_search");
     expect(out).toContain("web_search");
     expect(out).toContain("search the web");
   });
@@ -84,24 +88,26 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: (q) => index.search(q),
       lookup: (name) => defs.find((d) => d.name === name),
+      promote: () => undefined,
     });
     const out = await call(tool, { query: "issue tracker" });
     expect(out).toContain("mcp__linear__create_issue");
     // Parameter names and the required list must appear — this is the whole
-    // point: MCP tools are never in the wire tools array, so their schema only
-    // reaches the model through the tool_search result.
+    // point: MCP tools are never in the wire tools array up front, so their
+    // schema reaches the model through the tool_search result this same turn,
+    // ahead of the promoted definition landing on the next infer call.
     expect(out).toContain("title");
     expect(out).toContain("teamId");
     expect(out).toContain("required");
   });
 
   test("rejects an empty query", async () => {
-    const tool = createToolSearchTool({ search: () => [], lookup: () => undefined });
+    const tool = createToolSearchTool({ search: () => [], lookup: () => undefined, promote: () => undefined });
     expect(await call(tool, { query: "  " })).toContain("Error:");
   });
 
   test("reports when nothing matches", async () => {
-    const tool = createToolSearchTool({ search: () => [], lookup: () => undefined });
+    const tool = createToolSearchTool({ search: () => [], lookup: () => undefined, promote: () => undefined });
     expect(await call(tool, { query: "nonsense" })).toContain("No tools matched");
   });
 });
@@ -114,7 +120,7 @@ describe("advertisedTools", () => {
     { name: "mcp__linear__create_issue", description: "create", inputSchema: { type: "object", properties: {}, required: [] } },
   ];
 
-  test("advertises only the fixed built-in set, never MCP tools", () => {
+  test("with no activation, advertises only the fixed built-in set, never MCP tools", () => {
     const names = advertisedTools(registry).map((d) => d.name);
     expect(names).toContain("read_file");
     expect(names).toContain("grep");
@@ -122,7 +128,7 @@ describe("advertisedTools", () => {
     expect(names).not.toContain("mcp__linear__create_issue");
   });
 
-  test("is byte-identical after an MCP tool is registered (cache prefix survives)", () => {
+  test("with no activation, the array is byte-identical after an MCP tool is registered (cache prefix survives)", () => {
     const before = JSON.stringify(advertisedTools(registry));
     const grown: ToolDefinition[] = [
       ...registry,
@@ -132,15 +138,69 @@ describe("advertisedTools", () => {
     expect(after).toBe(before);
   });
 
-  test("order follows the fixed name list, not the registry order", () => {
+  test("the fixed built-in prefix order never changes, activated or not", () => {
     const forward = advertisedTools(registry).map((d) => d.name);
     const reversed = advertisedTools([...registry].reverse()).map((d) => d.name);
     expect(reversed).toEqual(forward);
+
+    const withActivation = advertisedTools(registry, ["mcp__linear__create_issue"]).map((d) => d.name);
+    expect(withActivation.slice(0, forward.length)).toEqual(forward);
+  });
+
+  test("an activated MCP tool's full definition appears on the wire, appended after the fixed prefix", () => {
+    const names = advertisedTools(registry, ["mcp__linear__create_issue"]);
+    const linear = names.find((d) => d.name === "mcp__linear__create_issue");
+    expect(linear).toBeDefined();
+    expect(linear).toEqual(registry[3]);
+    // Appended, not interleaved: it lands after every fixed name.
+    const idx = names.findIndex((d) => d.name === "mcp__linear__create_issue");
+    expect(idx).toBe(names.length - 1);
+  });
+
+  test("repeated activation of the same tool does not reorder or duplicate it", () => {
+    const once = advertisedTools(registry, ["mcp__linear__create_issue"]).map((d) => d.name);
+    const twice = advertisedTools(registry, ["mcp__linear__create_issue", "mcp__linear__create_issue"]).map(
+      (d) => d.name,
+    );
+    expect(twice).toEqual(once);
+    expect(twice.filter((n) => n === "mcp__linear__create_issue")).toHaveLength(1);
+  });
+
+  test("multiple activations append in first-activation order regardless of registry order", () => {
+    const multi: ToolDefinition[] = [
+      ...registry,
+      { name: "mcp__acme__do", description: "late", inputSchema: { type: "object", properties: {}, required: [] } },
+    ];
+    const names = advertisedTools(multi, ["mcp__acme__do", "mcp__linear__create_issue"]).map((d) => d.name);
+    const tailIdx = names.length - 2;
+    expect(names.slice(tailIdx)).toEqual(["mcp__acme__do", "mcp__linear__create_issue"]);
   });
 
   test("tool_search never returns an already-advertised built-in", () => {
     for (const name of [...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES]) {
       expect(index.search(name)).not.toContain(name);
     }
+  });
+});
+
+describe("createActivatedToolTracker", () => {
+  test("activate adds new names and reports a change", () => {
+    const tracker = createActivatedToolTracker();
+    expect(tracker.activate(["mcp__linear__create_issue"])).toBe(true);
+    expect(tracker.list()).toEqual(["mcp__linear__create_issue"]);
+  });
+
+  test("re-activating an already-active name is a no-op — no reorder, no duplicate, no reported change", () => {
+    const tracker = createActivatedToolTracker();
+    tracker.activate(["mcp__acme__do", "mcp__linear__create_issue"]);
+    expect(tracker.activate(["mcp__linear__create_issue"])).toBe(false);
+    expect(tracker.list()).toEqual(["mcp__acme__do", "mcp__linear__create_issue"]);
+  });
+
+  test("preserves first-activation order across separate calls", () => {
+    const tracker = createActivatedToolTracker();
+    tracker.activate(["b"]);
+    tracker.activate(["a", "b", "c"]);
+    expect(tracker.list()).toEqual(["b", "a", "c"]);
   });
 });

@@ -42,7 +42,7 @@ import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
 import { setModelContextWindows } from "../provider/context-window.js";
 import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
 import { setActivePricingCache } from "../cost/cost-visibility.js";
-import { advertisedTools } from "../agent/tool-search.js";
+import { advertisedTools, createActivatedToolTracker } from "../agent/tool-search.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -504,13 +504,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   workflowControllerHolder.instance = workflowController;
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
-  // dispatch but advertises only the fixed built-in set. That set is stable in
-  // membership and order across turns, so tool_search and MCP connections never
-  // reshape the wire tools array and invalidate the provider cache prefix. MCP
-  // tools stay dispatchable-but-unadvertised (blind); the model calls them by the
-  // name tool_search surfaces.
+  // dispatch but advertises only the fixed built-in prefix plus whatever the
+  // session has activated so far (via tool_search matches, promoted below).
+  // The prefix's membership and order never change, so it alone keeps the
+  // provider cache prefix stable; activated names append once, in first-
+  // activation order, and then hold steady until the next discovery. Strict
+  // providers (grok Responses, codex-responses, OpenAI-style) refuse to call a
+  // tool that was never declared on the wire, so an MCP tool must be promoted
+  // here before the model can actually invoke it — merely being dispatchable in
+  // the runner is not enough on those providers.
+  const activatedToolNames = createActivatedToolTracker();
   const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-    advertisedTools(all);
+    advertisedTools(all, activatedToolNames.list());
 
   const chatDirectorDef = defineDirector({
     id: "intercode/chat",
@@ -520,7 +525,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         agentCtx.systemPrompt,
         computeAdvertised([...agentCtx.toolDefinitions]),
         undefined,
-        undefined,
+        (names) => promoteTools(names),
         config.inactivityTimeoutMs ?? 750_000,
         config.totalTimeoutMs,
         undefined,
@@ -734,6 +739,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       workflowController.reattach();
     });
   };
+
+  // tool_search (and contextual triggers, e.g. the lsp hint) promote tools into
+  // the advertised set. Advertising takes effect on the next infer; a reload is
+  // scheduled so a newly connected MCP tool also becomes dispatchable after a
+  // rebuild (built-in tools are already dispatchable, so promoting them alone
+  // needs no reload, but the reload is a cheap no-op in that case).
+  const promoteTools = (names: string[]): void => {
+    if (!activatedToolNames.activate(names)) return;
+    directorHolder.instance?.updateToolDefinitions(
+      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+    );
+    pendingReload = true;
+    reloadIfIdle();
+  };
+  toolset.setToolPromoter(promoteTools);
 
   // The active Codex source, tracked whenever a "codex/<profile>" source is
   // selected so its access token can be refreshed before each send. Seeded from
@@ -1013,9 +1033,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .connectMCP(
       {
         onStatus: (status) => emitter.emit("mcp.status", status),
-        // MCP tools register for dispatch but stay unadvertised (blind), so they
-        // never bloat the per-turn context or reshape the cached tools prefix.
-        // The model reaches them by the name tool_search surfaces.
+        // MCP tools register for dispatch but stay unadvertised (blind) until
+        // tool_search promotes them, so a fresh connection never grows the wire
+        // set on its own — only a subsequent discovery does.
         onToolsChanged: (definitions) =>
           directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
       },
