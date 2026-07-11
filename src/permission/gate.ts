@@ -107,8 +107,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
-    // A read targeting a restricted path (gitignored or .agent-state) drops from
-    // allow to ask, so it never auto-allows on tier or shell-safety below.
+    // A call targeting a restricted path (outside the workspace, or a write
+    // under .agent-state) drops from allow to ask, so it never auto-allows on
+    // tier or shell-safety below.
     const restricted = callTargetsRestricted(call, isRestricted);
     if (!restricted && classifyTool(call.name) === "allow") return { allowed: true };
     if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };

@@ -1006,12 +1006,19 @@ describe("createPermissionGate restricted paths", () => {
     expect(asked).toBe(1);
   });
 
-  test("writing a gitignored file asks for approval", async () => {
+  test("writing a gitignored file in auto mode is auto-allowed (gitignore is not a restriction signal)", async () => {
     let asked = 0;
-    const gate = restrictedGate(() => asked++);
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
     const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "node_modules/foo/index.js", content: "x" } });
     expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked).toBe(0);
   });
 
   test("declining a restricted write denies it", async () => {
@@ -1177,7 +1184,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
     expect(asked).toBe(0);
   });
 
-  test("a write to a secret-guarded (gitignored) path still asks even in auto mode", async () => {
+  test("a write under .agent-state still asks even in auto mode", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1190,7 +1197,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const verdict = await gate.evaluate({
       id: "c",
       name: "write_file",
-      arguments: { path: "node_modules/foo/index.js" },
+      arguments: { path: ".agent-state/run.json" },
     });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
