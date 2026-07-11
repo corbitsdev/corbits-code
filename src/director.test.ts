@@ -82,6 +82,78 @@ describe("operator declined tool calls", () => {
   });
 });
 
+describe("open-task termination guard", () => {
+  const declined = "Blocked by permission policy: Operator declined: Run shell command (rm -rf build)";
+
+  const manageTasksEvent = (status: "todo" | "doing" | "done") =>
+    makeInferenceDoneEvent([
+      { id: "m", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "work", status }] } },
+    ]);
+
+  const textTurn = (): ReactorInboundEvent =>
+    ({
+      type: "inference.done",
+      turn: { role: "assistant", model: "test", timestamp: 0, content: [{ type: "text", text: "all set" }] },
+      usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { model: "test-model" },
+    }) as unknown as ReactorInboundEvent;
+
+  const hasInfer = (a: ReactorAction[]): boolean => a.some((x) => x.type === "infer");
+  const hasReply = (a: ReactorAction[]): boolean => a.some((x) => x.type === "reply");
+
+  test("re-infers instead of ending the turn while a task is still open", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasInfer(actions)).toBe(true);
+    expect(hasReply(actions)).toBe(false);
+  });
+
+  test("ends the turn normally once every task is terminal", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("done"), mockState, mockCapabilities);
+
+    const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasReply(actions)).toBe(true);
+    expect(hasInfer(actions)).toBe(false);
+  });
+
+  test("stops nudging and lets the turn end after the cap of content-free attempts", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    for (let i = 0; i < 3; i++) {
+      const nudged = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+      expect(hasInfer(nudged)).toBe(true);
+    }
+    const exhausted = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasReply(exhausted)).toBe(true);
+    expect(hasInfer(exhausted)).toBe(false);
+  });
+
+  test("a declined tool with open tasks re-infers, then terminates after its cap", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+      expect(nudged.some((a) => a.type === "reply")).toBe(false);
+    }
+    const ended = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(ended.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.")).toBe(true);
+    expect(ended.some((a) => a.type === "infer")).toBe(false);
+  });
+
+  test("a declined tool with no open tasks surfaces the decline immediately", async () => {
+    const director = createChatDirector("base", []);
+    const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.")).toBe(true);
+    expect(actions.some((a) => a.type === "infer")).toBe(false);
+  });
+});
+
 describe("chatDirector compaction", () => {
   function textInferenceDone(inputTokens: number): ReactorInboundEvent {
     return {
