@@ -10,6 +10,7 @@ import {
   type Agent,
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { getLogger } from "@intx/log";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
@@ -1025,6 +1026,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // Now that the capability map reflects connected MCP servers, restore any
       // persisted workflow. New workflows are manual-only slash commands.
       await workflowController.resume();
+    })
+    .catch((err: unknown) => {
+      // Fire-and-forget: an aborted connect on exit is expected and ignored;
+      // any other failure is logged rather than raised as an unhandled rejection.
+      if (err instanceof Error && err.name === "AbortError") return;
+      getLogger(["intercode", "tui", "mcp"]).error("MCP connect failed: {error}", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
   await waitUntilExit();

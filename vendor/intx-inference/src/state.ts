@@ -104,7 +104,9 @@ export function createStateManager(
   }
 
   function getTurns(): ConversationTurn[] {
-    return turns;
+    // Copy so a caller mutating the result cannot corrupt reactor state, the
+    // same guarantee snapshot() gives for the turns it exposes.
+    return turns.slice();
   }
 
   function getTurnsRevision(): number {
