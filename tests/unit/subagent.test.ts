@@ -129,7 +129,8 @@ test("handler reports runner failures without throwing", async () => {
 test("sub-agent prompt is autonomous and forbids recursion for leaf agents", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain("sub-agent");
-  expect(prompt).toContain("without asking for approval");
+  expect(prompt).toContain("permission policy as the parent session");
+  expect(prompt).toContain("parent session's permission gate");
   // Leaf agents must not be invited to spawn further agents.
   expect(prompt).toContain("leaf sub-agent");
   expect(prompt).not.toContain("MAY call `task`");

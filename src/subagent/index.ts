@@ -36,7 +36,7 @@ import {
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
-import { createPermissionGate } from "../permission/gate.js";
+
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { createPruningCompactor } from "../session/compactor.js";
@@ -60,8 +60,8 @@ export { createSubAgentSessionStore } from "./session-store.js";
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
-// the dispatcher. It has no submit_output and never blocks on the
-// operator — autonomy is the whole point of delegation.
+// the dispatcher. It has no submit_output or ask_operator; consequential tools
+// still go through the parent's permission gate (grants, auto mode, or prompts).
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -608,7 +608,7 @@ const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, runs without approval prompts, and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal and what to report; goals = optional ordered checklist seeds for the child's own manage_tasks list.",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal and what to report; goals = optional ordered checklist seeds for the child's own manage_tasks list.",
   inputSchema: {
     type: "object",
     properties: {
