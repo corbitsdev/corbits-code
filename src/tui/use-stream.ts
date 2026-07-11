@@ -1001,23 +1001,32 @@ export function createAgentStreamState(
               view = undefined;
             }
             const validated = validateView(view);
-            if (validated.ok) {
-              // Remove the originating tool_call block so it does not appear
-              // as a redundant "Render view" line above the rendered output (H3).
-              let presentCallIndex = -1;
-              for (let i = contentBlocks.length - 1; i >= 0; i--) {
-                const b = contentBlocks[i];
-                if (b?.type === "tool_call" && b.name === "present") {
-                  presentCallIndex = i;
-                  break;
-                }
+            let presentCallIndex = -1;
+            for (let i = contentBlocks.length - 1; i >= 0; i--) {
+              const b = contentBlocks[i];
+              if (b?.type === "tool_call" && b.name === "present") {
+                presentCallIndex = i;
+                break;
               }
+            }
+            if (validated.ok) {
               if (presentCallIndex >= 0) {
                 spliceBlocks(presentCallIndex, 1);
               }
               pushBlock({ type: "view", node: validated.node });
               break;
             }
+            if (presentCallIndex >= 0) {
+              spliceBlocks(presentCallIndex, 1);
+            }
+            pushBlock({
+              type: "tool_result",
+              callId: result.callId,
+              name: "present",
+              content: `present view validation failed: ${validated.error}`,
+              isError: true,
+            });
+            break;
           }
 
           callIdToName.delete(result.callId);
