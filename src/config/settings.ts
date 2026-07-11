@@ -218,6 +218,7 @@ const ProviderSettingsSchema = type({
   "keyless?": "boolean",
   "free?": "boolean",
   "contextWindow?": "number",
+  "bifrostVirtualKey?": "boolean",
 });
 
 const TierProviderRefSchema = type({
@@ -255,6 +256,7 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "compactionMode?": "'llm' | 'pruning'",
   "maxConcurrentSubAgents?": "number",
+  "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
 });
 
@@ -396,6 +398,9 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       : {}),
     ...(s.maxConcurrentSubAgents !== undefined
       ? { maxConcurrentSubAgents: clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number) }
+      : {}),
+    ...(s.agentModelFallback === "active" || s.agentModelFallback === "none"
+      ? { agentModelFallback: s.agentModelFallback }
       : {}),
     ...(s.shell !== undefined ? { shell: s.shell as Settings["shell"] } : {}),
   } as Settings;
