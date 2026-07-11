@@ -1,5 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector, createCodingDirector } from "./agent/director.js";
+import { createAgentToolset } from "./agent/tools.js";
+import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
 
@@ -504,5 +506,35 @@ describe("consecutive reads are not capped", () => {
       );
       expect(aborted).toBe(false);
     }
+  });
+});
+
+describe("advance_workflow handler", () => {
+  const buildToolset = (isWorkflowActive: () => boolean) =>
+    createAgentToolset({
+      cwd: process.cwd(),
+      permissionGate: createPermissionGate({ approvals: [], interactive: false, skipPermissions: true }),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+      isWorkflowActive,
+    });
+
+  const runAdvance = async (toolset: Awaited<ReturnType<typeof createAgentToolset>>) => {
+    const result = await toolset.dynamicRunner.run(
+      { id: "aw", name: "advance_workflow", arguments: {} },
+      new AbortController().signal,
+    );
+    await toolset.dispose();
+    return String(result.content);
+  };
+
+  test("reports an honest no-op when no workflow is active", async () => {
+    const content = await runAdvance(await buildToolset(() => false));
+    expect(content).toContain("No active workflow");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("acknowledges advancement when a workflow is active", async () => {
+    const content = await runAdvance(await buildToolset(() => true));
+    expect(content).toContain("Advancing to the next step");
   });
 });
