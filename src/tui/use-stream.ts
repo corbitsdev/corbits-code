@@ -716,6 +716,14 @@ export function createAgentStreamState(
       // the most recent turns — matching the old invariant and avoiding a mass
       // collapse on the user's first post-resume message.
       trimOldestBlocks();
+      for (const block of contentBlocks) {
+        if (block.type === "tasks") tasks = [...block.tasks];
+        if (block.type === "plan") {
+          planTotal = block.steps.length;
+          currentPlanStep = block.steps.length > 0 ? 0 : null;
+          planDeviated = false;
+        }
+      }
     },
     addEvent(event: ReactorEmittedEvent): void {
       // Settle any buffered stream fragments before a structural event runs, so
