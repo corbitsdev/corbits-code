@@ -80,6 +80,10 @@ export type AgentToolsetArgs = {
   // Shell command timeout defaults/cap, resolved from settings. When omitted the
   // shell-guard plugin applies its built-in defaults.
   shellTimeout?: ShellTimeoutConfig;
+  // Whether a workflow is currently running. advance_workflow rides the wire
+  // every turn (workflow or not), so the model can call it with nothing active;
+  // this lets its handler report an honest no-op instead of a false advance.
+  isWorkflowActive?: () => boolean;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -120,9 +124,6 @@ export type AgentToolset = {
   // Connect configured MCP servers in the background. Resolves once every server
   // has either connected or failed; authorization waits are bounded by `signal`.
   connectMCP: (callbacks: MCPConnectCallbacks, signal?: AbortSignal) => Promise<void>;
-  // Wire the callback the `tool_search` tool invokes to make matched tools
-  // advertised. Set by the runner once the director + reload loop exist.
-  setToolPromoter: (promote: (names: string[]) => void) => void;
   dispose: () => Promise<void>;
 };
 
@@ -238,7 +239,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       definition: advanceWorkflowDefinition,
       // The director observes this call and advances the workflow runtime; the
       // handler only needs to acknowledge so the model gets a clean tool result.
+      // Since the tool is always advertised, the model can call it with no
+      // workflow active — report the honest no-op rather than a false advance.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        if (args.isWorkflowActive?.() === false) {
+          return "No active workflow — nothing to advance.";
+        }
         const parsed = AdvanceWorkflowArgs(rawArgs);
         if (parsed instanceof type.errors) {
           return "Acknowledged.";
@@ -249,16 +255,15 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   ];
 
-  // tool_search ranks over the live runner (set just below) and promotes matches
-  // through a holder the runner wires up once its advertise/reload loop exists.
-  const promoter: { promote: (names: string[]) => void } = { promote: () => undefined };
+  // tool_search ranks over the live runner (set just below). Every registered
+  // tool is already dispatchable, so discovery only reports names — it never
+  // mutates the advertised wire set, keeping the provider cache prefix stable.
   let runnerRef: DynamicToolRunner | undefined;
   const toolIndex = createToolIndex(() => runnerRef?.currentDefinitions() ?? []);
   baseTools.push(
     createToolSearchTool({
       search: (query) => toolIndex.search(query),
       lookup: (name) => runnerRef?.currentDefinitions().find((d) => d.name === name),
-      promote: (names) => promoter.promote(names),
     }),
   );
 
@@ -290,9 +295,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   return {
     dynamicRunner,
     connectMCP,
-    setToolPromoter: (promote) => {
-      promoter.promote = promote;
-    },
     dispose: async () => {
       await Promise.all(connectedClients.map((c) => c.close().catch(() => undefined)));
       await posixTools.dispose();

@@ -25,9 +25,9 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "task",
 ];
 
-// Built-in tools surfaced in the prompt as one-line summaries (no schema) so the
-// model knows they exist and can load them with tool_search. MCP tools are not
-// listed at all — they are discovered blind.
+// Built-in file/search tools advertised alongside the core set. They carry full
+// schemas on the wire so the model can call them directly; MCP tools are not
+// listed at all — they are discovered blind via tool_search.
 export const CATALOG_TOOL_NAMES: readonly string[] = [
   "write_file",
   "search_files",
@@ -35,10 +35,31 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "list_dir",
 ];
 
+// The complete set of built-in tools whose schemas are always on the wire, in a
+// deterministic order. Provider prompt caches are prefix caches keyed on the
+// tools array (it sits before system + messages), so this order must never shift
+// between turns — a reordered or grown array re-prefills the whole request.
+export const ADVERTISED_TOOL_NAMES: readonly string[] = [
+  ...CORE_TOOL_NAMES,
+  ...CATALOG_TOOL_NAMES,
+];
+
+// Project the live tool registry onto the stable advertised set. Filtering by a
+// fixed name order (rather than the registry's own order) keeps the result
+// byte-identical across turns even as MCP servers append tools or tool_search
+// runs, so the cache prefix survives.
+export function advertisedTools(all: readonly ToolDefinition[]): ToolDefinition[] {
+  const byName = new Map(all.map((def) => [def.name, def]));
+  return ADVERTISED_TOOL_NAMES.flatMap((name) => {
+    const def = byName.get(name);
+    return def !== undefined ? [def] : [];
+  });
+}
+
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover and load additional tools by capability. Most tools — file search, web access, and any connected integrations — are not loaded by default. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to load the matching tools, then call them on the next turn.",
+    "Discover callable tools by capability. Most tools — file search, web access, and any connected integrations — are dispatchable but not advertised in the tools list. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to get the matching tools' names, descriptions, and input schemas. The returned tools are already callable — invoke them directly, no separate load step.",
   inputSchema: {
     type: "object",
     properties: {
@@ -81,7 +102,7 @@ export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolI
       const queryTokens = tokenize(query);
       if (queryTokens.length === 0) return [];
       return getDefs()
-        .filter((def) => !CORE_TOOL_NAMES.includes(def.name))
+        .filter((def) => !ADVERTISED_TOOL_NAMES.includes(def.name))
         .map((def) => ({ name: def.name, score: score(def, queryTokens, rawQuery) }))
         .filter((entry) => entry.score > 0)
         .sort((a, b) => b.score - a.score)
@@ -94,11 +115,27 @@ export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolI
 export type ToolSearchDeps = {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
-  // Make the matched tools available (advertise their schemas) for subsequent turns.
-  promote: (names: string[]) => void;
 };
 
 const ToolSearchArgs = type({ query: "string" });
+
+// Render one discovered tool as name, description, and pretty-printed input
+// schema. The schema is the load-bearing addition: MCP and other unadvertised
+// tools never appear in the wire tools array, so this is the model's only view
+// of their parameter names, types, and required fields.
+function renderToolCard(def: ToolDefinition | undefined, name: string): string {
+  if (def === undefined) return `- ${name}`;
+  const header = `- ${def.name}: ${def.description ?? ""}`;
+  const schema = JSON.stringify(def.inputSchema ?? {}, null, 2);
+  return `${header}\n  input schema:\n${indent(schema, "    ")}`;
+}
+
+function indent(text: string, pad: string): string {
+  return text
+    .split("\n")
+    .map((line) => `${pad}${line}`)
+    .join("\n");
+}
 
 export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
   return stringTool({
@@ -114,9 +151,13 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      deps.promote(names);
-      const lines = names.map((name) => `- ${name}: ${deps.lookup(name)?.description ?? ""}`);
-      return `Loaded these tools — you can call them now:\n${lines.join("\n")}`;
+      // Every registered tool is already dispatchable; discovery surfaces each
+      // match's name, description, AND input schema so the model can shape
+      // arguments for MCP/parameterized tools it never sees in the wire tools
+      // array. Delivering schemas here (in the tool result) rather than in the
+      // advertised set keeps that set fixed, so the provider cache prefix holds.
+      const blocks = names.map((name) => renderToolCard(deps.lookup(name), name));
+      return `These tools are available — you can call them now:\n\n${blocks.join("\n\n")}`;
     },
   });
 }

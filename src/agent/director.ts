@@ -298,9 +298,12 @@ class CodingDirectorImpl extends DefaultDirector implements CodingDirector {
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
     const active = this.workflowCoordinator?.isActive() === true;
-    const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
-      ? [...this._toolDefinitions, advanceWorkflowDefinition]
-      : this._toolDefinitions;
+    // advance_workflow rides on the wire every turn, workflow or not, so
+    // activating a workflow never grows the tools array and busts the cache
+    // prefix. Outside a workflow it is a harmless no-op the director ignores.
+    const tools = this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+      ? this._toolDefinitions
+      : [...this._toolDefinitions, advanceWorkflowDefinition];
     const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
@@ -605,9 +608,12 @@ class ChatDirectorImpl extends DefaultDirector {
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
     const active = this.workflowCoordinator?.isActive() === true;
-    const tools = active && !this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
-      ? [...this._toolDefinitions, advanceWorkflowDefinition]
-      : this._toolDefinitions;
+    // advance_workflow rides on the wire every turn, workflow or not, so
+    // activating a workflow never grows the tools array and busts the cache
+    // prefix. Outside a workflow it is a harmless no-op the director ignores.
+    const tools = this._toolDefinitions.some((t) => t.name === advanceWorkflowDefinition.name)
+      ? this._toolDefinitions
+      : [...this._toolDefinitions, advanceWorkflowDefinition];
 
     const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
 
