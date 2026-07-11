@@ -151,12 +151,6 @@ The agent's identity is **Intercode**, framed as a senior coding assistant runni
 - Atomic JSON save/load to `.agent-state/run.json`, with schema validation on load
 - Conversation context is persisted separately by the git-backed store under `.agent-state/context`
 
-### Post-Submit Critique (`src/agent/critic.ts`)
-
-- Runs after the agent completes, before acceptance
-- Runs `build`, `typecheck`, and `test` scripts when present in the target `package.json`
-- 5-minute timeout per command; accepts only if all pass; surfaces failures as errors
-
 ### Lifecycle Hooks (`src/session/hooks.ts`)
 
 - Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.intercode/hooks` (local) and `~/.intercode/hooks` (global)
@@ -307,7 +301,6 @@ CLI argv
           → turnCollector.observe → postTurn hooks
           → emit to React (TUI)
           → on tool.done: saveState, saveDirectorState
-      → src/agent/critic.ts (RunCritique)
       → dispatch postRun summary
       → SaveState (done | failed) → Cleanup
 ```
@@ -315,10 +308,12 @@ CLI argv
 ## State Transitions
 
 ```
-[running] → tool.done → save → ... → submit_output → critique → [done]
+[running] → tool.done → save → ... → submit_output → [done]
                                           ↓
-                                    [failed] (stall, critique failure, or error)
+                                    [failed] (stall or error)
 ```
+
+There is no post-submit `build`/`typecheck`/`test` critique step in the current tree; validation is hook-driven (`postTurn`/`postRun`) and explicit `run_shell` during agent work.
 
 ## Design Decisions
 

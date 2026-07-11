@@ -70,11 +70,10 @@ src/
   agent/
     director.ts           ChatDirector; director-layer tool defs
     prompts.ts            System prompt builders (agent + chat)
-    critic.ts             Post-submit critique (build, typecheck, test)
     tools.ts              Agent tool registration helpers
     agent-search.ts       search_agents tool + profile lexical index
     renderer.ts           Headless event-stream renderer (stderr + live cost)
-    run-agent.ts          Headless runner: tools, director, hooks, critique
+
   session/
     index.ts              Session lifecycle (was session.ts)
     state.ts              RunState JSON save/load
@@ -330,7 +329,7 @@ Run all three before declaring work complete.
 ## Testing
 
 - **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `renderer.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`).
-- **Integration / e2e** use the `@intx/inference-testing` harness with deterministic SSE responses to assert real tool sequences (`read_file` → `write_file` → `run_shell` → `submit_output`) and that critique passes.
+- **Integration / e2e** use the `@intx/inference-testing` harness with deterministic SSE responses to assert real tool sequences (`read_file` → `write_file` → `run_shell` → `submit_output`).
 - **Fixtures** live under `tests/fixtures/` (e.g. `demo-comparison/` for side-by-side comparison runs).
 - **TUI tests** use `ink-testing-library` with mock `EventEmitter`s to simulate real-time event streams; they verify stream-hook accumulation, event-log formatting/filtering, keyboard handling, and cost formatting.
 
