@@ -51,7 +51,6 @@ mock.module("../../../src/agent/director.js", () => ({
     inputSchema: { type: "object", properties: {}, required: [] },
   } as ToolDefinition,
   createChatDirector: mock(() => ({})),
-  createCodingDirector: mock(() => ({})),
 }));
 
 const { createAgentToolset } = await import("../../../src/agent/tools.js");
