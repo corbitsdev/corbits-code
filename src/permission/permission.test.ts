@@ -404,6 +404,11 @@ describe("createPermissionGate", () => {
     expect(writeVerdict.allowed).toBe(true);
     const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
     expect(editVerdict.allowed).toBe(true);
+    // Benign built-ins a hands-off run should not stop for.
+    for (const name of ["manage_tasks", "present", "tool_search", "use_skill", "search_agents", "task"]) {
+      const verdict = await gate.evaluate({ id: "c", name, arguments: {} });
+      expect(verdict.allowed).toBe(true);
+    }
     expect(asked).toBe(0);
   });
 
