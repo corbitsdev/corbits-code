@@ -20,6 +20,15 @@ export type AgentsStripProps = {
 // store retains for later inspection.
 export const DEFAULT_STRIP_MAX_VISIBLE = 6;
 
+// The strip shows only active work: an agent leaves the visible list as it
+// reaches a terminal state. Terminal sessions stay in the store for later
+// inspection but are not part of the strip or its navigation.
+export function activeStripSessions(
+  sessions: readonly SubAgentSession[],
+): SubAgentSession[] {
+  return sessions.filter((s) => s.status === "running");
+}
+
 // Rows the strip occupies for a given session count: the "Agents" header, the
 // capped session rows, and an overflow row when sessions are hidden.
 export function agentsStripRowCount(sessionCount: number, maxVisible: number): number {
