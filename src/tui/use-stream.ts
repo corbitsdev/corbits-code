@@ -416,13 +416,25 @@ export function createAgentStreamState(
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
   // Boundary marking where the current inference attempt's blocks begin,
-  // and the tool call ids known before it started. inference.retry means the
-  // reactor discarded this attempt and is restarting inferenceRunner from
-  // scratch, re-streaming inference.start through whatever it had already
-  // committed — roll the transcript back to the boundary so that content is
-  // not appended on top of the retried attempt's own.
+  // and the tool call ids known before it started. inference.retry has two
+  // producers with opposite meanings, distinguished by ordering. The harness
+  // emits it for a pre-commit retry: the failed attempt's inference.start was
+  // still buffered and is discarded, so the event arrives before any
+  // inference.start for the cycle and there is nothing to retract. The
+  // reactor emits it after a committed attempt failed: inferenceRunner is
+  // about to restart from scratch and re-stream what the failed attempt
+  // already rendered, so the transcript must roll back to the attempt
+  // boundary. The boundary is therefore only armed between an
+  // inference.start and its cycle's inference.done (or a rollback); a retry
+  // arriving disarmed is the harness kind and must not touch the previous
+  // cycle's settled blocks.
   let attemptStartBlockIndex: number | null = null;
   let attemptStartCallIds: Set<string> = new Set();
+  // Tool call ids that already produced a tool_result block in the current
+  // cycle. Index-based providers synthesize callIds that are only unique
+  // within one cycle (e.g. "0", "1"), so deduping re-emitted tool.done
+  // events must be scoped to the cycle, not the whole transcript.
+  let resolvedCallIds = new Set<string>();
   // Streamed fragments accumulate here between drains and join once on flush,
   // so a burst of N fragments costs O(N) buffering plus one join rather than N
   // growing concatenations. The target is the block (and field) currently being
@@ -666,6 +678,7 @@ export function createAgentStreamState(
       openCallId = null;
       attemptStartBlockIndex = null;
       attemptStartCallIds = new Set();
+      resolvedCallIds = new Set();
       activityTick = 0;
       lastActivityAt = Date.now();
       contextTokens = 0;
@@ -705,6 +718,7 @@ export function createAgentStreamState(
         case "inference.start": {
           attemptStartBlockIndex = contentBlocks.length;
           attemptStartCallIds = new Set(callIdToName.keys());
+          resolvedCallIds = new Set();
           break;
         }
         case "inference.retry": {
@@ -716,10 +730,19 @@ export function createAgentStreamState(
                 callIdToArguments.delete(callId);
               }
             }
+            attemptStartBlockIndex = null;
             openCallId = null;
             currentToolName = null;
             streamingType = null;
           }
+          break;
+        }
+        case "inference.done": {
+          // The cycle's streamed content is settled; disarm the rollback
+          // boundary so a harness pre-commit retry for the *next* cycle
+          // (which arrives before that cycle's inference.start) cannot
+          // splice away this cycle's blocks.
+          attemptStartBlockIndex = null;
           break;
         }
         case "inference.thinking.delta": {
@@ -824,8 +847,11 @@ export function createAgentStreamState(
           const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
           // A retried inference cycle (or any other re-emission upstream) can
           // deliver the same tool.done twice; the call already has a result
-          // block, so a second one would render as a duplicate transcript line.
-          if (contentBlocks.some((b) => b.type === "tool_result" && b.callId === result.callId)) break;
+          // block, so a second one would render as a duplicate transcript
+          // line. Scoped to the current cycle because index-based providers
+          // reuse callIds across cycles.
+          if (resolvedCallIds.has(result.callId)) break;
+          resolvedCallIds.add(result.callId);
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
           const content = capStoredToolResultContent(stringifyToolContent(result.content));
