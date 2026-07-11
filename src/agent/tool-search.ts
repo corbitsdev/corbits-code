@@ -44,16 +44,59 @@ export const ADVERTISED_TOOL_NAMES: readonly string[] = [
   ...CATALOG_TOOL_NAMES,
 ];
 
-// Project the live tool registry onto the stable advertised set. Filtering by a
-// fixed name order (rather than the registry's own order) keeps the result
-// byte-identical across turns even as MCP servers append tools or tool_search
-// runs, so the cache prefix survives.
-export function advertisedTools(all: readonly ToolDefinition[]): ToolDefinition[] {
+// Project the live tool registry onto the advertised set: the fixed built-in
+// prefix (its order never changes — this is what keeps the provider cache
+// prefix stable) followed by session-activated tools (MCP or otherwise) in
+// first-activation order. The wire array is byte-stable turn to turn until a
+// discovery appends a new name, at which point it grows once and then holds
+// steady again. `activated` is expected to already be deduped/ordered (see
+// `createActivatedToolTracker`), but names are deduped again here defensively
+// so a caller passing raw matches still can't reorder or duplicate an entry.
+export function advertisedTools(
+  all: readonly ToolDefinition[],
+  activated: readonly string[] = [],
+): ToolDefinition[] {
   const byName = new Map(all.map((def) => [def.name, def]));
-  return ADVERTISED_TOOL_NAMES.flatMap((name) => {
+  const seen = new Set<string>();
+  const orderedNames = [
+    ...ADVERTISED_TOOL_NAMES,
+    ...activated.filter((name) => !ADVERTISED_TOOL_NAMES.includes(name)),
+  ];
+  return orderedNames.flatMap((name) => {
+    if (seen.has(name)) return [];
+    seen.add(name);
     const def = byName.get(name);
     return def !== undefined ? [def] : [];
   });
+}
+
+// Tracks which non-built-in tool names the session has activated (via
+// tool_search matches, or a director-side trigger like the lsp hint), in
+// first-activation order. Backed by a Set, so re-activating an already-active
+// name is a no-op — it neither reorders nor duplicates the entry.
+export type ActivatedToolTracker = {
+  // Adds any new names and returns whether the set actually changed.
+  activate(names: readonly string[]): boolean;
+  list(): string[];
+};
+
+export function createActivatedToolTracker(): ActivatedToolTracker {
+  const activeNames = new Set<string>();
+  return {
+    activate(names: readonly string[]): boolean {
+      let changed = false;
+      for (const name of names) {
+        if (!activeNames.has(name)) {
+          activeNames.add(name);
+          changed = true;
+        }
+      }
+      return changed;
+    },
+    list(): string[] {
+      return [...activeNames];
+    },
+  };
 }
 
 export const toolSearchDefinition: ToolDefinition = {
@@ -115,6 +158,10 @@ export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolI
 export type ToolSearchDeps = {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
+  // Make the matched tools' names part of the advertised wire set on the next
+  // inference. Every registered tool is already dispatchable via `run`, so this
+  // only affects what the model can see without an intervening tool_search.
+  promote: (names: string[]) => void;
 };
 
 const ToolSearchArgs = type({ query: "string" });
@@ -151,11 +198,13 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      // Every registered tool is already dispatchable; discovery surfaces each
-      // match's name, description, AND input schema so the model can shape
-      // arguments for MCP/parameterized tools it never sees in the wire tools
-      // array. Delivering schemas here (in the tool result) rather than in the
-      // advertised set keeps that set fixed, so the provider cache prefix holds.
+      // Matches are promoted into the advertised set so the next inference
+      // declares them on the wire — required for strict providers (e.g. the grok
+      // Responses API) where a model cannot call a tool that was never declared.
+      // The tool result below still carries name, description, AND input schema
+      // so the model can shape arguments this same turn, before the promoted
+      // definition round-trips through the next infer call.
+      deps.promote(names);
       const blocks = names.map((name) => renderToolCard(deps.lookup(name), name));
       return `These tools are available — you can call them now:\n\n${blocks.join("\n\n")}`;
     },
