@@ -36,15 +36,20 @@ export function buildChatRole(): string {
 // only core tools and loads the rest via tool_search, whereas a sub-agent is
 // handed its full toolset upfront and has no tool_search — telling it otherwise
 // wastes turns on a tool that does not exist.
-export function buildHarnessFacts(opts: { dynamicTools?: boolean } = {}): string {
+export function buildHarnessFacts(opts: { dynamicTools?: boolean; subAgent?: boolean } = {}): string {
   const dynamicTools = opts.dynamicTools ?? true;
+  const subAgent = opts.subAgent ?? false;
   return [
     "Harness facts:",
     "- Change files with write_file/edit_file; shell file-writes are blocked.",
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- run_shell defaults to a 10s timeout; pass timeout for builds, tests, and other long commands.",
     "- Shell find, rg, and grep -r are blocked — they OOM the host. Use grep, search_files, and list_dir.",
-    "- Dependency installs, paths outside the workspace, and session-state writes need operator approval.",
+    ...(subAgent
+      ? [
+          "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
+        ]
+      : ["- Dependency installs, paths outside the workspace, and session-state writes need operator approval."]),
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools
       ? [
@@ -54,7 +59,9 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean } = {}): string
       : ["- The tools below are your full toolset."]),
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
     "- Session memory lives at .intercode/MEMORY.md; store durable preferences only, never secrets.",
-    "- If an action is blocked or the request is genuinely ambiguous, ask_operator.",
+    subAgent
+      ? "- If permission denies an action or the brief is unclear, make a best-effort call, finish what you can, and record assumptions under Blockers — you cannot ask the parent mid-run."
+      : "- If an action is blocked or the request is genuinely ambiguous, ask_operator.",
   ].join("\n");
 }
 
@@ -233,8 +240,8 @@ export function buildSubAgentSystemPrompt(
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
       : joinSections([
-          "You are a sub-agent — a short-lived child agent dispatched by Intercode to carry out one self-contained job autonomously. You have the full file, search, and shell toolset and act without asking for approval. Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.",
-          buildHarnessFacts({ dynamicTools: false }),
+          "You are a sub-agent — a short-lived child agent dispatched by Intercode to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.",
+          buildHarnessFacts({ dynamicTools: false, subAgent: true }),
           buildGuidelines(),
           buildSubAgentReportContract(),
         ]);
