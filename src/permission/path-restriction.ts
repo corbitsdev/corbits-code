@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import type { RootsProvider } from "./worktrees.js";
 
 // Paths the agent should not touch without explicit operator approval, even
 // though the read tools are otherwise allow-tier and write/edit auto-allow in
@@ -49,16 +50,27 @@ function realpathNearestOr(path: string): string {
   }
 }
 
-export function createPathRestriction(cwd: string, worktreeRoots: readonly string[] = []): PathRestriction {
+// `rootsProvider` supplies the additional workspace roots (the session's
+// registered git worktrees) beyond cwd itself. A worktree created mid-session
+// is missing from whatever set the provider started with; when a checked path
+// falls outside every currently-known root, we ask the provider to refresh
+// once (subject to its own debounce) and re-check before concluding the path
+// is genuinely outside the workspace.
+export function createPathRestriction(cwd: string, rootsProvider: RootsProvider = () => []): PathRestriction {
   const stateDir = resolve(cwd, STATE_DIR);
-  const workspaceRoots = [cwd, ...worktreeRoots].map((root) => realpathOr(resolve(root)));
+  const realCwd = realpathOr(resolve(cwd));
   const cache = new Map<string, boolean>();
 
   const underStateDir = (abs: string): boolean => abs === stateDir || abs.startsWith(stateDir + sep);
 
+  const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
+    roots.some((root) => real === root || real.startsWith(root + sep));
+
   const outsideWorkspace = (abs: string): boolean => {
     const real = realpathNearestOr(abs);
-    return !workspaceRoots.some((root) => real === root || real.startsWith(root + sep));
+    if (real === realCwd || real.startsWith(realCwd + sep)) return false;
+    if (inKnownRoots(real, rootsProvider())) return false;
+    return !inKnownRoots(real, rootsProvider(true));
   };
 
   return {
