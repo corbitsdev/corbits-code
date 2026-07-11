@@ -3,7 +3,8 @@ import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js";
-import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
+import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
+import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
@@ -35,8 +36,15 @@ function isWriteTool(toolName: string): boolean {
 
 export type Tier = "allow" | "ask";
 
-export function classifyTool(toolName: string): Tier {
-  return READ_ONLY_TOOLS.has(toolName) ? "allow" : "ask";
+export function classifyTool(toolName: string, mcpTiers?: McpToolPermissionRegistry): Tier {
+  if (READ_ONLY_TOOLS.has(toolName)) return "allow";
+  if (isMcpToolName(toolName)) {
+    const registered = mcpTiers?.tierFor(toolName);
+    if (registered !== undefined) return registered;
+    if (isReadOnlyMcpTool(toolName)) return "allow";
+    return "ask";
+  }
+  return "ask";
 }
 
 // The restricted path argument of a path-arg tool call, or undefined when the
