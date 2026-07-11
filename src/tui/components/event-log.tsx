@@ -1,7 +1,8 @@
 import { Box, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
 import { memo, useMemo, type ReactNode } from "react";
-import { useInFlightVisuals, formatElapsed } from "./in-flight-indicator.js";
+import { formatElapsed } from "./in-flight-indicator.js";
+import { elapsedMsFromAnchor } from "../hooks/use-spinner.js";
 import { parseMarkdown } from "../markdown-parser.js";
 import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
@@ -77,24 +78,19 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   return lines.map((line) => [pad, ...line]);
 }
 
-// Tag a pending tool call so the event log paints it live. Only the two anchor
-// segments carry the running tint — the first row's leading segment holds the
-// spinner and the last row's trailing segment holds the elapsed clock — so the
-// in-progress row reads as a light active accent rather than a full-row fill that
-// would visually outweigh the settled, un-backed result rows. Splitting the two
-// anchors keeps a wrapped, multi-row command intact: the clock lands at the
-// logical end rather than in the middle of the wrapped text.
+// Tag a pending tool call so the event log paints a static indicator on it.
+// Only the two anchor segments carry the marker — the first row's leading
+// segment for the pending glyph, the last row's trailing segment for the
+// elapsed clock — so a wrapped, multi-row command stays intact: the clock
+// lands at the logical end rather than in the middle of the wrapped text.
 function markRunningRow(lines: StyledLine[], startedAt: number): StyledLine[] {
   if (lines.length === 0) return lines;
-  const bg = color("toolRunningBg");
   const lastRow = lines.length - 1;
   return lines.map((line, li) =>
     line.map((seg, si) => {
       const isSpinnerAnchor = li === 0 && si === 0;
       const isElapsedAnchor = li === lastRow && si === line.length - 1;
-      return isSpinnerAnchor || isElapsedAnchor
-        ? { ...seg, backgroundColor: bg, toolRunningSince: startedAt }
-        : seg;
+      return isSpinnerAnchor || isElapsedAnchor ? { ...seg, toolRunningSince: startedAt } : seg;
     }),
   );
 }
@@ -241,39 +237,36 @@ type RunningToolRowProps = {
   startedAt: number;
 };
 
-// A pending tool row repaints on its own interval — spinner glyph plus a live
-// elapsed clock — so the still-running state stays visible without rebuilding
-// the transcript line array. Only this one row re-renders per tick; the rest of
-// the event log is untouched because the elapsed value is never baked into the
-// shared lines.
+// The session's single live spinner lives in the bottom status row
+// (InFlightIndicator); a pending transcript row must not animate a second one.
+// This glyph is fixed rather than driven by a ticking interval, so the row
+// never re-renders on its own — it only repaints when the shared lines change.
+const PENDING_GLYPH = "○";
+
+// A pending tool row shows a static "still running" marker — glyph plus
+// elapsed-so-far clock — without a repaint interval of its own, since that
+// would draw a second animated spinner alongside the status row's.
 const RunningToolRow = memo(function RunningToolRow({ line, width, startedAt }: RunningToolRowProps): ReactNode {
-  const { frame, elapsedMs } = useInFlightVisuals(true, startedAt);
   const hasSpinner = line[0]?.toolRunningSince !== undefined;
   const hasElapsed = line[line.length - 1]?.toolRunningSince !== undefined;
   const segments = useMemo(() => {
-    // The tint lives on the anchor segments, so pull it from whichever anchor this
-    // row carries: the spinner on the first row, the elapsed clock on the last.
-    const bg = line[0]?.backgroundColor ?? line[line.length - 1]?.backgroundColor;
-    const bgProps: Partial<StyledSegment> = bg !== undefined ? { backgroundColor: bg } : {};
-    // The spinner occupies the indent gutter the anchor seg held (glyph + space),
+    // The glyph occupies the indent gutter the anchor seg held (glyph + space),
     // so the headline text keeps its column and the row width stays stable.
     const head: StyledLine = hasSpinner
-      ? [{ text: `${frame} `, color: color("live"), ...bgProps }, ...line.slice(1)]
+      ? [{ text: `${PENDING_GLYPH} `, color: color("live") }, ...line.slice(1)]
       : [...line];
-    // The clock is the one datum this row exists to show, so it takes the readable
-    // text tier (not the dim rung) to clear contrast on the tinted background. Trim
-    // it to the reserved width so an hour-plus elapsed can never soft-wrap the row.
+    // The clock is the one datum this row exists to show. Trim it to the
+    // reserved width so an hour-plus elapsed can never soft-wrap the row.
+    const elapsedMs = elapsedMsFromAnchor(startedAt);
     const clock = ` · ${formatElapsed(elapsedMs)}`.slice(0, RUNNING_ELAPSED_RESERVE);
     const composed: StyledLine = hasElapsed
-      ? [...head, { text: clock, color: color("text"), ...bgProps }]
+      ? [...head, { text: clock, color: color("text") }]
       : head;
     const textWidth = composed.reduce((n, s) => n + stringWidth(s.text), 0);
     const pad = Math.max(0, width - textWidth);
-    // Pad with an unstyled gap rather than the tint so the row is not a full-width
-    // fill; only the spinner and clock anchors carry the running background.
     const padded = pad > 0 ? [...composed, { text: " ".repeat(pad) }] : composed;
     return mergeAdjacentSegments(padded);
-  }, [line, width, frame, elapsedMs, hasSpinner, hasElapsed]);
+  }, [line, width, hasSpinner, hasElapsed, startedAt]);
 
   // Truncate rather than wrap: the live clock is appended outside the wrap budget,
   // so on an unreserved wide row (a shell command near full width) it clips at the
