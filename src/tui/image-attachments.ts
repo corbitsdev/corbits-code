@@ -1,10 +1,20 @@
-import { basename, resolve, isAbsolute } from "node:path";
-import { homedir } from "node:os";
-import { readFile, stat, unlink } from "node:fs/promises";
+import { basename, resolve, isAbsolute, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import type { MessageAttachment } from "@intx/types/runtime";
 
 export const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+// A pasted screenshot can be several MB of uncompressed PNG. Attachments land
+// verbatim inside a ConversationTurn and are replayed on every subsequent
+// inference call until compaction ages them out (src/session/compactor.ts),
+// so an oversized image inflates every prompt for as long as the turn
+// survives. Downscale/recompress at ingestion time so the worst case is
+// bounded regardless of how long that takes.
+export const MAX_IMAGE_DIMENSION = 1568;
+const DOWNSCALE_THRESHOLD_BYTES = 300 * 1024;
+const JPEG_QUALITY = 70;
 
 const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
   png: "image/png",
@@ -79,17 +89,74 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
   if (info.size > MAX_IMAGE_ATTACHMENT_BYTES) {
     return { ok: false, reason: `image is too large; max ${formatBytes(MAX_IMAGE_ATTACHMENT_BYTES)}` };
   }
-  const data = await readFile(path);
+  const raw = await readFile(path);
+  const capped = await capImageForIngestion(raw, mimeType);
   return {
     ok: true,
     attachment: {
       id: crypto.randomUUID(),
-      name: basename(path),
-      contentType: mimeType,
-      data,
+      name: capped.contentType === mimeType ? basename(path) : replaceExtension(basename(path), capped.contentType),
+      contentType: capped.contentType,
+      data: capped.data,
       path,
     },
   };
+}
+
+/**
+ * Downscale/recompress an image before it enters a turn. Only shells out to
+ * `sips` (macOS) when the source exceeds `DOWNSCALE_THRESHOLD_BYTES` --
+ * smaller images are typically already screenshot-appropriate and not worth
+ * a re-encode. On any failure (non-macOS, sips missing, decode error) the
+ * original bytes pass through unchanged so ingestion never breaks on this
+ * best-effort step.
+ */
+export async function capImageForIngestion(
+  data: Buffer,
+  mimeType: string,
+): Promise<{ data: Buffer; contentType: string }> {
+  if (data.byteLength <= DOWNSCALE_THRESHOLD_BYTES) return { data, contentType: mimeType };
+  if (process.platform !== "darwin") return { data, contentType: mimeType };
+
+  const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const srcExt = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : mimeType === "image/gif" ? "gif" : "jpg";
+  const srcPath = join(tmpdir(), `intercode-image-cap-src-${stamp}.${srcExt}`);
+  const outPath = join(tmpdir(), `intercode-image-cap-out-${stamp}.jpg`);
+
+  try {
+    await writeFile(srcPath, data);
+    const result = await runProcess("sips", [
+      "-Z",
+      String(MAX_IMAGE_DIMENSION),
+      "-s",
+      "format",
+      "jpeg",
+      "-s",
+      "formatOptions",
+      String(JPEG_QUALITY),
+      srcPath,
+      "--out",
+      outPath,
+    ]);
+    if (result.code !== 0) return { data, contentType: mimeType };
+    const capped = await readFile(outPath);
+    // Only adopt the recompressed version if it actually shrank things --
+    // a small/already-compressed source can grow slightly under JPEG
+    // re-encoding, and the point of this step is to reduce bytes.
+    if (capped.byteLength >= data.byteLength) return { data, contentType: mimeType };
+    return { data: capped, contentType: "image/jpeg" };
+  } catch {
+    return { data, contentType: mimeType };
+  } finally {
+    await unlink(srcPath).catch(() => undefined);
+    await unlink(outPath).catch(() => undefined);
+  }
+}
+
+function replaceExtension(name: string, contentType: string): string {
+  const ext = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1] ?? "jpg";
+  const dot = name.lastIndexOf(".");
+  return `${dot === -1 ? name : name.slice(0, dot)}.${ext}`;
 }
 
 export async function readClipboardImage(): Promise<ClipboardImageResult> {
