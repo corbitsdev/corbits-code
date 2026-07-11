@@ -10,8 +10,11 @@ import {
   maxLineOffset,
   lineWindow,
   resolveViewportExpandIds,
+  RUNNING_ELAPSED_RESERVE,
   viewportToolIds,
 } from "./event-log.js";
+import { formatElapsed } from "./in-flight-indicator.js";
+import { color } from "../theme.js";
 import type { ContentBlock, ContentBlockData } from "../use-stream.js";
 
 function asBlock(data: ContentBlockData & { id: string }): ContentBlock {
@@ -75,10 +78,12 @@ describe("collapsed shell rows", () => {
       { type: "tool_call", id: "s2", name: "run_shell", arguments: JSON.stringify({ command: "ls -la" }) },
     ];
     const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
-    expect(lines).toEqual(["  $ ls -la · running"]);
+    // The spinner and elapsed clock are painted live by the running-row
+    // component, so the baked line carries only the command text.
+    expect(lines).toEqual(["  $ ls -la"]);
   });
 
-  test("pending shell shows · running and completed shell shows duration", () => {
+  test("pending shell marks the running row and completed shell shows duration", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "s3",
@@ -87,9 +92,11 @@ describe("collapsed shell rows", () => {
       arguments: JSON.stringify({ command: "echo hi" }),
       startedAt: 1_000,
     };
-    const pending = lineText(buildLines([call], COLUMNS, false, isExpanded)).join("\n");
-    expect(pending).toContain("· running");
+    const pendingLines = buildLines([call], COLUMNS, false, isExpanded);
+    const pending = lineText(pendingLines).join("\n");
+    expect(pending).not.toContain("running");
     expect(pending).toContain("$ echo hi");
+    expect(pendingLines[0]?.[0]?.toolRunningSince).toBe(1_000);
 
     const done: ContentBlock[] = [
       call,
@@ -110,6 +117,59 @@ describe("collapsed shell rows", () => {
   });
 });
 
+describe("pending tool row width budget", () => {
+  test("a wide pending tool row reserves width for the live elapsed suffix", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "wide",
+      callId: "wide",
+      name: "read_file",
+      arguments: JSON.stringify({ path: `/tmp/${"d".repeat(200)}.ts` }),
+      startedAt: 1_000,
+    };
+    const pendingLines = buildLines([call], COLUMNS, false, isExpanded);
+    const maxWidth = Math.max(...pendingLines.map((line) => line.reduce((n, s) => n + s.text.length, 0)));
+    // RunningToolRow appends ` · <elapsed>` after these baked lines, so the wrap
+    // budget must leave room for the longest short-form clock (` · 59m 59s`).
+    expect(maxWidth).toBeLessThanOrEqual(COLUMNS - " · 59m 59s".length);
+  });
+
+  test("the reserve covers the appended clock past an hour of runtime", () => {
+    // The wrap budget is shrunk by RUNNING_ELAPSED_RESERVE; the live clock the
+    // running row appends must always fit inside it, including the hour form
+    // (` · 1h 5m 3s` and longer) so a long-running tool never reflows the log.
+    for (const hours of [1, 2, 23]) {
+      const clock = ` · ${formatElapsed(hours * 60 * 60 * 1000 + 59 * 60 * 1000 + 59 * 1000)}`;
+      expect(clock.length).toBeLessThanOrEqual(RUNNING_ELAPSED_RESERVE);
+    }
+  });
+
+  test("a completed tool row is free to fill the full width", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "wide-done",
+      callId: "wide-done",
+      name: "read_file",
+      arguments: JSON.stringify({ path: `/tmp/${"d".repeat(200)}.ts` }),
+      startedAt: 1_000,
+    };
+    const result: ContentBlock = {
+      type: "tool_result",
+      id: "wide-done-r",
+      callId: "wide-done",
+      name: "read_file",
+      content: "x",
+      isError: false,
+      finishedAt: 1_500,
+    };
+    const doneLines = buildLines([call, result], COLUMNS, false, isExpanded);
+    const maxWidth = Math.max(...doneLines.map((line) => line.reduce((n, s) => n + s.text.length, 0)));
+    // No elapsed clock is appended once complete, so the full column is available;
+    // the pending reserve must not have shrunk the completed wrap budget too.
+    expect(maxWidth).toBeGreaterThan(COLUMNS - " · 59m 59s".length);
+  });
+});
+
 describe("tool row backgrounds", () => {
   // Status-tinted tool fills (PR #74 / CL-3116) painted every successful tool
   // green and never padded to full width, so the transcript became green soup.
@@ -118,7 +178,20 @@ describe("tool row backgrounds", () => {
     return lines.flatMap((line) => line.map((seg) => seg.backgroundColor));
   }
 
-  test("pending and completed tool rows have no status background", () => {
+  test("a pending tool row is tinted with the running background", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "run1",
+      callId: "run1",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "src/foo.ts" }),
+      startedAt: 0,
+    };
+    const pending = segmentBackgrounds(buildLines([call], COLUMNS, false, isExpanded));
+    expect(pending.some((bg) => bg === color("toolRunningBg"))).toBe(true);
+  });
+
+  test("a completed tool row has no status background", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "bg1",
@@ -127,8 +200,6 @@ describe("tool row backgrounds", () => {
       arguments: JSON.stringify({ path: "src/foo.ts" }),
       startedAt: 0,
     };
-    const pending = segmentBackgrounds(buildLines([call], COLUMNS, false, isExpanded));
-    expect(pending.every((bg) => bg === undefined)).toBe(true);
 
     const done = segmentBackgrounds(
       buildLines(
@@ -303,7 +374,7 @@ describe("flat line buffer", () => {
     expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
   });
 
-  test("incremental append of a tool result drops · running and merges with duration", () => {
+  test("incremental append of a tool result drops the running marker and merges with duration", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "call-read",
@@ -314,7 +385,7 @@ describe("flat line buffer", () => {
     };
     const cache = new Map();
     const pending = buildLinesIncremental(undefined, [call], COLUMNS, false, isExpanded, cache);
-    expect(lineText(pending.lines).join("\n")).toContain("· running");
+    expect(pending.lines[0]?.[0]?.toolRunningSince).toBe(1_000);
 
     const result: ContentBlock = {
       type: "tool_result",
@@ -327,7 +398,7 @@ describe("flat line buffer", () => {
     };
     const done = buildLinesIncremental(pending, [call, result], COLUMNS, false, isExpanded, cache);
     const text = lineText(done.lines).join("\n");
-    expect(text).not.toContain("running");
+    expect(done.lines[0]?.[0]?.toolRunningSince).toBeUndefined();
     expect(text).toContain("· 1.5s");
     expect(text).toContain("Read 1 line of src/foo.ts");
     // Matches a full rebuild so the incremental path cannot drift.
@@ -336,7 +407,7 @@ describe("flat line buffer", () => {
     );
   });
 
-  test("pending non-shell tool shows · running", () => {
+  test("pending non-shell tool marks the running row with its start time", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "call-read",
@@ -345,9 +416,13 @@ describe("flat line buffer", () => {
       arguments: JSON.stringify({ path: "src/foo.ts" }),
       startedAt: 1_000,
     };
-    const text = lineText(buildLines([call], COLUMNS, false, isExpanded)).join("\n");
-    expect(text).toContain("· running");
+    const lines = buildLines([call], COLUMNS, false, isExpanded);
+    const text = lineText(lines).join("\n");
+    expect(lines[0]?.[0]?.toolRunningSince).toBe(1_000);
     expect(text).toContain("Read");
+    // The elapsed clock is live-only; buildLines output is time-independent so a
+    // per-second tick never needs to rebuild the transcript line array.
+    expect(buildLines([call], COLUMNS, false, isExpanded)).toEqual(lines);
   });
 
   test("orphan tool result still renders on its own", () => {

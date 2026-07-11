@@ -82,6 +82,28 @@ test("userMessageBg preserves the established user box gray", () => {
   expect(color("userMessageBg")).toBe("#45454a");
 });
 
+test("toolRunningBg is a distinct dark tint for the running-tool row", () => {
+  expect(color("toolRunningBg")).toMatch(/^#[0-9a-fA-F]{6}$/);
+  expect(palette.toolRunningBg.hex).not.toBe(palette.userMessageBg.hex);
+  // Must stay dark enough that the tool text reads on top of it.
+  const channels = [1, 3, 5].map((i) => parseInt(color("toolRunningBg").slice(i, i + 2), 16));
+  for (const channel of channels) expect(channel).toBeLessThan(0x60);
+});
+
+test("the elapsed clock color clears AA contrast on the running-tool tint", () => {
+  // The live clock is the datum the running row exists to show, so its text-tier
+  // color must stay legible on the tinted background rather than fade into it.
+  const channel = (hex: string, i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = (hex: string) =>
+    0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5);
+  const [lighter, darker] = [luminance(color("text")), luminance(color("toolRunningBg"))].sort((a, b) => b - a);
+  const contrast = (lighter! + 0.05) / (darker! + 0.05);
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+});
+
 test("supportsTrueColor detects truecolor terminals", () => {
   process.env.COLORTERM = "truecolor";
   expect(supportsTrueColor()).toBe(true);

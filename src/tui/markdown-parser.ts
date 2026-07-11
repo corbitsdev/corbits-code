@@ -17,6 +17,10 @@ export type StyledSegment = {
   backgroundColor?: string;
   linkUrl?: string;
   codeFence?: boolean;
+  // Wall-clock start of a still-running tool call. Present only on the first
+  // segment of a pending tool row; the event log animates such rows with a live
+  // spinner and elapsed clock instead of painting a static line.
+  toolRunningSince?: number;
 };
 
 // Inline-markdown matchers. Hoisted to module scope so they are not re-created
