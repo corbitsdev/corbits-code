@@ -460,6 +460,38 @@ describe("createAgentStreamState", () => {
     expect(results[0]?.type === "tool_result" && results[0].isError).toBe(false);
   });
 
+  test("a duplicate tool.done for the same callId does not push a second tool_result block", () => {
+    // Regression: the reactor's retry loop can re-emit a completed cycle's
+    // tool.done alongside the retried cycle's own tool.done for the same
+    // call, which previously produced two tool_result blocks for one call.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-dup", name: "read_file" }));
+    state.addEvent(event("tool.done", { result: { callId: "call-dup", content: "first", isError: false } }));
+    state.addEvent(event("tool.done", { result: { callId: "call-dup", content: "first", isError: false } }));
+
+    const results = state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "call-dup");
+    expect(results).toHaveLength(1);
+  });
+
+  test("inference.retry discards the blocks streamed by the failed attempt", () => {
+    // Regression: the reactor restarts inferenceRunner from scratch on a
+    // same-source or failover retry, re-streaming inference.start through
+    // whatever content the failed attempt already committed. inference.retry
+    // is the marker the reactor emits before restarting; the transcript must
+    // roll back to the attempt boundary so the retried attempt's own content
+    // is not appended on top of the discarded one.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "partial reply from the failed attempt" }));
+    state.addEvent(event("inference.retry", { attempt: 1, delayMs: 0, previousError: { category: "quota_exhausted", message: "429" } }));
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "final reply" }));
+
+    const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0]?.type === "text" && textBlocks[0].content).toBe("final reply");
+  });
+
   test("latestUserMessageLogged is true after message.received and resets on clear", () => {
     const state = createAgentStreamState();
 

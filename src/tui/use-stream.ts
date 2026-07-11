@@ -415,6 +415,14 @@ export function createAgentStreamState(
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
+  // Boundary marking where the current inference attempt's blocks begin,
+  // and the tool call ids known before it started. inference.retry means the
+  // reactor discarded this attempt and is restarting inferenceRunner from
+  // scratch, re-streaming inference.start through whatever it had already
+  // committed — roll the transcript back to the boundary so that content is
+  // not appended on top of the retried attempt's own.
+  let attemptStartBlockIndex: number | null = null;
+  let attemptStartCallIds: Set<string> = new Set();
   // Streamed fragments accumulate here between drains and join once on flush,
   // so a burst of N fragments costs O(N) buffering plus one join rather than N
   // growing concatenations. The target is the block (and field) currently being
@@ -656,6 +664,8 @@ export function createAgentStreamState(
       startedAt = Date.now();
       finishedAt = null;
       openCallId = null;
+      attemptStartBlockIndex = null;
+      attemptStartCallIds = new Set();
       activityTick = 0;
       lastActivityAt = Date.now();
       contextTokens = 0;
@@ -690,6 +700,26 @@ export function createAgentStreamState(
             : "";
           const full = `${content}${attachmentText}`;
           ensureUserBlock(full);
+          break;
+        }
+        case "inference.start": {
+          attemptStartBlockIndex = contentBlocks.length;
+          attemptStartCallIds = new Set(callIdToName.keys());
+          break;
+        }
+        case "inference.retry": {
+          if (attemptStartBlockIndex !== null) {
+            spliceBlocks(attemptStartBlockIndex, contentBlocks.length - attemptStartBlockIndex);
+            for (const callId of callIdToName.keys()) {
+              if (!attemptStartCallIds.has(callId)) {
+                callIdToName.delete(callId);
+                callIdToArguments.delete(callId);
+              }
+            }
+            openCallId = null;
+            currentToolName = null;
+            streamingType = null;
+          }
           break;
         }
         case "inference.thinking.delta": {
@@ -792,6 +822,10 @@ export function createAgentStreamState(
           currentToolName = null;
           streamingType = null;
           const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
+          // A retried inference cycle (or any other re-emission upstream) can
+          // deliver the same tool.done twice; the call already has a result
+          // block, so a second one would render as a duplicate transcript line.
+          if (contentBlocks.some((b) => b.type === "tool_result" && b.callId === result.callId)) break;
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
           const content = capStoredToolResultContent(stringifyToolContent(result.content));
