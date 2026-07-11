@@ -1,5 +1,5 @@
-import { lstat, unlink } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, realpath, unlink } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { type } from "arktype";
 import type { ExtraTool, ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
@@ -37,6 +37,11 @@ function failureDetail(error: unknown): string {
   return code === undefined ? error.message : `${code}: ${error.message}`;
 }
 
+function isWithin(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 export function deleteFilePlugin(cwd: string): ToolPlugin {
   const tool: ExtraTool = {
     definition: DELETE_FILE_DEFINITION,
@@ -48,6 +53,10 @@ export function deleteFilePlugin(cwd: string): ToolPlugin {
 
       const target = resolve(cwd, args.path);
       try {
+        const [physicalRoot, physicalParent] = await Promise.all([realpath(cwd), realpath(dirname(target))]);
+        if (!isWithin(physicalRoot, physicalParent)) {
+          return errorResult(call.id, `${args.path} resolves outside the working directory`);
+        }
         const info = await lstat(target);
         if (info.isDirectory()) {
           return errorResult(call.id, `${args.path} is a directory; delete_file only deletes files`);
