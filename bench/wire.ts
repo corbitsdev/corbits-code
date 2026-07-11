@@ -45,9 +45,3 @@ export function thinkingDeltaChunks(count: number, piece: string): Uint8Array[] 
   );
   return chunks;
 }
-
-// Total payload bytes carried by a run of `count` deltas of `piece`. Used as a
-// stable, deterministic "output size" metric for inference workloads.
-export function deltaPayloadBytes(count: number, piece: string): number {
-  return count * Buffer.byteLength(piece, "utf8");
-}
