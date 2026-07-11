@@ -7,11 +7,14 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { MCPServerConfig } from "../config/settings.js";
 import { createOAuthProvider, type IntercodeOAuthProvider } from "./oauth-provider.js";
 import { startCallbackServer, type CallbackServer } from "./callback-server.js";
+import type { McpToolAnnotations } from "./tool-permissions.js";
+import { buildStdioMcpProcessEnv } from "./stdio-env.js";
 
 export type MCPTool = {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
 };
 
 export type MCPClient = {
@@ -112,11 +115,16 @@ async function withHTTPAuthorizationRecovery<T>(
 // List the server's tools and wrap the connected client in the MCPClient shape.
 async function finishClient(client: Client, serverName: string, authContext?: HTTPAuthContext): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () => client.listTools());
-  const tools: MCPTool[] = result.tools.map((t) => ({
-    name: t.name,
-    description: t.description ?? "",
-    inputSchema: (t.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} },
-  }));
+  const tools: MCPTool[] = result.tools.map((t) => {
+    const annotations = t.annotations as McpToolAnnotations | undefined;
+    const tool: MCPTool = {
+      name: t.name,
+      description: t.description ?? "",
+      inputSchema: (t.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} },
+    };
+    if (annotations !== undefined) tool.annotations = annotations;
+    return tool;
+  });
 
   return {
     serverName,
@@ -141,7 +149,7 @@ async function connectStdio(config: MCPServerConfig, options: MCPConnectOptions)
   }
   const transportOptions: { command: string; args?: string[]; env?: Record<string, string>; stderr?: "inherit" | "ignore" | "pipe" } = {
     command: config.command,
-    env: { ...process.env, ...(config.env ?? {}) } as Record<string, string>,
+    env: buildStdioMcpProcessEnv(process.env, config.env),
   };
   if (config.args !== undefined) transportOptions.args = config.args;
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
