@@ -20,19 +20,19 @@ const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir"
 // restriction (outside the workspace boundary, or writes under .agent-state).
 // Covers both read-only tools (dropped from allow to ask) and the mutating
 // file tools (dropped from auto-allow to ask in auto mode).
-const PATH_ARG_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "write_file", "edit_file"]);
+const PATH_ARG_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "write_file", "edit_file", "delete_file"]);
 
 // `lsp` names its target `filePath`; every other path-arg tool uses `path`.
 function pathArgKey(toolName: string): string {
   return toolName === "lsp" ? "filePath" : "path";
 }
 
-// write_file/edit_file mutate the target; every other path-arg tool only
+// write_file/edit_file/delete_file mutate the target; every other path-arg tool only
 // reads it. Restriction policy (see path-restriction.ts) treats reads and
 // writes of an .agent-state path differently, so callers need to tell the
 // gate which mode a given tool call is in.
 function isWriteTool(toolName: string): boolean {
-  return toolName === "write_file" || toolName === "edit_file";
+  return toolName === "write_file" || toolName === "edit_file" || toolName === "delete_file";
 }
 
 export type Tier = "allow" | "ask";
@@ -227,9 +227,9 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
       scopes: deriveCommandScopes(segment),
     }));
   }
-  if (call.name === "write_file" || call.name === "edit_file") {
+  if (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file") {
     const path = stringArg(call, "path");
-    const action = call.name === "write_file" ? "Write file" : "Edit file";
+    const action = call.name === "write_file" ? "Write file" : call.name === "edit_file" ? "Edit file" : "Delete file";
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
   // A read-only tool only reaches here when its target is restricted (outside
