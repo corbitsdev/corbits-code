@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
@@ -6,20 +5,23 @@ import { dirname, join, resolve, sep } from "node:path";
 // though the read tools are otherwise allow-tier and write/edit auto-allow in
 // auto mode:
 //
-//   - anything under .agent-state (the agent's own run state) — off-limits
-//     unless the operator asks it to self-reflect, trace, or investigate a run.
-//   - anything git ignores — gitignored files are noise or secrets-adjacent and
-//     should be surfaced only when genuinely required.
 //   - anything outside the session workspace (the primary cwd and its
 //     registered worktrees) — autonomy is scoped to the workspace boundary, not
-//     the whole filesystem.
+//     the whole filesystem. Restricted for both reads and writes.
+//   - writes under .agent-state (the agent's own run state) — the agent should
+//     not rewrite its own session history without operator approval. Reads stay
+//     unrestricted since .agent-state holds the transcripts users read to debug
+//     a run.
 //
-// Git owns gitignore semantics, so we ask `git check-ignore` rather than
-// re-implementing ignore-file parsing. Results are cached per resolved path
-// because the gate consults this on every tool call with a path argument.
+// Gitignore status is deliberately not a factor: build output, node_modules,
+// and scratch files are ordinary workspace files for both reads and writes,
+// and the secret-guard plugin independently hard-blocks sensitive files (.env,
+// keys, certs) regardless of this gate. Results are cached per resolved path
+// and access mode because the gate consults this on every tool call with a
+// path argument.
 
 export type PathRestriction = {
-  isRestricted: (path: string) => boolean;
+  isRestricted: (path: string, isWrite: boolean) => boolean;
 };
 
 const STATE_DIR = ".agent-state";
@@ -59,24 +61,14 @@ export function createPathRestriction(cwd: string, worktreeRoots: readonly strin
     return !workspaceRoots.some((root) => real === root || real.startsWith(root + sep));
   };
 
-  const gitIgnores = (abs: string): boolean => {
-    try {
-      // Exit 0 means the path is ignored. A non-zero exit (not ignored, or not a
-      // git repo) throws, which we read as "not restricted".
-      execFileSync("git", ["check-ignore", "-q", "--", abs], { cwd, stdio: "ignore" });
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   return {
-    isRestricted: (path: string): boolean => {
+    isRestricted: (path: string, isWrite: boolean): boolean => {
       const abs = resolve(cwd, path);
-      const cached = cache.get(abs);
+      const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
+      const cached = cache.get(cacheKey);
       if (cached !== undefined) return cached;
-      const restricted = underStateDir(abs) || outsideWorkspace(abs) || gitIgnores(abs);
-      cache.set(abs, restricted);
+      const restricted = outsideWorkspace(abs) || (isWrite && underStateDir(abs));
+      cache.set(cacheKey, restricted);
       return restricted;
     },
   };
