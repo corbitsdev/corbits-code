@@ -12,44 +12,8 @@ export type RunState = {
   error?: string;
 };
 
-export type DirectorPersistedState = {
-  turnsUsed: number;
-  submitCalled: boolean;
-  callIdToName: Record<string, string>;
-  idleCycles: number;
-  tasks: Array<{ id: string; title: string; status: "todo" | "doing" | "done" | "cancelled" }>;
-  terminated?: boolean;
-  filesRead?: Array<{ path: string; turn: number }>;
-};
-
-function isValidDirectorState(data: unknown): data is DirectorPersistedState {
-  if (typeof data !== "object" || data === null) return false;
-  const s = data as Record<string, unknown>;
-  if (typeof s.turnsUsed !== "number") return false;
-  if (typeof s.submitCalled !== "boolean") return false;
-  if (typeof s.callIdToName !== "object" || s.callIdToName === null) return false;
-  for (const v of Object.values(s.callIdToName)) {
-    if (typeof v !== "string") return false;
-  }
-  if (typeof s.idleCycles !== "number") return false;
-  if (!Array.isArray(s.tasks)) return false;
-  for (const task of s.tasks) {
-    if (typeof task !== "object" || task === null) return false;
-    const t = task as Record<string, unknown>;
-    if (typeof t.id !== "string") return false;
-    if (typeof t.title !== "string") return false;
-    if (typeof t.status !== "string") return false;
-    if (!["todo", "doing", "done"].includes(t.status)) return false;
-  }
-  return true;
-}
-
 function statePath(cwd: string, sessionId: string): string {
   return join(sessionDir(cwd, sessionId), "run.json");
-}
-
-function directorStatePath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "director.json");
 }
 
 let tmpWriteCounter = 0;
@@ -69,44 +33,6 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
 // and prior progress is being discarded. Surface it rather than swallowing it.
 export function warnUnreadableState(path: string, reason: string): void {
   process.stderr.write(`intercode: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
-}
-
-export async function saveDirectorState(
-  cwd: string,
-  sessionId: string,
-  state: DirectorPersistedState,
-): Promise<void> {
-  await atomicWrite(directorStatePath(cwd, sessionId), JSON.stringify(state, null, 2));
-}
-
-export async function loadDirectorState(
-  cwd: string,
-  sessionId: string,
-): Promise<DirectorPersistedState | null> {
-  const path = directorStatePath(cwd, sessionId);
-  try {
-    const raw = await readFile(path, "utf8");
-    const parsed = JSON.parse(raw);
-    if (!isValidDirectorState(parsed)) {
-      warnUnreadableState(path, "invalid shape");
-      return null;
-    }
-    return parsed;
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      warnUnreadableState(path, "corrupt JSON");
-      return null;
-    }
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return null;
-    }
-    throw err;
-  }
 }
 
 export async function saveState(cwd: string, sessionId: string, state: RunState): Promise<void> {
