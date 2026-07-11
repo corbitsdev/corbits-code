@@ -579,6 +579,15 @@ export function createReactor(config: ReactorConfig): Reactor {
             // so a consumer replaying the event stream knows to discard the
             // failed attempt's blocks rather than append the retried
             // attempt's on top of them.
+            //
+            // This overloads inference.retry: the harness emits it only for
+            // uncommitted pre-first-token retries, where the failed attempt's
+            // buffered inference.start is discarded — so the harness's retry
+            // always precedes the cycle's inference.start and retracts
+            // nothing. This emission instead follows a committed attempt's
+            // streamed events. Consumers distinguish the two by ordering: a
+            // retry arriving after the cycle's inference.start retracts that
+            // attempt's output; one arriving before it does not.
             emit({
               type: "inference.retry",
               seq: nextSeq(),

@@ -492,6 +492,48 @@ describe("createAgentStreamState", () => {
     expect(textBlocks[0]?.type === "text" && textBlocks[0].content).toBe("final reply");
   });
 
+  test("a harness pre-commit inference.retry does not splice away the previous cycle's blocks", () => {
+    // The harness emits inference.retry for uncommitted attempts, discarding
+    // the failed attempt's buffered inference.start — so the event reaches
+    // the TUI before any inference.start for its cycle. At that moment the
+    // rollback boundary still describes the previous, completed cycle;
+    // splicing there would destroy settled text and tool results.
+    const state = createAgentStreamState();
+    // Cycle 1 completes normally with text and a tool result.
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "settled reply" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "call-1", name: "read_file" }));
+    state.addEvent(event("inference.tool_call.end", { callId: "call-1", name: "read_file", arguments: { path: "a.txt" } }));
+    state.addEvent(event("inference.done", { turn: { role: "assistant", content: [], model: "test-model", timestamp: 0 }, usage: {}, source: {} }));
+    state.addEvent(event("tool.done", { result: { callId: "call-1", content: "ok", isError: false } }));
+
+    // Cycle 2's first attempt fails pre-commit: harness-style retry arrives
+    // before the cycle's inference.start.
+    state.addEvent(event("inference.retry", { attempt: 1, delayMs: 0, previousError: { category: "retryable", message: "5xx" } }));
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.text.delta", { token: "second reply" }));
+
+    const textBlocks = state.contentBlocks.filter((b) => b.type === "text");
+    expect(textBlocks.map((b) => b.type === "text" && b.content)).toEqual(["settled reply", "second reply"]);
+    expect(state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "call-1")).toHaveLength(1);
+  });
+
+  test("a callId reused across cycles renders both results", () => {
+    // Index-based providers synthesize callIds unique only within a cycle
+    // ("0", "1", ...), so tool.done dedup must reset at each inference.start.
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "1", name: "read_file" }));
+    state.addEvent(event("tool.done", { result: { callId: "1", content: "first cycle", isError: false } }));
+
+    state.addEvent(event("inference.start", { model: "test-model" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "1", name: "run_shell" }));
+    state.addEvent(event("tool.done", { result: { callId: "1", content: "second cycle", isError: false } }));
+
+    const results = state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "1");
+    expect(results).toHaveLength(2);
+  });
+
   test("latestUserMessageLogged is true after message.received and resets on clear", () => {
     const state = createAgentStreamState();
 
