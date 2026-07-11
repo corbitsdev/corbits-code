@@ -261,6 +261,30 @@ test("resetGates resolves all pending gates and clears visible state", async () 
 
   // UI reflects cleared state.
   expect(lastFrame()).toContain("none none none open=0");
-  // setGatePending(false) was called during reset.
-  expect(gateCalls[gateCalls.length - 1]).toBe(false);
+  // Each enqueued gate must balance its setGatePending(true) on reset.
+  expect(gateCalls).toEqual([true, true, true, false, false, false]);
+});
+
+test("resetGates balances refcount when multiple permission gates are queued", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  const { stdin } = render(<Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "a", scopes: [] },
+    resolve: () => {},
+  });
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "b", scopes: [] },
+    resolve: () => {},
+  });
+  await tick();
+
+  expect(gateCalls).toEqual([true, true]);
+
+  stdin.write("x");
+  await tick();
+
+  expect(gateCalls).toEqual([true, true, false, false]);
 });

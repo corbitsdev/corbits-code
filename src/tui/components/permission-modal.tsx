@@ -7,6 +7,8 @@ import { describeToolCall } from "../tool-formatter.js";
 
 export type PermissionModalProps = {
   request: PermissionRequest;
+  /** Permission gates still queued, including this modal. */
+  permissionQueueDepth?: number;
   onResolve: (outcome: ApprovalOutcome) => void;
   width?: number;
 };
@@ -113,7 +115,13 @@ function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
   return {};
 }
 
-export function PermissionModal({ request, onResolve, width = 80 }: PermissionModalProps): ReactNode {
+export function PermissionModal({
+  request,
+  permissionQueueDepth = 1,
+  onResolve,
+  width = 80,
+}: PermissionModalProps): ReactNode {
+  const queuedBehind = Math.max(0, permissionQueueDepth - 1);
   const choices = buildChoices(request);
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
@@ -200,6 +208,9 @@ export function PermissionModal({ request, onResolve, width = 80 }: PermissionMo
               <Text color={toolColor}>{descriptor.display}</Text>
             </>
           )}
+          {queuedBehind > 0
+            ? ` · +${queuedBehind} more approval${queuedBehind === 1 ? "" : "s"} queued`
+            : ""}
         </Text>
         {descriptor.summary.length > 0 && (
           <Box marginLeft={2}>
