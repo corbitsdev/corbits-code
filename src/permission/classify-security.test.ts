@@ -18,9 +18,12 @@ describe("isAutoAllowedShellCall — code-executing flags", () => {
     expect(isAutoAllowedShellCall(shellCall("rg -z foo"))).toBe(false);
   });
 
-  test("still auto-allows ordinary rg/grep searches", () => {
-    expect(isAutoAllowedShellCall(shellCall("rg pattern src"))).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("grep -r needle ."))).toBe(true);
+  test("does not auto-allow shell rg or recursive grep (authz open-ended search)", () => {
+    expect(isAutoAllowedShellCall(shellCall("rg pattern src"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("grep -r needle ."))).toBe(false);
+  });
+
+  test("still auto-allows bounded non-recursive grep", () => {
     expect(isAutoAllowedShellCall(shellCall("grep -n foo file.ts"))).toBe(true);
   });
 });
@@ -66,7 +69,7 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("cat src/index.ts"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("wc -l README.md"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("ls -la"), "/repo")).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("grep -r needle ."), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("grep -n needle README.md"), "/repo")).toBe(true);
   });
 
   test("denies a workspace-escaping path glued to a grep/rg flag value", () => {

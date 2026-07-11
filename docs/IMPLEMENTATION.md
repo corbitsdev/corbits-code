@@ -109,8 +109,10 @@ src/
     path-escape-plugin.ts      Path sandboxing (first)
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
     secret-guard-plugin.ts     Hard-deny secret files
-    authz-plugin.ts            Catastrophic command blocking
+    authz-plugin.ts            Catastrophic command blocking (thin wrapper)
     permission-plugin.ts       Tiered operator approval
+  shell/
+    run-shell-authz.ts         Shared run_shell deny policy (authz + permission)
     verify-plugin.ts           Write/edit verification (per-path lock)
     file-mutation-lock.ts      Serialize mutations per file for verify
     lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
