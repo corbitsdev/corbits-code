@@ -146,6 +146,30 @@ describe("open-task termination guard", () => {
     expect(ended.some((a) => a.type === "infer")).toBe(false);
   });
 
+  test("an interleaved tool call resets the idle budget, so only consecutive attempts count", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    // Two content-free terminations spend two of the three nudges.
+    expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
+    expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
+
+    // A turn that does real tool work is progress and resets the budget.
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "r", name: "read_file", args: { path: "a.txt" } }]),
+      mockState,
+      mockCapabilities,
+    );
+
+    // The full budget is available again: three more nudges before terminating.
+    for (let i = 0; i < 3; i++) {
+      expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
+    }
+    const ended = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasReply(ended)).toBe(true);
+    expect(hasInfer(ended)).toBe(false);
+  });
+
   test("a declined tool with no open tasks surfaces the decline immediately", async () => {
     const director = createChatDirector("base", []);
     const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
