@@ -402,6 +402,50 @@ describe("createPermissionGate", () => {
     });
     const writeVerdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
     expect(writeVerdict.allowed).toBe(true);
+    const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
+    expect(editVerdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode routes MCP tools to the operator prompt rather than blanket-allow", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "mcp__acme__delete_service", arguments: { id: "svc" } });
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(1);
+  });
+
+  test("auto mode does not blanket-allow an unknown consequential built-in", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "remove_service", arguments: {} });
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(1);
+  });
+
+  test("auto mode still auto-allows safe reads without prompting", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "src/a.ts" } });
+    expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
 
@@ -639,7 +683,7 @@ describe("createPermissionGate", () => {
 
   // In auto mode everything is auto-approved. The authz and secret-guard plugins
   // hard-deny dangerous and credential-reading commands before reaching this gate.
-  test("auto mode auto-approves all tool calls including run_shell", async () => {
+  test("auto mode auto-approves file writes and shell but prompts for unknown tools", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -651,14 +695,15 @@ describe("createPermissionGate", () => {
 
     const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
     expect(editVerdict.allowed).toBe(true);
-    const unknownVerdict = await gate.evaluate({ id: "c", name: "web_search", arguments: {} });
-    expect(unknownVerdict.allowed).toBe(true);
+    // Shell commands are also auto-approved in auto mode (no callback needed).
+    const shellVerdict = await gate.evaluate(shellCall("curl x"));
+    expect(shellVerdict.allowed).toBe(true);
     expect(asked).toBe(0);
 
-    // Shell commands are also auto-approved in auto mode.
-    const shellVerdict = await gate.evaluate(shellCall("curl x"));
-    expect(shellVerdict.allowed).toBe(true); // no callback needed
-    expect(asked).toBe(0);
+    // An unknown consequential tool is not blanket-allowed; it routes to ask.
+    const unknownVerdict = await gate.evaluate({ id: "c", name: "web_search", arguments: {} });
+    expect(unknownVerdict.allowed).toBe(true);
+    expect(asked).toBe(1);
   });
 
   // SECURITY: persist callback must fire EXACTLY ONCE when pattern is non-null,
