@@ -7,6 +7,8 @@ import type { StepStatus, WorkflowState } from "./types.js";
 
 const STEP_STATUSES: StepStatus[] = ["pending", "active", "completed", "skipped"];
 
+const writeChains = new Map<string, Promise<void>>();
+
 function workflowStatePath(cwd: string, sessionId: string): string {
   return join(sessionDir(cwd, sessionId), "workflow.json");
 }
@@ -20,7 +22,9 @@ function isValidWorkflowState(data: unknown): data is WorkflowState {
     if (typeof frame !== "object" || frame === null) return false;
     const f = frame as Record<string, unknown>;
     if (typeof f.workflow !== "string") return false;
-    if (typeof f.stepIndex !== "number") return false;
+    if (typeof f.stepIndex !== "number" || !Number.isInteger(f.stepIndex) || f.stepIndex < 0) {
+      return false;
+    }
     if (!Array.isArray(f.statuses)) return false;
     for (const status of f.statuses) {
       if (typeof status !== "string" || !STEP_STATUSES.includes(status as StepStatus)) {
@@ -31,12 +35,28 @@ function isValidWorkflowState(data: unknown): data is WorkflowState {
   return true;
 }
 
+/** Surface a failed workflow.json write instead of dropping it silently. */
+export function warnWorkflowPersistenceFailure(path: string, reason: string): void {
+  process.stderr.write(`intercode: failed to persist workflow state at ${path} (${reason})\n`);
+}
+
 export async function saveWorkflowState(
   cwd: string,
   sessionId: string,
   state: WorkflowState,
 ): Promise<void> {
-  await atomicWrite(workflowStatePath(cwd, sessionId), JSON.stringify(state, null, 2));
+  const path = workflowStatePath(cwd, sessionId);
+  const payload = JSON.stringify(state, null, 2);
+  const run = (): Promise<void> => atomicWrite(path, payload);
+  const chained = (writeChains.get(path) ?? Promise.resolve()).then(run, run);
+  writeChains.set(path, chained.catch(() => undefined));
+  await chained;
+}
+
+/** Await any in-flight save for this session (used by tests and shutdown paths). */
+export async function flushWorkflowStateWrites(cwd: string, sessionId: string): Promise<void> {
+  const path = workflowStatePath(cwd, sessionId);
+  await (writeChains.get(path) ?? Promise.resolve());
 }
 
 export async function loadWorkflowState(
