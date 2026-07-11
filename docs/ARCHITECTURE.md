@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a policy director, and consumes the event stream through an Ink-based TUI. A custom director enforces policy on top of the reactor's default behavior; delegated work runs through a second, sub-agent director on the same loop.
+The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a `ChatDirector`, and consumes the event stream through an Ink-based TUI. The director layers chat semantics, compaction, and workflow coordination on the reactor's default behavior; tool-layer middleware (authorization, permission gate, verification) enforces hard constraints before tools run. Delegated work runs through a second, sub-agent director on the same loop.
 
 ## The Reactor Loop
 
@@ -47,7 +47,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - `--config <path>` replaces the global settings file as the provider source (useful for CI per-run injection). A provider must be defined in a settings file; there is no env fallback.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
-- `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.
+- `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--dangerously-skip-permissions`; collects positional arguments as the optional initial task for the TUI.
 - Both settings files are on the secret-guard denylist, so the agent cannot read its own credentials.
 
 ### TUI Runner (`src/tui/runner.tsx`)
@@ -151,12 +151,6 @@ The agent's identity is **Intercode**, framed as a senior coding assistant runni
 - Atomic JSON save/load to `.agent-state/run.json`, with schema validation on load
 - Conversation context is persisted separately by the git-backed store under `.agent-state/context`
 
-### Post-Submit Critique (`src/agent/critic.ts`)
-
-- Runs after the agent completes, before acceptance
-- Runs `build`, `typecheck`, and `test` scripts when present in the target `package.json`
-- 5-minute timeout per command; accepts only if all pass; surfaces failures as errors
-
 ### Lifecycle Hooks (`src/session/hooks.ts`)
 
 - Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.intercode/hooks` (local) and `~/.intercode/hooks` (global)
@@ -215,7 +209,7 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
-- `app.tsx` — Root layout: pinned header, scrollable event log, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue badge count (driven by `"mid-run.delivered"` emitter events from the runner). SHIFT+TAB enables auto mode, which auto-approves non-destructive consequential actions through the permission gate (`onToggleAuto`). Plan handling is a separate approval gate (`use-gates`), not a mode. `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
+- `app.tsx` — Root layout: pinned header, scrollable event log, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue (`pendingQueueRef` + `queuedCount`): while `isProcessing`, **Alt+Enter** enqueues outbound messages and **Enter** steers via interrupt (see interrupt/queue steering below). The queue drains one message per `connector.reply` (end of a response cycle), skipping drain while status is `blocked` (permission/operator gates). The queue is cleared on session rotation (`/clear`, `/new`). SHIFT+TAB enables auto mode, which auto-approves non-destructive consequential actions through the permission gate (`onToggleAuto`). Plan handling is a separate approval gate (`use-gates`), not a mode. `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
 
   **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLines`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLines` evicts entries for block IDs not in the current block list on every call, so manage_tasks/present splices do not accumulate orphaned entries.
 
@@ -307,24 +301,27 @@ CLI argv
           → turnCollector.observe → postTurn hooks
           → emit to React (TUI)
           → on tool.done: saveState, saveDirectorState
-      → src/agent/critic.ts (RunCritique)
-      → dispatch postRun summary
-      → SaveState (done | failed) → Cleanup
+      → (interactive) connector.reply → optional queue drain → next user turn
+      → lifecycle hooks: postTurn per turn; postRun when a run summary is finalized
 ```
 
 ## State Transitions
 
 ```
-[running] → tool.done → save → ... → submit_output → critique → [done]
-                                          ↓
-                                    [failed] (stall, critique failure, or error)
+[idle] → user message → [running] → connector.reply → [idle] (chat session stays open)
+              ↓ gates / errors
+         [blocked] → operator resolves → [running]
+              ↓ fatal inference/reactor error
+         [failed] (TUI may surface and allow retry; context persists under .agent-state/)
 ```
+
+There is no post-submit `build`/`typecheck`/`test` critique step in the current tree; validation is operator- and hook-driven (`postTurn`/`postRun`) plus explicit `run_shell` during agent work.
 
 ## Design Decisions
 
 ### Event loop vs. chat interface
 
-The reactor processes one event at a time and produces a deterministic next action; every `inference.done` must yield a decision. The director adds policy to detect and recover from model-level stalling.
+The reactor processes one event at a time and produces a deterministic next action; every `inference.done` must yield a decision. The director adds stall detection and compaction recovery on top of the permission and authorization middleware already enforced at the tool layer.
 
 ### Plan as contract
 
