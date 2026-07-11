@@ -80,6 +80,10 @@ export type AgentToolsetArgs = {
   // Shell command timeout defaults/cap, resolved from settings. When omitted the
   // shell-guard plugin applies its built-in defaults.
   shellTimeout?: ShellTimeoutConfig;
+  // Whether a workflow is currently running. advance_workflow rides the wire
+  // every turn (workflow or not), so the model can call it with nothing active;
+  // this lets its handler report an honest no-op instead of a false advance.
+  isWorkflowActive?: () => boolean;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -235,7 +239,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       definition: advanceWorkflowDefinition,
       // The director observes this call and advances the workflow runtime; the
       // handler only needs to acknowledge so the model gets a clean tool result.
+      // Since the tool is always advertised, the model can call it with no
+      // workflow active — report the honest no-op rather than a false advance.
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        if (args.isWorkflowActive?.() === false) {
+          return "No active workflow — nothing to advance.";
+        }
         const parsed = AdvanceWorkflowArgs(rawArgs);
         if (parsed instanceof type.errors) {
           return "Acknowledged.";
