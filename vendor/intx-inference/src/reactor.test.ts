@@ -4365,6 +4365,80 @@ describe("createReactor — source failover", () => {
   });
 });
 
+describe("createReactor — retry re-emission", () => {
+  // Regression: the reactor's outer retry loop (same-source quota retry and
+  // failover) re-invokes inferenceRunner from scratch on retry, which
+  // re-streams inference.start through whatever the failed attempt already
+  // committed. Without a marker between the discarded attempt's events and
+  // the retried attempt's own, a consumer replaying the event stream has no
+  // way to tell the two apart and ends up rendering the failed attempt's
+  // content twice.
+  test("emits inference.retry before re-streaming a same-source quota retry", async () => {
+    let call = 0;
+    const inferenceRunner = async function* (
+      o: InferenceHarnessOptions,
+    ): AsyncGenerator<InferenceEvent> {
+      call += 1;
+      if (call === 1) {
+        // First attempt commits partial content, then fails.
+        yield {
+          type: "inference.text.delta",
+          seq: o.nextSeq(),
+          data: { token: "partial", partial: { text: "partial" } },
+        };
+        yield {
+          type: "inference.error",
+          seq: o.nextSeq(),
+          data: {
+            error: {
+              category: "quota_exhausted",
+              message: "429",
+              retryAfterMs: 1,
+            },
+            partial: { text: "partial" },
+          },
+        };
+        return;
+      }
+      yield {
+        type: "inference.done",
+        seq: o.nextSeq(),
+        data: {
+          turn: makeAssistantTurn("final reply"),
+          usage: emptyUsage(),
+          source: TEST_SOURCE,
+        },
+      };
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      inferenceRunner,
+      director: directorFromTable({
+        "message.received": (_e, _s, caps) => caps.infer(),
+        "inference.done": (_e, _s, caps) => caps.done(),
+        "inference.error": (_e, _s, caps) => caps.done(),
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    const deltaIndex = events.findIndex(
+      (e) => e.type === "inference.text.delta",
+    );
+    const retryIndex = events.findIndex((e) => e.type === "inference.retry");
+    const doneIndex = events.findIndex((e) => e.type === "inference.done");
+
+    // The failed attempt's committed content must be followed by a retry
+    // marker before the retried attempt's own terminal event, so a consumer
+    // can discard the discarded attempt's blocks on retry.
+    expect(deltaIndex).toBeGreaterThanOrEqual(0);
+    expect(retryIndex).toBeGreaterThan(deltaIndex);
+    expect(doneIndex).toBeGreaterThan(retryIndex);
+  });
+});
+
 describe("createReactor — prompt well-formedness tripwire", () => {
   test("rejects a malformed assembled prompt before inferring", async () => {
     // History with two tool_result blocks for one callId is the shape
