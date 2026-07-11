@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 
 import { validateActions } from "./actions";
+import { createStateManager } from "./state";
 import { createGateManager } from "./gates";
 import { createCorrelationRegistry } from "./correlation";
 import { createReactor } from "./reactor";
@@ -4372,5 +4373,219 @@ describe("createReactor — prompt well-formedness tripwire", () => {
     expect(error.data.error).toMatch(/duplicate tool_result for "tc-1"/);
     // The prompt never reached the inference runner.
     expect(inferenceRan).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-event overhead: history is not re-serialized or re-copied needlessly
+// (CL-3265). Directors that decide without changing history must not drive a
+// full-history write, and high-frequency delta events must not reach the
+// checkpoint path at all.
+// ---------------------------------------------------------------------------
+
+function makeCountingContextStore(): {
+  store: ContextStore;
+  writeTurnsCalls: number;
+  commitCount: number;
+} {
+  let writeTurnsCalls = 0;
+  let commitCount = 0;
+  const store: ContextStore = {
+    async load() {
+      return {
+        turns: [],
+        pendingOperations: [],
+        tokenUsage: emptyUsage(),
+        connectorState: null,
+      };
+    },
+    setConnectorState() {
+      /* noop */
+    },
+    async commit(options: { message: string }) {
+      commitCount++;
+      return {
+        hash: `c${String(commitCount)}`,
+        message: options.message,
+        timestamp: Date.now(),
+      };
+    },
+    async branch() {
+      /* noop */
+    },
+    async log() {
+      return [];
+    },
+    async readAt() {
+      return [];
+    },
+    async writeBlob() {
+      /* noop */
+    },
+    async readBlob() {
+      throw new Error("not implemented");
+    },
+    async writePrompt() {
+      /* noop */
+    },
+    async writeResponse() {
+      /* noop */
+    },
+    async writeManifest() {
+      /* noop */
+    },
+    async writeTurns() {
+      writeTurnsCalls++;
+    },
+    async writeMetadata() {
+      /* noop */
+    },
+    async readManifestHistory() {
+      throw new Error("not implemented");
+    },
+  };
+  return {
+    store,
+    get writeTurnsCalls() {
+      return writeTurnsCalls;
+    },
+    get commitCount() {
+      return commitCount;
+    },
+  };
+}
+
+describe("createReactor — bounded per-event persistence overhead", () => {
+  test("streaming delta events never reach the checkpoint write path", async () => {
+    const counting = makeCountingContextStore();
+    const deltaTokens = ["one ", "two ", "three ", "four ", "five "];
+
+    const { reactor, events, waitFor } = createDirectReactor({
+      contextStore: counting.store,
+      director: directorFromTable({
+        "message.received": (_e, _s, caps) => caps.infer(),
+        "inference.done": (_e, _s, caps) => [
+          caps.checkpoint("done"),
+          caps.done(),
+        ],
+      }),
+      inferenceRunner: async function* (opts) {
+        for (const token of deltaTokens) {
+          yield {
+            type: "inference.text.delta",
+            seq: opts.nextSeq(),
+            data: { token, partial: { text: token } },
+          };
+        }
+        yield {
+          type: "inference.done",
+          seq: opts.nextSeq(),
+          data: {
+            turn: makeAssistantTurn("five tokens"),
+            usage: emptyUsage(),
+            source: TEST_SOURCE,
+          },
+        };
+      },
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    const emittedDeltas = events.filter(
+      (e) => e.type === "inference.text.delta",
+    );
+    expect(emittedDeltas.length).toBe(deltaTokens.length);
+
+    // The whole exchange changes history exactly once (inbound turn + the
+    // single assistant turn committed together), so writeTurns fires once —
+    // never per delta.
+    expect(counting.writeTurnsCalls).toBe(1);
+  });
+
+  test("a checkpoint whose history is unchanged does not rewrite turns", async () => {
+    const counting = makeCountingContextStore();
+
+    const { reactor, waitFor } = createDirectReactor({
+      contextStore: counting.store,
+      director: {
+        async decide(event, _state, caps) {
+          if (event.type === "message.received") {
+            return [
+              caps.checkpoint("pre-suspend"),
+              caps.suspend({
+                type: "approval",
+                gateId: "unchanged-history-gate",
+                timeoutMs: 50,
+              }),
+            ];
+          }
+          if (event.type === "reactor.gate.cleared") {
+            // Resume checkpoint: real cycle work, but history has not moved
+            // since the suspend commit, so no turns should be rewritten.
+            return [caps.checkpoint("resumed"), caps.done()];
+          }
+          return caps.done();
+        },
+      },
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    // Two checkpoint commits: the suspend and the resume.
+    expect(counting.commitCount).toBe(2);
+    // Only the first changed history (the inbound turn); the resume commit
+    // must skip the full-history write.
+    expect(counting.writeTurnsCalls).toBe(1);
+  });
+});
+
+describe("createStateManager — lazy snapshot fields", () => {
+  test("snapshot defers the turns copy and memoizes it per snapshot", () => {
+    const history = Array.from({ length: 200 }, (_v, i) =>
+      makeAssistantTurn(`turn-${String(i)}`),
+    );
+    const manager = createStateManager(
+      "session-lazy",
+      history,
+      [],
+      emptyUsage(),
+    );
+
+    const snap = manager.snapshot();
+    const first = snap.turns;
+    const second = snap.turns;
+    // Memoized: the same snapshot hands back the identical array instance.
+    expect(second).toBe(first);
+    expect(first.length).toBe(history.length);
+
+    // A separate snapshot produces an independent container so a reader cannot
+    // corrupt reactor state, while sharing the frozen turn references.
+    const otherTurns = manager.snapshot().turns;
+    expect(otherTurns).not.toBe(first);
+    expect(otherTurns[0]).toBe(first[0]);
+  });
+
+  test("turns revision advances on append and replace, not on read", () => {
+    const manager = createStateManager(
+      "session-revision",
+      [makeAssistantTurn("seed")],
+      [],
+      emptyUsage(),
+    );
+
+    expect(manager.getTurnsRevision()).toBe(0);
+    // Reading history must not bump the revision.
+    void manager.snapshot().turns;
+    expect(manager.getTurnsRevision()).toBe(0);
+
+    manager.appendTurn(makeAssistantTurn("next"));
+    expect(manager.getTurnsRevision()).toBe(1);
+
+    manager.replaceTurns([makeAssistantTurn("compacted")]);
+    expect(manager.getTurnsRevision()).toBe(2);
   });
 });
