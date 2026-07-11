@@ -175,6 +175,9 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
   expect(prompt).toContain("Reporting back:");
   expect(prompt).toContain("only thing returned to the parent");
   expect(prompt).toContain("Change files with write_file/edit_file");
+  expect(prompt).toContain("parent session's permission gate");
+  expect(prompt).not.toContain("without asking for approval");
+  expect(prompt).not.toContain("ask_operator");
 });
 
 test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
