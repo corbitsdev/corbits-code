@@ -88,7 +88,7 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 **What the user sees:** `Ctrl+C` mid-run, network error, or crash. The last state is persisted.
 
-**Recovery:** `intercode resume` reloads `RunState` + `DirectorPersistedState` and continues.
+**Recovery:** `intercode resume` reloads `RunState` and continues.
 
 ## Configuration
 
