@@ -94,6 +94,60 @@ describe("compaction governor", () => {
     expect(governor.interceptOverflow(overflowError(), capabilities)).not.toBeNull();
   });
 
+  test("an idle over-threshold turn requests a continuation and compacts on its arrival", () => {
+    let continuations = 0;
+    const governor = createCompactionGovernor(() => continuations++);
+    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+
+    const terminal: ReactorAction[] = [{ type: "reply", content: "done" }];
+    governor.noteIdleTurn(inferenceDone(overThreshold), terminal);
+    expect(continuations).toBe(1);
+    // Only asked once even if the idle turn is observed again.
+    governor.noteIdleTurn(inferenceDone(overThreshold), terminal);
+    expect(continuations).toBe(1);
+
+    const actions = governor.interceptIdleContinuation(emptyMessage(), capabilities);
+    expect(actions).toEqual([
+      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
+    ] as ReactorAction[]);
+    // The continuation was consumed; nothing further is intercepted.
+    expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
+  });
+
+  test("an operator message that races the idle continuation still compacts, then re-infers", () => {
+    let continuations = 0;
+    const governor = createCompactionGovernor(() => continuations++);
+    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteIdleTurn(inferenceDone(overThreshold), [{ type: "reply", content: "done" }]);
+
+    const raced = {
+      type: "message.received",
+      message: { content: "next question" },
+    } as ReactorInboundEvent;
+    const actions = governor.interceptIdleContinuation(raced, capabilities);
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+    // A second continuation is requested so the operator message gets answered
+    // after the compact cycle.
+    expect(continuations).toBe(2);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe(true);
+  });
+
+  test("idle turns with follow-up work or under threshold never arm idle compaction", () => {
+    let continuations = 0;
+    const governor = createCompactionGovernor(() => continuations++);
+
+    governor.noteIdleTurn(inferenceDone(1000), [{ type: "reply", content: "x" }]);
+    expect(continuations).toBe(0);
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteIdleTurn(inferenceDone(overThreshold), [
+      { type: "reply", content: "x" },
+      { type: "infer" },
+    ]);
+    expect(continuations).toBe(0);
+    expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
+  });
+
   test("only intercepts on tool.done with a pending infer", () => {
     const governor = createCompactionGovernor(() => {});
     governor.noteInferenceDone(inferenceDone(overThreshold), 10);
