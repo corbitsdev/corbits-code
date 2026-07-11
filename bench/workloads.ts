@@ -20,7 +20,7 @@ import {
   type ContentBlockData,
 } from "../src/tui/use-stream.js";
 import type { WorkloadResult } from "./measure.js";
-import { deltaPayloadBytes, textDeltaChunks, thinkingDeltaChunks } from "./wire.js";
+import { textDeltaChunks, thinkingDeltaChunks } from "./wire.js";
 
 export type Workload = {
   readonly name: string;
@@ -54,11 +54,24 @@ function reactorEvent(
   return { type, seq, data } as unknown as ReactorEmittedEvent;
 }
 
-function transcriptBytes(state: AgentStreamState): number {
-  return Buffer.byteLength(JSON.stringify(state.contentBlocks), "utf8");
+function serializedBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
 
-async function drainInference(chunks: Uint8Array[]): Promise<number> {
+// Total blocks the state actually built from the events it was fed, derived
+// from the state itself (retained tail plus the count trimmed off the front) —
+// not the workload's loop trip count. An event path that silently dropped
+// events would push fewer blocks and fall below the budget's floor.
+function acceptedBlockCount(state: AgentStreamState): number {
+  return state.contentBlocks.length + state.trimmedBlockCount;
+}
+
+// Drains the real inference loop and returns every event it yielded. Holding
+// the collected events models what a consumer retains from a turn and gives
+// `measure` a live artifact to size.
+async function drainInference(
+  chunks: Uint8Array[],
+): Promise<ReactorEmittedEvent[]> {
   const harness = setupHarness();
   try {
     const stream = harness.scenario.createStream();
@@ -66,20 +79,20 @@ async function drainInference(chunks: Uint8Array[]): Promise<number> {
     harness.scenario.whenRequestMatches(() => true, stream);
 
     let seq = 0;
-    let eventCount = 0;
+    const events: ReactorEmittedEvent[] = [];
     const collected = (async () => {
-      for await (const _event of harness.runInference({
+      for await (const event of harness.runInference({
         turns: [USER_TURN],
         source: SOURCE,
         nextSeq: () => ++seq,
       })) {
-        eventCount++;
+        events.push(event);
       }
     })();
 
     await harness.run({ wallClockBudgetMs: Infinity });
     await collected;
-    return eventCount;
+    return events;
   } finally {
     harness.dispose();
   }
@@ -102,12 +115,13 @@ export const WORKLOADS: readonly Workload[] = [
     family: "inference",
     description: `${String(SMALL_DELTA_COUNT)} tiny text deltas through the real inference loop`,
     async run() {
-      const eventCount = await drainInference(
+      const events = await drainInference(
         textDeltaChunks(SMALL_DELTA_COUNT, SMALL_DELTA_PIECE),
       );
       return {
-        eventCount,
-        retainedBytes: deltaPayloadBytes(SMALL_DELTA_COUNT, SMALL_DELTA_PIECE),
+        eventCount: events.length,
+        retainedBytes: serializedBytes(events),
+        retained: events,
       };
     },
   },
@@ -116,12 +130,13 @@ export const WORKLOADS: readonly Workload[] = [
     family: "inference",
     description: `${String(REASONING_DELTA_COUNT)} thinking deltas through the real inference loop`,
     async run() {
-      const eventCount = await drainInference(
+      const events = await drainInference(
         thinkingDeltaChunks(REASONING_DELTA_COUNT, REASONING_PIECE),
       );
       return {
-        eventCount,
-        retainedBytes: deltaPayloadBytes(REASONING_DELTA_COUNT, REASONING_PIECE),
+        eventCount: events.length,
+        retainedBytes: serializedBytes(events),
+        retained: events,
       };
     },
   },
@@ -158,7 +173,11 @@ export const WORKLOADS: readonly Workload[] = [
           3,
         ),
       );
-      return { eventCount: 3, retainedBytes: transcriptBytes(state) };
+      return {
+        eventCount: acceptedBlockCount(state),
+        retainedBytes: serializedBytes(state.contentBlocks),
+        retained: state,
+      };
     },
   },
   {
@@ -172,8 +191,9 @@ export const WORKLOADS: readonly Workload[] = [
       }
       const state = createAgentStreamState([], () => SOURCE.model, blocks);
       return {
-        eventCount: RESUMED_BLOCK_COUNT,
-        retainedBytes: transcriptBytes(state),
+        eventCount: acceptedBlockCount(state),
+        retainedBytes: serializedBytes(state.contentBlocks),
+        retained: state,
       };
     },
   },
@@ -210,7 +230,11 @@ export const WORKLOADS: readonly Workload[] = [
           ),
         );
       }
-      return { eventCount: seq, retainedBytes: transcriptBytes(state) };
+      return {
+        eventCount: acceptedBlockCount(state),
+        retainedBytes: serializedBytes(state.contentBlocks),
+        retained: state,
+      };
     },
   },
 ];
