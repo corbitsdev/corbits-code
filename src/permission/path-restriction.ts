@@ -4,22 +4,30 @@ import { dirname, join, resolve, sep } from "node:path";
 
 // Paths the agent should not touch without explicit operator approval, even
 // though the read tools are otherwise allow-tier and write/edit auto-allow in
-// auto mode:
+// auto mode. Reads and writes are judged differently: a read only exposes
+// information already sitting in the workspace, while a write mutates it, so
+// the write side stays conservative where the read side does not.
 //
-//   - anything under .agent-state (the agent's own run state) — off-limits
-//     unless the operator asks it to self-reflect, trace, or investigate a run.
-//   - anything git ignores — gitignored files are noise or secrets-adjacent and
-//     should be surfaced only when genuinely required.
 //   - anything outside the session workspace (the primary cwd and its
 //     registered worktrees) — autonomy is scoped to the workspace boundary, not
-//     the whole filesystem.
+//     the whole filesystem. Restricted for both reads and writes.
+//   - anything git ignores — build output, node_modules, and scratch files are
+//     the overwhelming majority of gitignored paths, and reading them is
+//     benign, so gitignore status only restricts writes. The secret-guard
+//     plugin independently hard-blocks sensitive files (.env, keys, certs)
+//     regardless of this gate, so ignoring .env is still safe to read here.
+//   - anything under .agent-state (the agent's own run state) — reads stay
+//     unrestricted since .agent-state holds session transcripts that users
+//     routinely read to debug a run; writes stay restricted since the agent
+//     should not rewrite its own history without operator approval.
 //
 // Git owns gitignore semantics, so we ask `git check-ignore` rather than
 // re-implementing ignore-file parsing. Results are cached per resolved path
-// because the gate consults this on every tool call with a path argument.
+// and access mode because the gate consults this on every tool call with a
+// path argument.
 
 export type PathRestriction = {
-  isRestricted: (path: string) => boolean;
+  isRestricted: (path: string, isWrite: boolean) => boolean;
 };
 
 const STATE_DIR = ".agent-state";
@@ -71,12 +79,13 @@ export function createPathRestriction(cwd: string, worktreeRoots: readonly strin
   };
 
   return {
-    isRestricted: (path: string): boolean => {
+    isRestricted: (path: string, isWrite: boolean): boolean => {
       const abs = resolve(cwd, path);
-      const cached = cache.get(abs);
+      const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
+      const cached = cache.get(cacheKey);
       if (cached !== undefined) return cached;
-      const restricted = underStateDir(abs) || outsideWorkspace(abs) || gitIgnores(abs);
-      cache.set(abs, restricted);
+      const restricted = outsideWorkspace(abs) || (isWrite && (underStateDir(abs) || gitIgnores(abs)));
+      cache.set(cacheKey, restricted);
       return restricted;
     },
   };

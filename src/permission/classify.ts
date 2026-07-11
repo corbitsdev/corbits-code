@@ -25,6 +25,14 @@ function pathArgKey(toolName: string): string {
   return toolName === "lsp" ? "filePath" : "path";
 }
 
+// write_file/edit_file mutate the target; every other path-arg tool only
+// reads it. Restriction policy (see path-restriction.ts) treats reads and
+// writes of a gitignored or .agent-state path differently, so callers need to
+// tell the gate which mode a given tool call is in.
+function isWriteTool(toolName: string): boolean {
+  return toolName === "write_file" || toolName === "edit_file";
+}
+
 export type Tier = "allow" | "ask";
 
 export function classifyTool(toolName: string): Tier {
@@ -37,29 +45,30 @@ export function classifyTool(toolName: string): Tier {
 // already skips gitignored files, so a workspace-wide search stays allow-tier.
 export function restrictedPathArg(
   call: ToolCall,
-  isRestricted: (path: string) => boolean,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
 ): string | undefined {
   if (!PATH_ARG_TOOLS.has(call.name)) return undefined;
   const path = stringArg(call, pathArgKey(call.name));
   if (path.length === 0) return undefined;
-  return isRestricted(path) ? path : undefined;
+  return isRestricted(path, isWriteTool(call.name)) ? path : undefined;
 }
 
 // Whether a shell command reads through a restricted path. Tokenised so a bare
 // `cat .agent-state/run.json` is caught; flags are ignored since they are not
-// path arguments.
+// path arguments. The auto-shell allowlist (SAFE_SHELL_PROGRAMS) only ever
+// admits read-only commands, so shell targets are always judged as reads.
 export function commandTargetsRestricted(
   command: string,
-  isRestricted: (path: string) => boolean,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
   return tokenize(command)
     .filter((token) => !token.startsWith("-"))
-    .some((token) => isRestricted(token));
+    .some((token) => isRestricted(token, false));
 }
 
 export function callTargetsRestricted(
   call: ToolCall,
-  isRestricted: (path: string) => boolean,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
   if (call.name === "run_shell") return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
   return restrictedPathArg(call, isRestricted) !== undefined;
