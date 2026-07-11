@@ -329,7 +329,7 @@ Run all three before declaring work complete.
 - **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `renderer.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`).
 - **`tests/unit/`** holds shared unit helpers and focused packages (e.g. TUI geometry tests).
 - **`tests/fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`).
-- **`tests/integration/` and `tests/e2e/`** are named in `AGENTS.md` as the intended homes for agent-loop and fixture-repo tests; those directories are not in the tree yet. Until they exist, harness coverage lives in co-located `*.test.ts` files and `tests/unit/`.
+- **`tests/integration/`** holds the reactor permission / multi-turn harness (CL-3322). **`tests/e2e/`** (fixture-repo runs) is still planned. Until e2e exists, broader harness coverage also lives in co-located `*.test.ts` files and `tests/unit/`.
 - **TUI tests** use `ink-testing-library` with mock `EventEmitter`s to simulate real-time event streams; they verify stream-hook accumulation, event-log formatting/filtering, keyboard handling, and cost formatting.
 
 ## Deployment
