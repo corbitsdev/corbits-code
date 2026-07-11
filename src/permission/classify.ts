@@ -83,21 +83,17 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
 // `strings /proc/self/environ` from auto-reading any file on the host. The
 // secret guard remains a hard-deny backstop for secrets that live inside cwd.
-function escapesWorkspace(token: string, cwd: string): boolean {
+function realpathOr(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function escapesWorkspace(token: string, realCwd: string): boolean {
   if (token.startsWith("~")) return true;
-  const target = resolve(cwd, token);
-  let realTarget = target;
-  try {
-    realTarget = realpathSync(target);
-  } catch {
-    realTarget = target;
-  }
-  let realCwd = cwd;
-  try {
-    realCwd = realpathSync(cwd);
-  } catch {
-    realCwd = cwd;
-  }
+  const realTarget = realpathOr(resolve(realCwd, token));
   return realTarget !== realCwd && !realTarget.startsWith(realCwd + sep);
 }
 
@@ -113,13 +109,13 @@ function flagPathValue(token: string): string | null {
   return glued !== null ? (glued[1] ?? null) : null;
 }
 
-function argEscapesWorkspace(token: string, cwd: string): boolean {
-  if (!token.startsWith("-")) return escapesWorkspace(token, cwd);
+function argEscapesWorkspace(token: string, realCwd: string): boolean {
+  if (!token.startsWith("-")) return escapesWorkspace(token, realCwd);
   const value = flagPathValue(token);
-  return value !== null && value.length > 0 && escapesWorkspace(value, cwd);
+  return value !== null && value.length > 0 && escapesWorkspace(value, realCwd);
 }
 
-function isAutoAllowedSegment(segment: string, cwd: string): boolean {
+function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
@@ -136,7 +132,7 @@ function isAutoAllowedSegment(segment: string, cwd: string): boolean {
     if (args.some((token) => EXEC_FLAG.test(token))) return false;
   }
   if (args.some((token) => isSensitivePath(token))) return false;
-  if (args.some((token) => argEscapesWorkspace(token, cwd))) return false;
+  if (args.some((token) => argEscapesWorkspace(token, realCwd))) return false;
   return true;
 }
 
@@ -148,8 +144,11 @@ export function isAutoAllowedShellCommand(command: string, cwd: string = process
   if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
 
   // Split on pipe and require every segment to be a safe read-only program.
+  // The workspace realpath is constant across every path token in the command,
+  // so resolve it once here rather than per token inside escapesWorkspace.
+  const realCwd = realpathOr(cwd);
   const segments = trimmed.split("|");
-  return segments.every((seg) => isAutoAllowedSegment(seg, cwd));
+  return segments.every((seg) => isAutoAllowedSegment(seg, realCwd));
 }
 
 export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
