@@ -415,6 +415,36 @@ export function createAgentStreamState(
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
+  // Boundary marking where the current inference attempt's blocks begin,
+  // and the tool call ids known before it started. inference.retry has two
+  // producers with opposite meanings, distinguished by ordering. The harness
+  // emits it for a pre-commit retry: the failed attempt's inference.start was
+  // still buffered and is discarded, so the event arrives before any
+  // inference.start for the cycle and there is nothing to retract. The
+  // reactor emits it after a committed attempt failed: inferenceRunner is
+  // about to restart from scratch and re-stream what the failed attempt
+  // already rendered, so the transcript must roll back to the attempt
+  // boundary. The boundary is therefore only armed between an
+  // inference.start and its cycle's inference.done (or a rollback); a retry
+  // arriving disarmed is the harness kind and must not touch the previous
+  // cycle's settled blocks.
+  let attemptStartBlockIndex: number | null = null;
+  let attemptStartCallIds: Set<string> = new Set();
+  // A cycle can also terminate in inference.error with no inference.done
+  // (user abort, fatal, exhausted failover). The boundary must not stay
+  // armed across that terminal error — a later cycle's pre-commit harness
+  // retry would splice away the aborted partial and anything rendered since,
+  // including user messages. But the reactor's committed-retry path emits
+  // its inference.retry immediately after the failed attempt's
+  // inference.error, and that retry must still retract. So inference.error
+  // hands the armed boundary off here; only an immediately-following
+  // inference.retry consumes it, and any other event clears it.
+  let errorRollbackHandoff: { blockIndex: number; callIds: Set<string> } | null = null;
+  // Tool call ids that already produced a tool_result block in the current
+  // cycle. Index-based providers synthesize callIds that are only unique
+  // within one cycle (e.g. "0", "1"), so deduping re-emitted tool.done
+  // events must be scoped to the cycle, not the whole transcript.
+  let resolvedCallIds = new Set<string>();
   // Streamed fragments accumulate here between drains and join once on flush,
   // so a burst of N fragments costs O(N) buffering plus one join rather than N
   // growing concatenations. The target is the block (and field) currently being
@@ -656,6 +686,10 @@ export function createAgentStreamState(
       startedAt = Date.now();
       finishedAt = null;
       openCallId = null;
+      attemptStartBlockIndex = null;
+      attemptStartCallIds = new Set();
+      errorRollbackHandoff = null;
+      resolvedCallIds = new Set();
       activityTick = 0;
       lastActivityAt = Date.now();
       contextTokens = 0;
@@ -680,6 +714,11 @@ export function createAgentStreamState(
       // handlers that read the last block's content or arguments never see a
       // half-drained buffer.
       if (!STREAM_DELTA_TYPES.has(event.type)) flushPending();
+      // The handoff only survives from an inference.error to the very next
+      // event; consume it here so any event other than inference.retry
+      // (a user message, the next cycle's start, ...) discards it.
+      const precedingErrorRollback = event.type === "inference.retry" ? errorRollbackHandoff : null;
+      errorRollbackHandoff = null;
       switch (event.type) {
         case "message.received": {
           const data = event.data as { message: { content?: string; attachments?: Array<{ name: string; contentType: string }> } };
@@ -689,7 +728,47 @@ export function createAgentStreamState(
             ? `\n[Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}: ${attachments.map((att) => att.name).join(", ")}]`
             : "";
           const full = `${content}${attachmentText}`;
+          // The rollback boundary must never straddle a user block: any
+          // later retry retracting across it would erase the user's message.
+          attemptStartBlockIndex = null;
           ensureUserBlock(full);
+          break;
+        }
+        case "inference.start": {
+          attemptStartBlockIndex = contentBlocks.length;
+          attemptStartCallIds = new Set(callIdToName.keys());
+          resolvedCallIds = new Set();
+          break;
+        }
+        case "inference.retry": {
+          // A retry directly after a terminal inference.error is the
+          // reactor's committed-retry: re-arm from the handoff so the
+          // failed attempt (and its rendered error line) is retracted.
+          if (attemptStartBlockIndex === null && precedingErrorRollback !== null) {
+            attemptStartBlockIndex = precedingErrorRollback.blockIndex;
+            attemptStartCallIds = precedingErrorRollback.callIds;
+          }
+          if (attemptStartBlockIndex !== null) {
+            spliceBlocks(attemptStartBlockIndex, contentBlocks.length - attemptStartBlockIndex);
+            for (const callId of callIdToName.keys()) {
+              if (!attemptStartCallIds.has(callId)) {
+                callIdToName.delete(callId);
+                callIdToArguments.delete(callId);
+              }
+            }
+            attemptStartBlockIndex = null;
+            openCallId = null;
+            currentToolName = null;
+            streamingType = null;
+          }
+          break;
+        }
+        case "inference.done": {
+          // The cycle's streamed content is settled; disarm the rollback
+          // boundary so a harness pre-commit retry for the *next* cycle
+          // (which arrives before that cycle's inference.start) cannot
+          // splice away this cycle's blocks.
+          attemptStartBlockIndex = null;
           break;
         }
         case "inference.thinking.delta": {
@@ -792,6 +871,13 @@ export function createAgentStreamState(
           currentToolName = null;
           streamingType = null;
           const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
+          // A retried inference cycle (or any other re-emission upstream) can
+          // deliver the same tool.done twice; the call already has a result
+          // block, so a second one would render as a duplicate transcript
+          // line. Scoped to the current cycle because index-based providers
+          // reuse callIds across cycles.
+          if (resolvedCallIds.has(result.callId)) break;
+          resolvedCallIds.add(result.callId);
           const trackedName = callIdToName.get(result.callId);
           const name = trackedName ?? result.callId;
           const content = capStoredToolResultContent(stringifyToolContent(result.content));
@@ -945,6 +1031,13 @@ export function createAgentStreamState(
           break;
         }
         case "inference.error": {
+          // Terminal for this attempt: disarm the boundary so it cannot leak
+          // into a later cycle, but hand it off in case the reactor follows
+          // up immediately with a committed-retry inference.retry.
+          if (attemptStartBlockIndex !== null) {
+            errorRollbackHandoff = { blockIndex: attemptStartBlockIndex, callIds: attemptStartCallIds };
+            attemptStartBlockIndex = null;
+          }
           const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
           const friendly: Record<string, string> = {
             // The App opens the OAuth re-login modal on this category; keep the
