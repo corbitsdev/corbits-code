@@ -1132,6 +1132,63 @@ describe("createReactor — correlation", () => {
     );
   });
 
+  test("the same correlationId can correlate again after a successful correlation", async () => {
+    // The in-flight guard set used to retain the id on the success path, so a
+    // second pending operation reusing the same correlationId could never
+    // correlate. Two full round trips must both reach message.correlated.
+    const CORR_ID = "corr-reuse-1";
+    let phase = 0;
+    const director: ReactorDirector = {
+      async decide(event, _state, caps) {
+        if (event.type === "message.received" && phase === 0) {
+          phase = 1;
+          return caps.executeTools([{ id: "tc1", name: "send_message", arguments: {} }]);
+        }
+        if (event.type === "tool.done") {
+          return caps.suspend({
+            type: "message_response",
+            gateId: `msg-gate-${phase}`,
+            timeoutMs: 5000,
+            correlationId: CORR_ID,
+          });
+        }
+        if (event.type === "reactor.gate.cleared" && phase === 1) {
+          phase = 2;
+          return caps.executeTools([{ id: "tc2", name: "send_message", arguments: {} }]);
+        }
+        return caps.done();
+      },
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      director,
+      shutdownTimeoutMs: 500,
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "message sent",
+        pendingMarker: { status: "pending" as const, correlationId: CORR_ID },
+      })),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    await waitForEvent(events, (e) => e.type === "reactor.gate.blocked");
+    reactor.deliver(makeInboundMessage(CORR_ID));
+
+    await waitForEvent(
+      events,
+      (e) => e.type === "reactor.gate.blocked" && e.data.gateId === "msg-gate-2",
+      3000,
+    );
+    reactor.deliver(makeInboundMessage(CORR_ID));
+
+    await waitFor("reactor.done", 3000);
+
+    const correlations = events.filter((e) => e.type === "message.correlated");
+    expect(correlations.length).toBe(2);
+  });
+
   test("message with non-matching correlationId passes through uncorrelated", async () => {
     const { reactor, events, waitFor } = createTestReactor({
       director: directorFromTable({

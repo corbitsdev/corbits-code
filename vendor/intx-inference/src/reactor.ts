@@ -346,48 +346,52 @@ export function createReactor(config: ReactorConfig): Reactor {
     if (pending === undefined) return false;
 
     correlatingIds.add(correlationId);
-
-    if (correlationValidator !== undefined) {
-      let valid: boolean;
-      try {
-        valid = await correlationValidator.validate(pending, message);
-      } catch (cause) {
-        logger.warn`Correlation validator threw for ${correlationId}: ${cause}`;
-        correlatingIds.delete(correlationId);
-        return false;
+    // A finally clears the in-flight marker on every exit — success included.
+    // The success path used to leave the id in the set forever, leaking one
+    // entry per correlated message for the life of the session.
+    try {
+      if (correlationValidator !== undefined) {
+        let valid: boolean;
+        try {
+          valid = await correlationValidator.validate(pending, message);
+        } catch (cause) {
+          logger.warn`Correlation validator threw for ${correlationId}: ${cause}`;
+          return false;
+        }
+        if (!valid) {
+          return false;
+        }
       }
-      if (!valid) {
-        correlatingIds.delete(correlationId);
-        return false;
+
+      // Clear the gate associated with this correlation, if any.
+      const gate = gates.findByCorrelationId(correlationId);
+      if (gate !== undefined) {
+        gates.clear(gate.gateId);
       }
-    }
 
-    // Clear the gate associated with this correlation, if any.
-    const gate = gates.findByCorrelationId(correlationId);
-    if (gate !== undefined) {
-      gates.clear(gate.gateId);
-    }
+      correlations.remove(correlationId);
 
-    correlations.remove(correlationId);
+      if (stateManager !== null) {
+        stateManager.removePendingOperation(correlationId);
 
-    if (stateManager !== null) {
-      stateManager.removePendingOperation(correlationId);
-
-      // Append the correlated message to conversation history so the model
-      // sees the response content when it re-infers after the gate clears.
-      const msg = createInboundTurn(message);
-      if (msg !== null) {
-        stateManager.appendTurn(msg);
+        // Append the correlated message to conversation history so the model
+        // sees the response content when it re-infers after the gate clears.
+        const msg = createInboundTurn(message);
+        if (msg !== null) {
+          stateManager.appendTurn(msg);
+        }
       }
+
+      emit({
+        type: "message.correlated",
+        seq: nextSeq(),
+        data: { message, correlationId },
+      });
+
+      return true;
+    } finally {
+      correlatingIds.delete(correlationId);
     }
-
-    emit({
-      type: "message.correlated",
-      seq: nextSeq(),
-      data: { message, correlationId },
-    });
-
-    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -1198,14 +1202,23 @@ export function createReactor(config: ReactorConfig): Reactor {
   function deliver(message: InboundMessage): void {
     if (done) return;
     void (async () => {
-      const correlated = await tryCorrelate(message);
-      if (!correlated) {
-        emit({
-          type: "message.received",
-          seq: nextSeq(),
-          data: { message },
-        });
-        enqueue({ type: "message.received", message });
+      try {
+        const correlated = await tryCorrelate(message);
+        if (!correlated) {
+          emit({
+            type: "message.received",
+            seq: nextSeq(),
+            data: { message },
+          });
+          enqueue({ type: "message.received", message });
+        }
+      } catch (cause) {
+        // Without this the throw becomes an unhandled rejection and the inbound
+        // message is silently dropped. Surface it so the failure is observable
+        // instead of the message vanishing.
+        const msg = cause instanceof Error ? cause.message : String(cause);
+        logger.error`Failed to deliver inbound message: ${cause}`;
+        emitError(`Failed to deliver inbound message: ${msg}`, false);
       }
     })();
   }

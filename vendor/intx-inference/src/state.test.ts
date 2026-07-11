@@ -71,6 +71,18 @@ describe("createStateManager snapshot", () => {
     expect(Object.isFrozen(snap.turns[0])).toBe(true);
   });
 
+  test("getTurns returns a copy: mutating it does not corrupt internal state", () => {
+    const mgr = createStateManager(
+      "s",
+      [makeAssistantTurn("a")],
+      [],
+      emptyUsage(),
+    );
+    const turns = mgr.getTurns();
+    turns.push(makeAssistantTurn("mutant"));
+    expect(mgr.getTurns()).toHaveLength(1);
+  });
+
   test("pendingOperations is point-in-time: later adds are not reflected", () => {
     const mgr = createStateManager("s", [], [op("one")], emptyUsage());
     const snap = mgr.snapshot();
