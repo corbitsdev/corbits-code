@@ -816,3 +816,488 @@ describe("runInference — adapter-signalled stream termination", () => {
     expect(textBlock.text).toBe("hi");
   });
 });
+
+// ---------------------------------------------------------------------------
+// runInference — incremental delivery and memory-linear buffering
+//
+// The wrapper streams an attempt's committed content to the caller as it
+// arrives rather than buffering the whole attempt and flushing at
+// termination. Two consequences are pinned here:
+//
+//   * Memory: the wrapper's retained buffer holds only pre-commit
+//     metadata, so the number of undelivered events in flight stays a
+//     small constant regardless of output length. Under the old
+//     buffer-everything model that gap scaled with the token count.
+//
+//   * Commitment: once a content delta has been delivered it cannot be
+//     un-emitted, so a later failure is surfaced rather than retried; a
+//     failure that lands before any content is still retried cleanly.
+// ---------------------------------------------------------------------------
+
+describe("runInference — incremental delivery and memory-linear buffering", () => {
+  const STREAM_SOURCE: InferenceSource = {
+    id: "test-stream:model",
+    provider: "test-stream",
+    baseURL: "https://example.test",
+    apiKey: "test",
+    model: "model",
+  };
+
+  // A minimal adapter that turns compact JSON lines into content deltas.
+  // `partial` is stubbed on the raw events because the harness owns the
+  // running partial state and re-snapshots it on every emit.
+  const streamAdapterFactory: AdapterFactory = () => ({
+    buildRequest: () => ({
+      url: "https://example.test/stream",
+      headers: {},
+      body: "{}",
+    }),
+    parseResponse: (sseData) => {
+      const msg = JSON.parse(sseData) as Record<string, unknown>;
+      switch (msg["kind"]) {
+        case "text":
+          return [
+            {
+              type: "inference.text.delta",
+              seq: 0,
+              data: { token: String(msg["token"]), partial: { text: "" }, index: 0 },
+            },
+          ];
+        case "thinking":
+          return [
+            {
+              type: "inference.thinking.delta",
+              seq: 0,
+              data: { token: String(msg["token"]), partial: { text: "" }, index: 0 },
+            },
+          ];
+        case "tool_start":
+          return [
+            {
+              type: "inference.tool_call.start",
+              seq: 0,
+              data: {
+                callId: String(msg["id"]),
+                name: String(msg["name"]),
+                partial: { text: "" },
+                index: 0,
+              },
+            },
+          ];
+        case "tool_arg":
+          return [
+            {
+              type: "inference.tool_call.delta",
+              seq: 0,
+              data: {
+                callId: String(msg["id"]),
+                argumentFragment: String(msg["frag"]),
+                partial: { text: "" },
+              },
+            },
+          ];
+        default:
+          return [];
+      }
+    },
+  });
+
+  function makeStream(opts: {
+    chunks: string[];
+    counters?: { produced: number };
+    beforeProduce?: (index: number) => Promise<void> | void;
+  }): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    let i = 0;
+    return new ReadableStream({
+      async pull(controller) {
+        if (i >= opts.chunks.length) {
+          controller.close();
+          return;
+        }
+        const index = i;
+        if (opts.beforeProduce !== undefined) await opts.beforeProduce(index);
+        const chunk = opts.chunks[index];
+        if (chunk === undefined) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(encoder.encode(chunk));
+        i += 1;
+        if (opts.counters !== undefined) opts.counters.produced = i;
+      },
+    });
+  }
+
+  function streamDeps(body: ReadableStream<Uint8Array>): Dependencies {
+    return {
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        ),
+      scheduler: createDefaultScheduler(),
+      adapters: createAdapterRegistry({ "test-stream": streamAdapterFactory }),
+    };
+  }
+
+  function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(msg)), ms),
+      ),
+    ]);
+  }
+
+  function textChunks(n: number, token = "x"): string[] {
+    return Array.from(
+      { length: n },
+      () => `data: ${JSON.stringify({ kind: "text", token })}\n\n`,
+    );
+  }
+
+  // Drive a long stream, tracking the largest gap between events produced
+  // at the wire and events delivered to the caller. That gap is the depth
+  // of the wrapper's retained buffer — the quantity CL-3259 makes linear.
+  // The `done` event is kept for correctness assertions; per-delta events
+  // are deliberately not retained so the test itself stays linear.
+  async function runLongStream(opts: {
+    chunks: string[];
+    counters: { produced: number };
+    isDelivered: (event: InferenceEvent) => boolean;
+  }): Promise<{
+    done: Extract<InferenceEvent, { type: "inference.done" }> | undefined;
+    delivered: number;
+    maxGap: number;
+  }> {
+    const deps = streamDeps(makeStream({ chunks: opts.chunks, counters: opts.counters }));
+    let seq = 0;
+    let delivered = 0;
+    let maxGap = 0;
+    let done: Extract<InferenceEvent, { type: "inference.done" }> | undefined;
+    for await (const ev of runInference({
+      turns: [userTurn("hi")],
+      source: STREAM_SOURCE,
+      nextSeq: () => ++seq,
+      deps,
+    })) {
+      if (ev.type === "inference.done") done = ev;
+      if (opts.isDelivered(ev)) {
+        delivered += 1;
+        const gap = opts.counters.produced - delivered;
+        if (gap > maxGap) maxGap = gap;
+      }
+    }
+    return { done, delivered, maxGap };
+  }
+
+  const GAP_BOUND = 20;
+
+  test("retained buffer depth stays bounded as output length grows", async () => {
+    const small = await runLongStream({
+      chunks: textChunks(100),
+      counters: { produced: 0 },
+      isDelivered: (e) => e.type === "inference.text.delta",
+    });
+    const large = await runLongStream({
+      chunks: textChunks(2000),
+      counters: { produced: 0 },
+      isDelivered: (e) => e.type === "inference.text.delta",
+    });
+
+    expect(small.delivered).toBe(100);
+    expect(large.delivered).toBe(2000);
+    // Old buffer-everything behavior held every delta event before
+    // delivering the first, so this gap scaled with N (~100 then ~2000).
+    // Streaming committed deltas keeps it a small constant either way —
+    // the signature of memory linear (not quadratic) in output length.
+    expect(small.maxGap).toBeLessThan(GAP_BOUND);
+    expect(large.maxGap).toBeLessThan(GAP_BOUND);
+  });
+
+  test("long text stream assembles correctly with bounded buffering", async () => {
+    const n = 1000;
+    const { done, delivered, maxGap } = await runLongStream({
+      chunks: textChunks(n, "x"),
+      counters: { produced: 0 },
+      isDelivered: (e) => e.type === "inference.text.delta",
+    });
+    expect(delivered).toBe(n);
+    expect(maxGap).toBeLessThan(GAP_BOUND);
+    if (done === undefined) throw new Error("missing inference.done");
+    const block = done.data.turn.content.find((b) => b.type === "text");
+    if (block === undefined || block.type !== "text") {
+      throw new Error("expected a text block");
+    }
+    expect(block.text).toBe("x".repeat(n));
+  });
+
+  test("long reasoning stream assembles correctly with bounded buffering", async () => {
+    const n = 1000;
+    const chunks = Array.from(
+      { length: n },
+      () => `data: ${JSON.stringify({ kind: "thinking", token: "r" })}\n\n`,
+    );
+    const { done, delivered, maxGap } = await runLongStream({
+      chunks,
+      counters: { produced: 0 },
+      isDelivered: (e) => e.type === "inference.thinking.delta",
+    });
+    expect(delivered).toBe(n);
+    expect(maxGap).toBeLessThan(GAP_BOUND);
+    if (done === undefined) throw new Error("missing inference.done");
+    const block = done.data.turn.content.find((b) => b.type === "thinking");
+    if (block === undefined || block.type !== "thinking") {
+      throw new Error("expected a thinking block");
+    }
+    expect(block.thinking).toBe("r".repeat(n));
+  });
+
+  test("long tool-argument stream assembles correctly with bounded buffering", async () => {
+    const bigValue = "a".repeat(4000);
+    const inner = JSON.stringify({ data: bigValue });
+    const argChunks: string[] = [];
+    for (let p = 0; p < inner.length; p += 8) {
+      const frag = inner.slice(p, p + 8);
+      argChunks.push(
+        `data: ${JSON.stringify({ kind: "tool_arg", id: "call_1", frag })}\n\n`,
+      );
+    }
+    const chunks = [
+      `data: ${JSON.stringify({ kind: "tool_start", id: "call_1", name: "do_thing" })}\n\n`,
+      ...argChunks,
+    ];
+    const { done, delivered, maxGap } = await runLongStream({
+      chunks,
+      counters: { produced: 0 },
+      isDelivered: (e) => e.type === "inference.tool_call.delta",
+    });
+    expect(delivered).toBe(argChunks.length);
+    expect(maxGap).toBeLessThan(GAP_BOUND);
+    if (done === undefined) throw new Error("missing inference.done");
+    const block = done.data.turn.content.find((b) => b.type === "tool_call");
+    if (block === undefined || block.type !== "tool_call") {
+      throw new Error("expected a tool_call block");
+    }
+    expect(block.arguments["data"]).toBe(bigValue);
+  });
+
+  test("delivers committed deltas incrementally instead of buffering to the end", async () => {
+    const n = 8;
+    let delivered = 0;
+    let notify: (() => void) | null = null;
+    const waitUntilDelivered = (count: number): Promise<void> => {
+      if (delivered >= count) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const check = (): void => {
+          if (delivered >= count) {
+            notify = null;
+            resolve();
+          } else {
+            notify = check;
+          }
+        };
+        notify = check;
+      });
+    };
+    // Gate wire chunk `index` behind delivery of `index` deltas to the
+    // caller. A wrapper that buffered the whole attempt before delivering
+    // anything would never let `delivered` advance past 0, deadlocking the
+    // producer — so completing at all proves deltas flow mid-stream.
+    const deps = streamDeps(
+      makeStream({
+        chunks: textChunks(n, "z"),
+        beforeProduce: (index) => waitUntilDelivered(index),
+      }),
+    );
+    let seq = 0;
+    const received = await withTimeout(
+      (async () => {
+        const tokens: string[] = [];
+        for await (const ev of runInference({
+          turns: [userTurn("hi")],
+          source: STREAM_SOURCE,
+          nextSeq: () => ++seq,
+          deps,
+        })) {
+          if (ev.type === "inference.text.delta") {
+            delivered += 1;
+            notify?.();
+            tokens.push(ev.data.token);
+          }
+        }
+        return tokens;
+      })(),
+      2000,
+      "incremental delivery deadlocked — the wrapper buffered instead of streaming",
+    );
+    expect(received.length).toBe(n);
+  });
+
+  test("retries an uncommitted failure and delivers exactly one clean stream", async () => {
+    let calls = 0;
+    const deps: Dependencies = {
+      fetch: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve(
+            new Response("upstream unavailable", { status: 503 }),
+          );
+        }
+        return Promise.resolve(
+          new Response(makeStream({ chunks: textChunks(1, "hello") }), {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        );
+      },
+      scheduler: createDefaultScheduler(),
+      adapters: createAdapterRegistry({ "test-stream": streamAdapterFactory }),
+    };
+    let seq = 0;
+    const events = await collect(
+      runInference({
+        turns: [userTurn("hi")],
+        source: STREAM_SOURCE,
+        inferenceOptions: {
+          retryPolicy: ({ attempt }) =>
+            attempt < 2 ? { kind: "retry", delayMs: 0 } : { kind: "abort" },
+        },
+        nextSeq: () => ++seq,
+        deps,
+      }),
+    );
+    expect(calls).toBe(2);
+    // The discarded attempt's inference.start does not leak: the caller
+    // sees exactly one, no orphaned error, one retry marker.
+    expect(events.filter((e) => e.type === "inference.start")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "inference.retry")).toHaveLength(1);
+    expect(events.some((e) => e.type === "inference.error")).toBe(false);
+    const done = events.find((e) => e.type === "inference.done");
+    if (done === undefined) throw new Error("missing inference.done");
+    const block = done.data.turn.content.find((b) => b.type === "text");
+    expect(block !== undefined && block.type === "text" ? block.text : "").toBe(
+      "hello",
+    );
+  });
+
+  test("suppresses retry once output is committed and surfaces the error", async () => {
+    let calls = 0;
+    const deps: Dependencies = {
+      fetch: () => {
+        calls += 1;
+        const encoder = new TextEncoder();
+        let i = 0;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (i < 2) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ kind: "text", token: `p${String(i)}` })}\n\n`,
+                ),
+              );
+              i += 1;
+              return;
+            }
+            controller.error(new Error("connection reset mid-stream"));
+          },
+        });
+        return Promise.resolve(
+          new Response(body, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        );
+      },
+      scheduler: createDefaultScheduler(),
+      adapters: createAdapterRegistry({ "test-stream": streamAdapterFactory }),
+    };
+    let seq = 0;
+    const events = await collect(
+      runInference({
+        turns: [userTurn("hi")],
+        source: STREAM_SOURCE,
+        // A policy that would always retry — proving that commitment, not
+        // the policy, is what suppresses the retry here.
+        inferenceOptions: { retryPolicy: () => ({ kind: "retry", delayMs: 0 }) },
+        nextSeq: () => ++seq,
+        deps,
+      }),
+    );
+    // No second attempt: the committed prefix cannot be un-emitted.
+    expect(calls).toBe(1);
+    const tokens = events
+      .filter((e) => e.type === "inference.text.delta")
+      .map((e) => (e.type === "inference.text.delta" ? e.data.token : ""));
+    expect(tokens).toEqual(["p0", "p1"]);
+    expect(events.some((e) => e.type === "inference.retry")).toBe(false);
+    const errorIndex = events.findIndex((e) => e.type === "inference.error");
+    expect(errorIndex).toBeGreaterThan(-1);
+    const lastDeltaIndex = events
+      .map((e) => e.type)
+      .lastIndexOf("inference.text.delta");
+    // The committed deltas precede the surfaced error in one clean stream.
+    expect(lastDeltaIndex).toBeLessThan(errorIndex);
+  });
+
+  test("cancellation interrupts promptly after output has started", async () => {
+    const controller = new AbortController();
+    let delivered = 0;
+    let notify: (() => void) | null = null;
+    const waitUntilDelivered = (count: number): Promise<void> => {
+      if (delivered >= count) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const check = (): void => {
+          if (delivered >= count) {
+            notify = null;
+            resolve();
+          } else {
+            notify = check;
+          }
+        };
+        notify = check;
+      });
+    };
+    const n = 1000;
+    const deps = streamDeps(
+      makeStream({
+        chunks: textChunks(n, "y"),
+        beforeProduce: (index) => waitUntilDelivered(index),
+      }),
+    );
+    let seq = 0;
+    const received: InferenceEvent[] = [];
+    await withTimeout(
+      (async () => {
+        for await (const ev of runInference({
+          turns: [userTurn("hi")],
+          source: STREAM_SOURCE,
+          signal: controller.signal,
+          nextSeq: () => ++seq,
+          deps,
+        })) {
+          received.push(ev);
+          if (ev.type === "inference.text.delta") {
+            delivered += 1;
+            notify?.();
+            if (delivered === 1) controller.abort();
+          }
+        }
+      })(),
+      2000,
+      "cancellation did not interrupt the stream",
+    );
+    const deltaCount = received.filter(
+      (e) => e.type === "inference.text.delta",
+    ).length;
+    // The abort cut the stream far short of its full length.
+    expect(deltaCount).toBeGreaterThanOrEqual(1);
+    expect(deltaCount).toBeLessThan(n);
+    const error = received.find((e) => e.type === "inference.error");
+    if (error === undefined) throw new Error("missing aborted inference.error");
+    expect(error.data.error.category).toBe("aborted");
+  });
+});
