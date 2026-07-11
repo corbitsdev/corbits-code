@@ -510,6 +510,56 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
+  test("auto mode auto-allows safe git worktree operations inside the workspace", async () => {
+    let asked = 0;
+    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+      cwd,
+      rootsProvider: () => [],
+    });
+
+    for (const command of ["git worktree list", "git worktree list --porcelain", "git worktree add feature", "git worktree add feature main"]) {
+      expect((await gate.evaluate(shellCall(command))).allowed).toBe(true);
+    }
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode prompts for unsafe git worktree operations", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
+    const outside = join(cwd, "..", "outside-worktree");
+    const commands = [
+      `git worktree add ${outside}`,
+      "git worktree add ~/outside",
+      "git worktree add ~other/outside",
+      "git worktree add feature-*",
+      "git worktree add --force feature",
+      "git worktree add -f feature",
+      "git worktree remove feature",
+      "git worktree prune",
+      "git --no-pager worktree remove feature",
+    ];
+
+    for (const command of commands) {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => { asked++; return { allow: false }; },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+        cwd,
+        rootsProvider: () => [],
+      });
+      expect((await gate.evaluate(shellCall(command))).allowed).toBe(false);
+      expect(asked).toBe(1);
+    }
+  });
+
   test("auto mode refuses file mutations made through shell tooling", async () => {
     const gate = createPermissionGate({
       approvals: [],

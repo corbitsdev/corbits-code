@@ -1,4 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
+import { tokenize } from "./command.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
 // command may do when auto mode is on. Auto mode otherwise rubber-stamps every
@@ -85,9 +86,62 @@ export function matchAutoShellRule(command: string): AutoShellRule | undefined {
   return AUTO_SHELL_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(scannable)));
 }
 
-export function autoShellRuleForCall(call: ToolCall): AutoShellRule | undefined {
+const WORKTREE_ASK_RULE: AutoShellRule = {
+  name: "git-worktree",
+  effect: "ask",
+  reason:
+    "Only git worktree list and non-forced git worktree add destinations inside the workspace can run unattended.",
+  patterns: [],
+};
+
+const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
+const WORKTREE_ADD_FLAGS = new Set(["--checkout", "--no-checkout", "--detach", "--lock", "--orphan"]);
+const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
+
+function safeWorktreeCommand(
+  command: string,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
+): boolean | undefined {
+  const tokens = tokenize(command);
+  if (tokens[0] !== "git" || !tokens.slice(1).includes("worktree")) return undefined;
+  // Worktree policy applies only to one plain command with no git cwd override;
+  // composed forms and global git options conservatively fall back to ask.
+  if (/[&;<>|`$(){}]|\\\n|\n/.test(command) || tokens[1] !== "worktree") return false;
+  const subcommand = tokens[2];
+  const args = tokens.slice(3);
+
+  if (subcommand === "list") return args.every((arg) => WORKTREE_LIST_FLAGS.has(arg));
+  if (subcommand !== "add" || args.some((arg) => arg === "--force" || arg === "-f")) return false;
+
+  let destination: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (WORKTREE_ADD_FLAGS.has(arg)) continue;
+    if (WORKTREE_ADD_VALUE_FLAGS.has(arg)) {
+      if (args[++i] === undefined) return false;
+      continue;
+    }
+    if (arg.startsWith("--reason=")) continue;
+    if (arg === "--") {
+      destination = args[++i];
+      break;
+    }
+    if (arg.startsWith("-")) return false;
+    destination = arg;
+    break;
+  }
+  if (destination === undefined || destination.startsWith("~") || /[*?\[]/.test(destination)) return false;
+  return !isRestricted(destination, true);
+}
+
+export function autoShellRuleForCall(
+  call: ToolCall,
+  isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
+): AutoShellRule | undefined {
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
+  const safeWorktree = safeWorktreeCommand(command, isRestricted);
+  if (safeWorktree === false) return WORKTREE_ASK_RULE;
   return matchAutoShellRule(command);
 }
