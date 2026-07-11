@@ -3,13 +3,25 @@ import { dirname, join } from "node:path";
 
 import { sessionDir } from "./index.js";
 
+export type ConnectedMcpServer = {
+  name: string;
+  toolCount: number;
+};
+
 export type RunState = {
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "cancelled";
   turnsUsed: number;
   task: string;
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  // The resolved "provider:model" identity in use when this record was written.
+  // Absent only for records predating this field or written outside the run
+  // lifecycle (e.g. a bare rename of a session with no prior state).
+  model?: string;
+  // MCP servers connected during the session, with the tool count each
+  // contributed. Empty until the first server finishes connecting.
+  mcpServers?: ConnectedMcpServer[];
 };
 
 function statePath(cwd: string, sessionId: string): string {
@@ -39,16 +51,29 @@ export async function saveState(cwd: string, sessionId: string, state: RunState)
   await atomicWrite(statePath(cwd, sessionId), JSON.stringify(state, null, 2));
 }
 
+function isValidMcpServers(value: unknown): value is ConnectedMcpServer[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (entry) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as Record<string, unknown>).name === "string" &&
+      typeof (entry as Record<string, unknown>).toolCount === "number",
+  );
+}
+
 function isValidRunState(data: unknown): data is RunState {
   if (typeof data !== "object" || data === null) return false;
   const s = data as Record<string, unknown>;
-  const validStatuses = ["running", "done", "failed"];
+  const validStatuses = ["running", "done", "failed", "cancelled"];
   if (typeof s.status !== "string" || !validStatuses.includes(s.status)) return false;
   if (typeof s.turnsUsed !== "number") return false;
   if (typeof s.task !== "string") return false;
   if (typeof s.startedAt !== "number") return false;
   if (s.finishedAt !== undefined && typeof s.finishedAt !== "number") return false;
   if (s.error !== undefined && typeof s.error !== "string") return false;
+  if (s.model !== undefined && typeof s.model !== "string") return false;
+  if (s.mcpServers !== undefined && !isValidMcpServers(s.mcpServers)) return false;
   return true;
 }
 
