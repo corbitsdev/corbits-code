@@ -22,7 +22,7 @@ Five mechanisms, three loading models, one manifest that only governs one kind.
 
 | Mechanism | Entry contract | Loads via | Config | Manifest | UI |
 |---|---|---|---|---|---|
-| ToolPlugin (`@intx/tools-posix`) | `ToolPlugin` | hardcoded in `run-agent`/`tools.ts` | — | no | no |
+| ToolPlugin (`@intx/tools-posix`) | `ToolPlugin` | wired in `src/tui/runner.tsx` / `tools.ts` | — | no | no |
 | WorkflowPlugin | `plugin` / default | `settings.workflowPlugins: string[]` → `loadWorkflowPlugins` | specifier array | no | no |
 | AgentPlugin | `plugin` / default | `settings.agentPlugins: string[]` → `loadAgentPlugins` | specifier array | no | no |
 | CommandPlugin | `commandPlugin` | directory discovery | discovery only | no | no |
@@ -146,7 +146,7 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 **Phase 2 — tool kind with consent (done).**
 - `kind: "tool"` plugins export `createToolPlugin(credentials)` and contribute
   posix `ToolPlugin`s, resolved in `src/plugins/tool-plugins.ts` and wired into
-  the toolset in `run-agent.ts` and `tools.ts` (appended last, so they cannot
+  the toolset in `src/tui/runner.tsx` and `tools.ts` (appended last, so they cannot
   shadow core middleware).
 - A tool plugin is wired in only when **enabled AND consented**. Enabling one in
   `/plugins` prompts a one-time y/n consent recorded in `settings.plugins[id]`.
