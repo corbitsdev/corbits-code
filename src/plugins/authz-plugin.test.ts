@@ -334,4 +334,59 @@ describe("authzPlugin", () => {
     );
     expect(result.isError).not.toBe(true);
   });
+
+  async function evaluate(command: string): Promise<ToolResult> {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    return handler(makeShellCall(command), new AbortController().signal);
+  }
+
+  describe("never-terminating commands", () => {
+    for (const command of [
+      "tail -f server.log",
+      "tail -F server.log",
+      "tail --follow file.log",
+      "tail --follow=name file.log",
+      "watch -n1 ls",
+      "top",
+      "less README.md",
+      "more file.txt",
+      "cat access.log | less",
+    ]) {
+      test(`blocks ${command}`, async () => {
+        expect((await evaluate(command)).isError).toBe(true);
+      });
+    }
+  });
+
+  describe("stdin-blocking commands with no file operand", () => {
+    for (const command of ["cat", "tail", "tail -n 50", "head -c 20", "grep pattern", "sort", "wc -l"]) {
+      test(`blocks bare ${command}`, async () => {
+        expect((await evaluate(command)).isError).toBe(true);
+      });
+    }
+
+    for (const command of [
+      "tail -n 50 file.log",
+      "cat file.txt",
+      "grep pattern file.txt",
+      "grep -e pattern file.txt",
+      "head -c 20 data.bin",
+      "git log --oneline | tail -20",
+      "echo hi | cat",
+      "printf x | wc -l",
+      // `-c`/`-C` are boolean for these readers, so the file operand must survive.
+      "uniq -c file.txt",
+      "wc -c file.txt",
+      "sort -c file.txt",
+      // A separator inside a quoted grep pattern must not truncate the command.
+      "grep 'a|b' file.txt",
+      "grep '|' file.txt",
+      "grep 'a;b' file.txt",
+    ]) {
+      test(`allows ${command}`, async () => {
+        expect((await evaluate(command)).isError).not.toBe(true);
+      });
+    }
+  });
 });
