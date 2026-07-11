@@ -19,6 +19,7 @@ import {
   resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
+  shellTimeoutFromSettings,
   type Settings,
   type PluginConfig,
   type ProviderTier,
@@ -427,10 +428,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .filter((m) => m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
+  const shellTimeout = shellTimeoutFromSettings(config.settings);
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
     skillDirs,
+    ...(shellTimeout !== undefined ? { shellTimeout } : {}),
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>

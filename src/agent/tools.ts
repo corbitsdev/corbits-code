@@ -23,6 +23,7 @@ import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 import {
   advertiseShellGuardTimeout,
   shellGuardPlugin,
+  type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
@@ -76,6 +77,9 @@ export type AgentToolsetArgs = {
   // Skill directories (from enabled plugins) the use_skill tool resolves bodies
   // from, in addition to the project-local and bundled defaults.
   skillDirs?: string[];
+  // Shell command timeout defaults/cap, resolved from settings. When omitted the
+  // shell-guard plugin applies its built-in defaults.
+  shellTimeout?: ShellTimeoutConfig;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -123,7 +127,7 @@ export type AgentToolset = {
 };
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
-  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [], skillDirs = [] } = args;
+  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [], skillDirs = [], shellTimeout } = args;
 
   const posixTools = createPosixTools({
     cwd,
@@ -135,7 +139,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       permissionPlugin(permissionGate),
       // After authz/permission so blocked commands never spawn; short-circuits
       // stock tools-posix run_shell without patching interchange.
-      shellGuardPlugin(cwd),
+      shellGuardPlugin(cwd, shellTimeout),
       ripgrepPlugin(cwd),
       verifyPlugin(),
       webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
@@ -147,11 +151,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     ],
   });
 
-  // Align advertised run_shell timeout with shell-guard's 10s default.
+  // Align the advertised run_shell timeout with shell-guard's resolved default.
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => ({
       ...tool,
-      definition: advertiseShellGuardTimeout(tool.definition),
+      definition: advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
     })),
     createListDirTool(cwd),
     createUseSkillTool(cwd, skillDirs),
