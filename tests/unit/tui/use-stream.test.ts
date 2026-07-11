@@ -73,6 +73,42 @@ test("clear resets the transcript, telemetry, and status", () => {
   expect(state.currentPlanStep).toBe(null);
 });
 
+test("streamed text deltas reuse the contentBlocks snapshot reference", () => {
+  // The last block is mutated in place while a token streams in, so the
+  // snapshot array returned by contentBlocks must stay the same reference
+  // across those deltas — rebuilding it every token is what made steady-state
+  // streaming layout cost grow with transcript length instead of staying
+  // O(1). A structural change (a new block appended) must still produce a new
+  // reference so consumers relying on identity for change detection see it.
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 1,
+    data: { token: "hello " } as unknown as ReactorEmittedEvent["data"],
+  });
+  const first = state.contentBlocks;
+  expect(first.length).toBe(1);
+  expect(first[0].content).toBe("hello ");
+
+  state.addEvent({
+    type: "inference.text.delta",
+    seq: 2,
+    data: { token: "world" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const second = state.contentBlocks;
+  expect(second).toBe(first);
+  expect(second[0].content).toBe("hello world");
+
+  state.addEvent({
+    type: "inference.tool_call.start",
+    seq: 3,
+    data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"],
+  });
+  const third = state.contentBlocks;
+  expect(third).not.toBe(second);
+  expect(third.length).toBe(2);
+});
+
 test("createAgentStreamState accumulates tool_call events", () => {
   const state = createAgentStreamState();
 
@@ -513,8 +549,20 @@ test("D3: contentBlocks returns the same reference when nothing changed", () => 
   expect(a).toBe(b);
 });
 
-// D3: After a mutation a new reference must be returned so React re-renders.
-test("D3: contentBlocks returns a new reference after a mutation", () => {
+// D3: A structural change (a new block) must return a new reference so
+// consumers relying on identity for change detection see it.
+//
+// A follow-up streamed token delta into an *existing* block used to also
+// return a new reference here — the getter re-copied the whole contentBlocks
+// array on every token. That made steady-state streaming layout cost grow
+// with transcript length (CL-3264) instead of staying O(1): a token delta
+// mutates the trailing block's content in place, so the array's shape and
+// object identities are unchanged and no new snapshot is needed. React
+// re-rendering on a token delta does not depend on this reference changing —
+// useAgentStream forces a re-render via its own tick/displayRevision state,
+// not via contentBlocks identity. See the "reuse the contentBlocks snapshot
+// reference" test below for the corrected invariant.
+test("D3: contentBlocks returns a new reference after a structural change", () => {
   const state = createAgentStreamState();
   state.addEvent({
     type: "inference.text.delta",
@@ -523,9 +571,9 @@ test("D3: contentBlocks returns a new reference after a mutation", () => {
   });
   const before = state.contentBlocks;
   state.addEvent({
-    type: "inference.text.delta",
+    type: "inference.tool_call.start",
     seq: 2,
-    data: { token: " world" } as unknown as ReactorEmittedEvent["data"],
+    data: { name: "read_file", callId: "c1" } as unknown as ReactorEmittedEvent["data"],
   });
   const after = state.contentBlocks;
   expect(after).not.toBe(before);
