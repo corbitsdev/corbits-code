@@ -8,6 +8,7 @@ import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
+import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
 import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktrees.js";
 import { createPathRestriction } from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
@@ -166,9 +167,21 @@ describe("classifyTool", () => {
     expect(classifyTool("read_file")).toBe("allow");
     expect(classifyTool("grep")).toBe("allow");
     expect(classifyTool("lsp")).toBe("allow");
+    expect(classifyTool("mcp__linear__list_teams")).toBe("allow");
+    expect(classifyTool("mcp__linear__save_issue")).toBe("ask");
     expect(classifyTool("run_shell")).toBe("ask");
     expect(classifyTool("write_file")).toBe("ask");
     expect(classifyTool("edit_file")).toBe("ask");
+  });
+
+  test("registered MCP annotations override name heuristics", () => {
+    const registry = createMcpToolPermissionRegistry();
+    registerMcpClientTools(registry, "acme", [
+      { name: "run_job", annotations: { readOnlyHint: true } },
+      { name: "list_items", annotations: { readOnlyHint: false, destructiveHint: true } },
+    ]);
+    expect(classifyTool("mcp__acme__run_job", registry)).toBe("allow");
+    expect(classifyTool("mcp__acme__list_items", registry)).toBe("ask");
   });
 });
 
@@ -1130,7 +1143,7 @@ describe("read-only tools in auto mode", () => {
     expect(asked).toBe(0);
   });
 
-  test("MCP and unknown tools still ask in auto mode", async () => {
+  test("read-only MCP auto-allows without prompt; mutating MCP still asks in auto mode", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1140,7 +1153,11 @@ describe("read-only tools in auto mode", () => {
       skipPermissions: false,
       auto: true,
     });
-    expect((await gate.evaluate({ id: "c", name: "mcp__acme__list_projects", arguments: {} })).allowed).toBe(false);
+    expect((await gate.evaluate({ id: "c", name: "mcp__acme__list_projects", arguments: {} })).allowed).toBe(true);
+    expect((await gate.evaluate({ id: "c", name: "mcp__linear__get_issue", arguments: { id: "X-1" } })).allowed).toBe(
+      true,
+    );
+    expect((await gate.evaluate({ id: "c", name: "mcp__acme__save_project", arguments: {} })).allowed).toBe(false);
     expect((await gate.evaluate({ id: "c", name: "some_unknown_tool", arguments: {} })).allowed).toBe(false);
     expect(asked).toBe(2);
   });
