@@ -59,7 +59,7 @@ export function advertisedTools(all: readonly ToolDefinition[]): ToolDefinition[
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover and load additional tools by capability. Most tools — file search, web access, and any connected integrations — are not loaded by default. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to load the matching tools, then call them on the next turn.",
+    "Discover callable tools by capability. Most tools — file search, web access, and any connected integrations — are dispatchable but not advertised in the tools list. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to get the matching tools' names, descriptions, and input schemas. The returned tools are already callable — invoke them directly, no separate load step.",
   inputSchema: {
     type: "object",
     properties: {
@@ -119,6 +119,24 @@ export type ToolSearchDeps = {
 
 const ToolSearchArgs = type({ query: "string" });
 
+// Render one discovered tool as name, description, and pretty-printed input
+// schema. The schema is the load-bearing addition: MCP and other unadvertised
+// tools never appear in the wire tools array, so this is the model's only view
+// of their parameter names, types, and required fields.
+function renderToolCard(def: ToolDefinition | undefined, name: string): string {
+  if (def === undefined) return `- ${name}`;
+  const header = `- ${def.name}: ${def.description ?? ""}`;
+  const schema = JSON.stringify(def.inputSchema ?? {}, null, 2);
+  return `${header}\n  input schema:\n${indent(schema, "    ")}`;
+}
+
+function indent(text: string, pad: string): string {
+  return text
+    .split("\n")
+    .map((line) => `${pad}${line}`)
+    .join("\n");
+}
+
 export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
   return stringTool({
     definition: toolSearchDefinition,
@@ -133,11 +151,13 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      // Every registered tool is already dispatchable; discovery only needs to
-      // surface names + descriptions so the model knows what it can call. The
-      // wire tools array stays fixed, so this never invalidates the cache prefix.
-      const lines = names.map((name) => `- ${name}: ${deps.lookup(name)?.description ?? ""}`);
-      return `These tools are available — you can call them now:\n${lines.join("\n")}`;
+      // Every registered tool is already dispatchable; discovery surfaces each
+      // match's name, description, AND input schema so the model can shape
+      // arguments for MCP/parameterized tools it never sees in the wire tools
+      // array. Delivering schemas here (in the tool result) rather than in the
+      // advertised set keeps that set fixed, so the provider cache prefix holds.
+      const blocks = names.map((name) => renderToolCard(deps.lookup(name), name));
+      return `These tools are available — you can call them now:\n\n${blocks.join("\n\n")}`;
     },
   });
 }

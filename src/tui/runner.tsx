@@ -429,11 +429,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
+  // The workflow controller is built below, after the toolset; the holder lets
+  // advance_workflow's handler read live workflow-active state without a
+  // construction-order cycle.
+  const workflowControllerHolder: { instance?: WorkflowController } = {};
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
     skillDirs,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+    isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
@@ -486,6 +492,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     getToolDefinitions: () => toolset.dynamicRunner.currentDefinitions(),
     getDirector: () => directorHolder.instance,
   });
+  workflowControllerHolder.instance = workflowController;
 
   // Dynamic tool discovery: the runner registers every tool (built-in + MCP) for
   // dispatch but advertises only the fixed built-in set. That set is stable in

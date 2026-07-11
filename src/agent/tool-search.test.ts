@@ -12,7 +12,18 @@ const defs: ToolDefinition[] = [
   { name: "read_file", description: "read a file", inputSchema: { type: "object", properties: {}, required: [] } },
   { name: "web_search", description: "search the web for pages", inputSchema: { type: "object", properties: {}, required: [] } },
   { name: "lsp", description: "resolve symbols, find references", inputSchema: { type: "object", properties: {}, required: [] } },
-  { name: "mcp__linear__create_issue", description: "Create an issue in the tracker", inputSchema: { type: "object", properties: {}, required: [] } },
+  {
+    name: "mcp__linear__create_issue",
+    description: "Create an issue in the tracker",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Issue title" },
+        teamId: { type: "string", description: "Owning team" },
+      },
+      required: ["title"],
+    },
+  },
 ];
 
 const index = createToolIndex(() => defs);
@@ -67,6 +78,21 @@ describe("createToolSearchTool", () => {
     const out = await call(tool, { query: "search the web" });
     expect(out).toContain("web_search");
     expect(out).toContain("search the web");
+  });
+
+  test("surfaces a matched tool's input schema so the model can shape arguments", async () => {
+    const tool = createToolSearchTool({
+      search: (q) => index.search(q),
+      lookup: (name) => defs.find((d) => d.name === name),
+    });
+    const out = await call(tool, { query: "issue tracker" });
+    expect(out).toContain("mcp__linear__create_issue");
+    // Parameter names and the required list must appear — this is the whole
+    // point: MCP tools are never in the wire tools array, so their schema only
+    // reaches the model through the tool_search result.
+    expect(out).toContain("title");
+    expect(out).toContain("teamId");
+    expect(out).toContain("required");
   });
 
   test("rejects an empty query", async () => {
