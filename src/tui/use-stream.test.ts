@@ -559,6 +559,32 @@ describe("turnsToContentBlocks", () => {
     ]);
   });
 
+  test("a retryable inference error does not fail the run or finalize in-flight tool calls", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-1", name: "run_shell" }));
+    state.addEvent(event("inference.tool_call.end", { callId: "call-1", name: "run_shell" }));
+
+    state.addEvent(event("inference.error", { error: { category: "retryable", message: "transient" } }));
+
+    expect(state.status).not.toBe("failed");
+    // The in-flight call must stay resultless so a retry does not paint it as aborted.
+    expect(state.contentBlocks.some((b) => b.type === "tool_result")).toBe(false);
+  });
+
+  test("a fatal reactor error fails the run and finalizes in-flight tool calls", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-1", name: "run_shell" }));
+    state.addEvent(event("inference.tool_call.end", { callId: "call-1", name: "run_shell" }));
+
+    state.addEvent(event("reactor.error", { fatal: true, error: "boom" }));
+
+    expect(state.status).toBe("failed");
+    const result = state.contentBlocks.find((b) => b.type === "tool_result");
+    expect(result?.type === "tool_result" && result.isError).toBe(true);
+  });
+
   test("caps stringified tool results and arguments from a resume transcript", () => {
     const turns: ConversationTurn[] = [{
       role: "assistant",
