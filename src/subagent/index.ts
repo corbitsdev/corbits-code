@@ -358,6 +358,10 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       toolOutputUriPlugin(),
       secretGuardPlugin(),
       authzPlugin(),
+      // Sub-agents run the same shell guard as the main agent so their
+      // run_shell calls get the default timeout, output cap, and process-group
+      // kill — autonomous loops are the most likely to spawn a runaway command.
+      shellGuardPlugin(params.cwd),
       ripgrepPlugin(params.cwd),
       verifyPlugin(),
       webToolsPlugin(),
@@ -365,7 +369,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       createLSPPlugin({ cwd: params.cwd, minSeverity: 1 }),
     ],
   });
-  // Align advertised run_shell timeout with shell-guard's 10s default.
+  // Align the advertised run_shell timeout with shell-guard's resolved default.
   let tools = fromToolRunner(posixTools).map((tool) => ({
     ...tool,
     definition: advertiseShellGuardTimeout(tool.definition),
