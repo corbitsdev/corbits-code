@@ -18,6 +18,25 @@ function event(type: string, data: unknown): ReactorEmittedEvent {
 }
 
 describe("createAgentStreamState", () => {
+  test("surfaces present view validation errors as tool_result", () => {
+    const state = createAgentStreamState();
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "present-1",
+      name: "present",
+      arguments: { view: { type: "not-a-primitive" } },
+    }));
+    state.addEvent(event("tool.done", {
+      result: { callId: "present-1", content: "ok", isError: false },
+    }));
+    const err = state.contentBlocks.find((b) => b.type === "tool_result" && b.isError);
+    expect(err).toMatchObject({
+      type: "tool_result",
+      name: "present",
+      isError: true,
+    });
+    expect(String((err as { content: string }).content)).toContain("present view validation failed");
+  });
+
   test("captures tool_call.end arguments for manage_tasks updates", () => {
     const state = createAgentStreamState();
 
