@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests",
     "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",
+    "test:bench": "bun test ./bench",
+    "bench": "bun run bench/run.ts",
     "run": "bun run build && ./dist/index.js"
   },
   "workspaces": [
