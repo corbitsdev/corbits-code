@@ -11,6 +11,7 @@ import {
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { isApproved } from "./matcher.js";
 import { createPathRestriction } from "./path-restriction.js";
+import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
@@ -59,11 +60,15 @@ export type PermissionGateOptions = {
   // a command whose path arguments resolve outside it is never auto-allowed.
   // Defaults to the process cwd (the workspace) when omitted.
   cwd?: string;
-  // Additional directories that count as inside the workspace boundary — e.g.
-  // the session's other registered git worktrees. Read/write/edit paths inside
-  // these roots are treated the same as paths inside `cwd`; everything outside
-  // every root asks regardless of tool or auto mode.
-  worktreeRoots?: string[];
+  // Supplies additional directories that count as inside the workspace
+  // boundary — e.g. the session's registered git worktrees. Read/write/edit
+  // paths inside these roots are treated the same as paths inside `cwd`;
+  // everything outside every root asks regardless of tool or auto mode.
+  // Defaults to a provider that lazily discovers `cwd`'s git worktrees,
+  // re-listing (debounced) whenever a checked path is outside the roots it
+  // already knows about — so a worktree created mid-session is picked up
+  // without a restart.
+  rootsProvider?: RootsProvider;
 };
 
 export type PermissionGate = {
@@ -94,7 +99,11 @@ export type PermissionGate = {
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
-  const pathRestriction = createPathRestriction(cwd ?? process.cwd(), options.worktreeRoots ?? []);
+  const resolvedCwd = cwd ?? process.cwd();
+  const pathRestriction = createPathRestriction(
+    resolvedCwd,
+    options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd),
+  );
   const isRestricted = pathRestriction.isRestricted;
   let auto = options.auto;
   // Own a private copy so evaluating a grant never mutates the caller's array.

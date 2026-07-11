@@ -8,7 +8,8 @@ import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
-import { listWorktreeRoots } from "./worktrees.js";
+import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktrees.js";
+import { createPathRestriction } from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
@@ -1169,7 +1170,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      worktreeRoots: [worktree],
+      rootsProvider: () => [realpathSync(worktree)],
       requestApproval: async () => { asked++; return { allow: false }; },
       interactive: true,
       skipPermissions: false,
@@ -1307,7 +1308,7 @@ describe("listWorktreeRoots", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd: repo,
-      worktreeRoots: roots,
+      rootsProvider: () => roots,
       requestApproval: async () => { asked++; return { allow: false }; },
       interactive: true,
       skipPermissions: false,
@@ -1320,5 +1321,99 @@ describe("listWorktreeRoots", () => {
     });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
+  });
+});
+
+describe("createWorktreeRootsProvider lazy re-discovery", () => {
+  const git = (cwd: string, ...args: string[]): void => {
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+  };
+
+  const createRepo = (): string => {
+    const base = mkdtempSync(join(tmpdir(), "intercode-lazy-"));
+    const repo = join(base, "repo");
+    mkdirSync(repo);
+    git(repo, "init", "-b", "main");
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init");
+    return repo;
+  };
+
+  test("a worktree created after the gate is constructed is allowed on its first touch", async () => {
+    const repo = createRepo();
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: repo,
+      rootsProvider: createWorktreeRootsProvider(repo),
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const worktree = join(repo, "..", "secondary");
+    git(repo, "worktree", "add", worktree);
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: join(worktree, "notes.md") },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("a genuinely foreign path still asks for permission even after a refresh is triggered", async () => {
+    const repo = createRepo();
+    const outside = mkdtempSync(join(tmpdir(), "intercode-foreign-"));
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: repo,
+      rootsProvider: createWorktreeRootsProvider(repo),
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: join(outside, "payload.ts") },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("a burst of foreign-path checks triggers at most one re-list", () => {
+    const repo = createRepo();
+    let listCalls = 0;
+    const lister = (cwd: string): string[] => {
+      listCalls++;
+      return [];
+    };
+    const restriction = createPathRestriction(repo, createWorktreeRootsProvider(repo, lister));
+    const outside = mkdtempSync(join(tmpdir(), "intercode-burst-"));
+    for (let i = 0; i < 5; i++) {
+      expect(restriction.isRestricted(join(outside, `file-${i}.ts`))).toBe(true);
+    }
+    // One call to seed the initial (empty) roots, and the debounce window
+    // suppresses every forced refresh that follows within it.
+    expect(listCalls).toBe(1);
+  });
+
+  test("after the debounce window elapses, a subsequent foreign-path check re-lists again", () => {
+    const repo = createRepo();
+    let listCalls = 0;
+    const lister = (cwd: string): string[] => {
+      listCalls++;
+      return [];
+    };
+    const provider = createWorktreeRootsProvider(repo, lister, 0);
+    const restriction = createPathRestriction(repo, provider);
+    const outside = mkdtempSync(join(tmpdir(), "intercode-window-"));
+    expect(restriction.isRestricted(join(outside, "a.ts"))).toBe(true);
+    expect(restriction.isRestricted(join(outside, "b.ts"))).toBe(true);
+    // A zero-width debounce window means the initial listing plus one forced
+    // refresh per subsequent check are both eligible to run.
+    expect(listCalls).toBeGreaterThan(1);
   });
 });
