@@ -45,11 +45,27 @@ function formatToolDurationMs(ms: number): string {
   return ` · ${(ms / 1000).toFixed(1)}s`;
 }
 
-function toolResultForCall(blocks: RenderableBlock[], callId: string): Extract<RenderableBlock, { type: "tool_result" }> | undefined {
+type ToolResultBlock = Extract<RenderableBlock, { type: "tool_result" }>;
+
+// A cold assemble calls toolResultForCall once per block, and a linear scan per
+// call is O(blocks^2). Index each blocks array once (keyed on its identity, so a
+// freshly-built array reindexes and a stale one is collected) and look up in
+// O(1). The first matching result per callId wins, matching the old scan.
+const toolResultIndexCache = new WeakMap<RenderableBlock[], Map<string, ToolResultBlock>>();
+
+function toolResultIndex(blocks: RenderableBlock[]): Map<string, ToolResultBlock> {
+  const cached = toolResultIndexCache.get(blocks);
+  if (cached !== undefined) return cached;
+  const index = new Map<string, ToolResultBlock>();
   for (const block of blocks) {
-    if (block.type === "tool_result" && block.callId === callId) return block;
+    if (block.type === "tool_result" && !index.has(block.callId)) index.set(block.callId, block);
   }
-  return undefined;
+  toolResultIndexCache.set(blocks, index);
+  return index;
+}
+
+function toolResultForCall(blocks: RenderableBlock[], callId: string): ToolResultBlock | undefined {
+  return toolResultIndex(blocks).get(callId);
 }
 // One-column gutter shared by the transcript, the chrome (header/tasks/status),
 // and the prompt-box border, so every left edge lines up at the same column.
