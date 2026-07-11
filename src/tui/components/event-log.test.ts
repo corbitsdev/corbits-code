@@ -10,8 +10,10 @@ import {
   maxLineOffset,
   lineWindow,
   resolveViewportExpandIds,
+  RUNNING_ELAPSED_RESERVE,
   viewportToolIds,
 } from "./event-log.js";
+import { formatElapsed } from "./in-flight-indicator.js";
 import { color } from "../theme.js";
 import type { ContentBlock, ContentBlockData } from "../use-stream.js";
 
@@ -130,6 +132,16 @@ describe("pending tool row width budget", () => {
     // RunningToolRow appends ` · <elapsed>` after these baked lines, so the wrap
     // budget must leave room for the longest short-form clock (` · 59m 59s`).
     expect(maxWidth).toBeLessThanOrEqual(COLUMNS - " · 59m 59s".length);
+  });
+
+  test("the reserve covers the appended clock past an hour of runtime", () => {
+    // The wrap budget is shrunk by RUNNING_ELAPSED_RESERVE; the live clock the
+    // running row appends must always fit inside it, including the hour form
+    // (` · 1h 5m 3s` and longer) so a long-running tool never reflows the log.
+    for (const hours of [1, 2, 23]) {
+      const clock = ` · ${formatElapsed(hours * 60 * 60 * 1000 + 59 * 60 * 1000 + 59 * 1000)}`;
+      expect(clock.length).toBeLessThanOrEqual(RUNNING_ELAPSED_RESERVE);
+    }
   });
 
   test("a completed tool row is free to fill the full width", () => {
