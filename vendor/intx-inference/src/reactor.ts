@@ -573,6 +573,17 @@ export function createReactor(config: ReactorConfig): Reactor {
           if (attempt < sameSourceAttempts && !signal.aborted) {
             const delayMs = err.retryAfterMs ?? defaultRetryMs;
             logger.warn`Rate limited, retrying same source after ${String(delayMs)}ms`;
+            // inferenceRunner restarts from a fresh inference.start on the
+            // next loop iteration, re-streaming any content this attempt
+            // already committed. Emit the retry marker before that restart
+            // so a consumer replaying the event stream knows to discard the
+            // failed attempt's blocks rather than append the retried
+            // attempt's on top of them.
+            emit({
+              type: "inference.retry",
+              seq: nextSeq(),
+              data: { attempt, delayMs, previousError: err },
+            });
             await new Promise<void>((resolve) => {
               const timer = setTimeout(resolve, delayMs);
               const onAbort = () => {
@@ -603,6 +614,14 @@ export function createReactor(config: ReactorConfig): Reactor {
         pendingPacingDelayMs = 0;
         if (failOverToNextSource()) {
           logger.warn`Failing over to next inference source after ${err.category}`;
+          // Same discard-and-restart concern as the same-source retry above:
+          // the next source's attempt restarts from inference.start, so mark
+          // the boundary before it streams anything.
+          emit({
+            type: "inference.retry",
+            seq: nextSeq(),
+            data: { attempt, delayMs: 0, previousError: err },
+          });
           attempt = 0;
           continue;
         }
