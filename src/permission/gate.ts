@@ -14,6 +14,13 @@ import { createPathRestriction } from "./path-restriction.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
+// In auto mode the only non-shell tools that auto-allow without an operator
+// prompt. Auto mode exists to run these built-in file mutations unattended;
+// every other consequential tool — unknown built-ins and all MCP tools, which
+// may be destructive (mcp__*__delete_*, remove_service) — routes through the
+// normal ask path instead of being blanket-allowed.
+const AUTO_ALLOWED_TOOLS = new Set(["write_file", "edit_file"]);
+
 export type PermissionGateOptions = {
   // Approvals already remembered for this directory. Used only to SEED the gate;
   // the gate copies them and owns its in-memory list, so the caller's array is
@@ -89,17 +96,23 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     const restricted = callTargetsRestricted(call, isRestricted);
     if (!restricted && classifyTool(call.name) === "allow") return { allowed: true };
     if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
-    // Auto mode otherwise rubber-stamps consequential calls, but the auto-shell
-    // policy carves out categories that are unsafe to run unattended. A `deny`
-    // rule (e.g. file mutations through sed/python/redirects) blocks outright; an
-    // `ask` rule (e.g. dependency installs) declines to auto-allow and falls
-    // through to the operator prompt below — the agent may still request it.
-    const shellRule = auto ? autoShellRuleForCall(call) : undefined;
-    if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
-    // In AUTO mode the authz and secret-guard plugins have already hard-denied
-    // destructive commands and credential reads upstream, so everything that is
-    // not held back by an `ask` rule is safe to allow without a prompt.
-    if (auto && shellRule === undefined) return { allowed: true };
+    if (auto) {
+      if (call.name === "run_shell") {
+        // The auto-shell policy carves out categories unsafe to run unattended.
+        // A `deny` rule (file mutations through sed/python/redirects) blocks
+        // outright; an `ask` rule (dependency installs) declines to auto-allow
+        // and falls through to the operator prompt below. Everything else is
+        // safe: authz and secret-guard have already hard-denied destructive
+        // commands and credential reads upstream.
+        const shellRule = autoShellRuleForCall(call);
+        if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
+        if (shellRule === undefined) return { allowed: true };
+      } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
+        return { allowed: true };
+      }
+      // Any other tool in auto mode (MCP or unknown built-in) is not
+      // blanket-allowed; fall through to the operator prompt below.
+    }
 
     for (const request of buildRequests(call)) {
       if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;
