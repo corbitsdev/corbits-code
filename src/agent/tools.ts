@@ -28,7 +28,7 @@ import {
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
-import { connectMCPServer } from "../mcp/client.js";
+import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
@@ -273,7 +273,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   const dynamicRunner = createDynamicToolRunner(baseTools);
   runnerRef = dynamicRunner;
-  const connectedClients: Array<{ close: () => Promise<void> }> = [];
+  const connectedClients: MCPClient[] = [];
 
   const connectMCP = async (callbacks: MCPConnectCallbacks, signal?: AbortSignal): Promise<void> => {
     await Promise.all(
@@ -289,6 +289,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return;
         }
         connectedClients.push(result.client);
+        permissionGate.registerMcpClient(result.client);
         dynamicRunner.addTools(mcpClientToAgentTools(result.client, permissionGate));
         callbacks.onStatus({ name: config.name, state: "connected", tools: result.client.tools.map((t) => t.name) });
         callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
@@ -303,6 +304,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       promoter.promote = promote;
     },
     dispose: async () => {
+      for (const client of connectedClients) {
+        permissionGate.unregisterMcpServer(client.serverName);
+      }
       await Promise.all(connectedClients.map((c) => c.close().catch(() => undefined)));
       await posixTools.dispose();
     },

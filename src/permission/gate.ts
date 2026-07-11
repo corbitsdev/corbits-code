@@ -12,16 +12,21 @@ import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { isApproved } from "./matcher.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
+import {
+  createMcpToolPermissionRegistry,
+  registerMcpClientTools,
+  type McpToolPermissionRegistry,
+} from "../mcp/tool-permissions.js";
+import type { MCPClient } from "../mcp/client.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
 // In auto mode these non-shell built-in tools auto-allow without an operator
 // prompt: file mutations plus the benign built-ins that a hands-off run should
 // not stop for. Reads auto-allow via their own path and run_shell via the shell
-// policy. Everything else — ask_operator (itself an interrupt), unknown
-// built-ins, and all MCP tools, which may be destructive
-// (mcp__*__delete_*, remove_service) — routes through the normal ask path
-// rather than being blanket-allowed.
+// policy. Read-only MCP (annotations or list_/get_ prefixes) auto-allows via
+// classifyTool. Everything else — ask_operator, unknown built-ins, mutating MCP —
+// falls through to prompt.
 const AUTO_ALLOWED_TOOLS = new Set([
   "write_file",
   "edit_file",
@@ -69,6 +74,9 @@ export type PermissionGateOptions = {
   // already knows about — so a worktree created mid-session is picked up
   // without a restart.
   rootsProvider?: RootsProvider;
+  // Tiers learned from connected MCP servers (tools/list annotations). Tests may
+  // inject a shared registry; production gates create one when omitted.
+  mcpTiers?: McpToolPermissionRegistry;
 };
 
 export type PermissionGate = {
@@ -95,10 +103,13 @@ export type PermissionGate = {
   // operator already approved a literal command through ask_operator — so the
   // matching run_shell call that follows does not prompt a second time.
   preApprove: (tool: string, pattern: string) => void;
+  registerMcpClient: (client: MCPClient) => void;
+  unregisterMcpServer: (serverName: string) => void;
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
+  const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
   const pathRestriction = createPathRestriction(
     resolvedCwd,
@@ -120,7 +131,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // under .agent-state) drops from allow to ask, so it never auto-allows on
     // tier or shell-safety below.
     const restricted = callTargetsRestricted(call, isRestricted);
-    if (!restricted && classifyTool(call.name) === "allow") return { allowed: true };
+    if (!restricted && classifyTool(call.name, mcpTiers) === "allow") return { allowed: true };
     if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
     if (auto) {
       if (call.name === "run_shell") {
@@ -217,6 +228,14 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     sessionGrants.push(approval);
   };
 
+  const registerMcpClient = (client: MCPClient): void => {
+    registerMcpClientTools(mcpTiers, client.serverName, client.tools);
+  };
+
+  const unregisterMcpServer = (serverName: string): void => {
+    mcpTiers.removeToolsForServer(serverName);
+  };
+
   return {
     evaluate,
     getApprovals: () => approvals,
@@ -229,5 +248,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       auto = value;
     },
     preApprove,
+    registerMcpClient,
+    unregisterMcpServer,
   };
 }

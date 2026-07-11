@@ -33,3 +33,58 @@ export function humanizeMcpTool(name: string): string {
   const tool = parsed.tool.replace(/_/g, " ");
   return `${server}: ${tool}`;
 }
+
+const MCP_MUTATING_TOOL_PREFIXES = [
+  "save_",
+  "create_",
+  "update_",
+  "delete_",
+  "remove_",
+  "add_",
+  "set_",
+  "patch_",
+  "post_",
+  "put_",
+  "merge_",
+  "move_",
+  "archive_",
+  "unarchive_",
+  "upload_",
+  "import_",
+  "assign_",
+  "delegate_",
+  "prepare_",
+  "write_",
+  "send_",
+  "submit_",
+  "apply_",
+  "execute_",
+  "publish_",
+] as const;
+
+const MCP_READ_ONLY_TOOL_PREFIXES = [
+  "list_",
+  "get_",
+  "search_",
+  "find_",
+  "read_",
+  "describe_",
+  "show_",
+  "view_",
+  "query_",
+  "lookup_",
+  "fetch_",
+] as const;
+
+function mcpToolSegmentMatchesPrefix(segment: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => segment.startsWith(prefix));
+}
+
+// Name-prefix fallback when a server omits ToolAnnotations on tools/list.
+export function isReadOnlyMcpTool(name: string): boolean {
+  const parsed = parseMcpToolName(name);
+  if (parsed === null) return false;
+  const segment = parsed.tool;
+  if (mcpToolSegmentMatchesPrefix(segment, MCP_MUTATING_TOOL_PREFIXES)) return false;
+  return mcpToolSegmentMatchesPrefix(segment, MCP_READ_ONLY_TOOL_PREFIXES);
+}
