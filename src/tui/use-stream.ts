@@ -334,6 +334,35 @@ export function createAgentStreamState(
     contentBlocksDirty = true;
   };
 
+  // A turn can end (user abort, reactor/inference error) while a tool_call is
+  // still outstanding — no tool.done ever arrives. Its block would stay
+  // resultless, so the display keeps spinning a live braille clock on a tool
+  // that is no longer running. Synthesize an aborted tool_result for every
+  // resultless call so the row settles into a normal completed (error) state.
+  const finalizeOutstandingToolCalls = (): void => {
+    const resolved = new Set<string>();
+    for (const block of contentBlocks) {
+      if (block.type === "tool_result") resolved.add(block.callId);
+    }
+    // Snapshot the current calls before pushing — pushBlock mutates the array.
+    const outstanding = contentBlocks.filter(
+      (block): block is ContentBlock & { type: "tool_call" } =>
+        block.type === "tool_call" && !resolved.has(block.callId ?? block.id),
+    );
+    for (const call of outstanding) {
+      const callId = call.callId ?? call.id;
+      resolved.add(callId);
+      pushBlock({
+        type: "tool_result",
+        callId,
+        name: call.name,
+        content: "Aborted.",
+        isError: true,
+        finishedAt: Date.now(),
+      });
+    }
+  };
+
   const ensureUserBlock = (fullContent: string): void => {
     latestUserMessage = fullContent;
     latestUserMessageLogged = true;
@@ -560,6 +589,7 @@ export function createAgentStreamState(
           currentToolName = null;
           streamingType = null;
           finishedAt = Date.now();
+          finalizeOutstandingToolCalls();
         }
         return;
       }
@@ -570,6 +600,7 @@ export function createAgentStreamState(
       currentToolName = null;
       streamingType = null;
       finishedAt = Date.now();
+      finalizeOutstandingToolCalls();
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).
@@ -955,12 +986,16 @@ export function createAgentStreamState(
         status = stopRequested ? "stopped" : "done";
         finishedAt = Date.now();
         awaitingResponse = false;
+        // A clean done resolves every tool_call in order, but a stopped run may
+        // leave one dangling; settle it so it stops rendering as running.
+        if (stopRequested) finalizeOutstandingToolCalls();
       }
 
       if (event.type === "reactor.error" || event.type === "inference.error") {
         status = "failed";
         finishedAt = Date.now();
         awaitingResponse = false;
+        finalizeOutstandingToolCalls();
       }
     },
     addHookEvent(event: LifecycleHookEvent): void {

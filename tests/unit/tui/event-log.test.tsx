@@ -126,6 +126,42 @@ test("EventLog wraps a long line with inline bold instead of overflowing", () =>
   expect(frame).toContain("today");
 });
 
+test("EventLog paints a pending tool call with a spinner and live elapsed", () => {
+  const { lastFrame } = renderLog(
+    [{ type: "tool_call", callId: "run-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: Date.now() - 3_000 }],
+    { columns: 60 },
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Read");
+  // A running row shows the elapsed clock; three seconds have passed since start.
+  expect(frame).toContain("3s");
+  // One of the braille spinner glyphs leads the row.
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(true);
+});
+
+test("EventLog shows a completed tool call's duration and no spinner", () => {
+  const { lastFrame } = renderLog([
+    { type: "tool_call", callId: "done-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: 0 },
+    { type: "tool_result", callId: "done-1", name: "read_file", content: "x", isError: false, finishedAt: 2_500 },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("· 2.5s");
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+});
+
+test("EventLog stops spinning a tool once an aborted result finalizes it", () => {
+  // When a turn is aborted mid-tool, use-stream synthesizes an error tool_result
+  // for the outstanding call. That resolves the pending state, so the row must
+  // render as a completed (error) tool with no braille spinner or live clock.
+  const { lastFrame } = renderLog([
+    { type: "tool_call", callId: "aborted-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: Date.now() - 3_000 },
+    { type: "tool_result", callId: "aborted-1", name: "read_file", content: "Aborted.", isError: true, finishedAt: Date.now() },
+  ], { columns: 60 });
+  const frame = lastFrame() ?? "";
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+  expect(frame).not.toContain("3s");
+});
+
 test("EventLog renders a shell call leanly as the command, not run_shell", () => {
   const { lastFrame } = renderLog([
     {

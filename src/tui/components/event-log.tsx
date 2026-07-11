@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
 import { memo, useMemo, type ReactNode } from "react";
+import { useInFlightVisuals, formatElapsed } from "./in-flight-indicator.js";
 import { parseMarkdown } from "../markdown-parser.js";
 import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
@@ -31,6 +32,14 @@ const EXPANDED_TOOL_RESULT_LINE_LIMIT = 200;
 // text draws the eye and tools read as subordinate actions.
 const TOOL_INDENT = 2;
 
+// A pending row bakes no elapsed text, but RunningToolRow appends a live
+// ` · <elapsed>` clock outside the wrap budget. Shrink the pending wrap width by
+// this reserve so the appended clock never spills past the content column and
+// forces Ink to wrap the row onto an extra line. Wide enough for the longest
+// realistic hour-form clock (` · 23h 59m 59s`), and RunningToolRow trims the
+// rendered clock to this width so it can never exceed the reserved room.
+export const RUNNING_ELAPSED_RESERVE = 14;
+
 function formatToolDurationMs(ms: number): string {
   if (ms < 50) return "";
   return ` · ${(ms / 1000).toFixed(1)}s`;
@@ -50,6 +59,32 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   if (spaces <= 0) return lines;
   const pad: StyledSegment = { text: " ".repeat(spaces) };
   return lines.map((line) => [pad, ...line]);
+}
+
+// Tag a pending tool call so the event log paints it live. Only the two anchor
+// segments carry the running tint — the first row's leading segment holds the
+// spinner and the last row's trailing segment holds the elapsed clock — so the
+// in-progress row reads as a light active accent rather than a full-row fill that
+// would visually outweigh the settled, un-backed result rows. Splitting the two
+// anchors keeps a wrapped, multi-row command intact: the clock lands at the
+// logical end rather than in the middle of the wrapped text.
+function markRunningRow(lines: StyledLine[], startedAt: number): StyledLine[] {
+  if (lines.length === 0) return lines;
+  const bg = color("toolRunningBg");
+  const lastRow = lines.length - 1;
+  return lines.map((line, li) =>
+    line.map((seg, si) => {
+      const isSpinnerAnchor = li === 0 && si === 0;
+      const isElapsedAnchor = li === lastRow && si === line.length - 1;
+      return isSpinnerAnchor || isElapsedAnchor
+        ? { ...seg, backgroundColor: bg, toolRunningSince: startedAt }
+        : seg;
+    }),
+  );
+}
+
+function runningStartOfLine(line: StyledLine): number | undefined {
+  return line[0]?.toolRunningSince ?? line[line.length - 1]?.toolRunningSince;
 }
 
 const CACHE_KEY_SEPARATOR = "\x1f";
@@ -183,6 +218,61 @@ const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLinePro
     </Text>
   );
 }, (prev, next) => prev.line === next.line && prev.width === next.width);
+
+type RunningToolRowProps = {
+  line: StyledLine;
+  width: number;
+  startedAt: number;
+};
+
+// A pending tool row repaints on its own interval — spinner glyph plus a live
+// elapsed clock — so the still-running state stays visible without rebuilding
+// the transcript line array. Only this one row re-renders per tick; the rest of
+// the event log is untouched because the elapsed value is never baked into the
+// shared lines.
+const RunningToolRow = memo(function RunningToolRow({ line, width, startedAt }: RunningToolRowProps): ReactNode {
+  const { frame, elapsedMs } = useInFlightVisuals(true, startedAt);
+  const hasSpinner = line[0]?.toolRunningSince !== undefined;
+  const hasElapsed = line[line.length - 1]?.toolRunningSince !== undefined;
+  const segments = useMemo(() => {
+    // The tint lives on the anchor segments, so pull it from whichever anchor this
+    // row carries: the spinner on the first row, the elapsed clock on the last.
+    const bg = line[0]?.backgroundColor ?? line[line.length - 1]?.backgroundColor;
+    const bgProps: Partial<StyledSegment> = bg !== undefined ? { backgroundColor: bg } : {};
+    // The spinner occupies the indent gutter the anchor seg held (glyph + space),
+    // so the headline text keeps its column and the row width stays stable.
+    const head: StyledLine = hasSpinner
+      ? [{ text: `${frame} `, color: color("live"), ...bgProps }, ...line.slice(1)]
+      : [...line];
+    // The clock is the one datum this row exists to show, so it takes the readable
+    // text tier (not the dim rung) to clear contrast on the tinted background. Trim
+    // it to the reserved width so an hour-plus elapsed can never soft-wrap the row.
+    const clock = ` · ${formatElapsed(elapsedMs)}`.slice(0, RUNNING_ELAPSED_RESERVE);
+    const composed: StyledLine = hasElapsed
+      ? [...head, { text: clock, color: color("text"), ...bgProps }]
+      : head;
+    const textWidth = composed.reduce((n, s) => n + stringWidth(s.text), 0);
+    const pad = Math.max(0, width - textWidth);
+    // Pad with an unstyled gap rather than the tint so the row is not a full-width
+    // fill; only the spinner and clock anchors carry the running background.
+    const padded = pad > 0 ? [...composed, { text: " ".repeat(pad) }] : composed;
+    return mergeAdjacentSegments(padded);
+  }, [line, width, frame, elapsedMs, hasSpinner, hasElapsed]);
+
+  // Truncate rather than wrap: the live clock is appended outside the wrap budget,
+  // so on an unreserved wide row (a shell command near full width) it clips at the
+  // column edge instead of soft-wrapping onto a second terminal line, which would
+  // desync the fixed-row viewport accounting until the tool completes.
+  return (
+    <Text wrap="truncate">
+      {segments.map((seg, i) => (
+        <Text key={i} {...segmentProps(seg)}>
+          {seg.text}
+        </Text>
+      ))}
+    </Text>
+  );
+});
 
 function wrapStyledLine(segments: StyledSegment[], width: number): StyledLine[] {
   if (segments.length === 0) return [[]];
@@ -327,9 +417,20 @@ function toolCallLines(
 ): StyledLine[] {
   const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
-  const durationSuffix = meta?.pending ? " · running" : (meta?.durationSuffix ?? "");
+  // A pending row bakes no duration text; its live spinner and elapsed clock are
+  // painted by the running-row component from the startedAt marker instead.
+  const durationSuffix = meta?.pending ? "" : (meta?.durationSuffix ?? "");
+  // The running-row component appends a live ` · <elapsed>` clock after the baked
+  // headline. Shrink the wrap budget by that reserve while pending so the appended
+  // clock never spills past the content column and forces Ink onto an extra row.
+  // A completed row bakes its own duration and gets the full width back.
+  const contentWidth = meta?.pending ? Math.max(8, width - RUNNING_ELAPSED_RESERVE) : width;
 
   if (isShell) {
+    // Shell rows keep the full width: reserving here would push a near-full command
+    // past the collapse-row limit and drop command text. Instead the running row
+    // renders with truncation, so an appended clock on a wide last row clips rather
+    // than soft-wrapping onto a second terminal line and skewing viewport accounting.
     const rows = expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
     return appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
   }
@@ -338,7 +439,7 @@ function toolCallLines(
     const headline = wrapStyledLine([
       { text: "● ", color: roleColor },
       { text: `${display}${durationSuffix}`, color: roleColor },
-    ], width);
+    ], contentWidth);
     const edit = editDiffFromArgs(block.name, block.arguments);
     if (edit !== null) {
       // write_file replaces a whole file, so collapse its unchanged context;
@@ -364,7 +465,7 @@ function toolCallLines(
       { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
-    width,
+    contentWidth,
   );
 }
 
@@ -562,13 +663,14 @@ function blockToLines(
       const started = block.startedAt ?? 0;
       const finished = result?.finishedAt ?? started;
       const durationSuffix = result !== undefined ? formatToolDurationMs(finished - started) : "";
-      return indentLines(
+      const callLines = indentLines(
         toolCallLines(block, width - TOOL_INDENT, expanded, {
           pending,
           durationSuffix,
         }),
         TOOL_INDENT,
       );
+      return pending ? markRunningRow(callLines, started) : callLines;
     }
     case "tool_result":
       return indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
@@ -1257,7 +1359,12 @@ export const EventLog = memo(function EventLog({
   return (
     <Box flexDirection="column">
       {Array.from({ length: missingRows }, (_, i) => <RenderedLine key={`blank-top-${i}`} line={[]} width={contentWidth} />)}
-      {visible.map((line, i) => <RenderedLine key={`line-${start + i}`} line={line} width={contentWidth} />)}
+      {visible.map((line, i) => {
+        const startedAt = runningStartOfLine(line);
+        return startedAt !== undefined
+          ? <RunningToolRow key={`line-${start + i}`} line={line} width={contentWidth} startedAt={startedAt} />
+          : <RenderedLine key={`line-${start + i}`} line={line} width={contentWidth} />;
+      })}
     </Box>
   );
 });
