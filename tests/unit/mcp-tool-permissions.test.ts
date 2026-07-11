@@ -19,6 +19,11 @@ describe("tierFromMcpTool", () => {
     expect(tierFromMcpTool(undefined, "linear", "get_issue")).toBe("allow");
     expect(tierFromMcpTool(undefined, "linear", "save_issue")).toBe("ask");
   });
+
+  test("empty annotation object falls back to prefix heuristics", () => {
+    expect(tierFromMcpTool({}, "linear", "list_teams")).toBe("allow");
+    expect(tierFromMcpTool({ title: "List teams" }, "linear", "save_issue")).toBe("ask");
+  });
 });
 
 describe("registerMcpClientTools", () => {
