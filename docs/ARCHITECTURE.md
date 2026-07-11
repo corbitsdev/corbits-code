@@ -57,7 +57,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - Drives the terminal alternate-screen buffer manually (Ink 7 has no alt-screen option) and renders the Ink app
 - Bridges reactor events to React via an `EventEmitter`
 - **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
-- **Session rotation** — Uses a serial `opQueueTail` promise chain (not a boolean flag) to prevent concurrent rotation operations. Each new rotation chains onto the tail, ensuring in-flight operations complete before the session is torn down.
+- **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
 
 ### Event Stream Consumer (`src/session/stream-consumer.ts`)
 
