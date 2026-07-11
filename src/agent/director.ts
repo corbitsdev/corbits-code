@@ -25,9 +25,9 @@ const logger = getLogger(["intercode", "agent", "director"]);
 // A terminal decision with tasks still open means the work was not finished or
 // not marked finished. Rather than idle there, the director re-infers with a
 // nudge a bounded number of times, then logs the invariant breach and lets the
-// session end. The declined-path budget does not reset on tool calls: a
-// declined tool naturally produces another tool call, so a resetting counter
-// would never converge (see the operator-declined branch).
+// session end. Both budgets reset only on the next inbound user message (see
+// decideInner), not on any tool call in between, so a model that spins on
+// no-op tool calls within one turn still converges to the cap.
 const MAX_OPEN_TASK_NUDGES = 3;
 const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
 
@@ -366,6 +366,17 @@ class ChatDirectorImpl extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
+    // Both nudge budgets are monotonic per inbound user message rather than
+    // resetting on "real" tool work. Classifying a tool call as progress is
+    // gameable: a weak model learns that any tool call (including a no-op
+    // `echo`) buys back budget, so it narrates instead of finishing. Resetting
+    // only on a fresh message means a model that spins in place on one turn
+    // always converges to the cap, regardless of what it calls in between.
+    if (event.type === "message.received") {
+      this.idleTerminationNudges = 0;
+      this.declinedTerminationNudges = 0;
+    }
+
     if (event.type === "message.received" && this.taskClassifier !== undefined) {
       const message = event.message;
       const content = typeof message.content === "string" ? message.content : "";
@@ -407,9 +418,6 @@ class ChatDirectorImpl extends DefaultDirector {
         (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
-      // Real tool work is progress, so it clears the idle-termination budget;
-      // only consecutive content-free terminal attempts count toward the cap.
-      if (hasToolCalls) this.idleTerminationNudges = 0;
       if (this.workflowCoordinator?.isActive()) {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
@@ -456,13 +464,6 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "tool.done" && this.lspTriggerCalls.has(event.result.callId)) {
       this.lspTriggerCalls.delete(event.result.callId);
       if (!event.result.isError) this.onActivateTools?.(["lsp"]);
-    }
-
-    // A successful tool is progress, so it clears the declined-termination
-    // budget. Declines are error results and never reach here, so a run of
-    // repeated declines still converges on the cap.
-    if (event.type === "tool.done" && event.result.isError !== true) {
-      this.declinedTerminationNudges = 0;
     }
 
     if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {

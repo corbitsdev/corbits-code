@@ -146,7 +146,12 @@ describe("open-task termination guard", () => {
     expect(ended.some((a) => a.type === "infer")).toBe(false);
   });
 
-  test("an interleaved tool call resets the idle budget, so only consecutive attempts count", async () => {
+  // CL-3287: the budget used to reset on any tool call, which taught weak
+  // models that no-op shell narration (e.g. `echo`) resets the clock. A model
+  // that only echoes between nudges must still converge to the cap within a
+  // single user turn — the budget is monotonic per inbound message, not per
+  // tool call, so it does not matter whether a tool call happens at all.
+  test("a no-op tool call between nudges does not reset the idle budget", async () => {
     const director = createChatDirector("base", []);
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
 
@@ -154,20 +159,61 @@ describe("open-task termination guard", () => {
     expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
     expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
 
-    // A turn that does real tool work is progress and resets the budget.
+    // A no-op shell call (echo) is not a new user turn, so it must not buy
+    // back budget.
     await director.decide(
-      makeInferenceDoneEvent([{ id: "r", name: "read_file", args: { path: "a.txt" } }]),
+      makeInferenceDoneEvent([{ id: "e", name: "run_shell", args: { command: "echo done" } }]),
       mockState,
       mockCapabilities,
     );
 
-    // The full budget is available again: three more nudges before terminating.
-    for (let i = 0; i < 3; i++) {
-      expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
-    }
+    // Only one nudge remains from the original budget of three.
+    const nudged = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasInfer(nudged)).toBe(true);
     const ended = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
     expect(hasReply(ended)).toBe(true);
     expect(hasInfer(ended)).toBe(false);
+  });
+
+  test("a new user message resets the idle budget for the next turn", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    for (let i = 0; i < 3; i++) {
+      expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
+    }
+    const exhausted = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasReply(exhausted)).toBe(true);
+
+    // A fresh inbound user message starts a new turn: the budget is restored.
+    await director.decide(
+      { type: "message.received", message: { role: "user", content: "keep going" } } as unknown as ReactorInboundEvent,
+      mockState,
+      mockCapabilities,
+    );
+    const nudged = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    expect(hasInfer(nudged)).toBe(true);
+  });
+
+  test("a successful tool call between declines does not reset the declined budget", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+
+    // Spend both of the declined-path nudges, with a successful tool result
+    // interleaved after the first. If the successful result reset the budget,
+    // a third decline would still re-infer instead of terminating.
+    const first = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(first.some((a) => a.type === "infer")).toBe(true);
+
+    // A successful (non-error) tool result in between must not buy back budget.
+    await director.decide(makeToolDoneEvent("ok1"), mockState, mockCapabilities);
+
+    const second = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(second.some((a) => a.type === "infer")).toBe(true);
+
+    const third = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    expect(third.some((a) => a.type === "infer")).toBe(false);
+    expect(third.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.")).toBe(true);
   });
 
   test("a declined tool with no open tasks surfaces the decline immediately", async () => {
