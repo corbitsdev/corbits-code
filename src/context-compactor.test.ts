@@ -169,6 +169,67 @@ describe("createPruningCompactor — initiating task preservation", () => {
   });
 });
 
+describe("createPruningCompactor — image aging", () => {
+  const imageBlock = { type: "image" as const, source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" } };
+
+  test("strips image bytes from an anchored (aged) turn but keeps its text", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 2, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({
+        role: "user",
+        content: [
+          { type: "text", text: "here's a screenshot of the bug" },
+          imageBlock,
+        ],
+      }),
+    ];
+    for (let i = 0; i < 8; i++) {
+      turns.push(makeTurn({ role: "assistant", content: [{ type: "text", text: `step ${i}` }] }));
+    }
+    turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }));
+    turns.push(makeTurn({ role: "assistant", content: [{ type: "text", text: "recent reply" }] }));
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+
+    // The full base64 payload must not appear anywhere in the materialized output.
+    expect(JSON.stringify(result.output)).not.toContain("iVBORw0KGgo=");
+    expect(result.output.some((t) => t.content.some((b) => b.type === "image"))).toBe(false);
+    // The turn's text content, and the fact an image was there, still survive.
+    const initiatingTurn = result.output.find((t) =>
+      t.content.some((b) => b.type === "text" && b.text === "here's a screenshot of the bug"),
+    );
+    expect(initiatingTurn).toBeDefined();
+    expect(initiatingTurn?.content.some((b) => b.type === "text" && b.text.includes("shown"))).toBe(true);
+  });
+
+  test("keeps an image intact when its turn is still within the recent window", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 3, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "old 1" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "old 2" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "here's a screenshot" }, imageBlock] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "looking at it" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
+    ];
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+
+    expect(JSON.stringify(result.output)).toContain("iVBORw0KGgo=");
+  });
+
+  test("records the number of turns aged out in the transform record", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "task" }, imageBlock] }),
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeTurn({ role: i % 2 === 0 ? "assistant" : "user", content: [{ type: "text", text: `t${i}` }] }),
+      ),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(result.record.decisions["agedImageCount"]).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("buildContextEnvelope", () => {
   test("includes active task label", () => {
     const result = buildContextEnvelope({
