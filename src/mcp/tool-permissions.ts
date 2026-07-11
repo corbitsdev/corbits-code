@@ -41,15 +41,24 @@ function mcpAgentToolName(serverName: string, toolName: string): string {
   return `mcp__${serverName}__${toolName}`;
 }
 
-// When the server supplies annotations, readOnlyHint drives allow vs ask. Without
-// annotations, fall back to name-prefix heuristics (Linear-style list_/get_/save_).
+function hasAnnotationHints(annotations: McpToolAnnotations | undefined): boolean {
+  if (annotations === undefined) return false;
+  return (
+    annotations.readOnlyHint !== undefined ||
+    annotations.destructiveHint !== undefined ||
+    annotations.openWorldHint !== undefined
+  );
+}
+
+// When the server supplies annotation hints, readOnlyHint drives allow vs ask.
+// Empty {} or title-only objects fall back to name-prefix heuristics (list_/get_/save_).
 export function tierFromMcpTool(
   annotations: McpToolAnnotations | undefined,
   serverName: string,
   toolName: string,
 ): Tier {
-  if (annotations !== undefined) {
-    return annotations.readOnlyHint === true ? "allow" : "ask";
+  if (hasAnnotationHints(annotations)) {
+    return annotations!.readOnlyHint === true ? "allow" : "ask";
   }
   return isReadOnlyMcpTool(mcpAgentToolName(serverName, toolName)) ? "allow" : "ask";
 }
