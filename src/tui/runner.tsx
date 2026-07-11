@@ -44,7 +44,8 @@ import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
 import { setActivePricingCache } from "../cost/cost-visibility.js";
 import { advertisedTools, createActivatedToolTracker } from "../agent/tool-search.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
-import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
+import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -111,6 +112,21 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
     return 1;
   }
   return 0;
+}
+
+function buildCompactionContinuationMessage(): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `compact-continue-${Date.now()}@local`,
+    },
+    flags: [],
+    content: "",
+    signatureStatus: "missing",
+  };
 }
 
 export async function runTUI(initialConfig: Config): Promise<number> {
@@ -556,6 +572,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
     advertisedTools(all, activatedToolNames.list());
 
+  // Reload, interrupt, compaction continuation, and proxy deliver share one queue
+  // so a rebuild never races an in-flight deliver.
+  const sessionOps = createSessionOperationQueue();
+  const enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
+    void sessionOps.enqueue(async () => {
+      try {
+        deliverToLiveAgent();
+      } catch {
+        // Agent may be mid-reload or closing; a dropped message is harmless.
+      }
+    });
+  };
+
   const chatDirectorDef = defineDirector({
     id: "intercode/chat",
     configSchema: type({}),
@@ -570,22 +599,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         undefined,
         undefined,
         () => {
-          try {
-            currentAgent.deliver({
-              ref: { uid: 0, mailbox: "system" },
-              headers: {
-                from: "user@local",
-                to: ["agent@local"],
-                date: new Date().toISOString(),
-                messageId: `compact-continue-${Date.now()}@local`,
-              },
-              flags: [],
-              content: "",
-              signatureStatus: "missing",
-            });
-          } catch {
-            // Agent may be mid-reload or closing; a dropped continuation is harmless.
-          }
+          enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
       );
       directorHolder.instance = d;
@@ -768,10 +782,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
   let streamPromise = consumeStream(currentAgent.stream(), streamSink);
 
-  // Serial operation queue. Each rotation (reload, interrupt, newSession) enqueues
-  // an async task; they run one at a time. `send` awaits the tail of the queue
-  // before dispatching so it never races a concurrent rebuild.
-  let opQueueTail: Promise<void> = Promise.resolve();
+  // Serial operation queue. Rotation (reload, interrupt, newSession), compaction
+  // continuation, and proxy deliver enqueue async tasks; they run one at a time.
+  // `send` awaits the tail before dispatching so it never races a concurrent rebuild.
   let inFlight = 0;
   let pendingReload = false;
   // When buildAgent() throws after the old agent has been closed, this flag is
@@ -779,10 +792,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // a closed agent.
   let fatalBuildError: Error | null = null;
 
-  const enqueueOp = (op: () => Promise<void>): Promise<void> => {
-    opQueueTail = opQueueTail.then(op, op);
-    return opQueueTail;
-  };
+  const enqueueOp = sessionOps.enqueue;
 
   const reloadIfIdle = (): void => {
     if (!pendingReload || inFlight > 0) return;
@@ -858,7 +868,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // from under it without a remount; method calls always target the live agent.
   const agentProxy: Agent = {
     send: async (content, opts) => {
-      await opQueueTail;
+      await sessionOps.awaitTail();
       if (fatalBuildError !== null) throw fatalBuildError;
       const trimmed = typeof content === "string" ? content.trim() : "";
       if (trimmed.length > 0 && runTaskTitle.trim().length === 0) {
@@ -877,7 +887,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }
     },
     stream: () => currentAgent.stream(),
-    deliver: (message) => currentAgent.deliver(message),
+    deliver: (message) => {
+      enqueueAgentDeliver(() => currentAgent.deliver(message));
+    },
     close: () => currentAgent.close(),
     setSource: (source) => {
       const codexProfile = codexProfileFromProviderName(source.id);
@@ -1158,7 +1170,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   }));
 
-  await opQueueTail.catch(() => undefined);
+  await sessionOps.awaitTail();
   try {
     await currentAgent.close();
   } catch {
