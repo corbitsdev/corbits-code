@@ -15,9 +15,9 @@ import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp"]);
 
 // Tools that take a single path-like argument the gate should check against
-// restriction (gitignored, under .agent-state, or outside the workspace
-// boundary). Covers both read-only tools (dropped from allow to ask) and the
-// mutating file tools (dropped from auto-allow to ask in auto mode).
+// restriction (outside the workspace boundary, or writes under .agent-state).
+// Covers both read-only tools (dropped from allow to ask) and the mutating
+// file tools (dropped from auto-allow to ask in auto mode).
 const PATH_ARG_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "write_file", "edit_file"]);
 
 // `lsp` names its target `filePath`; every other path-arg tool uses `path`.
@@ -27,8 +27,8 @@ function pathArgKey(toolName: string): string {
 
 // write_file/edit_file mutate the target; every other path-arg tool only
 // reads it. Restriction policy (see path-restriction.ts) treats reads and
-// writes of a gitignored or .agent-state path differently, so callers need to
-// tell the gate which mode a given tool call is in.
+// writes of an .agent-state path differently, so callers need to tell the
+// gate which mode a given tool call is in.
 function isWriteTool(toolName: string): boolean {
   return toolName === "write_file" || toolName === "edit_file";
 }
@@ -211,10 +211,9 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
     const action = call.name === "write_file" ? "Write file" : "Edit file";
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
-  // A read-only tool only reaches here when its target is restricted
-  // (gitignored, under .agent-state, or outside the workspace). Key the request
-  // on the path so approving it grants that path or directory, not every future
-  // read.
+  // A read-only tool only reaches here when its target is restricted (outside
+  // the workspace boundary). Key the request on the path so approving it
+  // grants that path or directory, not every future read.
   if (READ_ONLY_TOOLS.has(call.name)) {
     const path = stringArg(call, pathArgKey(call.name));
     return [{ tool: call.name, action: "Read restricted path", subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
