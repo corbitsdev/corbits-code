@@ -32,7 +32,7 @@ When refactoring replaces an old path, delete the old one. No back-compat shims,
 
 - Add or update tests with every behavior change.
 - Bug fixes start with a failing test that reproduces the bug. Do not start by patching.
-- `tests/unit/` shared unit tests and helpers · co-located `src/**/*.test.ts` for module logic · `tests/fixtures/` fixture repos. Planned: `tests/integration/` (agent-loop harness) and `tests/e2e/` (fixture-repo runs) — directories not created yet.
+- `tests/unit/` shared unit tests and helpers · co-located `src/**/*.test.ts` for module logic · `tests/fixtures/` fixture repos · `tests/integration/` reactor/permission harness (CL-3322). Planned: `tests/e2e/` (fixture-repo runs).
 
 ## Build & Validation
 
