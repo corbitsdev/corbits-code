@@ -118,6 +118,12 @@ export const MAX_STORED_TOOL_RESULT_CHARS = 48_000;
 export const MAX_STORED_TOOL_ARGUMENT_CHARS = 24_000;
 export const MAX_STORED_ASSISTANT_BLOCK_CHARS = 128_000;
 
+// Per-block caps bound one block, but 600 blocks each near their cap would still
+// pin tens of megabytes. This total-content budget trims the oldest blocks until
+// the retained tail fits, so memory plateaus regardless of block mix. Measured in
+// characters, which track bytes closely enough for a display budget.
+export const MAX_RETAINED_TRANSCRIPT_BYTES = 8_000_000;
+
 // Tool output pays off at the end (exit codes, error summaries, test totals),
 // so the kept window anchors on the tail. Arguments and prose are head-anchored
 // because the meaningful prefix (command path, opening sentences) comes first.
@@ -132,9 +138,14 @@ function capWithOmissionSuffix(
   if (content.length <= maxChars) return content;
   const omitted = content.length - maxChars;
   const marker = `\n\n… ${omitted} characters omitted from ${label}`;
-  const budget = maxChars - marker.length;
+  // The tail anchor also inserts a "\n\n" separator between the marker and the
+  // kept content, so its budget must reserve those two characters. Otherwise the
+  // result overshoots maxChars by 2, and a second cap on the already-capped
+  // string would slice through the first marker.
+  const separator = anchor === "tail" ? "\n\n" : "";
+  const budget = maxChars - marker.length - separator.length;
   const kept = anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
-  return anchor === "tail" ? `${marker}\n\n${kept}` : `${kept}${marker}`;
+  return anchor === "tail" ? `${marker}${separator}${kept}` : `${kept}${marker}`;
 }
 
 export function capStoredToolResultContent(content: string): string {
@@ -147,6 +158,43 @@ export function capStoredToolArguments(argumentsText: string): string {
 
 function capStoredAssistantContent(content: string): string {
   return capWithOmissionSuffix(content, MAX_STORED_ASSISTANT_BLOCK_CHARS, "stored assistant text");
+}
+
+// A resumed transcript arrives already stringified. The producer
+// (turnsToContentBlocks) already caps tool_result and tool_call content, so
+// re-capping them here would double-cap: the tail-anchored tool_result marker
+// would be re-cut, corrupting the omission suffix. Assistant text and thinking
+// are the only fields the producer leaves uncapped, so they are the only ones
+// bounded on hydration.
+function capResumedBlock(block: ContentBlockData): ContentBlockData {
+  switch (block.type) {
+    case "text":
+    case "thinking":
+      return { ...block, content: capStoredAssistantContent(block.content) };
+    default:
+      return block;
+  }
+}
+
+// Approximate retained size of a block for the total-content budget. Only the
+// unbounded string fields matter; structural blocks (tasks, plan, view) are
+// small and fixed, so they contribute nothing to the trimming decision.
+function blockContentLength(block: ContentBlock): number {
+  switch (block.type) {
+    case "user":
+    case "thinking":
+    case "text":
+    case "reply":
+      return block.content.length;
+    case "tool_call":
+      return block.arguments.length;
+    case "tool_result":
+      return block.content.length;
+    case "error":
+      return block.message.length;
+    default:
+      return 0;
+  }
 }
 
 const OMITTED_STREAMING_SUFFIX = "… additional streaming content omitted";
@@ -210,6 +258,15 @@ function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">):
   return [...next, { id: callId, ...patch }];
 }
 
+// High-frequency streamed fragments buffer between display drains instead of
+// re-concatenating the block on every fragment; every other event forces the
+// buffer to flush so any handler that reads block content sees it settled.
+const STREAM_DELTA_TYPES = new Set([
+  "inference.text.delta",
+  "inference.thinking.delta",
+  "inference.tool_call.delta",
+]);
+
 export function createAgentStreamState(
   initialHooks: LifecycleHookStatus[] = [],
   getModelId?: () => string,
@@ -235,10 +292,21 @@ export function createAgentStreamState(
   // count feeds a trimmed-history marker.
   let trimmedBlockCount = 0;
   const trimOldestBlocks = (): void => {
-    const excess = contentBlocks.length - MAX_RETAINED_BLOCKS;
-    if (excess > 0) {
-      contentBlocks.splice(0, excess);
-      trimmedBlockCount += excess;
+    let drop = Math.max(0, contentBlocks.length - MAX_RETAINED_BLOCKS);
+    let retainedBytes = 0;
+    for (let i = drop; i < contentBlocks.length; i++) {
+      retainedBytes += blockContentLength(contentBlocks[i]!);
+    }
+    // Keep dropping the oldest block until the retained tail fits the byte
+    // budget, but never drop the newest block — the live stream needs somewhere
+    // to append even when a single block exceeds the budget on its own.
+    while (retainedBytes > MAX_RETAINED_TRANSCRIPT_BYTES && drop < contentBlocks.length - 1) {
+      retainedBytes -= blockContentLength(contentBlocks[drop]!);
+      drop += 1;
+    }
+    if (drop > 0) {
+      contentBlocks.splice(0, drop);
+      trimmedBlockCount += drop;
       contentBlocksDirty = true;
     }
   };
@@ -313,6 +381,44 @@ export function createAgentStreamState(
   let startedAt = Date.now();
   let finishedAt: number | null = null;
   let openCallId: string | null = null;
+  // Streamed fragments accumulate here between drains and join once on flush,
+  // so a burst of N fragments costs O(N) buffering plus one join rather than N
+  // growing concatenations. The target is the block (and field) currently being
+  // streamed into; switching targets flushes the previous one first.
+  let pendingBlock: ContentBlock | null = null;
+  let pendingField: "content" | "arguments" | null = null;
+  let pendingFragments: string[] = [];
+  let pendingMaxChars = 0;
+  const flushPending = (): void => {
+    if (pendingBlock === null || pendingFragments.length === 0) return;
+    const joined = pendingFragments.join("");
+    pendingFragments = [];
+    if (pendingField === "arguments" && pendingBlock.type === "tool_call") {
+      pendingBlock.arguments = appendBoundedInPlace(pendingBlock.arguments, joined, pendingMaxChars);
+      // The block is the sole accumulator; mirror the settled value into the
+      // callId map so a tool.done that arrives without a tool_call.end still
+      // resolves the arguments it needs.
+      if (pendingBlock.callId !== undefined) callIdToArguments.set(pendingBlock.callId, pendingBlock.arguments);
+    } else if (pendingField === "content" && "content" in pendingBlock) {
+      pendingBlock.content = appendBoundedInPlace(pendingBlock.content, joined, pendingMaxChars);
+    }
+    contentBlocksDirty = true;
+  };
+  const bufferFragment = (
+    block: ContentBlock,
+    field: "content" | "arguments",
+    maxChars: number,
+    fragment: string,
+  ): void => {
+    if (pendingBlock !== block || pendingField !== field) {
+      flushPending();
+      pendingBlock = block;
+      pendingField = field;
+      pendingMaxChars = maxChars;
+    }
+    pendingFragments.push(fragment);
+    contentBlocksDirty = true;
+  };
   let activityTick = 0;
   let lastActivityAt = Date.now();
   // Bump on every streamed token: advances the render tick and resets the
@@ -327,11 +433,19 @@ export function createAgentStreamState(
   }
   hooksDirty = true;
   for (const block of initialContentBlocks) {
-    pushBlock(block);
+    pushBlock(capResumedBlock(block));
   }
+  // Blocks now hold capped copies, so drop the original resume payload — it can
+  // be multiple megabytes and would otherwise stay reachable through the prop
+  // long after the visible tail is trimmed. This mutates a caller-owned array,
+  // which is safe only because the useState initializer runs exactly once; a
+  // double-invoked initializer (e.g. React StrictMode) would hydrate the
+  // already-emptied array and lose the transcript.
+  initialContentBlocks.length = 0;
 
   return {
     get contentBlocks() {
+      flushPending();
       if (contentBlocksDirty) {
         contentBlocksSnapshot = [...contentBlocks];
         contentBlocksDirty = false;
@@ -483,6 +597,9 @@ export function createAgentStreamState(
       blockSeq = 0;
       callIdToName.clear();
       callIdToArguments.clear();
+      pendingBlock = null;
+      pendingField = null;
+      pendingFragments = [];
       turnsUsed = 0;
       status = "idle";
       stopRequested = false;
@@ -523,6 +640,10 @@ export function createAgentStreamState(
       trimOldestBlocks();
     },
     addEvent(event: ReactorEmittedEvent): void {
+      // Settle any buffered stream fragments before a structural event runs, so
+      // handlers that read the last block's content or arguments never see a
+      // half-drained buffer.
+      if (!STREAM_DELTA_TYPES.has(event.type)) flushPending();
       switch (event.type) {
         case "message.received": {
           const data = event.data as { message: { content?: string; attachments?: Array<{ name: string; contentType: string }> } };
@@ -541,12 +662,11 @@ export function createAgentStreamState(
           markActivity();
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
-          if (last && last.type === "thinking") {
-            last.content = appendBoundedInPlace(last.content, token, MAX_STORED_ASSISTANT_BLOCK_CHARS);
-            contentBlocksDirty = true;
-          } else {
-            pushBlock({ type: "thinking", content: token });
+          if (!last || last.type !== "thinking") {
+            flushPending();
+            pushBlock({ type: "thinking", content: "" });
           }
+          bufferFragment(contentBlocks[contentBlocks.length - 1]!, "content", MAX_STORED_ASSISTANT_BLOCK_CHARS, token);
           break;
         }
         case "inference.text.delta": {
@@ -556,12 +676,11 @@ export function createAgentStreamState(
           markActivity();
           const token = (event.data as { token: string }).token;
           const last = contentBlocks[contentBlocks.length - 1];
-          if (last && last.type === "text") {
-            last.content = appendBoundedInPlace(last.content, token, MAX_STORED_ASSISTANT_BLOCK_CHARS);
-            contentBlocksDirty = true;
-          } else {
-            pushBlock({ type: "text", content: capStoredAssistantContent(token) });
+          if (!last || last.type !== "text") {
+            flushPending();
+            pushBlock({ type: "text", content: "" });
           }
+          bufferFragment(contentBlocks[contentBlocks.length - 1]!, "content", MAX_STORED_ASSISTANT_BLOCK_CHARS, token);
           break;
         }
         case "inference.tool_call.start": {
@@ -580,12 +699,7 @@ export function createAgentStreamState(
           const fragment = (event.data as { argumentFragment: string }).argumentFragment;
           const last = contentBlocks[contentBlocks.length - 1];
           if (last && last.type === "tool_call") {
-            last.arguments = appendBoundedInPlace(last.arguments, fragment, MAX_STORED_TOOL_ARGUMENT_CHARS);
-            contentBlocksDirty = true;
-          }
-          if (openCallId !== null) {
-            const prev = callIdToArguments.get(openCallId) ?? "";
-            callIdToArguments.set(openCallId, appendBoundedInPlace(prev, fragment, MAX_STORED_TOOL_ARGUMENT_CHARS));
+            bufferFragment(last, "arguments", MAX_STORED_TOOL_ARGUMENT_CHARS, fragment);
           }
           break;
         }
@@ -595,12 +709,15 @@ export function createAgentStreamState(
           const data = event.data as { name: string; callId: string; arguments?: unknown };
           currentToolName = data.name;
           callIdToName.set(data.callId, data.name);
-          const existingArguments = callIdToArguments.get(data.callId) ?? "";
-          const rawArgumentText = data.arguments === undefined ? existingArguments : stringifyToolArguments(data.arguments);
+          const last = contentBlocks[contentBlocks.length - 1];
+          // The streamed fragments live on the open tool_call block (flushed just
+          // above), so that block is the single accumulator; the final arguments
+          // payload, when present, supersedes the streamed text.
+          const streamedArguments = last?.type === "tool_call" && last.callId === data.callId ? last.arguments : "";
+          const rawArgumentText = data.arguments === undefined ? streamedArguments : stringifyToolArguments(data.arguments);
           const argumentText = capStoredToolArguments(rawArgumentText);
           callIdToArguments.set(data.callId, argumentText);
           openCallId = null;
-          const last = contentBlocks[contentBlocks.length - 1];
           if (last?.type === "tool_call" && last.name === data.name) {
             if (argumentText.length > 0) last.arguments = argumentText;
             contentBlocksDirty = true;
@@ -620,10 +737,10 @@ export function createAgentStreamState(
           if (!hadTextDeltaSinceLastReply && replyData.content.length > 0) {
             const last = contentBlocks[contentBlocks.length - 1];
             if (last && last.type === "text") {
-              last.content += replyData.content;
+              last.content = capStoredAssistantContent(last.content + replyData.content);
               contentBlocksDirty = true;
             } else {
-              pushBlock({ type: "text", content: replyData.content });
+              pushBlock({ type: "text", content: capStoredAssistantContent(replyData.content) });
             }
           }
           hadTextDeltaSinceLastReply = false;

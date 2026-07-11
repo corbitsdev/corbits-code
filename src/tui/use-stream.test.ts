@@ -3,9 +3,13 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { createTurnContextCollector, RETAINED_TURN_CONTEXT_LIMIT } from "../session/hooks.js";
 import {
+  MAX_RETAINED_TRANSCRIPT_BYTES,
+  MAX_STORED_ASSISTANT_BLOCK_CHARS,
+  MAX_STORED_TOOL_ARGUMENT_CHARS,
   MAX_STORED_TOOL_RESULT_CHARS,
   capStoredToolResultContent,
   createAgentStreamState,
+  type ContentBlockData,
 } from "./use-stream.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 
@@ -151,6 +155,158 @@ describe("createAgentStreamState", () => {
     // The most recent work is always retained; the oldest is what gets dropped.
     const last = state.contentBlocks.at(-1);
     expect(last?.type).toBe("tool_result");
+  });
+
+  test("joins fragmented text into a single settled block", () => {
+    const state = createAgentStreamState();
+
+    const fragments = Array.from({ length: 5_000 }, (_, i) => `f${i} `);
+    for (const fragment of fragments) {
+      state.addEvent(event("inference.text.delta", { token: fragment }));
+    }
+
+    const block = state.contentBlocks.find((b) => b.type === "text");
+    expect(block?.type).toBe("text");
+    if (block?.type !== "text") return;
+    expect(block.content).toBe(fragments.join(""));
+  });
+
+  test("joins fragmented reasoning into a single settled block", () => {
+    const state = createAgentStreamState();
+
+    const fragments = Array.from({ length: 5_000 }, (_, i) => `r${i} `);
+    for (const fragment of fragments) {
+      state.addEvent(event("inference.thinking.delta", { token: fragment }));
+    }
+
+    const block = state.contentBlocks.find((b) => b.type === "thinking");
+    expect(block?.type).toBe("thinking");
+    if (block?.type !== "thinking") return;
+    expect(block.content).toBe(fragments.join(""));
+  });
+
+  test("accumulates fragmented tool arguments in one place", () => {
+    const state = createAgentStreamState();
+
+    state.addEvent(event("inference.tool_call.start", { callId: "call-args", name: "run_shell" }));
+    const pieces = ['{"comm', 'and":"', "echo ", 'hi"}'];
+    for (const piece of pieces) {
+      state.addEvent(event("inference.tool_call.delta", { argumentFragment: piece }));
+    }
+
+    const streamed = state.contentBlocks.find((b) => b.type === "tool_call");
+    expect(streamed?.type).toBe("tool_call");
+    if (streamed?.type !== "tool_call") return;
+    expect(streamed.arguments).toBe('{"command":"echo hi"}');
+
+    state.addEvent(event("inference.tool_call.end", { callId: "call-args", name: "run_shell" }));
+    state.addEvent(event("tool.done", {
+      result: { callId: "call-args", content: "hi", isError: false },
+    }));
+
+    const result = state.contentBlocks.find((b) => b.type === "tool_result");
+    expect(result?.type).toBe("tool_result");
+  });
+
+  test("ingesting fragments scales near-linearly with fragment count", () => {
+    const runFragments = (count: number): number => {
+      const state = createAgentStreamState();
+      const start = performance.now();
+      for (let i = 0; i < count; i++) {
+        state.addEvent(event("inference.text.delta", { token: "abcd " }));
+        // Drain once per batch, as the display loop does — this is where a
+        // per-fragment concat would turn quadratic.
+        void state.contentBlocks.length;
+      }
+      void state.contentBlocks.length;
+      return performance.now() - start;
+    };
+
+    const base = Math.max(runFragments(20_000), 1);
+    const quadruple = runFragments(80_000);
+    // Quadratic ingestion would push this ratio toward 16x; linear stays near
+    // 4x. A generous ceiling keeps the guard meaningful without flaking on CI.
+    expect(quadruple / base).toBeLessThan(10);
+  });
+
+  test("caps a multi-megabyte non-streamed reply", () => {
+    const state = createAgentStreamState();
+    const huge = "z".repeat(5_000_000);
+
+    state.addEvent(event("connector.reply", { content: huge }));
+
+    const block = state.contentBlocks.find((b) => b.type === "text");
+    expect(block?.type).toBe("text");
+    if (block?.type !== "text") return;
+    expect(block.content.length).toBeLessThanOrEqual(MAX_STORED_ASSISTANT_BLOCK_CHARS);
+    expect(block.content).toContain("characters omitted from stored assistant text");
+  });
+
+  test("settles retained content under the byte budget for a huge history", () => {
+    const state = createAgentStreamState();
+
+    const chunk = "y".repeat(MAX_STORED_TOOL_RESULT_CHARS);
+    for (let i = 0; i < 500; i++) {
+      state.addEvent(event("inference.tool_call.end", {
+        callId: `call-${i}`,
+        name: "read_file",
+        arguments: { path: `f${i}.ts` },
+      }));
+      state.addEvent(event("tool.done", {
+        result: { callId: `call-${i}`, content: chunk, isError: false },
+      }));
+    }
+
+    const retainedBytes = state.contentBlocks.reduce((sum, b) => {
+      if (b.type === "tool_result" || b.type === "text" || b.type === "thinking") return sum + b.content.length;
+      if (b.type === "tool_call") return sum + b.arguments.length;
+      return sum;
+    }, 0);
+    expect(retainedBytes).toBeLessThanOrEqual(MAX_RETAINED_TRANSCRIPT_BYTES);
+    expect(state.trimmedBlockCount).toBeGreaterThan(0);
+    expect(state.contentBlocks.at(-1)?.type).toBe("tool_result");
+  });
+
+  test("caps resumed assistant text and releases the original payload after hydration", () => {
+    // Tool blocks arrive already capped from the producer, so hydration only
+    // owns the assistant text/thinking caps the producer leaves untouched.
+    const initial: ContentBlockData[] = [
+      { type: "text", content: "t".repeat(MAX_STORED_ASSISTANT_BLOCK_CHARS + 50_000) },
+    ];
+
+    const state = createAgentStreamState([], undefined, initial);
+
+    // The hydration payload is drained so its large strings can be reclaimed.
+    expect(initial).toHaveLength(0);
+
+    const text = state.contentBlocks.find((b) => b.type === "text");
+    expect(text?.type === "text" && text.content.length).toBeLessThanOrEqual(MAX_STORED_ASSISTANT_BLOCK_CHARS);
+    expect(text?.type === "text" && text.content).toContain("characters omitted from stored assistant text");
+  });
+
+  test("hydrating an oversized resumed tool result keeps a single omission marker", () => {
+    // Regression: the producer tail-caps tool_result content, and hydration
+    // must not re-cap it. A second cap cut through the first omission marker,
+    // yielding a false "… 2 characters omitted" and a garbled marker header.
+    const turns: ConversationTurn[] = [{
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "c1", name: "run_shell", arguments: { command: "ls" } },
+        { type: "tool_result", callId: "c1", content: [{ type: "text", text: "b".repeat(MAX_STORED_TOOL_RESULT_CHARS + 50_000) }], isError: false },
+      ],
+      model: "test",
+      timestamp: 0,
+    }];
+
+    const initial = turnsToContentBlocks(turns);
+    const state = createAgentStreamState([], undefined, initial);
+
+    const result = state.contentBlocks.find((b) => b.type === "tool_result");
+    const content = result?.type === "tool_result" ? result.content : "";
+    const markerCount = content.split("characters omitted from stored tool output").length - 1;
+    expect(markerCount).toBe(1);
+    expect(content).not.toContain("… 2 characters omitted");
+    expect(content.length).toBeLessThanOrEqual(MAX_STORED_TOOL_RESULT_CHARS);
   });
 
   test("surfaces the active tool while a tool call is running", () => {
@@ -357,5 +513,23 @@ describe("turnsToContentBlocks", () => {
       { type: "user", content: "message 3" },
       { type: "user", content: "message 4" },
     ]);
+  });
+
+  test("caps stringified tool results and arguments from a resume transcript", () => {
+    const turns: ConversationTurn[] = [{
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "c1", name: "run_shell", arguments: { command: "a".repeat(MAX_STORED_TOOL_ARGUMENT_CHARS + 50_000) } },
+        { type: "tool_result", callId: "c1", content: [{ type: "text", text: "b".repeat(MAX_STORED_TOOL_RESULT_CHARS + 50_000) }], isError: false },
+      ],
+      model: "test",
+      timestamp: 0,
+    }];
+
+    const blocks = turnsToContentBlocks(turns);
+    const call = blocks.find((b) => b.type === "tool_call");
+    expect(call?.type === "tool_call" && call.arguments.length).toBeLessThanOrEqual(MAX_STORED_TOOL_ARGUMENT_CHARS);
+    const result = blocks.find((b) => b.type === "tool_result");
+    expect(result?.type === "tool_result" && result.content).toContain("characters omitted from stored tool output");
   });
 });
