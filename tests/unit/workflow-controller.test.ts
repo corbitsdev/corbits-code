@@ -1,11 +1,16 @@
 import { test, expect } from "bun:test";
+import "../helpers/workflows.js";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolDefinition } from "@intx/types/runtime";
+import { initSessionDir } from "../../src/session/index.js";
 import { WorkflowController } from "../../src/tui/workflow-controller.js";
 import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
+import { findWorkflow } from "../../src/workflows/index.js";
+import { WorkflowRuntime } from "../../src/workflows/runtime.js";
+import { flushWorkflowStateWrites, saveWorkflowState } from "../../src/workflows/state.js";
 
 function tool(name: string): ToolDefinition {
   return { name, description: name, inputSchema: { type: "object", properties: {} } };
@@ -13,9 +18,14 @@ function tool(name: string): ToolDefinition {
 
 async function withController(
   tools: ToolDefinition[],
-  fn: (c: WorkflowController, director: { coordinator: WorkflowCoordinator | undefined }) => void | Promise<void>,
+  fn: (
+    c: WorkflowController,
+    director: { coordinator: WorkflowCoordinator | undefined },
+    cwd: string,
+  ) => void | Promise<void>,
 ): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), "wf-controller-"));
+  await initSessionDir(cwd, "session-1");
   const director = { coordinator: undefined as WorkflowCoordinator | undefined };
   const controller = new WorkflowController({
     cwd,
@@ -29,14 +39,15 @@ async function withController(
     }),
   });
   try {
-    await fn(controller, director);
+    await fn(controller, director, cwd);
   } finally {
+    await flushWorkflowStateWrites(cwd, "session-1");
     await rm(cwd, { recursive: true, force: true });
   }
 }
 
 test("starting a workflow attaches a coordinator to the director", async () => {
-  await withController([], async (controller, director) => {
+  await withController([], async (controller, director, _cwd) => {
     const msg = controller.start("review");
     expect(msg).toBe("Started review workflow.");
     expect(controller.isActive()).toBe(true);
@@ -45,14 +56,14 @@ test("starting a workflow attaches a coordinator to the director", async () => {
 });
 
 test("starting an unknown workflow reports an error and stays inactive", async () => {
-  await withController([], async (controller) => {
+  await withController([], async (controller, _director, _cwd) => {
     expect(controller.start("nope")).toContain("No workflow");
     expect(controller.isActive()).toBe(false);
   });
 });
 
 test("replacing an active workflow requires a confirming second call", async () => {
-  await withController([], async (controller) => {
+  await withController([], async (controller, _director, _cwd) => {
     controller.start("review");
     const first = controller.start("build");
     expect(first).toContain("again to replace");
@@ -64,7 +75,7 @@ test("replacing an active workflow requires a confirming second call", async () 
 });
 
 test("status reports capability connection and override state", async () => {
-  await withController([tool("mcp__Linear__save_issue")], async (controller) => {
+  await withController([tool("mcp__Linear__save_issue")], async (controller, _director, _cwd) => {
     const before = controller.status().capabilities.find((c) => c.name === "ticket-tracker");
     expect(before?.connected).toBe(true);
     expect(before?.disabled).toBe(false);
@@ -75,7 +86,7 @@ test("status reports capability connection and override state", async () => {
 });
 
 test("reset detaches the workflow", async () => {
-  await withController([], async (controller, director) => {
+  await withController([], async (controller, director, _cwd) => {
     controller.start("review");
     controller.reset();
     expect(controller.isActive()).toBe(false);
@@ -84,7 +95,7 @@ test("reset detaches the workflow", async () => {
 });
 
 test("attach() passes autoAdvance to coordinator — directive uses submit_output step tag", async () => {
-  await withController([], async (controller, director) => {
+  await withController([], async (controller, director, _cwd) => {
     controller.start("build"); // build has autoAdvance: true
     const coordinator = director.coordinator!;
     expect(coordinator).toBeDefined();
@@ -97,7 +108,7 @@ test("attach() passes autoAdvance to coordinator — directive uses submit_outpu
 });
 
 test("history() entry after workflow completion contains the workflow name and steps", async () => {
-  await withController([], async (controller) => {
+  await withController([], async (controller, _director, _cwd) => {
     controller.start("review"); // review has 3 steps
     const coordinator = (controller as unknown as { coordinator: WorkflowCoordinator }).coordinator!;
     // Advance through all steps to trigger workflow-complete.
@@ -109,5 +120,21 @@ test("history() entry after workflow completion contains the workflow name and s
     expect(history).toHaveLength(1);
     expect(history[0]!.name).toBe("review");
     expect(history[0]!.steps.length).toBeGreaterThan(0);
+  });
+});
+
+test("resume() restores an on-disk workflow snapshot for the session", async () => {
+  await withController([], async (controller, director, cwd) => {
+    const workflow = findWorkflow("review");
+    expect(workflow).toBeDefined();
+    const runtime = new WorkflowRuntime(new Map());
+    runtime.start(workflow!);
+    runtime.advance();
+    await saveWorkflowState(cwd, "session-1", runtime.state());
+
+    await controller.resume();
+    expect(controller.isActive()).toBe(true);
+    expect(controller.status().name).toBe("review");
+    expect(director.coordinator).toBeInstanceOf(WorkflowCoordinator);
   });
 });
