@@ -10,6 +10,7 @@ import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.
 import { createPermissionGate } from "./gate.js";
 import { listWorktreeRoots } from "./worktrees.js";
 import type { Approval, PermissionRequest } from "./types.js";
+import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
 const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
 
@@ -981,23 +982,39 @@ describe("createPermissionGate restricted paths", () => {
     expect(asked).toBe(0);
   });
 
-  test("reading an .agent-state file asks for approval", async () => {
+  test("reading an .agent-state file is allow-tier (session transcripts are meant to be read)", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
     const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
     expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked).toBe(0);
   });
 
-  test("reading a gitignored file asks for approval", async () => {
+  test("reading a gitignored file is allow-tier", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
     const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "node_modules/foo/index.js" } });
     expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("writing an .agent-state file asks for approval", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: ".agent-state/run.json", content: "x" } });
+    expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
 
-  test("declining a restricted read denies it", async () => {
+  test("writing a gitignored file asks for approval", async () => {
+    let asked = 0;
+    const gate = restrictedGate(() => asked++);
+    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "node_modules/foo/index.js", content: "x" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("declining a restricted write denies it", async () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
@@ -1005,15 +1022,15 @@ describe("createPermissionGate restricted paths", () => {
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
+    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: ".agent-state/run.json", content: "x" } });
     expect(verdict.allowed).toBe(false);
   });
 
-  test("a shell read of an .agent-state file is no longer auto-allowed", async () => {
+  test("a shell read of an .agent-state file is auto-allowed (shell reads are read-only)", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
     expect((await gate.evaluate(shellCall("cat .agent-state/run.json"))).allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked).toBe(0);
   });
 
   test("a whole-workspace grep with no path stays allow-tier", async () => {
@@ -1022,6 +1039,27 @@ describe("createPermissionGate restricted paths", () => {
     const verdict = await gate.evaluate({ id: "c", name: "grep", arguments: { pattern: "foo" } });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
+  });
+
+  // Auto-allowing gitignored reads at the gate does not widen what the model can
+  // see: the secret-guard plugin sits ahead of the gate in the tool call
+  // pipeline and hard-blocks sensitive files independent of any gate decision.
+  test(".env reads are still hard-blocked by the secret-guard plugin even though the gate auto-allows gitignored reads", async () => {
+    const gate = restrictedGate(() => {
+      throw new Error("the plugin should block before the gate is ever consulted for approval");
+    });
+    const gateVerdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".env" } });
+    expect(gateVerdict.allowed).toBe(true);
+
+    const guardMiddleware = secretGuardPlugin().middleware;
+    if (guardMiddleware === undefined) throw new Error("secretGuardPlugin must provide middleware");
+    const next = async (call: ToolCall) => ({ callId: call.id, content: "leaked secret", isError: false });
+    const pluginResult = await guardMiddleware(next)(
+      { id: "c", name: "read_file", arguments: { path: ".env" } },
+      new AbortController().signal,
+    );
+    expect(pluginResult.isError).toBe(true);
+    expect(pluginResult.content).toMatch(/sensitive file blocked/);
   });
 });
 
@@ -1047,7 +1085,10 @@ describe("read-only tools in auto mode", () => {
     expect(asked).toBe(0);
   });
 
-  test("a read-only tool on a restricted path still asks", async () => {
+  test("a read-only tool on a path outside the workspace still asks", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "intercode-lsp-outside-"));
+    const target = join(outside, "escape.ts");
+    writeFileSync(target, "");
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1060,10 +1101,25 @@ describe("read-only tools in auto mode", () => {
     const verdict = await gate.evaluate({
       id: "c",
       name: "lsp",
-      arguments: { operation: "hover", filePath: ".agent-state/run.json", line: 1, character: 1 },
+      arguments: { operation: "hover", filePath: target, line: 1, character: 1 },
     });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
+  });
+
+  test("a read-only tool on a gitignored path is auto-allowed", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "node_modules/foo/index.js" } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
   });
 
   test("MCP and unknown tools still ask in auto mode", async () => {
