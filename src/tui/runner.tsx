@@ -185,21 +185,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     mcpServers: [],
   });
 
-  const emitter = createTUIEventEmitter();
-  const hookManager = createLifecycleHookManager({
-    hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
-    onEvent: (event) => emitter.emit("hook", event),
-  });
-  let runError: string | undefined;
-
-  const recordRunError = (err: unknown): void => {
-    runError = err instanceof Error ? err.message : String(err);
-  };
-
-  // Crash guard: if setup or the reactor throws all the way out of runTUI
-  // instead of reaching the normal finalize block, this still closes out
-  // run.json so status and finishedAt never disagree. `finalized` is set by
-  // the normal finalize path so this never double-writes on a clean exit.
+  // Crash guard: if anything from setup onward throws all the way out of
+  // runTUI instead of reaching the normal finalize block, this still closes
+  // out run.json so status and finishedAt never disagree. Declared before the
+  // try so every fallible step after the minimal write above is covered.
+  // `finalized` is set by the normal finalize path so this never double-writes
+  // on a clean exit; it also gates straggler snapshot writes (see
+  // persistRunSnapshot) from resurrecting a closed record.
   let finalized = false;
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
@@ -218,6 +210,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   };
 
   try {
+  const emitter = createTUIEventEmitter();
+  const hookManager = createLifecycleHookManager({
+    hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
+    onEvent: (event) => emitter.emit("hook", event),
+  });
+  let runError: string | undefined;
+
+  const recordRunError = (err: unknown): void => {
+    runError = err instanceof Error ? err.message : String(err);
+  };
+
   const activeProviderModel = `${config.providerName}:${config.model}`;
   const sessionApprovals = await loadApprovals(config.cwd, sessionId);
   const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
@@ -720,7 +723,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // replaces rather than duplicates the entry.
   let connectedMcpServers: ConnectedMcpServer[] = [];
 
-  const persistRunSnapshot = async (
+  const writeRunSnapshot = async (
     status: RunState["status"],
     extra?: Pick<RunState, "finishedAt" | "error">,
   ): Promise<void> => {
@@ -733,6 +736,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       mcpServers: connectedMcpServers,
       ...extra,
     });
+  };
+
+  // Progress snapshots are fired unsequenced (model switch, MCP connect, turn
+  // completion), so a straggler could otherwise land after the terminal write
+  // and resurrect status "running" — atomicWrite is last-rename-wins. Once the
+  // run is finalized, drop them; the terminal paths write through
+  // writeRunSnapshot directly.
+  const persistRunSnapshot = async (
+    status: RunState["status"],
+    extra?: Pick<RunState, "finishedAt" | "error">,
+  ): Promise<void> => {
+    if (finalized) return;
+    await writeRunSnapshot(status, extra);
   };
 
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
@@ -1127,7 +1143,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // finished run (finishedAt set) can be left reading as still in progress.
   const persistedStatus: RunState["status"] = summaryStatus;
   finalized = true;
-  await persistRunSnapshot(persistedStatus, {
+  await writeRunSnapshot(persistedStatus, {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   });
