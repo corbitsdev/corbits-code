@@ -3,7 +3,6 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
-import { createLSPPlugin } from "@intx/tools-lsp";
 import {
   advanceWorkflowDefinition,
   askOperatorDefinition,
@@ -11,23 +10,13 @@ import {
 } from "../agent/director.js";
 import { manageTasksDefinition } from "./tasks.js";
 import { validateView } from "../tui/view/index.js";
-import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
-import { authzPlugin } from "../plugins/authz-plugin.js";
-import { verifyPlugin } from "../plugins/verify-plugin.js";
-import { permissionPlugin } from "../plugins/permission-plugin.js";
-import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
-import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
-import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
-import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
-import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 import {
   advertiseShellGuardTimeout,
-  shellGuardPlugin,
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
-import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
+import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
@@ -133,26 +122,17 @@ export type AgentToolset = {
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
   const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [], skillDirs = [], shellTimeout } = args;
 
+  const inheritedMcpTools: AgentTool[] = [];
+
   const posixTools = createPosixTools({
     cwd,
-    plugins: [
-      pathEscapePlugin(cwd),
-      toolOutputUriPlugin(),
-      secretGuardPlugin(),
-      authzPlugin(),
-      permissionPlugin(permissionGate),
-      // After authz/permission so blocked commands never spawn; short-circuits
-      // stock tools-posix run_shell without patching interchange.
-      shellGuardPlugin(cwd, shellTimeout),
-      ripgrepPlugin(cwd),
-      verifyPlugin(),
-      webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
-      lspHintPlugin(),
-      createLSPPlugin({ cwd, minSeverity: 1 }),
-      resultTruncationPlugin(),
-      // User tool plugins last so their tools cannot shadow the core middleware.
-      ...extraToolPlugins,
-    ],
+    plugins: buildCorePosixToolPlugins({
+      cwd,
+      permissionGate,
+      ...(webProvider !== undefined ? { webProvider } : {}),
+      ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+      extraToolPlugins,
+    }),
   });
 
   // Align the advertised run_shell timeout with shell-guard's resolved default.
@@ -169,6 +149,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             cwd,
             getWorkdirBase: args.subAgent.getWorkdirBase,
             provider: args.subAgent.provider,
+            permissionGate,
+            inheritMcpTools: () => inheritedMcpTools,
+            ...(webProvider !== undefined ? { webProvider } : {}),
+            ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+            ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
             ...(args.subAgent.onProgress !== undefined
               ? { onProgress: args.subAgent.onProgress }
@@ -290,7 +275,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         }
         connectedClients.push(result.client);
         permissionGate.registerMcpClient(result.client);
-        dynamicRunner.addTools(mcpClientToAgentTools(result.client, permissionGate));
+        const mcpTools = mcpClientToAgentTools(result.client, permissionGate);
+        inheritedMcpTools.push(...mcpTools);
+        dynamicRunner.addTools(mcpTools);
         callbacks.onStatus({ name: config.name, state: "connected", tools: result.client.tools.map((t) => t.name) });
         callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
       }),

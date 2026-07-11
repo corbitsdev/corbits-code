@@ -3,6 +3,13 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { createSubAgentSessionStore } from "../../src/subagent/session-store.js";
 import { createTaskTool } from "../../src/subagent/index.js";
+import { createPermissionGate } from "../../src/permission/gate.js";
+
+const testPermissionGate = createPermissionGate({
+  approvals: [],
+  interactive: false,
+  skipPermissions: true,
+});
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
   return { type, data } as ReactorEmittedEvent;
@@ -219,6 +226,7 @@ describe("createTaskTool session recording", () => {
   test("records a session on spawn and completes it with the report", async () => {
     const store = createSubAgentSessionStore();
     const tool = createTaskTool({
+      permissionGate: testPermissionGate,
       cwd: process.cwd(),
       getWorkdirBase: () => "/tmp",
       provider,
@@ -249,6 +257,7 @@ describe("createTaskTool session recording", () => {
   test("records failure without throwing out of the tool handler", async () => {
     const store = createSubAgentSessionStore();
     const tool = createTaskTool({
+      permissionGate: testPermissionGate,
       cwd: process.cwd(),
       getWorkdirBase: () => "/tmp",
       provider,
@@ -266,6 +275,7 @@ describe("createTaskTool session recording", () => {
 
   test("does not require a store — spawn still works", async () => {
     const tool = createTaskTool({
+      permissionGate: testPermissionGate,
       cwd: process.cwd(),
       getWorkdirBase: () => "/tmp",
       provider,
