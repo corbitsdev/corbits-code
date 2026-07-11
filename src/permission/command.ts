@@ -82,16 +82,23 @@ export function splitChainedCommand(command: string): string[] {
         j++;
       }
       let marker = "";
-      while (j < command.length && command[j] !== "\n" && command[j] !== markerQuote) {
+      while (
+        j < command.length &&
+        command[j] !== "\n" &&
+        command[j] !== markerQuote &&
+        // A bare (unquoted) marker is a single word; stop at whitespace so a
+        // trailing redirect like `<<EOF > out.txt` is not folded into the
+        // marker (which would leave the heredoc unterminated).
+        !(markerQuote === null && (command[j] === " " || command[j] === "\t"))
+      ) {
         marker += command[j++];
       }
       if (markerQuote !== null && command[j] === markerQuote) j++;
-      // Consume the rest of the line that opened the heredoc.
-      while (j < command.length && command[j] !== "\n") {
-        current += command[i];
-        i++;
-      }
-      // Include everything up to j in current and set heredoc mode.
+      // Advance j to the end of the line that opened the heredoc. This loop
+      // previously tested command[j] but advanced i, so a marker followed by
+      // trailing text (e.g. `<< 'EOF' > out.txt`) never terminated. The opening
+      // line is appended exactly once via the slice below.
+      while (j < command.length && command[j] !== "\n") j++;
       current += command.slice(i, j);
       i = j - 1;
       heredocMarker = marker;
