@@ -33,6 +33,7 @@ import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js
 import { TaskView } from "./components/task-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
 import {
+  activeStripSessions,
   AgentsStrip,
   agentsStripRowCount,
   DEFAULT_STRIP_MAX_VISIBLE,
@@ -715,10 +716,19 @@ export function App({
     });
   }, [subAgentSessions]);
 
+  // The strip reflects only active work: an agent leaves the visible list the
+  // moment it reaches a terminal state. Completed sessions stay in the store
+  // for later inspection but no longer occupy the strip or its nav.
   const agentSessions = useMemo(() => {
     void sessionsTick;
-    return subAgentSessions?.listForStrip() ?? [];
+    return activeStripSessions(subAgentSessions?.listForStrip() ?? []);
   }, [subAgentSessions, sessionsTick]);
+
+  // A running agent can reach a terminal state while agents-nav is open, which
+  // shortens the strip list under the persisted selection index. Clamp at read
+  // time so the highlight lands on a real row instead of drifting out of range.
+  const agentsNavIndexClamped =
+    agentSessions.length === 0 ? 0 : Math.min(agentsNavIndex, agentSessions.length - 1);
 
   const enteredSession = useMemo(() => {
     void sessionsTick;
@@ -746,7 +756,7 @@ export function App({
   // Agents strip (session store) + live progress fallback for chrome height.
   // Prefer the session store list once anything has been spawned this session.
   const activeSubAgents = useMemo(
-    () => state.subAgents.filter((a) => a.status !== "done"),
+    () => state.subAgents.filter((a) => a.status !== "done" && a.status !== "cancelled"),
     [state.subAgents],
   );
   // The strip caps rendered rows so retained history never crowds out the
@@ -1475,11 +1485,11 @@ export function App({
         setAgentsNavOpen(true);
       },
       agentsNavPrev: () =>
-        setAgentsNavIndex((i) => Math.max(0, i - 1)),
+        setAgentsNavIndex((i) => Math.max(0, Math.min(i, agentSessions.length - 1) - 1)),
       agentsNavNext: () =>
         setAgentsNavIndex((i) => Math.min(Math.max(0, agentSessions.length - 1), i + 1)),
       agentsNavConfirm: () => {
-        const pick = agentSessions[agentsNavIndex];
+        const pick = agentSessions[agentsNavIndexClamped];
         if (pick === undefined) {
           setAgentsNavOpen(false);
           return;
@@ -1831,7 +1841,7 @@ export function App({
               <AgentsStrip
                 sessions={agentSessions}
                 selectedId={
-                  agentsNavOpen ? (agentSessions[agentsNavIndex]?.id ?? null) : null
+                  agentsNavOpen ? (agentSessions[agentsNavIndexClamped]?.id ?? null) : null
                 }
                 enteredId={enteredSessionId}
                 navActive={agentsNavOpen}
