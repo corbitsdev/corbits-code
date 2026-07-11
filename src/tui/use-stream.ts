@@ -466,7 +466,13 @@ export function createAgentStreamState(
     } else if (pendingField === "content" && "content" in pendingBlock) {
       pendingBlock.content = appendBoundedInPlace(pendingBlock.content, joined, pendingMaxChars);
     }
-    contentBlocksDirty = true;
+    // Deliberately not marking contentBlocksDirty: this mutates the field of a
+    // block object already reachable through the last-taken snapshot array (same
+    // reference, not a new one), so that snapshot already reflects the new
+    // content without a rebuild. Marking dirty here would force the
+    // contentBlocks getter to re-copy the whole array on every streamed token,
+    // making steady-state streaming cost grow with transcript length instead of
+    // staying O(1).
   };
   const bufferFragment = (
     block: ContentBlock,
@@ -481,7 +487,9 @@ export function createAgentStreamState(
       pendingMaxChars = maxChars;
     }
     pendingFragments.push(fragment);
-    contentBlocksDirty = true;
+    // See the note in flushPending: buffering a fragment does not change the
+    // shape of contentBlocks, only a field on an object already in the last
+    // snapshot, so this must not force a full-array re-copy either.
   };
   let activityTick = 0;
   let lastActivityAt = Date.now();
