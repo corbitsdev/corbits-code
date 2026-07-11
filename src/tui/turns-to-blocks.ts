@@ -1,11 +1,14 @@
 import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@intx/types/runtime";
 
+import { applyManageTasks, parseManageTasksArgs, type Task } from "../agent/tasks.js";
 import { validateView } from "./view/index.js";
 import {
   capStoredToolArguments,
   capStoredToolResultContent,
   type ContentBlockData,
 } from "./use-stream.js";
+
+type PlanBlockStep = { file: string; action: string; reason?: string };
 
 function textFromBlocks(blocks: RuntimeContentBlock[]): string {
   const parts: string[] = [];
@@ -28,6 +31,90 @@ function stringifyToolContent(content: unknown): string {
   } catch {
     return String(content);
   }
+}
+
+function upsertResumeBlock(
+  blocks: ContentBlockData[],
+  block: { type: "plan"; steps: PlanBlockStep[] } | { type: "tasks"; tasks: Task[] },
+): ContentBlockData[] {
+  const next = [...blocks];
+  const existing = next.findIndex((entry) => entry.type === block.type);
+  if (existing === -1) {
+    next.unshift(block);
+  } else {
+    next[existing] = block;
+  }
+  return next;
+}
+
+/** Mirror live-stream tool.done handling for plan/tasks when hydrating a session. */
+function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[] {
+  const callIdToCallIndex = new Map<string, number>();
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i];
+    if (block?.type === "tool_call" && block.callId !== undefined) {
+      callIdToCallIndex.set(block.callId, i);
+    }
+  }
+
+  let tasks: Task[] = [];
+  let planSteps: PlanBlockStep[] | null = null;
+  const indicesToRemove = new Set<number>();
+
+  for (let i = 0; i < blocks.length; i += 1) {
+    const result = blocks[i];
+    if (result?.type !== "tool_result" || result.isError) continue;
+    const callIndex = callIdToCallIndex.get(result.callId);
+    if (callIndex === undefined) continue;
+    const call = blocks[callIndex];
+    if (call?.type !== "tool_call") continue;
+
+    if (call.name === "submit_plan") {
+      indicesToRemove.add(callIndex);
+      indicesToRemove.add(i);
+      let steps: PlanBlockStep[] = [];
+      try {
+        const parsed = JSON.parse(call.arguments) as {
+          steps?: Array<{ file: string; action: string; reason?: string }>;
+        };
+        if (Array.isArray(parsed.steps)) {
+          steps = parsed.steps.map((s) => ({
+            file: s.file,
+            action: s.action,
+            ...(s.reason !== undefined ? { reason: s.reason } : {}),
+          }));
+        }
+      } catch {
+        /* invalid args → empty plan */
+      }
+      planSteps = steps;
+      continue;
+    }
+
+    if (call.name === "manage_tasks") {
+      indicesToRemove.add(callIndex);
+      indicesToRemove.add(i);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(call.arguments);
+      } catch {
+        continue;
+      }
+      const parsed = parseManageTasksArgs(raw);
+      if (parsed !== null) {
+        tasks = applyManageTasks(tasks, parsed);
+      }
+    }
+  }
+
+  let out = blocks.filter((_, index) => !indicesToRemove.has(index));
+  if (planSteps !== null) {
+    out = upsertResumeBlock(out, { type: "plan", steps: planSteps });
+  }
+  if (tasks.length > 0) {
+    out = upsertResumeBlock(out, { type: "tasks", tasks });
+  }
+  return out;
 }
 
 export const RESUME_TRANSCRIPT_BLOCK_LIMIT = 2000;
@@ -62,6 +149,7 @@ function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
       case "tool_call":
         out.push({
           type: "tool_call",
+          callId: block.id,
           name: block.name,
           arguments: capStoredToolArguments(
             typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments),
@@ -128,5 +216,5 @@ export function turnsToContentBlocks(
     }
   }
 
-  return out;
+  return finalizeResumeToolBlocks(out);
 }

@@ -26,6 +26,8 @@ export type GateController = {
   pendingPlan: PlanStep[] | null;
   pendingOperator: PendingOperator | null;
   pendingPermission: PermissionRequest | null;
+  /** Permission gates still queued, including the visible modal. */
+  permissionQueueDepth: number;
   gateOpen: boolean;
   approve: () => void;
   reject: () => void;
@@ -47,6 +49,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const [pendingOperator, setPendingOperator] = useState<PendingOperator | null>(null);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
+  const [permissionQueueDepth, setPermissionQueueDepth] = useState(0);
 
   const planQueue = useRef<PlanQueueEntry[]>([]);
   const operatorQueue = useRef<OperatorQueueEntry[]>([]);
@@ -76,6 +79,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     const handler = ({ request, resolve }: PermissionGateEvent) => {
       permissionQueue.current.push({ request, resolve });
       if (permissionQueue.current.length === 1) setPendingPermission(request);
+      setPermissionQueueDepth(permissionQueue.current.length);
       setGatePending(true);
     };
     eventEmitter.on("permission.gate", handler);
@@ -91,6 +95,10 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
   };
 
   const resetGates = () => {
+    const pendingCount =
+      planQueue.current.length +
+      operatorQueue.current.length +
+      permissionQueue.current.length;
     for (const entry of planQueue.current) entry.resolve(false);
     planQueue.current = [];
     for (const entry of operatorQueue.current) entry.resolve({ kind: "cancel" });
@@ -100,13 +108,17 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     setPendingPlan(null);
     setPendingOperator(null);
     setPendingPermission(null);
-    setGatePending(false);
+    setPermissionQueueDepth(0);
+    for (let i = 0; i < pendingCount; i += 1) {
+      setGatePending(false);
+    }
   };
 
   return {
     pendingPlan,
     pendingOperator,
     pendingPermission,
+    permissionQueueDepth,
     gateOpen: pendingPlan !== null || pendingOperator !== null || pendingPermission !== null,
     approve: () => resolvePlanHead(true),
     reject: () => resolvePlanHead(false),
@@ -121,6 +133,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       const head = permissionQueue.current.shift();
       const next = permissionQueue.current[0] ?? null;
       setPendingPermission(next ? next.request : null);
+      setPermissionQueueDepth(permissionQueue.current.length);
       setGatePending(false);
       head?.resolve(outcome);
     },
