@@ -32,8 +32,12 @@ async function gatherGit(cwd: string): Promise<Partial<EnvironmentInfo>> {
   const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
   if (inside !== "true") return { isGitRepo: false };
 
-  const branch = await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const status = await git(cwd, ["status", "--porcelain"]);
+  // Branch and status both depend only on being inside a work tree, so run
+  // their subprocesses concurrently rather than paying each 3s timeout in turn.
+  const [branch, status] = await Promise.all([
+    git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    git(cwd, ["status", "--porcelain"]),
+  ]);
   const lines = status ? status.split("\n").filter((l) => l.length > 0) : [];
   const summary = lines.slice(0, GIT_STATUS_LINES).join("\n");
   const extra = lines.length - GIT_STATUS_LINES;

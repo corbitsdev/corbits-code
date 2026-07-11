@@ -87,7 +87,6 @@ import { resolveSessionLabel, truncateSessionLabel } from "../session/session-la
 import { loadState, saveState, type RunState } from "../session/state.js";
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
-import type { ContentBlockData } from "./use-stream.js";
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
@@ -146,7 +145,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .catch(() => undefined);
   let sessionId = config.sessionId;
   let resumeSkipInitialTask = config.skipInitialTask === true;
-  let initialTranscriptBlocks: ContentBlockData[] = [];
   let startedAt = Date.now();
   let runTaskTitle = config.task;
 
@@ -243,20 +241,22 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const subAgentSessions = createSubAgentSessionStore();
 
   const webPluginCandidates = collectWebPlugins(pluginModules);
-  const activeWeb = await resolveWebProviderFromPlugins({
-    candidates: webPluginCandidates,
-    pluginConfig: config.settings?.plugins ?? {},
-    webOverride: config.settings?.web,
-  });
-  if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
-  const webProvider = activeWeb?.provider;
-
   // Tool plugins are wired in only when enabled AND consented.
   const toolPluginCandidates = collectToolPlugins(pluginModules);
-  const extraToolPlugins = await resolveToolPlugins({
-    candidates: toolPluginCandidates,
-    pluginConfig: config.settings?.plugins ?? {},
-  });
+  // Web and tool plugin resolution are independent, so resolve them concurrently.
+  const [activeWeb, extraToolPlugins] = await Promise.all([
+    resolveWebProviderFromPlugins({
+      candidates: webPluginCandidates,
+      pluginConfig: config.settings?.plugins ?? {},
+      webOverride: config.settings?.web,
+    }),
+    resolveToolPlugins({
+      candidates: toolPluginCandidates,
+      pluginConfig: config.settings?.plugins ?? {},
+    }),
+  ]);
+  if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
+  const webProvider = activeWeb?.provider;
 
   // /plugins UI backend: discovered plugin descriptors plus live, persisted
   // config (enabled flag, credentials, web override, extra paths) written to the
@@ -465,15 +465,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   });
 
-  const agentExtensions = await loadAgentContextExtensions(config.cwd);
-  const overrides = await loadSystemPromptOverrides(config.cwd);
+  // These four loads have no data dependency on one another; they only converge
+  // at buildChatSystemPrompt below. Running them concurrently means first paint
+  // waits on the slowest, not the sum, of their I/O latencies.
+  const [agentExtensions, overrides, environment, skills] = await Promise.all([
+    loadAgentContextExtensions(config.cwd),
+    loadSystemPromptOverrides(config.cwd),
+    gatherEnvironment(config.cwd),
+    discoverSkills(config.cwd, skillDirs),
+  ]);
   const extensions = [
     ...agentExtensions,
     ...(config.systemPromptExtensions ?? []),
     ...overrides.append,
   ];
-  const environment = await gatherEnvironment(config.cwd);
-  const skills = await discoverSkills(config.cwd, skillDirs);
   const systemPrompt = buildChatSystemPrompt(
     extensions.length > 0 ? extensions : undefined,
     environment,
@@ -690,12 +695,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
 
   let currentAgent = await buildAgent();
-  try {
-    const turns = await currentAgent.history();
-    initialTranscriptBlocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
-  } catch {
-    initialTranscriptBlocks = [];
-  }
   await persistRunSnapshot("running");
   void resolveSessionLabel(config.cwd, sessionId, runTaskTitle).then((label) => {
     emitter.emit("session.title", label);
@@ -931,7 +930,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       cwd={config.cwd}
       initialTask={config.task}
       skipInitialTask={resumeSkipInitialTask}
-      initialContentBlocks={initialTranscriptBlocks}
+      initialContentBlocks={[]}
       getSessionId={() => sessionId}
       initialHooks={hookManager.getStatuses()}
       onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
@@ -987,6 +986,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     />,
     { exitOnCtrlC: false, stdin: filteredStdin },
   );
+
+  // Hydrate a resumed session's transcript after first paint. Reading history and
+  // mapping it to content blocks is pure I/O with no bearing on the shell, so the
+  // App renders empty immediately and fills in the past turns once they are ready.
+  void currentAgent
+    .history()
+    .then((turns) => {
+      const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
+      if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
+    })
+    .catch(() => undefined);
 
   // Connect MCP servers after the TUI is up so the UI is usable immediately and
   // any OAuth authorization is surfaced as a copyable link rather than a browser

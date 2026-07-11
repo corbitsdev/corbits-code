@@ -34,6 +34,49 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks.some((block) => block.type === "tool_call" && block.name === "manage_tasks")).toBe(false);
   });
 
+  test("hydrateHistory prepends resumed transcript ahead of live blocks", () => {
+    const state = createAgentStreamState();
+
+    // A block streamed into the fresh transcript before history lands.
+    state.addEvent(event("inference.text.delta", { token: "live" }));
+
+    state.hydrateHistory([
+      { type: "user", content: "first" },
+      { type: "text", content: "past reply" },
+    ]);
+
+    expect(state.contentBlocks.map((b) => b.type)).toEqual(["user", "text", "text"]);
+    expect(state.contentBlocks[0]).toMatchObject({ type: "user", content: "first" });
+    expect(state.contentBlocks[1]).toMatchObject({ type: "text", content: "past reply" });
+    expect(state.contentBlocks[2]).toMatchObject({ type: "text", content: "live" });
+  });
+
+  test("hydrateHistory caps resumed history at the retention limit", () => {
+    const state = createAgentStreamState();
+
+    // Resume a transcript larger than the retained tail. The old serial-pushBlock
+    // path trimmed as it seeded; prepending must enforce the same 600-block cap
+    // immediately, not defer it to the first post-resume push.
+    const resumed = Array.from({ length: 2000 }, (_, i) => ({
+      type: "text" as const,
+      content: `turn ${i}`,
+    }));
+    state.hydrateHistory(resumed);
+
+    expect(state.contentBlocks.length).toBe(600);
+    expect(state.trimmedBlockCount).toBe(1400);
+    // The most recent turns survive; the oldest are dropped from the front.
+    expect(state.contentBlocks[0]).toMatchObject({ content: "turn 1400" });
+    expect(state.contentBlocks.at(-1)).toMatchObject({ content: "turn 1999" });
+
+    // A first post-resume message must not trigger a mass collapse: the cap was
+    // already enforced, so only the single incremental trim applies.
+    const trimmedBefore = state.trimmedBlockCount;
+    state.addEvent(event("message.received", { message: { content: "hello" } }));
+    expect(state.trimmedBlockCount).toBe(trimmedBefore + 1);
+    expect(state.contentBlocks.length).toBe(600);
+  });
+
   test("streams text deltas into the active text block", () => {
     const state = createAgentStreamState();
 
