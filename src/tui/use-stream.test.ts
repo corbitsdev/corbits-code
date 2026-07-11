@@ -267,10 +267,10 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks.at(-1)?.type).toBe("tool_result");
   });
 
-  test("caps resumed blocks and releases the original payload after hydration", () => {
+  test("caps resumed assistant text and releases the original payload after hydration", () => {
+    // Tool blocks arrive already capped from the producer, so hydration only
+    // owns the assistant text/thinking caps the producer leaves untouched.
     const initial: ContentBlockData[] = [
-      { type: "tool_result", callId: "r1", name: "read_file", content: "w".repeat(MAX_STORED_TOOL_RESULT_CHARS + 100_000), isError: false },
-      { type: "tool_call", name: "run_shell", arguments: "a".repeat(MAX_STORED_TOOL_ARGUMENT_CHARS + 50_000) },
       { type: "text", content: "t".repeat(MAX_STORED_ASSISTANT_BLOCK_CHARS + 50_000) },
     ];
 
@@ -279,13 +279,34 @@ describe("createAgentStreamState", () => {
     // The hydration payload is drained so its large strings can be reclaimed.
     expect(initial).toHaveLength(0);
 
-    const result = state.contentBlocks.find((b) => b.type === "tool_result");
-    expect(result?.type === "tool_result" && result.content.length).toBeLessThan(MAX_STORED_TOOL_RESULT_CHARS + 100_000);
-    expect(result?.type === "tool_result" && result.content).toContain("characters omitted from stored tool output");
-    const call = state.contentBlocks.find((b) => b.type === "tool_call");
-    expect(call?.type === "tool_call" && call.arguments.length).toBeLessThanOrEqual(MAX_STORED_TOOL_ARGUMENT_CHARS);
     const text = state.contentBlocks.find((b) => b.type === "text");
     expect(text?.type === "text" && text.content.length).toBeLessThanOrEqual(MAX_STORED_ASSISTANT_BLOCK_CHARS);
+    expect(text?.type === "text" && text.content).toContain("characters omitted from stored assistant text");
+  });
+
+  test("hydrating an oversized resumed tool result keeps a single omission marker", () => {
+    // Regression: the producer tail-caps tool_result content, and hydration
+    // must not re-cap it. A second cap cut through the first omission marker,
+    // yielding a false "… 2 characters omitted" and a garbled marker header.
+    const turns: ConversationTurn[] = [{
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "c1", name: "run_shell", arguments: { command: "ls" } },
+        { type: "tool_result", callId: "c1", content: [{ type: "text", text: "b".repeat(MAX_STORED_TOOL_RESULT_CHARS + 50_000) }], isError: false },
+      ],
+      model: "test",
+      timestamp: 0,
+    }];
+
+    const initial = turnsToContentBlocks(turns);
+    const state = createAgentStreamState([], undefined, initial);
+
+    const result = state.contentBlocks.find((b) => b.type === "tool_result");
+    const content = result?.type === "tool_result" ? result.content : "";
+    const markerCount = content.split("characters omitted from stored tool output").length - 1;
+    expect(markerCount).toBe(1);
+    expect(content).not.toContain("… 2 characters omitted");
+    expect(content.length).toBeLessThanOrEqual(MAX_STORED_TOOL_RESULT_CHARS);
   });
 
   test("surfaces the active tool while a tool call is running", () => {

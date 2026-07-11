@@ -138,9 +138,14 @@ function capWithOmissionSuffix(
   if (content.length <= maxChars) return content;
   const omitted = content.length - maxChars;
   const marker = `\n\n… ${omitted} characters omitted from ${label}`;
-  const budget = maxChars - marker.length;
+  // The tail anchor also inserts a "\n\n" separator between the marker and the
+  // kept content, so its budget must reserve those two characters. Otherwise the
+  // result overshoots maxChars by 2, and a second cap on the already-capped
+  // string would slice through the first marker.
+  const separator = anchor === "tail" ? "\n\n" : "";
+  const budget = maxChars - marker.length - separator.length;
   const kept = anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
-  return anchor === "tail" ? `${marker}\n\n${kept}` : `${kept}${marker}`;
+  return anchor === "tail" ? `${marker}${separator}${kept}` : `${kept}${marker}`;
 }
 
 export function capStoredToolResultContent(content: string): string {
@@ -155,16 +160,14 @@ function capStoredAssistantContent(content: string): string {
   return capWithOmissionSuffix(content, MAX_STORED_ASSISTANT_BLOCK_CHARS, "stored assistant text");
 }
 
-// A resumed transcript arrives already stringified but uncapped, so a single
-// multi-megabyte tool result or assistant turn would be stored verbatim and
-// blow the retention budget on hydration. Cap each block the same way live
-// ingress does before it becomes a display block.
+// A resumed transcript arrives already stringified. The producer
+// (turnsToContentBlocks) already caps tool_result and tool_call content, so
+// re-capping them here would double-cap: the tail-anchored tool_result marker
+// would be re-cut, corrupting the omission suffix. Assistant text and thinking
+// are the only fields the producer leaves uncapped, so they are the only ones
+// bounded on hydration.
 function capResumedBlock(block: ContentBlockData): ContentBlockData {
   switch (block.type) {
-    case "tool_result":
-      return { ...block, content: capStoredToolResultContent(block.content) };
-    case "tool_call":
-      return { ...block, arguments: capStoredToolArguments(block.arguments) };
     case "text":
     case "thinking":
       return { ...block, content: capStoredAssistantContent(block.content) };
@@ -434,7 +437,10 @@ export function createAgentStreamState(
   }
   // Blocks now hold capped copies, so drop the original resume payload — it can
   // be multiple megabytes and would otherwise stay reachable through the prop
-  // long after the visible tail is trimmed.
+  // long after the visible tail is trimmed. This mutates a caller-owned array,
+  // which is safe only because the useState initializer runs exactly once; a
+  // double-invoked initializer (e.g. React StrictMode) would hydrate the
+  // already-emptied array and lose the transcript.
   initialContentBlocks.length = 0;
 
   return {
