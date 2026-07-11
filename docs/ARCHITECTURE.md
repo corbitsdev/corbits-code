@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a policy director, sends a task, and consumes the event stream. A custom director enforces policy on top of the reactor's default behavior. Two front ends consume the same loop: a headless renderer (stderr) and an Ink-based TUI.
+The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a policy director, and consumes the event stream through an Ink-based TUI. A custom director enforces policy on top of the reactor's default behavior; delegated work runs through a second, sub-agent director on the same loop.
 
 ## The Reactor Loop
 
@@ -10,7 +10,7 @@ The reactor (from `@intx/agent`) drives a single agent turn-by-turn. Each turn i
 
 1. **Inference** — the LLM produces an assistant turn (text plus zero or more `tool_call` blocks).
 2. **Tool dispatch** — each `tool_call` runs concurrently; results return as `tool.done` events.
-3. **Director decision** — `CodingDirector.decide()` receives every event and returns `ReactorAction[]` that control what happens next.
+3. **Director decision** — the director's `decide()` receives every event and returns `ReactorAction[]` that control what happens next.
 
 This repeats until the director emits `capabilities.done()`.
 
@@ -30,19 +30,16 @@ The director returns actions that shape the loop:
 - `capabilities.checkpoint(label)` — persist a named checkpoint to `.agent-state/`.
 - `capabilities.done()` — terminate the loop.
 
-### Director-layer termination (headless)
+### Director-layer termination
 
-In headless mode, **`submit_output`** is the clean completion signal. The **CodingDirector** rejects `submit_output` while the agent's **`manage_tasks`** list still has open items (todo/doing), nudging the model to update tasks first. Conversational text without `submit_output` does not end a headless run; the reactor keeps running until `submit_output` succeeds or the director aborts on a stall.
-
-In TUI chat mode there is no `submit_output` gate — the session stays open across turns until the operator clears or starts a new session.
+In TUI chat mode there is no completion gate — the session stays open across turns until the operator clears or starts a new session. The ChatDirector never emits `done()`; even an operator decline is surfaced as a reply while the reactor stays alive. Sub-agents terminate themselves: a turn without tool calls ends the run with the final assistant text as the result.
 
 ## Components
 
 ### CLI Entry (`src/index.ts`)
 
-- Parses verbs (`run` (optional), `resume`) and `--help`
-- Dispatches to `runAgent` (headless) or `runTUI` (default)
-- Handles resume by loading previous `RunState` + `DirectorPersistedState` and re-running with the prior task
+- Parses arguments and `--help`
+- Dispatches to `runTUI` (or first-run onboarding)
 
 ### Config Resolution (`src/config/index.ts`, `src/config/settings.ts`)
 
@@ -52,18 +49,6 @@ In TUI chat mode there is no `submit_output` gate — the session stays open acr
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--headless`/`-h`, `--dangerously-skip-permissions`; collects positional arguments as the task description.
 - Both settings files are on the secret-guard denylist, so the agent cannot read its own credentials.
-
-### Agent Runner (`src/agent/run-agent.ts`)
-
-- Loads run state and refuses to start over an in-progress run (unless `--force`)
-- Loads pricing (models.dev) and starts a background pricing refresh
-- Builds the lifecycle hook manager from discovered hooks
-- Constructs the permission gate (seeded with persisted approvals; non-interactive in headless)
-- Creates sandboxed POSIX tools wrapped in the plugin chain
-- Registers director-layer tools (`ask_operator`, `submit_output`, `advance_workflow` when a workflow is active)
-- Creates the `CodingDirector` and the agent (`createAgent`), with a git-backed context dir at `.agent-state/context`
-- Streams events through a turn-context collector (feeding `postTurn` hooks) and a renderer
-- Saves run + director state on each turn; runs critique; dispatches the `postRun` summary; cleans up
 
 ### TUI Runner (`src/tui/runner.tsx`)
 
@@ -78,27 +63,26 @@ In TUI chat mode there is no `submit_output` gate — the session stays open acr
 
 - Consumes the async iterable from `agent.stream()`, invoking a sink per event, with stream error handling
 
-### Custom Directors (`src/agent/director.ts`)
+### Custom Directors (`src/agent/director.ts`, `src/subagent/index.ts`)
 
-Two directors, selected by front end:
+Two directors, selected by role:
 
-- **CodingDirector** (headless) — Extends `DefaultDirector` with stall detection, workflow coordination, and `submit_output` + `manage_tasks` completion gating.
-- **ChatDirector** (TUI) — Extends `DefaultDirector` with the same task list tracking, workflow nudges, context compaction, and multi-turn chat semantics. SHIFT+TAB toggles **auto mode** (auto-approve non-destructive consequential actions through the permission gate); it is not a separate edit/plan mode.
+- **ChatDirector** (interactive, `src/agent/director.ts`) — Extends `DefaultDirector` with task list tracking, workflow nudges, LSP auto-activation, and multi-turn chat semantics. It never terminates the session: operator declines are surfaced as replies and the reactor stays alive for the next message. SHIFT+TAB toggles **auto mode** (auto-approve non-destructive consequential actions through the permission gate); it is not a separate edit/plan mode.
+- **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run.
+
+Both adopt the shared **compaction governor** (`src/agent/compaction.ts`) described below.
 
 The agent maintains an optional **`manage_tasks`** list (create/update via the homonymous tool). The TUI task panel reflects director task state; `manage_tasks` tool calls are collapsed into a dedicated content block in the event stream.
 
-**Shared director behavior:**
-- **Idle cycle detection** — Counts consecutive turns without tool calls; after 3 (when no workflow is active), checkpoints and aborts in headless mode.
-- **Submit gating (headless)** — Successful `submit_output` is blocked while incomplete tasks remain; the director re-infers with a nudge listing open tasks.
-- **Read tracking** — Records the turn at which each file was read (`filesReadAtTurn`), which the re-read-block plugin consults to prevent redundant re-reads.
+#### Context compaction (the compaction governor)
 
-Director state persisted for resume: `turnsUsed`, `submitCalled`, `callIdToName`, `idleCycles`, `tasks`, and `filesRead` (path → turn).
+When a cycle's input tokens cross a threshold, the director compacts the inference-facing history (the full run is always retained in the context store). The threshold is **model-aware** — roughly 60% of the active model's real context window — so small-window models compact early enough to avoid provider context-overflow while large-window models do not compact prematurely. The governor covers three cases:
 
-#### Context compaction (ChatDirector)
+- **Threshold at a tool pause** — Once over threshold, the follow-up `infer` after a tool batch is swapped for a `compact` cycle, and inference resumes via a host continuation message.
+- **Idle (end-of-turn)** — An interactive turn can end with a reply and then sit idle with no tool batch to intercept; the governor requests a continuation at that pause and compacts when it arrives. An operator message that races the continuation still compacts first, then re-enters inference to answer it.
+- **Overflow recovery** — A `context_overflow` inference error would otherwise become a terminal error reply; the governor compacts and retries instead, bounded so a history the compactor cannot shrink does not loop forever.
 
-When cumulative input tokens cross a threshold, the ChatDirector compacts the inference-facing history (the full run is always retained in the context store). The threshold is **model-aware** — roughly 60% of the active model's real context window — so small-window models compact early enough to avoid provider context-overflow while large-window models do not compact prematurely.
-
-The compaction control flow is shaped by a reactor invariant: a `compact` action runs in its own cycle (it cannot be paired with `infer`), and **the reactor delivers no event after a compact cycle**. A director that simply emitted `compact` in place of the follow-up `infer` would leave the loop idle forever — the cause of an earlier stall. Instead the director, after emitting `compact`, self-delivers a content-less inbound message (a host-supplied `requestContinuation` callback). That message adds no turn (`createInboundTurn` returns `null` for empty content) but re-enters the loop, where the director issues the follow-up `infer` against the freshly truncated history.
+The compaction control flow is shaped by a reactor invariant: a `compact` action runs in its own cycle (it cannot be paired with `infer`), and **the reactor delivers no event after a compact cycle**. A director that simply emitted `compact` in place of the follow-up `infer` would leave the loop idle forever — the cause of an earlier stall. Instead the governor, after emitting `compact`, self-delivers a content-less inbound message (a host-supplied `requestContinuation` callback). That message adds no turn (`createInboundTurn` returns `null` for empty content) but re-enters the loop, where the director issues the follow-up `infer` against the freshly truncated history.
 
 Compaction replaces older turns with a structured, workflow-aware summary rather than a stats blob: sections for **What Happened / What We're Doing / Relevant Links / Action Items / Next Steps**, with the active workflow and step woven in so compacting mid-`/build` or mid-`/plan` preserves the contract. The summary is produced by a one-shot model call; on any failure it falls back to a deterministic summary so a compaction cycle never breaks the session.
 
@@ -110,7 +94,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 
 - `ask_operator` — Pauses for a clarifying question with a list of options (and optional shell pre-approval via `command`).
 - `present` — Renders structured UI from a JSON view spec instead of pasting tables into chat.
-- `submit_output` — Headless clean termination (and workflow step advancement when `step` is set). Gated on an empty or completed `manage_tasks` list.
+- `submit_output` — Workflow step advancement when `step` is set (observed by the workflow coordinator).
 - `advance_workflow` — Advances the active workflow to its next step (observed by the director). Only advertised while a workflow is running.
 
 Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, **`task`** (spawn a sub-agent), and **`search_agents`** when sub-agent profiles are available — see Sub-agents below.
@@ -164,8 +148,7 @@ The agent's identity is **Intercode**, framed as a senior coding assistant runni
 ### State Persistence (`src/session/state.ts`)
 
 - `RunState` — `running` | `done` | `failed`, turns used, task, timestamps, error
-- `DirectorPersistedState` — director internals for resume
-- Atomic JSON save/load to `.agent-state/run.json` and `.agent-state/director.json`, with schema validation on load
+- Atomic JSON save/load to `.agent-state/run.json`, with schema validation on load
 - Conversation context is persisted separately by the git-backed store under `.agent-state/context`
 
 ### Post-Submit Critique (`src/agent/critic.ts`)
@@ -202,8 +185,7 @@ tool call
       → authzPlugin       (deny catastrophic commands)
         → permissionPlugin (tiered operator approval)
           → verifyPlugin   (post-write/edit verification)
-            → reReadBlockPlugin (block redundant re-reads)
-              → actual tool execution
+            → actual tool execution
 ```
 
 **Rejection behavior:** Any plugin can short-circuit by returning a `ToolResult` with `isError: true`; the error propagates to the agent and downstream plugins/execution are skipped.
@@ -216,7 +198,6 @@ tool call
 - **Shell Guard** (`shell-guard-plugin.ts`) — Intercode-only replacement for stock `run_shell` (interchange stays unpatched): 10s default timeout, 512KB output cap, process-group kill on timeout/oversize/abort. Also applies a 10s wall-clock budget to `grep`/`search_files`.
 - **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch. Per-path serialization (`file-mutation-lock.ts`) prevents parallel edits on one file from tripping verification.
 - **LSP hint** (`lsp-hint-plugin.ts`) — Appends a typescript-language-server install hint when the stock `lsp` tool reports no server for TS/JS paths.
-- **Re-read Block** (`re-read-block-plugin.ts`) — Consults the director's read tracking to block re-reading an already-read file.
 
 ### Permission System (`src/permission/`)
 
@@ -314,17 +295,17 @@ Which plugin skill directories are in scope is decided in `runner.tsx`, which pa
 ```
 CLI argv
   → src/config/index.ts (Config)
-    → src/agent/run-agent.ts (headless) | src/tui/runner.tsx (TUI)
+    → src/tui/runner.tsx (TUI)
       → LoadState, LoadPricing, discover hooks
       → CreatePermissionGate
       → CreatePosixTools (plugin chain)
-      → Create director (Coding | Chat)
+      → Create director (ChatDirector)
       → CreateAgent (git-backed contextDir)
       → SaveState (running)
       → agent.send(task)
       → src/session/stream-consumer.ts → sink
           → turnCollector.observe → postTurn hooks
-          → render (headless) | emit to React (TUI)
+          → emit to React (TUI)
           → on tool.done: saveState, saveDirectorState
       → src/agent/critic.ts (RunCritique)
       → dispatch postRun summary
@@ -351,7 +332,7 @@ The plan lives in durable director state, not just conversation history, so it s
 
 ### Constraint ownership at the tool layer
 
-Safety and budget constraints (secrets, catastrophic commands, permission, re-read prevention, write verification) are enforced as tool-layer middleware, not as advisory prompt text — one layer owns each constraint and the agent cannot evade it by rewording.
+Safety and budget constraints (secrets, catastrophic commands, permission, write verification) are enforced as tool-layer middleware, not as advisory prompt text — one layer owns each constraint and the agent cannot evade it by rewording.
 
 ### Resume via git-backed storage
 
