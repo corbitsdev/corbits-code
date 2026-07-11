@@ -115,6 +115,49 @@ describe("collapsed shell rows", () => {
   });
 });
 
+describe("pending tool row width budget", () => {
+  test("a wide pending tool row reserves width for the live elapsed suffix", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "wide",
+      callId: "wide",
+      name: "read_file",
+      arguments: JSON.stringify({ path: `/tmp/${"d".repeat(200)}.ts` }),
+      startedAt: 1_000,
+    };
+    const pendingLines = buildLines([call], COLUMNS, false, isExpanded);
+    const maxWidth = Math.max(...pendingLines.map((line) => line.reduce((n, s) => n + s.text.length, 0)));
+    // RunningToolRow appends ` · <elapsed>` after these baked lines, so the wrap
+    // budget must leave room for the longest short-form clock (` · 59m 59s`).
+    expect(maxWidth).toBeLessThanOrEqual(COLUMNS - " · 59m 59s".length);
+  });
+
+  test("a completed tool row is free to fill the full width", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "wide-done",
+      callId: "wide-done",
+      name: "read_file",
+      arguments: JSON.stringify({ path: `/tmp/${"d".repeat(200)}.ts` }),
+      startedAt: 1_000,
+    };
+    const result: ContentBlock = {
+      type: "tool_result",
+      id: "wide-done-r",
+      callId: "wide-done",
+      name: "read_file",
+      content: "x",
+      isError: false,
+      finishedAt: 1_500,
+    };
+    const doneLines = buildLines([call, result], COLUMNS, false, isExpanded);
+    const maxWidth = Math.max(...doneLines.map((line) => line.reduce((n, s) => n + s.text.length, 0)));
+    // No elapsed clock is appended once complete, so the full column is available;
+    // the pending reserve must not have shrunk the completed wrap budget too.
+    expect(maxWidth).toBeGreaterThan(COLUMNS - " · 59m 59s".length);
+  });
+});
+
 describe("tool row backgrounds", () => {
   // Status-tinted tool fills (PR #74 / CL-3116) painted every successful tool
   // green and never padded to full width, so the transcript became green soup.

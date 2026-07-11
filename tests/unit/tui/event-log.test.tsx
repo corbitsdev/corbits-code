@@ -149,6 +149,19 @@ test("EventLog shows a completed tool call's duration and no spinner", () => {
   expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
 });
 
+test("EventLog stops spinning a tool once an aborted result finalizes it", () => {
+  // When a turn is aborted mid-tool, use-stream synthesizes an error tool_result
+  // for the outstanding call. That resolves the pending state, so the row must
+  // render as a completed (error) tool with no braille spinner or live clock.
+  const { lastFrame } = renderLog([
+    { type: "tool_call", callId: "aborted-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: Date.now() - 3_000 },
+    { type: "tool_result", callId: "aborted-1", name: "read_file", content: "Aborted.", isError: true, finishedAt: Date.now() },
+  ], { columns: 60 });
+  const frame = lastFrame() ?? "";
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+  expect(frame).not.toContain("3s");
+});
+
 test("EventLog renders a shell call leanly as the command, not run_shell", () => {
   const { lastFrame } = renderLog([
     {
