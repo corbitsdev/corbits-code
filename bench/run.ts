@@ -1,9 +1,10 @@
 // CLI entry point: `bun run bench/run.ts [--json]`.
 //
 // Runs every workload once, prints a metrics table, checks each result against
-// its release budget, and exits non-zero if any hard budget (retained bytes,
-// heap after GC, minimum event count) is breached. Elapsed-time overruns are
-// reported as soft warnings and do not fail the run.
+// its release budget, and exits non-zero if any hard budget (minimum event
+// count, retained bytes where a real cap is exercised, per-workload heap delta)
+// is breached. RSS is a report-only process backstop and elapsed-time overruns
+// are soft warnings; neither fails the run.
 
 import { forceGc, measure, type Metrics } from "./measure.js";
 import { WORKLOADS } from "./workloads.js";
@@ -33,14 +34,17 @@ function checkBudget(
       `${name}: eventCount ${String(metrics.eventCount)} < min ${String(budget.minEventCount)}`,
     );
   }
-  if (metrics.retainedBytes > budget.maxRetainedBytes) {
+  if (
+    budget.maxRetainedBytes !== undefined &&
+    metrics.retainedBytes > budget.maxRetainedBytes
+  ) {
     failures.push(
       `${name}: retainedBytes ${formatBytes(metrics.retainedBytes)} > max ${formatBytes(budget.maxRetainedBytes)}`,
     );
   }
-  if (metrics.heapUsedAfterGcBytes > budget.maxHeapAfterGcBytes) {
+  if (metrics.heapDeltaBytes > budget.maxHeapDeltaBytes) {
     failures.push(
-      `${name}: heapAfterGc ${formatBytes(metrics.heapUsedAfterGcBytes)} > max ${formatBytes(budget.maxHeapAfterGcBytes)}`,
+      `${name}: heapDelta ${formatBytes(metrics.heapDeltaBytes)} > max ${formatBytes(budget.maxHeapDeltaBytes)}`,
     );
   }
   if (metrics.elapsedMs > budget.softMaxElapsedMs) {
@@ -87,8 +91,8 @@ async function main(): Promise<void> {
     const header =
       pad("workload", 24) +
       pad("elapsed", 10) +
-      pad("peakRSS", 10) +
-      pad("heapAfterGC", 13) +
+      pad("rss", 10) +
+      pad("heapDelta", 13) +
       pad("events", 9) +
       "retained";
     process.stdout.write(header + "\n");
@@ -97,8 +101,8 @@ async function main(): Promise<void> {
       process.stdout.write(
         pad(name, 24) +
           pad(`${metrics.elapsedMs.toFixed(0)}ms`, 10) +
-          pad(formatBytes(metrics.peakRssBytes), 10) +
-          pad(formatBytes(metrics.heapUsedAfterGcBytes), 13) +
+          pad(formatBytes(metrics.rssBytes), 10) +
+          pad(formatBytes(metrics.heapDeltaBytes), 13) +
           pad(String(metrics.eventCount), 9) +
           formatBytes(metrics.retainedBytes) +
           "\n",

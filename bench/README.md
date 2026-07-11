@@ -30,11 +30,27 @@ figures are live samples.
 
 ## Metrics
 
-`elapsed`, `peakRSS`, `heapAfterGC`, `events`, and `retained` (retained
-transcript bytes) per workload. Release budgets live in `budgets.ts`; the
-retained-byte, heap, and minimum-event gates are hard (they sit far below the
-uncapped size, so a broken cap or a leak trips them), while elapsed is a soft
-warning.
+Per workload: `elapsed`, `rss`, `heapDelta`, `events`, and `retained`. Release
+budgets live in `budgets.ts`.
+
+- `events` — hard gate for every workload. For the inference family it counts the
+  events the loop actually yielded; for the transcript family it counts the blocks
+  the state actually built from its events (retained tail plus trimmed count), so a
+  dropped-event regression falls below the floor.
+- `retained` — serialized bytes of the retained artifact. Hard gate for the
+  transcript family, where it measures the serialized capped transcript and a
+  broken cap trips it. For the inference family it is delivered-output size only
+  (report-only, no budget): the loop retains nothing, so it is not a retention
+  gate there.
+- `heapDelta` — hard gate for every workload. Growth in the real JSC/V8 heap,
+  measured after a forced GC while the workload's retained artifact is still
+  referenced, minus a pre-run baseline. Under Bun the figure comes from
+  `bun:jsc` heap stats (Bun's `heapUsed` is a coarse plateau); under
+  `node --expose-gc` it comes from V8 `heapUsed`. A per-workload retention leak
+  shows up here.
+- `rss` — coarse process RSS sampled once after the run. Process-global, shared
+  by every workload, so it is report-only, never gated.
+- `elapsed` — reported; environment-dependent, so it is a soft warning only.
 
 ## Recording before/after for a change
 
@@ -45,7 +61,7 @@ git stash && bun run bench -- --json > /tmp/before.json
 git stash pop && bun run bench -- --json > /tmp/after.json
 ```
 
-Paste the `retained`/`heapAfterGC`/`elapsed` deltas onto the issue.
+Paste the `retained`/`heapDelta`/`elapsed` deltas onto the issue.
 
 ## Capturing comparable CPU and heap profiles
 

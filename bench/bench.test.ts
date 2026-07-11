@@ -22,9 +22,13 @@ describe("performance benchmarks", () => {
         const metrics = await measure(() => workload.run());
 
         expect(metrics.eventCount).toBeGreaterThanOrEqual(budget.minEventCount);
-        expect(metrics.retainedBytes).toBeLessThanOrEqual(budget.maxRetainedBytes);
-        expect(metrics.heapUsedAfterGcBytes).toBeLessThanOrEqual(
-          budget.maxHeapAfterGcBytes,
+        if (budget.maxRetainedBytes !== undefined) {
+          expect(metrics.retainedBytes).toBeLessThanOrEqual(
+            budget.maxRetainedBytes,
+          );
+        }
+        expect(metrics.heapDeltaBytes).toBeLessThanOrEqual(
+          budget.maxHeapDeltaBytes,
         );
       },
       30_000,
