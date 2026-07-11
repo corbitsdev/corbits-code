@@ -927,9 +927,9 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
   });
 
-  test("auto-allows find traversal, including its -o logical OR", () => {
-    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b"))).toBe(true);
+  test("does not auto-allow find (blocked as open-ended search by authz policy)", () => {
+    expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b"))).toBe(false);
   });
 
   test("does not auto-allow find actions that execute, delete, or write", () => {
@@ -960,6 +960,19 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("npm test"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("rm -rf /"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);
+  });
+
+  test("the gate does not auto-allow find without prompting (aligned with authz)", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("find . -name x"));
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(1);
   });
 
   test("the gate allows a safe command without asking, and still prompts for an unsafe one", async () => {
