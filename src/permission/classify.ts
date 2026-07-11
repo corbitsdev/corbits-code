@@ -6,6 +6,7 @@ import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js
 import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
@@ -141,6 +142,16 @@ function argEscapesWorkspace(token: string, realCwd: string): boolean {
   return value !== null && value.length > 0 && escapesWorkspace(value, realCwd);
 }
 
+// Segment-only allowlist check (no authz policy). Used when a pipeline segment is
+// judged in isolation — authz applies to the full command string, not each stage.
+export function isAutoAllowedShellSegment(segment: string, cwd: string = process.cwd()): boolean {
+  const trimmed = segment.trim();
+  if (trimmed.length === 0) return false;
+  if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
+  const realCwd = realpathOr(cwd);
+  return isAutoAllowedSegment(segment, realCwd);
+}
+
 function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
@@ -165,6 +176,8 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
 export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
+  // Never auto-allow a command the authz layer would hard-deny at execution.
+  if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).
   // Pipes are allowed between safe segments — evaluated below.
   if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
