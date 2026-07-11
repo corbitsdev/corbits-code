@@ -144,6 +144,43 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   expect(hasInfer(result)).toBe(true);
 });
 
+function manageTasksTurn(status: "todo" | "doing" | "done"): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "mt", name: "manage_tasks", arguments: { action: "create", tasks: [{ id: "t1", title: "work", status }] } },
+      ],
+      model: "test-model",
+      timestamp: 0,
+    },
+    usage,
+    source: { id: "t", provider: "openai", model: "test-model" },
+  };
+}
+
+// With a workflow active, the workflow stuck-cutoff owns termination. Open tasks
+// must not let the general open-task guard override that cutoff into an endless
+// nudge — the workflow path still hands back after 3 idle turns.
+test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", async () => {
+  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  runtime.start(flow);
+  const coordinator = new WorkflowCoordinator(runtime);
+  const director = createChatDirector("BASE", [], undefined, undefined, undefined, undefined, coordinator);
+  const caps = makeCapabilities();
+
+  await director.decide(manageTasksTurn("doing"), state, caps);
+  await director.decide(textTurn("text 1"), state, caps);
+  await director.decide(textTurn("text 2"), state, caps);
+  await director.decide(textTurn("text 3"), state, caps);
+  const result = await director.decide(textTurn("text 4"), state, caps);
+
+  expect(hasInfer(result)).toBe(false);
+  const actions = Array.isArray(result) ? result : [result];
+  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(true);
+});
+
 test("auto-continuation falls back after 3 consecutive text-only turns", async () => {
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
