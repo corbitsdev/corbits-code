@@ -50,4 +50,12 @@ export const BUDGETS: Record<string, Budget> = {
     maxHeapDeltaBytes: 4 * MB,
     softMaxElapsedMs: 2000,
   },
+  "tool-heavy-streaming-layout": {
+    // 600 cycles land in MAX_RETAINED_BLOCKS trimming, so this floors on the
+    // retained tail plus the trimmed count rather than the raw cycle count.
+    minEventCount: 600,
+    maxRetainedBytes: 2 * MB,
+    maxHeapDeltaBytes: 8 * MB,
+    softMaxElapsedMs: 3000,
+  },
 };

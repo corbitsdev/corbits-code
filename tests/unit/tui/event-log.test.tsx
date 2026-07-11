@@ -3,9 +3,11 @@ import { render } from "ink-testing-library";
 import {
   EventLog,
   buildLines,
+  buildLinesIncremental,
   lineWindow,
   maxLineOffset,
   renderableBlocks,
+  type IncrementalLinesState,
 } from "../../../src/tui/components/event-log.js";
 import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
 import type { ContentBlock, ContentBlockData } from "../../../src/tui/use-stream.js";
@@ -472,4 +474,42 @@ test("lineWindow advances one line per scroll step", () => {
   const w0 = lineWindow(lines, 0, 3);
   const w1 = lineWindow(lines, 1, 3);
   expect(w1.start).toBe(w0.start + 1);
+});
+
+test("buildLinesIncremental reuses the filtered blocks array when contentBlocks is unchanged by reference", () => {
+  // A streamed token mutates the trailing block's content in place rather than
+  // replacing the ContentBlock[] array (see use-stream.ts's contentBlocks
+  // getter), so buildLinesIncremental must skip renderableBlocks().filter()
+  // entirely on that reference match. Re-walking the whole array on every
+  // token is what made per-token layout cost grow with transcript length.
+  const raw: ContentBlock[] = Array.from({ length: 500 }, (_, i) => block({ type: "text", content: `line-${i}` }));
+  const streaming = block({ type: "text", content: "hello " });
+  raw.push(streaming);
+
+  let prev: IncrementalLinesState | undefined;
+  const isExpanded = () => false;
+  prev = buildLinesIncremental(prev, raw, 200, false, isExpanded, undefined, undefined, "k");
+  const firstBlocks = prev.blocks;
+
+  // Mutate the same object already reachable from `raw` — no new array,
+  // matching how a real token delta settles.
+  (streaming as { content: string }).content += "world";
+  prev = buildLinesIncremental(prev, raw, 200, false, isExpanded, undefined, undefined, "k");
+
+  expect(prev.blocks).toBe(firstBlocks);
+  expect(lineText(prev.lines[prev.lines.length - 1]!)).toContain("hello world");
+});
+
+test("buildLinesIncremental re-filters when contentBlocks is a new array reference", () => {
+  const raw: ContentBlock[] = [block({ type: "text", content: "a" })];
+  let prev: IncrementalLinesState | undefined;
+  const isExpanded = () => false;
+  prev = buildLinesIncremental(prev, raw, 200, false, isExpanded, undefined, undefined, "k");
+  const firstBlocks = prev.blocks;
+
+  const grown = [...raw, block({ type: "text", content: "b" })];
+  prev = buildLinesIncremental(prev, grown, 200, false, isExpanded, undefined, undefined, "k");
+
+  expect(prev.blocks).not.toBe(firstBlocks);
+  expect(prev.blocks.length).toBe(2);
 });

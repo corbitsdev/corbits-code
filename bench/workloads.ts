@@ -19,6 +19,7 @@ import {
   type AgentStreamState,
   type ContentBlockData,
 } from "../src/tui/use-stream.js";
+import { buildLinesIncremental, type IncrementalLinesState } from "../src/tui/components/event-log.js";
 import type { WorkloadResult } from "./measure.js";
 import { textDeltaChunks, thinkingDeltaChunks } from "./wire.js";
 
@@ -108,6 +109,12 @@ const HUGE_TOOL_RESULT_CHARS = 4_000_000;
 const TOOL_HEAVY_CYCLES = 400;
 const TOOL_HEAVY_RESULT_CHARS = 2_000;
 const RESUMED_BLOCK_COUNT = 5000;
+
+const LAYOUT_TOOL_CYCLES = 600;
+const LAYOUT_TOOL_RESULT_CHARS = 500;
+const LAYOUT_TOKENS_PER_SAMPLE = 30;
+const LAYOUT_SAMPLE_EARLY_CYCLE = 10;
+const LAYOUT_MAX_LATE_TO_EARLY_RATIO = 8;
 
 export const WORKLOADS: readonly Workload[] = [
   {
@@ -234,6 +241,77 @@ export const WORKLOADS: readonly Workload[] = [
         eventCount: acceptedBlockCount(state),
         retainedBytes: serializedBytes(state.contentBlocks),
         retained: state,
+      };
+    },
+  },
+  {
+    name: "tool-heavy-streaming-layout",
+    family: "transcript",
+    description:
+      `${String(LAYOUT_TOOL_CYCLES)} tool cycles interleaved with streamed text, ` +
+      "asserting per-token layout cost (buildLinesIncremental) stays flat as the transcript grows (CL-3264)",
+    async run() {
+      const state = createAgentStreamState([], () => SOURCE.model, []);
+      let seq = 0;
+      let layout: IncrementalLinesState | undefined;
+      const columns = 100;
+      const isExpanded = () => false;
+
+      // Per-token layout cost sampled at the start and the end of the run. A
+      // regression that re-walks the whole transcript on every token shows up
+      // as the late sample costing far more than the early one; a flat O(1)
+      // path keeps them close regardless of transcript length.
+      let earlyMsPerToken = 0;
+      let lateMsPerToken = 0;
+
+      for (let cycle = 0; cycle < LAYOUT_TOOL_CYCLES; cycle++) {
+        const callId = `call-${String(cycle)}`;
+        state.addEvent(reactorEvent("inference.tool_call.start", { name: "grep", callId }, ++seq));
+        state.addEvent(
+          reactorEvent(
+            "inference.tool_call.end",
+            { name: "grep", callId, arguments: { pattern: `p${String(cycle)}` } },
+            ++seq,
+          ),
+        );
+        state.addEvent(
+          reactorEvent(
+            "tool.done",
+            { result: { callId, content: "r".repeat(LAYOUT_TOOL_RESULT_CHARS), isError: false } },
+            ++seq,
+          ),
+        );
+        layout = buildLinesIncremental(layout, state.contentBlocks, columns, false, isExpanded, undefined, undefined, "k");
+
+        const isSampled = cycle === LAYOUT_SAMPLE_EARLY_CYCLE || cycle === LAYOUT_TOOL_CYCLES - 1;
+        if (!isSampled) continue;
+
+        const start = performance.now();
+        for (let tok = 0; tok < LAYOUT_TOKENS_PER_SAMPLE; tok++) {
+          state.addEvent(reactorEvent("inference.text.delta", { token: "tok " }, ++seq));
+          layout = buildLinesIncremental(layout, state.contentBlocks, columns, false, isExpanded, undefined, undefined, "k");
+        }
+        const msPerToken = (performance.now() - start) / LAYOUT_TOKENS_PER_SAMPLE;
+        if (cycle === LAYOUT_SAMPLE_EARLY_CYCLE) earlyMsPerToken = msPerToken;
+        else lateMsPerToken = msPerToken;
+      }
+
+      // A generous ratio bound (not a tight timing assertion, which would be
+      // flaky) — an O(transcript length) regression grows this ratio roughly
+      // with block count (tens of times over this run's length), while a flat
+      // O(1) path keeps it near 1.
+      const ratio = lateMsPerToken / Math.max(earlyMsPerToken, 0.001);
+      if (ratio > LAYOUT_MAX_LATE_TO_EARLY_RATIO) {
+        throw new Error(
+          `tool-heavy-streaming-layout: late/early per-token layout cost ratio ${ratio.toFixed(1)} ` +
+            `exceeds ${String(LAYOUT_MAX_LATE_TO_EARLY_RATIO)} — per-token layout cost is scaling with transcript length`,
+        );
+      }
+
+      return {
+        eventCount: acceptedBlockCount(state),
+        retainedBytes: serializedBytes(layout?.lines ?? []),
+        retained: { state, layout },
       };
     },
   },

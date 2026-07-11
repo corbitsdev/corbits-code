@@ -830,6 +830,13 @@ export type IncrementalLinesState = {
   layoutKey: string;
   firstRenderedBlockIndex: number;
   hiddenRenderedLineCount: number;
+  // The exact ContentBlock[] reference `blocks` was filtered from. The stream
+  // state getter reuses its snapshot array reference across content-only
+  // mutations (streamed tokens mutate a block in place rather than replacing
+  // the array), so an identical reference here means renderableBlocks/filter
+  // would recompute an identical result — skip it and reuse `blocks` directly
+  // rather than re-walking every block on every streamed token.
+  sourceBlocks: ContentBlock[];
 };
 
 function blockLineCountsFromStarts(blockLineStarts: number[], lineCount: number): number[] {
@@ -964,7 +971,15 @@ export function buildLinesIncremental(
   layoutKey?: string,
   maxRenderedLines: number = DEFAULT_MAX_RENDERED_LOG_LINES,
 ): IncrementalLinesState {
-  const blocks = renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
+  // Streamed tokens mutate the trailing block's content in place rather than
+  // replacing contentBlocks, so the array reference is stable across a whole
+  // burst of token deltas. Reusing prev's filtered result on a reference match
+  // skips re-walking every block on every token, which is what kept this
+  // O(transcript length) per streamed token instead of O(1).
+  const blocks =
+    prev !== undefined && prev.sourceBlocks === contentBlocks
+      ? prev.blocks
+      : renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
   // Prune stale cache entries only when blocks were removed (cache has more
   // entries than active blocks). During streaming only the tail changes, so
   // this skips the O(cache+n) scan on every frame.
@@ -1077,6 +1092,7 @@ export function buildLinesIncremental(
     layoutKey: key,
     firstRenderedBlockIndex: trimmed.firstRenderedBlockIndex,
     hiddenRenderedLineCount: trimmed.hiddenRenderedLineCount,
+    sourceBlocks: contentBlocks,
   };
 }
 
