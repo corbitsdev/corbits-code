@@ -1,11 +1,17 @@
 import type { EventEmitter } from "node:events";
+import { join } from "node:path";
 import type { ToolDefinition } from "@intx/types/runtime";
 
+import { sessionDir } from "../session/index.js";
 import { CAPABILITIES, detectCapabilities, type CapabilityMap } from "../workflows/capabilities.js";
 import { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { findWorkflow, WORKFLOWS } from "../workflows/index.js";
 import { WorkflowRuntime } from "../workflows/runtime.js";
-import { saveWorkflowState, loadWorkflowState } from "../workflows/state.js";
+import {
+  loadWorkflowState,
+  saveWorkflowState,
+  warnWorkflowPersistenceFailure,
+} from "../workflows/state.js";
 import type { CapabilityName, StepStatus, Workflow } from "../workflows/types.js";
 import type { WorkflowEvent } from "../workflows/runtime.js";
 
@@ -109,7 +115,14 @@ export class WorkflowController {
   private persist(): void {
     const runtime = this.runtime;
     if (runtime === undefined) return;
-    void saveWorkflowState(this.args.cwd, this.args.getSessionId(), runtime.state()).catch(() => undefined);
+    const sessionId = this.args.getSessionId();
+    void saveWorkflowState(this.args.cwd, sessionId, runtime.state()).catch((err: unknown) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      warnWorkflowPersistenceFailure(
+        join(sessionDir(this.args.cwd, sessionId), "workflow.json"),
+        reason,
+      );
+    });
   }
 
   private attach(workflow: Workflow): void {
