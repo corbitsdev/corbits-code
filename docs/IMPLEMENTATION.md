@@ -68,7 +68,7 @@ bin/
 src/
   index.ts                CLI entry: verbs, dispatch, help
   agent/
-    director.ts           CodingDirector + ChatDirector; director-layer tool defs
+    director.ts           ChatDirector; director-layer tool defs
     prompts.ts            System prompt builders (agent + chat)
     critic.ts             Post-submit critique (build, typecheck, test)
     tools.ts              Agent tool registration helpers
@@ -77,7 +77,7 @@ src/
     run-agent.ts          Headless runner: tools, director, hooks, critique
   session/
     index.ts              Session lifecycle (was session.ts)
-    state.ts              RunState / DirectorPersistedState JSON save/load
+    state.ts              RunState JSON save/load
     compactor.ts          Context compactor (was context-compactor.ts)
     summarizer.ts         Model-backed structured compaction summary (+ deterministic fallback)
     run-sink.ts           Run-level event sink
@@ -116,7 +116,6 @@ src/
     verify-plugin.ts           Write/edit verification (per-path lock)
     file-mutation-lock.ts      Serialize mutations per file for verify
     lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
-    re-read-block-plugin.ts    Block redundant re-reads
   tui/
     app.tsx               Root full-screen layout
     runner.tsx            Chat-mode agent setup + Ink render (alt-screen)
@@ -262,7 +261,6 @@ Positional arguments are joined into the task description. In headless mode a ta
 ### State Persistence
 
 - `.agent-state/run.json` — `RunState`
-- `.agent-state/director.json` — `DirectorPersistedState`
 - `.agent-state/context/` — git-backed conversation context (`@intx/storage-isogit`)
 - Atomic JSON writes with schema validation on load
 
