@@ -14,6 +14,12 @@ export const TaskSchema = type({
 });
 export type Task = typeof TaskSchema.infer;
 
+// A task list has active work while any task is still todo or doing. Terminal
+// tasks (done/cancelled) are resolved, so an all-terminal list is finished.
+export function hasActiveTasks(tasks: Task[]): boolean {
+  return tasks.some((t) => t.status !== "done" && t.status !== "cancelled");
+}
+
 // `create` overwrites the list; `update` patches individual tasks by id.
 // One multi-purpose tool keeps the schema surface small.
 const ManageTasksArgsSchema = type({
