@@ -4,7 +4,7 @@ import {
   classifyTool,
   buildRequests,
   isAutoAllowedShellCall,
-  isAutoAllowedShellCommand,
+  isAutoAllowedShellSegment,
   callTargetsRestricted,
   commandTargetsRestricted,
 } from "./classify.js";
@@ -158,7 +158,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       // segment. Skip prompting for any segment that auto-allows on its own.
       if (
         request.tool === "run_shell" &&
-        isAutoAllowedShellCommand(request.subject, cwd) &&
+        isAutoAllowedShellSegment(request.subject, cwd) &&
         !commandTargetsRestricted(request.subject, isRestricted)
       ) {
         continue;
