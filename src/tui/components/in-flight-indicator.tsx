@@ -26,7 +26,7 @@ export type InFlightIndicatorProps = {
 
 // Ink draws to the terminal — there is no CSS @keyframes. This hook is the
 // lightest equivalent: one small subtree repaints on SPINNER_FRAME_MS, not App.
-function useInFlightVisuals(active: boolean, timingAnchor: number | null): { frame: string; elapsedMs: number } {
+export function useInFlightVisuals(active: boolean, timingAnchor: number | null): { frame: string; elapsedMs: number } {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!active) return undefined;
