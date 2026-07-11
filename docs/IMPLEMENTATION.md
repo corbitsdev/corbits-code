@@ -1,6 +1,6 @@
 # Intercode — Implementation
 
-Package version: **0.2.5**. CLI binary: `intercode` (`./dist/index.js`).
+Package version: **0.2.35**. CLI binary: `intercode` (`./dist/index.js`).
 
 ## Runtime
 
@@ -70,11 +70,9 @@ src/
   agent/
     director.ts           ChatDirector; director-layer tool defs
     prompts.ts            System prompt builders (agent + chat)
-    critic.ts             Post-submit critique (build, typecheck, test)
     tools.ts              Agent tool registration helpers
     agent-search.ts       search_agents tool + profile lexical index
-    renderer.ts           Headless event-stream renderer (stderr + live cost)
-    run-agent.ts          Headless runner: tools, director, hooks, critique
+    renderer.ts           Event-stream renderer (stderr + live cost; used by tests/utilities)
   session/
     index.ts              Session lifecycle (was session.ts)
     state.ts              RunState JSON save/load
@@ -84,8 +82,8 @@ src/
     stream-consumer.ts    Async stream consumer with error handling
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
   subagent/
-    index.ts              Subagent creation (was subagent.ts)
-    inject.ts             Mid-run message injection queue (was mid-run-inject.ts)
+    index.ts              Sub-agent spawn + SubAgentDirector
+    session-store.ts      Retained child session transcripts for observe UI
   config/
     index.ts              Config resolution (settings files + flags) (was config.ts)
     settings.ts           Settings schema, validators, loaders, resolveProvider
@@ -165,7 +163,7 @@ Token event batching in `use-stream.ts`: `TOKEN_EVENTS` (`inference.text.delta`,
 
 ## Configuration
 
-### Settings Files (`src/settings.ts`)
+### Settings Files (`src/config/settings.ts`)
 
 Provider and model configuration lives in JSON settings files. The global file holds provider definitions and API keys; the per-repo file selects among them and must not contain credentials.
 
@@ -239,13 +237,13 @@ Providers and credentials are read exclusively from settings files: the global `
 | `--config <path>` | `~/.intercode/settings.json` | Settings file to use |
 | `--provider <name>` | from settings | Select a configured provider |
 | `--model <id>` | provider default | Select a model for the active provider |
-| `--headless`, `-h` | false | Headless CLI mode (default is the TUI) |
+
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
 | `--no-workflow` | false | Deprecated no-op; workflows are manual slash commands only |
 | `--help` | — | Show help |
 
-Positional arguments are joined into the task description. In headless mode a task is required.
+Positional arguments are joined into the optional initial task delivered when the TUI mounts. With no positional task, the operator starts from an empty prompt.
 
 ### Agent Source
 
@@ -291,8 +289,7 @@ session; that tree re-write is inherent to git and left as residual cost.
 - `inference.error` / `reactor.error` — parse/inference and fatal errors
 - `reactor.done` — loop completion
 
-The TUI `EventEmitter` (bridging runner → React) also carries:
-- `"mid-run.delivered"` — emitted by `runner.tsx` after a queued mid-run message is delivered to the agent; `app.tsx` listens to increment the badge count
+Mid-run queue steering is entirely in `app.tsx`: `queuedCount` tracks `pendingQueueRef` depth; the input chrome shows `N queued · Enter steer · Alt+Enter queue` while processing.
 
 ### Lifecycle Hooks
 
@@ -313,7 +310,7 @@ See `docs/PLUGINS.md` for the full design. Summary:
 
 - Every installable plugin exports a `manifest` (`{ id, name, kind, description?, credentials? }`) with `kind` one of `web | command | tool`. A workflow is just a slash command, so there is no separate workflow/agent kind.
 - Plugins are auto-discovered from `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path. Discovery resolves relative imports to absolute first (`loadPluginEntry`).
-- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `web` → `resolveWebProviderFromPlugins` picks the active backend (`settings.web` id override, else the single enabled web plugin); web is plugin-only, so when none resolves (or a plugin fails to start) `web_search`/`web_fetch` are left unregistered rather than falling back to a built-in fetcher; `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset in `run-agent.ts`/`tools.ts`.
+- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `web` → `resolveWebProviderFromPlugins` picks the active backend (`settings.web` id override, else the single enabled web plugin); web is plugin-only, so when none resolves (or a plugin fails to start) `web_search`/`web_fetch` are left unregistered rather than falling back to a built-in fetcher; `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.tsx` (via `tools.ts` helpers).
 - **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
 - Configure via `/plugins`, which writes `settings.plugins` (enabled / consented / credentials), `settings.web`, and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. When a web plugin is active its tool calls render under its brand (e.g. "Exa Search"). Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
 
@@ -330,8 +327,9 @@ Run all three before declaring work complete.
 ## Testing
 
 - **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `renderer.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`).
-- **Integration / e2e** use the `@intx/inference-testing` harness with deterministic SSE responses to assert real tool sequences (`read_file` → `write_file` → `run_shell` → `submit_output`) and that critique passes.
-- **Fixtures** live under `tests/fixtures/` (e.g. `demo-comparison/` for side-by-side comparison runs).
+- **`tests/unit/`** holds shared unit helpers and focused packages (e.g. TUI geometry tests).
+- **`tests/fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`).
+- **`tests/integration/` and `tests/e2e/`** are named in `AGENTS.md` as the intended homes for agent-loop and fixture-repo tests; those directories are not in the tree yet. Until they exist, harness coverage lives in co-located `*.test.ts` files and `tests/unit/`.
 - **TUI tests** use `ink-testing-library` with mock `EventEmitter`s to simulate real-time event streams; they verify stream-hook accumulation, event-log formatting/filtering, keyboard handling, and cost formatting.
 
 ## Deployment

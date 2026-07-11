@@ -95,9 +95,11 @@ needed.
 OAuth tokens are written to:
 
 ```text
-~/.intercode/mcp-auth/<server>.json
+~/.intercode/mcp-auth/<slug>.json
 ```
 
-Tokens never appear in `settings.json`. The settings file holds only the URL;
-the secret material is isolated in the per-server auth file. Removing that file
-forces re-authorization on the next connect.
+The file basename is a **slug** derived from the MCP server `name` in settings:
+non-alphanumeric characters (other than `_` and `-`) become `_`, so a display name
+like `my/org` persists as `my_org.json`. Tokens never appear in `settings.json`.
+The settings file holds only the URL; secret material stays in the per-server auth
+file. Removing that file forces re-authorization on the next connect.
