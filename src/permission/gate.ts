@@ -14,12 +14,23 @@ import { createPathRestriction } from "./path-restriction.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
-// In auto mode the only non-shell tools that auto-allow without an operator
-// prompt. Auto mode exists to run these built-in file mutations unattended;
-// every other consequential tool — unknown built-ins and all MCP tools, which
-// may be destructive (mcp__*__delete_*, remove_service) — routes through the
-// normal ask path instead of being blanket-allowed.
-const AUTO_ALLOWED_TOOLS = new Set(["write_file", "edit_file"]);
+// In auto mode these non-shell built-in tools auto-allow without an operator
+// prompt: file mutations plus the benign built-ins that a hands-off run should
+// not stop for. Reads auto-allow via their own path and run_shell via the shell
+// policy. Everything else — ask_operator (itself an interrupt), unknown
+// built-ins, and all MCP tools, which may be destructive
+// (mcp__*__delete_*, remove_service) — routes through the normal ask path
+// rather than being blanket-allowed.
+const AUTO_ALLOWED_TOOLS = new Set([
+  "write_file",
+  "edit_file",
+  "manage_tasks",
+  "present",
+  "tool_search",
+  "use_skill",
+  "search_agents",
+  "task",
+]);
 
 export type PermissionGateOptions = {
   // Approvals already remembered for this directory. Used only to SEED the gate;
