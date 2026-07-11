@@ -25,6 +25,6 @@ export interface WebProvider {
 //   empty-but-ok -> empty WebResult[] (isError: false)
 //   error        -> isError: true, content prefixed with "Error:"
 //
-// The director's isSuccessfulToolResult treats any content starting with
-// "Error:" as failure regardless of the isError flag, so we never emit a
-// string starting with "Error:" on success paths.
+// Downstream consumers treat any content starting with "Error:" as failure
+// regardless of the isError flag, so we never emit a string starting with
+// "Error:" on success paths.

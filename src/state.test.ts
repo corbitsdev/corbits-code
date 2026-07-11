@@ -5,10 +5,7 @@ import { join } from "node:path";
 import {
   saveState,
   loadState,
-  saveDirectorState,
-  loadDirectorState,
   type RunState,
-  type DirectorPersistedState,
 } from "./session/state.js";
 
 const SESSION_ID = "test-session-001";
@@ -22,15 +19,6 @@ const baseRunState: RunState = {
   turnsUsed: 3,
   task: "Fix the login bug",
   startedAt: 1_700_000_000_000,
-};
-
-const baseDirectorState: DirectorPersistedState = {
-  turnsUsed: 3,
-  submitCalled: false,
-  callIdToName: { "call-1": "readFile", "call-2": "writeFile" },
-  idleCycles: 0,
-  tasks: [{ id: "t1", title: "Fix login bug", status: "doing" as const }],
-  filesRead: [{ path: "src/login.ts", turn: 1 }],
 };
 
 describe("state persistence", () => {
@@ -65,23 +53,12 @@ describe("state persistence", () => {
     expect(loaded).toEqual(state);
   });
 
-  test("saveDirectorState then loadDirectorState returns an equal DirectorPersistedState", async () => {
-    await saveDirectorState(cwd, SESSION_ID, baseDirectorState);
-    const loaded = await loadDirectorState(cwd, SESSION_ID);
-    expect(loaded).toEqual(baseDirectorState);
-  });
-
   // ---------------------------------------------------------------------------
   // 2. Missing file returns null (ENOENT mapped, no throw)
   // ---------------------------------------------------------------------------
 
   test("loadState on missing file returns null", async () => {
     const result = await loadState(cwd, "nonexistent-session");
-    expect(result).toBeNull();
-  });
-
-  test("loadDirectorState on missing file returns null", async () => {
-    const result = await loadDirectorState(cwd, "nonexistent-session");
     expect(result).toBeNull();
   });
 
@@ -98,16 +75,6 @@ describe("state persistence", () => {
     await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
 
     const result = await loadState(cwd, SESSION_ID);
-    expect(result).toBeNull();
-  });
-
-  test("loadDirectorState with truncated JSON returns null instead of throwing", async () => {
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
-    const { mkdir } = await import("node:fs/promises");
-    await mkdir(stateDir, { recursive: true });
-    await writeFile(join(stateDir, "director.json"), '{ "turnsUsed": ');
-
-    const result = await loadDirectorState(cwd, SESSION_ID);
     expect(result).toBeNull();
   });
 
@@ -128,25 +95,6 @@ describe("state persistence", () => {
     expect(result).toBeNull();
   });
 
-  test("loadDirectorState with turnsUsed as string returns null", async () => {
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
-    const { mkdir } = await import("node:fs/promises");
-    await mkdir(stateDir, { recursive: true });
-    await writeFile(
-      join(stateDir, "director.json"),
-      JSON.stringify({
-        turnsUsed: "not-a-number",
-        submitCalled: false,
-        callIdToName: {},
-        idleCycles: 0,
-        tasks: [],
-      }),
-    );
-
-    const result = await loadDirectorState(cwd, SESSION_ID);
-    expect(result).toBeNull();
-  });
-
   // ---------------------------------------------------------------------------
   // 5. Atomic write: saveState uses temp+rename
   //    BUG: saveState called writeFile directly to the final path, so a process
@@ -161,15 +109,6 @@ describe("state persistence", () => {
 
   test("saveState leaves no .tmp file after successful write", async () => {
     await saveState(cwd, SESSION_ID, baseRunState);
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
-    const { readdir } = await import("node:fs/promises");
-    const files = await readdir(stateDir);
-    const temps = files.filter((f) => f.includes(".tmp"));
-    expect(temps).toHaveLength(0);
-  });
-
-  test("saveDirectorState leaves no .tmp file after successful write", async () => {
-    await saveDirectorState(cwd, SESSION_ID, baseDirectorState);
     const stateDir = join(cwd, ".agent-state", SESSION_ID);
     const { readdir } = await import("node:fs/promises");
     const files = await readdir(stateDir);
@@ -196,29 +135,4 @@ describe("state persistence", () => {
     expect(JSON.parse(raw)).toEqual(baseRunState);
   });
 
-  // ---------------------------------------------------------------------------
-  // 6. Director state reconstruction: missing newer fields apply defaults
-  // ---------------------------------------------------------------------------
-
-  test("loadDirectorState with missing filesRead field still returns valid state", async () => {
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
-    const { mkdir } = await import("node:fs/promises");
-    await mkdir(stateDir, { recursive: true });
-
-    // Write a state object that omits the optional filesRead field.
-    const minimal = {
-      turnsUsed: 1,
-      submitCalled: false,
-      callIdToName: {},
-      idleCycles: 0,
-      tasks: [],
-    };
-    await writeFile(join(stateDir, "director.json"), JSON.stringify(minimal));
-
-    const loaded = await loadDirectorState(cwd, SESSION_ID);
-    // filesRead is optional in the type — the validator accepts its absence.
-    expect(loaded).not.toBeNull();
-    expect(loaded!.turnsUsed).toBe(1);
-    expect(loaded!.filesRead).toBeUndefined();
-  });
 });

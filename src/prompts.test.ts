@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { createCodingDirector, submitOutputDefinition } from "./agent/director.js";
+import { createChatDirector, submitOutputDefinition } from "./agent/director.js";
 import { manageTasksDefinition } from "./agent/tasks.js";
 import {
   buildActiveContext,
@@ -15,9 +15,9 @@ import {
 
 const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
 
-test("buildChatSystemPrompt wires into createCodingDirector without error", () => {
+test("buildChatSystemPrompt wires into createChatDirector without error", () => {
   const prompt = buildChatSystemPrompt();
-  expect(() => createCodingDirector(prompt, minimalToolDefinitions)).not.toThrow();
+  expect(() => createChatDirector(prompt, minimalToolDefinitions)).not.toThrow();
 });
 
 test("chat prompt orders base, then tools, then context", () => {
