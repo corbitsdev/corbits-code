@@ -1,5 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector, createCodingDirector } from "./agent/director.js";
+import { createAgentToolset } from "./agent/tools.js";
+import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
 
@@ -407,8 +409,21 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     infer: (opts) => ({ type: "infer", options: opts } as unknown as ReactorAction),
   };
   const lateTool = { name: "mcp__acme__list_issues", description: "list", inputSchema: { type: "object" } };
+  const inferToolNames = (action: Record<string, unknown> | undefined): string[] => {
+    const tools = (action?.options as Record<string, unknown> | undefined)?.tools;
+    return Array.isArray(tools) ? tools.map((t) => (t as { name: string }).name) : [];
+  };
+
   const inferTools = (action: Record<string, unknown> | undefined): unknown =>
     (action?.options as Record<string, unknown> | undefined)?.tools;
+  const firstInferTools = async (
+    director: ReturnType<typeof createChatDirector>,
+    event: ReactorInboundEvent,
+  ): Promise<unknown> => {
+    const result = await director.decide(event, mockState, capabilitiesWithInferArgs);
+    const actions = Array.isArray(result) ? result : [result];
+    return inferTools(actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined);
+  };
 
   test("a tool registered after construction is advertised on the next inference", async () => {
     const director = createChatDirector("base-prompt", []);
@@ -418,7 +433,40 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
-    expect(inferTools(inferAction)).toEqual([lateTool]);
+    expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
+  });
+
+  // The provider cache is a prefix cache keyed on the tools array; a tool_search
+  // between turns must not reshape it.
+  test("wire tools are byte-identical across a turn that ran tool_search", async () => {
+    const director = createChatDirector("base-prompt", [lateTool]);
+
+    const before = await firstInferTools(director, makeMessageReceivedEvent("do work"));
+
+    // A full tool_search round-trip: the model calls it, it resolves. Under the
+    // stable-superset design this promotes nothing, so the advertised set is
+    // untouched.
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "ts", name: "tool_search", args: { query: "find files" } }]),
+      mockState,
+      capabilitiesWithInferArgs,
+    );
+    await director.decide(makeToolDoneEvent("ts"), mockState, capabilitiesWithInferArgs);
+
+    const after = await firstInferTools(director, makeMessageReceivedEvent("continue"));
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+  });
+
+  // advance_workflow is always on the wire so a workflow going active never grows
+  // the array and busts the provider cache prefix.
+  test("advance_workflow is advertised even with no active workflow", async () => {
+    const director = createChatDirector("base-prompt", []);
+    director.updateToolDefinitions([lateTool]);
+
+    const result = await director.decide(makeMessageReceivedEvent("hello"), mockState, capabilitiesWithInferArgs);
+    const actions = Array.isArray(result) ? result : [result];
+    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    expect(inferToolNames(inferAction)).toContain("advance_workflow");
   });
 
   test("the new-task path also carries the current tools", async () => {
@@ -430,7 +478,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
-    expect(inferTools(inferAction)).toEqual([lateTool]);
+    expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
   });
 });
 
@@ -458,5 +506,35 @@ describe("consecutive reads are not capped", () => {
       );
       expect(aborted).toBe(false);
     }
+  });
+});
+
+describe("advance_workflow handler", () => {
+  const buildToolset = (isWorkflowActive: () => boolean) =>
+    createAgentToolset({
+      cwd: process.cwd(),
+      permissionGate: createPermissionGate({ approvals: [], interactive: false, skipPermissions: true }),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+      isWorkflowActive,
+    });
+
+  const runAdvance = async (toolset: Awaited<ReturnType<typeof createAgentToolset>>) => {
+    const result = await toolset.dynamicRunner.run(
+      { id: "aw", name: "advance_workflow", arguments: {} },
+      new AbortController().signal,
+    );
+    await toolset.dispose();
+    return String(result.content);
+  };
+
+  test("reports an honest no-op when no workflow is active", async () => {
+    const content = await runAdvance(await buildToolset(() => false));
+    expect(content).toContain("No active workflow");
+    expect(content).not.toContain("Advancing");
+  });
+
+  test("acknowledges advancement when a workflow is active", async () => {
+    const content = await runAdvance(await buildToolset(() => true));
+    expect(content).toContain("Advancing to the next step");
   });
 });
