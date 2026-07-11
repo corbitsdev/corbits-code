@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
@@ -7,6 +8,7 @@ import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
+import { listWorktreeRoots } from "./worktrees.js";
 import type { Approval, PermissionRequest } from "./types.js";
 
 const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
@@ -1154,5 +1156,106 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: target } });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
+  });
+
+  test("a symlink inside the workspace that points outside still asks", async () => {
+    const base = mkdtempSync(join(tmpdir(), "intercode-symlink-"));
+    const workspace = join(base, "ws");
+    const outside = join(base, "outside");
+    mkdirSync(workspace);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.txt"), "secret");
+    symlinkSync(outside, join(workspace, "link"));
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: workspace,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: join(workspace, "link", "secret.txt") },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("a sibling directory sharing the workspace path as a prefix still asks", async () => {
+    const base = mkdtempSync(join(tmpdir(), "intercode-prefix-"));
+    const workspace = join(base, "repo");
+    const evil = join(base, "repo-evil");
+    mkdirSync(workspace);
+    mkdirSync(evil);
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: workspace,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: join(evil, "payload.ts") },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+});
+
+describe("listWorktreeRoots", () => {
+  const git = (cwd: string, ...args: string[]): void => {
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+  };
+
+  const createRepoWithWorktree = (): { repo: string; worktree: string } => {
+    const base = mkdtempSync(join(tmpdir(), "intercode-git-"));
+    const repo = join(base, "repo");
+    const worktree = join(base, "secondary");
+    mkdirSync(repo);
+    git(repo, "init", "-b", "main");
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init");
+    git(repo, "worktree", "add", worktree);
+    return { repo, worktree };
+  };
+
+  test("discovers registered worktrees and excludes the cwd itself", async () => {
+    const { repo, worktree } = createRepoWithWorktree();
+    const roots = await listWorktreeRoots(repo);
+    expect(roots).toContain(realpathSync(worktree));
+    expect(roots).not.toContain(realpathSync(repo));
+  });
+
+  test("returns no roots outside a git repo", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "intercode-nogit-"));
+    expect(await listWorktreeRoots(dir)).toEqual([]);
+  });
+
+  test("a write into a discovered secondary worktree is auto-allowed", async () => {
+    const { repo, worktree } = createRepoWithWorktree();
+    const roots = await listWorktreeRoots(repo);
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: repo,
+      worktreeRoots: roots,
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: join(worktree, "notes.md") },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
   });
 });
