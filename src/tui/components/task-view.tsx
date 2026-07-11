@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { Task, TaskStatus } from "../../agent/tasks.js";
+import { hasActiveTasks, type Task, type TaskStatus } from "../../agent/tasks.js";
 import { color } from "../theme.js";
 
 export type TaskViewProps = {
@@ -16,13 +16,12 @@ const GLYPH: Record<TaskStatus, string> = {
 };
 
 export function TaskView({ tasks, compact, title = "Tasks" }: TaskViewProps) {
-  if (tasks.length === 0) return null;
+  if (!hasActiveTasks(tasks)) return null;
 
   const sorted = [...tasks].sort(byPriority);
 
   if (compact) {
     const active = sorted.filter((t) => t.status !== "done" && t.status !== "cancelled");
-    if (active.length === 0) return null;
     const doing = active.find((t) => t.status === "doing");
     const current = doing ?? active[0]!;
     const remaining = active.length - 1;

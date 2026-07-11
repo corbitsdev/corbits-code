@@ -27,4 +27,14 @@ describe("TaskView", () => {
 
     expect(lastFrame()).toBe("");
   });
+
+  test("removes the whole block when every task is terminal, in both views", () => {
+    const terminalTasks: Task[] = [
+      { id: "done", title: "Completed task", status: "done" },
+      { id: "cancelled", title: "Cancelled task", status: "cancelled" },
+    ];
+
+    expect(render(<TaskView tasks={terminalTasks} compact />).lastFrame()).toBe("");
+    expect(render(<TaskView tasks={terminalTasks} />).lastFrame()).toBe("");
+  });
 });

@@ -1,4 +1,5 @@
 import { DefaultDirector } from "@intx/inference";
+import { getLogger } from "@intx/log";
 import type {
   ReactorDirector,
   ReactorInboundEvent,
@@ -14,10 +15,38 @@ import {
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
 import { type } from "arktype";
-import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
+import { applyManageTasks, hasActiveTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 import { createIntercodeRetryPolicy } from "./retry-policy.js";
 
 const RETRY_POLICY = createIntercodeRetryPolicy();
+
+const logger = getLogger(["intercode", "agent", "director"]);
+
+// A terminal decision with tasks still open means the work was not finished or
+// not marked finished. Rather than idle there, the director re-infers with a
+// nudge a bounded number of times, then logs the invariant breach and lets the
+// session end. The declined-path budget does not reset on tool calls: a
+// declined tool naturally produces another tool call, so a resetting counter
+// would never converge (see the operator-declined branch).
+const MAX_OPEN_TASK_NUDGES = 3;
+const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
+
+const IDLE_OPEN_TASK_NUDGE =
+  "\n\nYou are ending your turn while tasks are still open (todo/doing). " +
+  "Finish the remaining work and mark each task done or cancelled with " +
+  "manage_tasks before ending, or continue working with tools.";
+
+const WORKFLOW_OPEN_TASK_NUDGE =
+  "\n\nYou are ending your turn while tasks are still open (todo/doing) and a " +
+  "workflow step is active. Continue working with tools, call advance_workflow " +
+  "once the step is complete, or mark finished tasks done with manage_tasks. " +
+  "Do not end your turn with tasks still open.";
+
+const DECLINED_OPEN_TASK_NUDGE =
+  "\n\nThe operator declined the tool call. Do not retry the declined action. " +
+  "Some tasks are still open (todo/doing): either take a different approach " +
+  "that does not need the declined action, or mark those tasks cancelled with " +
+  "manage_tasks. Do not end your turn with tasks still open.";
 
 const PathArgSchema = type({ path: "string" });
 
@@ -229,6 +258,8 @@ class ChatDirectorImpl extends DefaultDirector {
   private totalTimeoutMs: number | undefined;
   private workflowCoordinator: WorkflowCoordinator | undefined;
   private workflowIdleTurns = 0;
+  private idleTerminationNudges = 0;
+  private declinedTerminationNudges = 0;
   private lastInferenceTurnHadContent = false;
   private operatorJustResponded = false;
   private tasks: Task[] = [];
@@ -272,6 +303,19 @@ class ChatDirectorImpl extends DefaultDirector {
 
   getTasks(): Task[] {
     return [...this.tasks];
+  }
+
+  private openTaskIds(): string[] {
+    return this.tasks
+      .filter((t) => t.status === "todo" || t.status === "doing")
+      .map((t) => t.id);
+  }
+
+  private logTerminationWithOpenTasks(path: string): void {
+    logger.error(
+      "Director reached a terminal decision on {path} with open tasks: {openTasks}",
+      { path, openTasks: this.openTaskIds() },
+    );
   }
 
   private withCurrentTools(
@@ -363,6 +407,9 @@ class ChatDirectorImpl extends DefaultDirector {
         (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
+      // Real tool work is progress, so it clears the idle-termination budget;
+      // only consecutive content-free terminal attempts count toward the cap.
+      if (hasToolCalls) this.idleTerminationNudges = 0;
       if (this.workflowCoordinator?.isActive()) {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
@@ -411,9 +458,26 @@ class ChatDirectorImpl extends DefaultDirector {
       if (!event.result.isError) this.onActivateTools?.(["lsp"]);
     }
 
+    // A successful tool is progress, so it clears the declined-termination
+    // budget. Declines are error results and never reach here, so a run of
+    // repeated declines still converges on the cap.
+    if (event.type === "tool.done" && event.result.isError !== true) {
+      this.declinedTerminationNudges = 0;
+    }
+
     if (event.type === "tool.done" && isOperatorDeclinedToolResult(event.result)) {
       if (operatorDeclinedHasMessage(event.result)) {
         return super.decide(event, state, capabilities);
+      }
+      if (hasActiveTasks(this.tasks)) {
+        if (this.declinedTerminationNudges < MAX_DECLINED_OPEN_TASK_NUDGES) {
+          this.declinedTerminationNudges++;
+          return [
+            capabilities.checkpoint("operator-declined"),
+            capabilities.infer({ systemPrompt: `${this._systemPrompt}${DECLINED_OPEN_TASK_NUDGE}` }),
+          ];
+        }
+        this.logTerminationWithOpenTasks("operator-declined");
       }
       return [
         capabilities.checkpoint("operator-declined"),
@@ -442,6 +506,7 @@ class ChatDirectorImpl extends DefaultDirector {
           return base;
         }
         if (this.workflowIdleTurns >= 3) {
+          if (hasActiveTasks(this.tasks)) this.logTerminationWithOpenTasks("workflow-idle-stall");
           return [
             capabilities.reply(
               "The workflow appears stuck on this step. Send a message to continue or advance manually.",
@@ -457,6 +522,32 @@ class ChatDirectorImpl extends DefaultDirector {
             a.type !== "wait" && a.type !== "reply",
         );
         return [...passThrough, capabilities.infer({ systemPrompt })];
+      }
+    }
+
+    // A workflow gate step is a legitimate pause for operator approval, so
+    // yielding there with open tasks is not an invariant breach — leave it to
+    // the workflow runtime and do not nudge.
+    const atWorkflowGate =
+      coordinator?.isActive() === true && coordinator.currentStepIsGate();
+    if (!atWorkflowGate && hasActiveTasks(this.tasks)) {
+      const hasTerminal = baseActions.some((a) => a.type === "wait" || a.type === "reply");
+      if (hasTerminal) {
+        if (this.idleTerminationNudges < MAX_OPEN_TASK_NUDGES) {
+          this.idleTerminationNudges++;
+          const passThrough = baseActions.filter(
+            (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
+              a.type !== "wait" && a.type !== "reply",
+          );
+          // Inside a workflow the terminal action is advance_workflow, so point
+          // the nudge at it rather than the general manage_tasks guidance.
+          const nudge = coordinator?.isActive() === true ? WORKFLOW_OPEN_TASK_NUDGE : IDLE_OPEN_TASK_NUDGE;
+          return [
+            ...passThrough,
+            capabilities.infer({ systemPrompt: `${this._systemPrompt}${nudge}` }),
+          ];
+        }
+        this.logTerminationWithOpenTasks("idle-stall");
       }
     }
 
