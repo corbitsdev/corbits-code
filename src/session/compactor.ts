@@ -328,6 +328,25 @@ function isPlainTextTurn(turn: ConversationTurn): boolean {
   return !turn.content.some((b) => b.type === "tool_call" || b.type === "tool_result");
 }
 
+const IMAGE_AGED_PLACEHOLDER =
+  "[image attachment omitted — it was shown in full in an earlier turn]";
+
+// A pasted image (e.g. a screenshot) is embedded as a full base64 payload in
+// the turn it arrives in and stays there verbatim until something removes
+// it -- otherwise it is resent, byte for byte, on every subsequent inference
+// call for the rest of the session. Once a turn carrying an image has aged
+// past the recent window (i.e. it survives compaction only as an anchor, or
+// is the initiating task turn), replace the image content with a compact
+// text placeholder. Non-image blocks in the turn are left untouched so text
+// instructions that referenced the image still read coherently.
+function ageImageBlocks(turn: ConversationTurn): ConversationTurn {
+  if (!turn.content.some((b) => b.type === "image")) return turn;
+  const content = turn.content.map((block): ConversationTurn["content"][number] =>
+    block.type === "image" ? { type: "text", text: IMAGE_AGED_PLACEHOLDER } : block,
+  );
+  return { ...turn, content };
+}
+
 // Merge each adjacent same-role turn whose later half is plain text into the
 // turn before it. Pulling anchors out of the middle of the history and
 // prepending the summary turn can place two same-role turns next to each
@@ -443,9 +462,20 @@ export function createPruningCompactor(
       const process = (t: ConversationTurn): ConversationTurn =>
         cfg.stripResultContent ? stripTurnResults(t, callIndex) : t;
 
+      // Anchors are, by construction, older than the recent window -- age
+      // out any images they carry (e.g. the initiating task's pasted
+      // screenshot, kept forever via firstUserTurnIndex). Recent turns are
+      // left untouched so an image pasted in the last few turns still
+      // renders for the model that needs it.
+      const processAnchor = (t: ConversationTurn): ConversationTurn =>
+        ageImageBlocks(process(t));
+      const agedImageCount = anchorTurns.filter((t) =>
+        t.content.some((b) => b.type === "image"),
+      ).length;
+
       const output = coalesceAdjacentTextTurns([
         summaryTurn,
-        ...anchorTurns.map(process),
+        ...anchorTurns.map(processAnchor),
         ...recentTurns.map(process),
       ]);
 
@@ -466,6 +496,7 @@ export function createPruningCompactor(
             anchorTurnCount: anchorTurns.length,
             recentTurnCount: recentTurns.length,
             summaryLength: summary.length,
+            agedImageCount,
           },
         },
       };
