@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  activeStripSessions,
   agentsStripRowCount,
   DEFAULT_STRIP_MAX_VISIBLE,
 } from "../../../src/tui/components/agents-strip.js";
+import type {
+  SubAgentSession,
+  SubAgentSessionStatus,
+} from "../../../src/subagent/session-store.js";
 
 describe("agentsStripRowCount", () => {
   test("no sessions reserves no rows", () => {
@@ -20,5 +25,33 @@ describe("agentsStripRowCount", () => {
     expect(agentsStripRowCount(20, DEFAULT_STRIP_MAX_VISIBLE)).toBe(
       1 + DEFAULT_STRIP_MAX_VISIBLE + 1,
     );
+  });
+});
+
+describe("activeStripSessions", () => {
+  const session = (id: string, status: SubAgentSessionStatus): SubAgentSession => ({
+    id,
+    description: id,
+    agentId: "agent",
+    brief: "",
+    status,
+    toolNames: [],
+    currentToolName: null,
+    entries: [],
+    startedAt: 0,
+  });
+
+  test("keeps only running sessions, dropping done and failed", () => {
+    const sessions = [
+      session("live", "running"),
+      session("finished", "done"),
+      session("broke", "failed"),
+    ];
+
+    expect(activeStripSessions(sessions).map((s) => s.id)).toEqual(["live"]);
+  });
+
+  test("returns nothing once every session is terminal", () => {
+    expect(activeStripSessions([session("a", "done"), session("b", "failed")])).toEqual([]);
   });
 });
