@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector } from "./agent/director.js";
 import { createAgentToolset } from "./agent/tools.js";
+import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search.js";
 import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
@@ -439,6 +440,66 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const actions = Array.isArray(result) ? result : [result];
     const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
     expect(inferToolNames(inferAction)).toContain("advance_workflow");
+  });
+
+  // End-to-end: tool_search matches an MCP tool, the runner's promote wiring
+  // (mirrored here via createActivatedToolTracker + updateToolDefinitions) grows
+  // the wire set once with the tool's full definition, and it then holds steady.
+  // This is the CL-3294 fix — on a strict provider, a model can only call a tool
+  // that was actually declared on the wire, so promotion must land here.
+  test("a tool_search match is on the wire on the next turn, then the array holds stable", async () => {
+    const linearTool = {
+      name: "mcp__linear__list_issues",
+      description: "list issues",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    };
+    const toolset = await createAgentToolset({
+      cwd: process.cwd(),
+      permissionGate: createPermissionGate({ approvals: [], interactive: false, skipPermissions: true }),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+    });
+    toolset.dynamicRunner.addTools([
+      { kind: "string", definition: linearTool, handler: async () => "ok" },
+    ]);
+
+    const activated = createActivatedToolTracker();
+    const computeAdvertised = (all: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>) =>
+      advertisedTools(all, activated.list());
+    const director = createChatDirector(
+      "base-prompt",
+      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+    );
+
+    // Before discovery: the MCP tool is registered (dispatchable) but not wired.
+    const before = await firstInferTools(director, makeMessageReceivedEvent("hello"));
+    const beforeNames = (before as Array<{ name: string }>).map((t) => t.name);
+    expect(beforeNames).not.toContain("mcp__linear__list_issues");
+    const beforeJson = JSON.stringify(before);
+
+    // Simulate the runner's promoteTools: tool_search matched this tool, so it
+    // is activated and the director's tool set is updated for the next infer.
+    activated.activate(["mcp__linear__list_issues"]);
+    director.updateToolDefinitions(computeAdvertised(toolset.dynamicRunner.currentDefinitions()));
+
+    const after = await firstInferTools(director, makeMessageReceivedEvent("continue"));
+    const afterTools = after as Array<{ name: string }>;
+    const afterNames = afterTools.map((t) => t.name);
+    expect(afterNames).toContain("mcp__linear__list_issues");
+    // advance_workflow rides along separately (see withCurrentTools), appended
+    // after computeAdvertised's result every turn — strip it before comparing
+    // the fixed built-in prefix, which must survive untouched ahead of the
+    // newly appended MCP tool.
+    const beforePrefix = beforeNames.filter((n) => n !== "advance_workflow");
+    const afterPrefix = afterNames.filter((n) => n !== "advance_workflow" && n !== "mcp__linear__list_issues");
+    expect(afterPrefix).toEqual(beforePrefix);
+    expect(afterNames.indexOf("mcp__linear__list_issues")).toBe(beforePrefix.length);
+
+    // A further turn with no new discovery stays byte-identical to `after`.
+    const stable = await firstInferTools(director, makeMessageReceivedEvent("keep going"));
+    expect(JSON.stringify(stable)).toBe(JSON.stringify(after));
+    expect(JSON.stringify(after)).not.toBe(beforeJson);
+
+    await toolset.dispose();
   });
 
   test("the new-task path also carries the current tools", async () => {
