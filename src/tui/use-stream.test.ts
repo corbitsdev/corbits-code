@@ -416,6 +416,50 @@ describe("createAgentStreamState", () => {
     expect(state.isProcessing).toBe(false);
   });
 
+  test("requestStop finalizes an in-flight tool_call so it stops rendering as running", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-live", name: "run_shell" }));
+
+    // The call has no result yet — it would spin forever if the abort left it be.
+    expect(state.contentBlocks.some((b) => b.type === "tool_result" && b.callId === "call-live")).toBe(false);
+
+    state.requestStop();
+
+    const result = state.contentBlocks.find((b) => b.type === "tool_result" && b.callId === "call-live");
+    expect(result?.type).toBe("tool_result");
+    expect(result?.type === "tool_result" && result.isError).toBe(true);
+    // Every tool_call now has a matching result: nothing is left pending.
+    const calls = state.contentBlocks.filter((b) => b.type === "tool_call");
+    for (const call of calls) {
+      const callId = call.type === "tool_call" ? (call.callId ?? call.id) : "";
+      expect(state.contentBlocks.some((b) => b.type === "tool_result" && b.callId === callId)).toBe(true);
+    }
+  });
+
+  test("reactor.error finalizes an outstanding tool_call", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-err", name: "read_file" }));
+    state.addEvent(event("reactor.error", { fatal: true, error: "boom" }));
+
+    expect(state.status).toBe("failed");
+    expect(state.contentBlocks.some((b) => b.type === "tool_result" && b.callId === "call-err")).toBe(true);
+  });
+
+  test("finalizing does not double-resolve a call that already completed", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.tool_call.start", { callId: "call-done", name: "read_file" }));
+    state.addEvent(event("tool.done", { result: { callId: "call-done", content: "ok", isError: false } }));
+
+    state.requestStop();
+
+    const results = state.contentBlocks.filter((b) => b.type === "tool_result" && b.callId === "call-done");
+    expect(results).toHaveLength(1);
+    expect(results[0]?.type === "tool_result" && results[0].isError).toBe(false);
+  });
+
   test("latestUserMessageLogged is true after message.received and resets on clear", () => {
     const state = createAgentStreamState();
 

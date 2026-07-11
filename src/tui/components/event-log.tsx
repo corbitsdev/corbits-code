@@ -32,6 +32,12 @@ const EXPANDED_TOOL_RESULT_LINE_LIMIT = 200;
 // text draws the eye and tools read as subordinate actions.
 const TOOL_INDENT = 2;
 
+// A pending row bakes no elapsed text, but RunningToolRow appends a live
+// ` · <elapsed>` clock outside the wrap budget. Shrink the pending wrap width by
+// this reserve so the appended clock never spills past the content column and
+// forces Ink to wrap the row onto an extra line. Covers ` · 59m 59s`.
+const RUNNING_ELAPSED_RESERVE = 10;
+
 function formatToolDurationMs(ms: number): string {
   if (ms < 50) return "";
   return ` · ${(ms / 1000).toFixed(1)}s`;
@@ -400,6 +406,12 @@ function toolCallLines(
   // A pending row bakes no duration text; its live spinner and elapsed clock are
   // painted by the running-row component from the startedAt marker instead.
   const durationSuffix = meta?.pending ? "" : (meta?.durationSuffix ?? "");
+  // The running-row component appends a live ` · <elapsed>` clock after the baked
+  // headline. Shrink the headline wrap budget by that reserve so the appended
+  // clock never spills past the content column and forces Ink onto an extra row.
+  // Shell rows append their suffix after clamping (like completed shell rows), so
+  // their row count is unaffected and needs no reserve here.
+  const headlineWidth = meta?.pending ? Math.max(8, width - RUNNING_ELAPSED_RESERVE) : width;
 
   if (isShell) {
     const rows = expanded ? shellLines(full, roleColor, width) : clampedShellLines(summary, roleColor, width);
@@ -410,7 +422,7 @@ function toolCallLines(
     const headline = wrapStyledLine([
       { text: "● ", color: roleColor },
       { text: `${display}${durationSuffix}`, color: roleColor },
-    ], width);
+    ], headlineWidth);
     const edit = editDiffFromArgs(block.name, block.arguments);
     if (edit !== null) {
       // write_file replaces a whole file, so collapse its unchanged context;
@@ -436,7 +448,7 @@ function toolCallLines(
       { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
-    width,
+    headlineWidth,
   );
 }
 
