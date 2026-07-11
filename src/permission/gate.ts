@@ -141,7 +141,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // and falls through to the operator prompt below. Everything else is
         // safe: authz and secret-guard have already hard-denied destructive
         // commands and credential reads upstream.
-        const shellRule = autoShellRuleForCall(call);
+        const shellRule = autoShellRuleForCall(call, isRestricted);
         if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
         if (shellRule === undefined) return { allowed: true };
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
