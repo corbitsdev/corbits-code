@@ -86,7 +86,7 @@ import {
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, renameSession, sessionContextDir, sessionDir } from "../session/index.js";
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
-import { loadState, saveState, type RunState } from "../session/state.js";
+import { loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";
@@ -170,6 +170,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   let workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
+
+  // A session can still crash during the setup below, before the reactor ever
+  // starts (buildAgent, plugin discovery, MCP wiring, etc. all run first). Write
+  // a minimal readable record now so a session that dies before its first turn
+  // still carries model identity instead of leaving `.agent-state/<id>/` with no
+  // run.json at all.
+  await saveState(config.cwd, sessionId, {
+    status: "running",
+    turnsUsed: 0,
+    task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+    startedAt,
+    model: `${config.providerName}:${config.model}`,
+    mcpServers: [],
+  });
+
   const emitter = createTUIEventEmitter();
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
@@ -181,6 +196,28 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     runError = err instanceof Error ? err.message : String(err);
   };
 
+  // Crash guard: if setup or the reactor throws all the way out of runTUI
+  // instead of reaching the normal finalize block, this still closes out
+  // run.json so status and finishedAt never disagree. `finalized` is set by
+  // the normal finalize path so this never double-writes on a clean exit.
+  let finalized = false;
+  const finalizeOnCrash = async (err: unknown): Promise<void> => {
+    if (finalized) return;
+    finalized = true;
+    const message = err instanceof Error ? err.message : String(err);
+    await saveState(config.cwd, sessionId, {
+      status: "failed",
+      turnsUsed: 0,
+      task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+      startedAt,
+      finishedAt: Date.now(),
+      error: message,
+      model: `${config.providerName}:${config.model}`,
+      mcpServers: [],
+    }).catch(() => undefined);
+  };
+
+  try {
   const activeProviderModel = `${config.providerName}:${config.model}`;
   const sessionApprovals = await loadApprovals(config.cwd, sessionId);
   const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
@@ -679,6 +716,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   const runSink = createRunSink({ emitter, hookManager });
 
+  // MCP servers connected so far, keyed by name so a reconnect after a failure
+  // replaces rather than duplicates the entry.
+  let connectedMcpServers: ConnectedMcpServer[] = [];
+
   const persistRunSnapshot = async (
     status: RunState["status"],
     extra?: Pick<RunState, "finishedAt" | "error">,
@@ -688,6 +729,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       turnsUsed: runSink.getTurnCollector().getTurnCount(),
       task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
       startedAt,
+      model: `${liveSource.id}:${liveSource.model}`,
+      mcpServers: connectedMcpServers,
       ...extra,
     });
   };
@@ -830,6 +873,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       liveSources = [source];
       liveDefaultSource = source.id;
       setAgentSourceUnlessClosed(currentAgent, source);
+      void persistRunSnapshot("running");
     },
     setSources: (sources, defaultSource) => {
       currentAgent.setSources(sources, defaultSource);
@@ -843,6 +887,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         activeXaiSource = xaiProfile !== undefined ? { profile: xaiProfile, source: head } : undefined;
         liveSource = head;
       }
+      void persistRunSnapshot("running");
     },
     history: () => currentAgent.history(),
     checkpoints: (limit) => currentAgent.checkpoints(limit),
@@ -1032,7 +1077,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   void toolset
     .connectMCP(
       {
-        onStatus: (status) => emitter.emit("mcp.status", status),
+        onStatus: (status) => {
+          emitter.emit("mcp.status", status);
+          if (status.state === "connected") {
+            connectedMcpServers = [
+              ...connectedMcpServers.filter((s) => s.name !== status.name),
+              { name: status.name, toolCount: status.tools.length },
+            ];
+            void persistRunSnapshot("running");
+          }
+        },
         // MCP tools register for dispatch but stay unadvertised (blind) until
         // tool_search promotes them, so a fresh connection never grows the wire
         // set on its own — only a subsequent discovery does.
@@ -1068,8 +1122,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const turnCollector = runSink.getTurnCollector();
   const sinkError = runSink.getRunError();
   const summaryStatus = runSink.getStatus();
-  const persistedStatus: RunState["status"] =
-    summaryStatus === "failed" ? "failed" : summaryStatus === "done" ? "done" : "running";
+  // RunSummary's status ("done" | "failed" | "cancelled") maps directly onto
+  // RunState's terminal statuses — no fallback to "running" here, otherwise a
+  // finished run (finishedAt set) can be left reading as still in progress.
+  const persistedStatus: RunState["status"] = summaryStatus;
+  finalized = true;
   await persistRunSnapshot(persistedStatus, {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),
@@ -1104,4 +1161,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     sinkError,
     status: runSink.getStatus(),
   });
+  } catch (err) {
+    await finalizeOnCrash(err);
+    throw err;
+  }
 }

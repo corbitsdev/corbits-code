@@ -135,4 +135,64 @@ describe("state persistence", () => {
     expect(JSON.parse(raw)).toEqual(baseRunState);
   });
 
+  // ---------------------------------------------------------------------------
+  // 6. Identity fields: model and mcpServers round-trip and validate
+  // ---------------------------------------------------------------------------
+
+  test("saveState round-trips model and mcpServers", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      model: "openai:gpt-5",
+      mcpServers: [
+        { name: "linear", toolCount: 12 },
+        { name: "railway", toolCount: 4 },
+      ],
+    };
+    await saveState(cwd, SESSION_ID, state);
+    const loaded = await loadState(cwd, SESSION_ID);
+    expect(loaded).toEqual(state);
+  });
+
+  test("loadState accepts a record with no model or mcpServers (pre-existing sessions)", async () => {
+    await saveState(cwd, SESSION_ID, baseRunState);
+    const loaded = await loadState(cwd, SESSION_ID);
+    expect(loaded?.model).toBeUndefined();
+    expect(loaded?.mcpServers).toBeUndefined();
+  });
+
+  test("loadState rejects a mcpServers entry missing toolCount", async () => {
+    const stateDir = join(cwd, ".agent-state", SESSION_ID);
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(
+      join(stateDir, "run.json"),
+      JSON.stringify({
+        status: "running",
+        turnsUsed: 0,
+        task: "x",
+        startedAt: 0,
+        mcpServers: [{ name: "linear" }],
+      }),
+    );
+
+    const result = await loadState(cwd, SESSION_ID);
+    expect(result).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 7. "cancelled" is a valid terminal status distinct from "running"
+  // ---------------------------------------------------------------------------
+
+  test("saveState round-trips a cancelled status with finishedAt set", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      status: "cancelled",
+      finishedAt: 1_700_000_010_000,
+    };
+    await saveState(cwd, SESSION_ID, state);
+    const loaded = await loadState(cwd, SESSION_ID);
+    expect(loaded).toEqual(state);
+    expect(loaded?.status).not.toBe("running");
+  });
+
 });
