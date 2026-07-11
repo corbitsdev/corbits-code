@@ -54,7 +54,7 @@ import { buildMainSessionSources } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { listWorktreeRoots } from "../permission/worktrees.js";
+import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
@@ -234,11 +234,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...globalApprovals,
     ...providerModelApprovals,
   ];
-  const worktreeRoots = await listWorktreeRoots(config.cwd);
   const permissionGate = createPermissionGate({
     approvals: seededApprovals,
     cwd: config.cwd,
-    worktreeRoots,
+    rootsProvider: createWorktreeRootsProvider(config.cwd),
     providerName: config.providerName,
     model: config.model,
     requestApproval: (request) =>
