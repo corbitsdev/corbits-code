@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isLocalSettings, normalizeMcpServers } from "../../src/config/settings.js";
-import { createMCPPlugin } from "../../src/mcp/plugin.js";
+import { createMCPPlugin, mcpClientToAgentTools } from "../../src/mcp/plugin.js";
+import { createPermissionGate } from "../../src/permission/gate.js";
 import { loadAuthState, saveAuthState } from "../../src/mcp/auth-store.js";
 import { createOAuthProvider } from "../../src/mcp/oauth-provider.js";
 import { createDynamicToolRunner } from "../../src/tui/dynamic-tool-runner.js";
@@ -107,45 +108,35 @@ describe("isLocalSettings with mcpServers", () => {
   });
 });
 
-describe("createMCPPlugin", () => {
-  function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
-    return {
-      serverName,
-      tools: toolNames.map((name) => ({
-        name,
-        description: `${name} tool`,
-        inputSchema: { type: "object", properties: {} },
-      })),
-      async call() {
-        return "result";
-      },
-      async close() {},
-    };
-  }
+function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
+  return {
+    serverName,
+    tools: toolNames.map((name) => ({
+      name,
+      description: `${name} tool`,
+      inputSchema: { type: "object", properties: {} },
+    })),
+    async call() {
+      return "result";
+    },
+    async close() {},
+  };
+}
 
+describe("mcpClientToAgentTools (production gated path)", () => {
   test("namespaces tools as mcp__<server>__<tool>", () => {
     const client = makeFakeClient("acme", ["list_issues", "create_issue"]);
-    const { plugin } = createMCPPlugin([client]);
-    const names = plugin.tools!.map((t) => t.definition.name);
-    expect(names).toEqual(["mcp__acme__list_issues", "mcp__acme__create_issue"]);
+    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    gate.registerMcpClient(client);
+    const tools = mcpClientToAgentTools(client, gate);
+    expect(tools.map((t) => t.definition.name)).toEqual(["mcp__acme__list_issues", "mcp__acme__create_issue"]);
   });
 
   test("prefixes description with server name", () => {
     const client = makeFakeClient("github", ["search_repos"]);
-    const { plugin } = createMCPPlugin([client]);
-    expect(plugin.tools![0]!.definition.description).toBe("[github] search_repos tool");
-  });
-
-  test("returns connectedServers for all clients", () => {
-    const clients = [makeFakeClient("a", ["t1"]), makeFakeClient("b", ["t2"])];
-    const { connectedServers } = createMCPPlugin(clients);
-    expect(connectedServers).toEqual(["a", "b"]);
-  });
-
-  test("returns empty tools and servers for empty client list", () => {
-    const { plugin, connectedServers } = createMCPPlugin([]);
-    expect(plugin.tools).toEqual([]);
-    expect(connectedServers).toEqual([]);
+    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const tools = mcpClientToAgentTools(client, gate);
+    expect(tools[0]!.definition.description).toBe("[github] search_repos tool");
   });
 
   test("tool handler returns call result", async () => {
@@ -163,8 +154,8 @@ describe("createMCPPlugin", () => {
       async close() {},
     };
 
-    const { plugin } = createMCPPlugin([client]);
-    const tool = plugin.tools![0]!;
+    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const tool = mcpClientToAgentTools(client, gate)[0]!;
     const result = await tool.handler(
       { id: "c1", name: "mcp__myserver__do_thing", arguments: { x: 1 } },
       new AbortController().signal,
@@ -186,8 +177,8 @@ describe("createMCPPlugin", () => {
       async close() {},
     };
 
-    const { plugin } = createMCPPlugin([client]);
-    const tool = plugin.tools![0]!;
+    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+    const tool = mcpClientToAgentTools(client, gate)[0]!;
     const result = await tool.handler(
       { id: "c1", name: "mcp__srv__fail", arguments: {} },
       new AbortController().signal,
@@ -195,6 +186,43 @@ describe("createMCPPlugin", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toBe("server error");
+  });
+
+  test("permission gate blocks mutating MCP when not skipped", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+    });
+    const client = makeFakeClient("acme", ["save_issue"]);
+    gate.registerMcpClient(client);
+    const tool = mcpClientToAgentTools(client, gate)[0]!;
+    const result = await tool.handler(
+      { id: "c1", name: "mcp__acme__save_issue", arguments: { id: "X-1" } },
+      new AbortController().signal,
+    );
+    expect(asked).toBe(1);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Blocked by permission policy");
+  });
+});
+
+describe("createMCPPlugin (posix runner legacy)", () => {
+  test("returns connectedServers for all clients", () => {
+    const clients = [makeFakeClient("a", ["t1"]), makeFakeClient("b", ["t2"])];
+    const { connectedServers } = createMCPPlugin(clients);
+    expect(connectedServers).toEqual(["a", "b"]);
+  });
+
+  test("returns empty tools and servers for empty client list", () => {
+    const { plugin, connectedServers } = createMCPPlugin([]);
+    expect(plugin.tools).toEqual([]);
+    expect(connectedServers).toEqual([]);
   });
 });
 
