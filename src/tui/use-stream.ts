@@ -109,6 +109,11 @@ export type AgentStreamState = {
   clear(): void;
 };
 
+// Inference error categories the reactor recovers from on its own — a retry is
+// coming or the user aborted — so they must not terminally fail the run or
+// finalize its in-flight tool calls.
+const NON_TERMINAL_INFERENCE_CATEGORIES = new Set(["retryable", "aborted"]);
+
 // This is display-only state; the agent context is retained separately. Keep the
 // TUI tail bounded so long tool-heavy runs do not stall every streaming render.
 const MAX_RETAINED_BLOCKS = 600;
@@ -992,10 +997,23 @@ export function createAgentStreamState(
       }
 
       if (event.type === "reactor.error" || event.type === "inference.error") {
-        status = "failed";
-        finishedAt = Date.now();
-        awaitingResponse = false;
-        finalizeOutstandingToolCalls();
+        // Only a terminal error ends the run. A reactor.error carries an explicit
+        // fatal flag; a retryable/aborted inference error is transient and the
+        // reactor will retry, so flipping to "failed" and synthesizing aborted
+        // results for in-flight tool calls would wrongly settle a run that is
+        // about to resume.
+        const terminal =
+          event.type === "reactor.error"
+            ? (event.data as { fatal: boolean }).fatal === true
+            : !NON_TERMINAL_INFERENCE_CATEGORIES.has(
+                (event.data as { error: { category: string } }).error.category,
+              );
+        if (terminal) {
+          status = "failed";
+          finishedAt = Date.now();
+          awaitingResponse = false;
+          finalizeOutstandingToolCalls();
+        }
       }
     },
     addHookEvent(event: LifecycleHookEvent): void {
