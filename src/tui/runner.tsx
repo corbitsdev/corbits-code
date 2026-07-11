@@ -38,10 +38,7 @@ import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsF
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
-import { setModelReasoningCapabilities } from "../provider/reasoning-effort.js";
-import { setModelContextWindows } from "../provider/context-window.js";
-import { loadPricing, readPricingCache } from "../cost/pricing-fetcher.js";
-import { setActivePricingCache } from "../cost/cost-visibility.js";
+import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { advertisedTools, createActivatedToolTracker } from "../agent/tool-search.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
@@ -145,22 +142,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   registerWorkflowPlugins(pluginModules, pluginConfig);
   registerCommandPlugins(pluginModules, pluginConfig);
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
-  // Seed reasoning capabilities from the cached models.dev metadata so the
-  // /agent effort selector can gate non-reasoning models immediately, then
-  // refresh from the network in the background (updates the cache for next run).
-  const cachedPricing = await readPricingCache();
-  setModelReasoningCapabilities(cachedPricing?.reasoning ?? {});
-  setModelContextWindows(cachedPricing?.contextWindows);
-  setActivePricingCache(cachedPricing);
-  void loadPricing()
-    .then((cache) => {
-      if (cache !== null) {
-        setModelReasoningCapabilities(cache.reasoning ?? {});
-        setModelContextWindows(cache.contextWindows);
-        setActivePricingCache(cache);
-      }
-    })
-    .catch(() => undefined);
+  // loadConfig already bootstrapped pricing metadata for this cwd; re-read cache
+  // here so a TUI-only entry (tests) still picks up the project cache path.
+  await seedPricingMetadataFromCache({
+    cachePath: join(config.cwd, ".cache", "models-pricing.json"),
+  });
   let sessionId = config.sessionId;
   let resumeSkipInitialTask = config.skipInitialTask === true;
   let startedAt = Date.now();
