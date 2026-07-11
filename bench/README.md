@@ -27,6 +27,7 @@ figures are live samples.
 | `large-tool-results` | transcript | tool-result byte caps (CL-3262) |
 | `resumed-session` | transcript | retained-block cap on hydration (CL-3262) |
 | `tool-heavy-transcript` | transcript | retention under many tool cycles (CL-3261) |
+| `tool-heavy-streaming-layout` | transcript | per-token `buildLinesIncremental` layout cost staying flat as the transcript grows (CL-3264) |
 
 ## Metrics
 
