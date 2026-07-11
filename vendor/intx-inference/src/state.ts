@@ -43,6 +43,10 @@ export function createStateManager(
   initialUsage: TokenUsage,
 ) {
   let turns: ConversationTurn[] = initialTurns.map(deepFreeze);
+  // Monotonic counter bumped whenever `turns` changes. Persistence compares it
+  // against the revision it last wrote so an unchanged history is never
+  // re-serialized on a checkpoint (INFERENCE.md § Cycle boundary commit).
+  let turnsRevision = 0;
   const pendingOperations = new Map<string, PendingOperation>(
     initialOps.map((op) => [op.correlationId, op]),
   );
@@ -54,10 +58,12 @@ export function createStateManager(
 
   function appendTurn(msg: ConversationTurn): void {
     turns.push(deepFreeze(msg));
+    turnsRevision += 1;
   }
 
   function replaceTurns(next: ConversationTurn[]): void {
     turns = next.map(deepFreeze);
+    turnsRevision += 1;
   }
 
   function addPendingOperation(op: PendingOperation): void {
@@ -101,6 +107,10 @@ export function createStateManager(
     return turns;
   }
 
+  function getTurnsRevision(): number {
+    return turnsRevision;
+  }
+
   function getPendingOperations(): PendingOperation[] {
     return Array.from(pendingOperations.values());
   }
@@ -110,12 +120,22 @@ export function createStateManager(
   }
 
   function snapshot(): ReactorState {
+    // `turns` is a lazy, memoized getter: high-frequency events (tool.done,
+    // inference.error) reach directors that never inspect it, so paying an
+    // O(history) copy on every decision would make per-event cost scale with
+    // session length. Deferring to first access keeps those decisions cheap.
+    //
+    // The remaining collections are small, so they are copied eagerly here to
+    // stay true point-in-time snapshots: a mutation between snapshot() and a
+    // later read must not leak into the view. Only `turns` trades that guarantee
+    // for the perf win, and its elements are deep-frozen at append, so a
+    // deferred read still cannot observe a mutated turn.
+    let turnsView: ConversationTurn[] | undefined;
     return {
       sessionId,
-      // Turns are deep-frozen at append, so the snapshot shares their
-      // references. Deep-cloning here made every director decision
-      // O(total history) — O(n^2) over a session.
-      turns: turns.slice(),
+      get turns() {
+        return (turnsView ??= turns.slice());
+      },
       pendingOperations: Array.from(pendingOperations.values()).map((op) => ({
         ...op,
       })),
@@ -143,6 +163,7 @@ export function createStateManager(
     addFork,
     removeFork,
     getTurns,
+    getTurnsRevision,
     getPendingOperations,
     getTokenUsage,
     snapshot,
