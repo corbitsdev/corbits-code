@@ -430,6 +430,16 @@ export function createAgentStreamState(
   // cycle's settled blocks.
   let attemptStartBlockIndex: number | null = null;
   let attemptStartCallIds: Set<string> = new Set();
+  // A cycle can also terminate in inference.error with no inference.done
+  // (user abort, fatal, exhausted failover). The boundary must not stay
+  // armed across that terminal error — a later cycle's pre-commit harness
+  // retry would splice away the aborted partial and anything rendered since,
+  // including user messages. But the reactor's committed-retry path emits
+  // its inference.retry immediately after the failed attempt's
+  // inference.error, and that retry must still retract. So inference.error
+  // hands the armed boundary off here; only an immediately-following
+  // inference.retry consumes it, and any other event clears it.
+  let errorRollbackHandoff: { blockIndex: number; callIds: Set<string> } | null = null;
   // Tool call ids that already produced a tool_result block in the current
   // cycle. Index-based providers synthesize callIds that are only unique
   // within one cycle (e.g. "0", "1"), so deduping re-emitted tool.done
@@ -678,6 +688,7 @@ export function createAgentStreamState(
       openCallId = null;
       attemptStartBlockIndex = null;
       attemptStartCallIds = new Set();
+      errorRollbackHandoff = null;
       resolvedCallIds = new Set();
       activityTick = 0;
       lastActivityAt = Date.now();
@@ -703,6 +714,11 @@ export function createAgentStreamState(
       // handlers that read the last block's content or arguments never see a
       // half-drained buffer.
       if (!STREAM_DELTA_TYPES.has(event.type)) flushPending();
+      // The handoff only survives from an inference.error to the very next
+      // event; consume it here so any event other than inference.retry
+      // (a user message, the next cycle's start, ...) discards it.
+      const precedingErrorRollback = event.type === "inference.retry" ? errorRollbackHandoff : null;
+      errorRollbackHandoff = null;
       switch (event.type) {
         case "message.received": {
           const data = event.data as { message: { content?: string; attachments?: Array<{ name: string; contentType: string }> } };
@@ -712,6 +728,9 @@ export function createAgentStreamState(
             ? `\n[Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}: ${attachments.map((att) => att.name).join(", ")}]`
             : "";
           const full = `${content}${attachmentText}`;
+          // The rollback boundary must never straddle a user block: any
+          // later retry retracting across it would erase the user's message.
+          attemptStartBlockIndex = null;
           ensureUserBlock(full);
           break;
         }
@@ -722,6 +741,13 @@ export function createAgentStreamState(
           break;
         }
         case "inference.retry": {
+          // A retry directly after a terminal inference.error is the
+          // reactor's committed-retry: re-arm from the handoff so the
+          // failed attempt (and its rendered error line) is retracted.
+          if (attemptStartBlockIndex === null && precedingErrorRollback !== null) {
+            attemptStartBlockIndex = precedingErrorRollback.blockIndex;
+            attemptStartCallIds = precedingErrorRollback.callIds;
+          }
           if (attemptStartBlockIndex !== null) {
             spliceBlocks(attemptStartBlockIndex, contentBlocks.length - attemptStartBlockIndex);
             for (const callId of callIdToName.keys()) {
@@ -1005,6 +1031,13 @@ export function createAgentStreamState(
           break;
         }
         case "inference.error": {
+          // Terminal for this attempt: disarm the boundary so it cannot leak
+          // into a later cycle, but hand it off in case the reactor follows
+          // up immediately with a committed-retry inference.retry.
+          if (attemptStartBlockIndex !== null) {
+            errorRollbackHandoff = { blockIndex: attemptStartBlockIndex, callIds: attemptStartCallIds };
+            attemptStartBlockIndex = null;
+          }
           const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
           const friendly: Record<string, string> = {
             // The App opens the OAuth re-login modal on this category; keep the
