@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
@@ -16,6 +16,15 @@ function realpathOr(path: string): string {
   }
 }
 
+function parseWorktreePorcelain(stdout: string, cwd: string): string[] {
+  const roots: string[] = [];
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("worktree ")) roots.push(realpathOr(resolve(line.slice("worktree ".length).trim())));
+  }
+  const self = realpathOr(resolve(cwd));
+  return roots.filter((root) => root !== self);
+}
+
 // The repo's registered git worktree roots, so the permission gate can treat
 // every worktree of this session's repo as inside the workspace boundary. Git
 // owns the registry, so we ask `git worktree list` rather than scanning the
@@ -24,13 +33,58 @@ function realpathOr(path: string): string {
 export async function listWorktreeRoots(cwd: string): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd });
-    const roots: string[] = [];
-    for (const line of stdout.split("\n")) {
-      if (line.startsWith("worktree ")) roots.push(realpathOr(resolve(line.slice("worktree ".length).trim())));
-    }
-    const self = realpathOr(resolve(cwd));
-    return roots.filter((root) => root !== self);
+    return parseWorktreePorcelain(stdout, cwd);
   } catch {
     return [];
   }
+}
+
+// Synchronous counterpart used by the path-restriction check, which is itself
+// synchronous end-to-end (classify.ts/gate.ts call isRestricted without
+// awaiting). Same semantics as listWorktreeRoots, just blocking.
+export function listWorktreeRootsSync(cwd: string): string[] {
+  try {
+    const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
+    return parseWorktreePorcelain(stdout, cwd);
+  } catch {
+    return [];
+  }
+}
+
+// Called with no argument to read the current best-known roots, or with
+// `true` to ask for a refresh before reading. A refresh request only actually
+// re-lists when the debounce window has elapsed since the last one — so a
+// burst of refresh requests (e.g. several foreign-path checks in a row)
+// shells out to git at most once per window.
+export type RootsProvider = (forceRefresh?: boolean) => readonly string[];
+
+const DEFAULT_DEBOUNCE_MS = 3000;
+
+// Builds a RootsProvider for `cwd`. The listing is lazy: nothing runs until
+// the first read, since most permission checks never leave cwd and should
+// never pay for a `git worktree list` call. `lister` is injectable so tests
+// can spy on/replace the underlying git call without shelling out for real.
+export function createWorktreeRootsProvider(
+  cwd: string,
+  lister: (cwd: string) => string[] = listWorktreeRootsSync,
+  debounceMs: number = DEFAULT_DEBOUNCE_MS,
+): RootsProvider {
+  let roots: string[] | undefined;
+  let lastRefreshAt = -Infinity;
+
+  return (forceRefresh = false): readonly string[] => {
+    if (roots === undefined) {
+      roots = lister(cwd);
+      lastRefreshAt = Date.now();
+      return roots;
+    }
+    if (forceRefresh) {
+      const now = Date.now();
+      if (now - lastRefreshAt >= debounceMs) {
+        lastRefreshAt = now;
+        roots = lister(cwd);
+      }
+    }
+    return roots;
+  };
 }
