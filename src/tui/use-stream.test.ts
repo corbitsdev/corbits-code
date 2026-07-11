@@ -699,6 +699,44 @@ describe("turnsToContentBlocks", () => {
     expect(result?.type === "tool_result" && result.isError).toBe(true);
   });
 
+  test("collapses submit_plan and manage_tasks into plan and tasks blocks on resume", () => {
+    const turns: ConversationTurn[] = [{
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id: "plan-1",
+          name: "submit_plan",
+          arguments: { steps: [{ file: "src/a.ts", action: "edit" }] },
+        },
+        { type: "tool_result", callId: "plan-1", content: "ok", isError: false },
+        {
+          type: "tool_call",
+          id: "tasks-1",
+          name: "manage_tasks",
+          arguments: { action: "create", tasks: [{ id: "t1", title: "Ship fix" }] },
+        },
+        { type: "tool_result", callId: "tasks-1", content: "ok", isError: false },
+      ],
+      model: "test",
+      timestamp: 0,
+    }];
+
+    const blocks = turnsToContentBlocks(turns);
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "submit_plan")).toBe(false);
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+    const plan = blocks.find((b) => b.type === "plan");
+    expect(plan?.type === "plan" && plan.steps).toEqual([{ file: "src/a.ts", action: "edit" }]);
+    const taskBlock = blocks.find((b) => b.type === "tasks");
+    expect(taskBlock?.type === "tasks" && taskBlock.tasks).toEqual([
+      { id: "t1", title: "Ship fix", status: "todo" },
+    ]);
+
+    const state = createAgentStreamState();
+    state.hydrateHistory(blocks);
+    expect(state.tasks).toEqual([{ id: "t1", title: "Ship fix", status: "todo" }]);
+  });
+
   test("caps stringified tool results and arguments from a resume transcript", () => {
     const turns: ConversationTurn[] = [{
       role: "assistant",

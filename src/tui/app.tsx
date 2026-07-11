@@ -1758,6 +1758,7 @@ export function App({
           pendingOperator={gates.pendingOperator}
           onSelectOperator={gates.selectOperator}
           pendingPermission={gates.pendingPermission}
+          permissionQueueDepth={gates.permissionQueueDepth}
           onResolvePermission={gates.resolvePermission}
           width={columns}
         />
