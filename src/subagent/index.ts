@@ -61,6 +61,13 @@ import type { SubAgentSessionStore } from "./session-store.js";
 export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
 
+/** Default inference cycles for leaf sub-agents (independent of parent session maxTurns). */
+export const DEFAULT_SUBAGENT_MAX_TURNS = 40;
+
+export function subAgentTurnLimitExceeded(turnsCompleted: number, maxTurns: number): boolean {
+  return turnsCompleted >= maxTurns;
+}
+
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
 // the dispatcher. It has no submit_output or ask_operator; consequential tools
@@ -78,14 +85,18 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
 
 class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
+  private readonly maxTurns: number;
+  private turnsCompleted = 0;
 
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
-    requestContinuation?: () => void,
+    requestContinuation: (() => void) | undefined,
+    maxTurns: number,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation);
+    this.maxTurns = maxTurns;
   }
 
   override async decide(
@@ -103,7 +114,20 @@ class SubAgentDirector extends DefaultDirector {
 
     if (event.type === "inference.done") {
       this.compaction.noteInferenceDone(event, state.turns.length);
+      this.turnsCompleted++;
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
+      if (subAgentTurnLimitExceeded(this.turnsCompleted, this.maxTurns) && hasToolCalls) {
+        const terminal: ReactorAction[] = [
+          capabilities.checkpoint("subagent-turn-budget"),
+          capabilities.reply(
+            "Turn budget reached before finishing. Summarize progress in the report envelope (Summary, Findings, Blockers, Paths).",
+          ),
+        ];
+        this.compaction.noteIdleTurn(event, terminal);
+        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
+        if (compacted !== null) return compacted;
+        return terminal;
+      }
       if (!hasToolCalls) {
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-complete"),
@@ -229,6 +253,8 @@ export type RunSubAgentParams = {
   // already holds a concurrency slot. The nested run reuses the parent's slot
   // (reentrant) instead of acquiring its own, which would deadlock the pool.
   nested?: boolean;
+  /** Inference-turn budget for this worker only (not the parent session limit). */
+  maxTurns?: number;
 } & SubAgentSandboxDeps;
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
@@ -479,6 +505,8 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }
   };
 
+  const maxTurns = params.maxTurns ?? DEFAULT_SUBAGENT_MAX_TURNS;
+
   const directorDef = defineDirector({
     id: "intercode/subagent",
     configSchema: type({}),
@@ -487,6 +515,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         agentCtx.systemPrompt,
         [...agentCtx.toolDefinitions],
         requestContinuation,
+        maxTurns,
       ),
   });
 

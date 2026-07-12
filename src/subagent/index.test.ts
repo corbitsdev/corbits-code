@@ -20,6 +20,14 @@ function callTask(tool: ReturnType<typeof createTaskTool>, args: Record<string, 
   return tool.handler(args, new AbortController().signal);
 }
 
+describe("subAgentTurnLimitExceeded", () => {
+  test("uses dedicated default budget constant", async () => {
+    const { subAgentTurnLimitExceeded, DEFAULT_SUBAGENT_MAX_TURNS } = await import("./index.js");
+    expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(true);
+    expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS - 1, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(false);
+  });
+});
+
 describe("createTaskTool", () => {
   test("does not forward a parent turn limit to sub-agents", async () => {
     let captured: RunSubAgentParams | undefined;
