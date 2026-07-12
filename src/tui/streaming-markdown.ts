@@ -18,6 +18,10 @@ type ScanState = {
   // blank is not re-parsed as a leading empty line of the tail; line-cut
   // boundaries already sit past the completed newline (skip 0).
   boundarySkip: 0 | 1;
+  // Last output returned, keyed by the (content, width) that produced it. A
+  // resize-free re-render with unchanged content is then a cache hit rather
+  // than re-running the tail render callback.
+  lastResult: StyledLine[];
 };
 
 // Matches parseMarkdown's fence detection so blank-line split points stay in
@@ -54,6 +58,10 @@ export function createIncrementalMarkdown(
   let state: ScanState | null = null;
 
   return (content, width) => {
+    if (state !== null && state.width === width && state.content === content) {
+      return state.lastResult;
+    }
+
     if (
       state === null
       || state.width !== width
@@ -68,6 +76,7 @@ export function createIncrementalMarkdown(
         fenceOpen: false,
         boundary: -1,
         boundarySkip: 0,
+        lastResult: [],
       };
     }
     state.content = content;
@@ -99,6 +108,8 @@ export function createIncrementalMarkdown(
     }
 
     const tail = render(content.slice(state.tailStart), width);
-    return state.tailStart === 0 ? tail : state.stableLines.concat(tail);
+    const result = state.tailStart === 0 ? tail : state.stableLines.concat(tail);
+    state.lastResult = result;
+    return result;
   };
 }

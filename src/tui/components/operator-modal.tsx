@@ -2,7 +2,7 @@ import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { OperatorResult } from "../../agent/tools.js";
-import { parseMarkdown } from "../markdown-parser.js";
+import { createMemoizedParseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { color } from "../theme.js";
 import { inkPropsForSegment } from "../styled-segment-props.js";
@@ -18,8 +18,13 @@ function segmentProps(seg: StyledSegment): Record<string, unknown> {
   return inkPropsForSegment(seg);
 }
 
+// The question text is fixed for the modal's lifetime; only the draft input
+// and selection change while it's open, so re-parsing it on every keystroke
+// re-render is pure waste. A small bounded cache turns that into a cache hit.
+const memoizedParseMarkdown = createMemoizedParseMarkdown();
+
 function MarkdownText({ text, width }: { text: string; width: number }): ReactNode {
-  const lines = parseMarkdown(text, width);
+  const lines = memoizedParseMarkdown(text, width);
   return (
     <Box flexDirection="column">
       {lines.map((line, li) => (

@@ -253,6 +253,47 @@ function parseIndentedCodeBlock(input: string[], start: number, width: number): 
   return { lines, consumed: i - start };
 }
 
+export type MemoizedParseMarkdown = ((text: string, width?: number) => StyledSegment[][]) & {
+  clear: () => void;
+};
+
+const DEFAULT_MARKDOWN_CACHE_ENTRIES = 32;
+
+// A parsed block's segments never change for a fixed (text, width) pair, but
+// resize-free re-renders (state changes elsewhere in the TUI, unrelated
+// re-mounts) ask parseMarkdown for the same pair repeatedly. Wrap it in a
+// small bounded LRU so those re-renders are a cache hit instead of a full
+// re-parse. Capacity is small and callers clear() it alongside the
+// coarser-grained per-block line cache (see event-log.tsx / app.tsx) so this
+// cache's lifetime tracks that one rather than growing across a whole session.
+export function createMemoizedParseMarkdown(
+  maxEntries = DEFAULT_MARKDOWN_CACHE_ENTRIES,
+): MemoizedParseMarkdown {
+  const cache = new Map<string, StyledSegment[][]>();
+
+  const memoized = (text: string, width = Infinity): StyledSegment[][] => {
+    const key = `${width}\x1f${text}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) {
+      // Bump recency by re-inserting at the end of Map's iteration order.
+      cache.delete(key);
+      cache.set(key, cached);
+      return cached;
+    }
+
+    const result = parseMarkdown(text, width);
+    cache.set(key, result);
+    if (cache.size > maxEntries) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey !== undefined) cache.delete(oldestKey);
+    }
+    return result;
+  };
+
+  memoized.clear = () => cache.clear();
+  return memoized;
+}
+
 // `width` is the column budget the rendered output must fit within (the same
 // width the event log wraps to). Tables use it to decide their layout; default
 // Infinity lays them out at natural width.
