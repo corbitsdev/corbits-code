@@ -1,6 +1,7 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import { createLSPPlugin } from "@intx/tools-lsp";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
+import { deleteFilePlugin } from "../plugins/delete-file-plugin.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
@@ -31,6 +32,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
   const { cwd, permissionGate, webProvider, shellTimeout, extraToolPlugins = [] } = args;
   return [
     pathEscapePlugin(cwd),
+    deleteFilePlugin(cwd),
     toolOutputUriPlugin(),
     secretGuardPlugin(),
     authzPlugin(),

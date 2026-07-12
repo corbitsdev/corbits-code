@@ -30,6 +30,7 @@ export type GateVerdict = { allowed: true } | { allowed: false; reason: string }
 const AUTO_ALLOWED_TOOLS = new Set([
   "write_file",
   "edit_file",
+  "delete_file",
   "manage_tasks",
   "present",
   "tool_search",

@@ -41,7 +41,7 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean; subAgent?: boo
   const subAgent = opts.subAgent ?? false;
   return [
     "Harness facts:",
-    "- Change files with write_file/edit_file; shell file-writes are blocked.",
+    "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- run_shell defaults to a 10s timeout; pass timeout for builds, tests, and other long commands.",
     "- Shell find, rg, and grep -r are blocked — they OOM the host. Use grep, search_files, and list_dir.",
