@@ -14,6 +14,7 @@ import {
   advertiseShellGuardTimeout,
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
+import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
@@ -139,7 +140,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => ({
       ...tool,
-      definition: advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
+      definition: advertiseEditFileLineRange(
+        advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
+      ),
     })),
     createListDirTool(cwd),
     createUseSkillTool(cwd, skillDirs),

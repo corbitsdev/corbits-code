@@ -158,6 +158,70 @@ describe("verifyPlugin", () => {
     }
   });
 
+  test("passes when edit_file line-range mode matches expected result", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const editHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        const start = Number(call.arguments.start_line);
+        const end = Number(call.arguments.end_line);
+        const newStr = String(call.arguments.new_string ?? "");
+        const content = await readFile(path, "utf8");
+        const lines = content.split("\n");
+        const before = lines.slice(0, start - 1);
+        const after = lines.slice(end);
+        const inserted = newStr.split("\n");
+        const merged = [...before, ...inserted, ...after].join("\n");
+        await writeFile(path, merged.endsWith("\n") ? merged : merged + "\n");
+        return { callId: call.id, content: "edited" };
+      };
+      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+
+      const path = join(dir, "range.txt");
+      await writeFile(path, "a\nb\nc\n");
+      const result = await handler(
+        {
+          id: "call-range",
+          name: "edit_file",
+          arguments: { path, start_line: 2, end_line: 2, new_string: "B" },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).not.toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when edit_file line-range produces wrong result", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const badHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        await writeFile(path, "wrong\n");
+        return { callId: call.id, content: "edited" };
+      };
+      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
+
+      const path = join(dir, "range-bad.txt");
+      await writeFile(path, "a\nb\n");
+      const result = await handler(
+        {
+          id: "call-range-bad",
+          name: "edit_file",
+          arguments: { path, start_line: 2, end_line: 2, new_string: "B" },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/content mismatch after replacement/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("serializes parallel edit_file on the same path", async () => {
     const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
     try {
