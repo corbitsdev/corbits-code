@@ -7,6 +7,8 @@ import type {
   ReactorCapabilities,
   ReactorAction,
   ToolDefinition,
+  InferenceOptions,
+  ConversationTurn,
 } from "@intx/types/runtime";
 import {
   type SessionMetadata,
@@ -21,6 +23,31 @@ import { createIntercodeRetryPolicy } from "./retry-policy.js";
 const RETRY_POLICY = createIntercodeRetryPolicy();
 
 const logger = getLogger(["intercode", "agent", "director"]);
+
+function directorNudgeTurn(text: string): ConversationTurn {
+  return {
+    role: "user",
+    content: [{ type: "text", text: text.trim() }],
+    timestamp: Date.now(),
+  };
+}
+
+function withEphemeralNudge(options: InferenceOptions, nudge: string): InferenceOptions {
+  const turn = directorNudgeTurn(nudge);
+  const existing = options.ephemeralTurns;
+  if (existing === undefined || existing.length === 0) {
+    return { ...options, ephemeralTurns: [turn] };
+  }
+  return { ...options, ephemeralTurns: [...existing, turn] };
+}
+
+function inferWithNudge(
+  capabilities: ReactorCapabilities,
+  nudge: string,
+  options?: InferenceOptions,
+): ReactorAction {
+  return capabilities.infer(withEphemeralNudge(options ?? {}, nudge));
+}
 
 // A terminal decision with tasks still open means the work was not finished or
 // not marked finished. Rather than idle there, the director re-infers with a
@@ -336,10 +363,12 @@ class ChatDirectorImpl extends DefaultDirector {
       const options = { ...action.options, tools, retryPolicy: action.options?.retryPolicy ?? RETRY_POLICY };
       if (this.inactivityTimeoutMs !== undefined) options.inactivityTimeoutMs = this.inactivityTimeoutMs;
       if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
-      const base = action.options?.systemPrompt ?? this._systemPrompt;
-      let prompt = base;
-      if (directive !== null) prompt = `${prompt}\n\n${directive}`;
-      if (prompt !== base) options.systemPrompt = prompt;
+      if (directive !== null) {
+        return {
+          type: "infer",
+          options: withEphemeralNudge(options, directive),
+        };
+      }
       return { type: "infer", options };
     };
     return Array.isArray(result) ? result.map(rewrite) : rewrite(result);
@@ -401,8 +430,9 @@ class ChatDirectorImpl extends DefaultDirector {
           return [
             capabilities.checkpoint(`new-task: ${boundary.reason}`),
             capabilities.infer({
-              systemPrompt: this._systemPrompt + envelope,
+              systemPrompt: this._systemPrompt,
               tools: this._toolDefinitions,
+              ephemeralTurns: [directorNudgeTurn(envelope)],
             }),
           ];
         }
@@ -475,7 +505,7 @@ class ChatDirectorImpl extends DefaultDirector {
           this.declinedTerminationNudges++;
           return [
             capabilities.checkpoint("operator-declined"),
-            capabilities.infer({ systemPrompt: `${this._systemPrompt}${DECLINED_OPEN_TASK_NUDGE}` }),
+            inferWithNudge(capabilities, DECLINED_OPEN_TASK_NUDGE),
           ];
         }
         this.logTerminationWithOpenTasks("operator-declined");
@@ -517,12 +547,11 @@ class ChatDirectorImpl extends DefaultDirector {
         const nudge = "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
           "Otherwise continue working with tools.";
-        const systemPrompt = `${this._systemPrompt}${nudge}`;
         const passThrough = actions.filter(
           (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
             a.type !== "wait" && a.type !== "reply",
         );
-        return [...passThrough, capabilities.infer({ systemPrompt })];
+        return [...passThrough, inferWithNudge(capabilities, nudge)];
       }
     }
 
@@ -545,7 +574,7 @@ class ChatDirectorImpl extends DefaultDirector {
           const nudge = coordinator?.isActive() === true ? WORKFLOW_OPEN_TASK_NUDGE : IDLE_OPEN_TASK_NUDGE;
           return [
             ...passThrough,
-            capabilities.infer({ systemPrompt: `${this._systemPrompt}${nudge}` }),
+            inferWithNudge(capabilities, nudge),
           ];
         }
         this.logTerminationWithOpenTasks("idle-stall");

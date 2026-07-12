@@ -544,3 +544,33 @@ describe("advance_workflow handler", () => {
     expect(content).toContain("Advancing to the next step");
   });
 });
+
+describe("CL-3181 transient nudges", () => {
+  const manageTasksEvent = (status: "todo" | "doing") =>
+    makeInferenceDoneEvent([
+      { id: "mt", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "x", status }] } },
+    ]);
+
+  const textTurn = () =>
+    ({
+      type: "inference.done",
+      turn: { role: "assistant", model: "test", timestamp: 0, content: [{ type: "text", text: "done" }] },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    }) as unknown as ReactorInboundEvent;
+
+  test("open-task nudge uses ephemeralTurns, not systemPrompt", async () => {
+    const director = createChatDirector("stable-base", []);
+    await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+    const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
+    const infer = actions.find((a) => a.type === "infer");
+    expect(infer?.type === "infer" ? infer.options?.ephemeralTurns?.length : 0).toBeGreaterThan(0);
+    const nudgeText = infer?.type === "infer"
+      ? infer.options?.ephemeralTurns?.[0]?.content?.find((b) => b.type === "text")
+      : undefined;
+    expect(nudgeText?.type === "text" ? nudgeText.text : "").toContain("tasks are still open");
+    if (infer?.type === "infer") {
+      expect(infer.options?.systemPrompt).toBeUndefined();
+    }
+  });
+});
