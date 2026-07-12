@@ -251,6 +251,22 @@ describe("createSubAgentSessionStore", () => {
     expect(store.get("s-2")?.status).toBe("cancelled");
     expect(store.get("s-3")?.status).toBe("done");
   });
+
+  test("start records parentSessionId when the caller is a nested dispatch", () => {
+    let n = 0;
+    const store = createSubAgentSessionStore({ createId: () => `s-${++n}` });
+    const orchestrator = store.start({ description: "orchestrate", agentId: "lead", brief: "b" });
+    const nested = store.start({
+      description: "nested worker",
+      agentId: "helper",
+      brief: "b",
+      parentSessionId: orchestrator.id,
+    });
+    expect(nested.parentSessionId).toBe(orchestrator.id);
+    expect(store.get(nested.id)?.parentSessionId).toBe(orchestrator.id);
+    // Top-level sessions carry no parent link.
+    expect(orchestrator.parentSessionId).toBeUndefined();
+  });
 });
 
 describe("createTaskTool session recording", () => {
