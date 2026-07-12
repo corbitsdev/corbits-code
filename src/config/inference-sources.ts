@@ -105,7 +105,7 @@ export function buildInferenceSourceForRef(
   if (baseURL === undefined) return null;
 
   const maxTokens = maxTokensFor(settings, ref.provider, ref.model);
-  const effort = ctx.reasoningEffort;
+  const effort = ref.reasoningEffort ?? ctx.reasoningEffort;
 
   if (entry?.codexProfile !== undefined) {
     return buildCodexSource({
@@ -271,7 +271,12 @@ export function tierModeLabel(mode: TierSelectionMode | undefined): string {
 export function formatTierChain(raw: TierDefinition | TierAssignment | undefined): string {
   const normalized = normalizeTierDefinition(raw);
   if (normalized === undefined || normalized.order.length === 0) return "unset";
-  const chain = normalized.order.map((r) => `${r.provider}/${r.model}`).join(" → ");
+  const chain = normalized.order
+    .map((r) => {
+      const leg = `${r.provider}/${r.model}`;
+      return r.reasoningEffort !== undefined ? `${leg}@${r.reasoningEffort}` : leg;
+    })
+    .join(" → ");
   return `[${tierModeLabel(normalized.mode)}] ${chain}`;
 }
 

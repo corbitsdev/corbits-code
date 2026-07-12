@@ -123,7 +123,12 @@ export type AgentModalProps = {
   onDeleteProvider: (provider: string) => void;
   onClose: () => void;
   tiers: Partial<Record<ProviderTier, TierConfig>>;
-  onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
+  onSaveTier: (
+    tier: ProviderTier,
+    provider: string,
+    model: string,
+    effort?: ReasoningEffort,
+  ) => void;
   onCycleTierMode?: (tier: ProviderTier) => void;
   onClearTier?: (tier: ProviderTier) => void;
   onRemoveTierLeg?: (tier: ProviderTier, legIndex: number) => void;
@@ -668,13 +673,7 @@ export function AgentModal({
       const model = models[modelIndex];
       if (provider === undefined || model === undefined) return;
       if (key.return) {
-        if (pendingTierAssign !== null) {
-          onSaveTier(pendingTierAssign, provider.name, model);
-          setPendingTierAssign(null);
-          setStep("tiers");
-        } else {
-          enterEffortStep(provider.name, model);
-        }
+        enterEffortStep(provider.name, model);
       }
       return;
     }
@@ -695,6 +694,14 @@ export function AgentModal({
       if (pendingProvider === undefined || pendingModel === undefined) return;
       const effort = efforts[effortIndex];
       if (key.return) {
+        if (pendingTierAssign !== null) {
+          onSaveTier(pendingTierAssign, pendingProvider, pendingModel, effort);
+          setPendingTierAssign(null);
+          setPendingProvider(undefined);
+          setPendingModel(undefined);
+          setStep("tiers");
+          return;
+        }
         onApply(pendingProvider, pendingModel, effort);
         onClose();
         return;
