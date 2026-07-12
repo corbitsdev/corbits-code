@@ -206,6 +206,22 @@ describe("validators", () => {
     expect(isSettings(firepass)).toBe(true);
   });
 
+  test("isSettings accepts bifrostVirtualKey and agentModelFallback", () => {
+    expect(
+      isSettings({
+        providers: {
+          bf: {
+            baseURL: "http://b:8080/v1",
+            apiKey: "sk-bf-k",
+            models: ["m"],
+            bifrostVirtualKey: true,
+          },
+        },
+        agentModelFallback: "none",
+      }),
+    ).toBe(true);
+  });
+
   test("isLocalSettings rejects credentials", () => {
     expect(isLocalSettings({ provider: "a", apiKey: "leak" })).toBe(false);
   });
@@ -243,6 +259,32 @@ describe("loaders", () => {
       const path = join(dir, "settings.json");
       await writeFile(path, JSON.stringify({ providers: { x: { models: [] } } }));
       await expect(loadSettings(path)).rejects.toThrow(/Invalid settings schema/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadSettings preserves bifrostVirtualKey and agentModelFallback", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          providers: {
+            bf: {
+              baseURL: "http://b:8080/v1",
+              apiKey: "k",
+              models: ["m"],
+              bifrostVirtualKey: true,
+            },
+          },
+          agentModelFallback: "active",
+        }),
+      );
+      const loaded = await loadSettings(path);
+      expect(loaded?.providers.bf?.bifrostVirtualKey).toBe(true);
+      expect(loaded?.agentModelFallback).toBe("active");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

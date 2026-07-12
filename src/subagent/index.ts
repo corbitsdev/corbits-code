@@ -25,6 +25,7 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 
+import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
@@ -360,6 +361,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 }
 
 async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
+  await seedPricingMetadataFromCache({
+    cachePath: join(params.cwd, ".cache", "models-pricing.json"),
+  });
+
   const permissionGate = params.permissionGate;
   const posixTools = createPosixTools({
     cwd: params.cwd,

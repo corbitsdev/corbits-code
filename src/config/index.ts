@@ -1,9 +1,9 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
-import { setModelReasoningCapabilities, validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
-import { readPricingCache } from "../cost/pricing-fetcher.js";
+import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
 import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
 import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
 import {
@@ -341,6 +341,9 @@ export async function loadConfig(
     positional.push(arg);
   }
 
+  const pricingCachePath = join(cwd, ".cache", "models-pricing.json");
+  await bootstrapPricingMetadata({ cachePath: pricingCachePath });
+
   const settings =
     configPath !== undefined
       ? await loadSettings(configPath).then((s) => {
@@ -419,12 +422,8 @@ export async function loadConfig(
   // Enforce model/effort compatibility at the boundary. The modal only offers
   // supported levels, but a hand-edited local settings file can pair an effort
   // with a model that does not accept it; reject it here rather than shipping an
-  // effort the model will refuse. Seed the capability registry from the cached
-  // models.dev metadata (no network) so a non-reasoning model is caught too;
-  // a cache miss leaves the local heuristic in charge.
+  // effort the model will refuse. Pricing metadata was seeded above from cache.
   if (local?.reasoningEffort !== undefined) {
-    const cached = await readPricingCache();
-    setModelReasoningCapabilities(cached?.reasoning ?? {});
     const verdict = validateEffort(resolved.model, local.reasoningEffort, isCodexProviderName(resolved.providerName));
     if (!verdict.ok) {
       throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
