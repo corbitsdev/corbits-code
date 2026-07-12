@@ -1,5 +1,10 @@
 import { Box, Text, useApp } from "ink";
 import type { AgentStatus, ContentBlockData } from "./use-stream.js";
+import {
+  classifyAgentSendFailure,
+  resolveSessionSpinnerLabel,
+  shouldSettleUiAfterSendFailure,
+} from "./session-chrome.js";
 import type { EventEmitter } from "node:events";
 import type { Agent } from "@intx/agent";
 import type { InboundMessage } from "@intx/types/runtime";
@@ -1088,22 +1093,24 @@ export function App({
       ...(message.attachments.length > 0 ? { attachments: message.attachments } : {}),
     };
     agent.send(inbound, { signal: controller.signal }).catch((err: unknown) => {
-      // A user-initiated stop aborts the send; that is expected, not an error.
-      if (controller.signal.aborted) return;
-      // Pre-send token refresh failed: park the run and open re-auth rather than
-      // dumping the raw 401 and leaving the spinner stuck on "running".
-      if (err instanceof CodexAuthError) {
+      const kind = classifyAgentSendFailure(
+        err,
+        controller.signal.aborted,
+        (e): e is CodexAuthError => e instanceof CodexAuthError,
+        (e): e is XaiAuthError => e instanceof XaiAuthError,
+      );
+      if (kind === "abort") return;
+      if (shouldSettleUiAfterSendFailure(kind)) {
         state.requestStop();
         gates.resetGates();
         forceRender((n) => n + 1);
-        promptCodexRelogin(err.profile);
+      }
+      if (kind === "codex_auth") {
+        promptCodexRelogin((err as CodexAuthError).profile);
         return;
       }
-      if (err instanceof XaiAuthError) {
-        state.requestStop();
-        gates.resetGates();
-        forceRender((n) => n + 1);
-        promptXaiRelogin(err.profile);
+      if (kind === "xai_auth") {
+        promptXaiRelogin((err as XaiAuthError).profile);
         return;
       }
       onAgentError?.(err);
@@ -1337,14 +1344,13 @@ export function App({
   // chunks, not tool execution or response waits.
   const awaitingResponse = state.status === "running" && state.awaitingResponse;
   const spinnerTiming = useSpinner(state.isProcessing, sendCounterRef.current);
-  const spinnerLabel = (() => {
-    if (!state.isProcessing) return undefined;
-    if (state.currentToolName !== null || state.streamingType === "tool") return "Running tool…";
-    if (state.streamingType === "thinking") return "Thinking…";
-    if (state.streamingType === "text") return "Responding…";
-    if (awaitingResponse) return "Working…";
-    return "Working…";
-  })();
+  const spinnerLabel = resolveSessionSpinnerLabel({
+    isProcessing: state.isProcessing,
+    status: state.status,
+    awaitingResponse,
+    currentToolName: state.currentToolName,
+    streamingType: state.streamingType,
+  });
 
   // Whole-session timer for the status bar. Held in state so /new can zero it.
   const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
