@@ -6,7 +6,7 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-export type SubAgentSessionStatus = "running" | "done" | "failed";
+export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
 // Compact transcript entries suitable for TUI render without depending on the
 // TUI ContentBlock type (keeps subagent free of a reverse dependency on tui/).
@@ -62,6 +62,14 @@ export type SubAgentSessionStore = {
   appendEvent(id: string, event: ReactorEmittedEvent): void;
   complete(id: string, report: string): void;
   fail(id: string, error: string): void;
+  // Register the live abort handle for a running session so cancel() can stop
+  // the child reactor (agent.close), not only flip status.
+  registerCancel(id: string, abort: () => void): void;
+  // Abort a running session and mark it cancelled. Returns true when a running
+  // session was cancelled; false if missing or already terminal.
+  cancel(id: string, reason?: string): boolean;
+  // Cancel every running session. Returns the ids that transitioned.
+  cancelAll(reason?: string): string[];
   subscribe(listener: () => void): () => void;
   clear(): void;
 };
@@ -107,10 +115,43 @@ export function createSubAgentSessionStore(
 
   // Insertion order: older first. list() returns a snapshot in that order.
   const sessions = new Map<string, SubAgentSession>();
+  // Live abort hooks keyed by session id. Cleared on terminal transition.
+  const cancelHandles = new Map<string, () => void>();
   const listeners = new Set<() => void>();
 
   const notify = (): void => {
     for (const listener of listeners) listener();
+  };
+
+  const markCancelled = (session: SubAgentSession, reason: string): void => {
+    session.status = "cancelled";
+    session.finishedAt = now();
+    session.currentToolName = null;
+    session.error = reason;
+    pushEntry(session, {
+      kind: "report",
+      content: capText(`Cancelled: ${reason}`, maxEntryChars),
+    });
+    cancelHandles.delete(session.id);
+    pruneCompleted();
+  };
+
+  const cancelSession = (id: string, reason: string): boolean => {
+    const session = sessions.get(id);
+    if (session === undefined || session.status !== "running") return false;
+    const abort = cancelHandles.get(id);
+    // Flip status first so concurrent complete/fail see a non-running session,
+    // then fire the abort handle (which may re-enter via signal listeners).
+    markCancelled(session, reason);
+    notify();
+    if (abort !== undefined) {
+      try {
+        abort();
+      } catch {
+        // Abort hooks must not throw into the UI / tool path.
+      }
+    }
+    return true;
   };
 
   const pushEntry = (session: SubAgentSession, entry: SubAgentTranscriptEntry): void => {
@@ -170,6 +211,7 @@ export function createSubAgentSessionStore(
       const id = input.id !== undefined && input.id.length > 0 ? input.id : createId();
       // Replacing an existing id (e.g. parent reuses a callId) keeps the strip
       // from growing duplicates when a tool call is retried.
+      cancelHandles.delete(id);
       const session: SubAgentSession = {
         id,
         description: input.description,
@@ -306,12 +348,15 @@ export function createSubAgentSessionStore(
 
     complete(id: string, report: string): void {
       mutate(id, (session) => {
+        // Cancel wins races: a late complete after operator cancel must not
+        // resurrect the session as done.
         if (session.status !== "running") return;
         session.status = "done";
         session.finishedAt = now();
         session.currentToolName = null;
         session.report = report;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        cancelHandles.delete(id);
         pruneCompleted();
       });
     },
@@ -327,8 +372,28 @@ export function createSubAgentSessionStore(
           kind: "report",
           content: capText(`Error: ${error}`, maxEntryChars),
         });
+        cancelHandles.delete(id);
         pruneCompleted();
       });
+    },
+
+    registerCancel(id: string, abort: () => void): void {
+      const session = sessions.get(id);
+      if (session === undefined || session.status !== "running") return;
+      cancelHandles.set(id, abort);
+    },
+
+    cancel(id: string, reason = "Cancelled by operator"): boolean {
+      return cancelSession(id, reason);
+    },
+
+    cancelAll(reason = "Cancelled by operator"): string[] {
+      const running = [...sessions.values()].filter((s) => s.status === "running");
+      const cancelled: string[] = [];
+      for (const session of running) {
+        if (cancelSession(session.id, reason)) cancelled.push(session.id);
+      }
+      return cancelled;
     },
 
     subscribe(listener: () => void): () => void {
@@ -339,6 +404,9 @@ export function createSubAgentSessionStore(
     },
 
     clear(): void {
+      // Drop handles without invoking them — callers that need teardown should
+      // cancelAll first (parent stop / /clear).
+      cancelHandles.clear();
       sessions.clear();
       notify();
     },
