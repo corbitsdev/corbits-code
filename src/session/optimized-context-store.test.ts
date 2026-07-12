@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ConversationTurn } from "@intx/types/runtime";
-import { createOptimizedContextStore } from "./optimized-context-store.js";
+import { createOptimizedContextStore, loadRecentTurns } from "./optimized-context-store.js";
 import { segmentFileName, listSegmentFiles } from "./incremental-jsonl.js";
 
 const TURNS_FILE = "turns.jsonl";
@@ -59,6 +59,48 @@ describe("createOptimizedContextStore load", () => {
 
     const loaded = await store.load();
     expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
+  });
+});
+
+describe("loadRecentTurns", () => {
+  test("reads only the tail segments needed to satisfy the window, in order", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a"), turn("b")]));
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 1)), jsonl([turn("c")]));
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 2)), jsonl([turn("d"), turn("e")]));
+
+    const loaded = await loadRecentTurns(dir, 2);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["d", "e"]);
+  });
+
+  test("walks back into older segments when the window exceeds the newest one", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a"), turn("b")]));
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 1)), jsonl([turn("c")]));
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 2)), jsonl([turn("d"), turn("e")]));
+
+    // Segment 2 (2 turns) then segment 1 (1 turn) alone fall short of the
+    // window of 4, so the walk continues into segment 0 (2 turns) whole —
+    // reads are segment-granular, not turn-exact.
+    const loaded = await loadRecentTurns(dir, 4);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  test("returns an empty list when no segments exist", async () => {
+    const dir = tempDir();
+    expect(await loadRecentTurns(dir, 10)).toEqual([]);
+  });
+
+  test("tolerates a torn tail only in the newest segment", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("b")]) + '{"role":"user","content":[{"type":"te',
+    );
+
+    const loaded = await loadRecentTurns(dir, 5);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
 });
 

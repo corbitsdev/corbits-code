@@ -5,6 +5,7 @@ import { createIsogitStore } from "@intx/storage-isogit";
 import { ContentBlock, type ConversationTurn } from "@intx/types/runtime";
 import {
   createSegmentedJSONLWriter,
+  listSegmentFiles,
   readExtraSegmentTexts,
   segmentFileName,
 } from "./incremental-jsonl.js";
@@ -84,6 +85,38 @@ function parseSegmentTurns(text: string, tolerateTornTail: boolean): Conversatio
     }
     turns.push(result);
   }
+  return turns;
+}
+
+/**
+ * Read only the tail of the turn history needed to satisfy `minTurns`, walking
+ * segments from newest to oldest and stopping as soon as enough turns have
+ * accumulated. Older segments are never read. This is for display-only resume
+ * paths (e.g. TUI transcript hydration) that only need a recent window; the
+ * canonical full-history read stays on `ContextStore.load()` — the reactor's
+ * own initialization contract requires the complete turn history, since that
+ * is the actual live conversation state, not a bounded view of it.
+ */
+export async function loadRecentTurns(
+  dir: string,
+  minTurns: number,
+): Promise<ConversationTurn[]> {
+  const segments = await listSegmentFiles(dir, TURNS_FILE);
+  if (segments.length === 0) return [];
+
+  const collectedNewestFirst: ConversationTurn[][] = [];
+  let total = 0;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const text = await fs.promises.readFile(path.join(dir, segments[i]!), "utf-8");
+    const tolerateTornTail = i === segments.length - 1;
+    const turns = parseSegmentTurns(text, tolerateTornTail);
+    collectedNewestFirst.push(turns);
+    total += turns.length;
+    if (total >= minTurns) break;
+  }
+
+  const turns: ConversationTurn[] = [];
+  for (let i = collectedNewestFirst.length - 1; i >= 0; i--) turns.push(...collectedNewestFirst[i]!);
   return turns;
 }
 
@@ -170,6 +203,10 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
   }
 
   return {
+    // Full-history read. Called by the reactor during initialization, where
+    // the complete turn history is the actual live conversation state, not an
+    // optional convenience — callers that only need a recent tail (e.g. TUI
+    // resume hydration) should use `loadRecentTurns` instead.
     async load(signal) {
       const baseResult = await base.load(signal);
       const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
