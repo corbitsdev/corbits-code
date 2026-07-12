@@ -302,7 +302,8 @@ CLI argv
       → src/session/stream-consumer.ts → sink
           → turnCollector.observe → postTurn hooks
           → emit to React (TUI)
-          → on tool.done: saveState, saveDirectorState
+      → saveState at session lifecycle points (initial write, progress
+        snapshots on model/MCP/turn changes, and finalize on done/failed/cancelled)
       → (interactive) connector.reply → optional queue drain → next user turn
       → lifecycle hooks: postTurn per turn; postRun when a run summary is finalized
 ```
