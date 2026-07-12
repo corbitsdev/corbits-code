@@ -57,18 +57,15 @@ describe("pricing-metadata", () => {
 
   test("schedulePricingMetadataRefresh runs at most once", async () => {
     let calls = 0;
-    schedulePricingMetadataRefresh({
-      fetchImpl: async () => {
+    const offlineFetch: typeof fetch = Object.assign(
+      async () => {
         calls += 1;
         throw new Error("offline");
       },
-    });
-    schedulePricingMetadataRefresh({
-      fetchImpl: async () => {
-        calls += 1;
-        throw new Error("offline");
-      },
-    });
+      { preconnect: fetch.preconnect },
+    );
+    schedulePricingMetadataRefresh({ fetchImpl: offlineFetch });
+    schedulePricingMetadataRefresh({ fetchImpl: offlineFetch });
     await new Promise((r) => setTimeout(r, 20));
     expect(calls).toBe(1);
   });
