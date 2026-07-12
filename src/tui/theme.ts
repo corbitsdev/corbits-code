@@ -33,7 +33,10 @@ export type SemanticRole =
   | "diffHunkHeader"
   | "diffAddedBg"
   | "diffRemovedBg"
-  | "userMessageBg";
+  | "userMessageBg"
+  | "toolPendingBg"
+  | "toolSuccessBg"
+  | "toolErrorBg";
 
 const breakthroughOrange: ColorValue = { hex: "#f5933a", ansi256: 173 };
 const summitBlue: ColorValue = { hex: "#7ea2c4", ansi256: 74 };
@@ -63,6 +66,13 @@ const emberShadow: ColorValue = { hex: "#3d2a28", ansi256: 52 };
 // Cool gray in an otherwise warm palette; kept deliberately so the user's own
 // words sit apart from everything the model produces.
 const coolGray: ColorValue = { hex: "#45454a", ansi256: 238 };
+// Status-card washes for tool rows: a bare tint over bedrockCharcoal, one step
+// up in lightness so the row reads as "tinted" rather than a lit panel. Kept
+// close in luminance to the surface color deliberately — a state change
+// should be noticeable at a glance, not compete with foreground text.
+const pendingWash: ColorValue = { hex: "#21303a", ansi256: 24 };
+const successWash: ColorValue = { hex: "#20291f", ansi256: 22 };
+const errorWash: ColorValue = { hex: "#2e2020", ansi256: 52 };
 
 export const palette: Record<SemanticRole, ColorValue> = {
   brand: breakthroughOrange,
@@ -101,6 +111,9 @@ export const palette: Record<SemanticRole, ColorValue> = {
   diffAddedBg: pineShadow,
   diffRemovedBg: emberShadow,
   userMessageBg: coolGray,
+  toolPendingBg: pendingWash,
+  toolSuccessBg: successWash,
+  toolErrorBg: errorWash,
 };
 
 export function color(role: SemanticRole): string {
