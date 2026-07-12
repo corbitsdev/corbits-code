@@ -171,13 +171,16 @@ describe("pending tool row width budget", () => {
 
 describe("tool row backgrounds", () => {
   // Status-tinted tool fills (PR #74 / CL-3116) painted every successful tool
-  // green and never padded to full width, so the transcript became green soup.
-  // Tool rows stay un-backed; only user banners and diff hunks keep fills.
+  // green and never padded to full width, so the transcript became green soup
+  // and was reverted. CL-3437 revisits this deliberately restrained: a single
+  // subtle wash per semantic token (toolPendingBg/toolSuccessBg/toolErrorBg),
+  // applied only to the collapsed status-card row (never an expanded body),
+  // and padded to the full row width rather than stopping at the last glyph.
   function segmentBackgrounds(lines: ReturnType<typeof buildLines>): Array<string | undefined> {
     return lines.flatMap((line) => line.map((seg) => seg.backgroundColor));
   }
 
-  test("a pending tool row carries no background tint", () => {
+  test("a pending tool row carries the pending wash across its full width", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "run1",
@@ -186,11 +189,13 @@ describe("tool row backgrounds", () => {
       arguments: JSON.stringify({ path: "src/foo.ts" }),
       startedAt: 0,
     };
-    const pending = segmentBackgrounds(buildLines([call], COLUMNS, false, isExpanded));
-    expect(pending.every((bg) => bg === undefined)).toBe(true);
+    const lines = buildLines([call], COLUMNS, false, isExpanded);
+    const backgrounds = segmentBackgrounds(lines);
+    expect(backgrounds.every((bg) => bg !== undefined)).toBe(true);
+    expect(new Set(backgrounds).size).toBe(1);
   });
 
-  test("a completed tool row has no status background", () => {
+  test("a completed successful tool row carries the success wash", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "bg1",
@@ -200,29 +205,29 @@ describe("tool row backgrounds", () => {
       startedAt: 0,
     };
 
-    const done = segmentBackgrounds(
-      buildLines(
-        [
-          call,
-          {
-            type: "tool_result",
-            id: "bg1-r",
-            callId: "bg1",
-            name: "read_file",
-            content: "export const x = 1;\n",
-            isError: false,
-            finishedAt: 100,
-          },
-        ],
-        COLUMNS,
-        false,
-        isExpanded,
-      ),
+    const lines = buildLines(
+      [
+        call,
+        {
+          type: "tool_result",
+          id: "bg1-r",
+          callId: "bg1",
+          name: "read_file",
+          content: "export const x = 1;\n",
+          isError: false,
+          finishedAt: 100,
+        },
+      ],
+      COLUMNS,
+      false,
+      isExpanded,
     );
-    expect(done.every((bg) => bg === undefined)).toBe(true);
+    const backgrounds = segmentBackgrounds(lines);
+    expect(backgrounds.every((bg) => bg !== undefined)).toBe(true);
+    expect(new Set(backgrounds).size).toBe(1);
   });
 
-  test("error tool results keep danger text without a background fill", () => {
+  test("error tool results keep danger text and carry the error wash", () => {
     const lines = buildLines(
       [
         {
@@ -240,8 +245,41 @@ describe("tool row backgrounds", () => {
       isExpanded,
     );
     const segs = lines.flat();
-    expect(segs.every((seg) => seg.backgroundColor === undefined)).toBe(true);
+    expect(segs.every((seg) => seg.backgroundColor !== undefined)).toBe(true);
     expect(segs.some((seg) => seg.color !== undefined && seg.text.includes("error:"))).toBe(true);
+  });
+
+  test("an expanded tool call body keeps the surface background, not the status wash", () => {
+    const call: ContentBlock = {
+      type: "tool_call",
+      id: "exp1",
+      callId: "exp1",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "src/foo.ts" }),
+      startedAt: 0,
+    };
+    function alwaysExpanded(): boolean {
+      return true;
+    }
+    const lines = buildLines(
+      [
+        call,
+        {
+          type: "tool_result",
+          id: "exp1-r",
+          callId: "exp1",
+          name: "read_file",
+          content: "export const x = 1;\n",
+          isError: false,
+          finishedAt: 100,
+        },
+      ],
+      COLUMNS,
+      false,
+      alwaysExpanded,
+    );
+    const backgrounds = segmentBackgrounds(lines);
+    expect(backgrounds.every((bg) => bg === undefined)).toBe(true);
   });
 });
 
