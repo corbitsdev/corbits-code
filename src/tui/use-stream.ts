@@ -260,7 +260,7 @@ function parseTaskToolTitle(rawArgs: string): string {
 // session. This keeps subAgents bounded by concurrently active sub-agents.
 function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">): Task[] {
   const next = tasks.filter((task) => task.id !== callId);
-  if (patch.status === "done") return next;
+  if (patch.status === "done" || patch.status === "cancelled") return next;
   return [...next, { id: callId, ...patch }];
 }
 
@@ -903,7 +903,7 @@ export function createAgentStreamState(
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
             subAgents = updateSubAgent(subAgents, result.callId, {
               title: parseTaskToolTitle(rawArgs),
-              status: result.isError ? "todo" : "done",
+              status: result.isError ? "cancelled" : "done",
             });
           }
 
