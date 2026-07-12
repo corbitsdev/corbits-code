@@ -134,6 +134,19 @@ describe("block elements", () => {
     expect(rendered).not.toContain("``");
     expect(rendered).toContain("const");
   });
+
+  test("closing fence streamed one character at a time never shrinks the block", () => {
+    // The newline after the body starts a fresh, still-empty line that could
+    // become the closing fence. Streaming ` then `` then ``` across it must
+    // never remove a line that was already visible (a visible shrink reads as
+    // flicker), only ever hold steady or grow as the fence completes.
+    const base = "```js\nconst x = 1;\n";
+    const steps = [base, `${base}\``, `${base}\`\``, `${base}\`\`\``];
+    const lineCounts = steps.map((content) => parseMarkdown(content).length);
+    for (let i = 1; i < lineCounts.length; i++) {
+      expect(lineCounts[i]).toBeGreaterThanOrEqual(lineCounts[i - 1]!);
+    }
+  });
 });
 
 describe("bullets", () => {
