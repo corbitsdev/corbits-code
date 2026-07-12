@@ -63,3 +63,14 @@ A vendored copy drifts from `interchange` over time. When adopting a newer
 (cherry-pick the `vendor/intx-inference/**` patch commits, or re-copy and replay
 them), then update the submodule commit recorded in the table above. Treat that
 commit as the baseline the current vendored copy was derived from.
+
+### Sync checklist (CL-3331)
+
+Before bumping the `interchange` submodule or cutting a release that touches inference:
+
+1. Record current baseline: `git -C interchange rev-parse HEAD` and the table row above.
+2. Diff vendored tree vs submodule package: `diff -ru interchange/packages/inference/src vendor/intx-inference/src` (expect intentional deltas only).
+3. After re-copy or merge from upstream, replay local patch commits listed in `vendor/intx-inference` git history; do not edit submodule `interchange/packages/inference` for intercode-only fixes.
+4. Run `bun run typecheck`, `bun run build`, and `bun test` from repo root.
+5. Update the **Copied from** commit in the table when the vendored baseline changes.
+6. Confirm no workspace entry points at `./interchange/packages/inference` in root `package.json`.
