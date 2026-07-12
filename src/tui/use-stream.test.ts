@@ -401,9 +401,9 @@ describe("createAgentStreamState", () => {
       }));
     }
 
-    // Only the failed sub-agent (status "todo") survives; the rest were
-    // pruned on completion instead of accumulating for the whole session.
-    expect(state.subAgents).toEqual([{ id: "sub-199", title: "worker: job 199", status: "todo" }]);
+    // Failed sub-agents drop from the strip like successes; only non-terminal
+    // entries (doing) would remain.
+    expect(state.subAgents).toEqual([]);
   });
 
   test("labels sub-agents without a named profile as worker", () => {

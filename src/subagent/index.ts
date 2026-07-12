@@ -10,6 +10,7 @@ import {
   defineDirector,
   fromToolRunner,
   stringTool,
+  tool,
 } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
@@ -23,6 +24,7 @@ import type {
   ReactorCapabilities,
   ReactorAction,
   ToolDefinition,
+  ToolResult,
 } from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -754,14 +756,20 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   allowOrchestrator?: boolean;
 };
 
+function taskToolResult(callId: string, content: string): ToolResult {
+  const isError = content.startsWith("Error:") || content.startsWith("Error ");
+  return { callId, content, ...(isError ? { isError: true } : {}) };
+}
+
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const run = deps.run ?? runSubAgent;
-  return stringTool({
+  return tool({
     definition: taskToolDefinition,
-    handler: async (args: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
+    handler: async (call, signal): Promise<ToolResult> => {
+      const args = call.arguments;
       const parsed = TaskToolArgs(args);
       if (parsed instanceof type.errors) {
-        return "Error: task requires description (string) and prompt (string).";
+        return taskToolResult(call.id, "Error: task requires description (string) and prompt (string).");
       }
       const {
         description: rawDesc,
@@ -778,7 +786,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ?.map((g) => g.trim())
           .filter((g) => g.length > 0) ?? [];
       if (description.length === 0 || prompt.length === 0) {
-        return "Error: task requires a non-empty description and prompt.";
+        return taskToolResult(call.id, "Error: task requires a non-empty description and prompt.");
       }
 
       let provider: SubAgentProvider =
@@ -796,7 +804,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         // not a silent fall-through to a generic worker. Silent fall-through
         // made typos and stale ids look like successful generic dispatches.
         if (profiles === undefined) {
-          return `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`;
+          return taskToolResult(
+            call.id,
+            `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`,
+          );
         }
         const profile = profiles.find((p) => p.id === agentId);
         if (profile === undefined) {
@@ -805,7 +816,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             known.length > 0
               ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more.`
               : " No profiles are currently loaded. Call search_agents to discover available agents.";
-          return `Error: unknown agent profile "${agentId}".${hint}`;
+          return taskToolResult(call.id, `Error: unknown agent profile "${agentId}".${hint}`);
         }
         if (profile.capabilities !== undefined) {
           capabilities = profile.capabilities;
@@ -830,7 +841,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.inference !== undefined) {
             const outcome = resolveInferenceWithPolicy(profile.inference, settings);
             if (outcome.kind === "unavailable") {
-              return `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`;
+              return taskToolResult(
+                call.id,
+                `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              );
             }
             if (outcome.kind === "resolved") resolved = outcome.value;
           }
@@ -852,7 +866,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
                 isCodexProviderName(resolved.provider),
               );
               if (!verdict.ok) {
-                return `Error: agent "${agentId}" has incompatible inference: ${verdict.error}`;
+                return taskToolResult(
+                  call.id,
+                  `Error: agent "${agentId}" has incompatible inference: ${verdict.error}`,
+                );
               }
             }
             const providerSettings = settings.providers[resolved.provider];
@@ -894,6 +911,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const session =
         deps.sessions !== undefined
           ? deps.sessions.start({
+              id: call.id,
               description,
               agentId: agentLabel,
               brief,
@@ -983,16 +1001,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           session !== undefined &&
           deps.sessions?.get(session.id)?.status === "cancelled"
         ) {
-          return cancelledSubAgentMessage(description);
+          return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
         if (childCtl.signal.aborted) {
           if (session !== undefined) {
             deps.sessions?.cancel(session.id, cancelReason(childCtl.signal));
           }
-          return cancelledSubAgentMessage(description);
+          return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
-        return `Sub-agent "${description}" reported:\n\n${result}`;
+        return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${result}`);
       } catch (err) {
         if (
           isSubAgentCancelError(err, childCtl.signal) ||
@@ -1005,11 +1023,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ) {
             deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          return cancelledSubAgentMessage(description);
+          return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
         const message = err instanceof Error ? err.message : String(err);
         if (session !== undefined) deps.sessions?.fail(session.id, message);
-        return `Error: sub-agent "${description}" failed: ${message}`;
+        return taskToolResult(call.id, `Error: sub-agent "${description}" failed: ${message}`);
       } finally {
         signal.removeEventListener("abort", onParentAbort);
       }
