@@ -35,6 +35,7 @@ const noopActions: KeymapActions = {
   agentsNavPrev: () => undefined,
   agentsNavConfirm: () => undefined,
   agentsNavCancel: () => undefined,
+  agentsNavKill: () => undefined,
   exitEnteredSession: () => undefined,
 };
 
@@ -116,13 +117,27 @@ describe("agents nav and enter-session", () => {
       agentsNavPrev: () => calls.push("prev"),
       agentsNavConfirm: () => calls.push("confirm"),
       agentsNavCancel: () => calls.push("cancel"),
+      agentsNavKill: () => calls.push("kill"),
     };
     const ctx: KeymapContext = { ...baseContext, agentsNavOpen: true };
     handleKey("", key({ downArrow: true }), ctx, actions, 0, 0);
     handleKey("", key({ upArrow: true }), ctx, actions, 0, 0);
     handleKey("", key({ return: true }), ctx, actions, 0, 0);
+    handleKey("x", key(), ctx, actions, 0, 0);
     handleKey("", key({ escape: true }), ctx, actions, 0, 0);
-    expect(calls).toEqual(["next", "prev", "confirm", "cancel"]);
+    expect(calls).toEqual(["next", "prev", "confirm", "kill", "cancel"]);
+  });
+
+  test("while agents nav is open, Esc exits nav without killing", () => {
+    const calls: string[] = [];
+    const actions: KeymapActions = {
+      ...noopActions,
+      agentsNavCancel: () => calls.push("cancel"),
+      agentsNavKill: () => calls.push("kill"),
+    };
+    const ctx: KeymapContext = { ...baseContext, agentsNavOpen: true };
+    handleKey("", key({ escape: true }), ctx, actions, 0, 0);
+    expect(calls).toEqual(["cancel"]);
   });
 
   test("while viewing a sub-agent, Esc returns to the parent", () => {
@@ -136,5 +151,17 @@ describe("agents nav and enter-session", () => {
     const ctx: KeymapContext = { ...baseContext, enteredSession: true };
     handleKey("", key({ escape: true }), ctx, actions, 0, 0);
     expect(exited).toBe(true);
+  });
+
+  test("while viewing a sub-agent, x cancels without exiting observe", () => {
+    const calls: string[] = [];
+    const actions: KeymapActions = {
+      ...noopActions,
+      agentsNavKill: () => calls.push("kill"),
+      exitEnteredSession: () => calls.push("exit"),
+    };
+    const ctx: KeymapContext = { ...baseContext, enteredSession: true };
+    handleKey("x", key(), ctx, actions, 0, 0);
+    expect(calls).toEqual(["kill"]);
   });
 });

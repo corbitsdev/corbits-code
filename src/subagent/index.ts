@@ -566,6 +566,21 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   };
   const streamPromise = consumeStream(agent.stream(), streamSink);
 
+  // Aborting the send signal only rejects the promise; the child reactor keeps
+  // running until close() (same hard-stop rule as the parent in runner.tsx).
+  const closeOnAbort = (): void => {
+    void agent.close().catch(() => {
+      // close is idempotent; ignore races with the finally block.
+    });
+  };
+  if (params.signal !== undefined) {
+    if (params.signal.aborted) {
+      closeOnAbort();
+    } else {
+      params.signal.addEventListener("abort", closeOnAbort, { once: true });
+    }
+  }
+
   try {
     const fullPrompt = buildDispatchBrief({
       description: params.description,
@@ -573,8 +588,16 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       ...(params.context !== undefined ? { context: params.context } : {}),
       ...(params.goals !== undefined && params.goals.length > 0 ? { goals: params.goals } : {}),
     });
+    const ensureNotAborted = (): void => {
+      const signal = params.signal;
+      // Re-read .aborted after await — control-flow narrowing would wrongly
+      // treat a pre-send check as permanent.
+      if (signal !== undefined && signal.aborted) throw abortError(signal);
+    };
+    ensureNotAborted();
     const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
     const result = await agent.send(fullPrompt, sendOpts);
+    ensureNotAborted();
     const reply =
       result.reply.trim().length > 0
         ? result.reply.trim()
@@ -584,6 +607,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     const report = formatSubAgentReport(parseSubAgentReport(reply));
     return appendActivitySummary(report, toolNamesUsed);
   } finally {
+    if (params.signal !== undefined) {
+      params.signal.removeEventListener("abort", closeOnAbort);
+    }
     try {
       await agent.close();
     } catch {
@@ -600,6 +626,23 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       // LSP shutdown can fail when several sub-agents exit together.
     }
   }
+}
+
+function abortError(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  if (reason instanceof Error) return reason;
+  const err = new Error(typeof reason === "string" && reason.length > 0 ? reason : "aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+export function isSubAgentCancelError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted === true) return true;
+  if (err instanceof Error && err.name === "AbortError") return true;
+  if (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError") {
+    return true;
+  }
+  return false;
 }
 
 const TaskToolArgs = type({
@@ -827,34 +870,52 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             }
           : deps.onEvent;
 
+      const sandbox: SubAgentSandboxDeps = {
+        permissionGate: deps.permissionGate,
+        ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
+        ...(deps.webProvider !== undefined ? { webProvider: deps.webProvider } : {}),
+        ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+        ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
+      };
+      const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
+        ? {
+            ...sandbox,
+            getWorkdirBase: deps.getWorkdirBase,
+            provider: deps.provider,
+            // Forward the external sink, not this session's recorder: nested
+            // workers record into their own sessions (deps.sessions below),
+            // so chaining recordEvent here would replay each grandchild event
+            // into the orchestrator's transcript as well.
+            ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
+            ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+            // Nested workers share the same session store so their transcripts
+            // are enterable too; allowOrchestrator is false so they cannot
+            // re-orchestrate indefinitely.
+            ...(deps.sessions !== undefined ? { sessions: deps.sessions } : {}),
+            ...(deps.settings !== undefined ? { settings: deps.settings } : {}),
+            ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
+            ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
+          }
+        : undefined;
+      // Per-spawn controller so strip cancel and parent stop share one abort
+      // path. Parent tool signal links into this controller; registerCancel
+      // lets the session store abort without holding the agent handle.
+      const childCtl = new AbortController();
+      const onParentAbort = (): void => {
+        if (!childCtl.signal.aborted) childCtl.abort(signal.reason);
+      };
+      if (signal.aborted) {
+        childCtl.abort(signal.reason);
+      } else {
+        signal.addEventListener("abort", onParentAbort, { once: true });
+      }
+      if (session !== undefined) {
+        deps.sessions?.registerCancel(session.id, () => {
+          if (!childCtl.signal.aborted) childCtl.abort();
+        });
+      }
+
       try {
-        const sandbox: SubAgentSandboxDeps = {
-          permissionGate: deps.permissionGate,
-          ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
-          ...(deps.webProvider !== undefined ? { webProvider: deps.webProvider } : {}),
-          ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
-          ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
-        };
-        const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
-          ? {
-              ...sandbox,
-              getWorkdirBase: deps.getWorkdirBase,
-              provider: deps.provider,
-              // Forward the external sink, not this session's recorder: nested
-              // workers record into their own sessions (deps.sessions below),
-              // so chaining recordEvent here would replay each grandchild event
-              // into the orchestrator's transcript as well.
-              ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
-              ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
-              // Nested workers share the same session store so their transcripts
-              // are enterable too; allowOrchestrator is false so they cannot
-              // re-orchestrate indefinitely.
-              ...(deps.sessions !== undefined ? { sessions: deps.sessions } : {}),
-              ...(deps.settings !== undefined ? { settings: deps.settings } : {}),
-              ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
-              ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
-            }
-          : undefined;
         const params: RunSubAgentParams = {
           ...sandbox,
           cwd: deps.cwd,
@@ -867,7 +928,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,
           ...(goals.length > 0 ? { goals } : {}),
-          signal,
+          signal: childCtl.signal,
           ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
           ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
           ...(capabilities !== undefined ? { capabilities } : {}),
@@ -880,13 +941,52 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(deps.allowOrchestrator === false ? { nested: true } : {}),
         };
         const result = await run(params);
+        // Race: strip/parent may cancel after run resolves but before complete.
+        if (
+          session !== undefined &&
+          deps.sessions?.get(session.id)?.status === "cancelled"
+        ) {
+          return cancelledSubAgentMessage(description);
+        }
+        if (childCtl.signal.aborted) {
+          if (session !== undefined) {
+            deps.sessions?.cancel(session.id, cancelReason(childCtl.signal));
+          }
+          return cancelledSubAgentMessage(description);
+        }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
         return `Sub-agent "${description}" reported:\n\n${result}`;
       } catch (err) {
+        if (
+          isSubAgentCancelError(err, childCtl.signal) ||
+          (session !== undefined &&
+            deps.sessions?.get(session.id)?.status === "cancelled")
+        ) {
+          if (
+            session !== undefined &&
+            deps.sessions?.get(session.id)?.status === "running"
+          ) {
+            deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
+          }
+          return cancelledSubAgentMessage(description);
+        }
         const message = err instanceof Error ? err.message : String(err);
         if (session !== undefined) deps.sessions?.fail(session.id, message);
         return `Error: sub-agent "${description}" failed: ${message}`;
+      } finally {
+        signal.removeEventListener("abort", onParentAbort);
       }
     },
   });
+}
+
+function cancelReason(signal: AbortSignal): string {
+  const reason = signal.reason;
+  if (typeof reason === "string" && reason.length > 0) return reason;
+  if (reason instanceof Error && reason.message.length > 0) return reason.message;
+  return "Cancelled by operator";
+}
+
+function cancelledSubAgentMessage(description: string): string {
+  return `Sub-agent "${description}" cancelled by operator.`;
 }

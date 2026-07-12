@@ -41,17 +41,24 @@ describe("activeStripSessions", () => {
     startedAt: 0,
   });
 
-  test("keeps only running sessions, dropping done and failed", () => {
+  test("keeps only running sessions, dropping done, failed, and cancelled", () => {
     const sessions = [
       session("live", "running"),
       session("finished", "done"),
       session("broke", "failed"),
+      session("killed", "cancelled"),
     ];
 
     expect(activeStripSessions(sessions).map((s) => s.id)).toEqual(["live"]);
   });
 
   test("returns nothing once every session is terminal", () => {
-    expect(activeStripSessions([session("a", "done"), session("b", "failed")])).toEqual([]);
+    expect(
+      activeStripSessions([
+        session("a", "done"),
+        session("b", "failed"),
+        session("c", "cancelled"),
+      ]),
+    ).toEqual([]);
   });
 });

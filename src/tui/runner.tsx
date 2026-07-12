@@ -934,11 +934,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // so it resumes from an empty git-backed store. The prior session stays on
   // disk under its own id, resumable later.
   //
-  // Sub-agent lifecycle on rotation: any sub-agents spawned before /clear
-  // continue running in their own processes. Their onEvent output was captured
-  // in the cleared transcript and will not appear in the new session's log.
-  // This is acceptable — the sub-agents are isolated by session directory and
-  // cannot write to the new session's store. They will terminate naturally.
+  // Sub-agent lifecycle on rotation: App cancels live workers (cancelAll +
+  // abort handles → child agent.close) before clearing the session store so
+  // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
     // The App clears its transcript unconditionally on /clear, so the backend
     // rotation is always enqueued regardless of contention; the queue serialises
