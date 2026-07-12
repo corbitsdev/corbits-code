@@ -43,7 +43,11 @@ describe("createTaskTool", () => {
   });
 
   test("forwards sandbox deps (permission gate and inherited MCP tools) to runSubAgent", async () => {
-    const inherited = [{ definition: { name: "mcp__srv__tool" }, kind: "string" as const, handler: async () => "ok" }];
+    const inherited = [{
+      definition: { name: "mcp__srv__tool", description: "Test MCP tool", inputSchema: {} },
+      kind: "string" as const,
+      handler: async () => "ok",
+    }];
     let captured: RunSubAgentParams | undefined;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
