@@ -162,7 +162,7 @@ export function ModalStack({
       {pendingPermission !== null && (
         <PermissionModal
           request={pendingPermission}
-          permissionQueueDepth={permissionQueueDepth}
+          {...(permissionQueueDepth !== undefined ? { permissionQueueDepth } : {})}
           onResolve={onResolvePermission}
           {...(width !== undefined ? { width } : {})}
         />
