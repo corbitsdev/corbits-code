@@ -60,7 +60,12 @@ export type ProviderManagerController = {
   persistSelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
-  saveTierAssignment: (tier: ProviderTier, provider: string, model: string) => void;
+  saveTierAssignment: (
+    tier: ProviderTier,
+    provider: string,
+    model: string,
+    effort?: import("../../provider/reasoning-effort.js").ReasoningEffort,
+  ) => void;
   cycleTierMode: (tier: ProviderTier) => void;
   clearTier: (tier: ProviderTier) => void;
   removeTierLegAt: (tier: ProviderTier, legIndex: number) => void;
@@ -331,11 +336,22 @@ export function useProviderManager({
     );
   };
 
-  const saveTierAssignment = (tier: ProviderTier, tierProvider: string, tierModel: string): void => {
-    const nextDef = appendTierEntry(tiers[tier], { provider: tierProvider, model: tierModel });
+  const saveTierAssignment = (
+    tier: ProviderTier,
+    tierProvider: string,
+    tierModel: string,
+    effort?: import("../../provider/reasoning-effort.js").ReasoningEffort,
+  ): void => {
+    const entry: import("../../config/settings.js").TierProviderRef = {
+      provider: tierProvider,
+      model: tierModel,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    };
+    const nextDef = appendTierEntry(tiers[tier], entry);
+    const effortLabel = effort !== undefined ? ` · ${effort}` : "";
     persistTierState(
       { ...tiers, [tier]: nextDef },
-      `Saved tier ${tier}: ${tierProvider} · ${tierModel} (chain length ${nextDef.order.length})`,
+      `Saved tier ${tier}: ${tierProvider} · ${tierModel}${effortLabel} (chain length ${nextDef.order.length})`,
       "Tier assignment saved locally, but persisting failed",
     );
   };
