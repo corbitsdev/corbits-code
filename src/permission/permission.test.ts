@@ -510,7 +510,7 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
-  test("auto mode auto-allows safe git worktree operations inside the workspace", async () => {
+  test("auto mode auto-allows read-only git worktree list inside the workspace", async () => {
     let asked = 0;
     const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
     const gate = createPermissionGate({
@@ -523,10 +523,30 @@ describe("createPermissionGate", () => {
       rootsProvider: () => [],
     });
 
-    for (const command of ["git worktree list", "git worktree list --porcelain", "git worktree add feature", "git worktree add feature main"]) {
+    for (const command of ["git worktree list", "git worktree list --porcelain"]) {
       expect((await gate.evaluate(shellCall(command))).allowed).toBe(true);
     }
     expect(asked).toBe(0);
+  });
+
+  test("auto mode prompts for git worktree add inside the workspace", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+      cwd,
+      rootsProvider: () => [],
+    });
+
+    for (const command of ["git worktree add feature", "git worktree add feature main"]) {
+      asked = 0;
+      expect((await gate.evaluate(shellCall(command))).allowed).toBe(false);
+      expect(asked).toBe(1);
+    }
   });
 
   test("auto mode prompts for unsafe git worktree operations", async () => {
@@ -1543,5 +1563,19 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     // A zero-width debounce window means the initial listing plus one forced
     // refresh per subsequent check are both eligible to run.
     expect(listCalls).toBeGreaterThan(1);
+  });
+
+  test("evicts a removed worktree root when the cache refreshes", () => {
+    const repo = createRepo();
+    const removed = join(repo, "..", "removed");
+    let listed = [removed];
+    const lister = (): string[] => {
+      const next = listed;
+      listed = [];
+      return next;
+    };
+    const provider = createWorktreeRootsProvider(repo, () => lister(), 0);
+    expect(provider()).toEqual([removed]);
+    expect(provider(true)).toEqual([]);
   });
 });

@@ -78,10 +78,12 @@ export function createWorktreeRootsProvider(
       lastRefreshAt = Date.now();
       return roots;
     }
-    if (forceRefresh) {
-      const now = Date.now();
-      if (now - lastRefreshAt >= debounceMs) {
+    const now = Date.now();
+    const due = now - lastRefreshAt >= debounceMs;
+    if (due || forceRefresh) {
+      if (due) {
         lastRefreshAt = now;
+        // Replace the cache wholesale so roots git no longer lists are evicted.
         roots = lister(cwd);
       }
     }
