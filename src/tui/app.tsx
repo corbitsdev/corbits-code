@@ -15,6 +15,7 @@ import {
   EventLog,
   buildLinesIncremental,
   buildResourceBanner,
+  clearMarkdownLineCache,
   DEFAULT_MAX_RENDERED_LOG_LINES,
   maxLineOffset,
   TEXT_GUTTER,
@@ -812,6 +813,7 @@ export function App({
     lineCacheKeysRef.current.thinkingExpanded !== thinkingExpanded
   ) {
     lineCacheRef.current.clear();
+    clearMarkdownLineCache();
     baseLinesRef.current = undefined;
     incrementalLinesRef.current = undefined;
     lineCacheKeysRef.current = { contentWidth, thinkingExpanded };

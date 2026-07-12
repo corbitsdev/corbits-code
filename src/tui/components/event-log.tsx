@@ -3,7 +3,7 @@ import type { ContentBlock } from "../use-stream.js";
 import { memo, useMemo, type ReactNode } from "react";
 import { formatElapsed } from "./in-flight-indicator.js";
 import { elapsedMsFromAnchor } from "../hooks/use-spinner.js";
-import { parseMarkdown } from "../markdown-parser.js";
+import { createMemoizedParseMarkdown } from "../markdown-parser.js";
 import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
@@ -409,8 +409,17 @@ function compactUserCodeBlocks(content: string): string {
   });
 }
 
+// Shared across all blocks: bounded by createMemoizedParseMarkdown's own LRU
+// capacity and cleared by clearMarkdownLineCache alongside the coarser
+// per-block line cache (see app.tsx), so it never grows across a session.
+const memoizedParseMarkdown = createMemoizedParseMarkdown();
+
+export function clearMarkdownLineCache(): void {
+  memoizedParseMarkdown.clear();
+}
+
 function markdownLines(content: string, width: number): StyledLine[] {
-  return parseMarkdown(content, width).flatMap((segments) =>
+  return memoizedParseMarkdown(content, width).flatMap((segments) =>
     segments.length === 0 ? [[]] : wrapStyledLine(segments, width),
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseMarkdown, type StyledSegment } from "./markdown-parser.js";
+import { createMemoizedParseMarkdown, parseMarkdown, type StyledSegment } from "./markdown-parser.js";
 import { color } from "./theme.js";
 
 function firstLine(text: string): StyledSegment[] {
@@ -472,4 +472,52 @@ test("link with an empty URL still renders as styled text, not raw characters", 
   expect(link?.text).toBe("docs");
   // No "(...)" suffix for an empty URL, and the text is not split char-by-char.
   expect(segs.some((s) => s.text.includes("("))).toBe(false);
+});
+
+describe("createMemoizedParseMarkdown", () => {
+  test("returns the same array reference for a repeated (text, width) call", () => {
+    const memoized = createMemoizedParseMarkdown();
+    const first = memoized("hello **world**", 80);
+    const second = memoized("hello **world**", 80);
+    expect(second).toBe(first);
+  });
+
+  test("misses on a different width even with identical text", () => {
+    const memoized = createMemoizedParseMarkdown();
+    const at80 = memoized("some prose", 80);
+    const at40 = memoized("some prose", 40);
+    expect(at40).not.toBe(at80);
+    expect(at40).toEqual(parseMarkdown("some prose", 40));
+  });
+
+  test("misses on different text at the same width", () => {
+    const memoized = createMemoizedParseMarkdown();
+    const a = memoized("first", 80);
+    const b = memoized("second", 80);
+    expect(b).not.toBe(a);
+  });
+
+  test("evicts the least recently used entry once over capacity", () => {
+    const memoized = createMemoizedParseMarkdown(2);
+    const a = memoized("a", 80);
+    const b = memoized("b", 80);
+    // Touch "a" again so "b" becomes the least recently used entry.
+    expect(memoized("a", 80)).toBe(a);
+    const c = memoized("c", 80); // pushes cache over capacity, evicting "b"
+
+    // "b" was evicted: same content, but a freshly parsed (non-identical) array.
+    expect(memoized("b", 80)).not.toBe(b);
+    // "c" is still warm — it was inserted more recently than "a", which the
+    // re-fetch of "b" above evicted to make room.
+    expect(memoized("c", 80)).toBe(c);
+  });
+
+  test("clear() drops every cached entry", () => {
+    const memoized = createMemoizedParseMarkdown();
+    const first = memoized("hello", 80);
+    memoized.clear();
+    const second = memoized("hello", 80);
+    expect(second).not.toBe(first);
+    expect(second).toEqual(first);
+  });
 });
