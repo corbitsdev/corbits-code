@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { SubAgentSession, SubAgentSessionStatus } from "../../subagent/session-store.js";
 import { color } from "../theme.js";
+import { describeToolCall } from "../tool-formatter.js";
 
 export type AgentsStripProps = {
   sessions: readonly SubAgentSession[];
@@ -79,13 +80,20 @@ export function AgentsStrip({
           </Text>
         )}
       </Box>
-      {visible.map((session) => {
+      {visible.map((session, index) => {
         const selected = session.id === selectedId;
         const entered = session.id === enteredId;
         const prefix = selected ? "› " : entered ? "· " : "  ";
         const label = formatSessionLabel(session);
+        const tree = treeIndent(session, visible, index);
+        const rowBg = rowBackground(session.status);
         return (
-          <Box key={session.id} gap={1}>
+          <Box
+            key={session.id}
+            gap={1}
+            width="100%"
+            {...(rowBg !== undefined ? { backgroundColor: rowBg } : {})}
+          >
             <Text
               color={statusColor(session.status)}
               bold={session.status === "running" || selected}
@@ -97,6 +105,7 @@ export function AgentsStrip({
               bold={selected || entered}
               wrap="truncate-end"
             >
+              {tree}
               {prefix}
               {label}
             </Text>
@@ -112,13 +121,70 @@ export function AgentsStrip({
   );
 }
 
+// A background-tinted status card per row, mirroring the tool-row treatment
+// in event-log.tsx: a running wash while live, success/error tint once the
+// worker reaches a terminal state. Cancelled rows stay untinted — cancel is
+// an operator action, not an outcome worth calling out visually.
+function rowBackground(status: SubAgentSessionStatus): string | undefined {
+  switch (status) {
+    case "running":
+      return color("toolPendingBg");
+    case "done":
+      return color("toolSuccessBg");
+    case "failed":
+      return color("toolErrorBg");
+    case "cancelled":
+      return undefined;
+  }
+}
+
+// Nested (one-hop) dispatches carry parentSessionId; render them under their
+// orchestrator with a tree glyph. Siblings are not necessarily adjacent (the
+// strip sorts running-first then by recency), so "last" is determined by
+// scanning the remainder of the visible list rather than array position.
+function treeIndent(
+  session: SubAgentSession,
+  visible: readonly SubAgentSession[],
+  index: number,
+): string {
+  if (session.parentSessionId === undefined) return "";
+  const hasLaterSibling = visible
+    .slice(index + 1)
+    .some((s) => s.parentSessionId === session.parentSessionId);
+  return hasLaterSibling ? "├─ " : "└─ ";
+}
+
+// The transcript entry backing session.currentToolName, if any — used to
+// build an argument preview. currentToolName is nulled the moment a result
+// lands, so whenever it is set the most recent matching "tool" entry is the
+// one still running.
+function currentToolArguments(session: SubAgentSession): string {
+  if (session.currentToolName === null) return "";
+  for (let i = session.entries.length - 1; i >= 0; i--) {
+    const entry = session.entries[i];
+    if (entry?.kind === "tool" && entry.name === session.currentToolName) return entry.arguments;
+  }
+  return "";
+}
+
 export function formatSessionLabel(session: SubAgentSession): string {
+  if (session.status === "running" && session.currentToolName !== null) {
+    const args = currentToolArguments(session);
+    const { summary, isShell } = describeToolCall(session.currentToolName, args);
+    // Shell's summary is already the full command headline (no separate tool
+    // name to prefix); other tools read as "<name> <argument summary>".
+    const preview = isShell
+      ? summary
+      : summary.length > 0
+        ? `${session.currentToolName} ${summary}`
+        : session.currentToolName;
+    const tool = ` — ${preview}`;
+    return `${session.agentId}: ${session.description}${tool}`;
+  }
   const tool =
-    session.status === "running" && session.currentToolName !== null
-      ? ` · ${session.currentToolName}`
-      : session.toolNames.length > 0 && session.status !== "running"
-        ? ` · ${session.toolNames.length} tool${session.toolNames.length === 1 ? "" : "s"}`
-        : "";
+    session.toolNames.length > 0 && session.status !== "running"
+      ? ` · ${session.toolNames.length} tool${session.toolNames.length === 1 ? "" : "s"}`
+      : "";
   return `${session.agentId}: ${session.description}${tool}`;
 }
 

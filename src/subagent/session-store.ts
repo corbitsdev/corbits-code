@@ -30,6 +30,10 @@ export type SubAgentSession = {
   finishedAt?: number;
   report?: string;
   error?: string;
+  // Session id of the orchestrator that dispatched this worker, when this is
+  // a nested (one-hop) dispatch. Undefined for top-level sessions started
+  // directly from the primary session's task tool.
+  parentSessionId?: string;
 };
 
 export type StartSessionInput = {
@@ -39,6 +43,9 @@ export type StartSessionInput = {
   // Optional external id (e.g. parent tool callId) so the Agents strip can
   // correlate progress with the session. Generated when omitted.
   id?: string;
+  // Set when this session is a nested dispatch spawned by an orchestrator
+  // sub-agent, so the strip can render it indented under its parent.
+  parentSessionId?: string;
 };
 
 export type SubAgentSessionStoreOptions = {
@@ -222,6 +229,7 @@ export function createSubAgentSessionStore(
         currentToolName: null,
         entries: [],
         startedAt: now(),
+        ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
       notify();
@@ -427,6 +435,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),
     ...(session.error !== undefined ? { error: session.error } : {}),
+    ...(session.parentSessionId !== undefined ? { parentSessionId: session.parentSessionId } : {}),
   };
 }
 
