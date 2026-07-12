@@ -6,6 +6,8 @@ import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { authzPlugin } from "../plugins/authz-plugin.js";
 import { permissionPlugin } from "../plugins/permission-plugin.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { editFileDiagnosticsPlugin } from "../plugins/edit-file-diagnostics-plugin.js";
+import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
@@ -41,7 +43,11 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     permissionPlugin(permissionGate),
     shellGuardPlugin(cwd, shellTimeout),
     ripgrepPlugin(cwd),
+    // Line-range short-circuit sits inside verify (before stock edit_file).
+    editFileLineRangePlugin(),
     verifyPlugin(),
+    // Outside verify: enrich stock substring mismatch errors (composeMiddleware last→first).
+    editFileDiagnosticsPlugin(),
     webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
     lspHintPlugin(),
     createLSPPlugin({ cwd, minSeverity: 1 }),

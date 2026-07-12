@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { withFileMutationLock } from "./file-mutation-lock.js";
+import { applyLineRangeEdit, parseEditFileMode } from "./edit-file-line-range.js";
 
 function mutationPath(call: ToolCall): string | undefined {
   if (call.name !== "edit_file" && call.name !== "write_file") return undefined;
@@ -49,12 +50,22 @@ export function verifyPlugin(): ToolPlugin {
 
         if (call.name === "edit_file" && !result.isError && before !== undefined) {
           const path = String(call.arguments.path ?? "");
-          const oldStr = String(call.arguments.old_string ?? "");
-          const newStr = String(call.arguments.new_string ?? "");
-          const replaceAll = Boolean(call.arguments.replace_all);
+          const mode = parseEditFileMode(call.arguments);
           try {
             const actual = await readFile(path, "utf8");
-            const expected = applyEdit(before, oldStr, newStr, replaceAll);
+            let expected: string;
+            if (mode.kind === "line_range") {
+              expected = applyLineRangeEdit(
+                before,
+                mode.start_line,
+                mode.end_line,
+                mode.new_string,
+              );
+            } else if (mode.kind === "substring") {
+              expected = applyEdit(before, mode.old_string, mode.new_string, mode.replace_all);
+            } else {
+              return result;
+            }
             if (actual !== expected) {
               return {
                 callId: call.id,
