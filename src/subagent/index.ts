@@ -221,6 +221,9 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   settings?: Settings | (() => Settings | undefined);
   catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
   profiles?: AgentProfile[] | (() => AgentProfile[]);
+  // The orchestrator's own session id, so workers it dispatches record as
+  // nested (one-hop) sessions the Agents strip can indent under it.
+  parentSessionId?: string;
 };
 
 export type RunSubAgentParams = {
@@ -466,6 +469,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
         ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
         ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
+        ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
       }),
       ...(nd.profiles !== undefined
         ? [
@@ -754,6 +758,10 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // When false, profile.orchestrator is ignored so nested workers cannot
   // themselves become orchestrators. Defaults to true for the primary session.
   allowOrchestrator?: boolean;
+  // Set on the nested task tool installed inside an orchestrator sub-agent:
+  // the orchestrator's own session id, so workers it spawns record as nested
+  // sessions the Agents strip can indent under it.
+  parentSessionId?: string;
 };
 
 function taskToolResult(callId: string, content: string): ToolResult {
@@ -915,6 +923,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               description,
               agentId: agentLabel,
               brief,
+              ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
             })
           : undefined;
       const recordEvent =
@@ -950,6 +959,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.settings !== undefined ? { settings: deps.settings } : {}),
             ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
             ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
+            ...(session !== undefined ? { parentSessionId: session.id } : {}),
           }
         : undefined;
       // Per-spawn controller so strip cancel and parent stop share one abort

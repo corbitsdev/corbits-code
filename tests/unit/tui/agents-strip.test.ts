@@ -4,10 +4,12 @@ import {
   activeStripSessions,
   agentsStripRowCount,
   DEFAULT_STRIP_MAX_VISIBLE,
+  formatSessionLabel,
 } from "../../../src/tui/components/agents-strip.js";
 import type {
   SubAgentSession,
   SubAgentSessionStatus,
+  SubAgentTranscriptEntry,
 } from "../../../src/subagent/session-store.js";
 
 describe("agentsStripRowCount", () => {
@@ -60,5 +62,52 @@ describe("activeStripSessions", () => {
         session("c", "cancelled"),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("formatSessionLabel", () => {
+  const baseSession = (overrides: Partial<SubAgentSession> = {}): SubAgentSession => ({
+    id: "s1",
+    description: "researching things",
+    agentId: "researcher",
+    brief: "",
+    status: "running",
+    toolNames: [],
+    currentToolName: null,
+    entries: [],
+    startedAt: 0,
+    ...overrides,
+  });
+
+  test("shows a tool argument preview while a tool call is in flight", () => {
+    const entries: SubAgentTranscriptEntry[] = [
+      { kind: "tool", callId: "c1", name: "grep", arguments: '{"pattern":"foo","path":"src/tui"}' },
+    ];
+    const session = baseSession({ currentToolName: "grep", entries });
+    expect(formatSessionLabel(session)).toContain("researcher: researching things — grep");
+  });
+
+  test("falls back to the bare tool name when no argument summary is available", () => {
+    const session = baseSession({ currentToolName: "manage_tasks", entries: [] });
+    expect(formatSessionLabel(session)).toBe(
+      "researcher: researching things — manage_tasks",
+    );
+  });
+
+  test("clears the tool preview once the session is no longer running", () => {
+    const session = baseSession({
+      status: "done",
+      currentToolName: null,
+      toolNames: ["grep", "read_file"],
+    });
+    expect(formatSessionLabel(session)).toBe("researcher: researching things · 2 tools");
+  });
+
+  test("shell tool preview leads with the command, not a redundant tool name", () => {
+    const entries: SubAgentTranscriptEntry[] = [
+      { kind: "tool", callId: "c1", name: "run_shell", arguments: '{"command":"bun test"}' },
+    ];
+    const session = baseSession({ currentToolName: "run_shell", entries });
+    expect(formatSessionLabel(session)).toBe("researcher: researching things — bun test");
   });
 });
