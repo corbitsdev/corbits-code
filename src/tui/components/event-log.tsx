@@ -998,7 +998,11 @@ export function buildLinesIncremental(
     const prevLength = prev.blocks.length;
     const maxPrefix = Math.min(prevLength, blocks.length);
     let commonPrefix = 0;
-    while (commonPrefix < maxPrefix && blocks[commonPrefix] === prev.blocks[commonPrefix]) {
+    while (
+      commonPrefix < maxPrefix
+      && blocks[commonPrefix] === prev.blocks[commonPrefix]
+      && blocks[commonPrefix]?.layoutKey === prev.blocks[commonPrefix]?.layoutKey
+    ) {
       commonPrefix++;
     }
 
