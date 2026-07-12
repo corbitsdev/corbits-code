@@ -47,6 +47,7 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean; subAgent?: boo
     "Harness facts:",
     "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
+    "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
     "- run_shell defaults to a 10s timeout; pass timeout for builds, tests, and other long commands.",
     "- Shell find, rg, and grep -r are blocked — they OOM the host. Use grep, search_files, and list_dir.",
     ...(subAgent
@@ -111,7 +112,8 @@ export function buildGuidelines(opts: { subAgent?: boolean } = {}): string {
 }
 
 const TOOL_SUMMARIES: Record<string, string> = {
-  read_file: "read a file (prefer over cat/head/tail in the shell)",
+  read_file:
+    "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell)",
   write_file: "create or overwrite a file (never shell redirects or heredocs)",
   edit_file:
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
@@ -123,7 +125,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
-  task: "spawn a sub-agent for a self-contained job (not a checklist item)",
+  task:
+    "spawn a sub-agent for a self-contained job (not a checklist item); when launching several task calls in one turn, give each a distinct lens in description and prompt so they do not duplicate work",
   search_agents: "find agent profiles by role or team before spawning with task(agent=...)",
   manage_tasks: "maintain your own work checklist (create/update status) — separate from spawning sub-agents",
   submit_output: "signal the task is complete — the only way to finish",
