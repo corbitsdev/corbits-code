@@ -46,6 +46,7 @@ import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { withSubAgentSlot } from "./concurrency.js";
+import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { Settings, ProviderTier } from "../config/settings.js";
 import { resolveTier, resolveInferenceWithPolicy } from "../config/settings.js";
@@ -596,6 +597,12 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     };
     ensureNotAborted();
     const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
+    const fresh = await refreshInferenceSourceBundle(
+      bundle.sources,
+      bundle.defaultSource,
+      params.catalog,
+    );
+    agent.setSources(fresh.sources, fresh.defaultSource);
     const result = await agent.send(fullPrompt, sendOpts);
     ensureNotAborted();
     const reply =
