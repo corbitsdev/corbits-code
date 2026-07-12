@@ -42,6 +42,7 @@ const STATUS_GLYPH: Record<SubAgentSessionStatus, string> = {
   running: "●",
   done: "✓",
   failed: "✗",
+  cancelled: "⊘",
 };
 
 export function AgentsStrip({
@@ -69,7 +70,7 @@ export function AgentsStrip({
         </Text>
         {navActive && (
           <Text color={color("muted")} dimColor>
-            ↑↓ select · ⏎ enter · esc cancel
+            ↑↓ select · ⏎ enter · x cancel · esc back
           </Text>
         )}
         {!navActive && (
@@ -125,10 +126,12 @@ function summaryCounts(sessions: readonly SubAgentSession[]): string {
   const running = sessions.filter((s) => s.status === "running").length;
   const done = sessions.filter((s) => s.status === "done").length;
   const failed = sessions.filter((s) => s.status === "failed").length;
+  const cancelled = sessions.filter((s) => s.status === "cancelled").length;
   const parts: string[] = [];
   if (running > 0) parts.push(`${running} live`);
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
+  if (cancelled > 0) parts.push(`${cancelled} cancelled`);
   return parts.length > 0 ? parts.join(" · ") : `${sessions.length}`;
 }
 
@@ -140,5 +143,7 @@ function statusColor(status: SubAgentSessionStatus): string {
       return color("success");
     case "failed":
       return color("danger");
+    case "cancelled":
+      return color("muted");
   }
 }

@@ -205,6 +205,52 @@ describe("createSubAgentSessionStore", () => {
     expect(strip[0]?.status).toBe("running");
     expect(strip[1]?.description).toBe("old-done");
   });
+
+  test("cancel marks status, fires abort handle, and ignores late complete", () => {
+    const store = createSubAgentSessionStore({ createId: () => "s-cancel" });
+    store.start({ description: "stuck", agentId: "worker", brief: "loop" });
+    let aborted = 0;
+    store.registerCancel("s-cancel", () => {
+      aborted += 1;
+    });
+    expect(store.cancel("s-cancel", "operator kill")).toBe(true);
+    const session = store.get("s-cancel");
+    expect(session?.status).toBe("cancelled");
+    expect(session?.error).toBe("operator kill");
+    expect(session?.entries.at(-1)).toEqual({
+      kind: "report",
+      content: "Cancelled: operator kill",
+    });
+    expect(aborted).toBe(1);
+    // Late complete from the child must not resurrect a cancelled session.
+    store.complete("s-cancel", "should not win");
+    expect(store.get("s-cancel")?.status).toBe("cancelled");
+    expect(store.get("s-cancel")?.report).toBeUndefined();
+    // Idempotent: second cancel is a no-op.
+    expect(store.cancel("s-cancel")).toBe(false);
+    expect(aborted).toBe(1);
+  });
+
+  test("cancelAll aborts every running session", () => {
+    let n = 0;
+    const store = createSubAgentSessionStore({
+      createId: () => `s-${++n}`,
+    });
+    store.start({ description: "a", agentId: "w", brief: "b" });
+    store.start({ description: "b", agentId: "w", brief: "b" });
+    const done = store.start({ description: "done", agentId: "w", brief: "b" });
+    store.complete(done.id, "ok");
+    const aborted: string[] = [];
+    store.registerCancel("s-1", () => aborted.push("s-1"));
+    store.registerCancel("s-2", () => aborted.push("s-2"));
+    store.registerCancel("s-3", () => aborted.push("s-3")); // already done — ignored
+    const cancelled = store.cancelAll("Parent stop");
+    expect(cancelled.sort()).toEqual(["s-1", "s-2"]);
+    expect(aborted.sort()).toEqual(["s-1", "s-2"]);
+    expect(store.get("s-1")?.status).toBe("cancelled");
+    expect(store.get("s-2")?.status).toBe("cancelled");
+    expect(store.get("s-3")?.status).toBe("done");
+  });
 });
 
 describe("createTaskTool session recording", () => {
@@ -283,5 +329,84 @@ describe("createTaskTool session recording", () => {
     });
     const out = await call(tool, { description: "no store", prompt: "x" });
     expect(out).toContain("ok");
+  });
+
+  test("strip cancel aborts the child run and marks the session cancelled", async () => {
+    const store = createSubAgentSessionStore();
+    let sawAbort = false;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: process.cwd(),
+      getWorkdirBase: () => "/tmp",
+      provider,
+      sessions: store,
+      run: async (params) => {
+        // Simulate a long-running child that only exits when the operator cancels.
+        await new Promise<void>((resolve, reject) => {
+          const signal = params.signal;
+          if (signal === undefined) {
+            reject(new Error("expected signal"));
+            return;
+          }
+          if (signal.aborted) {
+            sawAbort = true;
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => {
+              sawAbort = true;
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+            },
+            { once: true },
+          );
+          // Cancel from the strip after the run has registered its handle.
+          queueMicrotask(() => {
+            const id = store.list()[0]?.id;
+            expect(id).toBeDefined();
+            store.cancel(id!, "Cancelled from Agents strip");
+          });
+        });
+        return "should not complete";
+      },
+    });
+    const out = await call(tool, { description: "stuck looper", prompt: "spin" });
+    expect(out).toContain('cancelled by operator');
+    expect(sawAbort).toBe(true);
+    const session = store.list()[0];
+    expect(session?.status).toBe("cancelled");
+    expect(session?.error).toContain("Cancelled");
+  });
+
+  test("parent tool signal abort cancels the session", async () => {
+    const store = createSubAgentSessionStore();
+    const parent = new AbortController();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: process.cwd(),
+      getWorkdirBase: () => "/tmp",
+      provider,
+      sessions: store,
+      run: async (params) => {
+        await new Promise<void>((_resolve, reject) => {
+          const signal = params.signal!;
+          signal.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            { once: true },
+          );
+          queueMicrotask(() => parent.abort());
+        });
+        return "nope";
+      },
+    });
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const out = await tool.handler(
+      { description: "parent stop child", prompt: "x" },
+      parent.signal,
+    );
+    expect(out).toContain("cancelled by operator");
+    expect(store.list()[0]?.status).toBe("cancelled");
   });
 });
