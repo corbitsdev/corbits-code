@@ -91,4 +91,20 @@ describe("createIncrementalMarkdown", () => {
     expect(calls[0]!).toContain("grows");
     expect(calls[0]!.length).toBeLessThan(base.length);
   });
+
+  test("a resize-free re-render of unchanged content is a no-op", () => {
+    const calls: string[] = [];
+    const counting = (content: string, width: number): StyledLine[] => {
+      calls.push(content);
+      return render(content, width);
+    };
+    const incremental = createIncrementalMarkdown(counting);
+    const first = incremental("stable paragraph.\n\ntail", 80);
+    calls.length = 0;
+
+    const second = incremental("stable paragraph.\n\ntail", 80);
+
+    expect(calls).toEqual([]);
+    expect(second).toBe(first);
+  });
 });
