@@ -181,10 +181,13 @@ function parseLine(line: string): StyledSegment[] {
 
 const FENCE_OPEN_RE = /^\s*(```+|~~~+)/;
 const FENCE_CLOSE_RE = /^\s*(```+|~~~+)\s*$/;
-// A closing fence typed one character at a time: one or two lone fence chars on
-// a line, not yet the three needed to close. Stripped from the streaming tail so
-// the block does not re-highlight around a half-formed fence each drain.
-const PARTIAL_FENCE_RE = /^\s*[`~]{1,2}\s*$/;
+// A closing fence typed one character at a time: zero, one, or two lone fence
+// chars on a line, not yet the three needed to close. Zero chars covers the
+// still-empty line right after the body's last newline — the first position a
+// closing fence could start from. Stripped from the streaming tail so the
+// block does not flicker (a visible line appearing then disappearing) as the
+// fence is typed in.
+const PARTIAL_FENCE_RE = /^\s*[`~]{0,2}\s*$/;
 const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
 const CODE_GUTTER = "▏ ";
 
