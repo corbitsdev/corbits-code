@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { createChatDirector, submitOutputDefinition } from "./agent/director.js";
 import { manageTasksDefinition } from "./agent/tasks.js";
+import { CHAT_PROMPT_QUALITY_MARKERS } from "./agent/prompt-contract.js";
 import {
   buildActiveContext,
   buildAvailableTools,
@@ -33,7 +34,8 @@ test("agent identity is Intercode with a minimal coding-assistant role", () => {
   const role = buildChatRole();
   expect(role).toContain("Intercode");
   expect(role).toContain("senior coding assistant");
-  expect(role).toContain("understand, edit, and verify code");
+  expect(role).toContain("understand, edit, and verify");
+  expect(role).toContain("Match their tone");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
@@ -53,12 +55,22 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).not.toContain("Tool results already render richly");
 });
 
-test("guidelines keep the default prompt concise and defer capability details", () => {
+test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {
   const guidelines = buildGuidelines();
-  expect(guidelines).toContain("Be concise");
-  expect(guidelines).toContain("diagnose product or visual feedback before editing code");
-  expect(guidelines).toContain("For explicit coding tasks, work autonomously");
-  expect(guidelines).toContain("Use lsp for symbols");
+  expect(guidelines).toContain("Response style:");
+  expect(guidelines).toContain("Tool choice:");
+  expect(guidelines).toContain("Ask vs proceed:");
+  expect(guidelines).toContain("Scope and conventions:");
+  expect(guidelines).toContain("grep or search_files");
+  expect(guidelines).toContain("ask_operator only when permission blocks you");
+  expect(guidelines).toContain("load the style and philosophy skills");
+});
+
+test("chat system prompt satisfies CL-3117 quality markers", () => {
+  const prompt = buildChatSystemPrompt();
+  for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
+    expect(prompt).toContain(marker);
+  }
 });
 
 test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
