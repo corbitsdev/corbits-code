@@ -11,7 +11,7 @@ import {
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { getLogger } from "@intx/log";
-import { createOptimizedContextStore } from "../session/optimized-context-store.js";
+import { createOptimizedContextStore, loadRecentTurns } from "../session/optimized-context-store.js";
 import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
 import {
@@ -1070,8 +1070,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Hydrate a resumed session's transcript after first paint. Reading history and
   // mapping it to content blocks is pure I/O with no bearing on the shell, so the
   // App renders empty immediately and fills in the past turns once they are ready.
-  void currentAgent
-    .history()
+  // Only the tail needed to fill RESUME_TRANSCRIPT_BLOCK_LIMIT blocks is read from
+  // disk — a long session's full history is not needed just to paint a transcript
+  // that itself caps how much it displays.
+  void loadRecentTurns(workdir, RESUME_TRANSCRIPT_BLOCK_LIMIT)
     .then((turns) => {
       const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
       if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
