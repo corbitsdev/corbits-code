@@ -34,9 +34,9 @@ export type ProviderSettings = {
 };
 
 export type ProviderTier = "fast" | "standard" | "clever";
-export type TierAssignment = { provider: string; model: string };
+export type TierAssignment = { provider: string; model: string; reasoningEffort?: ReasoningEffort };
 export type TierSelectionMode = "pin" | "prefer";
-export type TierProviderRef = { provider: string; model: string };
+export type TierProviderRef = { provider: string; model: string; reasoningEffort?: ReasoningEffort };
 export type TierDefinition = {
   mode?: TierSelectionMode;
   order: TierProviderRef[];
@@ -224,6 +224,7 @@ const ProviderSettingsSchema = type({
 const TierProviderRefSchema = type({
   provider: "string",
   model: "string",
+  "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
 });
 
 const TierAssignmentSchema = TierProviderRefSchema;
@@ -611,7 +612,11 @@ export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignm
   const def = resolveTierDefinition(tier, settings);
   const first = def?.order[0];
   if (first === undefined) return null;
-  return { provider: first.provider, model: first.model };
+  return {
+    provider: first.provider,
+    model: first.model,
+    ...(first.reasoningEffort !== undefined ? { reasoningEffort: first.reasoningEffort } : {}),
+  };
 }
 
 import type { InferenceSpec } from "@intercode/default-agents";
