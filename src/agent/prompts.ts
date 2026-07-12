@@ -80,7 +80,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   read_file: "read a file",
   write_file: "create or overwrite a file",
   edit_file:
-    "make a surgical edit to an existing file (exact old_string match; never include read_file's NNNNNN\\t line prefix; failures include nearby current file text)",
+    "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text)",
   run_shell: "run a shell command (builds, tests, git; 10s default timeout — pass timeout ms to override; never to read/write files, search trees, or talk to the user)",
   search_files: "find files by name or pattern (bounded; prefer over shell find)",
   grep: "search file contents (bounded; prefer over shell grep -r/rg)",

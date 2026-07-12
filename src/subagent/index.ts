@@ -34,6 +34,7 @@ import {
   advertiseShellGuardTimeout,
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
+import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -380,7 +381,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const shellDefaultMs = params.shellTimeout?.defaultMs;
   let tools = fromToolRunner(posixTools).map((tool) => ({
     ...tool,
-    definition: advertiseShellGuardTimeout(tool.definition, shellDefaultMs),
+    definition: advertiseEditFileLineRange(advertiseShellGuardTimeout(tool.definition, shellDefaultMs)),
   }));
 
   const inherited = params.inheritMcpTools?.() ?? [];
