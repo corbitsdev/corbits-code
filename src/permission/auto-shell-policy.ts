@@ -91,7 +91,7 @@ const WORKTREE_ASK_RULE: AutoShellRule = {
   name: "git-worktree",
   effect: "ask",
   reason:
-    "Only git worktree list and non-forced git worktree add destinations inside the workspace can run unattended.",
+    "Git worktree add, remove, and prune change the workspace boundary and need explicit operator approval in auto mode. Only read-only git worktree list can run unattended.",
   patterns: [],
 };
 
@@ -104,13 +104,8 @@ const RECURSIVE_RM_ASK_RULE: AutoShellRule = {
 };
 
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
-const WORKTREE_ADD_FLAGS = new Set(["--checkout", "--no-checkout", "--detach", "--lock", "--orphan"]);
-const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
 
-function safeWorktreeCommand(
-  command: string,
-  isRestricted: (path: string, isWrite: boolean) => boolean,
-): boolean | undefined {
+function safeWorktreeCommand(command: string): boolean | undefined {
   const tokens = tokenize(command);
   if (tokens[0] !== "git" || !tokens.slice(1).includes("worktree")) return undefined;
   // Worktree policy applies only to one plain command with no git cwd override;
@@ -120,38 +115,19 @@ function safeWorktreeCommand(
   const args = tokens.slice(3);
 
   if (subcommand === "list") return args.every((arg) => WORKTREE_LIST_FLAGS.has(arg));
-  if (subcommand !== "add" || args.some((arg) => arg === "--force" || arg === "-f")) return false;
-
-  let destination: string | undefined;
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]!;
-    if (WORKTREE_ADD_FLAGS.has(arg)) continue;
-    if (WORKTREE_ADD_VALUE_FLAGS.has(arg)) {
-      if (args[++i] === undefined) return false;
-      continue;
-    }
-    if (arg.startsWith("--reason=")) continue;
-    if (arg === "--") {
-      destination = args[++i];
-      break;
-    }
-    if (arg.startsWith("-")) return false;
-    destination = arg;
-    break;
-  }
-  if (destination === undefined || destination.startsWith("~") || /[*?\[]/.test(destination)) return false;
-  return !isRestricted(destination, true);
+  // Boundary-changing subcommands always route to ask, even when the destination is inside cwd.
+  return false;
 }
 
 export function autoShellRuleForCall(
   call: ToolCall,
-  isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
+  _isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
 ): AutoShellRule | undefined {
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
   if (commandHasRecursiveRm(command)) return RECURSIVE_RM_ASK_RULE;
-  const safeWorktree = safeWorktreeCommand(command, isRestricted);
+  const safeWorktree = safeWorktreeCommand(command);
   if (safeWorktree === false) return WORKTREE_ASK_RULE;
   return matchAutoShellRule(command);
 }

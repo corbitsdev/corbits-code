@@ -246,6 +246,17 @@ describe("tool row backgrounds", () => {
 });
 
 describe("flat line buffer", () => {
+  test("a layoutKey change recomputes renderable blocks even when contentBlocks is unchanged", () => {
+    const blocks: ContentBlock[] = [
+      { type: "thinking", id: "t1", content: "hidden thought" },
+      { type: "text", id: "a1", content: "Visible reply." },
+    ];
+    const collapsed = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded, undefined, undefined, "k|0");
+    const expanded = buildLinesIncremental(collapsed, blocks, COLUMNS, true, isExpanded, undefined, undefined, "k|1");
+    expect(collapsed.blocks.some((b) => b.type === "thinking")).toBe(false);
+    expect(expanded.blocks.some((b) => b.type === "thinking")).toBe(true);
+  });
+
   test("appending a block reuses the prior rendered tail", () => {
     const first: ContentBlock[] = [
       { type: "text", id: "a1", content: "First assistant reply." },
