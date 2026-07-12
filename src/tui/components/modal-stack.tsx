@@ -52,7 +52,12 @@ export type ModalStackProps = {
   onAgentDeleteProvider: (provider: string) => void;
   onCloseAgentModal: () => void;
   agentTiers: Partial<Record<ProviderTier, import("../../config/settings.js").TierConfig>>;
-  onSaveTier: (tier: ProviderTier, provider: string, model: string) => void;
+  onSaveTier: (
+    tier: ProviderTier,
+    provider: string,
+    model: string,
+    effort?: import("../../provider/reasoning-effort.js").ReasoningEffort,
+  ) => void;
   onCycleTierMode?: (tier: ProviderTier) => void;
   onClearTier?: (tier: ProviderTier) => void;
   onRemoveTierLeg?: (tier: ProviderTier, legIndex: number) => void;

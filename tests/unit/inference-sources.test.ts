@@ -73,9 +73,24 @@ test("buildInferenceSourceForRef uses bifrost provider when flag set", () => {
   const source = buildInferenceSourceForRef(
     { provider: "bifrost", model: "gpt-4o" },
     { settings: { providers: {} }, catalog: [...catalog] },
+    undefined,
   );
   expect(source?.provider).toBe("bifrost");
   expect(source?.baseURL).toBe("http://localhost:8080/v1");
+});
+
+test("buildInferenceSourceForRef applies tier leg reasoning effort", () => {
+  const settings: Settings = {
+    providers: {
+      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-5"] },
+    },
+  };
+  const source = buildInferenceSourceForRef(
+    { provider: "openai", model: "gpt-5", reasoningEffort: "high" },
+    { settings, catalog: [...catalog] },
+    settings,
+  );
+  expect(source?.defaults?.providerOptions).toEqual({ reasoning_effort: "high" });
 });
 
 test("buildMainSessionSources uses standard tier chain with active head", () => {
@@ -125,6 +140,14 @@ test("buildSubagentSources uses full fallback chain for tier", () => {
 test("cycleTierMode toggles pin and prefer", () => {
   expect(cycleTierMode({ mode: "pin", order: [] }).mode).toBe("prefer");
   expect(formatTierChain({ mode: "pin", order: [{ provider: "a", model: "m" }] })).toContain("pin");
+});
+
+test("formatTierChain shows reasoning effort on legs", () => {
+  const label = formatTierChain({
+    mode: "pin",
+    order: [{ provider: "openai", model: "gpt-5", reasoningEffort: "high" }],
+  });
+  expect(label).toContain("gpt-5@high");
 });
 
 test("removeTierLeg and moveTierLeg edit the chain", () => {
