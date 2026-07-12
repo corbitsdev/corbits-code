@@ -9,7 +9,7 @@
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src ./tests",
+    "test": "bun test ./src ./tests ./bench",
     "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",
     "test:bench": "bun test ./bench",
     "bench": "bun run bench/run.ts",
