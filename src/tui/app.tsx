@@ -1114,6 +1114,10 @@ export function App({
   const requestStop = () => {
     quotaAutoRetryFiredRef.current = true;
     sendAbortRef.current?.abort();
+    // Parent stop must cancel live children too: aborting the parent send signal
+    // is linked into each task's child controller, and cancelAll flips session
+    // status + fires registerCancel hooks that close child agents.
+    subAgentSessions?.cancelAll("Parent stop");
     onInterrupt?.();
     state.requestStop();
     gates.resetGates();
@@ -1129,6 +1133,9 @@ export function App({
   const startNewSessionRef = useRef<() => void>(() => undefined);
   startNewSessionRef.current = () => {
     sendAbortRef.current?.abort();
+    // Cancel live workers before clearing the strip so child reactors close
+    // instead of continuing after /clear.
+    subAgentSessions?.cancelAll("New session");
     state.clear();
     gates.resetGates();
     setExpandedTools(new Set());
@@ -1499,6 +1506,34 @@ export function App({
         setCommandMessage(`Viewing ${pick.agentId}: ${pick.description}`);
       },
       agentsNavCancel: () => setAgentsNavOpen(false),
+      agentsNavKill: () => {
+        const targetId =
+          enteredSessionId !== null
+            ? enteredSessionId
+            : agentSessions[agentsNavIndexClamped]?.id;
+        if (targetId === undefined || subAgentSessions === undefined) {
+          setCommandMessage("No sub-agent to cancel");
+          return;
+        }
+        const target = subAgentSessions.get(targetId);
+        if (target === undefined) {
+          setCommandMessage("No sub-agent to cancel");
+          return;
+        }
+        if (target.status !== "running") {
+          setCommandMessage(
+            `Sub-agent already ${target.status}: ${target.agentId}: ${target.description}`,
+          );
+          return;
+        }
+        const cancelled = subAgentSessions.cancel(targetId, "Cancelled from Agents strip");
+        setCommandMessage(
+          cancelled
+            ? `Cancelled ${target.agentId}: ${target.description}`
+            : `Could not cancel ${target.agentId}: ${target.description}`,
+        );
+        forceRender((n) => n + 1);
+      },
       exitEnteredSession: () => {
         setEnteredSessionId(null);
         setCommandMessage("Back to parent session");
