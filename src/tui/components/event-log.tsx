@@ -78,6 +78,23 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   return lines.map((line) => [pad, ...line]);
 }
 
+// Tints every segment in every line with the same backgroundColor, giving a
+// tool row a status-card wash. Applied after indentLines so the gutter is
+// tinted too, and the row-level pad added by RenderedLine/RunningToolRow
+// picks it up via uniformBackground below to reach the full row width.
+function applyBackground(lines: StyledLine[], backgroundColor: string): StyledLine[] {
+  return lines.map((line) => line.map((seg) => ({ ...seg, backgroundColor })));
+}
+
+// When every segment in a line shares one backgroundColor, the row's trailing
+// pad segment should carry it too so the wash reaches the full row width
+// instead of stopping at the last painted character.
+function uniformBackground(line: StyledLine): string | undefined {
+  const first = line[0]?.backgroundColor;
+  if (first === undefined) return undefined;
+  return line.every((seg) => seg.backgroundColor === first) ? first : undefined;
+}
+
 // Tag a pending tool call so the event log paints a static indicator on it.
 // Only the two anchor segments carry the marker — the first row's leading
 // segment for the pending glyph, the last row's trailing segment for the
@@ -216,7 +233,9 @@ const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLinePro
   const segments = useMemo(() => {
     const textWidth = line.reduce((n, s) => n + stringWidth(s.text), 0);
     const pad = Math.max(0, width - textWidth);
-    const padded = pad > 0 ? [...line, { text: " ".repeat(pad) }] : line;
+    const rowBg = uniformBackground(line);
+    const padSeg: StyledSegment = { text: " ".repeat(pad), ...(rowBg !== undefined ? { backgroundColor: rowBg } : {}) };
+    const padded = pad > 0 ? [...line, padSeg] : line;
     return mergeAdjacentSegments(padded);
   }, [line, width]);
 
@@ -252,19 +271,29 @@ const RunningToolRow = memo(function RunningToolRow({ line, width, startedAt }: 
   const segments = useMemo(() => {
     // The glyph occupies the indent gutter the anchor seg held (glyph + space),
     // so the headline text keeps its column and the row width stays stable.
+    // The glyph and clock replace/extend the anchor segments, which may carry
+    // a status-card backgroundColor (pending wash) — preserve it so the wash
+    // does not break at the glyph or clock boundary.
+    const rowBg = line[0]?.backgroundColor;
+    const bgProp = rowBg !== undefined ? { backgroundColor: rowBg } : {};
     const head: StyledLine = hasSpinner
-      ? [{ text: `${PENDING_GLYPH} `, color: color("live") }, ...line.slice(1)]
+      ? [{ text: `${PENDING_GLYPH} `, color: color("live"), ...bgProp }, ...line.slice(1)]
       : [...line];
     // The clock is the one datum this row exists to show. Trim it to the
     // reserved width so an hour-plus elapsed can never soft-wrap the row.
     const elapsedMs = elapsedMsFromAnchor(startedAt);
     const clock = ` · ${formatElapsed(elapsedMs)}`.slice(0, RUNNING_ELAPSED_RESERVE);
     const composed: StyledLine = hasElapsed
-      ? [...head, { text: clock, color: color("text") }]
+      ? [...head, { text: clock, color: color("text"), ...bgProp }]
       : head;
     const textWidth = composed.reduce((n, s) => n + stringWidth(s.text), 0);
     const pad = Math.max(0, width - textWidth);
-    const padded = pad > 0 ? [...composed, { text: " ".repeat(pad) }] : composed;
+    const composedBg = uniformBackground(composed);
+    const padSeg: StyledSegment = {
+      text: " ".repeat(pad),
+      ...(composedBg !== undefined ? { backgroundColor: composedBg } : {}),
+    };
+    const padded = pad > 0 ? [...composed, padSeg] : composed;
     return mergeAdjacentSegments(padded);
   }, [line, width, hasSpinner, hasElapsed, startedAt]);
 
@@ -672,17 +701,24 @@ function blockToLines(
       const started = block.startedAt ?? 0;
       const finished = result?.finishedAt ?? started;
       const durationSuffix = result !== undefined ? formatToolDurationMs(finished - started) : "";
-      const callLines = indentLines(
+      const indented = indentLines(
         toolCallLines(block, width - TOOL_INDENT, expanded, {
           pending,
           durationSuffix,
         }),
         TOOL_INDENT,
       );
+      // Wash only the collapsed status-card row; an expanded body (diff, full
+      // args) is a document, not a card, so it keeps the surface background.
+      const bg = pending ? color("toolPendingBg") : result?.isError === true ? color("toolErrorBg") : color("toolSuccessBg");
+      const callLines = expanded ? indented : applyBackground(indented, bg);
       return pending ? markRunningRow(callLines, started) : callLines;
     }
-    case "tool_result":
-      return indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
+    case "tool_result": {
+      const indented = indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
+      if (expanded) return indented;
+      return applyBackground(indented, block.isError ? color("toolErrorBg") : color("toolSuccessBg"));
+    }
     case "view":
       return viewToLines(block.node, columns);
     case "error":
@@ -785,9 +821,10 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       && !isExpanded(block)
       && !isExpanded(next)
     ) {
-      const mergedLines = indentLines(
-        mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT),
-        TOOL_INDENT,
+      const mergedBg = next.isError ? color("toolErrorBg") : color("toolSuccessBg");
+      const mergedLines = applyBackground(
+        indentLines(mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT), TOOL_INDENT),
+        mergedBg,
       );
       lines.push(...mergedLines);
       if (i + 1 < blocks.length) blockLineStarts[i + 1] = lines.length;
