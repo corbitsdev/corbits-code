@@ -281,13 +281,36 @@ function isDangerousTarget(token: string): boolean {
   return false;
 }
 
-function isCatastrophicRm(segment: string): boolean {
+function programBasename(token: string): string {
+  const bare = token.replace(/['"]/g, "");
+  const slash = bare.lastIndexOf("/");
+  return slash >= 0 ? bare.slice(slash + 1) : bare;
+}
+
+function segmentRmArgs(segment: string): string[] | undefined {
   const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
   while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
-  if (tokens[i] !== "rm") return false;
-  const args = tokens.slice(i + 1);
+  if (programBasename(tokens[i] ?? "") !== "rm") return undefined;
+  return tokens.slice(i + 1);
+}
+
+export function segmentHasRecursiveRm(segment: string): boolean {
+  const args = segmentRmArgs(segment);
+  if (args === undefined) return false;
+  return args.some((a) => RECURSIVE_FLAG.test(a));
+}
+
+export function commandHasRecursiveRm(command: string): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
+  return trimmed.split(CHAIN).some(segmentHasRecursiveRm);
+}
+
+function isCatastrophicRm(segment: string): boolean {
+  const args = segmentRmArgs(segment);
+  if (args === undefined) return false;
   if (!args.some((a) => RECURSIVE_FLAG.test(a))) return false;
   const targets = args.filter((a) => !a.startsWith("-"));
   // No target, or a dangerous root → catastrophic.

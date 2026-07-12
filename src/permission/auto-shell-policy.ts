@@ -1,4 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
+import { commandHasRecursiveRm } from "../shell/run-shell-authz.js";
 import { tokenize } from "./command.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
@@ -94,6 +95,14 @@ const WORKTREE_ASK_RULE: AutoShellRule = {
   patterns: [],
 };
 
+const RECURSIVE_RM_ASK_RULE: AutoShellRule = {
+  name: "recursive-rm",
+  effect: "ask",
+  reason:
+    "Recursive delete (rm with -r, -R, or --recursive) removes entire directory trees and must not run unattended in auto mode. Use delete_file for a single file, or wait for explicit operator approval.",
+  patterns: [],
+};
+
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
 const WORKTREE_ADD_FLAGS = new Set(["--checkout", "--no-checkout", "--detach", "--lock", "--orphan"]);
 const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
@@ -141,6 +150,7 @@ export function autoShellRuleForCall(
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
+  if (commandHasRecursiveRm(command)) return RECURSIVE_RM_ASK_RULE;
   const safeWorktree = safeWorktreeCommand(command, isRestricted);
   if (safeWorktree === false) return WORKTREE_ASK_RULE;
   return matchAutoShellRule(command);

@@ -629,6 +629,54 @@ describe("createPermissionGate", () => {
     expect(verdict.allowed).toBe(false);
   });
 
+  test("auto mode routes recursive rm to the operator instead of rubber-stamping", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    for (const command of ["rm -rf build", "bun test; rm -rf ./tmp-out", "/bin/rm -rf node_modules"]) {
+      asked = 0;
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(asked).toBeGreaterThan(0);
+      expect(verdict.allowed).toBe(true);
+    }
+  });
+
+  test("auto mode still auto-allows non-recursive rm", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("rm -f stale.log"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("headless auto mode denies recursive rm without approval", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("rm -rf ./scratch"));
+    expect(verdict.allowed).toBe(false);
+  });
+
   test("headless auto mode denies a dependency install", async () => {
     const gate = createPermissionGate({
       approvals: [],
