@@ -10,6 +10,7 @@ import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
+import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
 import {
   shellGuardPlugin,
   type ShellTimeoutConfig,
@@ -27,7 +28,8 @@ export type CorePosixToolPluginsArgs = {
 };
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
-// with shell-guard after permission so blocked commands never spawn.
+// with shell-guard after permission so blocked commands never spawn. Secret-shaped
+// result scrub runs immediately before truncation so credentials are redacted first.
 export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolPlugin[] {
   const { cwd, permissionGate, webProvider, shellTimeout, extraToolPlugins = [] } = args;
   return [
@@ -43,6 +45,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
     lspHintPlugin(),
     createLSPPlugin({ cwd, minSeverity: 1 }),
+    toolResultSecretScrubPlugin(),
     resultTruncationPlugin(),
     ...extraToolPlugins,
   ];
