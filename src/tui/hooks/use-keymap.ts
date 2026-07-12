@@ -52,6 +52,8 @@ export type KeymapActions = {
   agentsNavPrev: () => void;
   agentsNavConfirm: () => void;
   agentsNavCancel: () => void;
+  // Abort the selected (nav) or focused (entered) running sub-agent.
+  agentsNavKill: () => void;
   exitEnteredSession: () => void;
 };
 
@@ -92,20 +94,29 @@ export function handleKey(
     return lastEscMs;
   }
 
-  // Agents-nav mode: pick a sub-agent session to enter.
+  // Agents-nav mode: pick a sub-agent session to enter. Esc exits nav only;
+  // `x` / Backspace cancel the selected running worker.
   if (context.agentsNavOpen) {
     if (key.escape) actions.agentsNavCancel();
     else if (key.upArrow) actions.agentsNavPrev();
     else if (key.downArrow) actions.agentsNavNext();
     else if (key.return) actions.agentsNavConfirm();
+    else if (!key.ctrl && !key.meta && (input === "x" || key.backspace)) {
+      actions.agentsNavKill();
+    }
     return lastEscMs;
   }
 
-  // Entered sub-agent observe view: Esc returns to the parent session.
+  // Entered sub-agent observe view: Esc returns to the parent session; `x`
+  // cancels the focused running worker without leaving observe.
   if (context.enteredSession) {
     if (key.escape) {
       actions.exitEnteredSession();
       return 0;
+    }
+    if (!key.ctrl && !key.meta && (input === "x" || key.backspace)) {
+      actions.agentsNavKill();
+      return lastEscMs;
     }
     // Scroll still works (handled above); block other global shortcuts so the
     // operator is not yanked into help/copy while watching a child.

@@ -66,4 +66,41 @@ describe("createTaskTool", () => {
     expect(captured?.permissionGate).toBe(testPermissionGate);
     expect(captured?.inheritMcpTools?.()).toEqual(inherited);
   });
+
+  test("forwards a dedicated child abort signal linked to the parent tool signal", async () => {
+    let captured: RunSubAgentParams | undefined;
+    let linkedAbort = false;
+    const parent = new AbortController();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async (params) => {
+        captured = params;
+        expect(params.signal).toBeDefined();
+        expect(params.signal).not.toBe(parent.signal);
+        expect(params.signal?.aborted).toBe(false);
+        // Abort while the run is in-flight so the parent→child link is still live.
+        await new Promise<void>((resolve) => {
+          params.signal!.addEventListener(
+            "abort",
+            () => {
+              linkedAbort = true;
+              resolve();
+            },
+            { once: true },
+          );
+          parent.abort();
+        });
+        return "done";
+      },
+    });
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const out = await tool.handler({ description: "signal", prompt: "x" }, parent.signal);
+    expect(linkedAbort).toBe(true);
+    expect(captured?.signal?.aborted).toBe(true);
+    // Abort during run is reported as cancel, not a completed report.
+    expect(out).toContain("cancelled by operator");
+  });
 });

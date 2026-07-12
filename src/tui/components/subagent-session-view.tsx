@@ -54,7 +54,7 @@ export function SubAgentSessionView({
     <Box flexDirection="column" width={width}>
       <Box flexDirection="column" marginBottom={1}>
         <Text bold color={color("accent")}>
-          Viewing sub-agent · esc to return
+          Viewing sub-agent · esc return · x cancel
         </Text>
         <Text color={color("text")}>{formatSessionLabel(session)}</Text>
         <Text color={color("muted")} dimColor>
