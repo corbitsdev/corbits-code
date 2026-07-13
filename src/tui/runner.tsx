@@ -1064,7 +1064,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       sessionStartedAt={startedAt}
       subAgentSessions={subAgentSessions}
     />,
-    { exitOnCtrlC: false, stdin: filteredStdin },
+    {
+      exitOnCtrlC: false,
+      stdin: filteredStdin,
+      // Incremental (line-diff) rendering materially cuts streaming repaint
+      // bytes versus Ink's default full-frame redraw; bench/tui-repaint.ts
+      // measures both modes.
+      incrementalRendering: true,
+    },
   );
 
   // Hydrate a resumed session's transcript after first paint. Reading history and
