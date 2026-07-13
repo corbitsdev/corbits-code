@@ -495,10 +495,17 @@ async function* runSingleAttempt(
           return;
         }
 
-        // Reset inactivity timer — we just got something from the wire.
-        armInactivity();
-
         const rawEvents = adapter.parseResponse(sseData);
+
+        // Reset the inactivity watchdog only on semantic progress — events the
+        // adapter actually parsed out of this chunk (content, thinking, tool
+        // calls, usage). Provider keep-alives and lifecycle envelopes parse to
+        // zero events; letting raw bytes re-arm the timer means a stream that
+        // trickles keep-alives forever without a terminal event never trips the
+        // watchdog and pins the caller indefinitely.
+        if (rawEvents.length > 0) {
+          armInactivity();
+        }
 
         for (const raw of rawEvents) {
           switch (raw.type) {
