@@ -71,6 +71,9 @@ export type AgentProfile = {
   // coordinators (e.g. a planning agent that fans work out to specialists);
   // leaf-task agents should leave this unset.
   orchestrator?: boolean;
+  // Optional inference-turn budget when this profile is dispatched via task(agent=...).
+  // Clamped to the global cap at dispatch time; task(maxTurns) overrides when set.
+  maxTurns?: number;
 };
 
 // The shape every agent plugin package must export as "plugin" or as the
