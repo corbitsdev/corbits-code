@@ -11,6 +11,7 @@ import {
   promptScrollWindow,
   promptVisualLines,
 } from "../prompt-layout.js";
+import { composePromptActionBarModelLabel } from "./prompt-action-bar-label.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -39,6 +40,8 @@ export type ChatInputProps = {
   onSentHistoryExitBrowse?: () => void;
   /** True while stepping through sent history (relaxes Up-at-start-only for older entries). */
   sentHistoryBrowsing?: boolean;
+  // Session profile name shown before model on the action bar when set.
+  profile?: string;
   // Active model name shown right-aligned on the action bar above the box.
   model?: string;
   // Reasoning effort appended after the model when set.
@@ -248,6 +251,7 @@ export function ChatInput({
   onSentHistoryExitBrowse,
   sentHistoryBrowsing = false,
   borderColor = color("dim"),
+  profile,
   model,
   effort,
   verb,
@@ -545,13 +549,17 @@ export function ChatInput({
       {(() => {
         // Action bar: the row directly above the prompt box. While processing
         // with text typed, the revolving verb + steer hint sit on the left; the
-        // model · effort is always right-aligned on the same baseline.
+        // profile · model · effort is always right-aligned on the same baseline.
         const steerText = queuedCount > 0
           ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
           : "Enter steer · Alt+Enter queue";
-        const modelText = effort !== undefined && effort.length > 0 ? `${model} · ${effort}` : model;
+        const modelText = composePromptActionBarModelLabel({
+          ...(profile !== undefined ? { profile } : {}),
+          ...(model !== undefined ? { model } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+        });
         const showAttachments = attachmentSummary !== undefined && attachmentSummary.length > 0;
-        if (!showSteerHint && model === undefined && !showAttachments) return null;
+        if (!showSteerHint && modelText === undefined && !showAttachments) return null;
         return (
           <Box flexDirection="row" marginX={1} gap={1}>
             {showAttachments && (
