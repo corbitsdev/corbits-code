@@ -4,8 +4,8 @@ import type { AddressInfo } from "node:net";
 export type CallbackServer = {
   // The redirect_uri to register with the authorization server.
   redirectUrl: string;
-  // Resolves once the authorization server redirects back with a code, or
-  // rejects if the signal aborts or the server reports an error.
+  // Resolves once the authorization server redirects back with a code, or rejects
+  // if the signal aborts or the server reports an error.
   waitForCode: (signal: AbortSignal) => Promise<string>;
   close: () => void;
 };
@@ -23,6 +23,7 @@ const DONE_HTML =
 export async function startCallbackServer(): Promise<CallbackServer> {
   let resolveCode: ((code: string) => void) | undefined;
   let rejectCode: ((err: Error) => void) | undefined;
+  let result: { code: string } | { error: Error } | undefined;
 
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -36,9 +37,18 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     res.statusCode = error !== null || code === null ? 400 : 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(error !== null || code === null ? `Authorization failed: ${error ?? "no code returned"}` : DONE_HTML);
-    if (error !== null) rejectCode?.(new Error(`Authorization failed: ${error}`));
-    else if (code === null) rejectCode?.(new Error("Authorization redirect carried no code."));
-    else resolveCode?.(code);
+    if (error !== null) {
+      const authorizationError = new Error(`Authorization failed: ${error}`);
+      result = { error: authorizationError };
+      rejectCode?.(authorizationError);
+    } else if (code === null) {
+      const authorizationError = new Error("Authorization redirect carried no code.");
+      result = { error: authorizationError };
+      rejectCode?.(authorizationError);
+    } else {
+      result = { code };
+      resolveCode?.(code);
+    }
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -53,6 +63,11 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     redirectUrl,
     waitForCode: (signal: AbortSignal) =>
       new Promise<string>((resolve, reject) => {
+        if (result !== undefined) {
+          if ("code" in result) resolve(result.code);
+          else reject(result.error);
+          return;
+        }
         resolveCode = resolve;
         rejectCode = reject;
         if (signal.aborted) {
