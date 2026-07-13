@@ -1074,8 +1074,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
       }}
       initialSessionMode={liveSessionMode}
-      initialSavedGlobalSessionMode={config.settings?.sessionMode}
-      initialSavedLocalSessionMode={localSettingsForMode?.sessionMode}
+      {...(config.settings?.sessionMode !== undefined
+        ? { initialSavedGlobalSessionMode: config.settings.sessionMode }
+        : {})}
+      {...(localSettingsForMode?.sessionMode !== undefined
+        ? { initialSavedLocalSessionMode: localSettingsForMode.sessionMode }
+        : {})}
       onChangeSessionMode={async (mode, scope) => {
         if (scope === "local") {
           const path = localSettingsPath(config.cwd);

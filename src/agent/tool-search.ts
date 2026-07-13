@@ -55,6 +55,9 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
 // deterministic order. Provider prompt caches are prefix caches keyed on the
 // tools array (it sits before system + messages), so this order must never shift
 // between turns — a reordered or grown array re-prefills the whole request.
+//
+// Primary TUI sessions should pass `advertisedToolNamesForSessionMode(sessionMode)`
+// as the `builtInPrefix` to `advertisedTools` — not this constant alone.
 export const ADVERTISED_TOOL_NAMES: readonly string[] = [
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,
