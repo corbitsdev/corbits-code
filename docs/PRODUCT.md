@@ -103,6 +103,8 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 ## Multi-agent (sub-agents)
 
+In the TUI, sub-agents are available when **session mode** is **orchestrator** (see value prop #9); **single-agent** mode removes the `task` and `search_agents` tools from the primary session.
+
 Intercode can fan work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
 
 - **Agents** are runtime entities (primary session or child).
