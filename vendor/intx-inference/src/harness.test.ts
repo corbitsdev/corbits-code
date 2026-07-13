@@ -817,6 +817,138 @@ describe("runInference — adapter-signalled stream termination", () => {
   });
 });
 
+describe("runInference — inactivity watchdog counts semantic events, not bytes", () => {
+  // Regression guard for the hang where a provider stream trickled keep-alive
+  // envelopes (parsing to zero semantic events) forever. The inactivity timer
+  // must measure silence since the last event the adapter parsed out, not since
+  // the last byte on the wire, or a stream that never emits a terminal event
+  // pins the caller indefinitely.
+  const KEEPALIVE_SOURCE: InferenceSource = {
+    id: "test-keepalive:model",
+    provider: "test-keepalive",
+    baseURL: "https://example.test",
+    apiKey: "test",
+    model: "model",
+  };
+
+  // Every chunk is a lifecycle envelope carrying no content; the adapter parses
+  // each to zero events and never reports a terminal.
+  const keepAliveAdapterFactory: AdapterFactory = () => ({
+    buildRequest: () => ({
+      url: "https://example.test/keepalive",
+      headers: {},
+      body: "{}",
+    }),
+    parseResponse: () => [],
+    isStreamTerminal: () => false,
+  });
+
+  type ManualTimer = { fireAt: number; cb: () => void; cancelled: boolean };
+
+  function createManualScheduler() {
+    let nowMs = 0;
+    const timers = new Set<ManualTimer>();
+    return {
+      now: () => nowMs,
+      setTimeout(cb: () => void, delayMs: number) {
+        const timer: ManualTimer = {
+          fireAt: nowMs + delayMs,
+          cb,
+          cancelled: false,
+        };
+        timers.add(timer);
+        return () => {
+          timer.cancelled = true;
+          timers.delete(timer);
+        };
+      },
+      advance(ms: number) {
+        nowMs += ms;
+        const due = [...timers]
+          .filter((t) => !t.cancelled && t.fireAt <= nowMs)
+          .sort((a, b) => a.fireAt - b.fireAt);
+        for (const t of due) {
+          if (t.cancelled) continue;
+          timers.delete(t);
+          t.cb();
+        }
+      },
+    };
+  }
+
+  test("keep-alive trickle without a terminal event trips the inactivity timeout", async () => {
+    const inactivityTimeoutMs = 1_000;
+    // Half the inactivity window per chunk: no single gap between keep-alives
+    // exceeds the deadline, so a byte-counting watchdog would be reset on every
+    // read and never fire. A semantic-event watchdog fires within two chunks.
+    const stepMs = 600;
+    const maxChunks = 40;
+    const scheduler = createManualScheduler();
+    const encoder = new TextEncoder();
+    let produced = 0;
+
+    const deps: Dependencies = {
+      fetch: (_url, init) => {
+        const signal = init?.signal;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            // Virtual wall-clock advances as the harness pulls the next byte.
+            scheduler.advance(stepMs);
+            if (signal?.aborted === true) {
+              controller.error(new DOMException("aborted", "AbortError"));
+              return;
+            }
+            if (produced >= maxChunks) {
+              controller.close();
+              return;
+            }
+            produced += 1;
+            controller.enqueue(encoder.encode(`data: {"type":"keep-alive"}\n\n`));
+          },
+        });
+        return Promise.resolve(
+          new Response(body, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
+        );
+      },
+      scheduler,
+      adapters: createAdapterRegistry({
+        "test-keepalive": keepAliveAdapterFactory,
+      }),
+    };
+
+    let seq = 0;
+    const events = await collect(
+      runInference({
+        turns: [userTurn("hello")],
+        source: KEEPALIVE_SOURCE,
+        // Surface the first terminal error rather than exercising the retry
+        // ladder — this test pins the watchdog, not the retry policy.
+        inferenceOptions: {
+          inactivityTimeoutMs,
+          retryPolicy: () => ({ kind: "abort" }),
+        },
+        nextSeq: () => ++seq,
+        deps,
+      }),
+    );
+
+    const doneEvent = events.find((e) => e.type === "inference.done");
+    expect(doneEvent).toBeUndefined();
+
+    const errorEvent = events.find((e) => e.type === "inference.error");
+    if (errorEvent === undefined || errorEvent.type !== "inference.error") {
+      throw new Error("expected a terminal inference.error from the watchdog");
+    }
+    expect(errorEvent.data.error.category).toBe("timeout");
+    // The watchdog fires while the stream is still trickling, well before the
+    // 40-chunk stream would end on its own.
+    expect(produced).toBeLessThan(maxChunks);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // runInference — incremental delivery and memory-linear buffering
 //
