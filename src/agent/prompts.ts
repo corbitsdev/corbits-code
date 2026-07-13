@@ -210,7 +210,17 @@ function contextSection(env?: EnvironmentInfo): string {
 // extensions still attach.
 function baseSection(baseOverride: string | undefined, sessionMode: SessionMode): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
-    return baseOverride.trim();
+    const custom = baseOverride.trim();
+    // SYSTEM.md can describe orchestration; still enforce single-mode harness rules on the wire.
+    if (sessionMode === "single") {
+      return joinSections([
+        custom,
+        "## Session mode",
+        buildHarnessFacts({ sessionMode: "single" }),
+        buildGuidelines({ sessionMode: "single" }),
+      ]);
+    }
+    return custom;
   }
   return joinSections([
     buildChatRole(sessionMode),

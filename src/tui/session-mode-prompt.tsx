@@ -131,7 +131,9 @@ function SessionModePanel({ onSubmit }: SessionModePanelProps): ReactNode {
         borderLeft={false}
         borderRight={false}
       >
-        <Text dimColor>↑↓ select · Enter confirm · Ctrl+C cancel</Text>
+        <Text dimColor>
+          ↑↓ select · Enter save · Ctrl+C orchestrator this session only (not saved)
+        </Text>
       </Box>
     </Box>
   );

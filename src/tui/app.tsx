@@ -355,6 +355,8 @@ export type AppProps = {
   onChangeCompactionMode?: (mode: CompactionMode) => Promise<void>;
   onChangeMaxConcurrentSubAgents?: (limit: number) => Promise<void>;
   initialSessionMode?: import("../config/session-mode.js").SessionMode;
+  initialSavedGlobalSessionMode?: import("../config/session-mode.js").SessionMode;
+  initialSavedLocalSessionMode?: import("../config/session-mode.js").SessionMode;
   onChangeSessionMode?: (
     mode: import("../config/session-mode.js").SessionMode,
     scope: "global" | "local",
@@ -417,6 +419,8 @@ export function App({
   onChangeCompactionMode,
   onChangeMaxConcurrentSubAgents,
   initialSessionMode = "orchestrator",
+  initialSavedGlobalSessionMode,
+  initialSavedLocalSessionMode,
   onChangeSessionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
@@ -509,7 +513,12 @@ export function App({
     resolveMaxConcurrentSubAgents(initialSettings),
   );
   const [sessionMode] = useState(initialSessionMode);
-  const [savedSessionMode, setSavedSessionMode] = useState(initialSessionMode);
+  const [savedGlobalSessionMode, setSavedGlobalSessionMode] = useState(
+    initialSavedGlobalSessionMode,
+  );
+  const [savedLocalSessionMode, setSavedLocalSessionMode] = useState(
+    initialSavedLocalSessionMode,
+  );
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -1857,9 +1866,11 @@ export function App({
             void onChangeMaxConcurrentSubAgents?.(limit);
           }}
           sessionMode={sessionMode}
-          savedSessionMode={savedSessionMode}
+          savedGlobalSessionMode={savedGlobalSessionMode}
+          savedLocalSessionMode={savedLocalSessionMode}
           onChangeSessionMode={(mode, scope) => {
-            setSavedSessionMode(mode);
+            if (scope === "global") setSavedGlobalSessionMode(mode);
+            else setSavedLocalSessionMode(mode);
             void onChangeSessionMode?.(mode, scope);
           }}
           onClose={() => setSettingsOpen(false)}

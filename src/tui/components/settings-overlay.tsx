@@ -17,8 +17,8 @@ export type SettingsOverlayProps = {
   maxConcurrentSubAgents: number;
   onChangeMaxConcurrentSubAgents: (limit: number) => void;
   sessionMode: SessionMode;
-  /** Persisted choice for the selected save target; may differ from sessionMode until a new session. */
-  savedSessionMode: SessionMode;
+  savedGlobalSessionMode?: SessionMode;
+  savedLocalSessionMode?: SessionMode;
   onChangeSessionMode: (mode: SessionMode, scope: "global" | "local") => void;
   onClose: () => void;
   maxHeight?: number;
@@ -216,11 +216,13 @@ const SESSION_MODE_LABEL: Record<SessionMode, string> = {
 
 function SessionModeTab({
   current,
-  saved,
+  savedGlobal,
+  savedLocal,
   onChange,
 }: {
   current: SessionMode;
-  saved: SessionMode;
+  savedGlobal?: SessionMode;
+  savedLocal?: SessionMode;
   onChange: (mode: SessionMode, scope: "global" | "local") => void;
 }): ReactNode {
   const currentIndex = SESSION_MODES.indexOf(current);
@@ -259,7 +261,8 @@ function SessionModeTab({
         {SESSION_MODES.map((mode, index) => {
           const isSelected = index === selected;
           const isActive = mode === current;
-          const isSaved = mode === saved;
+          const savedForScope = scope === "global" ? savedGlobal : savedLocal;
+          const isSaved = savedForScope !== undefined && mode === savedForScope;
           return (
             <Box key={mode} marginBottom={1}>
               <Text color={isSelected ? color("brand") : color("muted")} bold={isSelected}>
@@ -336,7 +339,8 @@ export function SettingsOverlay({
   maxConcurrentSubAgents,
   onChangeMaxConcurrentSubAgents,
   sessionMode,
-  savedSessionMode,
+  savedGlobalSessionMode,
+  savedLocalSessionMode,
   onChangeSessionMode,
   onClose,
   maxHeight,
@@ -381,7 +385,8 @@ export function SettingsOverlay({
       {activeTab === "Session" && (
         <SessionModeTab
           current={sessionMode}
-          saved={savedSessionMode}
+          savedGlobal={savedGlobalSessionMode}
+          savedLocal={savedLocalSessionMode}
           onChange={onChangeSessionMode}
         />
       )}

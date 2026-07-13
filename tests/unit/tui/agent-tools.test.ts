@@ -204,6 +204,43 @@ test("operator tool returns error for out-of-range index", async () => {
   expect(await callOperator(toolset, { question: "Pick one", options: ["X"] })).toMatch(/invalid selection/);
 });
 
+const subAgentDeps = {
+  provider: () => ({
+    providerName: "test",
+    baseURL: "http://localhost",
+    apiKey: "k",
+    model: "m",
+  }),
+  getWorkdirBase: () => "/tmp",
+  profiles: () => [],
+};
+
+test("single session mode omits task and search_agents from registered tools", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+    sessionMode: "single",
+    subAgent: subAgentDeps,
+  });
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+  expect(names).not.toContain("task");
+  expect(names).not.toContain("search_agents");
+});
+
+test("orchestrator session mode registers task and search_agents", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+    sessionMode: "orchestrator",
+    subAgent: subAgentDeps,
+  });
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+  expect(names).toContain("task");
+  expect(names).toContain("search_agents");
+});
+
 test("dispose calls posixTools.dispose", async () => {
   mockDispose.mockClear();
 
