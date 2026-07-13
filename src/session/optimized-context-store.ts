@@ -3,8 +3,10 @@ import path from "node:path";
 import { type } from "arktype";
 import { createIsogitStore } from "@intx/storage-isogit";
 import { ContentBlock, type ConversationTurn } from "@intx/types/runtime";
+import { getLogger } from "@intx/log";
 import {
   createSegmentedJSONLWriter,
+  highestSegmentIndex,
   listSegmentFiles,
   readExtraSegmentTexts,
   segmentFileName,
@@ -17,6 +19,8 @@ const RESPONSE_FILE = "response.jsonl";
 const MANIFEST_FILE = "manifest.jsonl";
 const METADATA_FILE = "metadata.json";
 const TOOL_OUTPUT_DIR = "tool-output";
+
+const log = getLogger(["intercode", "session", "context-store"]);
 
 const AUTHOR = {
   name: "interchange-harness",
@@ -88,6 +92,68 @@ function parseSegmentTurns(text: string, tolerateTornTail: boolean): Conversatio
   return turns;
 }
 
+// Mirrors assertWellFormedToolSequence without throwing. Used to choose the
+// longest segment prefix the reactor will accept after a load. Unpaired
+// trailing tool_calls are allowed; dups and orphan results fail.
+function toolSequenceIsWellFormed(turns: readonly ConversationTurn[]): boolean {
+  const calledIds = new Set<string>();
+  const answeredIds = new Set<string>();
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type === "tool_call") {
+        if (calledIds.has(block.id)) return false;
+        calledIds.add(block.id);
+      } else if (block.type === "tool_result") {
+        if (!calledIds.has(block.callId)) return false;
+        if (answeredIds.has(block.callId)) return false;
+        answeredIds.add(block.callId);
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Longest prefix of `[base, ...extras]` whose tool sequence is well-formed.
+ * Returns how many extras to keep (0 = base only). Orphan tails left by a
+ * compaction rewrite through a fresh writer reintroduce pre-compact tool turns
+ * after the compact head; dropping them is how a poisoned session resumes.
+ */
+function longestWellFormedExtraCount(
+  baseTurns: ConversationTurn[],
+  parsedExtras: ConversationTurn[][],
+): number {
+  for (let keepExtras = parsedExtras.length; keepExtras >= 0; keepExtras--) {
+    const turns =
+      keepExtras === 0
+        ? baseTurns
+        : [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
+    if (toolSequenceIsWellFormed(turns)) return keepExtras;
+  }
+  return 0;
+}
+
+async function unlinkExtraSegmentsFrom(
+  dir: string,
+  fromSegmentIndex: number,
+  pendingSegmentPaths: Set<string>,
+): Promise<number> {
+  // fromSegmentIndex is the first segment file index to drop (1 = turns-0001).
+  let removed = 0;
+  const highest = await highestSegmentIndex(dir, TURNS_FILE);
+  for (let s = fromSegmentIndex; s <= highest; s++) {
+    const name = segmentFileName(TURNS_FILE, s);
+    const full = path.join(dir, name);
+    if (await pathExists(full)) {
+      await fs.promises.unlink(full);
+      removed += 1;
+    }
+    // Stage remove even when already gone so commit can git-rm a tracked orphan.
+    pendingSegmentPaths.add(name);
+  }
+  return removed;
+}
+
 /**
  * Read only the tail of the turn history needed to satisfy `minTurns`, walking
  * segments from newest to oldest and stopping as soon as enough turns have
@@ -96,6 +162,9 @@ function parseSegmentTurns(text: string, tolerateTornTail: boolean): Conversatio
  * canonical full-history read stays on `ContextStore.load()` — the reactor's
  * own initialization contract requires the complete turn history, since that
  * is the actual live conversation state, not a bounded view of it.
+ *
+ * Orphan-tail recovery lives on `load()`, not here: this path must stay
+ * O(window) so resume does not re-pay full-history I/O on healthy sessions.
  */
 export async function loadRecentTurns(
   dir: string,
@@ -108,8 +177,8 @@ export async function loadRecentTurns(
   let total = 0;
   for (let i = segments.length - 1; i >= 0; i--) {
     const text = await fs.promises.readFile(path.join(dir, segments[i]!), "utf-8");
-    const tolerateTornTail = i === segments.length - 1;
-    const turns = parseSegmentTurns(text, tolerateTornTail);
+    // Only the active (last) segment can be mid-write; sealed ones are complete.
+    const turns = parseSegmentTurns(text, i === segments.length - 1);
     collectedNewestFirst.push(turns);
     total += turns.length;
     if (total >= minTurns) break;
@@ -160,15 +229,6 @@ async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<str
   return names;
 }
 
-async function readExtraSegmentsAtCommit(dir: string, hash: string): Promise<ConversationTurn[]> {
-  const turns: ConversationTurn[] = [];
-  for (const name of await extraSegmentNamesAtCommit(dir, hash)) {
-    const text = await runGit(dir, ["show", `${hash}:${name}`]);
-    turns.push(...parseSegmentTurns(text, false));
-  }
-  return turns;
-}
-
 async function describeHead(dir: string, message: string): Promise<ContextCommit> {
   const [hash, seconds, parents] = (
     await runGit(dir, ["log", "-1", "--format=%H%n%ct%n%P"])
@@ -179,6 +239,44 @@ async function describeHead(dir: string, message: string): Promise<ContextCommit
   const parentHash = parents?.split(" ")[0];
   const base = { hash, message: message.trimEnd(), timestamp: Number(seconds) * 1000 };
   return parentHash !== undefined && parentHash.length > 0 ? { ...base, parentHash } : base;
+}
+
+/**
+ * Stage every contiguous on-disk segment for `baseName` and `git rm` any
+ * higher-numbered or gapped segment still on disk or tracked after a rewrite
+ * deleted it — even when the in-memory pending set was lost (process died
+ * between heal unlink and commit). Gapped strays are unlinked, not re-added.
+ */
+async function reconcileSegmentStaging(
+  dir: string,
+  baseName: string,
+  toAdd: string[],
+  toRemove: string[],
+): Promise<void> {
+  const contiguous = await listSegmentFiles(dir, baseName);
+  for (const name of contiguous) toAdd.push(name);
+
+  // Start past the last contiguous segment. Index 0 is the base name; numbered
+  // tails begin at 1. Empty contiguous (no base) still sweeps numbered files.
+  const startIndex = Math.max(contiguous.length, 1);
+  const highestDisk = await highestSegmentIndex(dir, baseName);
+
+  for (let index = startIndex; ; index++) {
+    const name = segmentFileName(baseName, index);
+    const full = path.join(dir, name);
+    if (await pathExists(full)) {
+      // Gapped or post-contiguous stray — not part of the live history.
+      await fs.promises.unlink(full);
+      toRemove.push(name);
+      continue;
+    }
+    const tracked = await runGit(dir, ["ls-files", "--", name]);
+    if (tracked.length === 0) {
+      if (index > highestDisk) break;
+      continue;
+    }
+    toRemove.push(name);
+  }
 }
 
 /**
@@ -202,6 +300,33 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     for (const filepath of modifiedPaths) pendingSegmentPaths.add(filepath);
   }
 
+  // Prefer the longest prefix of base + extras whose tool sequence the reactor
+  // will accept. Orphan tails left by a fresh-writer compaction rewrite are
+  // dropped and unlinked so the next load does not re-poison the session.
+  async function loadTurnsWithoutMalformedToolSequence(
+    baseTurns: ConversationTurn[],
+    extraTexts: string[],
+  ): Promise<ConversationTurn[]> {
+    if (extraTexts.length === 0) return baseTurns;
+
+    const parsedExtras = extraTexts.map((text, index) =>
+      parseSegmentTurns(text, index === extraTexts.length - 1),
+    );
+    const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
+
+    if (keepExtras < parsedExtras.length) {
+      // Segment file index for the first extra is 1.
+      const removed = await unlinkExtraSegmentsFrom(dir, keepExtras + 1, pendingSegmentPaths);
+      log.warn(
+        "dropped {removed} orphan turn segment(s) starting at index {fromIndex} (malformed tool sequence when concatenated)",
+        { removed, fromIndex: keepExtras + 1 },
+      );
+    }
+
+    if (keepExtras === 0) return baseTurns;
+    return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
+  }
+
   return {
     // Full-history read. Called by the reactor during initialization, where
     // the complete turn history is the actual live conversation state, not an
@@ -211,19 +336,27 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
       const baseResult = await base.load(signal);
       const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
       if (extraTexts.length === 0) return baseResult;
-      const extraTurns: ConversationTurn[] = [];
-      extraTexts.forEach((text, index) => {
-        extraTurns.push(...parseSegmentTurns(text, index === extraTexts.length - 1));
-      });
-      return { ...baseResult, turns: [...baseResult.turns, ...extraTurns] };
+      const turns = await loadTurnsWithoutMalformedToolSequence(baseResult.turns, extraTexts);
+      return { ...baseResult, turns };
     },
     setConnectorState: (state) => base.setConnectorState(state),
     branch: (name, signal) => base.branch(name, signal),
     log: (limit, signal) => base.log(limit, signal),
     async readAt(hash, signal) {
       const baseTurns = await base.readAt(hash, signal);
-      const extraTurns = await readExtraSegmentsAtCommit(dir, hash);
-      return [...baseTurns, ...extraTurns];
+      const extraNames = await extraSegmentNamesAtCommit(dir, hash);
+      if (extraNames.length === 0) return baseTurns;
+
+      // Historical commits made while orphans remained in the tree may still be
+      // malformed. Prefer the longest well-formed prefix; no on-disk side effects.
+      const parsedExtras: ConversationTurn[][] = [];
+      for (const name of extraNames) {
+        const text = await runGit(dir, ["show", `${hash}:${name}`]);
+        parsedExtras.push(parseSegmentTurns(text, false));
+      }
+      const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
+      if (keepExtras === 0) return baseTurns;
+      return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
     },
     readBlob: (key, signal) => base.readBlob(key, signal),
     writePrompt: (turns) => writeSegmented(writePromptSegmented, turns),
@@ -251,9 +384,17 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
         else toRemove.push(filepath);
       }
 
-      if (toAdd.length > 0) await runGit(dir, ["add", "--", ...toAdd]);
-      if (toRemove.length > 0) {
-        await runGit(dir, ["rm", "--cached", "--ignore-unmatch", "--", ...toRemove]);
+      // Disk is source of truth for which turn/prompt segments should remain
+      // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
+      await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
+      await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
+
+      const add = [...new Set(toAdd)];
+      const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
+
+      if (add.length > 0) await runGit(dir, ["add", "--", ...add]);
+      if (remove.length > 0) {
+        await runGit(dir, ["rm", "--cached", "--ignore-unmatch", "--", ...remove]);
       }
       await runGit(dir, ["commit", "-m", options.message, `--author=${AUTHOR.name} <${AUTHOR.email}>`]);
       pendingBlobFilepaths.clear();
