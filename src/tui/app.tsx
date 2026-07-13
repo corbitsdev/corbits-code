@@ -1970,6 +1970,7 @@ export function App({
                 setSentHistoryBrowse(sentHistoryOnEdit(sentHistoryBrowse));
               }}
               sentHistoryBrowsing={sentHistoryBrowse.browseIndex !== null}
+              {...(profile !== undefined ? { profile } : {})}
               model={model}
               rows={rows}
               columns={columns}
