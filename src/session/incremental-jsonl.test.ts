@@ -87,6 +87,91 @@ describe("createSegmentedJSONLWriter", () => {
     }
   });
 
+  // Agent rebuilds (tool promotion, interrupt, MCP connect) construct a fresh
+  // writer with no in-memory segment map. A compaction rewrite through that
+  // writer must still unlink the prior writer's sealed tails; otherwise the
+  // next load concatenates orphans and duplicates tool_call ids in history.
+  test("a fresh writer still deletes stale segments left by a prior writer", async () => {
+    const dir = tempDir();
+    const write1 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const turns: unknown[] = [];
+    for (let i = 0; i < 8; i++) {
+      turns.push({ id: i, filler: "q".repeat(40) });
+      await write1(turns);
+    }
+    const names = await listSegmentFiles(dir, BASE);
+    expect(names.length).toBeGreaterThan(2);
+
+    const write2 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const compacted = [{ id: "summary" }];
+    const { modifiedPaths } = await write2(compacted);
+    expect(await combined(dir)).toBe(fullSnapshot(compacted));
+    expect(await listSegmentFiles(dir, BASE)).toEqual([BASE]);
+    for (const name of names.slice(1)) {
+      expect(await pathExists(path.join(dir, name))).toBe(false);
+      expect(modifiedPaths).toContain(name);
+    }
+  });
+
+  test("a fresh writer keeps multi-segment output and unlinks higher tails", async () => {
+    const dir = tempDir();
+    const write1 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const turns: unknown[] = [];
+    for (let i = 0; i < 10; i++) {
+      turns.push({ id: i, filler: "q".repeat(40) });
+      await write1(turns);
+    }
+    const before = await listSegmentFiles(dir, BASE);
+    expect(before.length).toBeGreaterThan(3);
+
+    // Compact to something still larger than one segment under the same limit.
+    const write2 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const compacted: unknown[] = [];
+    for (let i = 0; i < 4; i++) compacted.push({ id: `kept-${i}`, filler: "q".repeat(40) });
+    const { modifiedPaths } = await write2(compacted);
+
+    const after = await listSegmentFiles(dir, BASE);
+    expect(after.length).toBeGreaterThan(1);
+    expect(after.length).toBeLessThan(before.length);
+    expect(await combined(dir)).toBe(fullSnapshot(compacted));
+    for (const name of before.slice(after.length)) {
+      expect(await pathExists(path.join(dir, name))).toBe(false);
+      expect(modifiedPaths).toContain(name);
+    }
+  });
+
+  test("a fresh writer empty rewrite deletes every prior segment", async () => {
+    const dir = tempDir();
+    const write1 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const turns: unknown[] = [];
+    for (let i = 0; i < 6; i++) {
+      turns.push({ id: i, filler: "q".repeat(40) });
+      await write1(turns);
+    }
+    expect((await listSegmentFiles(dir, BASE)).length).toBeGreaterThan(1);
+
+    const write2 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const { modifiedPaths } = await write2([]);
+    expect(fs.readFileSync(path.join(dir, BASE), "utf8")).toBe("");
+    expect(await listSegmentFiles(dir, BASE)).toEqual([BASE]);
+    expect(modifiedPaths.length).toBeGreaterThan(0);
+  });
+
+  test("a fresh writer unlinks gapped stray segment files", async () => {
+    const dir = tempDir();
+    const write1 = createSegmentedJSONLWriter(dir, BASE, 64);
+    await write1([{ id: 0, filler: "q".repeat(40) }]);
+    // Plant a high-numbered stray as if a prior multi-segment rewrite left a gap.
+    const stray = path.join(dir, segmentFileName(BASE, 5));
+    fs.writeFileSync(stray, fullSnapshot([{ id: "orphan" }]));
+
+    const write2 = createSegmentedJSONLWriter(dir, BASE, 64);
+    const { modifiedPaths } = await write2([{ id: "only" }]);
+    expect(await pathExists(stray)).toBe(false);
+    expect(modifiedPaths).toContain(segmentFileName(BASE, 5));
+    expect(await combined(dir)).toBe(fullSnapshot([{ id: "only" }]));
+  });
+
   test("handles a history rewrite that replaces earlier records", async () => {
     const dir = tempDir();
     const write = createSegmentedJSONLWriter(dir, BASE);
