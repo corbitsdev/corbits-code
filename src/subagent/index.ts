@@ -52,7 +52,13 @@ import { withSubAgentSlot } from "./concurrency.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { Settings, ProviderTier } from "../config/settings.js";
-import { resolveTier, resolveInferenceWithPolicy } from "../config/settings.js";
+import {
+  resolveDefaultSubAgentMaxTurns,
+  resolveSubAgentMaxTurns,
+  resolveTier,
+  resolveInferenceWithPolicy,
+  validateTaskMaxTurns,
+} from "../config/settings.js";
 import { validateEffort } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
@@ -63,8 +69,7 @@ import type { SubAgentSessionStore } from "./session-store.js";
 export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
 
-/** Default inference cycles for leaf sub-agents (independent of parent session maxTurns). */
-export const DEFAULT_SUBAGENT_MAX_TURNS = 10;
+export { DEFAULT_SUBAGENT_MAX_TURNS } from "../config/settings.js";
 
 /** Consecutive identical tool-call fingerprints before a leaf is forced to stop. */
 export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 2;
@@ -196,6 +201,20 @@ export function forcedStopReport(
     blockers,
     paths: "",
   });
+}
+
+/** True when the worker returned a turn-budget salvage report for the parent. */
+export function isTurnBudgetSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.includes("Turn budget reached");
+}
+
+const TURN_BUDGET_PARENT_HINT =
+  "[Sub-agent hit its turn budget before finishing. Summarize what was learned, then re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
+
+export function appendTurnBudgetParentHint(report: string): string {
+  if (!isTurnBudgetSubAgentReport(report)) return report;
+  return `${TURN_BUDGET_PARENT_HINT}\n\n${report}`;
 }
 
 class SubAgentDirector extends DefaultDirector {
@@ -649,7 +668,8 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }
   };
 
-  const maxTurns = params.maxTurns ?? DEFAULT_SUBAGENT_MAX_TURNS;
+  const maxTurns =
+    params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
 
   const directorDef = defineDirector({
     id: "intercode/subagent",
@@ -832,6 +852,7 @@ const TaskToolArgs = type({
   "context?": "string",
   "agent?": "string",
   "goals?": "string[]",
+  "maxTurns?": "number",
 });
 
 export const taskToolDefinition: ToolDefinition = {
@@ -865,6 +886,11 @@ export const taskToolDefinition: ToolDefinition = {
         type: "string",
         description:
           "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify tier, capability restrictions, and role. Omit for a generic sub-agent on the default provider.",
+      },
+      maxTurns: {
+        type: "number",
+        description:
+          "Optional inference-turn budget for this worker only (not the parent session limit). Defaults to settings or 30; hard cap 100.",
       },
     },
     required: ["description", "prompt"],
@@ -923,6 +949,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         prompt: rawPrompt,
         agent: agentId,
         goals: rawGoals,
+        maxTurns: rawMaxTurns,
       } = parsed;
       const description = rawDesc.trim();
       const context = rawCtx?.trim();
@@ -941,6 +968,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let systemPromptRole: string | undefined;
       let orchestrator = false;
       let tier: ProviderTier | undefined;
+      let profileMaxTurns: number | undefined;
       const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
@@ -966,6 +994,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         }
         if (profile.capabilities !== undefined) {
           capabilities = profile.capabilities;
+        }
+        if (profile.maxTurns !== undefined) {
+          profileMaxTurns = profile.maxTurns;
         }
         if (profile.systemPromptRole !== undefined) {
           systemPromptRole = profile.systemPromptRole;
@@ -1046,6 +1077,20 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           }
         }
       }
+
+      let taskMaxTurns: number | undefined;
+      if (rawMaxTurns !== undefined) {
+        const verdict = validateTaskMaxTurns(rawMaxTurns);
+        if (!verdict.ok) {
+          return taskToolResult(call.id, `Error: ${verdict.message}`);
+        }
+        taskMaxTurns = verdict.value;
+      }
+      const resolvedMaxTurns = resolveSubAgentMaxTurns({
+        ...(settings !== undefined ? { settings } : {}),
+        ...(profileMaxTurns !== undefined ? { profileMaxTurns } : {}),
+        ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
+      });
 
       const brief = buildDispatchBrief({
         description,
@@ -1142,6 +1187,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // Nested workers (installed by an orchestrator that already holds a
           // slot) reuse the parent slot rather than acquiring their own.
           ...(deps.allowOrchestrator === false ? { nested: true } : {}),
+          maxTurns: resolvedMaxTurns,
         };
         const result = await run(params);
         // Race: strip/parent may cancel after run resolves but before complete.
@@ -1158,7 +1204,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
-        return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${result}`);
+        const reported = appendTurnBudgetParentHint(result);
+        return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
       } catch (err) {
         if (
           isSubAgentCancelError(err, childCtl.signal) ||

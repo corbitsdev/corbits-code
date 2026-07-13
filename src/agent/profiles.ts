@@ -50,6 +50,7 @@ const AgentProfileSchema = type({
   "systemPromptRole?": "string",
   "systemPromptPath?": "string",
   "orchestrator?": "boolean",
+  "maxTurns?": "number",
 });
 
 function isENOENT(err: unknown): boolean {

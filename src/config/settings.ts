@@ -83,6 +83,8 @@ export type Settings = {
   // "pruning" uses fast deterministic pruning with no LLM call.
   compactionMode?: "llm" | "pruning";
   maxConcurrentSubAgents?: number;
+  // Default inference-turn budget for leaf sub-agents (not the parent session limit).
+  subagentMaxTurns?: number;
   // Primary session behavior: single agent does work in-session; orchestrator
   // delegates via task and manages a worker fleet. When unset, the TUI prompts
   // once at startup.
@@ -124,6 +126,56 @@ export function resolveMaxConcurrentSubAgents(settings?: Settings | null): numbe
     return DEFAULT_MAX_CONCURRENT_SUB_AGENTS;
   }
   return clampMaxConcurrentSubAgents(settings.maxConcurrentSubAgents);
+}
+
+export const DEFAULT_SUBAGENT_MAX_TURNS = 30;
+export const MAX_SUBAGENT_MAX_TURNS_CAP = 100;
+
+export function clampSubAgentMaxTurns(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SUBAGENT_MAX_TURNS;
+  return Math.min(MAX_SUBAGENT_MAX_TURNS_CAP, Math.max(1, Math.floor(value)));
+}
+
+export function resolveDefaultSubAgentMaxTurns(settings?: Settings | null): number {
+  if (settings?.subagentMaxTurns === undefined) {
+    return DEFAULT_SUBAGENT_MAX_TURNS;
+  }
+  return clampSubAgentMaxTurns(settings.subagentMaxTurns);
+}
+
+export type TaskMaxTurnsValidation =
+  | { ok: true; value: number }
+  | { ok: false; message: string };
+
+export function validateTaskMaxTurns(value: number): TaskMaxTurnsValidation {
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    return { ok: false, message: "maxTurns must be a positive integer." };
+  }
+  if (value < 1) {
+    return { ok: false, message: "maxTurns must be at least 1." };
+  }
+  if (value > MAX_SUBAGENT_MAX_TURNS_CAP) {
+    return {
+      ok: false,
+      message: `maxTurns cannot exceed ${MAX_SUBAGENT_MAX_TURNS_CAP}.`,
+    };
+  }
+  return { ok: true, value };
+}
+
+export function resolveSubAgentMaxTurns(input: {
+  settings?: Settings | null;
+  profileMaxTurns?: number;
+  /** Must already pass validateTaskMaxTurns when set. */
+  taskMaxTurns?: number;
+}): number {
+  if (input.taskMaxTurns !== undefined) {
+    return input.taskMaxTurns;
+  }
+  if (input.profileMaxTurns !== undefined) {
+    return clampSubAgentMaxTurns(input.profileMaxTurns);
+  }
+  return resolveDefaultSubAgentMaxTurns(input.settings);
 }
 
 export type PluginConfig = {
@@ -263,6 +315,7 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "compactionMode?": "'llm' | 'pruning'",
   "maxConcurrentSubAgents?": "number",
+  "subagentMaxTurns?": "number",
   "sessionMode?": "'single' | 'orchestrator'",
   "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
@@ -299,6 +352,17 @@ export function isSettings(value: unknown): value is Settings {
   if (s.maxConcurrentSubAgents !== undefined) {
     const n = s.maxConcurrentSubAgents;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return false;
+  }
+  if (s.subagentMaxTurns !== undefined) {
+    const n = s.subagentMaxTurns;
+    if (
+      typeof n !== "number" ||
+      !Number.isInteger(n) ||
+      n < 1 ||
+      n > MAX_SUBAGENT_MAX_TURNS_CAP
+    ) {
+      return false;
+    }
   }
   if (s.sessionMode !== undefined && !isSessionMode(s.sessionMode)) return false;
   return true;
@@ -409,6 +473,9 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       : {}),
     ...(s.maxConcurrentSubAgents !== undefined
       ? { maxConcurrentSubAgents: clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number) }
+      : {}),
+    ...(s.subagentMaxTurns !== undefined
+      ? { subagentMaxTurns: clampSubAgentMaxTurns(s.subagentMaxTurns as number) }
       : {}),
     ...(s.sessionMode === "single" || s.sessionMode === "orchestrator"
       ? { sessionMode: s.sessionMode }

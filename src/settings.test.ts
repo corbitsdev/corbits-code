@@ -14,8 +14,14 @@ import {
   saveLocalSettings,
   type Settings,
   DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
+  DEFAULT_SUBAGENT_MAX_TURNS,
+  MAX_SUBAGENT_MAX_TURNS_CAP,
   resolveMaxConcurrentSubAgents,
   clampMaxConcurrentSubAgents,
+  resolveDefaultSubAgentMaxTurns,
+  resolveSubAgentMaxTurns,
+  clampSubAgentMaxTurns,
+  validateTaskMaxTurns,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -395,6 +401,59 @@ describe("maxConcurrentSubAgents", () => {
   test("clamp floors fractional values and negative numbers", () => {
     expect(clampMaxConcurrentSubAgents(3.9)).toBe(3);
     expect(clampMaxConcurrentSubAgents(-2)).toBe(0);
+  });
+});
+
+describe("subagentMaxTurns", () => {
+  test("defaults to 30 when unset", () => {
+    expect(resolveDefaultSubAgentMaxTurns(null)).toBe(DEFAULT_SUBAGENT_MAX_TURNS);
+    expect(resolveDefaultSubAgentMaxTurns({ providers: {} })).toBe(30);
+  });
+
+  test("resolveSubAgentMaxTurns precedence", () => {
+    const settings = { providers: {}, subagentMaxTurns: 40 };
+    expect(resolveSubAgentMaxTurns({ settings })).toBe(40);
+    expect(resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55 })).toBe(55);
+    expect(
+      resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55, taskMaxTurns: 70 }),
+    ).toBe(70);
+  });
+
+  test("clampSubAgentMaxTurns enforces floor and cap", () => {
+    expect(clampSubAgentMaxTurns(0)).toBe(1);
+    expect(clampSubAgentMaxTurns(150)).toBe(MAX_SUBAGENT_MAX_TURNS_CAP);
+  });
+
+  test("validateTaskMaxTurns rejects out of range", () => {
+    expect(validateTaskMaxTurns(101).ok).toBe(false);
+    expect(validateTaskMaxTurns(0).ok).toBe(false);
+    expect(validateTaskMaxTurns(50).ok).toBe(true);
+  });
+
+  test("loadSettings round-trips subagentMaxTurns", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".intercode", "settings.json");
+      await saveGlobalSettings(path, { ...firepass, subagentMaxTurns: 42 });
+      expect(await loadSettings(path)).toEqual({ ...firepass, subagentMaxTurns: 42 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects invalid subagentMaxTurns in settings", () => {
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        subagentMaxTurns: 0,
+      }),
+    ).toBe(false);
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        subagentMaxTurns: 101,
+      }),
+    ).toBe(false);
   });
 });
 
