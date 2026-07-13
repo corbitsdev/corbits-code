@@ -4,6 +4,7 @@ import { hasCode } from "@intx/types";
 import {
   editFileArgsUseBothModes,
   parseEditFileMode,
+  parseLineRangeFields,
   runEditFileLineRange,
 } from "./edit-file-line-range.js";
 
@@ -20,6 +21,19 @@ export function editFileLineRangePlugin(): ToolPlugin {
       let parseOptions: { fileContent?: string } | undefined;
       if (editFileArgsUseBothModes(call.arguments)) {
         const path = String(call.arguments.path ?? "");
+        const new_string = call.arguments.new_string;
+        if (typeof new_string === "string") {
+          const rangeCheck = parseLineRangeFields(path, new_string, call.arguments);
+          if (rangeCheck.kind === "invalid") {
+            const parsed = parseEditFileMode(call.arguments);
+            return {
+              callId: call.id,
+              content: parsed.kind === "invalid" ? parsed.message : rangeCheck.message,
+              isError: true,
+            };
+          }
+        }
+
         try {
           const buf = await readFile(path, { signal });
           if (buf.includes(0)) {

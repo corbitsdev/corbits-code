@@ -158,6 +158,48 @@ describe("verifyPlugin", () => {
     }
   });
 
+  test("passes when edit_file mixed args disambiguate to line-range", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
+    try {
+      const plugin = verifyPlugin();
+      const editHandler = async (call: ToolCall): Promise<ToolResult> => {
+        const path = String(call.arguments.path ?? "");
+        const start = Number(call.arguments.start_line);
+        const end = Number(call.arguments.end_line);
+        const newStr = String(call.arguments.new_string ?? "");
+        const content = await readFile(path, "utf8");
+        const lines = content.split("\n");
+        const before = lines.slice(0, start - 1);
+        const after = lines.slice(end);
+        const inserted = newStr.split("\n");
+        const merged = [...before, ...inserted, ...after].join("\n");
+        await writeFile(path, merged.endsWith("\n") ? merged : merged + "\n");
+        return { callId: call.id, content: "edited" };
+      };
+      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
+
+      const path = join(dir, "mixed.txt");
+      await writeFile(path, "a\nb\nc\n");
+      const result = await handler(
+        {
+          id: "call-mixed",
+          name: "edit_file",
+          arguments: {
+            path,
+            old_string: "b",
+            start_line: 2,
+            end_line: 2,
+            new_string: "B",
+          },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).not.toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("passes when edit_file line-range mode matches expected result", async () => {
     const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
     try {
