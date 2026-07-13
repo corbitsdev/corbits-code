@@ -124,7 +124,8 @@ test("a SYSTEM.md base override replaces the static base but keeps tools and con
   const prompt = buildChatSystemPrompt(undefined, undefined, override);
   expect(prompt).toContain(override);
   expect(prompt).not.toContain(buildChatRole());
-  expect(prompt).not.toContain(buildHarnessFacts());
+  expect(prompt).toContain("## Session mode");
+  expect(prompt).toContain("Orchestration:");
   // Tools and context still attach.
   expect(prompt).toContain("Tools:");
   expect(prompt).toContain("Active context:");

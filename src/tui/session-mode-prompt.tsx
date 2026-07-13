@@ -132,7 +132,7 @@ function SessionModePanel({ onSubmit }: SessionModePanelProps): ReactNode {
         borderRight={false}
       >
         <Text dimColor>
-          ↑↓ select · Enter save · Ctrl+C orchestrator this session only (not saved)
+          ↑↓ select · Enter save · Ctrl+C skip (orchestrator this run only, not saved)
         </Text>
       </Box>
     </Box>
