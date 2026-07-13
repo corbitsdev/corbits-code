@@ -302,6 +302,23 @@ test("ChatInput action bar shows the verb beside the steer hint and the model on
   expect(frame.indexOf("gpt-5 · high")).toBeLessThan(frame.indexOf("> follow up"));
 });
 
+test("ChatInput action bar shows profile before model and effort when profile is set", () => {
+  const { lastFrame } = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value=""
+      onChange={() => {}}
+      profile="work"
+      model="gpt-5"
+      effort="high"
+    />,
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("work · gpt-5 · high");
+});
+
 test("ChatInput dispatches slash command via onCommand even while isProcessing (does not call onInterrupt or onSubmit)", async () => {
   let commanded: { type: string; overlay?: string } | null = null;
   let submitted: string | null = null;

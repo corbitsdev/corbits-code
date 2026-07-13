@@ -9,7 +9,7 @@ export const CHROME_ZONE_ROWS = {
   progressDivider: 1,
   /** In-flight spinner / idle placeholder. */
   progress: 1,
-  /** Model · effort line above the prompt border (ChatInput action bar). */
+  /** Profile · model · effort line above the prompt border (ChatInput action bar). */
   modelBar: 1,
   /** Round-bordered prompt: top border + content + bottom border. */
   prompt: 3,
