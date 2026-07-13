@@ -64,16 +64,78 @@ export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } f
 export { createSubAgentSessionStore } from "./session-store.js";
 
 /** Default inference cycles for leaf sub-agents (independent of parent session maxTurns). */
-export const DEFAULT_SUBAGENT_MAX_TURNS = 40;
+export const DEFAULT_SUBAGENT_MAX_TURNS = 10;
+
+/** Consecutive identical tool-call fingerprints before a leaf is forced to stop. */
+export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 2;
 
 export function subAgentTurnLimitExceeded(turnsCompleted: number, maxTurns: number): boolean {
   return turnsCompleted >= maxTurns;
+}
+
+export function subAgentNoProgress(
+  consecutiveIdentical: number,
+  repeatLimit: number,
+): boolean {
+  return consecutiveIdentical >= repeatLimit;
+}
+
+// Stable JSON so key insertion order does not create false progress between turns.
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
+}
+
+/** Fingerprint of a turn's tool calls, or null when the turn has none. */
+export function fingerprintToolCalls(
+  content: ReadonlyArray<{ type: string; name?: string; arguments?: unknown }>,
+): string | null {
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block.type !== "tool_call") continue;
+    const name = typeof block.name === "string" ? block.name : "";
+    let args: unknown = block.arguments ?? {};
+    // Some adapters hand arguments as a JSON string; normalize so fingerprints match.
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args) as unknown;
+      } catch {
+        // Keep the raw string when it is not valid JSON.
+      }
+    }
+    parts.push(`${name}:${stableJson(args)}`);
+  }
+  if (parts.length === 0) return null;
+  parts.sort();
+  return parts.join("|");
+}
+
+export type SubAgentStopReason = "complete" | "turn-budget" | "no-progress";
+
+/** Pure stop decision for leaf workers. Null means keep running tools. */
+export function evaluateSubAgentStop(input: {
+  hasToolCalls: boolean;
+  turnsCompleted: number;
+  maxTurns: number;
+  consecutiveIdentical: number;
+  repeatLimit: number;
+}): SubAgentStopReason | null {
+  if (!input.hasToolCalls) return "complete";
+  // No-progress is more specific than the turn budget when both could apply.
+  if (subAgentNoProgress(input.consecutiveIdentical, input.repeatLimit)) return "no-progress";
+  if (subAgentTurnLimitExceeded(input.turnsCompleted, input.maxTurns)) return "turn-budget";
+  return null;
 }
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
 // the dispatcher. It has no submit_output or ask_operator; consequential tools
 // still go through the parent's permission gate (grants, auto mode, or prompts).
+// Hard stops also fire on the turn budget and on consecutive identical tool
+// fingerprints so a thrashing leaf cannot burn the full budget with no progress.
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -85,20 +147,31 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
   return "";
 }
 
+const TURN_BUDGET_REPLY =
+  "Turn budget reached before finishing. Summarize progress in the report envelope (Summary, Findings, Blockers, Paths).";
+
+const NO_PROGRESS_REPLY =
+  "Stopped: repeated the same tool calls with no progress. Summarize what you found in the report envelope (Summary, Findings, Blockers, Paths).";
+
 class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly maxTurns: number;
+  private readonly repeatLimit: number;
   private turnsCompleted = 0;
+  private lastToolFingerprint: string | undefined;
+  private consecutiveIdentical = 0;
 
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     requestContinuation: (() => void) | undefined,
     maxTurns: number,
+    repeatLimit: number = DEFAULT_SUBAGENT_REPEAT_LIMIT,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation);
     this.maxTurns = maxTurns;
+    this.repeatLimit = repeatLimit;
   }
 
   override async decide(
@@ -117,23 +190,59 @@ class SubAgentDirector extends DefaultDirector {
     if (event.type === "inference.done") {
       this.compaction.noteInferenceDone(event, state.turns.length);
       this.turnsCompleted++;
-      const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
-      if (subAgentTurnLimitExceeded(this.turnsCompleted, this.maxTurns) && hasToolCalls) {
+      const content = event.turn.content as ReadonlyArray<{
+        type: string;
+        name?: string;
+        arguments?: unknown;
+        text?: string;
+      }>;
+      const fingerprint = fingerprintToolCalls(content);
+      const hasToolCalls = fingerprint !== null;
+
+      if (hasToolCalls) {
+        if (fingerprint === this.lastToolFingerprint) {
+          this.consecutiveIdentical++;
+        } else {
+          this.lastToolFingerprint = fingerprint;
+          this.consecutiveIdentical = 1;
+        }
+      } else {
+        this.lastToolFingerprint = undefined;
+        this.consecutiveIdentical = 0;
+      }
+
+      const stop = evaluateSubAgentStop({
+        hasToolCalls,
+        turnsCompleted: this.turnsCompleted,
+        maxTurns: this.maxTurns,
+        consecutiveIdentical: this.consecutiveIdentical,
+        repeatLimit: this.repeatLimit,
+      });
+
+      if (stop === "complete") {
         const terminal: ReactorAction[] = [
-          capabilities.checkpoint("subagent-turn-budget"),
-          capabilities.reply(
-            "Turn budget reached before finishing. Summarize progress in the report envelope (Summary, Findings, Blockers, Paths).",
-          ),
+          capabilities.checkpoint("subagent-complete"),
+          capabilities.reply(lastText(content)),
         ];
         this.compaction.noteIdleTurn(event, terminal);
         const compacted = this.compaction.interceptActions(event, terminal, capabilities);
         if (compacted !== null) return compacted;
         return terminal;
       }
-      if (!hasToolCalls) {
+      if (stop === "no-progress") {
         const terminal: ReactorAction[] = [
-          capabilities.checkpoint("subagent-complete"),
-          capabilities.reply(lastText(event.turn.content)),
+          capabilities.checkpoint("subagent-no-progress"),
+          capabilities.reply(NO_PROGRESS_REPLY),
+        ];
+        this.compaction.noteIdleTurn(event, terminal);
+        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
+        if (compacted !== null) return compacted;
+        return terminal;
+      }
+      if (stop === "turn-budget") {
+        const terminal: ReactorAction[] = [
+          capabilities.checkpoint("subagent-turn-budget"),
+          capabilities.reply(TURN_BUDGET_REPLY),
         ];
         this.compaction.noteIdleTurn(event, terminal);
         const compacted = this.compaction.interceptActions(event, terminal, capabilities);
@@ -146,6 +255,7 @@ class SubAgentDirector extends DefaultDirector {
     return this.compaction.interceptActions(event, actions, capabilities) ?? base;
   }
 }
+
 
 export type SubAgentProvider = {
   providerName: string;

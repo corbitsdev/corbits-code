@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
 import { createPermissionGate } from "../permission/gate.js";
-import { createTaskTool, type RunSubAgentParams } from "./index.js";
+import {
+  createTaskTool,
+  DEFAULT_SUBAGENT_MAX_TURNS,
+  DEFAULT_SUBAGENT_REPEAT_LIMIT,
+  evaluateSubAgentStop,
+  fingerprintToolCalls,
+  subAgentNoProgress,
+  subAgentTurnLimitExceeded,
+  type RunSubAgentParams,
+} from "./index.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -15,16 +24,116 @@ const provider = {
   model: "test-model",
 };
 
-function callTask(tool: ReturnType<typeof createTaskTool>, args: Record<string, unknown>): Promise<string> {
-  if (tool.kind !== "string") throw new Error("expected string tool");
-  return tool.handler(args, new AbortController().signal);
+async function callTask(
+  tool: ReturnType<typeof createTaskTool>,
+  args: Record<string, unknown>,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<string> {
+  // createTaskTool returns a full-handler AgentTool (call + signal → ToolResult).
+  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  const result = await tool.handler(
+    { id: "call-1", name: "task", arguments: args },
+    signal,
+  );
+  return typeof result.content === "string" ? result.content : JSON.stringify(result.content);
 }
 
-describe("subAgentTurnLimitExceeded", () => {
-  test("uses dedicated default budget constant", async () => {
-    const { subAgentTurnLimitExceeded, DEFAULT_SUBAGENT_MAX_TURNS } = await import("./index.js");
+describe("sub-agent stop helpers", () => {
+  test("default turn budget is tight enough to bound runaway cost", () => {
+    expect(DEFAULT_SUBAGENT_MAX_TURNS).toBe(10);
     expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(true);
     expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS - 1, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(false);
+  });
+
+  test("no-progress trips at the default repeat limit", () => {
+    expect(DEFAULT_SUBAGENT_REPEAT_LIMIT).toBe(2);
+    expect(subAgentNoProgress(1, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(false);
+    expect(subAgentNoProgress(2, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(true);
+  });
+
+  test("fingerprint is null when a turn has no tool calls", () => {
+    expect(fingerprintToolCalls([{ type: "text" }])).toBeNull();
+  });
+
+  test("fingerprint is stable across argument key order and multi-call order", () => {
+    const a = fingerprintToolCalls([
+      { type: "tool_call", name: "read_file", arguments: { path: "a.ts", offset: 1 } },
+      { type: "tool_call", name: "grep", arguments: { pattern: "x", path: "src" } },
+    ]);
+    const b = fingerprintToolCalls([
+      { type: "tool_call", name: "grep", arguments: { path: "src", pattern: "x" } },
+      { type: "tool_call", name: "read_file", arguments: { offset: 1, path: "a.ts" } },
+    ]);
+    expect(a).toBe(b);
+    expect(a).not.toBeNull();
+  });
+
+  test("fingerprint normalizes JSON-string arguments", () => {
+    const objectArgs = fingerprintToolCalls([
+      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+    ]);
+    const stringArgs = fingerprintToolCalls([
+      { type: "tool_call", name: "read_file", arguments: JSON.stringify({ path: "a.ts" }) },
+    ]);
+    expect(objectArgs).toBe(stringArgs);
+  });
+
+  test("changing arguments produces a different fingerprint", () => {
+    const first = fingerprintToolCalls([
+      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+    ]);
+    const second = fingerprintToolCalls([
+      { type: "tool_call", name: "read_file", arguments: { path: "b.ts" } },
+    ]);
+    expect(first).not.toBe(second);
+  });
+
+  test("evaluateSubAgentStop returns complete when there are no tool calls", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        turnsCompleted: 1,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop prefers no-progress over turn-budget", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        turnsCompleted: 10,
+        maxTurns: 10,
+        consecutiveIdentical: 2,
+        repeatLimit: 2,
+      }),
+    ).toBe("no-progress");
+  });
+
+  test("evaluateSubAgentStop trips turn-budget when the leaf is still making progress", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        turnsCompleted: 10,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+      }),
+    ).toBe("turn-budget");
+  });
+
+  test("evaluateSubAgentStop keeps running while fingerprints change under budget", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -104,8 +213,7 @@ describe("createTaskTool", () => {
         return "done";
       },
     });
-    if (tool.kind !== "string") throw new Error("expected string tool");
-    const out = await tool.handler({ description: "signal", prompt: "x" }, parent.signal);
+    const out = await callTask(tool, { description: "signal", prompt: "x" }, parent.signal);
     expect(linkedAbort).toBe(true);
     expect(captured?.signal?.aborted).toBe(true);
     // Abort during run is reported as cancel, not a completed report.
