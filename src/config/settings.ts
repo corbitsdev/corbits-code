@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { REASONING_EFFORTS, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { isSessionMode, type SessionMode } from "./session-mode.js";
 
 // A configured inference provider. `apiKey` is secret and lives only in the
 // global settings file; `baseURL` is editable provider metadata that lives with
@@ -82,6 +83,10 @@ export type Settings = {
   // "pruning" uses fast deterministic pruning with no LLM call.
   compactionMode?: "llm" | "pruning";
   maxConcurrentSubAgents?: number;
+  // Primary session behavior: single agent does work in-session; orchestrator
+  // delegates via task and manages a worker fleet. When unset, the TUI prompts
+  // once at startup.
+  sessionMode?: SessionMode;
   // When an agent profile pins a provider/model combo (via its `inference`
   // field) and none of the listed legs are available in the user's configured
   // providers, this controls what happens. "active" (default) silently falls
@@ -150,6 +155,7 @@ export type LocalSettings = {
   model?: string;
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
+  sessionMode?: SessionMode;
 };
 
 // The provider fields the runtime consumes, identical to what the env vars used
@@ -257,6 +263,7 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "compactionMode?": "'llm' | 'pruning'",
   "maxConcurrentSubAgents?": "number",
+  "sessionMode?": "'single' | 'orchestrator'",
   "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
 });
@@ -276,6 +283,7 @@ const LocalSettingsSchema = type({
   "model?": "string",
   "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
   "mcpServers?": "unknown",
+  "sessionMode?": "'single' | 'orchestrator'",
   // Reject any other key so local settings can never smuggle credentials.
   "+": "reject",
 });
@@ -292,6 +300,7 @@ export function isSettings(value: unknown): value is Settings {
     const n = s.maxConcurrentSubAgents;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return false;
   }
+  if (s.sessionMode !== undefined && !isSessionMode(s.sessionMode)) return false;
   return true;
 }
 
@@ -351,6 +360,7 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   if (!LocalSettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
+  if (s.sessionMode !== undefined && !isSessionMode(s.sessionMode)) return false;
   return true;
 }
 
@@ -400,6 +410,9 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.maxConcurrentSubAgents !== undefined
       ? { maxConcurrentSubAgents: clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number) }
       : {}),
+    ...(s.sessionMode === "single" || s.sessionMode === "orchestrator"
+      ? { sessionMode: s.sessionMode }
+      : {}),
     ...(s.agentModelFallback === "active" || s.agentModelFallback === "none"
       ? { agentModelFallback: s.agentModelFallback }
       : {}),
@@ -432,6 +445,9 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
     ...(s.model !== undefined ? { model: s.model as string } : {}),
     ...(s.reasoningEffort !== undefined ? { reasoningEffort: s.reasoningEffort as ReasoningEffort } : {}),
     ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
+    ...(s.sessionMode === "single" || s.sessionMode === "orchestrator"
+      ? { sessionMode: s.sessionMode }
+      : {}),
   } as LocalSettings;
 }
 
@@ -468,7 +484,7 @@ export async function markOnboarded(path: string): Promise<void> {
 export async function saveLocalSettings(path: string, local: LocalSettings): Promise<void> {
   if (!isLocalSettings(local)) {
     throw new Error(
-      `Refusing to write invalid local settings: only "provider", "model", and "reasoningEffort" are allowed.`,
+      `Refusing to write invalid local settings: only "provider", "model", "reasoningEffort", "mcpServers", and "sessionMode" are allowed.`,
     );
   }
   const payload = JSON.stringify(local, null, 2);
