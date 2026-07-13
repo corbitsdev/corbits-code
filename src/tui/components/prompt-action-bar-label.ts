@@ -12,7 +12,7 @@ export function composePromptActionBarModelLabel(
   if (input.profile !== undefined && input.profile.length > 0) {
     segments.push(input.profile);
   }
-  if (input.model !== undefined) {
+  if (input.model !== undefined && input.model.length > 0) {
     segments.push(input.model);
   }
   if (input.effort !== undefined && input.effort.length > 0) {
