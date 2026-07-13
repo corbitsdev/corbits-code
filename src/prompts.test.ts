@@ -77,6 +77,13 @@ test("chat system prompt satisfies CL-3117 quality markers", () => {
   }
 });
 
+test("single session mode satisfies CL-3117 quality markers", () => {
+  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
+  for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
+    expect(prompt).toContain(marker);
+  }
+});
+
 test("single session mode omits task and search_agents from the tools list", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
   expect(prompt).toContain("read_file");
@@ -121,6 +128,14 @@ test("a SYSTEM.md base override replaces the static base but keeps tools and con
   // Tools and context still attach.
   expect(prompt).toContain("Tools:");
   expect(prompt).toContain("Active context:");
+});
+
+test("SYSTEM.md override in single mode still appends single-agent harness rules", () => {
+  const override = "You are a custom agent that mentions delegating to workers.";
+  const prompt = buildChatSystemPrompt(undefined, undefined, override, [], "single");
+  expect(prompt).toContain(override);
+  expect(prompt).toContain("single-agent mode");
+  expect(prompt).not.toContain("- task:");
 });
 
 test("an empty base override falls back to the default base", () => {

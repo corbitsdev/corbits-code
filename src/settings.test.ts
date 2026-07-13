@@ -490,7 +490,7 @@ describe("saveLocalSettings", () => {
       const path = join(dir, ".intercode", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
       const leaky = { provider: "a", apiKey: "leak" } as unknown as { provider?: string };
-      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/sessionMode/);
+      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/allowed/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

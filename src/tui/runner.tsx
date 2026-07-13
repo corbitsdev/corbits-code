@@ -139,7 +139,7 @@ function buildCompactionContinuationMessage(): InboundMessage {
 export async function runTUI(initialConfig: Config): Promise<number> {
   let config = initialConfig;
   const inferenceDeps = await createInferenceDependencies();
-  configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
+
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
   const pluginModules = dedupePluginModules([
@@ -493,6 +493,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const refreshed = await loadSettings(config.globalSettingsPath).catch(() => null);
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
+  }
+  if (liveSessionMode === "orchestrator") {
+    configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
   }
   const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode);
   // The workflow controller is built below, after the toolset; the holder lets
@@ -1071,6 +1074,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
       }}
       initialSessionMode={liveSessionMode}
+      initialSavedGlobalSessionMode={config.settings?.sessionMode}
+      initialSavedLocalSessionMode={localSettingsForMode?.sessionMode}
       onChangeSessionMode={async (mode, scope) => {
         if (scope === "local") {
           const path = localSettingsPath(config.cwd);
