@@ -1,5 +1,11 @@
+import { readFile } from "node:fs/promises";
 import type { ToolPlugin } from "@intx/tools-posix";
-import { parseEditFileMode, runEditFileLineRange } from "./edit-file-line-range.js";
+import { hasCode } from "@intx/types";
+import {
+  editFileArgsUseBothModes,
+  parseEditFileMode,
+  runEditFileLineRange,
+} from "./edit-file-line-range.js";
 
 /**
  * Short-circuits stock tools-posix edit_file for line-range mode (shell-guard pattern).
@@ -11,7 +17,32 @@ export function editFileLineRangePlugin(): ToolPlugin {
         return next(call, signal);
       }
 
-      const parsed = parseEditFileMode(call.arguments);
+      let parseOptions: { fileContent?: string } | undefined;
+      if (editFileArgsUseBothModes(call.arguments)) {
+        const path = String(call.arguments.path ?? "");
+        try {
+          const buf = await readFile(path, { signal });
+          if (buf.includes(0)) {
+            return {
+              callId: call.id,
+              content: `refusing to edit binary file: ${path}`,
+              isError: true,
+            };
+          }
+          parseOptions = { fileContent: buf.toString("utf8") };
+        } catch (err) {
+          if (hasCode(err) && err.code === "ENOENT") {
+            return { callId: call.id, content: `file not found: ${path}`, isError: true };
+          }
+          return {
+            callId: call.id,
+            content: err instanceof Error ? err.message : String(err),
+            isError: true,
+          };
+        }
+      }
+
+      const parsed = parseEditFileMode(call.arguments, parseOptions);
       if (parsed.kind === "invalid") {
         return { callId: call.id, content: parsed.message, isError: true };
       }
