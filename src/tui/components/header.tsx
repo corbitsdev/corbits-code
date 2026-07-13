@@ -34,7 +34,7 @@ export function Header({ latestUserMessage, width, profile, workflow, focusedAge
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
         <Box flexDirection="row" gap={1} flexWrap="wrap" flexGrow={1}>
-          {profile !== undefined && (
+          {profile !== undefined && profile.length > 0 && (
             <Text color={color("muted")} dimColor>[{profile}]</Text>
           )}
           {focusedAgent !== undefined && (

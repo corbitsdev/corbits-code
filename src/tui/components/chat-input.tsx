@@ -553,7 +553,11 @@ export function ChatInput({
         const steerText = queuedCount > 0
           ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
           : "Enter steer · Alt+Enter queue";
-        const modelText = composePromptActionBarModelLabel({ profile, model, effort });
+        const modelText = composePromptActionBarModelLabel({
+          ...(profile !== undefined ? { profile } : {}),
+          ...(model !== undefined ? { model } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+        });
         const showAttachments = attachmentSummary !== undefined && attachmentSummary.length > 0;
         if (!showSteerHint && modelText === undefined && !showAttachments) return null;
         return (
