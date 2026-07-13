@@ -30,12 +30,16 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Intercode with a minimal coding-assistant role", () => {
-  const role = buildChatRole();
-  expect(role).toContain("Intercode");
-  expect(role).toContain("senior coding assistant");
-  expect(role).toContain("understand, edit, and verify");
-  expect(role).toContain("Match their tone");
+test("agent identity is Intercode with mode-specific primary roles", () => {
+  const single = buildChatRole("single");
+  expect(single).toContain("Intercode");
+  expect(single).toContain("senior coding assistant");
+  expect(single).toContain("read, edit");
+  const orchestrator = buildChatRole("orchestrator");
+  expect(orchestrator).toContain("Intercode");
+  expect(orchestrator).toContain("orchestrator");
+  expect(orchestrator).toContain("delegate");
+  expect(orchestrator).toContain("Match their tone");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
@@ -71,6 +75,19 @@ test("chat system prompt satisfies CL-3117 quality markers", () => {
   for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
     expect(prompt).toContain(marker);
   }
+});
+
+test("single session mode omits task and search_agents from the tools list", () => {
+  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
+  expect(prompt).toContain("read_file");
+  expect(prompt).not.toContain("- task:");
+  expect(prompt).not.toContain("- search_agents:");
+});
+
+test("orchestrator session mode lists task and search_agents", () => {
+  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
+  expect(prompt).toContain("- task:");
+  expect(prompt).toContain("- search_agents:");
 });
 
 test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
