@@ -34,8 +34,13 @@ function callHandler(
   tool: ReturnType<typeof createTaskTool>,
   args: Record<string, unknown>,
 ): Promise<string> {
-  if (tool.kind !== "string") throw new Error("expected string tool");
-  return tool.handler(args, new AbortController().signal);
+  // createTaskTool returns a full-handler AgentTool (call + signal → ToolResult).
+  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  return tool
+    .handler({ id: "call-1", name: "task", arguments: args }, new AbortController().signal)
+    .then((result) =>
+      typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+    );
 }
 
 test("task tool definition requires description and prompt", () => {
