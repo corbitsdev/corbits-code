@@ -32,6 +32,11 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       res.end("Not found");
       return;
     }
+    if (result !== undefined) {
+      res.statusCode = 409;
+      res.end("Authorization callback already received.");
+      return;
+    }
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
     res.statusCode = error !== null || code === null ? 400 : 200;
