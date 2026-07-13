@@ -19,8 +19,19 @@ describe("composePromptActionBarModelLabel", () => {
     );
   });
 
+  test("shows profile alone when model and effort are absent", () => {
+    expect(composePromptActionBarModelLabel({ profile: "work" })).toBe("work");
+  });
+
+  test("omits empty model segment", () => {
+    expect(composePromptActionBarModelLabel({ profile: "work", model: "", effort: "high" })).toBe(
+      "work · high",
+    );
+  });
+
   test("returns undefined when no segments apply", () => {
     expect(composePromptActionBarModelLabel({})).toBeUndefined();
     expect(composePromptActionBarModelLabel({ profile: "" })).toBeUndefined();
+    expect(composePromptActionBarModelLabel({ model: "" })).toBeUndefined();
   });
 });
