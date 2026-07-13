@@ -327,6 +327,35 @@ describe("loaders", () => {
   });
 });
 
+describe("sessionMode", () => {
+  test("loadSettings round-trips sessionMode", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".intercode", "settings.json");
+      await saveGlobalSettings(path, { ...firepass, sessionMode: "single" });
+      expect(await loadSettings(path)).toEqual({ ...firepass, sessionMode: "single" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadLocalSettings round-trips sessionMode", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-local-"));
+    try {
+      const path = join(dir, ".intercode", "settings.json");
+      await saveLocalSettings(path, { provider: "a", sessionMode: "orchestrator" });
+      expect(await loadLocalSettings(path)).toEqual({ provider: "a", sessionMode: "orchestrator" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects invalid sessionMode", () => {
+    expect(isSettings({ providers: firepass.providers, sessionMode: "fleet" })).toBe(false);
+    expect(isLocalSettings({ provider: "a", sessionMode: 1 })).toBe(false);
+  });
+});
+
 describe("maxConcurrentSubAgents", () => {
   test("defaults to 10 when unset", () => {
     expect(resolveMaxConcurrentSubAgents(null)).toBe(DEFAULT_MAX_CONCURRENT_SUB_AGENTS);
@@ -461,7 +490,7 @@ describe("saveLocalSettings", () => {
       const path = join(dir, ".intercode", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
       const leaky = { provider: "a", apiKey: "leak" } as unknown as { provider?: string };
-      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/only "provider", "model", and "reasoningEffort"/);
+      await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/sessionMode/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
