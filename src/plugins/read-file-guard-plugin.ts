@@ -17,9 +17,14 @@ export const READ_FILE_MAX_LINE_LENGTH = 2000;
 // Absolute ceiling on bytes scanned from disk, so a deep offset into a huge file
 // stays time-bounded even though memory is already bounded by the streaming read.
 export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
+// Headroom reserved out of the byte budget for the continuation notice, so the
+// returned payload including the notice stays under READ_FILE_MAX_BYTES.
+const NOTICE_RESERVE_BYTES = 256;
 
 const TOOL_OUTPUT_URI_PREFIX = "tool-output:";
 const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars]`;
+
+type TruncReason = "lines" | "bytes" | "scan";
 
 type BoundedRead = { content: string; isError?: boolean };
 
@@ -45,15 +50,19 @@ export function readFileBounded(
   return new Promise<BoundedRead>((resolveP, rejectP) => {
     const stream = createReadStream(absolutePath);
     const decoder = new StringDecoder("utf8");
+    // Budget for emitted lines; the notice is appended out of the reserved slack.
+    const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
 
     let pending = "";
     let pendingOverflow = false;
+    let firstChunk = true;
     let lineNo = 0;
     let scanned = 0;
     let outBytes = 0;
     let emitted = 0;
     let lastEmittedLine = 0;
-    let truncated = false;
+    let truncReason: TruncReason | undefined;
+    let endReached = false;
     let settled = false;
 
     const out: string[] = [];
@@ -74,12 +83,13 @@ export function readFileBounded(
       resolveP(result);
     };
 
-    // Returns false when no further lines should be processed.
+    // Returns false when no further lines should be processed. `offset` is a
+    // zero-based skip count, matching the stock read_file schema.
     const handleLine = (raw: string, overflow: boolean): boolean => {
       lineNo++;
-      if (lineNo < offset) return true;
+      if (lineNo <= offset) return true;
       if (emitted >= limit) {
-        truncated = true;
+        truncReason = "lines";
         return false;
       }
       const tooLong = overflow || raw.length > READ_FILE_MAX_LINE_LENGTH;
@@ -87,16 +97,21 @@ export function readFileBounded(
         ? raw.slice(0, READ_FILE_MAX_LINE_LENGTH) + LINE_TRUNC_SUFFIX
         : raw;
       const numbered = numberLine(lineNo, text);
+      // +1 accounts for the "\n" separator this line adds when joined.
       const bytes = Buffer.byteLength(numbered, "utf8") + 1;
-      if (emitted > 0 && outBytes + bytes > READ_FILE_MAX_BYTES) {
-        truncated = true;
+      if (emitted > 0 && outBytes + bytes > contentBudget) {
+        truncReason = "bytes";
         return false;
       }
       out.push(numbered);
       outBytes += bytes;
       emitted++;
       lastEmittedLine = lineNo;
-      return outBytes < READ_FILE_MAX_BYTES;
+      if (outBytes >= contentBudget) {
+        truncReason = "bytes";
+        return false;
+      }
+      return true;
     };
 
     const drainPending = (): boolean => {
@@ -118,31 +133,48 @@ export function readFileBounded(
     };
 
     const finishOk = () => {
-      let content = out.join("\n");
       if (emitted === 0) {
-        if (lineNo > 0 && offset > lineNo) {
+        if (lineNo === 0 && endReached) {
+          // Genuinely empty file.
+          done({ content: "" });
+          return;
+        }
+        // No line reached the requested offset. Only claim EOF when the stream
+        // actually ended; otherwise the scan ceiling stopped us short of it and
+        // lineNo is not the true file length.
+        if (endReached) {
           done({
             content: `[offset ${offset} is beyond end of file (${lineNo} lines)]`,
             isError: true,
           });
-          return;
+        } else {
+          done({
+            content: `[reached the ${
+              READ_FILE_MAX_SCAN_BYTES / (1024 * 1024)
+            }MB scan limit before offset ${offset}; the file is larger than read_file scans in one pass. Use a smaller offset or grep to locate content.]`,
+            isError: true,
+          });
         }
-        done({ content: "" });
         return;
       }
-      if (truncated) {
-        content += `\n\n[Showing lines ${offset}-${lastEmittedLine}; output limited to ${
-          READ_FILE_MAX_BYTES / 1024
-        }KB / ${limit} lines. Use offset=${lastEmittedLine + 1} to continue.]`;
+
+      let content = out.join("\n");
+      if (truncReason !== undefined) {
+        content += `\n\n${continuationNotice(truncReason, offset + 1, lastEmittedLine, limit)}`;
       }
       done({ content });
     };
 
     stream.on("data", (chunk: Buffer) => {
       if (settled) return;
-      if (chunk.includes(0)) {
-        done({ content: `refusing to read binary file: ${absolutePath}`, isError: true });
-        return;
+      // Sample only the first chunk for NUL bytes: a control byte appearing deep
+      // in an otherwise-valid file must not discard already-streamed content.
+      if (firstChunk) {
+        firstChunk = false;
+        if (chunk.includes(0)) {
+          done({ content: `refusing to read binary file: ${absolutePath}`, isError: true });
+          return;
+        }
       }
       scanned += chunk.length;
       pending += decoder.write(chunk);
@@ -151,13 +183,17 @@ export function readFileBounded(
         return;
       }
       if (scanned >= READ_FILE_MAX_SCAN_BYTES) {
-        truncated = true;
+        // Flush the partial line still in `pending` before stopping, so a
+        // newline-less giant file is not reported as empty content.
+        if (pending.length > 0) handleLine(pending, pendingOverflow);
+        truncReason = "scan";
         finishOk();
       }
     });
 
     stream.on("end", () => {
       if (settled) return;
+      endReached = true;
       pending += decoder.end();
       if (pending.length > 0) handleLine(pending, pendingOverflow);
       finishOk();
@@ -173,6 +209,28 @@ export function readFileBounded(
       else rejectP(err);
     });
   });
+}
+
+function continuationNotice(
+  reason: TruncReason,
+  firstLine: number,
+  lastLine: number,
+  limit: number,
+): string {
+  // Resume by skipping `lastLine` (zero-based) lines so the next read starts at
+  // lastLine + 1.
+  const next = `Use offset=${lastLine} to continue.`;
+  if (reason === "lines") {
+    return `[Showing lines ${firstLine}-${lastLine}; stopped at the ${limit}-line limit. ${next}]`;
+  }
+  if (reason === "bytes") {
+    return `[Showing lines ${firstLine}-${lastLine}; stopped at the ${
+      READ_FILE_MAX_BYTES / 1024
+    }KB output limit. ${next}]`;
+  }
+  return `[Showing lines ${firstLine}-${lastLine}; stopped at the ${
+    READ_FILE_MAX_SCAN_BYTES / (1024 * 1024)
+  }MB scan limit. ${next}]`;
 }
 
 /**
@@ -195,7 +253,8 @@ export function readFileGuardPlugin(cwd: string): ToolPlugin {
 
       const offsetArg = numArg(call.arguments.offset);
       const limitArg = numArg(call.arguments.limit);
-      const offset = offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 1;
+      // `offset` is a zero-based skip count, matching the stock read_file schema.
+      const offset = offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
       const limit =
         limitArg !== undefined && limitArg > 0
           ? Math.floor(limitArg)
@@ -214,7 +273,7 @@ export function readFileGuardPlugin(cwd: string): ToolPlugin {
 
       try {
         const res = await readFileBounded(absolutePath, offset, limit, signal);
-        return res.isError === true
+        return res.isError
           ? { callId: call.id, content: res.content, isError: true }
           : { callId: call.id, content: res.content };
       } catch (err) {
