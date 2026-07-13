@@ -107,10 +107,9 @@ export function readFileBounded(
       outBytes += bytes;
       emitted++;
       lastEmittedLine = lineNo;
-      if (outBytes >= contentBudget) {
-        truncReason = "bytes";
-        return false;
-      }
+      // Truncation is decided by the pre-push check on the NEXT line, so a file
+      // that ends exactly at the budget reaches "end" and reports no false
+      // continuation notice.
       return true;
     };
 
@@ -184,9 +183,10 @@ export function readFileBounded(
       }
       if (scanned >= READ_FILE_MAX_SCAN_BYTES) {
         // Flush the partial line still in `pending` before stopping, so a
-        // newline-less giant file is not reported as empty content.
+        // newline-less giant file is not reported as empty content. Keep a
+        // byte/line reason if the flushed line set one; otherwise it is the scan.
         if (pending.length > 0) handleLine(pending, pendingOverflow);
-        truncReason = "scan";
+        if (truncReason === undefined) truncReason = "scan";
         finishOk();
       }
     });

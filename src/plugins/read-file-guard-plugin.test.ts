@@ -96,6 +96,18 @@ describe("readFileBounded", () => {
     const { content, isError } = await readFileBounded(p, 0, 500_000, neverAbort());
     expect(isError).toBeUndefined();
     expect(content).toContain("valid-line-0");
+    // Contract: a NUL past the first chunk is tolerated (streamed as text), not
+    // rejected. Only a NUL in the first chunk marks the file binary.
+  });
+
+  test("a fully-read file emits no false continuation notice", async () => {
+    // ~40KB, under the 50KB budget, all lines fit and the stream ends.
+    const body = Array.from({ length: 400 }, (_, i) => `line ${i} ${"z".repeat(80)}`).join("\n");
+    const p = await fixture("fits.txt", body);
+    const { content } = await readFileBounded(p, 0, READ_FILE_DEFAULT_MAX_LINES, neverAbort());
+    expect(Buffer.byteLength(content, "utf8")).toBeGreaterThan(30_000);
+    expect(content).not.toContain("Use offset=");
+    expect(content).not.toContain("continue");
   });
 
   test("a newline-less file past the scan ceiling returns content, not empty", async () => {
