@@ -868,8 +868,8 @@ export function App({
   );
 
   const resourceBanner = useMemo(
-    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth),
-    [loadedSkills, activePlugins, contentWidth],
+    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd),
+    [loadedSkills, activePlugins, contentWidth, cwd],
   );
 
   const prefixLineCount =
