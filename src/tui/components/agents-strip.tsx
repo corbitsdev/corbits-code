@@ -21,9 +21,10 @@ export type AgentsStripProps = {
 // store retains for later inspection.
 export const DEFAULT_STRIP_MAX_VISIBLE = 6;
 
-// The strip shows only active work: an agent leaves the visible list as it
-// reaches a terminal state. Terminal sessions stay in the store for later
-// inspection but are not part of the strip or its navigation.
+// Chrome strip shows only active work: an agent leaves the default visible
+// list as it reaches a terminal state. Terminal sessions stay in the store
+// for later inspection; Ctrl+E / agents-nav browses the full listForStrip
+// surface (running + recent completed).
 export function activeStripSessions(
   sessions: readonly SubAgentSession[],
 ): SubAgentSession[] {

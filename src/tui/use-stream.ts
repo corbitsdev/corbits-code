@@ -264,6 +264,25 @@ function updateSubAgent(tasks: Task[], callId: string, patch: Omit<Task, "id">):
   return [...next, { id: callId, ...patch }];
 }
 
+// Settle (or prune) a strip entry when a tool result lands. Prefer name === "task";
+// also match by callId so a lost callId→name map cannot leave a permanent "doing"
+// ghost. Exported for regression tests that simulate map loss without poking
+// createAgentStreamState internals.
+export function settleSubAgentOnToolResult(
+  agents: readonly Task[],
+  callId: string,
+  toolName: string | undefined,
+  isError: boolean,
+  title: string,
+): Task[] {
+  const name = toolName ?? callId;
+  if (name !== "task" && !agents.some((a) => a.id === callId)) return [...agents];
+  return updateSubAgent([...agents], callId, {
+    title,
+    status: isError ? "cancelled" : "done",
+  });
+}
+
 // High-frequency streamed fragments buffer between display drains instead of
 // re-concatenating the block on every fragment; every other event forces the
 // buffer to flush so any handler that reads block content sees it settled.
@@ -355,8 +374,10 @@ export function createAgentStreamState(
       (block): block is ContentBlock & { type: "tool_call" } =>
         block.type === "tool_call" && !resolved.has(block.callId ?? block.id),
     );
+    const outstandingIds = new Set<string>();
     for (const call of outstanding) {
       const callId = call.callId ?? call.id;
+      outstandingIds.add(callId);
       resolved.add(callId);
       pushBlock({
         type: "tool_result",
@@ -366,6 +387,12 @@ export function createAgentStreamState(
         isError: true,
         finishedAt: Date.now(),
       });
+    }
+    // The Agents-strip fallback is keyed by tool callId. Drop matching entries
+    // so a stop/error cannot leave a ghost "doing" row while the session store
+    // (and Ctrl+E) correctly show nothing running.
+    if (outstandingIds.size > 0 && subAgents.length > 0) {
+      subAgents = subAgents.filter((a) => !outstandingIds.has(a.id));
     }
   };
 
@@ -773,6 +800,10 @@ export function createAgentStreamState(
                 callIdToArguments.delete(callId);
               }
             }
+            // Drop strip-fallback entries for tool calls that were rolled back
+            // with this attempt. Without this, a streamed task tool_call that
+            // never executed leaves a permanent "doing" Agents ghost.
+            subAgents = subAgents.filter((a) => attemptStartCallIds.has(a.id));
             attemptStartBlockIndex = null;
             openCallId = null;
             currentToolName = null;
@@ -899,13 +930,16 @@ export function createAgentStreamState(
           const name = trackedName ?? result.callId;
           const content = capStoredToolResultContent(stringifyToolContent(result.content));
 
-          if (name === "task") {
-            const rawArgs = callIdToArguments.get(result.callId) ?? "";
-            subAgents = updateSubAgent(subAgents, result.callId, {
-              title: parseTaskToolTitle(rawArgs),
-              status: result.isError ? "cancelled" : "done",
-            });
-          }
+          // Prefer name === "task"; also match by callId so a lost callId→name
+          // map (retry rollback, partial bookkeeping) cannot leave a "doing" ghost.
+          const rawArgs = callIdToArguments.get(result.callId) ?? "";
+          subAgents = settleSubAgentOnToolResult(
+            subAgents,
+            result.callId,
+            trackedName,
+            result.isError,
+            parseTaskToolTitle(rawArgs),
+          );
 
           if (name === "submit_plan" && !result.isError) {
             const rawArgs = callIdToArguments.get(result.callId) ?? "";
