@@ -5,6 +5,7 @@ import {
   createToolSearchTool,
   createActivatedToolTracker,
   advertisedTools,
+  advertisedToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
 } from "./tool-search.js";
@@ -53,11 +54,11 @@ describe("createToolIndex", () => {
     expect(index.search("read a file")).not.toContain("read_file");
   });
 
-  // task is a first-class multi-agent surface: always advertised so the model
-  // can dispatch immediately after search_agents without a tool_search hop.
-  test("task is a core tool", () => {
-    expect(CORE_TOOL_NAMES).toContain("task");
-    expect(CORE_TOOL_NAMES).toContain("search_agents");
+  test("orchestrator mode advertises task and search_agents; single mode omits them", () => {
+    expect(advertisedToolNamesForSessionMode("orchestrator")).toContain("task");
+    expect(advertisedToolNamesForSessionMode("orchestrator")).toContain("search_agents");
+    expect(advertisedToolNamesForSessionMode("single")).not.toContain("task");
+    expect(advertisedToolNamesForSessionMode("single")).not.toContain("search_agents");
   });
 
   test("returns nothing for an empty query", () => {
@@ -119,6 +120,15 @@ describe("advertisedTools", () => {
     { name: "write_file", description: "write", inputSchema: { type: "object", properties: {}, required: [] } },
     { name: "mcp__linear__create_issue", description: "create", inputSchema: { type: "object", properties: {}, required: [] } },
   ];
+
+  test("single session mode omits multi-agent tools from the wire prefix", () => {
+    const names = advertisedTools(registry, [], advertisedToolNamesForSessionMode("single")).map(
+      (d) => d.name,
+    );
+    expect(names).not.toContain("task");
+    expect(names).not.toContain("search_agents");
+    expect(names).toContain("read_file");
+  });
 
   test("with no activation, advertises only the fixed built-in set, never MCP tools", () => {
     const names = advertisedTools(registry).map((d) => d.name);

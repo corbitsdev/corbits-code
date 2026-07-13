@@ -1,6 +1,7 @@
 import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
-import { CORE_TOOL_NAMES } from "./tool-search.js";
+import type { SessionMode } from "../config/session-mode.js";
+import { coreToolNamesForSessionMode, CORE_TOOL_NAMES } from "./tool-search.js";
 
 // Fallback tool list for sub-agent prompts when the caller does not pass the
 // installed set. Matches the leaf sub-agent install (posix + manage_tasks).
@@ -25,10 +26,18 @@ function formatDateDDMMYYYY(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export function buildChatRole(): string {
+export function buildChatRole(sessionMode: SessionMode = "orchestrator"): string {
+  if (sessionMode === "single") {
+    return [
+      "You are Intercode, a senior coding assistant in a terminal harness.",
+      "You work directly in this session: read, edit, run checks, and report back yourself.",
+      "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
+    ].join(" ");
+  }
   return [
-    "You are Intercode, a senior coding assistant in a terminal harness.",
-    "Help the user understand, edit, and verify software in their repo.",
+    "You are Intercode, an orchestrator in a terminal harness.",
+    "The operator chats with you and may queue more work while workers run.",
+    "Your job is to triage, delegate implementation and exploration to sub-agents via `task`, track the fleet, and synthesize their reports — not to do large edits or deep repo walks yourself unless a quick unblock is faster than dispatching.",
     "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
   ].join(" ");
 }
@@ -40,9 +49,12 @@ export function buildChatRole(): string {
 // only core tools and loads the rest via tool_search, whereas a sub-agent is
 // handed its full toolset upfront and has no tool_search — telling it otherwise
 // wastes turns on a tool that does not exist.
-export function buildHarnessFacts(opts: { dynamicTools?: boolean; subAgent?: boolean } = {}): string {
+export function buildHarnessFacts(
+  opts: { dynamicTools?: boolean; subAgent?: boolean; sessionMode?: SessionMode } = {},
+): string {
   const dynamicTools = opts.dynamicTools ?? true;
   const subAgent = opts.subAgent ?? false;
+  const sessionMode = opts.sessionMode ?? "orchestrator";
   return [
     "Harness facts:",
     "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
@@ -59,7 +71,12 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean; subAgent?: boo
     ...(dynamicTools
       ? [
           "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
-          "- Use search_agents before dispatching named specialists or teams.",
+          ...(sessionMode === "orchestrator"
+            ? [
+                "- Use search_agents before dispatching named specialists or teams.",
+                "- The user may send follow-up messages while workers run; treat them as additional queue items — update your plan, spawn or adjust workers, and keep the operator informed.",
+              ]
+            : ["- This session runs in single-agent mode: sub-agents are disabled; do all work yourself with the tools below."]),
         ]
       : ["- The tools below are your full toolset."]),
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
@@ -70,8 +87,9 @@ export function buildHarnessFacts(opts: { dynamicTools?: boolean; subAgent?: boo
   ].join("\n");
 }
 
-export function buildGuidelines(opts: { subAgent?: boolean } = {}): string {
+export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: SessionMode } = {}): string {
   const subAgent = opts.subAgent ?? false;
+  const sessionMode = opts.sessionMode ?? "orchestrator";
   return [
     "Guidelines:",
     "",
@@ -108,6 +126,15 @@ export function buildGuidelines(opts: { subAgent?: boolean } = {}): string {
     "- Follow AGENTS.md and /docs for architecture; load the style and philosophy skills when starting repo work.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
     "- Before finishing a code change, run relevant checks (typecheck, tests) when practical.",
+    ...(sessionMode === "orchestrator" && !subAgent
+      ? [
+          "",
+          "Orchestration:",
+          "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
+          "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
+          "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -181,11 +208,15 @@ function contextSection(env?: EnvironmentInfo): string {
 // The static base — role, harness facts, guidelines. A SYSTEM.md override
 // (baseOverride) replaces this block wholesale while tools, env, and appended
 // extensions still attach.
-function baseSection(baseOverride?: string): string {
+function baseSection(baseOverride: string | undefined, sessionMode: SessionMode): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     return baseOverride.trim();
   }
-  return joinSections([buildChatRole(), buildHarnessFacts(), buildGuidelines()]);
+  return joinSections([
+    buildChatRole(sessionMode),
+    buildHarnessFacts({ sessionMode }),
+    buildGuidelines({ sessionMode }),
+  ]);
 }
 
 // Lazy skill listing: only names + descriptions, so the model knows what exists
@@ -202,10 +233,11 @@ export function buildChatSystemPrompt(
   env?: EnvironmentInfo,
   baseOverride?: string,
   skills: readonly SkillSummary[] = [],
+  sessionMode: SessionMode = "orchestrator",
 ): string {
   const sections = [
-    baseSection(baseOverride),
-    buildAvailableTools(CORE_TOOL_NAMES),
+    baseSection(baseOverride, sessionMode),
+    buildAvailableTools(coreToolNamesForSessionMode(sessionMode)),
   ];
   if (skills.length > 0) sections.push(buildSkillsSection(skills));
   sections.push(contextSection(env));

@@ -3,6 +3,9 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
+import type { SessionMode } from "../config/session-mode.js";
+import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
+
 // Tools whose full schema is always advertised to the model. Everything else is
 // registered and dispatchable but discovered on demand via tool_search, keeping
 // the per-turn context small. Shared by the system prompt and the advertised-set
@@ -24,6 +27,19 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   // failing on an unloaded task tool.
   "task",
 ];
+
+const MULTI_AGENT_CORE_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
+
+export function coreToolNamesForSessionMode(mode: SessionMode): readonly string[] {
+  if (!sessionModeEnablesSubAgents(mode)) {
+    return CORE_TOOL_NAMES.filter((name) => !MULTI_AGENT_CORE_TOOL_NAMES.includes(name));
+  }
+  return CORE_TOOL_NAMES;
+}
+
+export function advertisedToolNamesForSessionMode(mode: SessionMode): readonly string[] {
+  return [...coreToolNamesForSessionMode(mode), ...CATALOG_TOOL_NAMES];
+}
 
 // Built-in file/search tools advertised alongside the core set. They carry full
 // schemas on the wire so the model can call them directly; MCP tools are not
@@ -55,12 +71,13 @@ export const ADVERTISED_TOOL_NAMES: readonly string[] = [
 export function advertisedTools(
   all: readonly ToolDefinition[],
   activated: readonly string[] = [],
+  builtInPrefix: readonly string[] = ADVERTISED_TOOL_NAMES,
 ): ToolDefinition[] {
   const byName = new Map(all.map((def) => [def.name, def]));
   const seen = new Set<string>();
   const orderedNames = [
-    ...ADVERTISED_TOOL_NAMES,
-    ...activated.filter((name) => !ADVERTISED_TOOL_NAMES.includes(name)),
+    ...builtInPrefix,
+    ...activated.filter((name) => !builtInPrefix.includes(name)),
   ];
   return orderedNames.flatMap((name) => {
     if (seen.has(name)) return [];
@@ -124,7 +141,10 @@ function tokenize(text: string): string[] {
 // A dependency-free lexical ranker over each tool's name + description. Exact name
 // token hits weigh most, then description token hits, then raw-substring matches
 // (so "linear" finds mcp__linear__* even though it is not a whole token there).
-export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolIndex {
+export function createToolIndex(
+  getDefs: () => readonly ToolDefinition[],
+  advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
+): ToolIndex {
   const score = (def: ToolDefinition, queryTokens: string[], rawQuery: string): number => {
     const nameTokens = tokenize(def.name);
     const descTokens = new Set(tokenize(def.description ?? ""));
@@ -145,7 +165,7 @@ export function createToolIndex(getDefs: () => readonly ToolDefinition[]): ToolI
       const queryTokens = tokenize(query);
       if (queryTokens.length === 0) return [];
       return getDefs()
-        .filter((def) => !ADVERTISED_TOOL_NAMES.includes(def.name))
+        .filter((def) => !advertisedNames.includes(def.name))
         .map((def) => ({ name: def.name, score: score(def, queryTokens, rawQuery) }))
         .filter((entry) => entry.score > 0)
         .sort((a, b) => b.score - a.score)

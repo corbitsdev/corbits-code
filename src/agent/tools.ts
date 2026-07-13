@@ -22,6 +22,9 @@ import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
+import type { SessionMode } from "../config/session-mode.js";
+import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
+import { advertisedToolNamesForSessionMode } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import {
@@ -74,6 +77,8 @@ export type AgentToolsetArgs = {
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
+  // Primary session mode: single-agent sessions omit sub-agent tooling.
+  sessionMode?: SessionMode;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -121,7 +126,19 @@ export type AgentToolset = {
 };
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
-  const { cwd, permissionGate, onOperatorGate, mcpServers = [], webProvider, extraToolPlugins = [], skillDirs = [], shellTimeout } = args;
+  const {
+    cwd,
+    permissionGate,
+    onOperatorGate,
+    mcpServers = [],
+    webProvider,
+    extraToolPlugins = [],
+    skillDirs = [],
+    shellTimeout,
+    sessionMode = "orchestrator",
+  } = args;
+  const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
+  const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode);
 
   const inheritedMcpTools: AgentTool[] = [];
 
@@ -146,7 +163,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     })),
     createListDirTool(cwd),
     createUseSkillTool(cwd, skillDirs),
-    ...(args.subAgent !== undefined
+    ...(subAgentsEnabled && args.subAgent !== undefined
       ? [
           createTaskTool({
             cwd,
@@ -250,7 +267,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // through a holder the runner wires up once its advertise/reload loop exists.
   const promoter: { promote: (names: string[]) => void } = { promote: () => undefined };
   let runnerRef: DynamicToolRunner | undefined;
-  const toolIndex = createToolIndex(() => runnerRef?.currentDefinitions() ?? []);
+  const toolIndex = createToolIndex(() => runnerRef?.currentDefinitions() ?? [], advertisedBuiltIns);
   baseTools.push(
     createToolSearchTool({
       search: (query) => toolIndex.search(query),
