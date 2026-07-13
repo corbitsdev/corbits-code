@@ -632,6 +632,20 @@ describe("flat line buffer", () => {
     expect(brandOnly.length).toBeGreaterThan(0);
   });
 
+  test("buildResourceBanner wraps a long workspace path to the given width", () => {
+    const longPath = "/home/user/very/long/nested/project/directory/name/that/exceeds/eighty/columns/easily";
+    const width = 40;
+    const banner = buildResourceBanner([], [], width, longPath);
+    const pathLines = banner.filter((line) =>
+      line.some((seg) => seg.text.length > 0 && !["Intercode", "Powered by Corbits"].includes(seg.text)),
+    );
+    expect(pathLines.length).toBeGreaterThan(1);
+    for (const line of pathLines) {
+      const len = line.reduce((n, s) => n + s.text.length, 0);
+      expect(len).toBeLessThanOrEqual(width);
+    }
+  });
+
   const planBlock: ContentBlock = {
     type: "plan",
     id: "plan-1",

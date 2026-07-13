@@ -391,7 +391,7 @@ export function buildResourceBanner(
   cwd: string,
 ): StyledLine[] {
   const lines: StyledLine[] = [
-    [{ text: SESSION_BRAND, bold: true, color: color("brand"), dim: true }],
+    [{ text: SESSION_BRAND, bold: true, color: color("brand") }],
     [{ text: SESSION_ATTRIBUTION, color: color("muted"), dim: true }],
     ...plainLines(cwd, { color: color("muted") }, width),
   ];
