@@ -108,8 +108,10 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // A safe read command auto-runs only when every path-like argument stays inside
 // the workspace. Containment — not a secret-name denylist — is the real
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
-// `strings /proc/self/environ` from auto-reading any file on the host. The
-// secret guard remains a hard-deny backstop for secrets that live inside cwd.
+// `strings /proc/self/environ` from auto-reading any file on the host. Sensitive
+// path names (`.env`, keys) additionally never auto-allow; the permission gate
+// asks so the operator can approve legitimate shell uses (e.g. `--env-file`).
+// Path-keyed secret reads remain a hard deny in secret-guard.
 function realpathOr(path: string): string {
   try {
     return realpathSync(path);
