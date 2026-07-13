@@ -1866,8 +1866,12 @@ export function App({
             void onChangeMaxConcurrentSubAgents?.(limit);
           }}
           sessionMode={sessionMode}
-          savedGlobalSessionMode={savedGlobalSessionMode}
-          savedLocalSessionMode={savedLocalSessionMode}
+          {...(savedGlobalSessionMode !== undefined
+            ? { savedGlobalSessionMode }
+            : {})}
+          {...(savedLocalSessionMode !== undefined
+            ? { savedLocalSessionMode }
+            : {})}
           onChangeSessionMode={(mode, scope) => {
             if (scope === "global") setSavedGlobalSessionMode(mode);
             else setSavedLocalSessionMode(mode);

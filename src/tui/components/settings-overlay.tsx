@@ -385,8 +385,8 @@ export function SettingsOverlay({
       {activeTab === "Session" && (
         <SessionModeTab
           current={sessionMode}
-          savedGlobal={savedGlobalSessionMode}
-          savedLocal={savedLocalSessionMode}
+          {...(savedGlobalSessionMode !== undefined ? { savedGlobal: savedGlobalSessionMode } : {})}
+          {...(savedLocalSessionMode !== undefined ? { savedLocal: savedLocalSessionMode } : {})}
           onChange={onChangeSessionMode}
         />
       )}
