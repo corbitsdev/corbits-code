@@ -189,6 +189,8 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `maxConcurrentSubAgents` (integer ≥ 0, default **10**) caps how many `task`-tool sub-agent loops may run at once; **0** disables sub-agents entirely. Change it in **Settings → Sub-agents** or in this file. Applies only when `sessionMode` is **orchestrator**.
 
+  Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for leaf sub-agents (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Applies when `sessionMode` is **orchestrator**.
+
   Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Intercode prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.intercode/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Today only the interactive TUI (`runTUI`) resolves `sessionMode`; headless/CLI entry points still default to orchestrator-style tooling until wired.
 
 - Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
