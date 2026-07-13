@@ -436,7 +436,7 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   }
   if (!isLocalSettings(parsed)) {
     throw new Error(
-      `Invalid local settings in ${path}: only "provider", "model", and "reasoningEffort" are allowed (no credentials).`,
+      `Invalid local settings in ${path}: only "provider", "model", "reasoningEffort", "mcpServers", and "sessionMode" are allowed (no credentials).`,
     );
   }
   const s = parsed as Record<string, unknown>;
