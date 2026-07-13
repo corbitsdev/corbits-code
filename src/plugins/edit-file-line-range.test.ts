@@ -75,6 +75,25 @@ describe("parseEditFileMode", () => {
     }
   });
 
+  test("mixed modes with out-of-range lines returns recoverable error", () => {
+    const file = "alpha\nbeta\n";
+    const mode = parseEditFileMode(
+      {
+        path: "a.ts",
+        old_string: "beta",
+        start_line: 2,
+        end_line: 99,
+        new_string: "B",
+      },
+      { fileContent: file },
+    );
+    expect(mode.kind).toBe("invalid");
+    if (mode.kind === "invalid") {
+      expect(mode.message).toContain("omit old_string");
+      expect(mode.message).toContain("out of range");
+    }
+  });
+
   test("mixed modes with mismatched range text returns recoverable error", () => {
     const file = "alpha\nbeta\ngamma\n";
     const mode = parseEditFileMode(
