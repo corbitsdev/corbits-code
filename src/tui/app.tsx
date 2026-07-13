@@ -724,17 +724,27 @@ export function App({
 
   // The strip reflects only active work: an agent leaves the visible list the
   // moment it reaches a terminal state. Completed sessions stay in the store
-  // for later inspection but no longer occupy the strip or its nav.
+  // for later inspection but no longer occupy the strip.
   const agentSessions = useMemo(() => {
     void sessionsTick;
     return activeStripSessions(subAgentSessions?.listForStrip() ?? []);
   }, [subAgentSessions, sessionsTick]);
 
+  // Ctrl+E browses the full strip surface (running + recent completed). The
+  // chrome strip filters to running only; nav must still reach finished sessions
+  // for inspection — otherwise a just-finished child vanishes from Ctrl+E while
+  // the live-progress fallback can still paint a ghost "doing" row.
+  const browseSessions = useMemo(() => {
+    void sessionsTick;
+    return subAgentSessions?.listForStrip() ?? [];
+  }, [subAgentSessions, sessionsTick]);
+
   // A running agent can reach a terminal state while agents-nav is open, which
   // shortens the strip list under the persisted selection index. Clamp at read
   // time so the highlight lands on a real row instead of drifting out of range.
+  const agentsNavList = agentsNavOpen ? browseSessions : agentSessions;
   const agentsNavIndexClamped =
-    agentSessions.length === 0 ? 0 : Math.min(agentsNavIndex, agentSessions.length - 1);
+    agentsNavList.length === 0 ? 0 : Math.min(agentsNavIndex, agentsNavList.length - 1);
 
   const enteredSession = useMemo(() => {
     void sessionsTick;
@@ -766,13 +776,16 @@ export function App({
     [state.subAgents],
   );
   // The strip caps rendered rows so retained history never crowds out the
-  // transcript; +1 accounts for the surrounding marginTop wrapper.
+  // transcript; +1 accounts for the surrounding marginTop wrapper. When nav is
+  // open the list may include completed sessions, so size against browseSessions.
   const agentsStripRows =
-    agentSessions.length > 0
-      ? agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
-      : activeSubAgents.length > 0
-        ? activeSubAgents.length + 2
-        : 0;
+    agentsNavOpen && browseSessions.length > 0
+      ? agentsStripRowCount(browseSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
+      : agentSessions.length > 0
+        ? agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
+        : activeSubAgents.length > 0
+          ? activeSubAgents.length + 2
+          : 0;
   const subAgentChromeRows = agentsStripRows;
 
   const extraChromeRows =
@@ -1487,24 +1500,30 @@ export function App({
         onToggleAuto?.(true);
       },
       enterAgentsNav: () => {
-        if (agentSessions.length === 0) {
-          setCommandMessage("No sub-agent sessions yet — spawn with task first");
+        if (browseSessions.length === 0) {
+          // Live stream can still paint a ghost Agents row after a retry or a
+          // missed tool.done; the session store is the source of truth for nav.
+          setCommandMessage(
+            activeSubAgents.length > 0
+              ? "No enterable sub-agent sessions (strip shows live progress only) — stop the run or wait for the task tool to finish"
+              : "No sub-agent sessions yet — spawn with task first",
+          );
           return;
         }
-        // Prefer currently entered, else first running, else top of strip.
+        // Prefer currently entered, else first running, else top of list.
         const preferred =
           enteredSessionId !== null
-            ? agentSessions.findIndex((s) => s.id === enteredSessionId)
-            : agentSessions.findIndex((s) => s.status === "running");
+            ? browseSessions.findIndex((s) => s.id === enteredSessionId)
+            : browseSessions.findIndex((s) => s.status === "running");
         setAgentsNavIndex(preferred >= 0 ? preferred : 0);
         setAgentsNavOpen(true);
       },
       agentsNavPrev: () =>
-        setAgentsNavIndex((i) => Math.max(0, Math.min(i, agentSessions.length - 1) - 1)),
+        setAgentsNavIndex((i) => Math.max(0, Math.min(i, browseSessions.length - 1) - 1)),
       agentsNavNext: () =>
-        setAgentsNavIndex((i) => Math.min(Math.max(0, agentSessions.length - 1), i + 1)),
+        setAgentsNavIndex((i) => Math.min(Math.max(0, browseSessions.length - 1), i + 1)),
       agentsNavConfirm: () => {
-        const pick = agentSessions[agentsNavIndexClamped];
+        const pick = browseSessions[agentsNavIndexClamped];
         if (pick === undefined) {
           setAgentsNavOpen(false);
           return;
@@ -1518,7 +1537,7 @@ export function App({
         const targetId =
           enteredSessionId !== null
             ? enteredSessionId
-            : agentSessions[agentsNavIndexClamped]?.id;
+            : browseSessions[agentsNavIndexClamped]?.id;
         if (targetId === undefined || subAgentSessions === undefined) {
           setCommandMessage("No sub-agent to cancel");
           return;
@@ -1880,12 +1899,12 @@ export function App({
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />
             </Box>
           )}
-          {agentSessions.length > 0 ? (
+          {agentSessions.length > 0 || (agentsNavOpen && browseSessions.length > 0) ? (
             <Box flexDirection="column" marginTop={1}>
               <AgentsStrip
-                sessions={agentSessions}
+                sessions={agentsNavOpen ? browseSessions : agentSessions}
                 selectedId={
-                  agentsNavOpen ? (agentSessions[agentsNavIndexClamped]?.id ?? null) : null
+                  agentsNavOpen ? (agentsNavList[agentsNavIndexClamped]?.id ?? null) : null
                 }
                 enteredId={enteredSessionId}
                 navActive={agentsNavOpen}
