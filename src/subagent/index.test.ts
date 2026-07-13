@@ -44,7 +44,7 @@ async function callTask(
 
 describe("sub-agent stop helpers", () => {
   test("default turn budget is tight enough to bound runaway cost", () => {
-    expect(DEFAULT_SUBAGENT_MAX_TURNS).toBe(10);
+    expect(DEFAULT_SUBAGENT_MAX_TURNS).toBe(30);
     expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(true);
     expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS - 1, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(false);
   });
@@ -171,7 +171,7 @@ describe("sub-agent stop helpers", () => {
 });
 
 describe("createTaskTool", () => {
-  test("does not forward a parent turn limit to sub-agents", async () => {
+  test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
     let captured: RunSubAgentParams | undefined;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
@@ -189,7 +189,129 @@ describe("createTaskTool", () => {
 
     expect(result).toContain("done");
     expect(captured).toBeDefined();
-    expect(captured).not.toHaveProperty("maxTurns");
+    expect(captured?.maxTurns).toBe(30);
+  });
+
+  test("uses settings subagentMaxTurns when task and profile omit maxTurns", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings: { providers: {}, subagentMaxTurns: 42 },
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, { description: "Settings default", prompt: "Work" });
+
+    expect(captured?.maxTurns).toBe(42);
+  });
+
+  test("forwards task maxTurns to runSubAgent", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "Long job",
+      prompt: "Work",
+      maxTurns: 50,
+    });
+
+    expect(captured?.maxTurns).toBe(50);
+  });
+
+  test("rejects task maxTurns above the cap", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async () => "done",
+    });
+
+    const result = await callTask(tool, {
+      description: "Too long",
+      prompt: "Work",
+      maxTurns: 101,
+    });
+
+    expect(result).toContain("Error:");
+    expect(result).toContain("100");
+  });
+
+  test("uses profile maxTurns when task omits maxTurns", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      profiles: [{ id: "deep", maxTurns: 45 }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "Profile budget",
+      prompt: "Work",
+      agent: "deep",
+    });
+
+    expect(captured?.maxTurns).toBe(45);
+  });
+
+  test("task maxTurns overrides profile maxTurns", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      profiles: [{ id: "deep", maxTurns: 45 }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "Override",
+      prompt: "Work",
+      agent: "deep",
+      maxTurns: 60,
+    });
+
+    expect(captured?.maxTurns).toBe(60);
+  });
+
+  test("appends parent hint when the worker hits turn budget", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async () => forcedStopReport("turn-budget", "partial"),
+    });
+
+    const result = await callTask(tool, { description: "Budget", prompt: "Work" });
+
+    expect(result).toContain("turn budget");
+    expect(result).toContain("Turn budget reached");
   });
 
   test("forwards sandbox deps (permission gate and inherited MCP tools) to runSubAgent", async () => {
