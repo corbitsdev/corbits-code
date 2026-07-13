@@ -206,8 +206,8 @@ function contextSection(env?: EnvironmentInfo): string {
 }
 
 // The static base — role, harness facts, guidelines. A SYSTEM.md override
-// (baseOverride) replaces this block wholesale while tools, env, and appended
-// extensions still attach.
+// keeps custom text but still appends mode-specific harness + guidelines; tools,
+// env, and appended extensions attach after that.
 function baseSection(baseOverride: string | undefined, sessionMode: SessionMode): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     const custom = baseOverride.trim();
@@ -220,7 +220,12 @@ function baseSection(baseOverride: string | undefined, sessionMode: SessionMode)
         buildGuidelines({ sessionMode: "single" }),
       ]);
     }
-    return custom;
+    return joinSections([
+      custom,
+      "## Session mode",
+      buildHarnessFacts({ sessionMode: "orchestrator" }),
+      buildGuidelines({ sessionMode: "orchestrator" }),
+    ]);
   }
   return joinSections([
     buildChatRole(sessionMode),

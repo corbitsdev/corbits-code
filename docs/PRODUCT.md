@@ -24,6 +24,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 6. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
 7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
 8. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
+9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Intercode asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/agent` provider switches). Headless/CLI entry points do not yet read `sessionMode` from config.
 
 ## User Experience
 
