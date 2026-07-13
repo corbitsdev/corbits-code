@@ -284,26 +284,26 @@ export async function runEditFileLineRange(
   if (options?.fileContentUtf8 !== undefined) {
     content = options.fileContentUtf8;
   } else {
-  try {
-    const buf = await readFile(args.path, { signal });
-    if (buf.includes(0)) {
-      throw new Error(`refusing to edit binary file: ${args.path}`);
+    try {
+      const buf = await readFile(args.path, { signal });
+      if (buf.includes(0)) {
+        throw new Error(`refusing to edit binary file: ${args.path}`);
+      }
+      content = buf.toString("utf8");
+    } catch (err) {
+      if (hasCode(err)) {
+        if (err.code === "ENOENT") {
+          throw new Error(`file not found: ${args.path}`, { cause: err });
+        }
+        if (err.code === "EACCES") {
+          throw new Error(`permission denied: ${args.path}`, { cause: err });
+        }
+        if (err.code === "EISDIR") {
+          throw new Error(`path is a directory: ${args.path}`, { cause: err });
+        }
+      }
+      throw err;
     }
-    content = buf.toString("utf8");
-  } catch (err) {
-    if (hasCode(err)) {
-      if (err.code === "ENOENT") {
-        throw new Error(`file not found: ${args.path}`, { cause: err });
-      }
-      if (err.code === "EACCES") {
-        throw new Error(`permission denied: ${args.path}`, { cause: err });
-      }
-      if (err.code === "EISDIR") {
-        throw new Error(`path is a directory: ${args.path}`, { cause: err });
-      }
-    }
-    throw err;
-  }
   }
 
   const newContent = applyLineRangeEdit(content, args.start_line, args.end_line, args.new_string);
@@ -343,7 +343,8 @@ export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefi
       "Make a surgical edit to an existing file. Mode A (substring): path + old_string + new_string " +
       "(exact match; must be unique unless replace_all). Mode B (line range): path + start_line + end_line " +
       "(1-based inclusive) + new_string. If you send both old_string and line-range fields, the call is treated as " +
-      "line-range when old_string exactly matches those lines; otherwise omit old_string or omit start_line/end_line. " +
+      "line-range when old_string matches the file text at those lines (LF/CRLF tolerant); otherwise omit old_string " +
+      "or omit start_line/end_line. " +
       "On substring mismatch, errors include nearby file context.",
     inputSchema: {
       ...schema,

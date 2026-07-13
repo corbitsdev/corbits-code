@@ -26,11 +26,14 @@ export function editFileLineRangePlugin(): ToolPlugin {
           const rangeCheck = parseLineRangeFields(path, new_string, call.arguments);
           if (rangeCheck.kind === "invalid") {
             const parsed = parseEditFileMode(call.arguments);
-            return {
-              callId: call.id,
-              content: parsed.kind === "invalid" ? parsed.message : rangeCheck.message,
-              isError: true,
-            };
+            if (parsed.kind !== "invalid") {
+              return {
+                callId: call.id,
+                content: rangeCheck.message,
+                isError: true,
+              };
+            }
+            return { callId: call.id, content: parsed.message, isError: true };
           }
         }
 
