@@ -191,7 +191,7 @@ tool call
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
 - **Shell Guard** (`shell-guard-plugin.ts`) — Intercode-only replacement for stock `run_shell` (interchange stays unpatched): 10s default timeout, 512KB output cap, process-group kill on timeout/oversize/abort. Also applies a 10s wall-clock budget to `grep`/`search_files`.
 - **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch. Per-path serialization (`file-mutation-lock.ts`) prevents parallel edits on one file from tripping verification.
-- **Edit file line range** (`edit-file-line-range-plugin.ts`) — Intercode-only short-circuit for `edit_file` mode B (`start_line`/`end_line`/`new_string`), same pattern as shell-guard; schema advertised via `advertiseEditFileLineRange`.
+- **Edit file line range** (`edit-file-line-range-plugin.ts`) — Intercode-only short-circuit for `edit_file` mode B (`start_line`/`end_line`/`new_string`), same pattern as shell-guard; schema advertised via `advertiseEditFileLineRange`. When a call includes both `old_string` and line-range fields, the plugin reads the file and treats the call as line-range if `old_string` matches those lines; otherwise it returns a recoverable error naming which fields to omit.
 - **Edit file diagnostics** (`edit-file-diagnostics-plugin.ts`) — On stock substring mismatch (`old_string not found` / not unique), appends nearby file context (whitespace near-miss, occurrence lines) without changing match semantics.
 - **LSP hint** (`lsp-hint-plugin.ts`) — Appends a typescript-language-server install hint when the stock `lsp` tool reports no server for TS/JS paths.
 

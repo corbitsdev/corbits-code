@@ -55,7 +55,7 @@ function mixedModeRecoverableMessage(detail?: string): string {
   return `${prefix} ${MIXED_MODE_RECOVERY}`;
 }
 
-function parseLineRangeFields(
+export function parseLineRangeFields(
   path: string,
   new_string: string,
   args: Record<string, unknown>,
@@ -117,7 +117,10 @@ export function parseEditFileMode(
   if (substring && lineRange) {
     const rangeParsed = parseLineRangeFields(path, new_string, args);
     if (rangeParsed.kind === "invalid") {
-      return rangeParsed;
+      return {
+        kind: "invalid",
+        message: mixedModeRecoverableMessage(`edit_file: ${rangeParsed.message}`),
+      };
     }
 
     const fileContent = options?.fileContent;
@@ -130,9 +133,10 @@ export function parseEditFileMode(
     try {
       rangeText = lineRangeSourceText(fileContent, rangeParsed.start_line, rangeParsed.end_line);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       return {
         kind: "invalid",
-        message: err instanceof Error ? err.message : String(err),
+        message: mixedModeRecoverableMessage(`edit_file: ${detail}`),
       };
     }
 
@@ -149,11 +153,7 @@ export function parseEditFileMode(
   }
 
   if (lineRange) {
-    const rangeParsed = parseLineRangeFields(path, new_string, args);
-    if (rangeParsed.kind === "invalid") {
-      return rangeParsed;
-    }
-    return rangeParsed;
+    return parseLineRangeFields(path, new_string, args);
   }
 
   if (!substring) {
@@ -325,7 +325,9 @@ export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefi
     description:
       "Make a surgical edit to an existing file. Mode A (substring): path + old_string + new_string " +
       "(exact match; must be unique unless replace_all). Mode B (line range): path + start_line + end_line " +
-      "(1-based inclusive) + new_string — do not mix modes. On substring mismatch, errors include nearby file context.",
+      "(1-based inclusive) + new_string. If you send both old_string and line-range fields, the call is treated as " +
+      "line-range when old_string exactly matches those lines; otherwise omit old_string or omit start_line/end_line. " +
+      "On substring mismatch, errors include nearby file context.",
     inputSchema: {
       ...schema,
       properties: {
@@ -333,12 +335,14 @@ export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefi
         start_line: {
           type: "number",
           description:
-            "Line-range mode only: first line to replace (1-based, inclusive). Requires end_line; do not pass old_string.",
+            "Line-range mode: first line to replace (1-based, inclusive). Requires end_line. With old_string present, " +
+            "must match the file text at start_line–end_line or omit old_string.",
         },
         end_line: {
           type: "number",
           description:
-            "Line-range mode only: last line to replace (1-based, inclusive). Requires start_line; do not pass old_string.",
+            "Line-range mode: last line to replace (1-based, inclusive). Requires start_line. With old_string present, " +
+            "must match the file text at start_line–end_line or omit old_string.",
         },
       },
       required: ["path", "new_string"],
