@@ -16,12 +16,16 @@ import { type } from "arktype";
 import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
 import {
   globalSettingsPath,
+  loadLocalSettings,
   loadSettings,
+  localSettingsPath,
   resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
+  saveLocalSettings,
   shellTimeoutFromSettings,
   type Settings,
+  type LocalSettings,
   type PluginConfig,
   type ProviderTier,
 } from "../config/settings.js";
@@ -39,7 +43,13 @@ import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { advertisedTools, createActivatedToolTracker } from "../agent/tool-search.js";
+import {
+  advertisedToolNamesForSessionMode,
+  advertisedTools,
+  createActivatedToolTracker,
+} from "../agent/tool-search.js";
+import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
+import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
@@ -474,6 +484,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
+  const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
+  let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
+  if (liveSessionMode === undefined) {
+    const picked = await promptSessionModeIfUnset(config.globalSettingsPath);
+    liveSessionMode = picked ?? "orchestrator";
+    if (picked !== undefined) {
+      const refreshed = await loadSettings(config.globalSettingsPath).catch(() => null);
+      if (refreshed !== null) config = { ...config, settings: refreshed };
+    }
+  }
+  const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode);
   // The workflow controller is built below, after the toolset; the holder lets
   // advance_workflow's handler read live workflow-active state without a
   // construction-order cycle.
@@ -492,6 +513,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const event: OperatorGateEvent = { question, options, resolve };
         emitter.emit("operator.gate", event);
       }),
+    sessionMode: liveSessionMode,
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     subAgent: {
       provider: () => liveSubAgentProvider.current,
@@ -529,6 +551,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     environment,
     overrides.base,
     skills,
+    liveSessionMode,
   );
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
@@ -556,7 +579,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // the runner is not enough on those providers.
   const activatedToolNames = createActivatedToolTracker();
   const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-    advertisedTools(all, activatedToolNames.list());
+    advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix);
 
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
   // so a rebuild never races an in-flight deliver.
@@ -1046,6 +1069,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...base,
           maxConcurrentSubAgents: limit,
         });
+      }}
+      initialSessionMode={liveSessionMode}
+      onChangeSessionMode={async (mode, scope) => {
+        if (scope === "local") {
+          const path = localSettingsPath(config.cwd);
+          const existing = (await loadLocalSettings(path).catch(() => null)) ?? {};
+          const next: LocalSettings = { ...existing, sessionMode: mode };
+          await saveLocalSettings(path, next);
+        } else {
+          const current = await loadSettings(config.globalSettingsPath).catch(() => null);
+          const base: Settings = current ?? { providers: {} };
+          await saveGlobalSettings(config.globalSettingsPath, { ...base, sessionMode: mode });
+        }
       }}
       initialProfiles={initialProfiles}
       profilesDir={profilesDir}
