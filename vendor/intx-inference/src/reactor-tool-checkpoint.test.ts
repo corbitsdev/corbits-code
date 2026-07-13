@@ -266,4 +266,96 @@ describe("createReactor — mid-cycle tool checkpoint durability", () => {
     // rather than only at the terminal.
     expect(inferenceCount).toBe(2);
   });
+
+  test("skips mid-cycle commit when addToHistory is false", async () => {
+    const commits: ConversationTurn[][] = [];
+    let inferenceCount = 0;
+
+    const director: ReactorDirector = {
+      async decide(event, _state, caps) {
+        switch (event.type) {
+          case "message.received":
+            return caps.infer();
+          case "inference.done": {
+            const hasToolCall = event.turn.content.some(
+              (b) => b.type === "tool_call",
+            );
+            if (hasToolCall) {
+              return caps.executeTools(
+                [{ id: "c1", name: "probe", arguments: {} }],
+                true,
+                false,
+              );
+            }
+            return caps.done();
+          }
+          case "tool.done":
+            return caps.infer();
+          default:
+            return caps.done();
+        }
+      },
+    };
+
+    const events: ReactorEmittedEvent[] = [];
+    const reactor = createReactor({
+      sessionId: "test-checkpoint-no-history",
+      director,
+      source: {
+        id: "test:model",
+        provider: "test",
+        baseURL: "https://example.test",
+        apiKey: "test",
+        model: "model",
+      },
+      toolRunner: noopToolRunner(),
+      contextStore: capturingContextStore(commits),
+      onEvent: (e) => events.push(e),
+      deps: stubDeps(),
+      shutdownTimeoutMs: 100,
+      inferenceRunner: async function* (opts) {
+        inferenceCount += 1;
+        const turn =
+          inferenceCount === 1
+            ? assistantToolCallTurn("c1", "probe")
+            : assistantTextTurn("done");
+        yield {
+          type: "inference.done",
+          seq: opts.nextSeq(),
+          data: { turn, usage: emptyUsage(), source: TEST_SOURCE },
+        } satisfies InferenceEvent;
+      },
+    });
+
+    reactor.start();
+    reactor.deliver(inboundMessage());
+
+    await new Promise<void>((resolve, reject) => {
+      const deadline = setTimeout(
+        () => reject(new Error("timed out waiting for reactor.done")),
+        2000,
+      );
+      const check = () => {
+        if (events.some((e) => e.type === "reactor.done")) {
+          clearTimeout(deadline);
+          resolve();
+          return;
+        }
+        setTimeout(check, 10);
+      };
+      check();
+    });
+
+    const endsWithToolResult = (turns: ConversationTurn[]): boolean => {
+      const last = turns[turns.length - 1];
+      return (
+        last !== undefined && last.content.some((b) => b.type === "tool_result")
+      );
+    };
+
+    expect(commits.every((snapshot) => !endsWithToolResult(snapshot))).toBe(
+      true,
+    );
+    expect(inferenceCount).toBe(2);
+  });
 });
