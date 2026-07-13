@@ -1114,6 +1114,16 @@ export function createReactor(config: ReactorConfig): Reactor {
         const parallel = toolsAction.parallel !== false;
         const addToHistory = toolsAction.addToHistory !== false;
         await executeTools(toolsAction.calls, parallel, addToHistory);
+        // Checkpoint the completed tool cycle (the assistant tool_call turn plus
+        // its results) so an interrupt that rebuilds the agent from the store
+        // reloads the full exchange. Otherwise context commits only at cycle
+        // terminals and an uncommitted tool turn vanishes on rebuild. Guarded on
+        // addToHistory: only then does history end with the tool_result turn, so
+        // the persisted prefix is well-formed rather than an assistant turn with
+        // unanswered tool calls.
+        if (addToHistory) {
+          await commitCycle();
+        }
         continue;
       }
 

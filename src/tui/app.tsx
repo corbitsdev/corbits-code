@@ -71,6 +71,7 @@ import type { SubAgentProvider, SubAgentSessionStore } from "../subagent/index.j
 import { useSpinner } from "./hooks/use-spinner.js";
 import { extraPromptChromeRows } from "./prompt-layout.js";
 import { chromeDividerLine } from "./chrome-zones.js";
+import { shouldAutoRetryQuota } from "./quota-retry.js";
 import { useSessionClock } from "./hooks/use-session-clock.js";
 import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
@@ -1165,6 +1166,11 @@ export function App({
     // into the next session's first turn when connector.reply eventually fires.
     pendingQueueRef.current.length = 0;
     setQueuedCount(0);
+    // Clear the last-sent prompt so the quota auto-retry loop cannot resubmit
+    // the interrupted turn once its retry-after window elapses; the agent is
+    // rebuilt from the persisted store on interrupt, and replaying the prompt
+    // on top of that would duplicate the turn's tool executions.
+    lastSentMessageRef.current = "";
     forceRender((n) => n + 1);
   };
 
@@ -1181,6 +1187,10 @@ export function App({
     setExpandedTools(new Set());
     pendingQueueRef.current.length = 0;
     setQueuedCount(0);
+    // Same guard as requestStop: a cleared session must not auto-resubmit a
+    // prior prompt when the quota retry interval is still polling.
+    lastSentMessageRef.current = "";
+    quotaAutoRetryFiredRef.current = true;
     setWorkflowHistory([]);
     setInputValue("");
     setSessionStartedAt(Date.now());
@@ -1240,9 +1250,16 @@ export function App({
   useEffect(() => {
     if (state.quotaError === null) return;
     const interval = setInterval(() => {
-      const qe = stateRef.current.quotaError;
-      if (qe === null || quotaAutoRetryFiredRef.current) return;
-      if (Date.now() < qe.retryAt) return;
+      if (
+        !shouldAutoRetryQuota({
+          quotaError: stateRef.current.quotaError,
+          alreadyFired: quotaAutoRetryFiredRef.current,
+          nowMs: Date.now(),
+          lastSentMessage: lastSentMessageRef.current,
+        })
+      ) {
+        return;
+      }
       quotaAutoRetryFiredRef.current = true;
       sendMessageRef.current({ text: lastSentMessageRef.current, attachments: [] });
     }, 1000);
