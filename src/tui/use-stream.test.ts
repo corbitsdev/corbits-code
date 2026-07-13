@@ -9,6 +9,7 @@ import {
   MAX_STORED_TOOL_RESULT_CHARS,
   capStoredToolResultContent,
   createAgentStreamState,
+  settleSubAgentOnToolResult,
   type ContentBlockData,
 } from "./use-stream.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
@@ -416,6 +417,62 @@ describe("createAgentStreamState", () => {
     }));
 
     expect(state.subAgents).toEqual([{ id: "call-4", title: "worker: map callers of X", status: "doing" }]);
+  });
+
+  test("inference.retry drops sub-agent strip entries for rolled-back tool calls", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.start", {}));
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "task-rolled-back",
+      name: "task",
+      arguments: { agent: "critique", description: "review branch", prompt: "..." },
+    }));
+    expect(state.subAgents).toEqual([
+      { id: "task-rolled-back", title: "critique: review branch", status: "doing" },
+    ]);
+
+    // Retry rewinds to the attempt boundary: the streamed task call never ran.
+    state.addEvent(event("inference.retry", {}));
+    expect(state.subAgents).toEqual([]);
+  });
+
+  test("requestStop drops in-flight sub-agent strip entries", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.tool_call.end", {
+      callId: "task-aborted",
+      name: "task",
+      arguments: { agent: "critique", description: "review branch", prompt: "..." },
+    }));
+    expect(state.subAgents).toHaveLength(1);
+
+    state.requestStop();
+    expect(state.subAgents).toEqual([]);
+  });
+
+  test("settleSubAgentOnToolResult clears strip when name map is lost", () => {
+    // Simulate the mid-flight state where callId→name was wiped (retry / partial
+    // bookkeeping) but the Agents fallback still holds a "doing" entry.
+    const agents = [
+      { id: "call-lost-name", title: "critique: Re-review CL-3460 branch", status: "doing" as const },
+    ];
+    const next = settleSubAgentOnToolResult(
+      agents,
+      "call-lost-name",
+      undefined, // name map miss → toolName unknown
+      false,
+      "critique: Re-review CL-3460 branch",
+    );
+    expect(next).toEqual([]);
+  });
+
+  test("settleSubAgentOnToolResult ignores unrelated tool results", () => {
+    const agents = [
+      { id: "call-task", title: "worker: map", status: "doing" as const },
+    ];
+    const next = settleSubAgentOnToolResult(agents, "other-call", "run_shell", false, "worker");
+    expect(next).toEqual(agents);
   });
 
   test("requestStop clears quota wait after quota_exhausted inference.error", () => {
