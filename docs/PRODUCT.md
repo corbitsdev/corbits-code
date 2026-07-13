@@ -108,7 +108,7 @@ Intercode can fan work out to short-lived **sub-agents** — child agents with t
 - **Tasks** are checklist items owned by one agent via `manage_tasks`.
 - **Sub-agents** are spawned with the `task` tool (wire name kept; meaning is "spawn a child agent," not "add a checklist item").
 
-Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip shows who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. Leaf workers are hard-stopped on consecutive identical tool calls or a tight turn budget so a runaway child cannot quietly burn a large token budget.
+Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip shows who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. Leaf workers hard-stop after 2 consecutive identical tool calls or a 10-turn default budget and return a salvage report, so a runaway child cannot quietly burn a large token budget.
 
 ## Roadmap (planned, not yet shipped)
 
