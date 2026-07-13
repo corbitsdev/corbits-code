@@ -60,6 +60,144 @@ describe("createOptimizedContextStore load", () => {
     const loaded = await store.load();
     expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
+
+  // Compacted head rewrites segment 0 while a prior multi-segment history's
+  // tails stay on disk. Concatenating them reintroduces tool_call ids that the
+  // compact head already kept — drop the orphan tails so the session can resume.
+  test("drops orphan segment tails that reintroduce a tool_call id", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    const callId = "call-dup-1";
+    const compactedHead: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "[Compacted prior context]\nsummary" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: callId, name: "grep", arguments: {} }],
+        timestamp: 2,
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", callId, content: [{ type: "text", text: "ok" }] }],
+        timestamp: 3,
+      },
+    ];
+    const orphanTail: ConversationTurn[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: callId, name: "grep", arguments: {} }],
+        timestamp: 10,
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", callId, content: [{ type: "text", text: "stale" }] }],
+        timestamp: 11,
+      },
+    ];
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl(compactedHead));
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 1)), jsonl(orphanTail));
+
+    const loaded = await store.load();
+    expect(loaded.turns).toHaveLength(3);
+    expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([TURNS_FILE]);
+  });
+
+  test("drops orphan tails that reintroduce a duplicate tool_result", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const callId = "call-result-dup";
+    const head: ConversationTurn[] = [
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: callId, name: "grep", arguments: {} }],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", callId, content: [{ type: "text", text: "ok" }] }],
+        timestamp: 2,
+      },
+    ];
+    const orphan: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "tool_result", callId, content: [{ type: "text", text: "again" }] }],
+        timestamp: 3,
+      },
+    ];
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl(head));
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 1)), jsonl(orphan));
+
+    const loaded = await store.load();
+    expect(loaded.turns).toHaveLength(2);
+    expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([TURNS_FILE]);
+  });
+
+  // Rebuild (new store) → compact rewrite → third store load must not see
+  // orphan tails. This is the production poison path without the reactor.
+  test("rebuild then compact then reload has unique tool_call ids", async () => {
+    const dir = tempDir();
+    const store1 = await createOptimizedContextStore(dir);
+
+    const callId = "call-rebuild-1";
+    const history: ConversationTurn[] = [];
+    const big = "x".repeat(20_000);
+    // Append one-at-a-time so the segmented writer rolls past segment 0.
+    for (let i = 0; i < 18; i++) {
+      history.push(turn(`${i}-${big}`));
+      await store1.writeTurns([...history]);
+    }
+    history.push({
+      role: "assistant",
+      content: [{ type: "tool_call", id: callId, name: "grep", arguments: {} }],
+      timestamp: 100,
+    });
+    history.push({
+      role: "user",
+      content: [{ type: "tool_result", callId, content: [{ type: "text", text: "ok" }] }],
+      timestamp: 101,
+    });
+    await store1.writeTurns([...history]);
+    await store1.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    });
+    await store1.commit({ message: "pre-rebuild" });
+    expect((await listSegmentFiles(dir, TURNS_FILE)).length).toBeGreaterThan(1);
+
+    // Agent rebuild: fresh store/writer, then compact to a short head that keeps
+    // the recent tool pair (same shape as keepRecent after summarization).
+    const store2 = await createOptimizedContextStore(dir);
+    const compacted: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "[Compacted prior context]\nsummary" }],
+        timestamp: 1,
+      },
+      history[history.length - 2]!,
+      history[history.length - 1]!,
+    ];
+    await store2.writeTurns(compacted);
+    await store2.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    });
+    await store2.commit({ message: "post-compact" });
+
+    expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([TURNS_FILE]);
+
+    const store3 = await createOptimizedContextStore(dir);
+    const loaded = await store3.load();
+    expect(loaded.turns).toHaveLength(3);
+    const ids = loaded.turns.flatMap((t) =>
+      t.content.filter((b) => b.type === "tool_call").map((b) => (b as { id: string }).id),
+    );
+    expect(ids).toEqual([callId]);
+  }, 30_000);
 });
 
 describe("loadRecentTurns", () => {

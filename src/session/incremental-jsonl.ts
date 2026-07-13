@@ -68,6 +68,39 @@ export async function listSegmentFiles(dir: string, baseName: string): Promise<s
 }
 
 /**
+ * Highest segment index present on disk for `baseName`, including gapped strays
+ * (`turns-0003.jsonl` with `turns-0002.jsonl` missing). Returns -1 when neither
+ * the base nor any numbered segment exists. Used by the writer to unlink stale
+ * tails after a rewrite when in-memory segment count is unknown.
+ */
+export async function highestSegmentIndex(dir: string, baseName: string): Promise<number> {
+  let highest = -1;
+  if (await pathExists(path.join(dir, baseName))) highest = 0;
+
+  const dot = baseName.lastIndexOf(".");
+  const stem = dot === -1 ? baseName : baseName.slice(0, dot);
+  const ext = dot === -1 ? "" : baseName.slice(dot);
+  const numbered = new RegExp(
+    `^${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)${ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+  );
+
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(dir);
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return highest;
+    throw cause;
+  }
+  for (const entry of entries) {
+    const match = numbered.exec(entry);
+    if (match === null) continue;
+    const index = Number(match[1]);
+    if (Number.isFinite(index) && index > highest) highest = index;
+  }
+  return highest;
+}
+
+/**
  * Raw text of every segment past the base one (`turns-0001.jsonl`, ...), in
  * order. The base segment is read separately by the underlying store, so this
  * returns only the tail segments the store does not already know about.
@@ -97,6 +130,11 @@ export async function readExtraSegmentTexts(
  * reference match, truncates back to the first changed record, and deletes any
  * now-stale later segments. Each write reports the segment files it touched so
  * the caller can stage precisely those.
+ *
+ * The writer is process-local. Agent rebuilds construct a fresh writer with no
+ * in-memory state; the first write after that must still discover and delete
+ * stale on-disk segments, or a compaction rewrite leaves orphan tails that the
+ * next load concatenates back into history (duplicate tool_call ids).
  */
 export function createSegmentedJSONLWriter(
   dir: string,
@@ -120,7 +158,14 @@ export function createSegmentedJSONLWriter(
 
     const prevSegStarts = state?.segStarts ?? [0];
     const prevOffsets = state?.offsets ?? [0];
-    const prevSegCount = prevSegStarts.length;
+    // Fresh writers have no memory of prior segment count. Discover every
+    // on-disk segment (including gapped strays) so a rewrite that produces
+    // fewer segments can still unlink the tails a previous writer left behind.
+    let prevSegCount = prevSegStarts.length;
+    if (state === null) {
+      const highest = await highestSegmentIndex(dir, baseName);
+      if (highest + 1 > prevSegCount) prevSegCount = highest + 1;
+    }
 
     let firstSeg = 0;
     for (let s = 0; s < prevSegStarts.length; s++) {
