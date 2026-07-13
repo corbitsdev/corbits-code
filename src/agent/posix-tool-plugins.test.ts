@@ -47,7 +47,10 @@ describe("buildCorePosixToolPlugins", () => {
         new AbortController().signal,
       );
       expect(allowed.isError).not.toBe(true);
-      expect(String(allowed.content)).toContain("[output truncated");
+      // The read-file guard caps the read before result-truncation would run,
+      // so a 90KB single line comes back line-truncated and bounded.
+      expect(String(allowed.content)).toContain("line truncated at 2000 chars");
+      expect(Buffer.byteLength(String(allowed.content), "utf8")).toBeLessThan(4096);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
