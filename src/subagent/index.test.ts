@@ -7,10 +7,14 @@ import {
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   evaluateSubAgentStop,
   fingerprintToolCalls,
+  forcedStopReport,
+  nextToolCallStreak,
+  parseSubAgentReport,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
   type RunSubAgentParams,
 } from "./index.js";
+
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -134,6 +138,35 @@ describe("sub-agent stop helpers", () => {
         repeatLimit: 2,
       }),
     ).toBeNull();
+  });
+
+  test("nextToolCallStreak increments on identical fingerprints and resets on change", () => {
+    let streak = nextToolCallStreak(
+      { lastFingerprint: undefined, consecutiveIdentical: 0 },
+      "read_file:{\"path\":\"a.ts\"}",
+    );
+    expect(streak.consecutiveIdentical).toBe(1);
+    streak = nextToolCallStreak(streak, "read_file:{\"path\":\"a.ts\"}");
+    expect(streak.consecutiveIdentical).toBe(2);
+    streak = nextToolCallStreak(streak, "read_file:{\"path\":\"b.ts\"}");
+    expect(streak.consecutiveIdentical).toBe(1);
+    streak = nextToolCallStreak(streak, null);
+    expect(streak).toEqual({ lastFingerprint: undefined, consecutiveIdentical: 0 });
+  });
+
+  test("forcedStopReport is a real envelope with salvage findings, not a summarize instruction", () => {
+    const noProgress = forcedStopReport("no-progress", "Found auth in gate.ts");
+    const parsed = parseSubAgentReport(noProgress);
+    expect(parsed.summary).toContain("no progress");
+    expect(parsed.findings).toContain("gate.ts");
+    expect(parsed.blockers.length).toBeGreaterThan(0);
+    expect(noProgress.toLowerCase()).not.toContain("summarize what you found");
+
+    const budget = forcedStopReport("turn-budget", "");
+    const budgetParsed = parseSubAgentReport(budget);
+    expect(budgetParsed.summary).toContain("Turn budget");
+    expect(budgetParsed.findings).toContain("no partial findings");
+    expect(budget.toLowerCase()).not.toContain("summarize progress");
   });
 });
 

@@ -68,7 +68,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 Two directors, selected by role:
 
 - **ChatDirector** (interactive, `src/agent/director.ts`) — Extends `DefaultDirector` with task list tracking, workflow nudges, LSP auto-activation, and multi-turn chat semantics. It never terminates the session: operator declines are surfaced as replies and the reactor stays alive for the next message. SHIFT+TAB toggles **auto mode** (auto-approve non-destructive consequential actions through the permission gate); it is not a separate edit/plan mode.
-- **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run. Hard stops also fire when the leaf repeats the same tool-call fingerprint for consecutive turns (no-progress) or exhausts its turn budget, so a thrashing child cannot burn tokens indefinitely.
+- **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run. Hard stops also fire after 2 consecutive identical tool-call fingerprints (no-progress) or after the default 10-turn leaf budget, returning a structured salvage report (reason, partial findings, blockers) so a thrashing child cannot burn tokens indefinitely.
 
 Both adopt the shared **compaction governor** (`src/agent/compaction.ts`) described below.
 

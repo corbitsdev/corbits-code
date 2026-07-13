@@ -130,6 +130,28 @@ export function evaluateSubAgentStop(input: {
   return null;
 }
 
+export type ToolCallStreak = {
+  lastFingerprint: string | undefined;
+  consecutiveIdentical: number;
+};
+
+/** Advance consecutive-identical bookkeeping for one inference.done turn. */
+export function nextToolCallStreak(
+  prev: ToolCallStreak,
+  fingerprint: string | null,
+): ToolCallStreak {
+  if (fingerprint === null) {
+    return { lastFingerprint: undefined, consecutiveIdentical: 0 };
+  }
+  if (fingerprint === prev.lastFingerprint) {
+    return {
+      lastFingerprint: fingerprint,
+      consecutiveIdentical: prev.consecutiveIdentical + 1,
+    };
+  }
+  return { lastFingerprint: fingerprint, consecutiveIdentical: 1 };
+}
+
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
 // the dispatcher. It has no submit_output or ask_operator; consequential tools
@@ -147,19 +169,44 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
   return "";
 }
 
-const TURN_BUDGET_REPLY =
-  "Turn budget reached before finishing. Summarize progress in the report envelope (Summary, Findings, Blockers, Paths).";
-
-const NO_PROGRESS_REPLY =
-  "Stopped: repeated the same tool calls with no progress. Summarize what you found in the report envelope (Summary, Findings, Blockers, Paths).";
+/**
+ * Build the parent-facing report when a leaf is force-stopped. There is no
+ * further inference, so this must already be a full envelope — not an
+ * instruction asking the finished worker to summarize.
+ */
+export function forcedStopReport(
+  reason: "no-progress" | "turn-budget",
+  partialText: string,
+): string {
+  const summary =
+    reason === "no-progress"
+      ? "Stopped: repeated the same tool calls with no progress."
+      : "Turn budget reached before finishing.";
+  const blockers =
+    reason === "no-progress"
+      ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
+      : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+  const findings =
+    partialText.trim().length > 0
+      ? partialText.trim()
+      : "(no partial findings on the final turn)";
+  return formatSubAgentReport({
+    summary,
+    findings,
+    blockers,
+    paths: "",
+  });
+}
 
 class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly maxTurns: number;
   private readonly repeatLimit: number;
   private turnsCompleted = 0;
-  private lastToolFingerprint: string | undefined;
-  private consecutiveIdentical = 0;
+  private streak: ToolCallStreak = {
+    lastFingerprint: undefined,
+    consecutiveIdentical: 0,
+  };
 
   constructor(
     systemPrompt: string,
@@ -197,25 +244,14 @@ class SubAgentDirector extends DefaultDirector {
         text?: string;
       }>;
       const fingerprint = fingerprintToolCalls(content);
+      this.streak = nextToolCallStreak(this.streak, fingerprint);
       const hasToolCalls = fingerprint !== null;
-
-      if (hasToolCalls) {
-        if (fingerprint === this.lastToolFingerprint) {
-          this.consecutiveIdentical++;
-        } else {
-          this.lastToolFingerprint = fingerprint;
-          this.consecutiveIdentical = 1;
-        }
-      } else {
-        this.lastToolFingerprint = undefined;
-        this.consecutiveIdentical = 0;
-      }
 
       const stop = evaluateSubAgentStop({
         hasToolCalls,
         turnsCompleted: this.turnsCompleted,
         maxTurns: this.maxTurns,
-        consecutiveIdentical: this.consecutiveIdentical,
+        consecutiveIdentical: this.streak.consecutiveIdentical,
         repeatLimit: this.repeatLimit,
       });
 
@@ -229,20 +265,12 @@ class SubAgentDirector extends DefaultDirector {
         if (compacted !== null) return compacted;
         return terminal;
       }
-      if (stop === "no-progress") {
+      if (stop === "no-progress" || stop === "turn-budget") {
+        const checkpoint =
+          stop === "no-progress" ? "subagent-no-progress" : "subagent-turn-budget";
         const terminal: ReactorAction[] = [
-          capabilities.checkpoint("subagent-no-progress"),
-          capabilities.reply(NO_PROGRESS_REPLY),
-        ];
-        this.compaction.noteIdleTurn(event, terminal);
-        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
-        if (compacted !== null) return compacted;
-        return terminal;
-      }
-      if (stop === "turn-budget") {
-        const terminal: ReactorAction[] = [
-          capabilities.checkpoint("subagent-turn-budget"),
-          capabilities.reply(TURN_BUDGET_REPLY),
+          capabilities.checkpoint(checkpoint),
+          capabilities.reply(forcedStopReport(stop, lastText(content))),
         ];
         this.compaction.noteIdleTurn(event, terminal);
         const compacted = this.compaction.interceptActions(event, terminal, capabilities);
