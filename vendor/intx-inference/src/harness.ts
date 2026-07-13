@@ -457,10 +457,10 @@ async function* runSingleAttempt(
       return;
     }
 
-    // Arm the inactivity timer now that the SSE stream is open. Every
-    // event we yield below resets it; sustained silence past
-    // `inactivityTimeoutMs` aborts the controller and the loop's catch
-    // surfaces the timeout error.
+    // Arm the inactivity timer now that the SSE stream is open. Only
+    // semantic events parsed from each chunk re-arm it (see the loop
+    // below); sustained silence past `inactivityTimeoutMs` aborts the
+    // controller and the loop's catch surfaces the timeout error.
     armInactivity();
 
     try {
