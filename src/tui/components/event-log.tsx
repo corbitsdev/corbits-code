@@ -379,24 +379,31 @@ function limitLines(content: string, maxLines: number): string {
   ].join("\n");
 }
 
-// A static header for the top of the scrollback that lists the skills and
-// plugins loaded for this session, so they are visible on load and a scroll-up
-// away thereafter. Returns nothing when there is nothing to show.
+const SESSION_BRAND = "Intercode";
+const SESSION_ATTRIBUTION = "Powered by Corbits";
+
+// Static header at the top of the parent-session scrollback: product identity,
+// workspace path, then skills/plugins loaded for this session.
 export function buildResourceBanner(
   skills: readonly { name: string }[],
   plugins: readonly string[],
   width: number,
+  cwd: string,
 ): StyledLine[] {
-  const lines: StyledLine[] = [];
+  const lines: StyledLine[] = [
+    [{ text: SESSION_BRAND, bold: true, color: color("brand") }],
+    [{ text: SESSION_ATTRIBUTION, color: color("muted"), dim: true }],
+    ...plainLines(cwd, { color: color("muted") }, width),
+  ];
   const section = (label: string, items: readonly string[]): void => {
     if (items.length === 0) return;
-    if (lines.length > 0) lines.push([]);
+    lines.push([]);
     lines.push([{ text: `[${label}]`, color: color("brand") }]);
     lines.push(...plainLines(items.join(", "), { color: color("muted") }, width));
   };
   section("Skills", skills.map((s) => s.name));
   section("Plugins", plugins);
-  if (lines.length > 0) lines.push([]);
+  lines.push([]);
   return lines;
 }
 
