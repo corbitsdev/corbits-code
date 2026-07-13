@@ -8,6 +8,7 @@ import { composeMiddleware } from "@intx/tools-posix";
 import {
   advertiseEditFileLineRange,
   applyLineRangeEdit,
+  lineRangeSourceText,
   parseEditFileMode,
   runEditFileLineRange,
 } from "./edit-file-line-range.js";
@@ -39,7 +40,7 @@ describe("parseEditFileMode", () => {
     }
   });
 
-  test("rejects mixed modes", () => {
+  test("mixed modes without file content returns recoverable error", () => {
     const mode = parseEditFileMode({
       path: "a.ts",
       old_string: "x",
@@ -48,6 +49,50 @@ describe("parseEditFileMode", () => {
       new_string: "y",
     });
     expect(mode.kind).toBe("invalid");
+    if (mode.kind === "invalid") {
+      expect(mode.message).toContain("omit old_string");
+      expect(mode.message).toContain("omit start_line");
+      expect(mode.message).not.toContain("not both");
+    }
+  });
+
+  test("mixed modes with matching range text proceeds as line-range", () => {
+    const file = "alpha\nbeta\ngamma\n";
+    const mode = parseEditFileMode(
+      {
+        path: "a.ts",
+        old_string: "beta",
+        start_line: 2,
+        end_line: 2,
+        new_string: "B",
+      },
+      { fileContent: file },
+    );
+    expect(mode.kind).toBe("line_range");
+    if (mode.kind === "line_range") {
+      expect(mode.start_line).toBe(2);
+      expect(mode.end_line).toBe(2);
+    }
+  });
+
+  test("mixed modes with mismatched range text returns recoverable error", () => {
+    const file = "alpha\nbeta\ngamma\n";
+    const mode = parseEditFileMode(
+      {
+        path: "a.ts",
+        old_string: "alpha",
+        start_line: 2,
+        end_line: 2,
+        new_string: "B",
+      },
+      { fileContent: file },
+    );
+    expect(mode.kind).toBe("invalid");
+    if (mode.kind === "invalid") {
+      expect(mode.message).toContain("does not match");
+      expect(mode.message).toContain("omit old_string");
+      expect(mode.message).toContain("omit start_line");
+    }
   });
 
   test("rejects inverted range", () => {
@@ -58,6 +103,14 @@ describe("parseEditFileMode", () => {
       new_string: "y",
     });
     expect(mode.kind).toBe("invalid");
+  });
+});
+
+describe("lineRangeSourceText", () => {
+  test("extracts inclusive line range with file newline", () => {
+    const file = ["one", "two", "three"].join("\n") + "\n";
+    expect(lineRangeSourceText(file, 2, 3)).toBe("two\nthree");
+    expect(lineRangeSourceText(file, 2, 2)).toBe("two");
   });
 });
 
@@ -163,7 +216,40 @@ describe("editFileLineRangePlugin", () => {
     expect(await readFile(path, "utf8")).toBe("line1\nL2\nline3\n");
   });
 
-  test("rejects mixed mode args", async () => {
+  test("disambiguates mixed mode when old_string matches the line range", async () => {
+    const path = join(cwd, "f.ts");
+    await writeFile(path, "line1\nline2\nline3\n");
+
+    let stockCalled = false;
+    const run = handler(async () => {
+      stockCalled = true;
+      return { callId: "c1", content: "stock" };
+    });
+
+    const result = await run(
+      {
+        id: "c1",
+        name: "edit_file",
+        arguments: {
+          path: "f.ts",
+          old_string: "line2",
+          start_line: 2,
+          end_line: 2,
+          new_string: "L2",
+        },
+      },
+      new AbortController().signal,
+    );
+
+    expect(stockCalled).toBe(false);
+    expect(result.isError).toBeUndefined();
+    expect(await readFile(path, "utf8")).toBe("line1\nL2\nline3\n");
+  });
+
+  test("mixed mode with conflicting old_string returns recoverable error", async () => {
+    const path = join(cwd, "f.ts");
+    await writeFile(path, "line1\nline2\nline3\n");
+
     const run = handler(async () => ({ callId: "c1", content: "stock" }));
     const result = await run(
       {
@@ -171,16 +257,17 @@ describe("editFileLineRangePlugin", () => {
         name: "edit_file",
         arguments: {
           path: "f.ts",
-          old_string: "x",
-          start_line: 1,
-          end_line: 1,
-          new_string: "y",
+          old_string: "line1",
+          start_line: 2,
+          end_line: 2,
+          new_string: "L2",
         },
       },
       new AbortController().signal,
     );
     expect(result.isError).toBe(true);
-    expect(String(result.content)).toContain("not both");
+    expect(String(result.content)).toContain("omit old_string");
+    expect(String(result.content)).not.toContain("not both");
   });
 
   test("runEditFileLineRange integrates with verify expectations", async () => {

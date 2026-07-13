@@ -37,11 +37,70 @@ function hasLineRangeArgs(args: Record<string, unknown>): boolean {
   return optionalInt(args.start_line) !== undefined || optionalInt(args.end_line) !== undefined;
 }
 
+export function editFileArgsUseBothModes(args: Record<string, unknown>): boolean {
+  return hasOldStringArg(args) && hasLineRangeArgs(args);
+}
+
+export type ParseEditFileModeOptions = {
+  /** When both substring and line-range args are present, use file bytes to disambiguate. */
+  fileContent?: string;
+};
+
+const MIXED_MODE_RECOVERY =
+  "To retry line-range mode with your current start_line and end_line, omit old_string. " +
+  "To retry substring mode with your current old_string, omit start_line and end_line.";
+
+function mixedModeRecoverableMessage(detail?: string): string {
+  const prefix = detail ?? "edit_file: received both old_string and start_line/end_line.";
+  return `${prefix} ${MIXED_MODE_RECOVERY}`;
+}
+
+function parseLineRangeFields(
+  path: string,
+  new_string: string,
+  args: Record<string, unknown>,
+): EditFileLineRangeMode | { kind: "invalid"; message: string } {
+  const start_line = optionalInt(args.start_line);
+  const end_line = optionalInt(args.end_line);
+  if (start_line === undefined || end_line === undefined) {
+    return {
+      kind: "invalid",
+      message: "edit_file line-range mode requires both start_line and end_line (1-based inclusive)",
+    };
+  }
+  if (start_line < 1 || end_line < 1) {
+    return { kind: "invalid", message: "start_line and end_line must be >= 1" };
+  }
+  if (start_line > end_line) {
+    return { kind: "invalid", message: `start_line (${start_line}) must be <= end_line (${end_line})` };
+  }
+  return { kind: "line_range", path, start_line, end_line, new_string };
+}
+
+/**
+ * Text at inclusive 1-based lines as it appears in the file (joined with the file newline).
+ */
+export function lineRangeSourceText(content: string, startLine: number, endLine: number): string {
+  const { lines, newline } = splitFileLines(content);
+  if (lines.length === 0) {
+    return "";
+  }
+  if (startLine > lines.length || endLine > lines.length) {
+    throw new Error(
+      `line range ${startLine}-${endLine} is out of range (file has ${lines.length} line(s))`,
+    );
+  }
+  return lines.slice(startLine - 1, endLine).join(newline);
+}
+
 /**
  * Decide which exclusive edit_file mode the call uses. Stock substring mode is the
  * default when no line-range fields are present.
  */
-export function parseEditFileMode(args: Record<string, unknown>): EditFileModeParse {
+export function parseEditFileMode(
+  args: Record<string, unknown>,
+  options?: ParseEditFileModeOptions,
+): EditFileModeParse {
   const path = args.path;
   if (typeof path !== "string" || path.length === 0) {
     return { kind: "invalid", message: 'argument "path" is required' };
@@ -56,29 +115,45 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
   const lineRange = hasLineRangeArgs(args);
 
   if (substring && lineRange) {
+    const rangeParsed = parseLineRangeFields(path, new_string, args);
+    if (rangeParsed.kind === "invalid") {
+      return rangeParsed;
+    }
+
+    const fileContent = options?.fileContent;
+    if (fileContent === undefined) {
+      return { kind: "invalid", message: mixedModeRecoverableMessage() };
+    }
+
+    const old_string = String(args.old_string);
+    let rangeText: string;
+    try {
+      rangeText = lineRangeSourceText(fileContent, rangeParsed.start_line, rangeParsed.end_line);
+    } catch (err) {
+      return {
+        kind: "invalid",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    if (old_string === rangeText) {
+      return rangeParsed;
+    }
+
     return {
       kind: "invalid",
-      message:
-        "edit_file: use either old_string (substring mode) or start_line/end_line (line-range mode), not both",
+      message: mixedModeRecoverableMessage(
+        `edit_file: old_string does not match the content at lines ${rangeParsed.start_line}-${rangeParsed.end_line}.`,
+      ),
     };
   }
 
   if (lineRange) {
-    const start_line = optionalInt(args.start_line);
-    const end_line = optionalInt(args.end_line);
-    if (start_line === undefined || end_line === undefined) {
-      return {
-        kind: "invalid",
-        message: "edit_file line-range mode requires both start_line and end_line (1-based inclusive)",
-      };
+    const rangeParsed = parseLineRangeFields(path, new_string, args);
+    if (rangeParsed.kind === "invalid") {
+      return rangeParsed;
     }
-    if (start_line < 1 || end_line < 1) {
-      return { kind: "invalid", message: "start_line and end_line must be >= 1" };
-    }
-    if (start_line > end_line) {
-      return { kind: "invalid", message: `start_line (${start_line}) must be <= end_line (${end_line})` };
-    }
-    return { kind: "line_range", path, start_line, end_line, new_string };
+    return rangeParsed;
   }
 
   if (!substring) {
