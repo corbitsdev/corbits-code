@@ -613,14 +613,37 @@ describe("flat line buffer", () => {
     }
   });
 
-  test("buildResourceBanner lists skills and plugins, and is empty when there are none", () => {
-    const banner = buildResourceBanner([{ name: "scribe" }, { name: "tdd" }], ["exa"], 80);
+  test("buildResourceBanner shows brand, workspace path, and optional skills/plugins", () => {
+    const workspace = "/home/user/project";
+    const banner = buildResourceBanner([{ name: "scribe" }, { name: "tdd" }], ["exa"], 80, workspace);
     const text = banner.map((line) => line.map((s) => s.text).join("")).join("\n");
+    expect(text.indexOf("Intercode")).toBeLessThan(text.indexOf("[Skills]"));
+    expect(text).toContain("Powered by Corbits");
+    expect(text).toContain(workspace);
     expect(text).toContain("[Skills]");
     expect(text).toContain("scribe, tdd");
     expect(text).toContain("[Plugins]");
     expect(text).toContain("exa");
-    expect(buildResourceBanner([], [], 80)).toEqual([]);
+    const brandOnly = buildResourceBanner([], [], 80, workspace);
+    const brandText = brandOnly.map((line) => line.map((s) => s.text).join("")).join("\n");
+    expect(brandText).toContain("Intercode");
+    expect(brandText).toContain(workspace);
+    expect(brandText).not.toContain("[Skills]");
+    expect(brandOnly.length).toBeGreaterThan(0);
+  });
+
+  test("buildResourceBanner wraps a long workspace path to the given width", () => {
+    const longPath = "/home/user/very/long/nested/project/directory/name/that/exceeds/eighty/columns/easily";
+    const width = 40;
+    const banner = buildResourceBanner([], [], width, longPath);
+    const pathLines = banner.filter((line) =>
+      line.some((seg) => seg.text.length > 0 && !["Intercode", "Powered by Corbits"].includes(seg.text)),
+    );
+    expect(pathLines.length).toBeGreaterThan(1);
+    for (const line of pathLines) {
+      const len = line.reduce((n, s) => n + s.text.length, 0);
+      expect(len).toBeLessThanOrEqual(width);
+    }
   });
 
   const planBlock: ContentBlock = {
