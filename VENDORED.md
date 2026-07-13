@@ -55,6 +55,10 @@ authoritative list; at a high level:
 - Retry-safe inference buffering is memory-linear (compact pre-commit buffering
   instead of a full partial-response snapshot per token), and committed output
   is delivered incrementally rather than as a terminal burst.
+- Streaming inactivity timeout measures silence since the last semantic SSE
+  event the adapter parsed, not since the last raw chunk (CL-3477).
+- The reactor checkpoints after each tool batch with `addToHistory` so an
+  interrupt rebuild reloads assistant tool_call turns and results (CL-3478).
 
 ## Keeping in sync with upstream
 

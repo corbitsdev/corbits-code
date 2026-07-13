@@ -1187,6 +1187,10 @@ export function App({
     setExpandedTools(new Set());
     pendingQueueRef.current.length = 0;
     setQueuedCount(0);
+    // Same guard as requestStop: a cleared session must not auto-resubmit a
+    // prior prompt when the quota retry interval is still polling.
+    lastSentMessageRef.current = "";
+    quotaAutoRetryFiredRef.current = true;
     setWorkflowHistory([]);
     setInputValue("");
     setSessionStartedAt(Date.now());
