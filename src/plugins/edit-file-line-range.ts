@@ -50,6 +50,13 @@ const MIXED_MODE_RECOVERY =
   "To retry line-range mode with your current start_line and end_line, omit old_string. " +
   "To retry substring mode with your current old_string, omit start_line and end_line.";
 
+/** Compare model-supplied old_string to on-disk range text; tolerate CRLF vs LF in old_string. */
+function oldStringMatchesLineRangeText(old_string: string, rangeText: string): boolean {
+  if (old_string === rangeText) return true;
+  const norm = (s: string) => s.replace(/\r\n/g, "\n");
+  return norm(old_string) === norm(rangeText);
+}
+
 function mixedModeRecoverableMessage(detail?: string): string {
   const prefix = detail ?? "edit_file: received both old_string and start_line/end_line.";
   return `${prefix} ${MIXED_MODE_RECOVERY}`;
@@ -140,7 +147,7 @@ export function parseEditFileMode(
       };
     }
 
-    if (old_string === rangeText) {
+    if (oldStringMatchesLineRangeText(old_string, rangeText)) {
       return rangeParsed;
     }
 
@@ -261,13 +268,22 @@ export function formatLineRangeSuccess(path: string, startLine: number, endLine:
   return `replaced lines ${startLine}-${endLine} in ${path}`;
 }
 
+export type RunEditFileLineRangeOptions = {
+  /** Skip re-read when the caller already loaded UTF-8 content (e.g. mixed-mode disambiguation). */
+  fileContentUtf8?: string;
+};
+
 export async function runEditFileLineRange(
   args: EditFileLineRangeMode,
   signal: AbortSignal,
+  options?: RunEditFileLineRangeOptions,
 ): Promise<string> {
   signal.throwIfAborted();
 
   let content: string;
+  if (options?.fileContentUtf8 !== undefined) {
+    content = options.fileContentUtf8;
+  } else {
   try {
     const buf = await readFile(args.path, { signal });
     if (buf.includes(0)) {
@@ -287,6 +303,7 @@ export async function runEditFileLineRange(
       }
     }
     throw err;
+  }
   }
 
   const newContent = applyLineRangeEdit(content, args.start_line, args.end_line, args.new_string);
@@ -336,13 +353,13 @@ export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefi
           type: "number",
           description:
             "Line-range mode: first line to replace (1-based, inclusive). Requires end_line. With old_string present, " +
-            "must match the file text at start_line–end_line or omit old_string.",
+            "must match the file text at start_line-end_line or omit old_string.",
         },
         end_line: {
           type: "number",
           description:
             "Line-range mode: last line to replace (1-based, inclusive). Requires start_line. With old_string present, " +
-            "must match the file text at start_line–end_line or omit old_string.",
+            "must match the file text at start_line-end_line or omit old_string.",
         },
       },
       required: ["path", "new_string"],

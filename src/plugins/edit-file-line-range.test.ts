@@ -56,6 +56,21 @@ describe("parseEditFileMode", () => {
     }
   });
 
+  test("mixed modes match CRLF file when old_string uses LF newlines", () => {
+    const file = "one\r\ntwo\r\nthree\r\n";
+    const mode = parseEditFileMode(
+      {
+        path: "a.ts",
+        old_string: "two",
+        start_line: 2,
+        end_line: 2,
+        new_string: "T",
+      },
+      { fileContent: file },
+    );
+    expect(mode.kind).toBe("line_range");
+  });
+
   test("mixed modes with matching range text proceeds as line-range", () => {
     const file = "alpha\nbeta\ngamma\n";
     const mode = parseEditFileMode(
