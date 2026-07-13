@@ -187,7 +187,9 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
 
-  Optional `maxConcurrentSubAgents` (integer ≥ 0, default **10**) caps how many `task`-tool sub-agent loops may run at once; **0** disables sub-agents entirely. Change it in **Settings → Sub-agents** or in this file.
+  Optional `maxConcurrentSubAgents` (integer ≥ 0, default **10**) caps how many `task`-tool sub-agent loops may run at once; **0** disables sub-agents entirely. Change it in **Settings → Sub-agents** or in this file. Applies only when `sessionMode` is **orchestrator**.
+
+  Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Intercode prompts once and persists the choice to this file. Per-repo override: `.intercode/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session).
 
 - Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
 

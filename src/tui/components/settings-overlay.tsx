@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import type { GrantScope } from "../../permission/types.js";
 import type { ScopedApproval } from "../../permission/admin.js";
+import type { SessionMode } from "../../config/session-mode.js";
+import { SESSION_MODES } from "../../config/session-mode.js";
 import { color } from "../theme.js";
 
 export type CompactionMode = "llm" | "pruning";
@@ -14,11 +16,15 @@ export type SettingsOverlayProps = {
   onChangeCompactionMode: (mode: CompactionMode) => void;
   maxConcurrentSubAgents: number;
   onChangeMaxConcurrentSubAgents: (limit: number) => void;
+  sessionMode: SessionMode;
+  /** Persisted choice for the selected save target; may differ from sessionMode until a new session. */
+  savedSessionMode: SessionMode;
+  onChangeSessionMode: (mode: SessionMode, scope: "global" | "local") => void;
   onClose: () => void;
   maxHeight?: number;
 };
 
-const TABS = ["Permissions", "Compaction", "Sub-agents"] as const;
+const TABS = ["Permissions", "Compaction", "Session", "Sub-agents"] as const;
 type Tab = (typeof TABS)[number];
 
 const COMPACTION_OPTIONS: { value: CompactionMode; label: string; description: string }[] = [
@@ -203,17 +209,102 @@ function CompactionTab({
   );
 }
 
+const SESSION_MODE_LABEL: Record<SessionMode, string> = {
+  single: "Single agent",
+  orchestrator: "Orchestrator",
+};
+
+function SessionModeTab({
+  current,
+  saved,
+  onChange,
+}: {
+  current: SessionMode;
+  saved: SessionMode;
+  onChange: (mode: SessionMode, scope: "global" | "local") => void;
+}): ReactNode {
+  const currentIndex = SESSION_MODES.indexOf(current);
+  const [selected, setSelected] = useState(currentIndex >= 0 ? currentIndex : 0);
+  const [scope, setScope] = useState<"global" | "local">("global");
+
+  useInput((_input, key) => {
+    if (key.upArrow) {
+      setSelected((s) => (s > 0 ? s - 1 : SESSION_MODES.length - 1));
+    } else if (key.downArrow) {
+      setSelected((s) => (s < SESSION_MODES.length - 1 ? s + 1 : 0));
+    } else if (_input === "g") setScope("global");
+    else if (_input === "l") setScope("local");
+    else if (key.return || _input === " ") {
+      const mode = SESSION_MODES[selected];
+      if (mode !== undefined) onChange(mode, scope);
+    }
+  });
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={color("muted")} bold>
+        Session mode
+      </Text>
+      <Text color={color("muted")}>
+        Single: one agent does the work. Orchestrator: delegates via task. Per-repo override saves to
+        .intercode/settings.json (l); global saves to ~/.intercode/settings.json (g). Takes effect on next
+        session start.
+      </Text>
+      <Box marginTop={1}>
+        <Text color={color("muted")}>
+          Save target: {scope === "global" ? "global (g)" : "this project (l)"}
+        </Text>
+      </Box>
+      <Box flexDirection="column" marginTop={1}>
+        {SESSION_MODES.map((mode, index) => {
+          const isSelected = index === selected;
+          const isActive = mode === current;
+          const isSaved = mode === saved;
+          return (
+            <Box key={mode} marginBottom={1}>
+              <Text color={isSelected ? color("brand") : color("muted")} bold={isSelected}>
+                {isSelected ? "› " : "  "}
+              </Text>
+              <Text bold={isSelected || isActive} {...(isActive ? { color: color("success") } : {})}>
+                {SESSION_MODE_LABEL[mode]}
+              </Text>
+              {isActive && <Text color={color("success")}> (active this session)</Text>}
+              {!isActive && isSaved && (
+                <Text color={color("muted")}> (saved — next session)</Text>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+      <Text color={color("muted")}>↑↓ navigate · Enter select · g global · l local</Text>
+    </Box>
+  );
+}
+
 function SubAgentsTab({
   current,
   onChange,
+  sessionMode,
 }: {
   current: number;
   onChange: (limit: number) => void;
+  sessionMode: SessionMode;
 }): ReactNode {
   useInput((_input) => {
+    if (sessionMode === "single") return;
     if (_input === "+" || _input === "=") onChange(current + 1);
     else if (_input === "-" || _input === "_") onChange(Math.max(0, current - 1));
   });
+
+  if (sessionMode === "single") {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text color={color("muted")}>
+          Sub-agent concurrency applies only in orchestrator mode. Switch session mode on the Session tab.
+        </Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -244,6 +335,9 @@ export function SettingsOverlay({
   onChangeCompactionMode,
   maxConcurrentSubAgents,
   onChangeMaxConcurrentSubAgents,
+  sessionMode,
+  savedSessionMode,
+  onChangeSessionMode,
   onClose,
   maxHeight,
 }: SettingsOverlayProps): ReactNode {
@@ -284,10 +378,18 @@ export function SettingsOverlay({
       {activeTab === "Compaction" && (
         <CompactionTab current={compactionMode} onChange={onChangeCompactionMode} />
       )}
+      {activeTab === "Session" && (
+        <SessionModeTab
+          current={sessionMode}
+          saved={savedSessionMode}
+          onChange={onChangeSessionMode}
+        />
+      )}
       {activeTab === "Sub-agents" && (
         <SubAgentsTab
           current={maxConcurrentSubAgents}
           onChange={onChangeMaxConcurrentSubAgents}
+          sessionMode={sessionMode}
         />
       )}
       <Box marginTop={1}>

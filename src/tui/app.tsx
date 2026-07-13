@@ -354,6 +354,11 @@ export type AppProps = {
   initialTiers?: Partial<Record<import("../config/settings.js").ProviderTier, import("../config/settings.js").TierConfig>>;
   onChangeCompactionMode?: (mode: CompactionMode) => Promise<void>;
   onChangeMaxConcurrentSubAgents?: (limit: number) => Promise<void>;
+  initialSessionMode?: import("../config/session-mode.js").SessionMode;
+  onChangeSessionMode?: (
+    mode: import("../config/session-mode.js").SessionMode,
+    scope: "global" | "local",
+  ) => Promise<void>;
   // The `onboarded` flag read from the GLOBAL settings file specifically (never
   // a --config/project file). This is global user state: it decides whether the
   // welcome animation plays on first run and is the single source of truth for
@@ -411,6 +416,8 @@ export function App({
   initialTiers,
   onChangeCompactionMode,
   onChangeMaxConcurrentSubAgents,
+  initialSessionMode = "orchestrator",
+  onChangeSessionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
   mouseEvents,
@@ -501,6 +508,8 @@ export function App({
   const [maxConcurrentSubAgents, setMaxConcurrentSubAgents] = useState(() =>
     resolveMaxConcurrentSubAgents(initialSettings),
   );
+  const [sessionMode] = useState(initialSessionMode);
+  const [savedSessionMode, setSavedSessionMode] = useState(initialSessionMode);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
@@ -1846,6 +1855,12 @@ export function App({
           onChangeMaxConcurrentSubAgents={(limit) => {
             setMaxConcurrentSubAgents(limit);
             void onChangeMaxConcurrentSubAgents?.(limit);
+          }}
+          sessionMode={sessionMode}
+          savedSessionMode={savedSessionMode}
+          onChangeSessionMode={(mode, scope) => {
+            setSavedSessionMode(mode);
+            void onChangeSessionMode?.(mode, scope);
           }}
           onClose={() => setSettingsOpen(false)}
           maxHeight={permissionsOverlayRows}
