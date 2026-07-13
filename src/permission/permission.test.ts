@@ -825,8 +825,10 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
-  // In auto mode everything is auto-approved. The authz and secret-guard plugins
-  // hard-deny dangerous and credential-reading commands before reaching this gate.
+  // In auto mode most consequential tools auto-approve. Authz hard-denies
+  // catastrophic commands upstream; secret-guard hard-denies path-keyed secret
+  // reads. Shell commands that only mention a secret path force an ask via the
+  // auto-shell policy rather than a hard deny.
   test("auto mode auto-approves file writes and shell but prompts for unknown tools", async () => {
     let asked = 0;
     const gate = createPermissionGate({
@@ -1194,8 +1196,9 @@ describe("createPermissionGate restricted paths", () => {
   });
 
   // Auto-allowing gitignored reads at the gate does not widen what the model can
-  // see: the secret-guard plugin sits ahead of the gate in the tool call
-  // pipeline and hard-blocks sensitive files independent of any gate decision.
+  // see via path-keyed tools: the secret-guard plugin hard-blocks sensitive-file
+  // reads/writes independent of any gate decision. Shell commands that mention
+  // those paths are ask-gated instead (see classify-security tests).
   test(".env reads are still hard-blocked by the secret-guard plugin even though the gate auto-allows gitignored reads", async () => {
     const gate = restrictedGate(() => {
       throw new Error("the plugin should block before the gate is ever consulted for approval");

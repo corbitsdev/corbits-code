@@ -108,7 +108,7 @@ src/
     loader.ts                  Plugin discovery + loadPluginEntry
     path-escape-plugin.ts      Path sandboxing (first)
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
-    secret-guard-plugin.ts     Hard-deny secret files
+    secret-guard-plugin.ts     Hard-deny path-keyed secret files
     authz-plugin.ts            Catastrophic command blocking (thin wrapper)
     permission-plugin.ts       Tiered operator approval
   shell/
@@ -189,7 +189,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `maxConcurrentSubAgents` (integer ≥ 0, default **10**) caps how many `task`-tool sub-agent loops may run at once; **0** disables sub-agents entirely. Change it in **Settings → Sub-agents** or in this file.
 
-- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 

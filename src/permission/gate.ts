@@ -138,10 +138,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       if (call.name === "run_shell") {
         // The auto-shell policy carves out categories unsafe to run unattended.
         // A `deny` rule (file mutations through sed/python/redirects) blocks
-        // outright; an `ask` rule (dependency installs) declines to auto-allow
-        // and falls through to the operator prompt below. Everything else is
-        // safe: authz and secret-guard have already hard-denied destructive
-        // commands and credential reads upstream.
+        // outright; an `ask` rule (dependency installs, sensitive-path refs)
+        // declines to auto-allow and falls through to the operator prompt below.
+        // Everything else is safe: authz has already hard-denied catastrophic
+        // commands upstream, and secret-guard hard-denies path-keyed secret
+        // reads. Shell commands that only *mention* a secret path are ask, not
+        // hard-deny, so an explicit approval can still let them through.
         const shellRule = autoShellRuleForCall(call, isRestricted);
         if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
         if (shellRule === undefined) return { allowed: true };
