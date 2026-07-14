@@ -778,6 +778,17 @@ describe("turnsToContentBlocks", () => {
     expect(state.status).not.toBe("failed");
     // The in-flight call must stay resultless so a retry does not paint it as aborted.
     expect(state.contentBlocks.some((b) => b.type === "tool_result")).toBe(false);
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+  });
+
+  test("a timeout stays live and does not render a transient error", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+
+    state.addEvent(event("inference.error", { error: { category: "timeout", message: "request timed out" } }));
+
+    expect(state.status).not.toBe("failed");
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
   });
 
   test("a fatal reactor error fails the run and finalizes in-flight tool calls", () => {
