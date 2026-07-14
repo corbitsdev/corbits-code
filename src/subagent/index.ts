@@ -1226,7 +1226,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           authMessage ??
           `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
         const sessionError = err instanceof Error ? err.message : String(err);
-        if (session !== undefined) deps.sessions?.fail(session.id, sessionError);
+        const failReason = authMessage ?? sessionError;
+        if (session !== undefined) deps.sessions?.fail(session.id, failReason);
         return taskToolResult(call.id, message);
       } finally {
         signal.removeEventListener("abort", onParentAbort);
