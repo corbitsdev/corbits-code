@@ -690,7 +690,7 @@ test("a quota_exhausted error whose message describes a context overflow is recl
   expect(last.message).toContain("Context window full");
 });
 
-test.each(["retryable", "aborted", "timeout"])(
+test.each(["retryable", "timeout"])(
   "inference.error %s stays live without rendering recovery noise",
   (category) => {
     const state = createAgentStreamState();
@@ -699,6 +699,18 @@ test.each(["retryable", "aborted", "timeout"])(
     expect(state.contentBlocks.some((block) => block.type === "error")).toBe(false);
   },
 );
+
+test("inference.error internal-recovery aborted stays live without rendering recovery noise", () => {
+  const state = createAgentStreamState();
+  state.addEvent({
+    type: "inference.error",
+    data: {
+      error: { category: "aborted", message: "raw", raw: { origin: "internal-recovery" } },
+    },
+  } as ReactorEmittedEvent);
+  expect(state.status).not.toBe("failed");
+  expect(state.contentBlocks.some((block) => block.type === "error")).toBe(false);
+});
 
 test("inference.error protocol_mismatch maps to friendly message", () => {
   const state = createAgentStreamState();
