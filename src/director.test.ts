@@ -327,7 +327,7 @@ describe("chatDirector compaction", () => {
     const director = chatDirectorWithContinuation();
     const internalAbort = {
       type: "inference.error",
-      error: { category: "aborted", message: "inference aborted" },
+      error: { category: "aborted", message: "inference aborted", raw: { origin: "internal-recovery" } },
     } as unknown as ReactorInboundEvent;
     const recovered = actionsArray(await director.decide(internalAbort, longState, mockCapabilities));
     expect(recovered.some((action) => action.type === "infer")).toBe(true);

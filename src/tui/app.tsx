@@ -1154,7 +1154,7 @@ export function App({
 
   const requestStop = () => {
     quotaAutoRetryFiredRef.current = true;
-    sendAbortRef.current?.abort();
+    sendAbortRef.current?.abort("user-stop");
     // Parent stop must cancel live children too: aborting the parent send signal
     // is linked into each task's child controller, and cancelAll flips session
     // status + fires registerCancel hooks that close child agents.
@@ -1235,8 +1235,10 @@ export function App({
         nowMs: Date.now(),
         stallTimeoutMs: STALL_TIMEOUT_MS,
       })) {
-        requestStop();
-        setCommandMessage("Request timed out after no response. Please retry.");
+        sendAbortRef.current?.abort("internal-recovery");
+        setCommandMessage("Recovering after an internal stall…");
+        const prompt = lastSentMessageRef.current;
+        if (prompt.length > 0) setTimeout(() => sendMessageRef.current({ text: prompt, attachments: [] }), 0);
       }
     };
     const handle = setInterval(check, 1000);

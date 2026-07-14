@@ -24,6 +24,11 @@ const RETRY_POLICY = createIntercodeRetryPolicy();
 
 const logger = getLogger(["intercode", "agent", "director"]);
 
+function isInternalRecoveryAbort(event: Extract<ReactorInboundEvent, { type: "inference.error" }>): boolean {
+  const raw = event.error.raw;
+  return typeof raw === "object" && raw !== null && "origin" in raw && raw.origin === "internal-recovery";
+}
+
 function directorNudgeTurn(text: string): ConversationTurn {
   return {
     role: "user",
@@ -400,7 +405,7 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "inference.error" &&
       (event.error.category === "timeout" ||
         event.error.category === "retryable" ||
-        event.error.category === "aborted")) {
+        (event.error.category === "aborted" && isInternalRecoveryAbort(event)))) {
       if (this.inferenceRecoveries < MAX_INFERENCE_RECOVERIES) {
         this.inferenceRecoveries++;
         return [capabilities.checkpoint("inference-recovery"), capabilities.infer()];
