@@ -803,8 +803,10 @@ export function createAgentStreamState(
               if (!attemptStartCallIds.has(callId)) {
                 callIdToName.delete(callId);
                 callIdToArguments.delete(callId);
+                activeToolCallIds.delete(callId);
               }
             }
+            awaitingResponse = activeToolCallIds.size === 0;
             // Drop strip-fallback entries for tool calls that were rolled back
             // with this attempt. Without this, a streamed task tool_call that
             // never executed leaves a permanent "doing" Agents ghost.
