@@ -43,6 +43,16 @@ describe("persistent-shell-cwd helpers", () => {
   });
 });
 
+describe("resolvePerCallShellCwd", () => {
+  test("resolves a relative path against the session root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-"));
+    const sub = join(root, "markerdir");
+    await mkdir(sub);
+    const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
+    expect(resolvePerCallShellCwd(root, "markerdir")).toBe(realpathSync(sub));
+  });
+});
+
 describe("pwd probe via runGuardedShell", () => {
   test("cd in one invocation updates reported final cwd", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-shell-cwd-"));

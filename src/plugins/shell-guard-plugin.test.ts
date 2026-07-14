@@ -335,6 +335,47 @@ describe("shellGuardPlugin", () => {
     expect(result.content).toContain("removed");
   });
 
+  test("per-call relative cwd resolves against session root not process cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-percall-cwd-"));
+    const marker = join(root, "markerdir");
+    await mkdir(marker);
+    const { writeFile } = await import("node:fs/promises");
+    const { chdir } = await import("node:process");
+    await writeFile(join(marker, "tag"), "session-tag");
+    const otherRoot = await mkdtemp(join(tmpdir(), "ic-process-cwd-"));
+    const otherMarker = join(otherRoot, "markerdir");
+    await mkdir(otherMarker);
+    await writeFile(join(otherMarker, "tag"), "wrong-tag");
+    const prev = process.cwd();
+    try {
+      await chdir(otherRoot);
+      const handler = shellGuardPlugin(root).middleware!(fallback);
+      const result = await handler(
+        {
+          id: "pc1",
+          name: "run_shell",
+          arguments: { command: "cat tag", cwd: "markerdir" },
+        },
+        neverAbort(),
+      );
+      expect(String(result.content)).toContain("session-tag");
+      expect(String(result.content)).not.toContain("wrong-tag");
+    } finally {
+      await chdir(prev);
+    }
+  });
+
+  test("treats timeout 0 as the configured default", async () => {
+    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware!(
+      fallback,
+    );
+    const result = await handler(
+      { id: "tz", name: "run_shell", arguments: { command: "sleep 60", timeout: 0 } },
+      neverAbort(),
+    );
+    expect(result.content).toMatch(/timed out after 90ms/);
+  });
+
   test("returns promptly when the search tool ignores the budget", async () => {
     // Reproduces the non-abortable fallback grep: next() never settles and never
     // observes the abort. The guard must stop waiting once the budget fires
