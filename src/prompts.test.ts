@@ -46,7 +46,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
   expect(facts).toContain("write_file/edit_file");
   expect(facts).toContain("blocked");
-  expect(facts).toContain("10s timeout");
+  expect(facts).toContain("15s timeout");
   expect(facts).toContain("find, rg, and grep -r");
   expect(facts).toContain("operator approval");
   expect(facts).toContain("tool_search");
@@ -54,8 +54,6 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("slash-command steps");
   expect(facts).toContain(".intercode/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
-  expect(facts).toContain("10s timeout");
-  expect(facts).toContain("find, rg, and grep -r");
   expect(facts).not.toContain("Tool results already render richly");
 });
 
