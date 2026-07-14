@@ -108,7 +108,7 @@ src/
     loader.ts                  Plugin discovery + loadPluginEntry
     path-escape-plugin.ts      Path sandboxing (first)
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
-    secret-guard-plugin.ts     Hard-deny secret files
+    secret-guard-plugin.ts     Hard-deny path-keyed secret files
     authz-plugin.ts            Catastrophic command blocking (thin wrapper)
     permission-plugin.ts       Tiered operator approval
   shell/
@@ -193,7 +193,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Intercode prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.intercode/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Today only the interactive TUI (`runTUI`) resolves `sessionMode`; headless/CLI entry points still default to orchestrator-style tooling until wired.
 
-- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 
