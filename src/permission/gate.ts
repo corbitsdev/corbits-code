@@ -9,6 +9,7 @@ import {
   commandTargetsRestricted,
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
+import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { isApproved } from "./matcher.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
@@ -132,16 +133,30 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // under .agent-state) drops from allow to ask, so it never auto-allows on
     // tier or shell-safety below.
     const restricted = callTargetsRestricted(call, isRestricted);
-    if (!restricted && classifyTool(call.name, mcpTiers) === "allow") return { allowed: true };
+    const shellCmd =
+      call.name === "run_shell" && typeof call.arguments.command === "string"
+        ? call.arguments.command
+        : undefined;
+    const shellReferencesSecret =
+      shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
+    if (
+      !restricted &&
+      classifyTool(call.name, mcpTiers) === "allow" &&
+      !shellReferencesSecret
+    ) {
+      return { allowed: true };
+    }
     if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
     if (auto) {
       if (call.name === "run_shell") {
         // The auto-shell policy carves out categories unsafe to run unattended.
         // A `deny` rule (file mutations through sed/python/redirects) blocks
-        // outright; an `ask` rule (dependency installs) declines to auto-allow
-        // and falls through to the operator prompt below. Everything else is
-        // safe: authz and secret-guard have already hard-denied destructive
-        // commands and credential reads upstream.
+        // outright; an `ask` rule (dependency installs, sensitive-path refs)
+        // declines to auto-allow and falls through to the operator prompt below.
+        // Everything else is safe: authz has already hard-denied catastrophic
+        // commands upstream, and secret-guard hard-denies path-keyed secret
+        // reads. Shell commands that only *mention* a secret path are ask, not
+        // hard-deny, so an explicit approval can still let them through.
         const shellRule = autoShellRuleForCall(call, isRestricted);
         if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
         if (shellRule === undefined) return { allowed: true };

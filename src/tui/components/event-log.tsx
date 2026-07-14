@@ -78,14 +78,6 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   return lines.map((line) => [pad, ...line]);
 }
 
-// Tints every segment in every line with the same backgroundColor, giving a
-// tool row a status-card wash. Applied after indentLines so the gutter is
-// tinted too, and the row-level pad added by RenderedLine/RunningToolRow
-// picks it up via uniformBackground below to reach the full row width.
-function applyBackground(lines: StyledLine[], backgroundColor: string): StyledLine[] {
-  return lines.map((line) => line.map((seg) => ({ ...seg, backgroundColor })));
-}
-
 // When every segment in a line shares one backgroundColor, the row's trailing
 // pad segment should carry it too so the wash reaches the full row width
 // instead of stopping at the last painted character.
@@ -724,16 +716,12 @@ function blockToLines(
         }),
         TOOL_INDENT,
       );
-      // Wash only the collapsed status-card row; an expanded body (diff, full
-      // args) is a document, not a card, so it keeps the surface background.
-      const bg = pending ? color("toolPendingBg") : result?.isError === true ? color("toolErrorBg") : color("toolSuccessBg");
-      const callLines = expanded ? indented : applyBackground(indented, bg);
+      const callLines = indented;
       return pending ? markRunningRow(callLines, started) : callLines;
     }
     case "tool_result": {
       const indented = indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
-      if (expanded) return indented;
-      return applyBackground(indented, block.isError ? color("toolErrorBg") : color("toolSuccessBg"));
+      return indented;
     }
     case "view":
       return viewToLines(block.node, columns);
@@ -837,10 +825,9 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       && !isExpanded(block)
       && !isExpanded(next)
     ) {
-      const mergedBg = next.isError ? color("toolErrorBg") : color("toolSuccessBg");
-      const mergedLines = applyBackground(
-        indentLines(mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT), TOOL_INDENT),
-        mergedBg,
+      const mergedLines = indentLines(
+        mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT),
+        TOOL_INDENT,
       );
       lines.push(...mergedLines);
       if (i + 1 < blocks.length) blockLineStarts[i + 1] = lines.length;
@@ -1029,8 +1016,9 @@ export function buildLinesIncremental(
   // burst of token deltas. Reusing prev's filtered result on a reference match
   // skips re-walking every block on every token, which is what kept this
   // O(transcript length) per streamed token instead of O(1).
+  const key = layoutKey ?? "";
   const blocks =
-    prev !== undefined && prev.sourceBlocks === contentBlocks
+    prev !== undefined && prev.sourceBlocks === contentBlocks && prev.layoutKey === key
       ? prev.blocks
       : renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
   // Prune stale cache entries only when blocks were removed (cache has more
@@ -1039,8 +1027,6 @@ export function buildLinesIncremental(
   if (cache !== undefined && cache.size > blocks.length) {
     pruneBlockLineCache(cache, blocks);
   }
-
-  const key = layoutKey ?? "";
 
   let startBlockIndex = 0;
   let prefixLines: StyledLine[] = [];
@@ -1054,7 +1040,6 @@ export function buildLinesIncremental(
     while (
       commonPrefix < maxPrefix
       && blocks[commonPrefix] === prev.blocks[commonPrefix]
-      && blocks[commonPrefix]?.layoutKey === prev.blocks[commonPrefix]?.layoutKey
     ) {
       commonPrefix++;
     }
