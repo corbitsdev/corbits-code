@@ -2,7 +2,8 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { formatReadFileTimeoutMessage, type ToolPlugin } from "@intx/tools-posix";
+import { formatReadFileTimeoutMessage } from "@intx/tools-posix/tool-time-budget";
+import type { ToolPlugin } from "@intx/tools-posix";
 
 // Intercode-side guard for read_file. Stock @intx/tools-posix read-file loads the
 // whole file into memory (buffer -> string -> split) and, with no limit, returns
