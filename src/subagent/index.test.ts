@@ -399,8 +399,18 @@ describe("createTaskTool", () => {
       new AbortController().signal,
     );
     expect(result.isError).toBe(true);
-    expect(String(result.content)).toContain("Re-authenticate");
+    const toolText = String(result.content);
+    expect(toolText).toContain("Re-authenticate");
+    // Exactly one Error: prefix on the tool result (formatter is bare).
+    expect(toolText.startsWith("Error: ")).toBe(true);
+    expect(toolText.includes("Error: Error:")).toBe(false);
     const row = sessions.list().find((s) => s.description === "auth probe");
     expect(row?.status).toBe("failed");
+    // session.error is bare; report entry is prefixed once by SessionStore.fail.
+    expect(row?.error?.startsWith("Error:")).toBe(false);
+    expect(row?.error).toContain("Re-authenticate");
+    const report = row?.entries.find((e) => e.kind === "report");
+    expect(report?.content.startsWith("Error: ")).toBe(true);
+    expect(report?.content.includes("Error: Error:")).toBe(false);
   });
 });
