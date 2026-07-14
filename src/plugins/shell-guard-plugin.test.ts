@@ -245,6 +245,23 @@ describe("shellGuardPlugin", () => {
     expect(toolContentTrimmed(stillRoot)).toBe(realpathSync(root));
   });
 
+  test("retains cwd from cd even when the command exits non-zero", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-cd-fail-"));
+    const nested = join(root, "nested");
+    await mkdir(nested);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const fail = await handler(
+      { id: "cf1", name: "run_shell", arguments: { command: "cd nested && false" } },
+      neverAbort(),
+    );
+    expect(String(fail.content)).toMatch(/exit code/);
+    const pwd = await handler(
+      { id: "cf2", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(String(pwd.content).trim()).toBe(realpathSync(nested));
+  });
+
   test("retains cwd across successive run_shell calls", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
     const sub = join(root, "nested");
