@@ -1,5 +1,6 @@
 import { test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
+import { TOOL_NAMES } from "../../../interchange/packages/tools-posix/src/registry.js";
 
 const mockDispose = mock(async () => {});
 
@@ -18,6 +19,7 @@ const mockPosixTools = {
 
 mock.module("@intx/tools-posix", () => ({
   createPosixTools: () => mockPosixTools,
+  TOOL_NAMES,
 }));
 
 mock.module("../../../src/plugins/path-escape-plugin.js", () => ({
