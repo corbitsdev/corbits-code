@@ -56,4 +56,9 @@ describe("classifyAgentSendFailure", () => {
     expect(classifyAgentSendFailure(new Error("boom"), false, codex, xai)).toBe("error");
     expect(shouldSettleUiAfterSendFailure("error")).toBe(true);
   });
+
+  test("auth failures settle ui for idle footer", () => {
+    expect(shouldSettleUiAfterSendFailure("codex_auth")).toBe(true);
+    expect(shouldSettleUiAfterSendFailure("xai_auth")).toBe(true);
+  });
 });

@@ -259,14 +259,28 @@ export type ShouldAbortForStallArgs = {
   lastActivityAt: number;
   nowMs: number;
   stallTimeoutMs: number;
+  isProcessing: boolean;
+  streamingType: "text" | "thinking" | "tool" | null;
 };
 
 // Pure decision helper: returns true when the run is genuinely stuck and should
 // be aborted. Extracted so the timeout logic is unit-testable without a React harness.
-export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, nowMs, stallTimeoutMs }: ShouldAbortForStallArgs): boolean {
+export function shouldAbortForStall({
+  status,
+  awaitingResponse,
+  lastActivityAt,
+  nowMs,
+  stallTimeoutMs,
+  isProcessing,
+  streamingType,
+}: ShouldAbortForStallArgs): boolean {
   if (status !== "running") return false;
-  if (!awaitingResponse) return false;
-  return nowMs - lastActivityAt >= stallTimeoutMs;
+  const stalled = nowMs - lastActivityAt >= stallTimeoutMs;
+  if (!stalled) return false;
+  if (awaitingResponse) return true;
+  // Mid-stream hang: thinking/text/tool started but tokens stopped (CL-3487).
+  if (isProcessing && streamingType !== null) return true;
+  return false;
 }
 
 export type ApplyStallRecoveryDeps = {
@@ -1258,6 +1272,8 @@ export function App({
         lastActivityAt: stateRef.current.lastActivityAt,
         nowMs: Date.now(),
         stallTimeoutMs: STALL_TIMEOUT_MS,
+        isProcessing: stateRef.current.isProcessing,
+        streamingType: stateRef.current.streamingType,
       })) {
         applyStallRecovery({
           abortInFlight: (reason) => sendAbortRef.current?.abort(reason),
