@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolDefinition } from "@intx/types/runtime";
+import {
+  assertShellCwdUsable,
+  parsePwdProbeOutput,
+  wrapCommandWithPwdProbe,
+} from "../shell/persistent-shell-cwd.js";
 
 // Intercode-side replacement for stock `@intx/tools-posix` run_shell.
 // We do not patch interchange: this middleware short-circuits run_shell and
@@ -32,20 +38,26 @@ export function advertiseShellGuardTimeout(
   }
   const properties = props as Record<string, unknown>;
   const timeout = properties["timeout"];
-  if (timeout === undefined || typeof timeout !== "object" || timeout === null) {
-    return definition;
+  const cwdProp = properties["cwd"];
+  const nextProperties = { ...properties };
+  if (timeout !== undefined && typeof timeout === "object" && timeout !== null) {
+    nextProperties["timeout"] = {
+      ...(timeout as Record<string, unknown>),
+      description: `Timeout in milliseconds (default: ${defaultMs})`,
+    };
+  }
+  if (cwdProp === undefined) {
+    nextProperties["cwd"] = {
+      type: "string",
+      description:
+        "Optional working directory for this call only (does not change the session shell cwd retained across calls)",
+    };
   }
   return {
     ...definition,
     inputSchema: {
       ...schema,
-      properties: {
-        ...properties,
-        timeout: {
-          ...(timeout as Record<string, unknown>),
-          description: `Timeout in milliseconds (default: ${defaultMs})`,
-        },
-      },
+      properties: nextProperties,
     },
   };
 }
@@ -224,6 +236,7 @@ export function shellGuardPlugin(
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
+  let retainedShellCwd = realpathSync(cwd);
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
@@ -235,15 +248,34 @@ export function shellGuardPlugin(
             isError: true,
           };
         }
+        const perCallCwd =
+          typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
+            ? call.arguments.cwd
+            : undefined;
+        const executionCwd = perCallCwd ?? retainedShellCwd;
+        try {
+          assertShellCwdUsable(executionCwd);
+        } catch (err) {
+          return {
+            callId: call.id,
+            content: err instanceof Error ? err.message : String(err),
+            isError: true,
+          };
+        }
         const requested = optionalNumber(call.arguments.timeout);
         const effectiveTimeout = Math.min(requested ?? defaultMs, maxMs);
+        const wrappedCommand = wrapCommandWithPwdProbe(command);
         try {
           const { output, exitCode, timedOut } = await runGuardedShell(
-            { command, cwd, timeout: effectiveTimeout },
+            { command: wrappedCommand, cwd: executionCwd, timeout: effectiveTimeout },
             signal,
           );
+          const parsed = parsePwdProbeOutput(output);
+          if (exitCode === 0 && perCallCwd === undefined && parsed.finalCwd !== undefined) {
+            retainedShellCwd = parsed.finalCwd;
+          }
           const base =
-            exitCode === 0 ? output : `exit code ${exitCode}\n${output}`;
+            exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
           const content = timedOut
             ? `${base}${base.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`
             : base;

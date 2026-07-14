@@ -1,4 +1,8 @@
 import { expect, test, describe } from "bun:test";
+import { mkdtemp, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { realpathSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import {
@@ -201,6 +205,96 @@ describe("shellGuardPlugin", () => {
     const result = await promise;
     expect(sawAbort).toBe(true);
     expect(result.isError).toBe(true);
+  });
+
+  test("retains cwd across successive run_shell calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
+    const sub = join(root, "nested");
+    await mkdir(sub);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const cdResult = await handler(
+      { id: "cd1", name: "run_shell", arguments: { command: "cd nested" } },
+      neverAbort(),
+    );
+    expect(cdResult.isError).toBeUndefined();
+    const pwdResult = await handler(
+      { id: "pwd1", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(pwdResult.content?.trim()).toBe(realpathSync(sub));
+  });
+
+  test("per-call cwd override does not change retained cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-override-cwd-"));
+    const sub = join(root, "other");
+    await mkdir(sub);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    await handler(
+      { id: "o1", name: "run_shell", arguments: { command: "cd other" } },
+      neverAbort(),
+    );
+    const override = await handler(
+      {
+        id: "o2",
+        name: "run_shell",
+        arguments: { command: "pwd", cwd: root },
+      },
+      neverAbort(),
+    );
+    expect(override.content?.trim()).toBe(realpathSync(root));
+    const retained = await handler(
+      { id: "o3", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(retained.content?.trim()).toBe(realpathSync(sub));
+  });
+
+  test("separate plugin instances keep isolated retained cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-isolate-cwd-"));
+    const a = join(root, "a");
+    const b = join(root, "b");
+    await mkdir(a);
+    await mkdir(b);
+    const handlerA = shellGuardPlugin(root).middleware!(fallback);
+    const handlerB = shellGuardPlugin(root).middleware!(fallback);
+    await handlerA(
+      { id: "ia", name: "run_shell", arguments: { command: "cd a" } },
+      neverAbort(),
+    );
+    await handlerB(
+      { id: "ib", name: "run_shell", arguments: { command: "cd b" } },
+      neverAbort(),
+    );
+    const pwdA = await handlerA(
+      { id: "pa", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    const pwdB = await handlerB(
+      { id: "pb", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(pwdA.content?.trim()).toBe(realpathSync(a));
+    expect(pwdB.content?.trim()).toBe(realpathSync(b));
+  });
+
+  test("surfaces a clear error when retained cwd is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-missing-cwd-"));
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const gone = join(root, "removed");
+    await mkdir(gone);
+    await handler(
+      { id: "m1", name: "run_shell", arguments: { command: `cd ${gone}` } },
+      neverAbort(),
+    );
+    const { rm } = await import("node:fs/promises");
+    await rm(gone, { recursive: true, force: true });
+    const result = await handler(
+      { id: "m2", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Shell working directory does not exist/);
+    expect(result.content).toContain("removed");
   });
 
   test("returns promptly when the search tool ignores the budget", async () => {
