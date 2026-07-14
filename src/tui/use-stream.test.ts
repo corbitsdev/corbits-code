@@ -795,10 +795,23 @@ describe("turnsToContentBlocks", () => {
     const state = createAgentStreamState();
     state.markRunning();
 
-    state.addEvent(event("inference.error", { error: { category: "aborted", message: "Aborted." } }));
+    state.addEvent(event("inference.error", {
+      error: { category: "aborted", message: "Aborted.", raw: { origin: "internal-recovery" } },
+    }));
 
     expect(state.status).not.toBe("failed");
     expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+  });
+
+  test("a user-stop aborted inference error terminates the run", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+
+    state.addEvent(event("inference.error", {
+      error: { category: "aborted", message: "inference aborted", raw: { origin: "user-stop" } },
+    }));
+
+    expect(state.status).toBe("failed");
   });
 
   test("a fatal reactor error fails the run and finalizes in-flight tool calls", () => {

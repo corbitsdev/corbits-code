@@ -10,6 +10,7 @@ import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.j
 import { validateView, type ViewNode } from "./view/index.js";
 import { parsePresentViewFromArgs } from "./tool-args.js";
 import { parseManageTasksArgs, applyManageTasks, type Task } from "../agent/tasks.js";
+import { isNonTerminalInferenceError } from "../inference-abort.js";
 
 // Provider-agnostic detection of context-window-overflow error text. The
 // upstream classifier only tags a 400 with specific English phrases as
@@ -113,7 +114,7 @@ export type AgentStreamState = {
 // Inference error categories the reactor recovers from on its own — a retry is
 // coming or the user aborted — so they must not terminally fail the run or
 // finalize its in-flight tool calls.
-const NON_TERMINAL_INFERENCE_CATEGORIES = new Set(["retryable", "timeout", "aborted"]);
+
 
 // This is display-only state; the agent context is retained separately. Keep the
 // TUI tail bounded so long tool-heavy runs do not stall every streaming render.
@@ -1101,7 +1102,7 @@ export function createAgentStreamState(
             errorRollbackHandoff = { blockIndex: attemptStartBlockIndex, callIds: attemptStartCallIds };
             attemptStartBlockIndex = null;
           }
-          const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
+          const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number; raw?: unknown } }).error;
           const friendly: Record<string, string> = {
             // The App opens the OAuth re-login modal on this category; keep the
             // transcript line short and free of raw 401 JSON from the provider.
@@ -1122,7 +1123,7 @@ export function createAgentStreamState(
           const msg = friendly[category] ?? err.message;
           // The director immediately continues recoverable attempts; rendering an
           // error here would flash a terminal-looking failure during recovery.
-          if (category !== "retryable" && category !== "timeout" && category !== "aborted") {
+          if (!isNonTerminalInferenceError({ category, raw: err.raw })) {
             pushBlock({ type: "error", message: msg });
           }
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
@@ -1165,8 +1166,8 @@ export function createAgentStreamState(
         const terminal =
           event.type === "reactor.error"
             ? (event.data as { fatal: boolean }).fatal === true
-            : !NON_TERMINAL_INFERENCE_CATEGORIES.has(
-                (event.data as { error: { category: string } }).error.category,
+            : !isNonTerminalInferenceError(
+                (event.data as { error: { category: string; raw?: unknown } }).error,
               );
         if (terminal) {
           status = "failed";
