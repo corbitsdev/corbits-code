@@ -43,8 +43,12 @@ export function classifyNetworkError(cause: unknown): InferenceError {
   return { category: "retryable", message, raw: cause };
 }
 
-export function classifyAbortError(): InferenceError {
-  return { category: "aborted", message: "inference aborted" };
+export function classifyAbortError(reason?: unknown): InferenceError {
+  return {
+    category: "aborted",
+    message: "inference aborted",
+    ...(reason !== undefined ? { raw: { origin: reason } } : {}),
+  };
 }
 
 export function classifyTimeoutError(
