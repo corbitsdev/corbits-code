@@ -39,6 +39,11 @@ import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js
 import { TaskView } from "./components/task-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
 import {
+  INFERENCE_ABORT_INTERNAL_RECOVERY,
+  INFERENCE_ABORT_USER_STOP,
+  type InferenceAbortReason,
+} from "../inference-abort.js";
+import {
   activeStripSessions,
   AgentsStrip,
   agentsStripRowCount,
@@ -260,6 +265,17 @@ export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, 
   if (status !== "running") return false;
   if (!awaitingResponse) return false;
   return nowMs - lastActivityAt >= stallTimeoutMs;
+}
+
+export type ApplyStallRecoveryDeps = {
+  abortInFlight: (reason: InferenceAbortReason) => void;
+  setCommandMessage: (message: string) => void;
+};
+
+/** Abort the in-flight send; ChatDirector continues via infer() on internal-recovery. */
+export function applyStallRecovery(deps: ApplyStallRecoveryDeps): void {
+  deps.abortInFlight(INFERENCE_ABORT_INTERNAL_RECOVERY);
+  deps.setCommandMessage("Recovering after an internal stall...");
 }
 
 async function writeProfileFile(dir: string, profile: AgentProfile): Promise<void> {
@@ -1154,7 +1170,7 @@ export function App({
 
   const requestStop = () => {
     quotaAutoRetryFiredRef.current = true;
-    sendAbortRef.current?.abort();
+    sendAbortRef.current?.abort(INFERENCE_ABORT_USER_STOP);
     // Parent stop must cancel live children too: aborting the parent send signal
     // is linked into each task's child controller, and cancelAll flips session
     // status + fires registerCancel hooks that close child agents.
@@ -1235,8 +1251,10 @@ export function App({
         nowMs: Date.now(),
         stallTimeoutMs: STALL_TIMEOUT_MS,
       })) {
-        requestStop();
-        setCommandMessage("Request timed out after no response. Please retry.");
+        applyStallRecovery({
+          abortInFlight: (reason) => sendAbortRef.current?.abort(reason),
+          setCommandMessage,
+        });
       }
     };
     const handle = setInterval(check, 1000);

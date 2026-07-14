@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { shouldAbortForStall } from "../../../src/tui/app.js";
+import { applyStallRecovery, shouldAbortForStall } from "../../../src/tui/app.js";
+import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../../../src/inference-abort.js";
 
 test("shouldAbortForStall: fires when running, awaiting, and stalled beyond timeout", () => {
   expect(shouldAbortForStall({
@@ -71,4 +72,21 @@ test("shouldAbortForStall: boundary — exactly at timeout fires", () => {
     nowMs: 120000,
     stallTimeoutMs: 120000,
   })).toBe(true);
+});
+
+test("applyStallRecovery aborts in-flight send with internal-recovery reason", () => {
+  let aborted: string | undefined;
+  let commandMessage = "";
+
+  applyStallRecovery({
+    abortInFlight: (reason) => {
+      aborted = reason;
+    },
+    setCommandMessage: (message) => {
+      commandMessage = message;
+    },
+  });
+
+  expect(aborted).toBe(INFERENCE_ABORT_INTERNAL_RECOVERY);
+  expect(commandMessage).toBe("Recovering after an internal stall...");
 });

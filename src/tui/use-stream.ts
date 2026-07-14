@@ -10,6 +10,7 @@ import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.j
 import { validateView, type ViewNode } from "./view/index.js";
 import { parsePresentViewFromArgs } from "./tool-args.js";
 import { parseManageTasksArgs, applyManageTasks, type Task } from "../agent/tasks.js";
+import { isNonTerminalInferenceError } from "../inference-abort.js";
 
 // Provider-agnostic detection of context-window-overflow error text. The
 // upstream classifier only tags a 400 with specific English phrases as
@@ -113,7 +114,7 @@ export type AgentStreamState = {
 // Inference error categories the reactor recovers from on its own — a retry is
 // coming or the user aborted — so they must not terminally fail the run or
 // finalize its in-flight tool calls.
-const NON_TERMINAL_INFERENCE_CATEGORIES = new Set(["retryable", "aborted"]);
+
 
 // This is display-only state; the agent context is retained separately. Keep the
 // TUI tail bounded so long tool-heavy runs do not stall every streaming render.
@@ -407,6 +408,7 @@ export function createAgentStreamState(
 
   const callIdToName = new Map<string, string>();
   const callIdToArguments = new Map<string, string>();
+  const activeToolCallIds = new Set<string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
   // Cached snapshot of hooks — rebuilt lazily only when the underlying map is
   // mutated, so repeated reads within one render return the same reference.
@@ -661,6 +663,7 @@ export function createAgentStreamState(
           streamingType = null;
           finishedAt = Date.now();
           finalizeOutstandingToolCalls();
+          activeToolCallIds.clear();
         }
         return;
       }
@@ -672,6 +675,7 @@ export function createAgentStreamState(
       streamingType = null;
       finishedAt = Date.now();
       finalizeOutstandingToolCalls();
+      activeToolCallIds.clear();
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).
@@ -679,6 +683,7 @@ export function createAgentStreamState(
       // the new run never starts wedged in "blocked".
       stopRequested = false;
       gateCount = 0;
+      activeToolCallIds.clear();
       quotaError = null;
       status = "running";
       finishedAt = null;
@@ -699,6 +704,7 @@ export function createAgentStreamState(
       blockSeq = 0;
       callIdToName.clear();
       callIdToArguments.clear();
+      activeToolCallIds.clear();
       pendingBlock = null;
       pendingField = null;
       pendingFragments = [];
@@ -798,8 +804,10 @@ export function createAgentStreamState(
               if (!attemptStartCallIds.has(callId)) {
                 callIdToName.delete(callId);
                 callIdToArguments.delete(callId);
+                activeToolCallIds.delete(callId);
               }
             }
+            awaitingResponse = activeToolCallIds.size === 0;
             // Drop strip-fallback entries for tool calls that were rolled back
             // with this attempt. Without this, a streamed task tool_call that
             // never executed leaves a permanent "doing" Agents ghost.
@@ -849,6 +857,7 @@ export function createAgentStreamState(
         case "inference.tool_call.start": {
           awaitingResponse = false;
           const data = event.data as { name: string; callId: string };
+          activeToolCallIds.add(data.callId);
           currentToolName = data.name;
           streamingType = "tool";
           callIdToName.set(data.callId, data.name);
@@ -912,13 +921,14 @@ export function createAgentStreamState(
           break;
         }
         case "tool.done": {
-          awaitingResponse = true;
-          // Restart the stall clock so the wait for the model's next move is
-          // measured from now, not from the previous token.
-          lastActivityAt = Date.now();
+          const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
+          activeToolCallIds.delete(result.callId);
+          awaitingResponse = activeToolCallIds.size === 0;
+          // Restart the stall clock only once every sibling result is in and
+          // the reactor is genuinely waiting to infer again.
+          if (awaitingResponse) lastActivityAt = Date.now();
           currentToolName = null;
           streamingType = null;
-          const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
           // A retried inference cycle (or any other re-emission upstream) can
           // deliver the same tool.done twice; the call already has a result
           // block, so a second one would render as a duplicate transcript
@@ -1092,7 +1102,7 @@ export function createAgentStreamState(
             errorRollbackHandoff = { blockIndex: attemptStartBlockIndex, callIds: attemptStartCallIds };
             attemptStartBlockIndex = null;
           }
-          const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number } }).error;
+          const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number; raw?: unknown } }).error;
           const friendly: Record<string, string> = {
             // The App opens the OAuth re-login modal on this category; keep the
             // transcript line short and free of raw 401 JSON from the provider.
@@ -1111,7 +1121,11 @@ export function createAgentStreamState(
           // user gets the right guidance instead of a misleading "quota" error.
           const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
           const msg = friendly[category] ?? err.message;
-          pushBlock({ type: "error", message: msg });
+          // The director immediately continues recoverable attempts; rendering an
+          // error here would flash a terminal-looking failure during recovery.
+          if (!isNonTerminalInferenceError({ category, raw: err.raw })) {
+            pushBlock({ type: "error", message: msg });
+          }
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
             quotaError = { retryAfterMs: err.retryAfterMs, retryAt: Date.now() + err.retryAfterMs };
           }
@@ -1152,8 +1166,8 @@ export function createAgentStreamState(
         const terminal =
           event.type === "reactor.error"
             ? (event.data as { fatal: boolean }).fatal === true
-            : !NON_TERMINAL_INFERENCE_CATEGORIES.has(
-                (event.data as { error: { category: string } }).error.category,
+            : !isNonTerminalInferenceError(
+                (event.data as { error: { category: string; raw?: unknown } }).error,
               );
         if (terminal) {
           status = "failed";

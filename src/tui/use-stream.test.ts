@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
+import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../inference-abort.js";
 import { createTurnContextCollector, RETAINED_TURN_CONTEXT_LIMIT } from "../session/hooks.js";
 import {
   MAX_RETAINED_TRANSCRIPT_BYTES,
@@ -19,6 +20,24 @@ function event(type: string, data: unknown): ReactorEmittedEvent {
 }
 
 describe("createAgentStreamState", () => {
+  test("waits for every parallel tool before awaiting another response", () => {
+    const state = createAgentStreamState();
+
+    state.addEvent(event("inference.tool_call.start", { callId: "fast", name: "read_file" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "slow", name: "run_shell" }));
+    state.addEvent(event("tool.done", {
+      result: { callId: "fast", content: "done", isError: false },
+    }));
+
+    expect(state.awaitingResponse).toBe(false);
+
+    state.addEvent(event("tool.done", {
+      result: { callId: "slow", content: "done", isError: false },
+    }));
+
+    expect(state.awaitingResponse).toBe(true);
+  });
+
   test("surfaces present view validation errors as tool_result", () => {
     const state = createAgentStreamState();
     state.addEvent(event("inference.tool_call.end", {
@@ -760,6 +779,40 @@ describe("turnsToContentBlocks", () => {
     expect(state.status).not.toBe("failed");
     // The in-flight call must stay resultless so a retry does not paint it as aborted.
     expect(state.contentBlocks.some((b) => b.type === "tool_result")).toBe(false);
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+  });
+
+  test("a timeout stays live and does not render a transient error", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+
+    state.addEvent(event("inference.error", { error: { category: "timeout", message: "request timed out" } }));
+
+    expect(state.status).not.toBe("failed");
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+  });
+
+  test("an internal abort stays live without rendering raw abort noise", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+
+    state.addEvent(event("inference.error", {
+      error: { category: "aborted", message: "Aborted.", raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY } },
+    }));
+
+    expect(state.status).not.toBe("failed");
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+  });
+
+  test("a user-stop aborted inference error terminates the run", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+
+    state.addEvent(event("inference.error", {
+      error: { category: "aborted", message: "inference aborted", raw: { origin: "user-stop" } },
+    }));
+
+    expect(state.status).toBe("failed");
   });
 
   test("a fatal reactor error fails the run and finalizes in-flight tool calls", () => {

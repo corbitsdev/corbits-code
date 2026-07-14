@@ -268,7 +268,7 @@ async function* runSingleAttempt(
     yield {
       type: "inference.error",
       seq: nextSeq(),
-      data: { error: classifyAbortError(), partial: snapshotPartial(partial) },
+      data: { error: classifyAbortError(signal.reason), partial: snapshotPartial(partial) },
     };
     return;
   }
@@ -386,7 +386,7 @@ async function* runSingleAttempt(
           type: "inference.error",
           seq: nextSeq(),
           data: {
-            error: classifyAbortError(),
+            error: classifyAbortError(signal.reason),
             partial: snapshotPartial(partial),
           },
         };
@@ -488,7 +488,7 @@ async function* runSingleAttempt(
             type: "inference.error",
             seq: nextSeq(),
             data: {
-              error: classifyAbortError(),
+              error: classifyAbortError(signal.reason),
               partial: snapshotPartial(partial),
             },
           };
@@ -955,7 +955,7 @@ async function* runSingleAttempt(
           type: "inference.error",
           seq: nextSeq(),
           data: {
-            error: classifyAbortError(),
+            error: classifyAbortError(signal.reason),
             partial: snapshotPartial(partial),
           },
         };
