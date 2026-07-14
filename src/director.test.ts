@@ -5,7 +5,10 @@ import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search
 import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
-import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "./inference-abort.js";
+import {
+  INFERENCE_ABORT_INTERNAL_RECOVERY,
+  INFERENCE_ABORT_USER_STOP,
+} from "./inference-abort.js";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
 
@@ -344,6 +347,22 @@ describe("chatDirector compaction", () => {
     const stopped = actionsArray(await director.decide(explicitAbort, longState, mockCapabilities));
     expect(stopped.some((action) => action.type === "done")).toBe(true);
     expect(stopped.some((action) => action.type === "infer")).toBe(false);
+  });
+
+  test("does not auto-recover user-stop aborted inference errors", async () => {
+    const director = chatDirectorWithContinuation();
+    const userStopAbort = {
+      type: "inference.error",
+      error: {
+        category: "aborted",
+        message: "inference aborted",
+        raw: { origin: INFERENCE_ABORT_USER_STOP },
+      },
+    } as unknown as ReactorInboundEvent;
+
+    const actions = actionsArray(await director.decide(userStopAbort, longState, mockCapabilities));
+    expect(actions.some((action) => action.type === "infer")).toBe(false);
+    expect(actions.some((action) => action.type === "checkpoint" && action.message === "inference-recovery")).toBe(false);
   });
 
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {

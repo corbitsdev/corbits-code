@@ -88,5 +88,5 @@ test("applyStallRecovery aborts in-flight send with internal-recovery reason", (
   });
 
   expect(aborted).toBe(INFERENCE_ABORT_INTERNAL_RECOVERY);
-  expect(commandMessage).toContain("Recovering");
+  expect(commandMessage).toBe("Recovering after an internal stall...");
 });
