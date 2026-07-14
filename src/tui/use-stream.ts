@@ -113,7 +113,7 @@ export type AgentStreamState = {
 // Inference error categories the reactor recovers from on its own — a retry is
 // coming or the user aborted — so they must not terminally fail the run or
 // finalize its in-flight tool calls.
-const NON_TERMINAL_INFERENCE_CATEGORIES = new Set(["retryable", "aborted"]);
+const NON_TERMINAL_INFERENCE_CATEGORIES = new Set(["retryable", "timeout", "aborted"]);
 
 // This is display-only state; the agent context is retained separately. Keep the
 // TUI tail bounded so long tool-heavy runs do not stall every streaming render.
@@ -1118,7 +1118,11 @@ export function createAgentStreamState(
           // user gets the right guidance instead of a misleading "quota" error.
           const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
           const msg = friendly[category] ?? err.message;
-          pushBlock({ type: "error", message: msg });
+          // The director immediately continues recoverable attempts; rendering an
+          // error here would flash a terminal-looking failure during recovery.
+          if (category !== "retryable" && category !== "timeout") {
+            pushBlock({ type: "error", message: msg });
+          }
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
             quotaError = { retryAfterMs: err.retryAfterMs, retryAt: Date.now() + err.retryAfterMs };
           }
