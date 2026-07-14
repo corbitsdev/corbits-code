@@ -529,6 +529,13 @@ export function createAgentStreamState(
     activityTick += 1;
     lastActivityAt = Date.now();
   };
+  // Footer spinner flags (isProcessing / streamingType) normally clear on
+  // connector.reply or requestStop(); terminal stream paths must settle too.
+  const settleProcessingChrome = (): void => {
+    isProcessing = false;
+    currentToolName = null;
+    streamingType = null;
+  };
   let faremeter = makeFaremeter();
   for (const hook of initialHooks) {
     hooksById.set(hook.id, { ...hook });
@@ -658,9 +665,7 @@ export function createAgentStreamState(
           stopRequested = true;
           status = "stopped";
           awaitingResponse = false;
-          isProcessing = false;
-          currentToolName = null;
-          streamingType = null;
+          settleProcessingChrome();
           finishedAt = Date.now();
           finalizeOutstandingToolCalls();
           activeToolCallIds.clear();
@@ -670,9 +675,7 @@ export function createAgentStreamState(
       stopRequested = true;
       status = "stopped";
       awaitingResponse = false;
-      isProcessing = false;
-      currentToolName = null;
-      streamingType = null;
+      settleProcessingChrome();
       finishedAt = Date.now();
       finalizeOutstandingToolCalls();
       activeToolCallIds.clear();
@@ -1152,6 +1155,7 @@ export function createAgentStreamState(
         status = stopRequested ? "stopped" : "done";
         finishedAt = Date.now();
         awaitingResponse = false;
+        settleProcessingChrome();
         // A clean done resolves every tool_call in order, but a stopped run may
         // leave one dangling; settle it so it stops rendering as running.
         if (stopRequested) finalizeOutstandingToolCalls();
@@ -1173,6 +1177,7 @@ export function createAgentStreamState(
           status = "failed";
           finishedAt = Date.now();
           awaitingResponse = false;
+          settleProcessingChrome();
           finalizeOutstandingToolCalls();
         }
       }
