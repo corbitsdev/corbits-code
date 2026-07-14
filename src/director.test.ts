@@ -5,6 +5,10 @@ import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search
 import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
+import {
+  INFERENCE_ABORT_INTERNAL_RECOVERY,
+  INFERENCE_ABORT_USER_STOP,
+} from "./inference-abort.js";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
 
@@ -302,6 +306,63 @@ describe("chatDirector compaction", () => {
     // The continuation message re-enters inference after the compact cycle.
     const resumed = actionsArray(await director.decide(messageReceived(""), longState, mockCapabilities));
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  test("retries recoverable inference failures within a bounded budget", async () => {
+    const director = chatDirectorWithContinuation();
+    const timeout = {
+      type: "inference.error",
+      error: { category: "timeout", message: "request timed out" },
+    } as unknown as ReactorInboundEvent;
+
+    for (let i = 0; i < 2; i++) {
+      const actions = actionsArray(await director.decide(timeout, longState, mockCapabilities));
+      expect(actions.some((action) => action.type === "infer")).toBe(true);
+    }
+
+    const exhausted = actionsArray(await director.decide(timeout, longState, mockCapabilities));
+    expect(exhausted).toEqual([
+      { type: "checkpoint", message: "inference-recovery-exhausted" },
+      { type: "reply", content: "The request could not recover. Send a message to resume." },
+    ]);
+  });
+
+  test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
+    const director = chatDirectorWithContinuation();
+    const internalAbort = {
+      type: "inference.error",
+      error: {
+        category: "aborted",
+        message: "inference aborted",
+        raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
+      },
+    } as unknown as ReactorInboundEvent;
+    const recovered = actionsArray(await director.decide(internalAbort, longState, mockCapabilities));
+    expect(recovered.some((action) => action.type === "infer")).toBe(true);
+
+    const explicitAbort = {
+      type: "abort",
+      reason: { kind: "operator", message: "cancelled" },
+    } as unknown as ReactorInboundEvent;
+    const stopped = actionsArray(await director.decide(explicitAbort, longState, mockCapabilities));
+    expect(stopped.some((action) => action.type === "done")).toBe(true);
+    expect(stopped.some((action) => action.type === "infer")).toBe(false);
+  });
+
+  test("does not auto-recover user-stop aborted inference errors", async () => {
+    const director = chatDirectorWithContinuation();
+    const userStopAbort = {
+      type: "inference.error",
+      error: {
+        category: "aborted",
+        message: "inference aborted",
+        raw: { origin: INFERENCE_ABORT_USER_STOP },
+      },
+    } as unknown as ReactorInboundEvent;
+
+    const actions = actionsArray(await director.decide(userStopAbort, longState, mockCapabilities));
+    expect(actions.some((action) => action.type === "infer")).toBe(false);
+    expect(actions.some((action) => action.type === "checkpoint" && action.message === "inference-recovery")).toBe(false);
   });
 
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {

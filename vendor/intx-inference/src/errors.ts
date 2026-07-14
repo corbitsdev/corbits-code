@@ -43,8 +43,20 @@ export function classifyNetworkError(cause: unknown): InferenceError {
   return { category: "retryable", message, raw: cause };
 }
 
-export function classifyAbortError(): InferenceError {
-  return { category: "aborted", message: "inference aborted" };
+/**
+ * `origin` mirrors AbortSignal.reason from the send path
+ * (e.g. intercode `user-stop` / `internal-recovery` string literals).
+ */
+export type ClassifiedAbortRaw = { origin: unknown };
+
+export function classifyAbortError(reason?: unknown): InferenceError {
+  const raw: ClassifiedAbortRaw | undefined =
+    reason !== undefined ? { origin: reason } : undefined;
+  return {
+    category: "aborted",
+    message: "inference aborted",
+    ...(raw !== undefined ? { raw } : {}),
+  };
 }
 
 export function classifyTimeoutError(
