@@ -137,16 +137,17 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       call.name === "run_shell" && typeof call.arguments.command === "string"
         ? call.arguments.command
         : undefined;
+    // Shell that mentions a secret path never rubber-stamps via grants or the
+    // auto-allow shell path. Secret-guard no longer hard-denies these; the
+    // operator (or headless deny) is the only remaining control.
     const shellReferencesSecret =
       shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
-    if (
-      !restricted &&
-      classifyTool(call.name, mcpTiers) === "allow" &&
-      !shellReferencesSecret
-    ) {
+    if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { allowed: true };
     }
-    if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
+    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, cwd)) {
+      return { allowed: true };
+    }
     if (auto) {
       if (call.name === "run_shell") {
         // The auto-shell policy carves out categories unsafe to run unattended.
@@ -168,11 +169,19 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     }
 
     for (const request of buildRequests(call)) {
-      if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;
+      // Broad grants like `cat *` must not authorize secret-path shell after the
+      // plugin hard-deny was removed. Always re-prompt (or headless-deny).
+      if (
+        !shellReferencesSecret &&
+        isApproved(request.tool, request.subject, approvals, activeProviderModel)
+      ) {
+        continue;
+      }
       // A pipeline that mixes a consequential segment (e.g. `find`) with an
       // intrinsically safe one (e.g. `sort`) only needs approval for the unsafe
       // segment. Skip prompting for any segment that auto-allows on its own.
       if (
+        !shellReferencesSecret &&
         request.tool === "run_shell" &&
         isAutoAllowedShellSegment(request.subject, cwd) &&
         !commandTargetsRestricted(request.subject, isRestricted)
@@ -183,7 +192,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       if (!interactive || requestApproval === undefined) {
         return {
           allowed: false,
-          reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
+          reason: shellReferencesSecret
+            ? `${request.action} references a sensitive path and requires operator approval, which is unavailable in a non-interactive run.`
+            : `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
         };
       }
 
