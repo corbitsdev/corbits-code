@@ -219,4 +219,137 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(verdict.allowed).toBe(false);
     expect(asked).toBe(0);
   });
+
+  test("exact grant for a secret-path command still re-prompts", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat .env" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("provider-model grant does not authorize secret-path shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [
+        { tool: "run_shell", pattern: "cat *", providerModel: "openai:gpt-4o" },
+      ],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      providerName: "openai",
+      model: "gpt-4o",
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("preApprove of a secret-path command still re-prompts", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    gate.preApprove("run_shell", "cat .env");
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("pipeline with secret segment re-prompts only that segment; safe tail can grant-skip", async () => {
+    const subjects: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "sort *" }],
+      requestApproval: async (req) => {
+        subjects.push(req.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env | sort"));
+    expect(verdict.allowed).toBe(true);
+    expect(subjects).toEqual(["cat .env"]);
+  });
+
+  test("chain with grant on safe segment still re-prompts secret segment", async () => {
+    const subjects: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      requestApproval: async (req) => {
+        subjects.push(req.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat README.md && cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(subjects).toEqual(["cat .env"]);
+  });
+
+  test("secret-path approval strips persist scopes and ignores persist payloads", async () => {
+    const seenScopes: Array<Array<{ pattern: string | null }>> = [];
+    const persisted: unknown[] = [];
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (req) => {
+        asked++;
+        seenScopes.push(req.scopes.map((s) => ({ pattern: s.pattern })));
+        return {
+          allow: true,
+          persist: {
+            id: "exact",
+            label: "Always",
+            pattern: "cat .env",
+            grant: "project" as const,
+          },
+        };
+      },
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("cat .env"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("cat .env"))).allowed).toBe(true);
+    // Persist scopes stripped; no grant stored so every call re-asks.
+    expect(seenScopes).toEqual([[], []]);
+    expect(persisted).toHaveLength(0);
+    expect(asked).toBe(2);
+  });
+
+  test("auto mode + grant still hard-denies mutation of a secret path", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "echo *" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("echo x > .env"));
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(0);
+  });
 });
