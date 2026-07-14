@@ -78,6 +78,10 @@ export function readFileBounded(
       );
     };
     signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
 
     const done = (result: BoundedRead) => {
       if (settled) return;

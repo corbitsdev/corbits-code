@@ -15,6 +15,11 @@ import {
 
 const neverAbort = () => new AbortController().signal;
 
+function toolContentTrimmed(result: ToolResult): string {
+  const content = result.content;
+  return (typeof content === "string" ? content : String(content)).trim();
+}
+
 describe("runGuardedShell", () => {
   test("captures stdout", async () => {
     const { output, exitCode } = await runGuardedShell(
@@ -162,6 +167,23 @@ describe("shellGuardPlugin", () => {
     expect(result.content).toBe("FALLBACK");
   });
 
+  test("passes through stock read_file timeout copy without rewriting", async () => {
+    const stockTimeout = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content:
+        "     1\tpartial\n\nread_file [timed out before completing] for big.log — use a smaller offset/limit. This is not an empty file.",
+      isError: true,
+    });
+    const handler = shellGuardPlugin(process.cwd()).middleware!(stockTimeout);
+    const result = await handler(
+      { id: "c3b", name: "read_file", arguments: { path: "big.log" } },
+      neverAbort(),
+    );
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("[timed out before completing]");
+    expect(String(result.content)).toContain("not an empty file");
+  });
+
   test("applies a search-tool budget via abort signal", async () => {
     let sawAbort = false;
     const slow = async (
@@ -220,7 +242,7 @@ describe("shellGuardPlugin", () => {
       { id: "e2", name: "run_shell", arguments: { command: "pwd" } },
       neverAbort(),
     );
-    expect(stillRoot.content?.trim()).toBe(realpathSync(root));
+    expect(toolContentTrimmed(stillRoot)).toBe(realpathSync(root));
   });
 
   test("retains cwd across successive run_shell calls", async () => {
@@ -237,7 +259,7 @@ describe("shellGuardPlugin", () => {
       { id: "pwd1", name: "run_shell", arguments: { command: "pwd" } },
       neverAbort(),
     );
-    expect(pwdResult.content?.trim()).toBe(realpathSync(sub));
+    expect(toolContentTrimmed(pwdResult)).toBe(realpathSync(sub));
   });
 
   test("per-call cwd override does not change retained cwd", async () => {
@@ -257,12 +279,12 @@ describe("shellGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(override.content?.trim()).toBe(realpathSync(root));
+    expect(toolContentTrimmed(override)).toBe(realpathSync(root));
     const retained = await handler(
       { id: "o3", name: "run_shell", arguments: { command: "pwd" } },
       neverAbort(),
     );
-    expect(retained.content?.trim()).toBe(realpathSync(sub));
+    expect(toolContentTrimmed(retained)).toBe(realpathSync(sub));
   });
 
   test("separate plugin instances keep isolated retained cwd", async () => {
@@ -289,8 +311,8 @@ describe("shellGuardPlugin", () => {
       { id: "pb", name: "run_shell", arguments: { command: "pwd" } },
       neverAbort(),
     );
-    expect(pwdA.content?.trim()).toBe(realpathSync(a));
-    expect(pwdB.content?.trim()).toBe(realpathSync(b));
+    expect(toolContentTrimmed(pwdA)).toBe(realpathSync(a));
+    expect(toolContentTrimmed(pwdB)).toBe(realpathSync(b));
   });
 
   test("surfaces a clear error when retained cwd is missing", async () => {
