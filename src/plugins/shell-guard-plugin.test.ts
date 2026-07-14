@@ -332,6 +332,29 @@ describe("shellGuardPlugin", () => {
     expect(toolContentTrimmed(pwdB)).toBe(realpathSync(b));
   });
 
+  test("serializes concurrent run_shell so retained cwd stays coherent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-serial-cwd-"));
+    const nested = join(root, "nested");
+    await mkdir(nested);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    // Fire cd and a slow non-cd in parallel. Without serialization, the slow
+    // call (started at root) can finish after cd and clobber retained cwd.
+    const cdPromise = handler(
+      { id: "s1", name: "run_shell", arguments: { command: "cd nested" } },
+      neverAbort(),
+    );
+    const slowPromise = handler(
+      { id: "s2", name: "run_shell", arguments: { command: "sleep 0.15; true" } },
+      neverAbort(),
+    );
+    await Promise.all([cdPromise, slowPromise]);
+    const pwd = await handler(
+      { id: "s3", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(pwd)).toBe(realpathSync(nested));
+  });
+
   test("surfaces a clear error when retained cwd is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-missing-cwd-"));
     const handler = shellGuardPlugin(root).middleware!(fallback);

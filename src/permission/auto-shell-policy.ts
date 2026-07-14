@@ -140,8 +140,13 @@ export function autoShellRuleForCall(
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
   if (commandHasRecursiveRm(command)) return RECURSIVE_RM_ASK_RULE;
+  // Deny rules (file-mutation) beat sensitive-path ask: `echo x > .env` must
+  // stay hard-denied in auto, not demoted to an operator prompt just because
+  // a secret path token is present.
+  const matched = matchAutoShellRule(command);
+  if (matched?.effect === "deny") return matched;
   if (commandReferencesSensitivePath(command) !== undefined) return SENSITIVE_PATH_ASK_RULE;
   const safeWorktree = safeWorktreeCommand(command);
   if (safeWorktree === false) return WORKTREE_ASK_RULE;
-  return matchAutoShellRule(command);
+  return matched;
 }

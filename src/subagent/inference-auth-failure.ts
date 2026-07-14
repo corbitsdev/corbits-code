@@ -23,8 +23,9 @@ export function formatSubAgentTaskAuthFailureMessage(
   const detail = err instanceof Error ? err.message : String(err);
   const detailSentence = detail.endsWith(".") ? detail : `${detail}.`;
   const providerLabel = kind === "codex" ? "Codex" : "xAI";
+  // No "Error:" prefix — SessionStore.fail and tool-result surfaces add their own.
   return (
-    `Error: sub-agent "${description}" could not run inference (${providerLabel} profile "${profile}"). ` +
+    `sub-agent "${description}" could not run inference (${providerLabel} profile "${profile}"). ` +
     `${detailSentence} Re-authenticate the profile (login modal or /login) and retry the task.`
   );
 }
