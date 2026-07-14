@@ -1016,8 +1016,9 @@ export function buildLinesIncremental(
   // burst of token deltas. Reusing prev's filtered result on a reference match
   // skips re-walking every block on every token, which is what kept this
   // O(transcript length) per streamed token instead of O(1).
+  const key = layoutKey ?? "";
   const blocks =
-    prev !== undefined && prev.sourceBlocks === contentBlocks
+    prev !== undefined && prev.sourceBlocks === contentBlocks && prev.layoutKey === key
       ? prev.blocks
       : renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
   // Prune stale cache entries only when blocks were removed (cache has more
@@ -1026,8 +1027,6 @@ export function buildLinesIncremental(
   if (cache !== undefined && cache.size > blocks.length) {
     pruneBlockLineCache(cache, blocks);
   }
-
-  const key = layoutKey ?? "";
 
   let startBlockIndex = 0;
   let prefixLines: StyledLine[] = [];
@@ -1041,7 +1040,6 @@ export function buildLinesIncremental(
     while (
       commonPrefix < maxPrefix
       && blocks[commonPrefix] === prev.blocks[commonPrefix]
-      && blocks[commonPrefix]?.layoutKey === prev.blocks[commonPrefix]?.layoutKey
     ) {
       commonPrefix++;
     }
