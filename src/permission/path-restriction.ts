@@ -15,11 +15,12 @@ import type { RootsProvider } from "./worktrees.js";
 //     a run.
 //
 // Gitignore status is deliberately not a factor: build output, node_modules,
-// and scratch files are ordinary workspace files for both reads and writes,
-// and the secret-guard plugin independently hard-blocks sensitive files (.env,
-// keys, certs) regardless of this gate. Results are cached per resolved path
-// and access mode because the gate consults this on every tool call with a
-// path argument.
+// and scratch files are ordinary workspace files for both reads and writes.
+// Secret-guard independently hard-blocks path-keyed reads/writes of sensitive
+// files (.env, keys, certs); shell commands that only mention those paths
+// require operator approval instead of a hard deny. Results are cached per
+// resolved path and access mode because the gate consults this on every tool
+// call with a path argument.
 
 export type PathRestriction = {
   isRestricted: (path: string, isWrite: boolean) => boolean;

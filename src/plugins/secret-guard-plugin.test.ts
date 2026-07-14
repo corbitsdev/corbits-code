@@ -81,6 +81,9 @@ describe("commandReferencesSensitivePath", () => {
     // Relative-dot prefixes resolve to the same anchored match as a raw token.
     "cat ./.env",
     "cat ./secrets/.env",
+    // Runtime env-file loaders — detected so the gate can ask, not hard-deny.
+    "bun --env-file=../../.env.staging run bin/publish.ts",
+    "bun --env-file=.env run -e 'console.log(1)'",
   ];
   for (const c of blocked) {
     test(`flags: ${c}`, () => expect(commandReferencesSensitivePath(c)).toBeDefined());
@@ -100,18 +103,31 @@ describe("commandReferencesSensitivePath", () => {
 });
 
 describe("secretGuardPlugin run_shell", () => {
-  test("denies a shell read of a secret file", async () => {
+  // Shell commands that mention a secret path are no longer hard-denied here —
+  // they require operator approval at the permission gate. The plugin only
+  // hard-denies path-keyed tools so approval can still let `bun --env-file=…`
+  // through when the operator says yes.
+  test("does not hard-deny a shell read of a secret file", async () => {
     const result = await handler()(shell("cat .env"), new AbortController().signal);
-    expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/sensitive file blocked/);
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("ok");
   });
 
-  test("denies a shell read of the credential settings file", async () => {
+  test("does not hard-deny a shell command that loads an env file", async () => {
+    const result = await handler()(
+      shell("bun --env-file=../../.env.staging run bin/publish.ts"),
+      new AbortController().signal,
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("ok");
+  });
+
+  test("does not hard-deny a shell read of the credential settings file", async () => {
     const result = await handler()(
       shell("cat ~/.intercode/settings.json"),
       new AbortController().signal,
     );
-    expect(result.isError).toBe(true);
+    expect(result.isError).not.toBe(true);
   });
 
   test("allows a harmless shell command", async () => {

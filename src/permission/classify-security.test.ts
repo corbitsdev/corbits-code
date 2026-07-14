@@ -1,6 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
 import { isAutoAllowedShellCall } from "./classify.js";
+import { autoShellRuleForCall } from "./auto-shell-policy.js";
+import { createPermissionGate } from "./gate.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
 const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
@@ -85,13 +87,54 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
   });
 });
 
-describe("secret-guard plugin hard-denies regardless of classification", () => {
-  test("blocks cat .env at the plugin layer even when not auto-allowed", async () => {
+describe("sensitive-path shell commands require approval, not a hard deny", () => {
+  test("secret-guard no longer hard-denies shell references to secret files", async () => {
     const middleware = secretGuardPlugin().middleware;
     if (middleware === undefined) throw new Error("secretGuardPlugin must provide middleware");
-    const next = async () => ({ callId: "c", content: "should not run", isError: false });
+    const next = async () => ({ callId: "c", content: "ran", isError: false });
     const result = await middleware(next)(shellCall("cat .env"), new AbortController().signal);
-    expect(result.isError).toBe(true);
-    expect(typeof result.content === "string" ? result.content : "").toContain("sensitive file blocked");
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("ran");
+  });
+
+  test("auto mode forces ask for shell commands that reference secret files", () => {
+    const rule = autoShellRuleForCall(shellCall("bun --env-file=.env.staging run publish.ts"));
+    expect(rule?.name).toBe("sensitive-path");
+    expect(rule?.effect).toBe("ask");
+  });
+
+  test("operator approval lets a sensitive-path shell command through the gate", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(
+      shellCall("bun --env-file=../../.env.staging run bin/publish.ts"),
+    );
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("auto mode still prompts (does not rubber-stamp) sensitive-path shell commands", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
   });
 });
