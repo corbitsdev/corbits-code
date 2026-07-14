@@ -87,14 +87,8 @@ export function AgentsStrip({
         const prefix = selected ? "› " : entered ? "· " : "  ";
         const label = formatSessionLabel(session);
         const tree = treeIndent(session, visible, index);
-        const rowBg = rowBackground(session.status);
         return (
-          <Box
-            key={session.id}
-            gap={1}
-            width="100%"
-            {...(rowBg !== undefined ? { backgroundColor: rowBg } : {})}
-          >
+          <Box key={session.id} gap={1} width="100%">
             <Text
               color={statusColor(session.status)}
               bold={session.status === "running" || selected}
@@ -120,23 +114,6 @@ export function AgentsStrip({
       )}
     </Box>
   );
-}
-
-// A background-tinted status card per row, mirroring the tool-row treatment
-// in event-log.tsx: a running wash while live, success/error tint once the
-// worker reaches a terminal state. Cancelled rows stay untinted — cancel is
-// an operator action, not an outcome worth calling out visually.
-function rowBackground(status: SubAgentSessionStatus): string | undefined {
-  switch (status) {
-    case "running":
-      return color("toolPendingBg");
-    case "done":
-      return color("toolSuccessBg");
-    case "failed":
-      return color("toolErrorBg");
-    case "cancelled":
-      return undefined;
-  }
 }
 
 // Nested (one-hop) dispatches carry parentSessionId; render them under their
