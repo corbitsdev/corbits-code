@@ -207,6 +207,22 @@ describe("shellGuardPlugin", () => {
     expect(result.isError).toBe(true);
   });
 
+  test("rejects retaining cwd outside the session workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-escape-cwd-"));
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const escaped = await handler(
+      { id: "e1", name: "run_shell", arguments: { command: "cd .. && pwd" } },
+      neverAbort(),
+    );
+    expect(escaped.isError).toBe(true);
+    expect(escaped.content).toMatch(/outside the session workspace/);
+    const stillRoot = await handler(
+      { id: "e2", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(stillRoot.content?.trim()).toBe(realpathSync(root));
+  });
+
   test("retains cwd across successive run_shell calls", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
     const sub = join(root, "nested");

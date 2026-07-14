@@ -44,6 +44,15 @@ test("shouldAbortForStall: fires on mid-thinking silence beyond timeout", () => 
   })).toBe(true);
 });
 
+test("shouldAbortForStall: does not fire on long tool execution without parent stream events", () => {
+  expect(shouldAbortForStall({
+    ...base,
+    awaitingResponse: false,
+    isProcessing: true,
+    streamingType: "tool",
+  })).toBe(false);
+});
+
 test("shouldAbortForStall: mid-stream with recent tokens does not fire", () => {
   expect(shouldAbortForStall({
     ...base,

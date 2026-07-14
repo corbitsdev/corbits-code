@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
-import type { ToolPlugin } from "@intx/tools-posix";
+import { formatSearchTimeoutMessage, type ToolPlugin } from "@intx/tools-posix";
 import type { ToolDefinition } from "@intx/types/runtime";
 import {
   assertShellCwdUsable,
+  isShellCwdWithinSession,
   parsePwdProbeOutput,
+  shellCwdEscapesSessionMessage,
   wrapCommandWithPwdProbe,
 } from "../shell/persistent-shell-cwd.js";
 
@@ -236,7 +238,8 @@ export function shellGuardPlugin(
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
-  let retainedShellCwd = realpathSync(cwd);
+  const sessionRoot = realpathSync(cwd);
+  let retainedShellCwd = sessionRoot;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
@@ -272,6 +275,13 @@ export function shellGuardPlugin(
           );
           const parsed = parsePwdProbeOutput(output);
           if (exitCode === 0 && perCallCwd === undefined && parsed.finalCwd !== undefined) {
+            if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
+              return {
+                callId: call.id,
+                content: shellCwdEscapesSessionMessage(parsed.finalCwd),
+                isError: true,
+              };
+            }
             retainedShellCwd = parsed.finalCwd;
           }
           const base =
@@ -304,8 +314,18 @@ export function shellGuardPlugin(
           if (outcome === BUDGET_EXPIRED) {
             const content = signal.aborted
               ? `${call.name} aborted`
-              : `${call.name} timed out after ${SEARCH_TOOL_TIMEOUT_MS}ms — narrow path/glob`;
+              : formatSearchTimeoutMessage(
+                  call.name as "grep" | "search_files",
+                );
             return { callId: call.id, content, isError: true };
+          }
+
+          if (
+            outcome.isError === true &&
+            typeof outcome.content === "string" &&
+            outcome.content.includes("[timed out before completing]")
+          ) {
+            return outcome;
           }
 
           // The base tool honored the abort and returned a generic abort error;
@@ -320,7 +340,9 @@ export function shellGuardPlugin(
           ) {
             return {
               callId: call.id,
-              content: `${call.name} timed out after ${SEARCH_TOOL_TIMEOUT_MS}ms — narrow path/glob`,
+              content: formatSearchTimeoutMessage(
+                call.name as "grep" | "search_files",
+              ),
               isError: true,
             };
           }

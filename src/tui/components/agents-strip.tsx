@@ -44,7 +44,17 @@ export function mergeInFlightSubAgents(
   for (const task of inFlight) {
     if (task.status !== "doing") continue;
     const existing = byId.get(task.id);
-    if (existing !== undefined && existing.status === "running") continue;
+    if (existing !== undefined) {
+      if (existing.status === "running") continue;
+      // Store already reached a terminal state; parent tool.done may lag one frame.
+      if (
+        existing.status === "done" ||
+        existing.status === "failed" ||
+        existing.status === "cancelled"
+      ) {
+        continue;
+      }
+    }
     const { agentId, description, currentToolName } = parseSubAgentTaskTitle(task.title);
     byId.set(task.id, {
       id: task.id,
