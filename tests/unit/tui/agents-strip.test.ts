@@ -110,6 +110,13 @@ describe("mergeInFlightSubAgents", () => {
     expect(merged.find((s) => s.id === "call-1")?.description).toBe("from store");
   });
 
+  test("does not resurrect a terminal store session when parent task still shows doing", () => {
+    const store = [session("call-1", "done")];
+    const tasks: Task[] = [{ id: "call-1", title: "worker: lagging", status: "doing" }];
+    const chrome = activeStripSessions(mergeInFlightSubAgents(store, tasks));
+    expect(chrome).toHaveLength(0);
+  });
+
   test("parses tool suffix from live progress titles", () => {
     const tasks: Task[] = [
       { id: "c1", title: "researcher: scan repo · grep", status: "doing" },

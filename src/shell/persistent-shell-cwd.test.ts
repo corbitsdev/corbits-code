@@ -7,6 +7,7 @@ import { realpathSync } from "node:fs";
 import {
   SHELL_PWD_MARKER,
   assertShellCwdUsable,
+  isShellCwdWithinSession,
   missingShellCwdMessage,
   parsePwdProbeOutput,
   wrapCommandWithPwdProbe,
@@ -30,6 +31,15 @@ describe("persistent-shell-cwd helpers", () => {
     expect(() => assertShellCwdUsable("/nonexistent-intercode-cwd-test")).toThrow(
       /Shell working directory/,
     );
+  });
+
+  test("isShellCwdWithinSession rejects paths outside the session root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-cwd-bound-"));
+    const sessionRoot = realpathSync(root);
+    const parent = realpathSync(join(root, ".."));
+    expect(isShellCwdWithinSession(sessionRoot, sessionRoot)).toBe(true);
+    expect(isShellCwdWithinSession(sessionRoot, join(sessionRoot, "sub"))).toBe(true);
+    expect(isShellCwdWithinSession(sessionRoot, parent)).toBe(false);
   });
 });
 

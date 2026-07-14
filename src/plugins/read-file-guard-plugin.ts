@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import type { ToolPlugin } from "@intx/tools-posix";
+import { formatReadFileTimeoutMessage, type ToolPlugin } from "@intx/tools-posix";
 
 // Intercode-side guard for read_file. Stock @intx/tools-posix read-file loads the
 // whole file into memory (buffer -> string -> split) and, with no limit, returns
@@ -71,7 +71,10 @@ export function readFileBounded(
       if (settled) return;
       settled = true;
       stream.destroy();
-      rejectP(new Error(`read aborted: ${absolutePath}`));
+      const partial = out.length > 0 ? out.join("\n") : undefined;
+      rejectP(
+        new Error(formatReadFileTimeoutMessage(absolutePath, partial)),
+      );
     };
     signal.addEventListener("abort", onAbort, { once: true });
 

@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 
 /** Sentinel line suffix appended after the user command to read the shell's cwd. */
 export const SHELL_PWD_MARKER = "__INTERCODE_SHELL_PWD_END__";
@@ -54,6 +54,19 @@ export function parsePwdProbeOutput(raw: string): PwdProbeParse {
 /** Clear error when the shell cannot start because the working directory is gone. */
 export function missingShellCwdMessage(cwd: string): string {
   return `Shell working directory does not exist or is not a directory: ${cwd}. Use an explicit cwd argument or cd to a valid path first.`;
+}
+
+/** True when `candidate` resolves to the session root or a subdirectory of it. */
+export function isShellCwdWithinSession(
+  sessionRoot: string,
+  candidate: string,
+): boolean {
+  const rel = relative(sessionRoot, candidate);
+  return rel === "" || !rel.startsWith("..");
+}
+
+export function shellCwdEscapesSessionMessage(cwd: string): string {
+  return `Shell cannot retain working directory outside the session workspace: ${cwd}. Stay within the project tree or use an explicit cwd argument.`;
 }
 
 export function assertShellCwdUsable(cwd: string): void {
