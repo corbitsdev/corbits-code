@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { formatSearchTimeoutMessage } from "@intx/tools-posix/tool-time-budget";
 import type { ToolPlugin } from "@intx/tools-posix";
+import { formatSearchTimeoutMessage } from "./tool-time-budget.js";
 import type { ToolDefinition } from "@intx/types/runtime";
 import {
   assertShellCwdUsable,
