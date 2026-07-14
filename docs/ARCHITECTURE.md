@@ -48,7 +48,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--dangerously-skip-permissions`; collects positional arguments as the optional initial task for the TUI.
-- Both settings files are on the secret-guard denylist, so the agent cannot read its own credentials.
+- Both settings files are on the secret-guard denylist for path-keyed tools, so the agent cannot `read_file` its own credentials. Shell commands that reference them still require explicit operator approval.
 
 ### TUI Runner (`src/tui/runner.tsx`)
 
@@ -175,7 +175,7 @@ Tool middleware applied over `createPosixTools`, in this order:
 ```
 tool call
   → pathEscapePlugin      (resolve + sandbox paths)
-    → secretGuardPlugin   (hard-deny secret files)
+    → secretGuardPlugin   (hard-deny path-keyed secret files)
       → authzPlugin       (deny catastrophic commands)
         → permissionPlugin (tiered operator approval)
           → verifyPlugin   (post-write/edit verification)
@@ -186,7 +186,7 @@ tool call
 
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
 - **Tool-output URI** (`tool-output-uri-plugin.ts`) — Normalizes mistaken `read_file` blob URIs to `tool-output:///id` (intercode-only; interchange stays unpatched).
-- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies tool calls that would expose a sensitive file: path-keyed arguments (`read_file`, `write_file`, …) and `run_shell` command strings, which are tokenized so `cat .env` or `cat ~/.intercode/settings.json` are blocked the same as a direct read. Runs before the permission plugin, so the deny holds even under `--dangerously-skip-permissions`. Shell containment is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly).
+- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies path-keyed tool calls (`read_file`, `write_file`, …) that would put a sensitive file into (or write it from) the model context. Runs before the permission plugin, so the path-arg deny holds even under `--dangerously-skip-permissions`. Shell commands that *reference* a sensitive path (tokenized so `cat .env`, `bun --env-file=.env run …`, and quote/env-assignment forms are detected) are not hard-denied here: they require operator approval via the permission gate, and auto mode forces an ask through the auto-shell policy (`sensitive-path` rule). Once the operator approves, the command runs. Shell detection is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly). Tool-result secret scrub still redacts credential-shaped output.
 - **Authorization** (`run-shell-authz.ts`, wired by `authz-plugin.ts`) — Denies catastrophic shell command patterns by regex, and hard-blocks open-ended shell searches (`find`, `rg`, `grep -r`) that OOM the host; those must go through the bounded `grep`/`search_files`/`list_dir` tools. The permission gate’s shell auto-allow path consults the same policy so it never pre-approves a command authz would reject.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
 - **Shell Guard** (`shell-guard-plugin.ts`) — Intercode-only replacement for stock `run_shell` (interchange stays unpatched): 10s default timeout, 512KB output cap, process-group kill on timeout/oversize/abort. Also applies a 10s wall-clock budget to `grep`/`search_files`.
@@ -200,7 +200,7 @@ tool call
 
 - **classify** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) are tier `allow`; everything else is tier `ask`. Builds discrete approval requests: chained shell commands split into one request per segment; file tools keyed on the target path; other tools keyed on tool name.
 - **command** — Splits chained commands and derives command-shape approval scopes.
-- **auto-shell-policy** — A flat, first-match-wins table of rules that constrain `run_shell` even when auto mode would otherwise rubber-stamp it. Each rule carries an effect: `deny` blocks the command outright with a reason (file mutations through ad-hoc tooling — output redirection, `tee`, `sed -i`/`perl -i`, interpreter inline programs or heredocs — which must instead go through `write_file`/`edit_file`); `ask` declines to auto-allow and falls through to the operator prompt (recursive `rm`, dependency installs and remote runners: npm/yarn/pnpm/bun, pip, cargo, go, brew, npx/bunx, …). Quoted spans are stripped before matching so a quoted `>` or install word in an argument is not flagged, and program names are matched only in command position (start, after a separator, or after a brace-group open). Adding a category is a one-line rule append.
+- **auto-shell-policy** — A flat, first-match-wins table of rules that constrain `run_shell` even when auto mode would otherwise rubber-stamp it. Each rule carries an effect: `deny` blocks the command outright with a reason (file mutations through ad-hoc tooling — output redirection, `tee`, `sed -i`/`perl -i`, interpreter inline programs or heredocs — which must instead go through `write_file`/`edit_file`); `ask` declines to auto-allow and falls through to the operator prompt (recursive `rm`, dependency installs and remote runners: npm/yarn/pnpm/bun, pip, cargo, go, brew, npx/bunx, …, and shell commands that reference a sensitive path such as `.env` or a private key). Quoted spans are stripped before matching so a quoted `>` or install word in an argument is not flagged, and program names are matched only in command position (start, after a separator, or after a brace-group open). Adding a category is a one-line rule append.
 - **gate** — Evaluates a call: `skipPermissions` allows everything; `allow`-tier passes; for `ask`-tier, checks persisted approvals, otherwise requests operator approval. In a non-interactive run an unresolved `ask` becomes a denial. In auto mode the gate consults the auto-shell policy first: a `deny` rule fails the call, an `ask` rule skips the auto-allow shortcut and proceeds to the normal approval flow, and anything unmatched is auto-allowed. Newly granted scopes are appended in memory and persisted.
 - **matcher** — Glob matching of an approval pattern against a request subject.
 - **store** — Loads/persists approvals scoped to the working directory.
