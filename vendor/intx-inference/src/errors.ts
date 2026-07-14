@@ -43,7 +43,10 @@ export function classifyNetworkError(cause: unknown): InferenceError {
   return { category: "retryable", message, raw: cause };
 }
 
-/** `origin` mirrors AbortSignal.reason (typically a short string from the send path). */
+/**
+ * `origin` mirrors AbortSignal.reason from the send path
+ * (e.g. intercode `user-stop` / `internal-recovery` string literals).
+ */
 export type ClassifiedAbortRaw = { origin: unknown };
 
 export function classifyAbortError(reason?: unknown): InferenceError {
