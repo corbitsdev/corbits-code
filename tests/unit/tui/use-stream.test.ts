@@ -690,29 +690,15 @@ test("a quota_exhausted error whose message describes a context overflow is recl
   expect(last.message).toContain("Context window full");
 });
 
-test("inference.error retryable maps to friendly message", () => {
-  const state = createAgentStreamState();
-  state.addEvent(inferenceErrorEvent("retryable", "raw"));
-  const last = state.contentBlocks.at(-1);
-  if (last?.type !== "error") throw new Error("expected error block");
-  expect(last.message).toBe("Request failed — will retry.");
-});
-
-test("inference.error aborted maps to friendly message", () => {
-  const state = createAgentStreamState();
-  state.addEvent(inferenceErrorEvent("aborted", "raw"));
-  const last = state.contentBlocks.at(-1);
-  if (last?.type !== "error") throw new Error("expected error block");
-  expect(last.message).toBe("Request aborted.");
-});
-
-test("inference.error timeout maps to friendly message", () => {
-  const state = createAgentStreamState();
-  state.addEvent(inferenceErrorEvent("timeout", "raw"));
-  const last = state.contentBlocks.at(-1);
-  if (last?.type !== "error") throw new Error("expected error block");
-  expect(last.message).toBe("Request timed out.");
-});
+test.each(["retryable", "aborted", "timeout"])(
+  "inference.error %s stays live without rendering recovery noise",
+  (category) => {
+    const state = createAgentStreamState();
+    state.addEvent(inferenceErrorEvent(category, "raw"));
+    expect(state.status).not.toBe("failed");
+    expect(state.contentBlocks.some((block) => block.type === "error")).toBe(false);
+  },
+);
 
 test("inference.error protocol_mismatch maps to friendly message", () => {
   const state = createAgentStreamState();

@@ -791,6 +791,16 @@ describe("turnsToContentBlocks", () => {
     expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
   });
 
+  test("an internal abort stays live without rendering raw abort noise", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+
+    state.addEvent(event("inference.error", { error: { category: "aborted", message: "Aborted." } }));
+
+    expect(state.status).not.toBe("failed");
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+  });
+
   test("a fatal reactor error fails the run and finalizes in-flight tool calls", () => {
     const state = createAgentStreamState();
     state.markRunning();

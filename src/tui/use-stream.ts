@@ -1120,7 +1120,7 @@ export function createAgentStreamState(
           const msg = friendly[category] ?? err.message;
           // The director immediately continues recoverable attempts; rendering an
           // error here would flash a terminal-looking failure during recovery.
-          if (category !== "retryable" && category !== "timeout") {
+          if (category !== "retryable" && category !== "timeout" && category !== "aborted") {
             pushBlock({ type: "error", message: msg });
           }
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {

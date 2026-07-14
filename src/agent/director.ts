@@ -398,7 +398,9 @@ class ChatDirectorImpl extends DefaultDirector {
     if (recovery !== null) return recovery;
 
     if (event.type === "inference.error" &&
-      (event.error.category === "timeout" || event.error.category === "retryable")) {
+      (event.error.category === "timeout" ||
+        event.error.category === "retryable" ||
+        event.error.category === "aborted")) {
       if (this.inferenceRecoveries < MAX_INFERENCE_RECOVERIES) {
         this.inferenceRecoveries++;
         return [capabilities.checkpoint("inference-recovery"), capabilities.infer()];
