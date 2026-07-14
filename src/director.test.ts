@@ -5,6 +5,7 @@ import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search
 import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
+import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "./inference-abort.js";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
 
@@ -327,7 +328,11 @@ describe("chatDirector compaction", () => {
     const director = chatDirectorWithContinuation();
     const internalAbort = {
       type: "inference.error",
-      error: { category: "aborted", message: "inference aborted", raw: { origin: "internal-recovery" } },
+      error: {
+        category: "aborted",
+        message: "inference aborted",
+        raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
+      },
     } as unknown as ReactorInboundEvent;
     const recovered = actionsArray(await director.decide(internalAbort, longState, mockCapabilities));
     expect(recovered.some((action) => action.type === "infer")).toBe(true);
