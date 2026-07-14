@@ -27,7 +27,7 @@ export type ShellTimeoutConfig = { defaultMs?: number; maxMs?: number };
 
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
- * 10s; rewrite the definition the model sees so schema and behavior agree.
+ * 15s default; rewrite the definition the model sees so schema and behavior agree.
  * Intercode-only — does not patch interchange.
  */
 export function advertiseShellGuardTimeout(

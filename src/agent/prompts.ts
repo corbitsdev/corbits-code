@@ -60,7 +60,7 @@ export function buildHarnessFacts(
     "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
-    "- run_shell defaults to a 10s timeout; pass timeout for builds, tests, and other long commands.",
+    "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
     "- Shell find, rg, and grep -r are blocked — they OOM the host. Use grep, search_files, and list_dir.",
     ...(subAgent
       ? [
@@ -146,7 +146,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   edit_file:
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
   delete_file: "delete one file with an explicit outcome (never shell rm)",
-  run_shell: "run a shell command (builds, tests, git; 10s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
+  run_shell: "run a shell command (builds, tests, git; 15s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
   search_files: "find files by name or pattern (bounded; prefer over shell find)",
   grep: "search file contents (bounded; prefer over shell grep -r/rg)",
   list_dir: "list a directory's entries (use instead of ls or find)",
