@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
+import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../inference-abort.js";
 import { createTurnContextCollector, RETAINED_TURN_CONTEXT_LIMIT } from "../session/hooks.js";
 import {
   MAX_RETAINED_TRANSCRIPT_BYTES,
@@ -796,7 +797,7 @@ describe("turnsToContentBlocks", () => {
     state.markRunning();
 
     state.addEvent(event("inference.error", {
-      error: { category: "aborted", message: "Aborted.", raw: { origin: "internal-recovery" } },
+      error: { category: "aborted", message: "Aborted.", raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY } },
     }));
 
     expect(state.status).not.toBe("failed");

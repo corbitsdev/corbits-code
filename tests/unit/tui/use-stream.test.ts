@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { createAgentStreamState } from "../../../src/tui/use-stream.js";
 import { setActivePricingCache } from "../../../src/cost/cost-visibility.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../../../src/inference-abort.js";
 
 const usageEvent = (input: number, output: number): ReactorEmittedEvent =>
   ({
@@ -705,7 +706,7 @@ test("inference.error internal-recovery aborted stays live without rendering rec
   state.addEvent({
     type: "inference.error",
     data: {
-      error: { category: "aborted", message: "raw", raw: { origin: "internal-recovery" } },
+      error: { category: "aborted", message: "raw", raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY } },
     },
   } as ReactorEmittedEvent);
   expect(state.status).not.toBe("failed");
