@@ -120,6 +120,20 @@ describe("readFileBounded", () => {
     expect(content).toContain("scan limit");
   });
 
+  test("abort rejects with read_file timeout guidance", async () => {
+    const p = await fixture("abort.txt", "line one\nline two\n");
+    const controller = new AbortController();
+    controller.abort();
+    let message = "";
+    try {
+      await readFileBounded(p, 0, 2000, controller.signal);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain("[timed out before completing]");
+    expect(message).toContain("not an empty file");
+  });
+
   test("offset past the scan ceiling reports the scan limit, not a fake EOF", async () => {
     // Many short lines totaling more than the scan ceiling; a huge offset can
     // never be reached within one scan pass.

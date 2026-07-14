@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
+import type { Task } from "../../agent/tasks.js";
 import type { SubAgentSession, SubAgentSessionStatus } from "../../subagent/session-store.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
@@ -29,6 +30,91 @@ export function activeStripSessions(
   sessions: readonly SubAgentSession[],
 ): SubAgentSession[] {
   return sessions.filter((s) => s.status === "running");
+}
+
+// Parent stream state (task tool_call.end → tool.done) can show a sub-agent as
+// "doing" before the session store has started, or if store updates are missed
+// for a frame. Merge those in-flight rows so the chrome strip never stays empty
+// while workers are live.
+export function mergeInFlightSubAgents(
+  storeSessions: readonly SubAgentSession[],
+  inFlight: readonly Task[],
+): SubAgentSession[] {
+  const byId = new Map(storeSessions.map((s) => [s.id, s]));
+  for (const task of inFlight) {
+    if (task.status !== "doing") continue;
+    const existing = byId.get(task.id);
+    if (existing !== undefined) {
+      if (existing.status === "running") continue;
+      // Store already reached a terminal state; parent tool.done may lag one frame.
+      if (
+        existing.status === "done" ||
+        existing.status === "failed" ||
+        existing.status === "cancelled"
+      ) {
+        continue;
+      }
+    }
+    const { agentId, description, currentToolName } = parseSubAgentTaskTitle(task.title);
+    byId.set(task.id, {
+      id: task.id,
+      description,
+      agentId,
+      brief: "",
+      status: "running",
+      toolNames: currentToolName !== null ? [currentToolName] : [],
+      currentToolName,
+      entries: [],
+      startedAt: existing?.startedAt ?? 0,
+      ...(existing?.parentSessionId !== undefined
+        ? { parentSessionId: existing.parentSessionId }
+        : {}),
+    });
+  }
+  return [...byId.values()].sort(stripSessionSort);
+}
+
+function stripSessionSort(a: SubAgentSession, b: SubAgentSession): number {
+  if (a.status === "running" && b.status !== "running") return -1;
+  if (a.status !== "running" && b.status === "running") return 1;
+  return b.startedAt - a.startedAt;
+}
+
+function parseSubAgentTaskTitle(title: string): {
+  agentId: string;
+  description: string;
+  currentToolName: string | null;
+} {
+  let base = title;
+  let currentToolName: string | null = null;
+  const toolSep = " · ";
+  const toolIdx = base.lastIndexOf(toolSep);
+  if (toolIdx !== -1) {
+    currentToolName = base.slice(toolIdx + toolSep.length).trim() || null;
+    base = base.slice(0, toolIdx);
+  }
+  const colon = base.indexOf(": ");
+  if (colon === -1) {
+    return { agentId: "worker", description: base.trim(), currentToolName };
+  }
+  return {
+    agentId: base.slice(0, colon).trim() || "worker",
+    description: base.slice(colon + 2).trim(),
+    currentToolName,
+  };
+}
+
+// Chrome shows the strip whenever there is a running worker to surface, or when
+// agents-nav is browsing historical sessions.
+export function shouldShowAgentsStrip(input: {
+  chromeSessions: readonly SubAgentSession[];
+  browseSessions: readonly SubAgentSession[];
+  agentsNavOpen: boolean;
+}): boolean {
+  return (
+    input.chromeSessions.length > 0 ||
+    (input.agentsNavOpen && input.browseSessions.length > 0)
+  );
 }
 
 // Rows the strip occupies for a given session count: the "Agents" header, the
@@ -87,14 +173,8 @@ export function AgentsStrip({
         const prefix = selected ? "› " : entered ? "· " : "  ";
         const label = formatSessionLabel(session);
         const tree = treeIndent(session, visible, index);
-        const rowBg = rowBackground(session.status);
         return (
-          <Box
-            key={session.id}
-            gap={1}
-            width="100%"
-            {...(rowBg !== undefined ? { backgroundColor: rowBg } : {})}
-          >
+          <Box key={session.id} gap={1} width="100%">
             <Text
               color={statusColor(session.status)}
               bold={session.status === "running" || selected}
@@ -120,23 +200,6 @@ export function AgentsStrip({
       )}
     </Box>
   );
-}
-
-// A background-tinted status card per row, mirroring the tool-row treatment
-// in event-log.tsx: a running wash while live, success/error tint once the
-// worker reaches a terminal state. Cancelled rows stay untinted — cancel is
-// an operator action, not an outcome worth calling out visually.
-function rowBackground(status: SubAgentSessionStatus): string | undefined {
-  switch (status) {
-    case "running":
-      return color("toolPendingBg");
-    case "done":
-      return color("toolSuccessBg");
-    case "failed":
-      return color("toolErrorBg");
-    case "cancelled":
-      return undefined;
-  }
 }
 
 // Nested (one-hop) dispatches carry parentSessionId; render them under their

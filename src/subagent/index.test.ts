@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
 import {
   createTaskTool,
+  createSubAgentSessionStore,
   DEFAULT_SUBAGENT_MAX_TURNS,
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   evaluateSubAgentStop,
@@ -373,5 +375,32 @@ describe("createTaskTool", () => {
     expect(captured?.signal?.aborted).toBe(true);
     // Abort during run is reported as cancel, not a completed report.
     expect(out).toContain("cancelled by operator");
+  });
+
+  test("inference auth failure marks tool error and fails the sub-agent session", async () => {
+    const sessions = createSubAgentSessionStore();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      sessions,
+      run: async () => {
+        throw new CodexAuthError("work", "refresh-failed", "401 Unauthorized");
+      },
+    });
+    if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+    const result = await tool.handler(
+      {
+        id: "auth-call",
+        name: "task",
+        arguments: { description: "auth probe", prompt: "x" },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("Re-authenticate");
+    const row = sessions.list().find((s) => s.description === "auth probe");
+    expect(row?.status).toBe("failed");
   });
 });

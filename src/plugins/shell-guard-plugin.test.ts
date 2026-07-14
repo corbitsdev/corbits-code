@@ -1,4 +1,8 @@
 import { expect, test, describe } from "bun:test";
+import { mkdtemp, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { realpathSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import {
@@ -10,6 +14,11 @@ import {
 } from "./shell-guard-plugin.js";
 
 const neverAbort = () => new AbortController().signal;
+
+function toolContentTrimmed(result: ToolResult): string {
+  const content = result.content;
+  return (typeof content === "string" ? content : String(content)).trim();
+}
 
 describe("runGuardedShell", () => {
   test("captures stdout", async () => {
@@ -158,6 +167,23 @@ describe("shellGuardPlugin", () => {
     expect(result.content).toBe("FALLBACK");
   });
 
+  test("passes through stock read_file timeout copy without rewriting", async () => {
+    const stockTimeout = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content:
+        "     1\tpartial\n\nread_file [timed out before completing] for big.log — use a smaller offset/limit. This is not an empty file.",
+      isError: true,
+    });
+    const handler = shellGuardPlugin(process.cwd()).middleware!(stockTimeout);
+    const result = await handler(
+      { id: "c3b", name: "read_file", arguments: { path: "big.log" } },
+      neverAbort(),
+    );
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("[timed out before completing]");
+    expect(String(result.content)).toContain("not an empty file");
+  });
+
   test("applies a search-tool budget via abort signal", async () => {
     let sawAbort = false;
     const slow = async (
@@ -201,6 +227,170 @@ describe("shellGuardPlugin", () => {
     const result = await promise;
     expect(sawAbort).toBe(true);
     expect(result.isError).toBe(true);
+  });
+
+  test("rejects retaining cwd outside the session workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-escape-cwd-"));
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const escaped = await handler(
+      { id: "e1", name: "run_shell", arguments: { command: "cd .. && pwd" } },
+      neverAbort(),
+    );
+    expect(escaped.isError).toBe(true);
+    expect(escaped.content).toMatch(/outside the session workspace/);
+    const stillRoot = await handler(
+      { id: "e2", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(stillRoot)).toBe(realpathSync(root));
+  });
+
+  test("retains cwd from cd even when the command exits non-zero", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-cd-fail-"));
+    const nested = join(root, "nested");
+    await mkdir(nested);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const fail = await handler(
+      { id: "cf1", name: "run_shell", arguments: { command: "cd nested && false" } },
+      neverAbort(),
+    );
+    expect(String(fail.content)).toMatch(/exit code/);
+    const pwd = await handler(
+      { id: "cf2", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(String(pwd.content).trim()).toBe(realpathSync(nested));
+  });
+
+  test("retains cwd across successive run_shell calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
+    const sub = join(root, "nested");
+    await mkdir(sub);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const cdResult = await handler(
+      { id: "cd1", name: "run_shell", arguments: { command: "cd nested" } },
+      neverAbort(),
+    );
+    expect(cdResult.isError).toBeUndefined();
+    const pwdResult = await handler(
+      { id: "pwd1", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(pwdResult)).toBe(realpathSync(sub));
+  });
+
+  test("per-call cwd override does not change retained cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-override-cwd-"));
+    const sub = join(root, "other");
+    await mkdir(sub);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    await handler(
+      { id: "o1", name: "run_shell", arguments: { command: "cd other" } },
+      neverAbort(),
+    );
+    const override = await handler(
+      {
+        id: "o2",
+        name: "run_shell",
+        arguments: { command: "pwd", cwd: root },
+      },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(override)).toBe(realpathSync(root));
+    const retained = await handler(
+      { id: "o3", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(retained)).toBe(realpathSync(sub));
+  });
+
+  test("separate plugin instances keep isolated retained cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-isolate-cwd-"));
+    const a = join(root, "a");
+    const b = join(root, "b");
+    await mkdir(a);
+    await mkdir(b);
+    const handlerA = shellGuardPlugin(root).middleware!(fallback);
+    const handlerB = shellGuardPlugin(root).middleware!(fallback);
+    await handlerA(
+      { id: "ia", name: "run_shell", arguments: { command: "cd a" } },
+      neverAbort(),
+    );
+    await handlerB(
+      { id: "ib", name: "run_shell", arguments: { command: "cd b" } },
+      neverAbort(),
+    );
+    const pwdA = await handlerA(
+      { id: "pa", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    const pwdB = await handlerB(
+      { id: "pb", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(pwdA)).toBe(realpathSync(a));
+    expect(toolContentTrimmed(pwdB)).toBe(realpathSync(b));
+  });
+
+  test("surfaces a clear error when retained cwd is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-missing-cwd-"));
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    const gone = join(root, "removed");
+    await mkdir(gone);
+    await handler(
+      { id: "m1", name: "run_shell", arguments: { command: `cd ${gone}` } },
+      neverAbort(),
+    );
+    const { rm } = await import("node:fs/promises");
+    await rm(gone, { recursive: true, force: true });
+    const result = await handler(
+      { id: "m2", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Shell working directory does not exist/);
+    expect(result.content).toContain("removed");
+  });
+
+  test("per-call relative cwd resolves against session root not process cwd", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-percall-cwd-"));
+    const marker = join(root, "markerdir");
+    await mkdir(marker);
+    const { writeFile } = await import("node:fs/promises");
+    const { chdir } = await import("node:process");
+    await writeFile(join(marker, "tag"), "session-tag");
+    const otherRoot = await mkdtemp(join(tmpdir(), "ic-process-cwd-"));
+    const otherMarker = join(otherRoot, "markerdir");
+    await mkdir(otherMarker);
+    await writeFile(join(otherMarker, "tag"), "wrong-tag");
+    const prev = process.cwd();
+    try {
+      await chdir(otherRoot);
+      const handler = shellGuardPlugin(root).middleware!(fallback);
+      const result = await handler(
+        {
+          id: "pc1",
+          name: "run_shell",
+          arguments: { command: "cat tag", cwd: "markerdir" },
+        },
+        neverAbort(),
+      );
+      expect(String(result.content)).toContain("session-tag");
+      expect(String(result.content)).not.toContain("wrong-tag");
+    } finally {
+      await chdir(prev);
+    }
+  });
+
+  test("treats timeout 0 as the configured default", async () => {
+    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware!(
+      fallback,
+    );
+    const result = await handler(
+      { id: "tz", name: "run_shell", arguments: { command: "sleep 60", timeout: 0 } },
+      neverAbort(),
+    );
+    expect(result.content).toMatch(/timed out after 90ms/);
   });
 
   test("returns promptly when the search tool ignores the budget", async () => {

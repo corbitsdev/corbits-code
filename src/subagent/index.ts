@@ -49,6 +49,7 @@ import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { withSubAgentSlot } from "./concurrency.js";
+import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { Settings, ProviderTier } from "../config/settings.js";
@@ -1220,9 +1221,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           }
           return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
-        const message = err instanceof Error ? err.message : String(err);
-        if (session !== undefined) deps.sessions?.fail(session.id, message);
-        return taskToolResult(call.id, `Error: sub-agent "${description}" failed: ${message}`);
+        const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
+        const message =
+          authMessage ??
+          `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
+        const sessionError = err instanceof Error ? err.message : String(err);
+        const failReason = authMessage ?? sessionError;
+        if (session !== undefined) deps.sessions?.fail(session.id, failReason);
+        return taskToolResult(call.id, message);
       } finally {
         signal.removeEventListener("abort", onParentAbort);
       }
