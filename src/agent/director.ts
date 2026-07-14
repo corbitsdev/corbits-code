@@ -57,6 +57,7 @@ function inferWithNudge(
 // no-op tool calls within one turn still converges to the cap.
 const MAX_OPEN_TASK_NUDGES = 3;
 const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
+const MAX_INFERENCE_RECOVERIES = 2;
 
 const IDLE_OPEN_TASK_NUDGE =
   "\n\nYou are ending your turn while tasks are still open (todo/doing). " +
@@ -287,6 +288,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private workflowIdleTurns = 0;
   private idleTerminationNudges = 0;
   private declinedTerminationNudges = 0;
+  private inferenceRecoveries = 0;
   private lastInferenceTurnHadContent = false;
   private operatorJustResponded = false;
   private tasks: Task[] = [];
@@ -395,6 +397,18 @@ class ChatDirectorImpl extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
+    if (event.type === "inference.error" &&
+      (event.error.category === "timeout" || event.error.category === "retryable")) {
+      if (this.inferenceRecoveries < MAX_INFERENCE_RECOVERIES) {
+        this.inferenceRecoveries++;
+        return [capabilities.checkpoint("inference-recovery"), capabilities.infer()];
+      }
+      return [
+        capabilities.checkpoint("inference-recovery-exhausted"),
+        capabilities.reply("The request could not recover. Send a message to resume."),
+      ];
+    }
+
     // Both nudge budgets are monotonic per inbound user message rather than
     // resetting on "real" tool work. Classifying a tool call as progress is
     // gameable: a weak model learns that any tool call (including a no-op
@@ -404,7 +418,9 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "message.received") {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
+      this.inferenceRecoveries = 0;
     }
+    if (event.type === "inference.done") this.inferenceRecoveries = 0;
 
     if (event.type === "message.received" && this.taskClassifier !== undefined) {
       const message = event.message;

@@ -304,6 +304,25 @@ describe("chatDirector compaction", () => {
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
   });
 
+  test("retries recoverable inference failures within a bounded budget", async () => {
+    const director = chatDirectorWithContinuation();
+    const timeout = {
+      type: "inference.error",
+      error: { category: "timeout", message: "request timed out" },
+    } as unknown as ReactorInboundEvent;
+
+    for (let i = 0; i < 2; i++) {
+      const actions = actionsArray(await director.decide(timeout, longState, mockCapabilities));
+      expect(actions.some((action) => action.type === "infer")).toBe(true);
+    }
+
+    const exhausted = actionsArray(await director.decide(timeout, longState, mockCapabilities));
+    expect(exhausted).toEqual([
+      { type: "checkpoint", message: "inference-recovery-exhausted" },
+      { type: "reply", content: "The request could not recover. Send a message to resume." },
+    ]);
+  });
+
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
     let continuations = 0;
     const director = chatDirectorWithContinuation(() => continuations++);
