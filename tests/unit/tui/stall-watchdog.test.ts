@@ -74,10 +74,9 @@ test("shouldAbortForStall: boundary — exactly at timeout fires", () => {
   })).toBe(true);
 });
 
-test("applyStallRecovery aborts in-flight send and does not resubmit the last prompt", () => {
+test("applyStallRecovery aborts in-flight send with internal-recovery reason", () => {
   let aborted: string | undefined;
   let commandMessage = "";
-  let resubmitCount = 0;
 
   applyStallRecovery({
     abortInFlight: (reason) => {
@@ -90,5 +89,4 @@ test("applyStallRecovery aborts in-flight send and does not resubmit the last pr
 
   expect(aborted).toBe(INFERENCE_ABORT_INTERNAL_RECOVERY);
   expect(commandMessage).toContain("Recovering");
-  expect(resubmitCount).toBe(0);
 });
