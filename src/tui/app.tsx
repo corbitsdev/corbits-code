@@ -41,6 +41,7 @@ import { hasActiveTasks } from "../agent/tasks.js";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
   INFERENCE_ABORT_USER_STOP,
+  type InferenceAbortReason,
 } from "../inference-abort.js";
 import {
   activeStripSessions,
@@ -267,14 +268,14 @@ export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, 
 }
 
 export type ApplyStallRecoveryDeps = {
-  abortInFlight: (reason: string) => void;
+  abortInFlight: (reason: InferenceAbortReason) => void;
   setCommandMessage: (message: string) => void;
 };
 
 /** Abort the in-flight send; ChatDirector continues via infer() on internal-recovery. */
 export function applyStallRecovery(deps: ApplyStallRecoveryDeps): void {
   deps.abortInFlight(INFERENCE_ABORT_INTERNAL_RECOVERY);
-  deps.setCommandMessage("Recovering after an internal stall…");
+  deps.setCommandMessage("Recovering after an internal stall...");
 }
 
 async function writeProfileFile(dir: string, profile: AgentProfile): Promise<void> {
