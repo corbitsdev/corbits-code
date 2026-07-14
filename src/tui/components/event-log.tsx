@@ -1054,7 +1054,6 @@ export function buildLinesIncremental(
     while (
       commonPrefix < maxPrefix
       && blocks[commonPrefix] === prev.blocks[commonPrefix]
-      && blocks[commonPrefix]?.layoutKey === prev.blocks[commonPrefix]?.layoutKey
     ) {
       commonPrefix++;
     }

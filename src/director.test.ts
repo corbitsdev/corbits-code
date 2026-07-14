@@ -137,6 +137,24 @@ describe("open-task termination guard", () => {
     expect(hasInfer(exhausted)).toBe(false);
   });
 
+  test("empty model turn settles with an empty reply before wait", async () => {
+    // DefaultDirector ends empty responses with bare wait; without a reply,
+    // agent.send hangs and the TUI Working spinner sticks forever.
+    const director = createChatDirector("base", []);
+    const emptyTurn = {
+      type: "inference.done",
+      turn: { role: "assistant", model: "test", timestamp: 0, content: [] },
+      usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { model: "test-model" },
+    } as unknown as ReactorInboundEvent;
+
+    const actions = actionsArray(await director.decide(emptyTurn, mockState, mockCapabilities));
+    expect(hasReply(actions)).toBe(true);
+    expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(true);
+    expect(actions.some((a) => a.type === "wait")).toBe(true);
+    expect(hasInfer(actions)).toBe(false);
+  });
+
   test("a declined tool with open tasks re-infers, then terminates after its cap", async () => {
     const director = createChatDirector("base", []);
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);

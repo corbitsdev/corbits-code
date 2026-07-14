@@ -1152,6 +1152,9 @@ export function createAgentStreamState(
         status = stopRequested ? "stopped" : "done";
         finishedAt = Date.now();
         awaitingResponse = false;
+        // Settle the footer even if connector.reply never arrived (shutdown
+        // without a conversational reply).
+        isProcessing = false;
         // A clean done resolves every tool_call in order, but a stopped run may
         // leave one dangling; settle it so it stops rendering as running.
         if (stopRequested) finalizeOutstandingToolCalls();
@@ -1173,6 +1176,7 @@ export function createAgentStreamState(
           status = "failed";
           finishedAt = Date.now();
           awaitingResponse = false;
+          isProcessing = false;
           finalizeOutstandingToolCalls();
         }
       }

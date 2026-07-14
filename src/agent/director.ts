@@ -54,6 +54,22 @@ function inferWithNudge(
   return capabilities.infer(withEphemeralNudge(options ?? {}, nudge));
 }
 
+// agent.send() only resolves on connector.reply (or fatal shutdown). A bare
+// wait leaves the send promise hanging and the TUI Working spinner stuck.
+// When the cycle is ending with wait and no further work, emit an empty reply
+// so the connector settles. Empty content does not paint a transcript block.
+function ensureCycleSettlesWithReply(
+  actions: ReactorAction | ReactorAction[],
+  capabilities: ReactorCapabilities,
+): ReactorAction | ReactorAction[] {
+  const list = Array.isArray(actions) ? actions : [actions];
+  if (!list.some((a) => a.type === "wait")) return actions;
+  if (list.some((a) => a.type === "infer" || a.type === "execute_tools" || a.type === "reply")) {
+    return actions;
+  }
+  return [capabilities.reply(""), ...list];
+}
+
 // A terminal decision with tasks still open means the work was not finished or
 // not marked finished. Rather than idle there, the director re-infers with a
 // nudge a bounded number of times, then logs the invariant breach and lets the
@@ -386,7 +402,11 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
-    return this.withCurrentTools(await this.decideInner(event, state, capabilities));
+    const settled = ensureCycleSettlesWithReply(
+      await this.decideInner(event, state, capabilities),
+      capabilities,
+    );
+    return this.withCurrentTools(settled);
   }
 
   private async decideInner(

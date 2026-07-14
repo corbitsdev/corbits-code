@@ -11,7 +11,7 @@ test("sumChromeZoneRows matches documented zone budgets", () => {
     + CHROME_ZONE_ROWS.prompt
     + CHROME_ZONE_ROWS.status,
   );
-  expect(sumChromeZoneRows()).toBe(9);
+  expect(sumChromeZoneRows()).toBe(11);
 });
 
 test("CHROME_ROWS is derived from chrome zone budgets", () => {

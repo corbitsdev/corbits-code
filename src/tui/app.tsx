@@ -788,11 +788,11 @@ export function App({
   }, [enteredSessionId, subAgentSessions, sessionsTick]);
 
   // The task strip renders above the in-flight indicator: one line when compact,
-  // the full checklist (plus heading and surrounding margins) when expanded.
+  // the full checklist (plus heading) when expanded. +1 is the marginTop wrapper.
   const taskChromeRows =
     !hasActiveTasks(state.tasks)
       ? 0
-      : (tasksExpanded ? state.tasks.length + 1 : 1) + 2;
+      : (tasksExpanded ? state.tasks.length + 1 : 1) + 1;
 
   // The plugins overlay renders outside the modal-stack accounting (like the
   // permissions overlay), so reserve rows for its box: chrome + one row per
