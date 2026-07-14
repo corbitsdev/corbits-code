@@ -323,6 +323,24 @@ describe("chatDirector compaction", () => {
     ]);
   });
 
+  test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
+    const director = chatDirectorWithContinuation();
+    const internalAbort = {
+      type: "inference.error",
+      error: { category: "aborted", message: "inference aborted" },
+    } as unknown as ReactorInboundEvent;
+    const recovered = actionsArray(await director.decide(internalAbort, longState, mockCapabilities));
+    expect(recovered.some((action) => action.type === "infer")).toBe(true);
+
+    const explicitAbort = {
+      type: "abort",
+      reason: { kind: "operator", message: "cancelled" },
+    } as unknown as ReactorInboundEvent;
+    const stopped = actionsArray(await director.decide(explicitAbort, longState, mockCapabilities));
+    expect(stopped.some((action) => action.type === "done")).toBe(true);
+    expect(stopped.some((action) => action.type === "infer")).toBe(false);
+  });
+
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
     let continuations = 0;
     const director = chatDirectorWithContinuation(() => continuations++);
