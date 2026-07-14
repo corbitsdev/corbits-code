@@ -1223,9 +1223,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         }
         const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
         const message =
-          authMessage ??
-          `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
+          authMessage !== null
+            ? `Error: ${authMessage}`
+            : `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
         const sessionError = err instanceof Error ? err.message : String(err);
+        // fail() prefixes "Error:" on the transcript report entry — pass bare text.
         const failReason = authMessage ?? sessionError;
         if (session !== undefined) deps.sessions?.fail(session.id, failReason);
         return taskToolResult(call.id, message);

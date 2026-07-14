@@ -137,4 +137,86 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
+
+  test("stored grants do not authorize secret-path shell commands", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("stored grants still authorize ordinary shell reads", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat README.md"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode + grant still re-prompts for secret-path shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("headless mode denies secret-path shell even with a matching grant", async () => {
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      interactive: false,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat .env"));
+    expect(verdict.allowed).toBe(false);
+  });
+
+  test("file-mutation deny beats sensitive-path ask in auto mode", () => {
+    const rule = autoShellRuleForCall(shellCall("echo x > .env"));
+    expect(rule?.name).toBe("file-mutation");
+    expect(rule?.effect).toBe("deny");
+  });
+
+  test("auto mode hard-denies shell file mutation of a secret path", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("echo x > .env"));
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(0);
+  });
 });
