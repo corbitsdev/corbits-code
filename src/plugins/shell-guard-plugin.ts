@@ -1,6 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
+import { formatSearchTimeoutMessage } from "./tool-time-budget.js";
 import type { ToolDefinition } from "@intx/types/runtime";
+import {
+  assertShellCwdUsable,
+  isShellCwdWithinSession,
+  parsePwdProbeOutput,
+  resolvePerCallShellCwd,
+  shellCwdEscapesSessionMessage,
+  wrapCommandWithPwdProbe,
+} from "../shell/persistent-shell-cwd.js";
 
 // Intercode-side replacement for stock `@intx/tools-posix` run_shell.
 // We do not patch interchange: this middleware short-circuits run_shell and
@@ -17,7 +27,7 @@ export type ShellTimeoutConfig = { defaultMs?: number; maxMs?: number };
 
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
- * 10s; rewrite the definition the model sees so schema and behavior agree.
+ * 15s default; rewrite the definition the model sees so schema and behavior agree.
  * Intercode-only — does not patch interchange.
  */
 export function advertiseShellGuardTimeout(
@@ -32,20 +42,26 @@ export function advertiseShellGuardTimeout(
   }
   const properties = props as Record<string, unknown>;
   const timeout = properties["timeout"];
-  if (timeout === undefined || typeof timeout !== "object" || timeout === null) {
-    return definition;
+  const cwdProp = properties["cwd"];
+  const nextProperties = { ...properties };
+  if (timeout !== undefined && typeof timeout === "object" && timeout !== null) {
+    nextProperties["timeout"] = {
+      ...(timeout as Record<string, unknown>),
+      description: `Timeout in milliseconds (default: ${defaultMs})`,
+    };
+  }
+  if (cwdProp === undefined) {
+    nextProperties["cwd"] = {
+      type: "string",
+      description:
+        "Optional working directory for this call only (does not change the session shell cwd retained across calls)",
+    };
   }
   return {
     ...definition,
     inputSchema: {
       ...schema,
-      properties: {
-        ...properties,
-        timeout: {
-          ...(timeout as Record<string, unknown>),
-          description: `Timeout in milliseconds (default: ${defaultMs})`,
-        },
-      },
+      properties: nextProperties,
     },
   };
 }
@@ -224,6 +240,8 @@ export function shellGuardPlugin(
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
+  const sessionRoot = realpathSync(cwd);
+  let retainedShellCwd = sessionRoot;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
@@ -235,15 +253,54 @@ export function shellGuardPlugin(
             isError: true,
           };
         }
+        const perCallCwdRaw =
+          typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
+            ? call.arguments.cwd
+            : undefined;
+        let executionCwd = retainedShellCwd;
+        if (perCallCwdRaw !== undefined) {
+          try {
+            executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw);
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
+          }
+        }
+        try {
+          assertShellCwdUsable(executionCwd);
+        } catch (err) {
+          return {
+            callId: call.id,
+            content: err instanceof Error ? err.message : String(err),
+            isError: true,
+          };
+        }
         const requested = optionalNumber(call.arguments.timeout);
-        const effectiveTimeout = Math.min(requested ?? defaultMs, maxMs);
+        const baseTimeoutMs =
+          requested !== undefined && requested > 0 ? requested : defaultMs;
+        const effectiveTimeout = Math.min(baseTimeoutMs, maxMs);
+        const wrappedCommand = wrapCommandWithPwdProbe(command);
         try {
           const { output, exitCode, timedOut } = await runGuardedShell(
-            { command, cwd, timeout: effectiveTimeout },
+            { command: wrappedCommand, cwd: executionCwd, timeout: effectiveTimeout },
             signal,
           );
+          const parsed = parsePwdProbeOutput(output);
+          if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
+            if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
+              return {
+                callId: call.id,
+                content: shellCwdEscapesSessionMessage(parsed.finalCwd),
+                isError: true,
+              };
+            }
+            retainedShellCwd = parsed.finalCwd;
+          }
           const base =
-            exitCode === 0 ? output : `exit code ${exitCode}\n${output}`;
+            exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
           const content = timedOut
             ? `${base}${base.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`
             : base;
@@ -272,8 +329,18 @@ export function shellGuardPlugin(
           if (outcome === BUDGET_EXPIRED) {
             const content = signal.aborted
               ? `${call.name} aborted`
-              : `${call.name} timed out after ${SEARCH_TOOL_TIMEOUT_MS}ms — narrow path/glob`;
+              : formatSearchTimeoutMessage(
+                  call.name as "grep" | "search_files",
+                );
             return { callId: call.id, content, isError: true };
+          }
+
+          if (
+            outcome.isError === true &&
+            typeof outcome.content === "string" &&
+            outcome.content.includes("[timed out before completing]")
+          ) {
+            return outcome;
           }
 
           // The base tool honored the abort and returned a generic abort error;
@@ -288,7 +355,9 @@ export function shellGuardPlugin(
           ) {
             return {
               callId: call.id,
-              content: `${call.name} timed out after ${SEARCH_TOOL_TIMEOUT_MS}ms — narrow path/glob`,
+              content: formatSearchTimeoutMessage(
+                call.name as "grep" | "search_files",
+              ),
               isError: true,
             };
           }

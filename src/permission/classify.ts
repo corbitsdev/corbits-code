@@ -5,7 +5,10 @@ import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js";
 import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
-import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  commandReferencesSensitivePath,
+  isSensitivePath,
+} from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
@@ -108,8 +111,10 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // A safe read command auto-runs only when every path-like argument stays inside
 // the workspace. Containment — not a secret-name denylist — is the real
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
-// `strings /proc/self/environ` from auto-reading any file on the host. The
-// secret guard remains a hard-deny backstop for secrets that live inside cwd.
+// `strings /proc/self/environ` from auto-reading any file on the host. Sensitive
+// path names (`.env`, keys) additionally never auto-allow; the permission gate
+// asks so the operator can approve legitimate shell uses (e.g. `--env-file`).
+// Path-keyed secret reads remain a hard deny in secret-guard.
 function realpathOr(path: string): string {
   try {
     return realpathSync(path);
@@ -155,6 +160,7 @@ export function isAutoAllowedShellSegment(segment: string, cwd: string = process
 function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
+  if (commandReferencesSensitivePath(trimmed)) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
   // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
   // token, defeating the anchored flag checks below.
@@ -176,6 +182,7 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
 export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
+  if (commandReferencesSensitivePath(trimmed)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).

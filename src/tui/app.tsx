@@ -48,6 +48,8 @@ import {
   AgentsStrip,
   agentsStripRowCount,
   DEFAULT_STRIP_MAX_VISIBLE,
+  mergeInFlightSubAgents,
+  shouldShowAgentsStrip,
 } from "./components/agents-strip.js";
 import {
   SubAgentSessionView,
@@ -257,14 +259,35 @@ export type ShouldAbortForStallArgs = {
   lastActivityAt: number;
   nowMs: number;
   stallTimeoutMs: number;
+  isProcessing: boolean;
+  streamingType: "text" | "thinking" | "tool" | null;
 };
 
 // Pure decision helper: returns true when the run is genuinely stuck and should
 // be aborted. Extracted so the timeout logic is unit-testable without a React harness.
-export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, nowMs, stallTimeoutMs }: ShouldAbortForStallArgs): boolean {
+export function shouldAbortForStall({
+  status,
+  awaitingResponse,
+  lastActivityAt,
+  nowMs,
+  stallTimeoutMs,
+  isProcessing,
+  streamingType,
+}: ShouldAbortForStallArgs): boolean {
   if (status !== "running") return false;
-  if (!awaitingResponse) return false;
-  return nowMs - lastActivityAt >= stallTimeoutMs;
+  const stalled = nowMs - lastActivityAt >= stallTimeoutMs;
+  if (!stalled) return false;
+  if (awaitingResponse) return true;
+  // Mid-stream hang: model stream stalled after first token (CL-3487). Long
+  // in-flight tool runs do not emit parent stream events; do not abort those.
+  if (
+    isProcessing &&
+    streamingType !== null &&
+    streamingType !== "tool"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export type ApplyStallRecoveryDeps = {
@@ -762,8 +785,12 @@ export function App({
   // for later inspection but no longer occupy the strip.
   const agentSessions = useMemo(() => {
     void sessionsTick;
-    return activeStripSessions(subAgentSessions?.listForStrip() ?? []);
-  }, [subAgentSessions, sessionsTick]);
+    const merged = mergeInFlightSubAgents(
+      subAgentSessions?.listForStrip() ?? [],
+      state.subAgents,
+    );
+    return activeStripSessions(merged);
+  }, [subAgentSessions, sessionsTick, state.subAgents]);
 
   // Ctrl+E browses the full strip surface (running + recent completed). The
   // chrome strip filters to running only; nav must still reach finished sessions
@@ -813,14 +840,16 @@ export function App({
   // The strip caps rendered rows so retained history never crowds out the
   // transcript; +1 accounts for the surrounding marginTop wrapper. When nav is
   // open the list may include completed sessions, so size against browseSessions.
-  const agentsStripRows =
-    agentsNavOpen && browseSessions.length > 0
+  const agentsStripVisible = shouldShowAgentsStrip({
+    chromeSessions: agentSessions,
+    browseSessions,
+    agentsNavOpen,
+  });
+  const agentsStripRows = agentsStripVisible
+    ? agentsNavOpen && browseSessions.length > 0
       ? agentsStripRowCount(browseSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
-      : agentSessions.length > 0
-        ? agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
-        : activeSubAgents.length > 0
-          ? activeSubAgents.length + 2
-          : 0;
+      : agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
+    : 0;
   const subAgentChromeRows = agentsStripRows;
 
   const extraChromeRows =
@@ -1250,6 +1279,8 @@ export function App({
         lastActivityAt: stateRef.current.lastActivityAt,
         nowMs: Date.now(),
         stallTimeoutMs: STALL_TIMEOUT_MS,
+        isProcessing: stateRef.current.isProcessing,
+        streamingType: stateRef.current.streamingType,
       })) {
         applyStallRecovery({
           abortInFlight: (reason) => sendAbortRef.current?.abort(reason),
@@ -1964,7 +1995,7 @@ export function App({
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />
             </Box>
           )}
-          {agentSessions.length > 0 || (agentsNavOpen && browseSessions.length > 0) ? (
+          {agentsStripVisible ? (
             <Box flexDirection="column" marginTop={1}>
               <AgentsStrip
                 sessions={agentsNavOpen ? browseSessions : agentSessions}
@@ -1974,10 +2005,6 @@ export function App({
                 enteredId={enteredSessionId}
                 navActive={agentsNavOpen}
               />
-            </Box>
-          ) : activeSubAgents.length > 0 ? (
-            <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={activeSubAgents} title="Agents" />
             </Box>
           ) : null}
           <Box paddingX={1}><Text dimColor>{chromeDividerLine(Math.max(8, columns - 2))}</Text></Box>
