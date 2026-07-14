@@ -19,6 +19,24 @@ function event(type: string, data: unknown): ReactorEmittedEvent {
 }
 
 describe("createAgentStreamState", () => {
+  test("waits for every parallel tool before awaiting another response", () => {
+    const state = createAgentStreamState();
+
+    state.addEvent(event("inference.tool_call.start", { callId: "fast", name: "read_file" }));
+    state.addEvent(event("inference.tool_call.start", { callId: "slow", name: "run_shell" }));
+    state.addEvent(event("tool.done", {
+      result: { callId: "fast", content: "done", isError: false },
+    }));
+
+    expect(state.awaitingResponse).toBe(false);
+
+    state.addEvent(event("tool.done", {
+      result: { callId: "slow", content: "done", isError: false },
+    }));
+
+    expect(state.awaitingResponse).toBe(true);
+  });
+
   test("surfaces present view validation errors as tool_result", () => {
     const state = createAgentStreamState();
     state.addEvent(event("inference.tool_call.end", {

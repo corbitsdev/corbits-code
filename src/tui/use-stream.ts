@@ -407,6 +407,7 @@ export function createAgentStreamState(
 
   const callIdToName = new Map<string, string>();
   const callIdToArguments = new Map<string, string>();
+  const activeToolCallIds = new Set<string>();
   const hooksById = new Map<string, LifecycleHookStatus>();
   // Cached snapshot of hooks — rebuilt lazily only when the underlying map is
   // mutated, so repeated reads within one render return the same reference.
@@ -661,6 +662,7 @@ export function createAgentStreamState(
           streamingType = null;
           finishedAt = Date.now();
           finalizeOutstandingToolCalls();
+          activeToolCallIds.clear();
         }
         return;
       }
@@ -672,6 +674,7 @@ export function createAgentStreamState(
       streamingType = null;
       finishedAt = Date.now();
       finalizeOutstandingToolCalls();
+      activeToolCallIds.clear();
     },
     markRunning(): void {
       // A fresh send revives the loop after it settled (done/stopped/failed).
@@ -679,6 +682,7 @@ export function createAgentStreamState(
       // the new run never starts wedged in "blocked".
       stopRequested = false;
       gateCount = 0;
+      activeToolCallIds.clear();
       quotaError = null;
       status = "running";
       finishedAt = null;
@@ -699,6 +703,7 @@ export function createAgentStreamState(
       blockSeq = 0;
       callIdToName.clear();
       callIdToArguments.clear();
+      activeToolCallIds.clear();
       pendingBlock = null;
       pendingField = null;
       pendingFragments = [];
@@ -849,6 +854,7 @@ export function createAgentStreamState(
         case "inference.tool_call.start": {
           awaitingResponse = false;
           const data = event.data as { name: string; callId: string };
+          activeToolCallIds.add(data.callId);
           currentToolName = data.name;
           streamingType = "tool";
           callIdToName.set(data.callId, data.name);
@@ -912,13 +918,14 @@ export function createAgentStreamState(
           break;
         }
         case "tool.done": {
-          awaitingResponse = true;
-          // Restart the stall clock so the wait for the model's next move is
-          // measured from now, not from the previous token.
-          lastActivityAt = Date.now();
+          const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
+          activeToolCallIds.delete(result.callId);
+          awaitingResponse = activeToolCallIds.size === 0;
+          // Restart the stall clock only once every sibling result is in and
+          // the reactor is genuinely waiting to infer again.
+          if (awaitingResponse) lastActivityAt = Date.now();
           currentToolName = null;
           streamingType = null;
-          const result = (event.data as { result: { callId: string; content: unknown; isError: boolean } }).result;
           // A retried inference cycle (or any other re-emission upstream) can
           // deliver the same tool.done twice; the call already has a result
           // block, so a second one would render as a duplicate transcript
