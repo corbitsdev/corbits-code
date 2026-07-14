@@ -5,7 +5,10 @@ import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js";
 import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
-import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  commandReferencesSensitivePath,
+  isSensitivePath,
+} from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
@@ -157,6 +160,7 @@ export function isAutoAllowedShellSegment(segment: string, cwd: string = process
 function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
+  if (commandReferencesSensitivePath(trimmed)) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
   // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
   // token, defeating the anchored flag checks below.
@@ -178,6 +182,7 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
 export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
+  if (commandReferencesSensitivePath(trimmed)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).

@@ -21,9 +21,10 @@ export function formatSubAgentTaskAuthFailureMessage(
   const profile =
     err instanceof CodexAuthError || err instanceof XaiAuthError ? err.profile : "default";
   const detail = err instanceof Error ? err.message : String(err);
+  const detailSentence = detail.endsWith(".") ? detail : `${detail}.`;
   const providerLabel = kind === "codex" ? "Codex" : "xAI";
   return (
     `Error: sub-agent "${description}" could not run inference (${providerLabel} profile "${profile}"). ` +
-    `${detail} Re-authenticate the profile (login modal or /login) and retry the task.`
+    `${detailSentence} Re-authenticate the profile (login modal or /login) and retry the task.`
   );
 }
