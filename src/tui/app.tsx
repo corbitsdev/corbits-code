@@ -278,8 +278,15 @@ export function shouldAbortForStall({
   const stalled = nowMs - lastActivityAt >= stallTimeoutMs;
   if (!stalled) return false;
   if (awaitingResponse) return true;
-  // Mid-stream hang: thinking/text/tool started but tokens stopped (CL-3487).
-  if (isProcessing && streamingType !== null) return true;
+  // Mid-stream hang: model stream stalled after first token (CL-3487). Long
+  // in-flight tool runs do not emit parent stream events; do not abort those.
+  if (
+    isProcessing &&
+    streamingType !== null &&
+    streamingType !== "tool"
+  ) {
+    return true;
+  }
   return false;
 }
 
