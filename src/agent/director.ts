@@ -19,14 +19,14 @@ import { createCompactionGovernor, type CompactionGovernor } from "./compaction.
 import { type } from "arktype";
 import { applyManageTasks, hasActiveTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 import { createIntercodeRetryPolicy } from "./retry-policy.js";
+import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 
 const RETRY_POLICY = createIntercodeRetryPolicy();
 
 const logger = getLogger(["intercode", "agent", "director"]);
 
 function isInternalRecoveryAbort(event: Extract<ReactorInboundEvent, { type: "inference.error" }>): boolean {
-  const raw = event.error.raw;
-  return typeof raw === "object" && raw !== null && "origin" in raw && raw.origin === "internal-recovery";
+  return isInternalRecoveryAbortRaw(event.error.raw);
 }
 
 function directorNudgeTurn(text: string): ConversationTurn {
