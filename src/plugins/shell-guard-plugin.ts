@@ -7,6 +7,7 @@ import {
   assertShellCwdUsable,
   isShellCwdWithinSession,
   parsePwdProbeOutput,
+  resolvePerCallShellCwd,
   shellCwdEscapesSessionMessage,
   wrapCommandWithPwdProbe,
 } from "../shell/persistent-shell-cwd.js";
@@ -252,11 +253,22 @@ export function shellGuardPlugin(
             isError: true,
           };
         }
-        const perCallCwd =
+        const perCallCwdRaw =
           typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
             ? call.arguments.cwd
             : undefined;
-        const executionCwd = perCallCwd ?? retainedShellCwd;
+        let executionCwd = retainedShellCwd;
+        if (perCallCwdRaw !== undefined) {
+          try {
+            executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw);
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
+          }
+        }
         try {
           assertShellCwdUsable(executionCwd);
         } catch (err) {
@@ -267,7 +279,9 @@ export function shellGuardPlugin(
           };
         }
         const requested = optionalNumber(call.arguments.timeout);
-        const effectiveTimeout = Math.min(requested ?? defaultMs, maxMs);
+        const baseTimeoutMs =
+          requested !== undefined && requested > 0 ? requested : defaultMs;
+        const effectiveTimeout = Math.min(baseTimeoutMs, maxMs);
         const wrappedCommand = wrapCommandWithPwdProbe(command);
         try {
           const { output, exitCode, timedOut } = await runGuardedShell(
@@ -275,7 +289,7 @@ export function shellGuardPlugin(
             signal,
           );
           const parsed = parsePwdProbeOutput(output);
-          if (exitCode === 0 && perCallCwd === undefined && parsed.finalCwd !== undefined) {
+          if (exitCode === 0 && perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
             if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
               return {
                 callId: call.id,

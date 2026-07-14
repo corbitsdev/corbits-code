@@ -69,6 +69,22 @@ export function shellCwdEscapesSessionMessage(cwd: string): string {
   return `Shell cannot retain working directory outside the session workspace: ${cwd}. Stay within the project tree or use an explicit cwd argument.`;
 }
 
+/** Resolve a per-call `cwd` argument against the session root (not process.cwd()). */
+export function resolvePerCallShellCwd(sessionRoot: string, cwdArg: string): string {
+  const root = realpathSync(sessionRoot);
+  const candidate = resolve(root, cwdArg);
+  let resolved: string;
+  try {
+    resolved = realpathSync(candidate);
+  } catch {
+    resolved = candidate;
+  }
+  if (!isShellCwdWithinSession(root, resolved)) {
+    throw new Error(shellCwdEscapesSessionMessage(resolved));
+  }
+  return resolved;
+}
+
 export function assertShellCwdUsable(cwd: string): void {
   try {
     const st = statSync(cwd);
