@@ -332,6 +332,61 @@ describe("shellGuardPlugin", () => {
     expect(toolContentTrimmed(pwdB)).toBe(realpathSync(b));
   });
 
+  test("serializes concurrent run_shell so retained cwd stays coherent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-serial-cwd-"));
+    const nested = join(root, "nested");
+    await mkdir(nested);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    // Barrier: hold a non-cd command open while a cd is enqueued behind it.
+    // Without serialization the waiter would finish after cd and clobber cwd.
+    const release = join(root, "release");
+    const waitCmd = `while [ ! -f ${JSON.stringify(release)} ]; do :; done; true`;
+    const waitPromise = handler(
+      { id: "s1", name: "run_shell", arguments: { command: waitCmd } },
+      neverAbort(),
+    );
+    // Give the waiter a chance to enter the busy loop before enqueuing cd.
+    await new Promise((r) => setTimeout(r, 30));
+    const cdPromise = handler(
+      { id: "s2", name: "run_shell", arguments: { command: "cd nested" } },
+      neverAbort(),
+    );
+    // Release the waiter; under serialization cd runs only after it finishes.
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(release, "go");
+    await Promise.all([waitPromise, cdPromise]);
+    const pwd = await handler(
+      { id: "s3", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    expect(toolContentTrimmed(pwd)).toBe(realpathSync(nested));
+  });
+
+  test("serializes concurrent absolute cds in enqueue order", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-serial-fifo-"));
+    const a = join(root, "a");
+    const b = join(root, "b");
+    await mkdir(a);
+    await mkdir(b);
+    const handler = shellGuardPlugin(root).middleware!(fallback);
+    await Promise.all([
+      handler(
+        { id: "f1", name: "run_shell", arguments: { command: `cd ${JSON.stringify(a)}` } },
+        neverAbort(),
+      ),
+      handler(
+        { id: "f2", name: "run_shell", arguments: { command: `cd ${JSON.stringify(b)}` } },
+        neverAbort(),
+      ),
+    ]);
+    const pwd = await handler(
+      { id: "f3", name: "run_shell", arguments: { command: "pwd" } },
+      neverAbort(),
+    );
+    // Last enqueued cd wins under serial execution.
+    expect(toolContentTrimmed(pwd)).toBe(realpathSync(b));
+  });
+
   test("surfaces a clear error when retained cwd is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-missing-cwd-"));
     const handler = shellGuardPlugin(root).middleware!(fallback);

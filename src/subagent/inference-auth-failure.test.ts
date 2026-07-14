@@ -29,6 +29,7 @@ describe("sub-agent inference auth failures", () => {
     expect(msg).toContain('sub-agent "explore auth"');
     expect(msg).toContain('profile "work"');
     expect(msg).toContain("Re-authenticate");
-    expect(msg?.startsWith("Error:")).toBe(true);
+    // SessionStore.fail prefixes "Error: "; the message itself must not.
+    expect(msg?.startsWith("Error:")).toBe(false);
   });
 });

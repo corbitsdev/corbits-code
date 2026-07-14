@@ -137,26 +137,25 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       call.name === "run_shell" && typeof call.arguments.command === "string"
         ? call.arguments.command
         : undefined;
+    // Full-command secret check: whole-call auto-allow and headless messaging.
+    // Per-segment secret checks below govern grants and segment auto-skip so a
+    // safe pipeline tail (e.g. `| sort`) is not re-prompted when only an earlier
+    // segment mentions a secret path.
     const shellReferencesSecret =
       shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
-    if (
-      !restricted &&
-      classifyTool(call.name, mcpTiers) === "allow" &&
-      !shellReferencesSecret
-    ) {
+    if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { allowed: true };
     }
-    if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
+    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, cwd)) {
+      return { allowed: true };
+    }
     if (auto) {
       if (call.name === "run_shell") {
-        // The auto-shell policy carves out categories unsafe to run unattended.
-        // A `deny` rule (file mutations through sed/python/redirects) blocks
-        // outright; an `ask` rule (dependency installs, sensitive-path refs)
-        // declines to auto-allow and falls through to the operator prompt below.
-        // Everything else is safe: authz has already hard-denied catastrophic
-        // commands upstream, and secret-guard hard-denies path-keyed secret
-        // reads. Shell commands that only *mention* a secret path are ask, not
-        // hard-deny, so an explicit approval can still let them through.
+        // Auto-shell policy: `deny` (file mutations) blocks outright; `ask`
+        // (dependency installs, sensitive-path refs) falls through to the
+        // operator prompt. Everything else auto-allows. Path-keyed secret
+        // reads stay hard-denied by secret-guard; shell that only *mentions*
+        // a secret path is ask so an explicit one-time approval can pass it.
         const shellRule = autoShellRuleForCall(call, isRestricted);
         if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
         if (shellRule === undefined) return { allowed: true };
@@ -168,11 +167,22 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     }
 
     for (const request of buildRequests(call)) {
-      if (isApproved(request.tool, request.subject, approvals, activeProviderModel)) continue;
+      const segmentReferencesSecret =
+        request.tool === "run_shell" &&
+        commandReferencesSensitivePath(request.subject) !== undefined;
+      // Broad grants like `cat *` must not authorize secret-path segments after
+      // the plugin hard-deny was removed. Always re-prompt (or headless-deny).
+      if (
+        !segmentReferencesSecret &&
+        isApproved(request.tool, request.subject, approvals, activeProviderModel)
+      ) {
+        continue;
+      }
       // A pipeline that mixes a consequential segment (e.g. `find`) with an
       // intrinsically safe one (e.g. `sort`) only needs approval for the unsafe
-      // segment. Skip prompting for any segment that auto-allows on its own.
+      // segment. Skip prompting for any non-secret segment that auto-allows.
       if (
+        !segmentReferencesSecret &&
         request.tool === "run_shell" &&
         isAutoAllowedShellSegment(request.subject, cwd) &&
         !commandTargetsRestricted(request.subject, isRestricted)
@@ -183,18 +193,32 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       if (!interactive || requestApproval === undefined) {
         return {
           allowed: false,
-          reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
+          reason: segmentReferencesSecret
+            ? `${request.action} references a sensitive path and requires operator approval, which is unavailable in a non-interactive run.`
+            : `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
         };
       }
 
-      const outcome = await requestApproval(request);
+      // Secret-path shell must never mint a stored grant — even an exact match
+      // would be misleading because future secret-path shell always re-asks.
+      // Strip persist scopes so the UI only offers Accept once; also ignore any
+      // persist payload if a caller still returns one.
+      const requestForOperator = segmentReferencesSecret
+        ? { ...request, scopes: [] }
+        : request;
+
+      const outcome = await requestApproval(requestForOperator);
       if (!outcome.allow) {
         const suffix = outcome.message !== undefined && outcome.message.length > 0
           ? ` — ${outcome.message}`
           : "";
         return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})${suffix}` };
       }
-      if (outcome.persist && outcome.persist.pattern !== null) {
+      if (
+        !segmentReferencesSecret &&
+        outcome.persist &&
+        outcome.persist.pattern !== null
+      ) {
         const grant: GrantScope = outcome.persist.grant ?? "session";
         const approval: Approval =
           grant === "provider-model" && activeProviderModel !== undefined

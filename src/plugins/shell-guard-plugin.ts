@@ -242,25 +242,47 @@ export function shellGuardPlugin(
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
+  // Serialize run_shell so concurrent tools cannot race retained cwd updates
+  // (last-writer-wins or a non-cd call finishing after a cd and resetting cwd).
+  let shellChain: Promise<unknown> = Promise.resolve();
+  const enqueueShell = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = shellChain.then(fn, fn);
+    shellChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "run_shell") {
-        const command = call.arguments.command;
-        if (typeof command !== "string" || command.length === 0) {
-          return {
-            callId: call.id,
-            content: 'argument "command" is required',
-            isError: true,
-          };
-        }
-        const perCallCwdRaw =
-          typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
-            ? call.arguments.cwd
-            : undefined;
-        let executionCwd = retainedShellCwd;
-        if (perCallCwdRaw !== undefined) {
+        return enqueueShell(async () => {
+          const command = call.arguments.command;
+          if (typeof command !== "string" || command.length === 0) {
+            return {
+              callId: call.id,
+              content: 'argument "command" is required',
+              isError: true,
+            };
+          }
+          const perCallCwdRaw =
+            typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
+              ? call.arguments.cwd
+              : undefined;
+          let executionCwd = retainedShellCwd;
+          if (perCallCwdRaw !== undefined) {
+            try {
+              executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw);
+            } catch (err) {
+              return {
+                callId: call.id,
+                content: err instanceof Error ? err.message : String(err),
+                isError: true,
+              };
+            }
+          }
           try {
-            executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw);
+            assertShellCwdUsable(executionCwd);
           } catch (err) {
             return {
               callId: call.id,
@@ -268,50 +290,41 @@ export function shellGuardPlugin(
               isError: true,
             };
           }
-        }
-        try {
-          assertShellCwdUsable(executionCwd);
-        } catch (err) {
-          return {
-            callId: call.id,
-            content: err instanceof Error ? err.message : String(err),
-            isError: true,
-          };
-        }
-        const requested = optionalNumber(call.arguments.timeout);
-        const baseTimeoutMs =
-          requested !== undefined && requested > 0 ? requested : defaultMs;
-        const effectiveTimeout = Math.min(baseTimeoutMs, maxMs);
-        const wrappedCommand = wrapCommandWithPwdProbe(command);
-        try {
-          const { output, exitCode, timedOut } = await runGuardedShell(
-            { command: wrappedCommand, cwd: executionCwd, timeout: effectiveTimeout },
-            signal,
-          );
-          const parsed = parsePwdProbeOutput(output);
-          if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
-            if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
-              return {
-                callId: call.id,
-                content: shellCwdEscapesSessionMessage(parsed.finalCwd),
-                isError: true,
-              };
+          const requested = optionalNumber(call.arguments.timeout);
+          const baseTimeoutMs =
+            requested !== undefined && requested > 0 ? requested : defaultMs;
+          const effectiveTimeout = Math.min(baseTimeoutMs, maxMs);
+          const wrappedCommand = wrapCommandWithPwdProbe(command);
+          try {
+            const { output, exitCode, timedOut } = await runGuardedShell(
+              { command: wrappedCommand, cwd: executionCwd, timeout: effectiveTimeout },
+              signal,
+            );
+            const parsed = parsePwdProbeOutput(output);
+            if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
+              if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
+                return {
+                  callId: call.id,
+                  content: shellCwdEscapesSessionMessage(parsed.finalCwd),
+                  isError: true,
+                };
+              }
+              retainedShellCwd = parsed.finalCwd;
             }
-            retainedShellCwd = parsed.finalCwd;
+            const base =
+              exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
+            const content = timedOut
+              ? `${base}${base.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`
+              : base;
+            return { callId: call.id, content };
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
           }
-          const base =
-            exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
-          const content = timedOut
-            ? `${base}${base.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`
-            : base;
-          return { callId: call.id, content };
-        } catch (err) {
-          return {
-            callId: call.id,
-            content: err instanceof Error ? err.message : String(err),
-            isError: true,
-          };
-        }
+        });
       }
 
       if (SEARCH_TOOLS.has(call.name)) {
