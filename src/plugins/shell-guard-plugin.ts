@@ -289,7 +289,7 @@ export function shellGuardPlugin(
             signal,
           );
           const parsed = parsePwdProbeOutput(output);
-          if (exitCode === 0 && perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
+          if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
             if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
               return {
                 callId: call.id,

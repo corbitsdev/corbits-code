@@ -9,6 +9,7 @@ import {
   commandTargetsRestricted,
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
+import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { isApproved } from "./matcher.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
@@ -132,7 +133,19 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // under .agent-state) drops from allow to ask, so it never auto-allows on
     // tier or shell-safety below.
     const restricted = callTargetsRestricted(call, isRestricted);
-    if (!restricted && classifyTool(call.name, mcpTiers) === "allow") return { allowed: true };
+    const shellCmd =
+      call.name === "run_shell" && typeof call.arguments.command === "string"
+        ? call.arguments.command
+        : undefined;
+    const shellReferencesSecret =
+      shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
+    if (
+      !restricted &&
+      classifyTool(call.name, mcpTiers) === "allow" &&
+      !shellReferencesSecret
+    ) {
+      return { allowed: true };
+    }
     if (!restricted && isAutoAllowedShellCall(call, cwd)) return { allowed: true };
     if (auto) {
       if (call.name === "run_shell") {
