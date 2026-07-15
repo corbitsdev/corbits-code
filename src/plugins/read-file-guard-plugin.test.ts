@@ -200,13 +200,14 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toContain("Use offset=");
   });
 
-  test("passes tool-output URIs through when no blob reader is configured", async () => {
+  test("rejects tool-output URIs when no blob reader is configured", async () => {
     const result = await run({
       id: "r2",
       name: "read_file",
       arguments: { path: "tool-output:///call-123" },
     });
-    expect(result.content).toBe("FALLBACK");
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("no blob reader is configured");
   });
 
   test("bounds tool-output blobs with offset and limit when a blob reader is configured", async () => {

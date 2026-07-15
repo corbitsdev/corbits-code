@@ -311,8 +311,15 @@ export function readFileGuardPlugin(
 
       if (isToolOutputLike(rawPath)) {
         const uri = canonicalToolOutputUri(rawPath);
-        if (uri === undefined || blobReader === undefined) {
+        if (uri === undefined) {
           return next(call, signal);
+        }
+        if (blobReader === undefined) {
+          return {
+            callId: call.id,
+            content: `cannot read ${rawPath}: no blob reader is configured for tool-output spills`,
+            isError: true,
+          };
         }
         try {
           signal.throwIfAborted();
