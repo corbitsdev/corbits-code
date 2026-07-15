@@ -17,6 +17,7 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import { DefaultDirector } from "@intx/inference";
 import type {
   ReactorInboundEvent,
@@ -706,7 +707,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   const toolsFactory = defineTool({
     id: "intercode/subagent-tools",
-    factory: () => createToolRunner(tools),
+    factory: () => createDynamicToolRunner(tools),
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());

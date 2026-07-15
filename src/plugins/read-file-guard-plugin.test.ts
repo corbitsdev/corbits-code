@@ -235,7 +235,7 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).not.toBe("FALLBACK");
   });
 
-  test("rejects tool-output blobs above the byte ceiling", async () => {
+  test("pages tool-output blobs above the display ceiling instead of rejecting the spill", async () => {
     const encoder = new TextEncoder();
     const huge = encoder.encode("x".repeat(READ_FILE_MAX_TOOL_OUTPUT_BYTES + 1));
     const blobReader = createBlobReader({
@@ -247,12 +247,12 @@ describe("readFileGuardPlugin", () => {
       {
         id: "r2c",
         name: "read_file",
-        arguments: { path: "tool-output:///huge" },
+        arguments: { path: "tool-output:///huge", limit: 5 },
       },
       blobReader,
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("exceeds");
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("x");
     expect(result.content).not.toBe("FALLBACK");
   });
 
