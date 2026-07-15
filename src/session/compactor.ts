@@ -302,7 +302,12 @@ function buildResultStub(
   const info = callIndex.get(block.callId);
   const name = info?.name ?? "tool_result";
   const size = resultContentSize(block);
-  if (info?.pathArg !== undefined) return `[${name} ${info.pathArg} — ${size} chars, omitted]`;
+  if (info?.pathArg !== undefined) {
+    const path = info.pathArg;
+    const spillHint =
+      path.startsWith("tool-output://") ? " Re-read with read_file offset/limit or grep on that URI." : "";
+    return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}]`;
+  }
   if (info?.commandArg !== undefined) {
     const cmd = info.commandArg.slice(0, 40);
     return `[${name} "${cmd}" — ${size} chars, omitted]`;

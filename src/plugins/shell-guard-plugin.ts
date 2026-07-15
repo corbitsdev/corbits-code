@@ -168,8 +168,9 @@ export class BoundedShellOutput {
     const tail = Buffer.concat(this.tailChunks);
     const omitted = Math.max(0, this.totalBytes - this.head.length - tail.length);
     const marker =
-      `\n\n[command output truncated — ${omitted.toLocaleString()} bytes omitted; ` +
-      `head+tail retained under ${this.maxBytes.toLocaleString()} byte cap]\n\n`;
+      `\n\n[command output truncated — ${omitted.toLocaleString()} bytes omitted from this view; ` +
+      `head+tail retained under ${this.maxBytes.toLocaleString()} byte cap. ` +
+      `Full output is not lost: re-run with stdout redirected to a workspace file, then read_file or grep that path.]\n\n`;
     return {
       output: this.head.toString("utf8") + marker + tail.toString("utf8"),
       truncated: true,
@@ -249,10 +250,9 @@ export async function runGuardedShell(
 
     const onChunk = (chunk: Buffer) => {
       if (settled) return;
-      if (collector.append(chunk)) {
-        killProcessTree(child);
-        finishOutput(125, false);
-      }
+      // Switch to head+tail collection when over cap; keep the process running so
+      // the command can finish and its true exit code is preserved.
+      collector.append(chunk);
     };
 
     // Interleave stdout and stderr in arrival order into one collector.
@@ -421,7 +421,10 @@ export function shellGuardPlugin(
               exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
             let content = base;
             if (outputTruncated) {
-              content = `${base}${base.length > 0 ? "\n" : ""}[command output exceeded the configured byte cap and was terminated]`;
+              content =
+                `${base}${base.length > 0 ? "\n" : ""}` +
+                `[command output exceeded the display byte cap; the process was not killed. ` +
+                `Capture full output by redirecting to a file in the workspace, then read_file or grep.]`;
             }
             if (timedOut) {
               content = `${content}${content.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`;
