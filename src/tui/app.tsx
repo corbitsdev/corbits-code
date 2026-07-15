@@ -47,6 +47,7 @@ import {
   activeStripSessions,
   AgentsStrip,
   agentsStripRowCount,
+  computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
   mergeInFlightSubAgents,
   shouldShowAgentsStrip,
@@ -591,6 +592,7 @@ export function App({
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
   const pendingQueueRef = useRef<OutboundUserMessage[]>([]);
+  const tryDrainQueuedMessageRef = useRef<() => void>(() => {});
   const [queuedCount, setQueuedCount] = useState(0);
   const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([]);
 
@@ -797,6 +799,7 @@ export function App({
     if (subAgentSessions === undefined) return;
     return subAgentSessions.subscribe(() => {
       setSessionsTick((n) => n + 1);
+      tryDrainQueuedMessageRef.current();
     });
   }, [subAgentSessions]);
 
@@ -857,6 +860,12 @@ export function App({
     () => state.subAgents.filter((a) => a.status !== "done" && a.status !== "cancelled"),
     [state.subAgents],
   );
+  const activeSubAgentsRef = useRef(activeSubAgents);
+  activeSubAgentsRef.current = activeSubAgents;
+  const hasRunningSubAgentSessions = (): boolean =>
+    subAgentSessions?.list().some((session) => session.status === "running") ?? false;
+  const steerOnEnter =
+    state.isProcessing && activeSubAgents.length === 0 && !hasRunningSubAgentSessions();
   // The strip caps rendered rows so retained history never crowds out the
   // transcript; +1 accounts for the surrounding marginTop wrapper. When nav is
   // open the list may include completed sessions, so size against browseSessions.
@@ -865,9 +874,21 @@ export function App({
     browseSessions,
     agentsNavOpen,
   });
+  const agentsStripScrollWindow =
+    agentsNavOpen && browseSessions.length > DEFAULT_STRIP_MAX_VISIBLE
+      ? computeAgentsStripWindow(
+          browseSessions.length,
+          agentsNavIndexClamped,
+          DEFAULT_STRIP_MAX_VISIBLE,
+        )
+      : undefined;
   const agentsStripRows = agentsStripVisible
     ? agentsNavOpen && browseSessions.length > 0
-      ? agentsStripRowCount(browseSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
+      ? agentsStripRowCount(
+          browseSessions.length,
+          DEFAULT_STRIP_MAX_VISIBLE,
+          agentsStripScrollWindow,
+        ) + 1
       : agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
     : 0;
   const subAgentChromeRows = agentsStripRows;
@@ -1218,6 +1239,17 @@ export function App({
   };
   const sendMessage = (message: OutboundUserMessage) => sendMessageRef.current(message);
 
+  tryDrainQueuedMessageRef.current = () => {
+    if (stateRef.current.status === "blocked") return;
+    if (stateRef.current.isProcessing) return;
+    if (activeSubAgentsRef.current.length > 0) return;
+    if (hasRunningSubAgentSessions()) return;
+    if (pendingQueueRef.current.length === 0) return;
+    const next = pendingQueueRef.current.shift()!;
+    setQueuedCount((c) => Math.max(0, c - 1));
+    sendMessageRef.current(next);
+  };
+
   const requestStop = () => {
     quotaAutoRetryFiredRef.current = true;
     sendAbortRef.current?.abort(INFERENCE_ABORT_USER_STOP);
@@ -1338,20 +1370,11 @@ export function App({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.quotaError]);
 
-  // Drain one queued message when the agent finishes a response cycle.
-  // Uses a ref for sendMessage so the closure never goes stale. Guards on
-  // !isProcessing to avoid double-sending if connector.reply fires back-to-back.
+  // Drain one queued message when the orchestrator is idle and no sub-agents run.
   useEffect(() => {
     const onEvent = (event: { type: string }) => {
       if (event.type !== "connector.reply") return;
-      if (pendingQueueRef.current.length === 0) return;
-      // Do not drain while a gate is open — connector.reply should not fire
-      // mid-gate, but if it does, markRunning() would zero gateCount and
-      // corrupt the blocked state.
-      if (stateRef.current.status === "blocked") return;
-      const text = pendingQueueRef.current.shift()!;
-      setQueuedCount((c) => Math.max(0, c - 1));
-      sendMessageRef.current(text);
+      tryDrainQueuedMessageRef.current();
     };
     eventEmitter.on("event", onEvent);
     return () => { eventEmitter.off("event", onEvent); };
@@ -1438,7 +1461,9 @@ export function App({
       // can be stale by the time this resolves. A previous turn can finish and
       // drain the queue during the async window; reading the stale value would
       // then queue a message nothing will ever drain, leaving the UI stuck.
-      if (stateRef.current.isProcessing) {
+      const childWorkActive =
+        activeSubAgentsRef.current.length > 0 || hasRunningSubAgentSessions();
+      if (stateRef.current.isProcessing || childWorkActive) {
         pendingQueueRef.current.push(outbound);
         setQueuedCount((c) => c + 1);
         return;
@@ -2089,6 +2114,7 @@ export function App({
               active={inputActive}
               queuedCount={queuedCount}
               isProcessing={state.isProcessing}
+              steerOnEnter={steerOnEnter}
               onInterrupt={handleInterrupt}
               onSentHistoryPrevious={() => {
                 const step = stepSentHistoryUp(sentHistoryBrowse, inputValue);
