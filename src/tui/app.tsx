@@ -351,6 +351,26 @@ function QuotaErrorBanner({ retryAt }: { retryAt: number }): ReactNode {
   );
 }
 
+function GatewayRetryBanner({
+  attempt,
+  retryAt,
+}: {
+  attempt: number;
+  retryAt: number;
+}): ReactNode {
+  const remaining = retryAt - Date.now();
+  const expired = remaining <= 0;
+  return (
+    <Box flexDirection="column" paddingX={1} paddingY={0}>
+      <Text color="yellow">
+        {expired
+          ? `Inference gateway overloaded — retrying (attempt ${attempt})…`
+          : `Inference gateway overloaded — retrying (attempt ${attempt}) in ${formatCountdown(remaining)}`}
+      </Text>
+    </Box>
+  );
+}
+
 export type AppProps = {
   eventEmitter: EventEmitter;
   agent: Agent;
@@ -858,6 +878,7 @@ export function App({
     taskChromeRows +
     pluginChromeRows +
     (state.quotaError !== null ? 1 : 0) +
+    (state.inferenceRetry !== null ? 1 : 0) +
     subAgentChromeRows +
     extraPromptChromeRows(inputValue, columns ?? 80, rows ?? 24);
 
@@ -1484,7 +1505,8 @@ export function App({
       isRunning:
         state.status === "running"
         || state.status === "blocked"
-        || state.quotaError !== null,
+        || state.quotaError !== null
+        || state.inferenceRetry !== null,
     },
     {
       clearInput: () => setInputValue(""),
@@ -2026,6 +2048,12 @@ export function App({
           />
           {state.quotaError !== null && (
             <QuotaErrorBanner retryAt={state.quotaError.retryAt} />
+          )}
+          {state.inferenceRetry !== null && (
+            <GatewayRetryBanner
+              attempt={state.inferenceRetry.attempt}
+              retryAt={state.inferenceRetry.retryAt}
+            />
           )}
           {copyModeOpen && (
             <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={color("brand")} paddingX={1}>
