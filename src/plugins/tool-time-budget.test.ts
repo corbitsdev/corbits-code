@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   formatReadFileTimeoutMessage,
   formatSearchTimeoutMessage,
+  formatToolExecutionTimeoutMessage,
 } from "./tool-time-budget.js";
 
 describe("tool-time-budget messages (intercode)", () => {
@@ -18,6 +19,14 @@ describe("tool-time-budget messages (intercode)", () => {
     expect(msg.startsWith("a.ts\nb.ts")).toBe(true);
     expect(msg).toContain("search_files");
     expect(msg).toContain("tighter glob");
+  });
+
+  test("tool execution timeout names the tool and budget", () => {
+    const msg = formatToolExecutionTimeoutMessage("run_shell", 60_000);
+    expect(msg).toContain("run_shell");
+    expect(msg).toContain("60000ms");
+    expect(msg).toContain("[timed out before completing]");
+    expect(msg).toContain("not a normal error");
   });
 
   test("read_file timeout is distinct from an empty file", () => {

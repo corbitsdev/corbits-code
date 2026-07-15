@@ -24,6 +24,7 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   shellTimeoutFromSettings,
+  toolWatchdogFromSettings,
   type Settings,
   type LocalSettings,
   type PluginConfig,
@@ -484,6 +485,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
+  const toolWatchdog = toolWatchdogFromSettings(config.settings);
   const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
   if (liveSessionMode === undefined) {
@@ -508,6 +510,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     permissionGate,
     skillDirs,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+    ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
