@@ -1,4 +1,4 @@
-import { test, expect, describe, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +22,9 @@ describe("isCodexTokenExpired", () => {
 
 describe("getValidCodexToken", () => {
   const realFetch = globalThis.fetch;
+  beforeEach(() => {
+    globalThis.fetch = realFetch;
+  });
   afterEach(() => {
     globalThis.fetch = realFetch;
   });

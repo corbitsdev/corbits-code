@@ -117,13 +117,57 @@ export function shouldShowAgentsStrip(input: {
   );
 }
 
-// Rows the strip occupies for a given session count: the "Agents" header, the
-// capped session rows, and an overflow row when sessions are hidden.
-export function agentsStripRowCount(sessionCount: number, maxVisible: number): number {
+export type AgentsStripWindow = {
+  start: number;
+  end: number;
+  hiddenAbove: number;
+  hiddenBelow: number;
+};
+
+/** Keep the keyboard selection inside the visible window when browsing long lists. */
+export function computeAgentsStripWindow(
+  total: number,
+  selectedIndex: number,
+  maxVisible: number,
+): AgentsStripWindow {
+  if (total <= 0) {
+    return { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
+  }
+  if (total <= maxVisible) {
+    return { start: 0, end: total, hiddenAbove: 0, hiddenBelow: 0 };
+  }
+  const idx = Math.max(0, Math.min(selectedIndex, total - 1));
+  let start = idx - Math.floor(maxVisible / 2);
+  if (start < 0) start = 0;
+  let end = start + maxVisible;
+  if (end > total) {
+    end = total;
+    start = end - maxVisible;
+  }
+  return {
+    start,
+    end,
+    hiddenAbove: start,
+    hiddenBelow: total - end,
+  };
+}
+
+// Rows the strip occupies: header, visible session rows, and optional scroll hints.
+export function agentsStripRowCount(
+  sessionCount: number,
+  maxVisible: number,
+  scrollHints?: Pick<AgentsStripWindow, "hiddenAbove" | "hiddenBelow">,
+): number {
   if (sessionCount === 0) return 0;
   const shown = Math.min(sessionCount, maxVisible);
-  const overflow = sessionCount > shown ? 1 : 0;
-  return 1 + shown + overflow;
+  let rows = 1 + shown;
+  if (scrollHints !== undefined) {
+    if (scrollHints.hiddenAbove > 0) rows += 1;
+    if (scrollHints.hiddenBelow > 0) rows += 1;
+  } else if (sessionCount > shown) {
+    rows += 1;
+  }
+  return rows;
 }
 
 const STATUS_GLYPH: Record<SubAgentSessionStatus, string> = {
@@ -142,10 +186,21 @@ export function AgentsStrip({
 }: AgentsStripProps): ReactNode {
   if (sessions.length === 0) return null;
 
-  // sessions arrive running-first then newest, so the head keeps live and
-  // recent work visible while older completed sessions fold into the count.
-  const visible = sessions.slice(0, Math.max(1, maxVisible));
-  const hiddenCount = sessions.length - visible.length;
+  const selectedIndex =
+    selectedId !== null && selectedId !== undefined
+      ? Math.max(0, sessions.findIndex((s) => s.id === selectedId))
+      : 0;
+  const window =
+    navActive && sessions.length > maxVisible
+      ? computeAgentsStripWindow(sessions.length, selectedIndex, maxVisible)
+      : {
+          start: 0,
+          end: Math.min(sessions.length, maxVisible),
+          hiddenAbove: 0,
+          hiddenBelow: Math.max(0, sessions.length - maxVisible),
+        };
+  const visible = sessions.slice(window.start, window.end);
+  const hiddenCount = window.hiddenBelow;
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -167,6 +222,11 @@ export function AgentsStrip({
           </Text>
         )}
       </Box>
+      {navActive && window.hiddenAbove > 0 && (
+        <Text color={color("dim")} dimColor>
+          {`  ↑ ${window.hiddenAbove} more above`}
+        </Text>
+      )}
       {visible.map((session, index) => {
         const selected = session.id === selectedId;
         const entered = session.id === enteredId;
@@ -195,7 +255,7 @@ export function AgentsStrip({
       })}
       {hiddenCount > 0 && (
         <Text color={color("dim")} dimColor>
-          {`  … +${hiddenCount} more`}
+          {navActive ? `  ↓ ${hiddenCount} more below` : `  … +${hiddenCount} more`}
         </Text>
       )}
     </Box>

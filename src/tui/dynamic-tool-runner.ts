@@ -1,5 +1,10 @@
 import type { ToolCall, ToolDefinition, ToolResult } from "@intx/types/runtime";
 import { type AgentTool, type AgentToolRunner, DuplicateToolError } from "@intx/agent";
+import {
+  resolveToolExecutionTimeoutMs,
+  runWithToolExecutionWatchdog,
+  type ToolWatchdogConfig,
+} from "./tool-execution-watchdog.js";
 
 // A tool runner whose set of tools can grow after construction. The static
 // createToolRunner freezes its name map at build time, which cannot accommodate
@@ -12,7 +17,11 @@ export type DynamicToolRunner = AgentToolRunner & {
   currentDefinitions(): ToolDefinition[];
 };
 
-export function createDynamicToolRunner(initial: AgentTool[]): DynamicToolRunner {
+export function createDynamicToolRunner(
+  initial: AgentTool[],
+  watchdogConfig?: ToolWatchdogConfig,
+): DynamicToolRunner {
+  const executionTimeoutMs = resolveToolExecutionTimeoutMs(watchdogConfig);
   const byName = new Map<string, AgentTool>();
 
   const addTools = (tools: AgentTool[]): void => {
@@ -39,13 +48,19 @@ export function createDynamicToolRunner(initial: AgentTool[]): DynamicToolRunner
       if (found === undefined) {
         return { callId: call.id, content: `unknown tool: ${call.name}`, isError: true };
       }
-      try {
-        if (found.kind === "full") return await found.handler(call, signal);
-        const text = await found.handler(call.arguments, signal);
-        return { callId: call.id, content: text };
-      } catch (err) {
-        return { callId: call.id, content: err instanceof Error ? err.message : String(err), isError: true };
-      }
+      return runWithToolExecutionWatchdog(call, signal, executionTimeoutMs, async (budgetSignal) => {
+        try {
+          if (found.kind === "full") return await found.handler(call, budgetSignal);
+          const text = await found.handler(call.arguments, budgetSignal);
+          return { callId: call.id, content: text };
+        } catch (err) {
+          return {
+            callId: call.id,
+            content: err instanceof Error ? err.message : String(err),
+            isError: true,
+          };
+        }
+      });
     },
   };
 }

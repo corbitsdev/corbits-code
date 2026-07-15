@@ -24,6 +24,7 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   shellTimeoutFromSettings,
+  toolWatchdogFromSettings,
   type Settings,
   type LocalSettings,
   type PluginConfig,
@@ -484,6 +485,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
+  const toolWatchdog = toolWatchdogFromSettings(config.settings);
   const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
   if (liveSessionMode === undefined) {
@@ -503,11 +505,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // construction-order cycle.
   const workflowControllerHolder: { instance?: WorkflowController } = {};
 
+  // Assigned before any tool runs; getter wires session blob reads into posix tools.
+  let currentAgent!: Agent;
+
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
     skillDirs,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+    ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
+    getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
@@ -787,7 +794,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // connecting actually added tools.
   const baseToolCount = toolset.dynamicRunner.currentDefinitions().length;
 
-  let currentAgent = await buildAgent();
+  currentAgent = await buildAgent();
   await persistRunSnapshot("running");
   void resolveSessionLabel(config.cwd, sessionId, runTaskTitle).then((label) => {
     emitter.emit("session.title", label);

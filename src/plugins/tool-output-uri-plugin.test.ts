@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createBlobReader } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
+import { readFileGuardPlugin } from "./read-file-guard-plugin.js";
 import { toolOutputUriPlugin } from "./tool-output-uri-plugin.js";
 
 describe("toolOutputUriPlugin", () => {
@@ -29,5 +30,33 @@ describe("toolOutputUriPlugin", () => {
     );
     expect(result.isError).toBeFalsy();
     expect(result.content).toContain("payload");
+  });
+
+  test("normalizes mistaken URI then read-file guard pages without stock split", async () => {
+    const encoder = new TextEncoder();
+    const lines = Array.from({ length: 5_000 }, (_, i) => `blob-line-${i}`).join("\n");
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "paged") return encoder.encode(lines);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const tools = createPosixTools({
+      cwd: "/tmp",
+      blobReader,
+      plugins: [toolOutputUriPlugin(), readFileGuardPlugin("/tmp", { blobReader })],
+    });
+    const result = await tools.run(
+      {
+        id: "r2",
+        name: "read_file",
+        arguments: { path: "tool-output:/paged", offset: 100, limit: 2 },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("blob-line-100");
+    expect(result.content).toContain("blob-line-101");
+    expect(result.content).not.toContain("blob-line-99");
   });
 });
