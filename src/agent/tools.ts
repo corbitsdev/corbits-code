@@ -22,6 +22,7 @@ import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
+import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import { advertisedToolNamesForSessionMode } from "./tool-search.js";
@@ -73,6 +74,9 @@ export type AgentToolsetArgs = {
   // Shell command timeout defaults/cap, resolved from settings. When omitted the
   // shell-guard plugin applies its built-in defaults.
   shellTimeout?: ShellTimeoutConfig;
+  // Outer per-invocation tool run budget (dynamic runner). When omitted built-in
+  // defaults apply.
+  toolWatchdog?: ToolWatchdogConfig;
   // Whether a workflow is currently running. advance_workflow rides the wire
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
@@ -135,6 +139,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     extraToolPlugins = [],
     skillDirs = [],
     shellTimeout,
+    toolWatchdog,
     sessionMode = "orchestrator",
   } = args;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
@@ -276,7 +281,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  const dynamicRunner = createDynamicToolRunner(baseTools);
+  const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
   runnerRef = dynamicRunner;
   const connectedClients: MCPClient[] = [];
 
