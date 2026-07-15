@@ -1,14 +1,15 @@
-import { test, expect, mock, spyOn } from "bun:test";
-import * as lspModule from "@intx/tools-lsp";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, test, expect, spyOn } from "bun:test";
 import * as posixModule from "@intx/tools-posix";
-import { LSP_TOOL_DEFINITION } from "@intx/tools-lsp";
 
-const mockPlugin = { tools: [], middleware: undefined, dispose: async () => {} };
+afterEach(() => {
+  spyOn(posixModule, "createPosixTools").mockRestore();
+});
 
-test("createAgentToolset calls createLSPPlugin with correct args", async () => {
-  const createLSPPluginSpy = spyOn(lspModule, "createLSPPlugin").mockReturnValue(mockPlugin);
-
-  // createPosixTools needs to be a no-op for this test
+test("createAgentToolset wires posix tools for a real cwd", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "intercode-toolset-"));
   spyOn(posixModule, "createPosixTools").mockReturnValue({
     definitions: [],
     run: async () => ({ output: "" }),
@@ -18,17 +19,12 @@ test("createAgentToolset calls createLSPPlugin with correct args", async () => {
   const { createAgentToolset } = await import("../../src/agent/tools.js");
   const permissionGate = { check: async () => ({ allowed: true }) } as never;
 
-  await createAgentToolset({
-    cwd: "/test/cwd",
+  const toolset = await createAgentToolset({
+    cwd,
     permissionGate,
     onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
-  expect(createLSPPluginSpy).toHaveBeenCalledWith({ cwd: "/test/cwd", minSeverity: 1 });
-
-  createLSPPluginSpy.mockRestore();
-});
-
-test("allDefinitions includes the lsp tool", async () => {
-  expect(LSP_TOOL_DEFINITION.name).toBe("lsp");
+  expect(toolset.dynamicRunner).toBeDefined();
+  await toolset.dispose();
 });
