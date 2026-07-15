@@ -38,6 +38,8 @@ import {
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { createLazyBlobReader } from "../agent/lazy-blob-reader.js";
+import type { BlobReader } from "@intx/types/runtime";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 
@@ -366,6 +368,8 @@ export type SubAgentSandboxDeps = {
   webProvider?: WebProvider;
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
+  /** Parent session blob store for bounded tool-output:// reads in workers. */
+  getBlobReader?: () => BlobReader | undefined;
 };
 
 export type NestedDispatchDeps = SubAgentSandboxDeps & {
@@ -558,13 +562,19 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   const permissionGate = params.permissionGate;
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
+  const sessionBlobReader =
+    params.getBlobReader !== undefined ? createLazyBlobReader(params.getBlobReader) : undefined;
   const posixTools = createPosixTools({
     cwd: params.cwd,
+    ...(sessionBlobReader !== undefined ? { blobReader: sessionBlobReader } : {}),
     plugins: buildCorePosixToolPlugins({
       cwd: params.cwd,
       permissionGate,
       ...(params.webProvider !== undefined ? { webProvider: params.webProvider } : {}),
       ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
+      ...(sessionBlobReader !== undefined
+        ? { readFileGuard: { blobReader: sessionBlobReader } }
+        : {}),
       extraToolPlugins: [
         ...(params.extraToolPlugins ?? []),
         spawnRegistry.plugin,
@@ -1224,6 +1234,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         ...(deps.webProvider !== undefined ? { webProvider: deps.webProvider } : {}),
         ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
         ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
+        ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
       };
       const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
         ? {

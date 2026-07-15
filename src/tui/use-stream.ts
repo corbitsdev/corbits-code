@@ -944,7 +944,9 @@ export function createAgentStreamState(
           }
           hadTextDeltaSinceLastReply = false;
           awaitingResponse = false;
-          isProcessing = false;
+          if (activeToolCallIds.size === 0 && !subAgents.some((a) => a.status === "doing")) {
+            isProcessing = false;
+          }
           break;
         }
         case "tool.done": {
@@ -1114,6 +1116,13 @@ export function createAgentStreamState(
             isError: result.isError,
             finishedAt: Date.now(),
           });
+          if (
+            activeToolCallIds.size === 0 &&
+            !subAgents.some((a) => a.status === "doing") &&
+            inferenceRetry === undefined
+          ) {
+            isProcessing = false;
+          }
           break;
         }
         case "reactor.error": {

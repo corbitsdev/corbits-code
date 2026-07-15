@@ -199,6 +199,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             ...(args.subAgent.settings !== undefined ? { settings: args.subAgent.settings } : {}),
             ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
             ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
+            ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
           }),
           ...(args.subAgent.profiles !== undefined
             ? [
