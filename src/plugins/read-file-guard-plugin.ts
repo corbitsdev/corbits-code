@@ -27,7 +27,8 @@ export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
 // returned payload including the notice stays under READ_FILE_MAX_BYTES.
 const NOTICE_RESERVE_BYTES = 256;
 
-const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars]`;
+const LINE_TRUNC_SUFFIX =
+  ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
 const TOOL_OUTPUT_CHUNK_BYTES = 64 * 1024;
 
 type TruncReason = "lines" | "bytes" | "scan";
@@ -324,15 +325,6 @@ export function readFileGuardPlugin(
         try {
           signal.throwIfAborted();
           const bytes = await blobReader.read(uri);
-          if (bytes.length > READ_FILE_MAX_TOOL_OUTPUT_BYTES) {
-            return {
-              callId: call.id,
-              content: `[tool-output blob exceeds the ${
-                READ_FILE_MAX_TOOL_OUTPUT_BYTES / (1024 * 1024)
-              }MB read_file limit (${bytes.length} bytes). Use grep or request a smaller spill.]`,
-              isError: true,
-            };
-          }
           const res = await readBytesBounded(bytes, offset, limit, signal, uri);
           return res.isError
             ? { callId: call.id, content: res.content, isError: true }

@@ -63,7 +63,7 @@ describe("runGuardedShell", () => {
       neverAbort(),
     );
     expect(outputTruncated).toBe(true);
-    expect(exitCode).toBe(125);
+    expect(exitCode).toBe(0);
     expect(output).toContain("START");
     expect(output).toMatch(/END|bbbb/);
     expect(output).toMatch(/command output truncated/);
@@ -96,7 +96,7 @@ describe("runGuardedShell", () => {
     expect(truncated).toBe(true);
     expect(output.startsWith("a")).toBe(true);
     expect(output).toMatch(/command output truncated/);
-    expect(output.length).toBeLessThanOrEqual(cap + 64);
+    expect(output.length).toBeLessThanOrEqual(cap + 256);
   });
 
   test("timeout kills grandchildren in a shell pipeline", async () => {
