@@ -3,6 +3,12 @@ import { statSync } from "node:fs";
 import { dirname, basename } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 
+import {
+  runBoundedGrep,
+  runBoundedSearchFiles,
+  type BoundedGrepArgs,
+} from "./bounded-grep-fallback.js";
+
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
 // the loop. ripgrep prunes ignored and skipped directories during its own walk,
@@ -138,7 +144,25 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         rgArgs.push("--regexp", pattern, target);
 
         const result = await runRg(rgArgs, rgCwd, signal);
-        if (result.kind === "unavailable") return next(call, signal);
+        if (result.kind === "unavailable") {
+          try {
+            const boundedArgs: BoundedGrepArgs = {
+              pattern,
+              path: target,
+              context,
+              max_results: maxResults,
+            };
+            if (glob !== undefined) boundedArgs.glob = glob;
+            const content = await runBoundedGrep(boundedArgs, signal, rgCwd);
+            return { callId: call.id, content: capLines(content, maxResults) };
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
+          }
+        }
         if (result.kind === "no-match") {
           return { callId: call.id, content: `no matches for /${pattern}/` };
         }
@@ -156,7 +180,22 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
         const result = await runRg(["--files", "-g", pattern, target], rgCwd, signal);
-        if (result.kind === "unavailable") return next(call, signal);
+        if (result.kind === "unavailable") {
+          try {
+            const content = await runBoundedSearchFiles(
+              { pattern, path: target, max_results: maxResults },
+              signal,
+              rgCwd,
+            );
+            return { callId: call.id, content: capLines(content, maxResults) };
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
+          }
+        }
         if (result.kind === "no-match") {
           return { callId: call.id, content: `no files matching "${pattern}"` };
         }
