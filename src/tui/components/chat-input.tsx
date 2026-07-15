@@ -32,6 +32,8 @@ export type ChatInputProps = {
   // When true, Enter interrupts the running agent with the current input.
   // Alt+Enter queues the message as a follow-up instead.
   isProcessing?: boolean;
+  // When false while processing, Enter queues via onSubmit instead of onInterrupt.
+  steerOnEnter?: boolean;
   // Called when the user presses Enter while isProcessing is true.
   onInterrupt?: (message: string) => void;
   /** Recall previously sent messages (readline-style). Return true when handled. */
@@ -245,6 +247,7 @@ export function ChatInput({
   active = true,
   queuedCount = 0,
   isProcessing = false,
+  steerOnEnter = true,
   onInterrupt,
   onSentHistoryPrevious,
   onSentHistoryNext,
@@ -453,7 +456,7 @@ export function ChatInput({
       if (trimmed.length > 0 || canSubmitEmpty) {
         if (trimmed.startsWith("/")) {
           dispatchCommand(trimmed);
-        } else if (isProcessing && onInterrupt !== undefined) {
+        } else if (isProcessing && steerOnEnter && onInterrupt !== undefined) {
           onInterrupt(trimmed);
         } else {
           onSubmit(trimmed);
@@ -550,9 +553,13 @@ export function ChatInput({
         // Action bar: the row directly above the prompt box. While processing
         // with text typed, the revolving verb + steer hint sit on the left; the
         // profile · model · effort is always right-aligned on the same baseline.
-        const steerText = queuedCount > 0
-          ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
-          : "Enter steer · Alt+Enter queue";
+        const steerText = !steerOnEnter
+          ? queuedCount > 0
+            ? `${queuedCount} queued · Enter queues for orchestrator`
+            : "Enter queues for orchestrator"
+          : queuedCount > 0
+            ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
+            : "Enter steer · Alt+Enter queue";
         const modelText = composePromptActionBarModelLabel({
           ...(profile !== undefined ? { profile } : {}),
           ...(model !== undefined ? { model } : {}),

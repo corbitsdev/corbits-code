@@ -18,10 +18,13 @@ export function isInternalRecoveryAbortRaw(raw: unknown): boolean {
   );
 }
 
-export type InferenceErrorLike = { category: string; raw?: unknown };
+import { isGatewayOverloadInferenceError, type InferenceErrorLike as GatewayInferenceErrorLike } from "./inference-gateway-error.js";
+
+export type InferenceErrorLike = GatewayInferenceErrorLike;
 
 /** Transient inference errors the director or harness may recover without failing the run. */
 export function isNonTerminalInferenceError(error: InferenceErrorLike): boolean {
+  if (isGatewayOverloadInferenceError(error)) return true;
   if (error.category === "retryable" || error.category === "timeout") return true;
   if (error.category === "aborted") return isInternalRecoveryAbortRaw(error.raw);
   return false;

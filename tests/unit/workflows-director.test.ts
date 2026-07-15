@@ -52,9 +52,39 @@ const flow: Workflow = {
 
 const emptyCaps: CapabilityMap = new Map();
 
-function inferActions(result: ReactorAction | ReactorAction[]): Array<{ type: "infer"; options?: { systemPrompt?: string; tools?: { name: string }[] } }> {
+function inferActions(
+  result: ReactorAction | ReactorAction[],
+): Array<{
+  type: "infer";
+  options?: {
+    systemPrompt?: string;
+    tools?: { name: string }[];
+    ephemeralTurns?: { role: string; content: unknown }[];
+  };
+}> {
   const arr = Array.isArray(result) ? result : [result];
-  return arr.filter((a): a is { type: "infer"; options?: { systemPrompt?: string; tools?: { name: string }[] } } => a.type === "infer");
+  return arr.filter((a) => a.type === "infer") as Array<{
+    type: "infer";
+    options?: {
+      systemPrompt?: string;
+      tools?: { name: string }[];
+      ephemeralTurns?: { role: string; content: unknown }[];
+    };
+  }>;
+}
+
+function ephemeralNudgeText(result: ReactorAction | ReactorAction[]): string {
+  const infers = inferActions(result);
+  const turns = infers[0]?.options?.ephemeralTurns ?? [];
+  return turns
+    .flatMap((t) => {
+      const content = t.content;
+      if (!Array.isArray(content)) return [];
+      return content
+        .filter((p): p is { type: "text"; text: string } => typeof p === "object" && p !== null && (p as { type?: string }).type === "text")
+        .map((p) => p.text);
+    })
+    .join("\n");
 }
 
 test("the active step directive is injected into the inferred system prompt", async () => {
@@ -70,7 +100,7 @@ test("the active step directive is injected into the inferred system prompt", as
   expect(infers.length).toBeGreaterThan(0);
   const prompt = infers[0]?.options?.systemPrompt ?? "";
   expect(prompt).toContain("BASE PROMPT");
-  expect(prompt).toContain("[WORKFLOW STEP 1/2: Step A]");
+  expect(ephemeralNudgeText(result)).toContain("[WORKFLOW STEP 1/2: Step A]");
   const toolNames = (infers[0]?.options?.tools ?? []).map((t) => t.name);
   expect(toolNames).toContain("advance_workflow");
 });
@@ -187,9 +217,9 @@ test("a content-free workflow turn with open tasks nudges toward advance_workflo
   // of the general nudge's phrasing — otherwise the test passes either way.
   const infers = inferActions(result);
   expect(infers.length).toBeGreaterThan(0);
-  const prompt = infers[0]?.options?.systemPrompt ?? "";
-  expect(prompt).toContain("a workflow step is active");
-  expect(prompt).not.toContain("mark each task done or cancelled with manage_tasks before ending");
+  const nudge = ephemeralNudgeText(result);
+  expect(nudge).toContain("a workflow step is active");
+  expect(nudge).not.toContain("mark each task done or cancelled with manage_tasks before ending");
 });
 
 // With a workflow active, the workflow stuck-cutoff owns termination. Open tasks

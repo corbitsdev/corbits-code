@@ -23,7 +23,11 @@ export const DEFAULT_SHELL_TIMEOUT_MS = 15_000;
 export const MAX_SHELL_TIMEOUT_MS = 600_000;
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
 
-export type ShellTimeoutConfig = { defaultMs?: number; maxMs?: number };
+export type ShellTimeoutConfig = {
+  defaultMs?: number;
+  maxMs?: number;
+  maxOutputBytes?: number;
+};
 
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
@@ -74,7 +78,105 @@ type RunShellArgs = {
   command: string;
   timeout?: number;
   cwd?: string;
+  maxOutputBytes?: number;
 };
+
+export type GuardedShellResult = {
+  output: string;
+  exitCode: number;
+  timedOut: boolean;
+  outputTruncated: boolean;
+};
+
+/**
+ * Collects shell stdout/stderr with a hard byte ceiling. While under the cap the
+ * stream is buffered whole; beyond it only the first and last slices are kept
+ * (head+tail) so RSS stays bounded and the agent still sees start/end of output.
+ */
+export class BoundedShellOutput {
+  private readonly headMax: number;
+  private readonly tailMax: number;
+  private mode: "buffering" | "truncating" = "buffering";
+  private buffered: Buffer[] = [];
+  private head = Buffer.alloc(0);
+  private tailChunks: Buffer[] = [];
+  private tailBytes = 0;
+  totalBytes = 0;
+
+  constructor(private readonly maxBytes: number) {
+    const markerReserve = Math.min(256, Math.floor(this.maxBytes * 0.15));
+    const body = Math.max(8, this.maxBytes - markerReserve);
+    this.headMax = Math.floor(body / 2);
+    this.tailMax = body - this.headMax;
+  }
+
+  append(chunk: Buffer): boolean {
+    this.totalBytes += chunk.length;
+    if (this.mode === "buffering") {
+      this.buffered.push(chunk);
+      if (this.totalBytes <= this.maxBytes) return false;
+      this.enterTruncating();
+      return true;
+    }
+    this.pushHeadTail(chunk);
+    return true;
+  }
+
+  private enterTruncating(): void {
+    this.mode = "truncating";
+    const all = Buffer.concat(this.buffered);
+    this.buffered = [];
+    this.head = all.subarray(0, Math.min(all.length, this.headMax));
+    const rest = all.subarray(this.head.length);
+    if (rest.length > 0) this.pushTail(rest);
+  }
+
+  private pushHeadTail(chunk: Buffer): void {
+    let rest = chunk;
+    if (this.head.length < this.headMax) {
+      const take = Math.min(rest.length, this.headMax - this.head.length);
+      this.head = Buffer.concat([this.head, rest.subarray(0, take)]);
+      rest = rest.subarray(take);
+    }
+    if (rest.length > 0) this.pushTail(rest);
+  }
+
+  private pushTail(buf: Buffer): void {
+    this.tailChunks.push(buf);
+    this.tailBytes += buf.length;
+    while (this.tailBytes > this.tailMax && this.tailChunks.length > 0) {
+      const first = this.tailChunks[0]!;
+      if (this.tailBytes - first.length >= this.tailMax) {
+        this.tailBytes -= first.length;
+        this.tailChunks.shift();
+      } else {
+        const drop = this.tailBytes - this.tailMax;
+        this.tailChunks[0] = first.subarray(drop);
+        this.tailBytes -= drop;
+        break;
+      }
+    }
+  }
+
+  build(): { output: string; truncated: boolean } {
+    if (this.mode === "buffering") {
+      return {
+        output: Buffer.concat(this.buffered).toString("utf8"),
+        truncated: false,
+      };
+    }
+    const tail = Buffer.concat(this.tailChunks);
+    const omitted = Math.max(0, this.totalBytes - this.head.length - tail.length);
+    const marker =
+      `\n\n[command output truncated — ${omitted.toLocaleString()} bytes omitted from this view; ` +
+      `head+tail retained under ${this.maxBytes.toLocaleString()} byte cap. ` +
+      `Full output is not lost: re-run with stdout redirected to a workspace file, then read_file or grep that path.]\n\n`;
+    return {
+      output: this.head.toString("utf8") + marker + tail.toString("utf8"),
+      truncated: true,
+    };
+  }
+}
 
 function killProcessTree(child: ChildProcess): void {
   if (child.pid === undefined) return;
@@ -98,15 +200,14 @@ function killProcessTree(child: ChildProcess): void {
 export async function runGuardedShell(
   args: RunShellArgs,
   signal: AbortSignal,
-): Promise<{ output: string; exitCode: number; timedOut: boolean }> {
+): Promise<GuardedShellResult> {
   signal.throwIfAborted();
 
   const timeoutMs = args.timeout ?? DEFAULT_SHELL_TIMEOUT_MS;
+  const outputCap = args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
+  const collector = new BoundedShellOutput(outputCap);
 
   return new Promise((resolve, reject) => {
-    const chunks: string[] = [];
-    let totalBytes = 0;
-
     // detached so the shell becomes a process-group leader and timeout/abort
     // can SIGKILL the whole tree (otherwise find/grep orphans keep burning RAM).
     const child = spawn(args.command, {
@@ -133,19 +234,25 @@ export async function runGuardedShell(
       }
     };
 
+    const finishOutput = (exitCode: number, timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      abortCleanup();
+      const { output, truncated } = collector.build();
+      resolve({
+        output,
+        exitCode,
+        timedOut,
+        outputTruncated: truncated,
+      });
+    };
+
     const onChunk = (chunk: Buffer) => {
       if (settled) return;
-      totalBytes += chunk.length;
-      if (totalBytes > MAX_SHELL_OUTPUT_BYTES) {
-        killProcessTree(child);
-        settle(
-          new Error(
-            `command output exceeded ${MAX_SHELL_OUTPUT_BYTES} bytes (killed): ${args.command}`,
-          ),
-        );
-        return;
-      }
-      chunks.push(chunk.toString("utf8"));
+      // Switch to head+tail collection when over cap; keep the process running so
+      // the command can finish and its true exit code is preserved.
+      collector.append(chunk);
     };
 
     // Interleave stdout and stderr in arrival order into one collector.
@@ -157,10 +264,7 @@ export async function runGuardedShell(
       // A timeout is not a failure the agent should be denied output for: return
       // whatever the command produced before the kill, plus the timed-out notice
       // the caller appends from `timedOut`.
-      if (settled) return;
-      settled = true;
-      abortCleanup();
-      resolve({ output: chunks.join(""), exitCode: 124, timedOut: true });
+      finishOutput(124, true);
     }, timeoutMs);
 
     const onAbort = () => {
@@ -182,13 +286,8 @@ export async function runGuardedShell(
 
     child.on("close", (code, sig) => {
       if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      abortCleanup();
-
-      const output = chunks.join("");
       const exitCode = code ?? (sig !== null ? 128 : 1);
-      resolve({ output, exitCode, timedOut: false });
+      finishOutput(exitCode, false);
     });
   });
 }
@@ -240,6 +339,7 @@ export function shellGuardPlugin(
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
+  const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   // Serialize run_shell so concurrent tools cannot race retained cwd updates
@@ -296,10 +396,16 @@ export function shellGuardPlugin(
           const effectiveTimeout = Math.min(baseTimeoutMs, maxMs);
           const wrappedCommand = wrapCommandWithPwdProbe(command);
           try {
-            const { output, exitCode, timedOut } = await runGuardedShell(
-              { command: wrappedCommand, cwd: executionCwd, timeout: effectiveTimeout },
-              signal,
-            );
+            const { output, exitCode, timedOut, outputTruncated } =
+              await runGuardedShell(
+                {
+                  command: wrappedCommand,
+                  cwd: executionCwd,
+                  timeout: effectiveTimeout,
+                  maxOutputBytes,
+                },
+                signal,
+              );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
               if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
@@ -313,9 +419,16 @@ export function shellGuardPlugin(
             }
             const base =
               exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
-            const content = timedOut
-              ? `${base}${base.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`
-              : base;
+            let content = base;
+            if (outputTruncated) {
+              content =
+                `${base}${base.length > 0 ? "\n" : ""}` +
+                `[command output exceeded the display byte cap; the process was not killed. ` +
+                `Capture full output by redirecting to a file in the workspace, then read_file or grep.]`;
+            }
+            if (timedOut) {
+              content = `${content}${content.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`;
+            }
             return { callId: call.id, content };
           } catch (err) {
             return {

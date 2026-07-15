@@ -1,4 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as codexSession from "../auth/codex/session.js";
+import * as xaiSession from "../auth/xai/session.js";
 
 import type { InferenceSource } from "@intx/types/runtime";
 
@@ -11,13 +13,13 @@ const baseSource = (id: string, apiKey = "stale"): InferenceSource => ({
 });
 
 describe("refresh-inference-source", () => {
+  afterEach(() => {
+    spyOn(codexSession, "getValidCodexToken").mockRestore();
+    spyOn(xaiSession, "getValidXaiToken").mockRestore();
+  });
+
   test("ensureFreshInferenceSource replaces stale Codex apiKey after refresh", async () => {
-    mock.module("../auth/codex/session.js", () => ({
-      getValidCodexToken: mock(async () => ({ access: "fresh-codex-token" })),
-    }));
-    mock.module("../auth/xai/session.js", () => ({
-      getValidXaiToken: mock(async () => ({ access: "fresh-xai-token" })),
-    }));
+    spyOn(codexSession, "getValidCodexToken").mockResolvedValue({ access: "fresh-codex-token" });
     const { ensureFreshInferenceSource } = await import("./refresh-inference-source.js");
     const source = baseSource("codex/default", "stale");
     const out = await ensureFreshInferenceSource(source, []);

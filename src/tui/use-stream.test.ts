@@ -512,6 +512,34 @@ describe("createAgentStreamState", () => {
     expect(state.isProcessing).toBe(false);
   });
 
+  test("inference.retry exposes gateway retry countdown state", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.retry", { attempt: 2, delayMs: 12_000, previousError: { category: "retryable", message: "503" } }));
+
+    expect(state.inferenceRetry).toMatchObject({ attempt: 2, delayMs: 12_000 });
+    expect(state.inferenceRetry?.retryAt).toBeGreaterThan(Date.now());
+
+    state.addEvent(event("inference.start", { model: "test" }));
+    expect(state.inferenceRetry).toBeNull();
+  });
+
+  test("HTML gateway protocol_mismatch does not render a terminal error block", () => {
+    const html503 = "<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>";
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.error", {
+      error: {
+        category: "protocol_mismatch",
+        message: "malformed JSON in SSE data payload",
+        raw: html503,
+      },
+    }));
+
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+    expect(state.status).toBe("running");
+  });
+
   test("requestStop finalizes an in-flight tool_call so it stops rendering as running", () => {
     const state = createAgentStreamState();
     state.markRunning();
