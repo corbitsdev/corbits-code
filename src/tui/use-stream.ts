@@ -11,6 +11,10 @@ import { validateView, type ViewNode } from "./view/index.js";
 import { parsePresentViewFromArgs } from "./tool-args.js";
 import { parseManageTasksArgs, applyManageTasks, type Task } from "../agent/tasks.js";
 import { isNonTerminalInferenceError } from "../inference-abort.js";
+import {
+  gatewayOverloadUserMessage,
+  isGatewayOverloadInferenceError,
+} from "../inference-gateway-error.js";
 
 // Provider-agnostic detection of context-window-overflow error text. The
 // upstream classifier only tags a 400 with specific English phrases as
@@ -90,6 +94,7 @@ export type AgentStreamState = {
   // stays in sync with every event without an extra subscription.
   lastActivityAt: number;
   quotaError: { retryAfterMs: number; retryAt: number } | null;
+  inferenceRetry: { attempt: number; delayMs: number; retryAt: number } | null;
   currentPlanStep: number | null;
   planTotal: number | null;
   planDeviated: boolean;
@@ -431,6 +436,7 @@ export function createAgentStreamState(
   let tasks: Task[] = [];
   let subAgents: Task[] = [];
   let quotaError: { retryAfterMs: number; retryAt: number } | null = null;
+  let inferenceRetry: { attempt: number; delayMs: number; retryAt: number } | null = null;
   let currentPlanStep: number | null = null;
   let planTotal: number | null = null;
   let planDeviated = false;
@@ -634,6 +640,9 @@ export function createAgentStreamState(
     get quotaError() {
       return quotaError;
     },
+    get inferenceRetry() {
+      return inferenceRetry;
+    },
     get currentPlanStep() {
       return currentPlanStep;
     },
@@ -658,6 +667,7 @@ export function createAgentStreamState(
     },
     requestStop(): void {
       quotaError = null;
+      inferenceRetry = null;
       if (status !== "running" && status !== "blocked") {
         // Quota exhaustion leaves status at "failed" while auto-retry is armed;
         // still land in a terminal stopped state so ESC/Ctrl+C can dismiss the wait.
@@ -688,6 +698,7 @@ export function createAgentStreamState(
       gateCount = 0;
       activeToolCallIds.clear();
       quotaError = null;
+      inferenceRetry = null;
       status = "running";
       finishedAt = null;
       awaitingResponse = true;
@@ -722,6 +733,7 @@ export function createAgentStreamState(
       tasks = [];
       subAgents = [];
       quotaError = null;
+      inferenceRetry = null;
       currentPlanStep = null;
       planTotal = null;
       planDeviated = false;
@@ -788,12 +800,24 @@ export function createAgentStreamState(
           break;
         }
         case "inference.start": {
+          inferenceRetry = null;
           attemptStartBlockIndex = contentBlocks.length;
           attemptStartCallIds = new Set(callIdToName.keys());
           resolvedCallIds = new Set();
           break;
         }
         case "inference.retry": {
+          {
+            const retryData = event.data as {
+              attempt: number;
+              delayMs: number;
+            };
+            inferenceRetry = {
+              attempt: retryData.attempt,
+              delayMs: retryData.delayMs,
+              retryAt: Date.now() + retryData.delayMs,
+            };
+          }
           // A retry directly after a terminal inference.error is the
           // reactor's committed-retry: re-arm from the handoff so the
           // failed attempt (and its rendered error line) is retracted.
@@ -1105,7 +1129,15 @@ export function createAgentStreamState(
             errorRollbackHandoff = { blockIndex: attemptStartBlockIndex, callIds: attemptStartCallIds };
             attemptStartBlockIndex = null;
           }
-          const err = (event.data as { error: { category: string; message: string; retryAfterMs?: number; raw?: unknown } }).error;
+          const err = (event.data as {
+            error: {
+              category: string;
+              message: string;
+              retryAfterMs?: number;
+              statusCode?: number;
+              raw?: unknown;
+            };
+          }).error;
           const friendly: Record<string, string> = {
             // The App opens the OAuth re-login modal on this category; keep the
             // transcript line short and free of raw 401 JSON from the provider.
@@ -1123,10 +1155,23 @@ export function createAgentStreamState(
           // over the category when it clearly describes a context overflow, so the
           // user gets the right guidance instead of a misleading "quota" error.
           const category = looksLikeContextOverflow(err.message) ? "context_overflow" : err.category;
-          const msg = friendly[category] ?? err.message;
+          const classified: {
+            category: string;
+            message: string;
+            statusCode?: number;
+            raw?: unknown;
+          } = {
+            category,
+            message: err.message,
+            ...(err.statusCode !== undefined ? { statusCode: err.statusCode } : {}),
+            ...(err.raw !== undefined ? { raw: err.raw } : {}),
+          };
+          const msg = isGatewayOverloadInferenceError(classified)
+            ? gatewayOverloadUserMessage(classified)
+            : (friendly[category] ?? err.message);
           // The director immediately continues recoverable attempts; rendering an
           // error here would flash a terminal-looking failure during recovery.
-          if (!isNonTerminalInferenceError({ category, raw: err.raw })) {
+          if (!isNonTerminalInferenceError(classified)) {
             pushBlock({ type: "error", message: msg });
           }
           if (category === "quota_exhausted" && err.retryAfterMs !== undefined) {
@@ -1152,6 +1197,7 @@ export function createAgentStreamState(
       }
 
       if (event.type === "reactor.done") {
+        inferenceRetry = null;
         status = stopRequested ? "stopped" : "done";
         finishedAt = Date.now();
         awaitingResponse = false;
@@ -1171,9 +1217,17 @@ export function createAgentStreamState(
           event.type === "reactor.error"
             ? (event.data as { fatal: boolean }).fatal === true
             : !isNonTerminalInferenceError(
-                (event.data as { error: { category: string; raw?: unknown } }).error,
+                (event.data as {
+                  error: {
+                    category: string;
+                    message: string;
+                    statusCode?: number;
+                    raw?: unknown;
+                  };
+                }).error,
               );
         if (terminal) {
+          inferenceRetry = null;
           status = "failed";
           finishedAt = Date.now();
           awaitingResponse = false;
