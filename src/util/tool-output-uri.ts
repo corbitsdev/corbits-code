@@ -13,3 +13,13 @@ export function normalizeToolOutputUri(path: string): string {
   if (callId.length === 0) return path;
   return `tool-output:///${callId}`;
 }
+
+/** Normalized tool-output URI with a non-empty callId, or undefined when not applicable. */
+export function canonicalToolOutputUri(path: string): string | undefined {
+  if (!isToolOutputLike(path)) return undefined;
+  const normalized = normalizeToolOutputUri(path);
+  if (!normalized.startsWith("tool-output:///")) return undefined;
+  const callId = normalized.slice("tool-output:///".length);
+  if (callId.length === 0) return undefined;
+  return normalized;
+}
