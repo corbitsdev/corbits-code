@@ -1,7 +1,7 @@
 import type { ToolPlugin } from "@intx/tools-posix";
-import { normalizeToolOutputUri } from "../util/tool-output-uri.js";
+import { isToolOutputLike, normalizeToolOutputUri } from "../util/tool-output-uri.js";
 
-/** Normalize read_file tool-output URIs before the posix handler resolves blobs. */
+/** Normalize read_file tool-output URIs before the posix handler or read-file guard resolves blobs. */
 export function toolOutputUriPlugin(): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
@@ -9,7 +9,7 @@ export function toolOutputUriPlugin(): ToolPlugin {
         return next(call, signal);
       }
       const path = call.arguments.path;
-      if (typeof path !== "string") {
+      if (typeof path !== "string" || !isToolOutputLike(path)) {
         return next(call, signal);
       }
       const normalized = normalizeToolOutputUri(path);
