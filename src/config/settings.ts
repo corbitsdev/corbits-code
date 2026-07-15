@@ -99,6 +99,8 @@ export type Settings = {
   // does not pass a per-command timeout; `maxTimeoutMs` caps any per-command
   // override so a single command cannot wait effectively unbounded.
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
+  // Outer wall-clock budget for each tool `run()` (dynamic runner / agent dispatch).
+  tools?: { timeoutMs?: number; maxTimeoutMs?: number };
 };
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
@@ -111,6 +113,18 @@ export function shellTimeoutFromSettings(
   return {
     ...(shell.timeoutMs !== undefined ? { defaultMs: shell.timeoutMs } : {}),
     ...(shell.maxTimeoutMs !== undefined ? { maxMs: shell.maxTimeoutMs } : {}),
+  };
+}
+
+// Maps the settings tools block to the shape the tool-execution watchdog expects.
+export function toolWatchdogFromSettings(
+  settings?: Settings | null,
+): { defaultMs?: number; maxMs?: number } | undefined {
+  const tools = settings?.tools;
+  if (tools === undefined) return undefined;
+  return {
+    ...(tools.timeoutMs !== undefined ? { defaultMs: tools.timeoutMs } : {}),
+    ...(tools.maxTimeoutMs !== undefined ? { maxMs: tools.maxTimeoutMs } : {}),
   };
 }
 
@@ -319,6 +333,7 @@ const SettingsSchema = type({
   "sessionMode?": "'single' | 'orchestrator'",
   "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
+  "tools?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is

@@ -9,7 +9,7 @@ import {
 } from "./harness.js";
 
 describe("integration — reactor permission + multi-turn", () => {
-  test("declined run_shell surfaces permission denial and ends without reactor.error", async () => {
+  test.serial("declined run_shell surfaces permission denial and ends without reactor.error", async () => {
     let asked = 0;
     const session = await openIntegrationSession({
       permissionGate: createPermissionGate({
@@ -59,7 +59,7 @@ describe("integration — reactor permission + multi-turn", () => {
     }
   });
 
-  test("approved write_file executes after operator approval and second inference turn completes", async () => {
+  test.serial("approved write_file executes after operator approval and second inference turn completes", async () => {
     let asked = 0;
     const session = await openIntegrationSession({
       permissionGate: createPermissionGate({
@@ -103,7 +103,7 @@ describe("integration — reactor permission + multi-turn", () => {
     }
   });
 
-  test("two user sends on the same agent retain both turns in history", async () => {
+  test.serial("two user sends on the same agent retain both turns in history", async () => {
     const session = await openIntegrationSession({
       permissionGate: createPermissionGate({
         approvals: [],

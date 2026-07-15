@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   activeStripSessions,
   agentsStripRowCount,
+  computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
   formatSessionLabel,
   mergeInFlightSubAgents,
@@ -30,6 +31,15 @@ describe("agentsStripRowCount", () => {
     expect(agentsStripRowCount(20, DEFAULT_STRIP_MAX_VISIBLE)).toBe(
       1 + DEFAULT_STRIP_MAX_VISIBLE + 1,
     );
+  });
+});
+
+describe("computeAgentsStripWindow", () => {
+  test("centers the selection when browsing a long list", () => {
+    const w = computeAgentsStripWindow(30, 20, DEFAULT_STRIP_MAX_VISIBLE);
+    expect(w.start).toBeLessThanOrEqual(20);
+    expect(w.end - w.start).toBe(DEFAULT_STRIP_MAX_VISIBLE);
+    expect(w.hiddenBelow).toBe(30 - w.end);
   });
 });
 

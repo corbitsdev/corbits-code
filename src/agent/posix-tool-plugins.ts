@@ -17,7 +17,10 @@ import {
   shellGuardPlugin,
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
-import { readFileGuardPlugin } from "../plugins/read-file-guard-plugin.js";
+import {
+  readFileGuardPlugin,
+  type ReadFileGuardPluginOptions,
+} from "../plugins/read-file-guard-plugin.js";
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -28,13 +31,21 @@ export type CorePosixToolPluginsArgs = {
   webProvider?: WebProvider;
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
+  readFileGuard?: ReadFileGuardPluginOptions;
 };
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
 // with shell-guard after permission so blocked commands never spawn. Secret-shaped
 // result scrub runs immediately before truncation so credentials are redacted first.
 export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolPlugin[] {
-  const { cwd, permissionGate, webProvider, shellTimeout, extraToolPlugins = [] } = args;
+  const {
+    cwd,
+    permissionGate,
+    webProvider,
+    shellTimeout,
+    extraToolPlugins = [],
+    readFileGuard = {},
+  } = args;
   return [
     pathEscapePlugin(cwd),
     deleteFilePlugin(cwd),
@@ -43,7 +54,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     authzPlugin(),
     permissionPlugin(permissionGate),
     shellGuardPlugin(cwd, shellTimeout),
-    readFileGuardPlugin(cwd),
+    readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
     // Line-range short-circuit sits inside verify (before stock edit_file).
     editFileLineRangePlugin(),

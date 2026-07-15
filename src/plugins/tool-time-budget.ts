@@ -25,6 +25,20 @@ export function formatSearchTimeoutMessage(
   return `${trimmed}\n\n${notice}`;
 }
 
+export function formatToolExecutionTimeoutMessage(
+  toolName: string,
+  timeoutMs: number,
+  partialResult?: string,
+): string {
+  const notice =
+    `${toolName} ${TIMEOUT_PREFIX} after ${timeoutMs}ms — the tool run was stopped. ` +
+    `Retry with a narrower scope, a smaller read, or a shorter shell command. ` +
+    `This is not a normal error returned by the tool itself.`;
+  const trimmed = partialResult?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return notice;
+  return `${trimmed}\n\n${notice}`;
+}
+
 export function formatReadFileTimeoutMessage(
   path: string,
   partialResult?: string,

@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+
 import {
+  BoundedShellOutput,
   DEFAULT_SHELL_TIMEOUT_MS,
   MAX_SHELL_OUTPUT_BYTES,
   advertiseShellGuardTimeout,
@@ -46,17 +50,81 @@ describe("runGuardedShell", () => {
     expect(Date.now() - start).toBeLessThan(5_000);
   });
 
-  test("kills when output exceeds the byte cap", async () => {
+  test("truncates with head+tail when output exceeds the byte cap", async () => {
     expect(MAX_SHELL_OUTPUT_BYTES).toBe(512_000);
-    await expect(
-      runGuardedShell(
-        {
-          command: "python3 -c \"print('x' * 600000)\"",
-          timeout: 5_000,
-        },
-        neverAbort(),
-      ),
-    ).rejects.toThrow(/output exceeded/);
+    const cap = 8_192;
+    const { output, outputTruncated, exitCode } = await runGuardedShell(
+      {
+        command:
+          "python3 -c \"print('START' + 'a' * 20000 + 'END' + 'b' * 20000)\"",
+        timeout: 5_000,
+        maxOutputBytes: cap,
+      },
+      neverAbort(),
+    );
+    expect(outputTruncated).toBe(true);
+    expect(exitCode).toBe(0);
+    expect(output).toContain("START");
+    expect(output).toMatch(/END|bbbb/);
+    expect(output).toMatch(/command output truncated/);
+    expect(output.length).toBeLessThan(cap + 512);
+  });
+
+  test("does not return the full oversized payload when truncated", async () => {
+    const cap = 4_096;
+    const { output, outputTruncated } = await runGuardedShell(
+      {
+        command: "python3 -c \"print('x' * 600000)\"",
+        timeout: 5_000,
+        maxOutputBytes: cap,
+      },
+      neverAbort(),
+    );
+    expect(outputTruncated).toBe(true);
+    expect(output.length).toBeLessThan(cap + 512);
+    expect(output).toMatch(/command output truncated/);
+  });
+
+  test("BoundedShellOutput keeps head and tail slices under cap", () => {
+    const cap = 200;
+    const collector = new BoundedShellOutput(cap);
+    const chunk = Buffer.from("a".repeat(80));
+    expect(collector.append(chunk)).toBe(false);
+    expect(collector.append(chunk)).toBe(false);
+    expect(collector.append(chunk)).toBe(true);
+    const { output, truncated } = collector.build();
+    expect(truncated).toBe(true);
+    expect(output.startsWith("a")).toBe(true);
+    expect(output).toMatch(/command output truncated/);
+    expect(output.length).toBeLessThanOrEqual(cap + 256);
+  });
+
+  test("timeout kills grandchildren in a shell pipeline", async () => {
+    if (process.platform === "win32") return;
+    const token = `ic_guard_orphan_${randomUUID()}`;
+    const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
+    await runGuardedShell({ command: cmd, timeout: 250 }, neverAbort());
+    await new Promise((r) => setTimeout(r, 300));
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    expect(probe.stdout?.trim() ?? "").toBe("");
+    expect(probe.status).not.toBe(0);
+  });
+
+  test("abort kills grandchildren in a shell pipeline", async () => {
+    if (process.platform === "win32") return;
+    const token = `ic_guard_abort_${randomUUID()}`;
+    const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
+    const controller = new AbortController();
+    const promise = runGuardedShell(
+      { command: cmd, timeout: 30_000 },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 80);
+    await expect(promise).rejects.toThrow(/aborted/);
+    await new Promise((r) => setTimeout(r, 300));
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    expect(probe.stdout?.trim() ?? "").toBe("");
+    expect(probe.status).not.toBe(0);
   });
 
   test("abort kills the process group", async () => {

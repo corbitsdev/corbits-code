@@ -320,6 +320,32 @@ See `docs/PLUGINS.md` for the full design. Summary:
 - **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
 - Configure via `/plugins`, which writes `settings.plugins` (enabled / consented / credentials), `settings.web`, and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. When a web plugin is active its tool calls render under its brand (e.g. "Exa Search"). Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
 
+## Hardening wave — deferred and upstream-owned items
+
+Intercode v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `interchange/` submodule and `vendor/` trees are out of scope for that wave (`scripts/verify-intercode-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Intercode because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
+
+### Child-supervisor IPC awaiter deadlines
+
+| Field | Detail |
+|---|---|
+| **Status** | Not applicable in Intercode; deferred to upstream Interchange |
+| **Risk** | Cross-process tool handlers can hang indefinitely when a supervisor reply is lost or stalled (mail submit, substrate write, pack transfer ack paths). |
+| **Why Intercode-only scope cannot close it** | Intercode does not run the workflow-host child supervisor or pack-transport sender loops. There is no `src/` surface that registers pending IPC awaiters for `outbound.result`, `substrate.write.response`, or `repo.pack.ack`. Chat and sub-agent sessions use in-process `@intx/agent` reactors, not the child bridges under `interchange/packages/workflow-host` or `interchange/packages/pack-transport`. |
+| **Upstream owner** | Interchange `workflow-host` (outbound mail and substrate write bridges) and `pack-transport` (pack sender). Deadline behavior should align with existing gated correlation timeouts in the supervisor stack. |
+| **Operator note** | Intercode operators are not exposed to this stall vector unless a future product mode embeds workflow-host children; track closure in Interchange, not in this repo. |
+
+### Bounded audit collector retention between checkpoints
+
+| Field | Detail |
+|---|---|
+| **Status** | Not applicable on the default path; deferred until real audit persistence is enabled |
+| **Risk** | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs. |
+| **Why Intercode-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.tsx` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
+| **Upstream owner** | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata. |
+| **Future Intercode work** | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only. |
+
+Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; only the two rows above remain upstream or product-gated.
+
 ## Build and Validation
 
 ```bash
