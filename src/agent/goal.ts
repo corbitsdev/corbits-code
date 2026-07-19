@@ -212,7 +212,8 @@ function notMetNudge(brief: string, reason: string, criteria: GoalCriterion[]): 
     `Progress: ${progress.done}/${progress.total}\n` +
     `Open:\n${openLines}\n` +
     `Note: ${reason}\n` +
-    "Mark each criterion done via manage_goal only when verifiably complete. " +
+    "Mark each acceptance criterion done via manage_goal only when verifiably complete. " +
+    "Use manage_tasks for work steps — not as a substitute for acceptance. " +
     "Do not stop until every criterion is done, or the operator pauses/clears the goal."
   );
 }
@@ -228,12 +229,16 @@ export function goalKickoffUserMessage(
   if (phase === "resume") {
     return (
       `Goal resumed.\nBrief: ${brief}\n` +
-      "Continue the acceptance checklist (manage_goal). Update criteria as you verify each item. " +
+      "Continue the acceptance checklist (manage_goal) and work plan (manage_tasks). " +
+      "Update acceptance criteria as you verify each item. " +
       "If criteria are still empty or vague, define or clarify them before more work."
     );
   }
   return (
     `Session goal brief:\n${brief}\n\n` +
+    "Two lists (do not conflate them):\n" +
+    "- manage_goal = Acceptance — what \"done\" means (checkable success criteria).\n" +
+    "- manage_tasks = Work — the steps you take to get there.\n\n" +
     "Order of operations (do not invert):\n" +
     "1. If the brief is vague or multi-interpretable, ask_operator ONE short clarifying question. " +
     "Do not run tests, make edits, install deps, or explore the repo until success is defined.\n" +
@@ -241,8 +246,11 @@ export function goalKickoffUserMessage(
     "(typically 3–12 concrete, checkable conditions). Expand the brief — do not restate it as a single item. " +
     "Each item must be independently verifiable (e.g. \"bun test exits 0\", \"typecheck clean\", " +
     "\"PR description documents migration steps\").\n" +
-    "3. Work the checklist. Use manage_goal action=\"update\" to mark items doing/done with evidence. " +
-    "The goal is met only when every criterion is done."
+    "3. Call manage_tasks with action=\"create\" for the work plan to satisfy those criteria " +
+    "(implementation steps, not acceptance restatements).\n" +
+    "4. Execute the work plan. Update manage_tasks as you go. " +
+    "Mark manage_goal items done only with evidence that the criterion is met. " +
+    "The goal is achieved only when every acceptance criterion is done."
   );
 }
 

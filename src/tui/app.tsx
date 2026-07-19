@@ -864,8 +864,17 @@ export function App({
     return subAgentSessions.get(enteredSessionId);
   }, [enteredSessionId, subAgentSessions, sessionsTick]);
 
-  // The task strip renders above the in-flight indicator: one line when compact,
-  // the full checklist (plus heading and surrounding margins) when expanded.
+  // Acceptance (goal) is always expanded while set. Work (tasks) stays
+  // compact until Ctrl+T so the two lists read as different surfaces.
+  const goalActive =
+    goalSnapshot !== null &&
+    goalSnapshot.status !== "inactive" &&
+    goalSnapshot.status !== "cleared";
+  const goalChromeRows = !goalActive
+    ? 0
+    : (goalSnapshot!.criteria.length === 0
+        ? 2
+        : goalSnapshot!.criteria.length + 1) + 2;
   const taskChromeRows =
     !hasActiveTasks(state.tasks)
       ? 0
@@ -923,6 +932,7 @@ export function App({
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
+    goalChromeRows +
     taskChromeRows +
     pluginChromeRows +
     (state.quotaError !== null ? 1 : 0) +
@@ -2090,12 +2100,22 @@ export function App({
             goalSnapshot.status !== "inactive" &&
             goalSnapshot.status !== "cleared" && (
             <Box flexDirection="column" marginTop={1}>
-              <GoalView goal={goalSnapshot} compact={!tasksExpanded} />
+              <GoalView goal={goalSnapshot} />
             </Box>
           )}
           {hasActiveTasks(state.tasks) && (
             <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={state.tasks} compact={!tasksExpanded} />
+              <TaskView
+                tasks={state.tasks}
+                compact={!tasksExpanded}
+                title={
+                  goalSnapshot !== null &&
+                  goalSnapshot.status !== "inactive" &&
+                  goalSnapshot.status !== "cleared"
+                    ? "Work"
+                    : "Tasks"
+                }
+              />
             </Box>
           )}
           {agentsStripVisible ? (

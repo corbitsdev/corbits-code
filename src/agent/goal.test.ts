@@ -226,6 +226,8 @@ describe("goalKickoffUserMessage", () => {
     expect(text).toMatch(/until success is defined/i);
     expect(text).toMatch(/do not invert/i);
     expect(text).toContain("manage_goal");
+    expect(text).toContain("manage_tasks");
+    expect(text).toMatch(/Acceptance/i);
     expect(text).toMatch(/3–12|multi-item/i);
   });
 
@@ -235,6 +237,7 @@ describe("goalKickoffUserMessage", () => {
     expect(text).toContain("all tests pass");
     expect(text).not.toMatch(/Order of operations/i);
     expect(text).toContain("manage_goal");
+    expect(text).toContain("manage_tasks");
   });
 });
 

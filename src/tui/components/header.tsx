@@ -33,10 +33,10 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-/** Compact header chip: progress over criteria, not the raw brief. */
+/** Compact header chip: acceptance progress, not the raw brief. */
 function goalLine(goal: GoalSnapshot, width: number): string {
   const progress = goalCriteriaProgress(goal.criteria);
-  const parts: string[] = ["goal"];
+  const parts: string[] = ["accept"];
   if (progress.total > 0) {
     parts.push(`${progress.done}/${progress.total}`);
   } else {

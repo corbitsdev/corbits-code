@@ -38,7 +38,8 @@ export type ManageGoalArgs = typeof ManageGoalArgsSchema.infer;
 export const manageGoalDefinition: ToolDefinition = {
   name: "manage_goal",
   description:
-    "Define or update the session goal's acceptance checklist. " +
+    "Define or update the session goal's acceptance checklist (what \"done\" means). " +
+    "This is not a work plan — use manage_tasks for implementation steps. " +
     "action=\"create\" replaces the full list of concrete, checkable success criteria " +
     "(expand the operator brief into typically 3–12 items — do not restate it as one item). " +
     "action=\"update\" patches items by id (status/title/note). " +

@@ -5,7 +5,10 @@ import { color } from "../theme.js";
 
 export type GoalViewProps = {
   goal: GoalSnapshot;
-  /** Compact: one line for current open criterion. Full: full checklist. */
+  /**
+   * Compact: one line for current open criterion.
+   * Default (expanded): full acceptance checklist — preferred while a goal is active.
+   */
   compact?: boolean;
 };
 
@@ -43,14 +46,18 @@ function byPriority(a: GoalCriterion, b: GoalCriterion): number {
   return rank[a.status] - rank[b.status];
 }
 
-/** Chrome for the panel label — muted like Tasks weight, success only when done. */
+/** Chrome for the panel label — muted, success only when achieved. */
 function labelColor(status: GoalSnapshot["status"]): string {
   if (status === "achieved") return color("success");
   if (status === "blocked" || status === "budget_limited") return color("warning");
   return color("muted");
 }
 
-export function GoalView({ goal, compact }: GoalViewProps) {
+/**
+ * Session goal acceptance checklist.
+ * This is *what done means* — not the work plan (that is Tasks / manage_tasks).
+ */
+export function GoalView({ goal, compact = false }: GoalViewProps) {
   if (goal.status === "inactive" || goal.status === "cleared") return null;
 
   const progress = goalCriteriaProgress(goal.criteria);
@@ -61,7 +68,7 @@ export function GoalView({ goal, compact }: GoalViewProps) {
       <Box paddingX={1} flexDirection="column">
         <Box gap={1}>
           <Text bold color={labelColor(goal.status)}>
-            Goal
+            Acceptance
           </Text>
           <Text color={color("dim")} dimColor>
             planning…
@@ -84,7 +91,7 @@ export function GoalView({ goal, compact }: GoalViewProps) {
         <Box paddingX={1} gap={1}>
           <Text color={color("success")}>✓</Text>
           <Text wrap="truncate-end">
-            Goal {progress.done}/{progress.total}
+            Acceptance {progress.done}/{progress.total}
           </Text>
           {goal.status !== "active" && goal.status !== "achieved" && (
             <Text color={color("dim")} dimColor>
@@ -111,7 +118,7 @@ export function GoalView({ goal, compact }: GoalViewProps) {
     <Box flexDirection="column" paddingX={1}>
       <Box gap={1}>
         <Text bold color={labelColor(goal.status)}>
-          Goal
+          Acceptance
         </Text>
         <Text color={color("dim")} dimColor>
           {progress.done}/{progress.total}
