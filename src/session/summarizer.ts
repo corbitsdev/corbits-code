@@ -22,6 +22,11 @@ export type SummaryContext = {
     stepIndex?: number;
     total?: number;
   };
+  /** Active session goal — preserved across compaction so the continue-rule survives. */
+  goal?: {
+    condition: string;
+    status: string;
+  };
 };
 
 const SYSTEM_INSTRUCTION = [
@@ -101,15 +106,27 @@ export function condenseTurns(turns: ConversationTurn[]): string {
 }
 
 function workflowPreamble(ctx: SummaryContext | undefined): string {
+  const parts: string[] = [];
   const wf = ctx?.workflow;
-  if (wf === undefined || wf.name === undefined) return "";
-  const step =
-    wf.stepIndex !== undefined && wf.total !== undefined
-      ? ` (step ${wf.stepIndex + 1}/${wf.total}${wf.stepLabel ? `: ${wf.stepLabel}` : ""})`
-      : wf.stepLabel
-        ? ` (current step: ${wf.stepLabel})`
-        : "";
-  return `Active workflow: /${wf.name}${step}\nThis session is mid-workflow — preserve everything needed to resume it.\n\n`;
+  if (wf !== undefined && wf.name !== undefined) {
+    const step =
+      wf.stepIndex !== undefined && wf.total !== undefined
+        ? ` (step ${wf.stepIndex + 1}/${wf.total}${wf.stepLabel ? `: ${wf.stepLabel}` : ""})`
+        : wf.stepLabel
+          ? ` (current step: ${wf.stepLabel})`
+          : "";
+    parts.push(
+      `Active workflow: /${wf.name}${step}\nThis session is mid-workflow — preserve everything needed to resume it.`,
+    );
+  }
+  const goal = ctx?.goal;
+  if (goal !== undefined && goal.condition.length > 0) {
+    parts.push(
+      `Active goal (${goal.status}): ${goal.condition}\nThe agent must keep working until this condition is verifiably met.`,
+    );
+  }
+  if (parts.length === 0) return "";
+  return `${parts.join("\n\n")}\n\n`;
 }
 
 /** Build the user-content prompt for the summary call. Pure and testable. */
