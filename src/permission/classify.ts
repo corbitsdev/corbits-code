@@ -151,10 +151,10 @@ function argEscapesWorkspace(token: string, realCwd: string): boolean {
 // judged in isolation — authz applies to the full command string, not each stage.
 export function isAutoAllowedShellSegment(segment: string, cwd: string = process.cwd()): boolean {
   const trimmed = segment.trim();
+  // Empty is not auto-allowed as a "command"; full-line comments are no-ops
+  // (markdown headings pasted into multi-line agent shells) and never need approval.
   if (trimmed.length === 0) return false;
-  // Full-line comments are shell no-ops (and often markdown headings pasted into
-  // multi-line agent shells). They never need approval.
-  if (trimmed.startsWith("#")) return true;
+  if (isShellCommentOnly(trimmed)) return true;
   if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
   const realCwd = realpathOr(cwd);
   return isAutoAllowedSegment(segment, realCwd);
@@ -163,7 +163,7 @@ export function isAutoAllowedShellSegment(segment: string, cwd: string = process
 function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
-  if (trimmed.startsWith("#")) return true;
+  if (isShellCommentOnly(trimmed)) return true;
   if (commandReferencesSensitivePath(trimmed)) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
   // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
@@ -189,7 +189,7 @@ export function isAutoAllowedShellCommand(command: string, cwd: string = process
   // Single-line full comments are no-ops. Multi-line strings that merely *start*
   // with `#` can still contain real commands on later lines, so those go through
   // the normal segment path (buildRequests filters comment-only segments).
-  if (!trimmed.includes("\n") && trimmed.startsWith("#")) return true;
+  if (!trimmed.includes("\n") && isShellCommentOnly(trimmed)) return true;
   if (commandReferencesSensitivePath(trimmed)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
