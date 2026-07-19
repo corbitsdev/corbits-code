@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
-import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js";
+import { splitChainedCommand, tokenize, deriveCommandScopes, isShellCommentOnly } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
@@ -15,6 +15,22 @@ import type { Approval, PermissionRequest } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
 const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+
+describe("isShellCommentOnly", () => {
+  test("full-line comments and empty lines are comment-only", () => {
+    expect(isShellCommentOnly("# worktree")).toBe(true);
+    expect(isShellCommentOnly("  # note  ")).toBe(true);
+    expect(isShellCommentOnly("#")).toBe(true);
+    expect(isShellCommentOnly("")).toBe(true);
+    expect(isShellCommentOnly("   ")).toBe(true);
+  });
+
+  test("real commands are not comment-only, even with trailing comments", () => {
+    expect(isShellCommentOnly("npm test")).toBe(false);
+    expect(isShellCommentOnly("npm test # suite")).toBe(false);
+    expect(isShellCommentOnly("git worktree list")).toBe(false);
+  });
+});
 
 describe("splitChainedCommand", () => {
   test("splits on &&, ||, |, ; and newlines", () => {
@@ -192,6 +208,24 @@ describe("buildRequests", () => {
     expect(reqs.every((r) => r.tool === "run_shell")).toBe(true);
   });
 
+  test("full-line shell comments never become approval subjects", () => {
+    expect(buildRequests(shellCall("# worktree"))).toEqual([]);
+    expect(buildRequests(shellCall("  # heading  "))).toEqual([]);
+  });
+
+  test("markdown headings mixed with real commands only prompt the real command", () => {
+    const reqs = buildRequests(shellCall("# worktree\ngit worktree list"));
+    expect(reqs.map((r) => r.subject)).toEqual(["git worktree list"]);
+    expect(reqs.flatMap((r) => r.scopes.map((s) => s.pattern))).not.toContain("# *");
+    expect(reqs.flatMap((r) => r.scopes.map((s) => s.pattern))).not.toContain("# worktree");
+  });
+
+  test("trailing comments on a real command still produce one request", () => {
+    const reqs = buildRequests(shellCall("npm test # suite"));
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe("npm test # suite");
+  });
+
   test("write_file yields one path-keyed request with file scopes", () => {
     const reqs = buildRequests({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
     expect(reqs).toHaveLength(1);
@@ -250,6 +284,38 @@ describe("gate authorizes every subshell segment independently", () => {
     const verdict = await gate.evaluate(shellCall("(cd a && bunx tsc --noEmit) && curl x"));
     expect(verdict.allowed).toBe(true);
     expect(prompted).toEqual(["cd a", "bunx tsc --noEmit", "curl x"]);
+  });
+
+  test("comment-only shell commands never prompt", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("# worktree"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("multi-line comment plus real command only prompts the real command", async () => {
+    const prompted: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("# worktree\ngit worktree add ../wt -b feature"));
+    expect(verdict.allowed).toBe(true);
+    expect(prompted).toEqual(["git worktree add ../wt -b feature"]);
   });
 });
 
@@ -1045,6 +1111,11 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("ls -la"))).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("sort names.txt"))).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
+  });
+
+  test("auto-allows full-line comments as no-ops", () => {
+    expect(isAutoAllowedShellCall(shellCall("# worktree"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("  # note"))).toBe(true);
   });
 
   test("does not auto-allow find (blocked as open-ended search by authz policy)", () => {
