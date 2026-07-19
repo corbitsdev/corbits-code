@@ -17,7 +17,16 @@ export function setConfiguredTiers(tiers: Partial<Record<ProviderTier, TierConfi
 
 const GOAL_CLEAR_ALIASES = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
 
-/** Parse optional `--turns N` / `--tokens N` / `--replace` flags and the remaining condition. */
+/**
+ * Parse /goal args.
+ * - bare → status
+ * - pause | resume | clear(+aliases)
+ * - optional leading turn budget as a bare integer: `/goal 25 all tests pass`
+ * - optional `--tokens N` / `--replace` flags (anywhere before the condition)
+ * - remaining text is the condition
+ *
+ * `--turns N` is still accepted as a quiet alias for the leading integer form.
+ */
 export function parseGoalArgs(raw: string): {
   sub?: "pause" | "resume" | "clear" | "status";
   condition?: string;
@@ -35,7 +44,15 @@ export function parseGoalArgs(raw: string): {
   let rest = trimmed;
   const opts: GoalSetOpts = {};
   let replace = false;
-  // Pull leading flags: --turns N, --tokens N, --replace — in any order.
+
+  // Leading bare integer is the optional turn budget: /goal 25 <condition>
+  const leadingTurns = rest.match(/^(\d+)\s+/);
+  if (leadingTurns !== null) {
+    opts.turnBudget = Number(leadingTurns[1]);
+    rest = rest.slice(leadingTurns[0].length);
+  }
+
+  // Optional flags: --tokens N, --replace, and legacy --turns N — any order.
   for (;;) {
     const turnsOrTokens = rest.match(/^--(turns|tokens)\s+(\d+)\s*/i);
     if (turnsOrTokens !== null) {
@@ -183,6 +200,11 @@ registerCommand({
 registerCommand({
   name: "goal",
   description: "Set, pause, resume, or clear a session goal (auto-continue until met)",
+  // First param option: greyed in the slash picker. Type a number before the
+  // condition — not a --turns flag. Fully optional (default budget applies).
+  params: [
+    { name: "turns", description: "optional turn budget · /goal 25 <condition>", optional: true },
+  ],
   subcommands: [
     { name: "pause", description: "Stop auto-continue; keep the goal" },
     { name: "resume", description: "Re-arm auto-continue (extends turn budget if limited)" },
@@ -217,7 +239,10 @@ registerCommand({
     }
     const condition = parsed.condition ?? "";
     if (condition.length === 0) {
-      return { type: "message", text: "Usage: /goal <condition> | /goal pause | /goal resume | /goal clear" };
+      return {
+        type: "message",
+        text: "Usage: /goal [turns] <condition> | /goal pause | /goal resume | /goal clear",
+      };
     }
     const existing = api.get();
     if (

@@ -33,14 +33,40 @@ describe("parseGoalArgs", () => {
     expect(parseGoalArgs("off").sub).toBe("clear");
   });
 
-  test("condition with budgets", () => {
+  test("condition alone uses default budget (turns fully optional)", () => {
+    const p = parseGoalArgs("all tests pass");
+    expect(p.condition).toBe("all tests pass");
+    expect(p.opts).toBeUndefined();
+  });
+
+  test("leading integer is optional turn budget", () => {
+    const p = parseGoalArgs("10 all tests pass");
+    expect(p.condition).toBe("all tests pass");
+    expect(p.opts).toEqual({ turnBudget: 10 });
+  });
+
+  test("leading turns with --tokens", () => {
+    const p = parseGoalArgs("10 --tokens 5000 all tests pass");
+    expect(p.condition).toBe("all tests pass");
+    expect(p.opts).toEqual({ turnBudget: 10, tokenBudget: 5000 });
+  });
+
+  test("legacy --turns still accepted", () => {
     const p = parseGoalArgs("--turns 10 --tokens 5000 all tests pass");
     expect(p.condition).toBe("all tests pass");
     expect(p.opts).toEqual({ turnBudget: 10, tokenBudget: 5000 });
   });
 
   test("replace flag", () => {
-    const p = parseGoalArgs("--replace --turns 5 new condition");
+    const p = parseGoalArgs("--replace new condition");
+    expect(p.condition).toBe("new condition");
+    expect(p.replace).toBe(true);
+    expect(p.opts).toBeUndefined();
+  });
+
+
+  test("replace with leading turns", () => {
+    const p = parseGoalArgs("5 --replace new condition");
     expect(p.condition).toBe("new condition");
     expect(p.replace).toBe(true);
     expect(p.opts).toEqual({ turnBudget: 5 });
@@ -51,13 +77,15 @@ describe("/goal command", () => {
   test("set kicks off and reports", () => {
     let setCond = "";
     let kicked = "";
+    let setOpts: unknown;
     const ctx: CommandContext = {
       signalClear: () => {},
       goal: {
         get: () => null,
-        set: (c) => {
+        set: (c, opts) => {
           setCond = c;
-          return snap({ condition: c });
+          setOpts = opts;
+          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 25 });
         },
         pause: () => null,
         resume: () => null,
@@ -69,6 +97,8 @@ describe("/goal command", () => {
     };
     const cmd = getCommand("goal");
     expect(cmd).toBeDefined();
+    expect(cmd!.params?.[0]?.name).toBe("turns");
+    expect(cmd!.params?.[0]?.optional).toBe(true);
     const result = cmd!.handler("ship the feature", ctx);
     expect(result.type).toBe("message");
     if (result.type === "message") {
@@ -76,7 +106,29 @@ describe("/goal command", () => {
       expect(result.text).toContain("ship the feature");
     }
     expect(setCond).toBe("ship the feature");
+    expect(setOpts).toBeUndefined();
     expect(kicked).toBe("ship the feature");
+  });
+
+  test("set with leading turn budget", () => {
+    let setOpts: { turnBudget?: number } | undefined;
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      goal: {
+        get: () => null,
+        set: (c, opts) => {
+          setOpts = opts;
+          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 25 });
+        },
+        pause: () => null,
+        resume: () => null,
+        clear: () => {},
+        kickoff: () => {},
+      },
+    };
+    const result = getCommand("goal")!.handler("12 ship the feature", ctx);
+    expect(result.type).toBe("message");
+    expect(setOpts).toEqual({ turnBudget: 12 });
   });
 
   test("status uses formatGoalStatus", () => {

@@ -36,9 +36,18 @@ export type SubcommandDefinition = {
   description: string;
 };
 
+/** Optional positional/hint params shown greyed in the slash picker (not inserted on Tab). */
+export type ParamDefinition = {
+  name: string;
+  description: string;
+  optional?: boolean;
+};
+
 export type CommandDefinition = {
   name: string;
   description: string;
+  /** Greyed first-class param hints shown after `/cmd ` before subcommands. */
+  params?: readonly ParamDefinition[];
   subcommands?: readonly SubcommandDefinition[];
   handler: (args: string, ctx: CommandContext) => CommandResult;
   // Optional visibility gate. When present and returns false the command is

@@ -219,7 +219,9 @@ function parseSlashState(value: string): SlashState | null {
   if (spaceIdx === -1) return { kind: "command", prefix: value.slice(1) };
   const parentName = value.slice(1, spaceIdx);
   const cmd = getCommand(parentName);
-  if (cmd?.subcommands !== undefined) {
+  // Open the post-command picker when the command has subcommands and/or
+  // optional param hints (e.g. /goal shows greyed "turns" first).
+  if (cmd?.subcommands !== undefined || (cmd?.params !== undefined && cmd.params.length > 0)) {
     return { kind: "subcommand", parentName, prefix: value.slice(spaceIdx + 1) };
   }
   return null;
@@ -227,7 +229,9 @@ function parseSlashState(value: string): SlashState | null {
 
 type Suggestion =
   | { kind: "command"; name: string; description: string }
-  | { kind: "subcommand"; parentName: string; sub: SubcommandDefinition };
+  | { kind: "subcommand"; parentName: string; sub: SubcommandDefinition }
+  | { kind: "param"; parentName: string; name: string; description: string; optional: boolean };
+
 
 function slashPrefix(value: string): string | null {
   if (!value.startsWith("/")) return null;
@@ -288,11 +292,32 @@ export function ChatInput({
         .map((c) => ({ kind: "command" as const, name: c.name, description: c.description }));
     }
     const cmd = getCommand(slashState.parentName);
-    if (cmd?.subcommands === undefined) return [];
-    return cmd.subcommands
-      .filter((s) => s.name.startsWith(slashState.prefix))
-      .map((s) => ({ kind: "subcommand" as const, parentName: slashState.parentName, sub: s }));
+    if (cmd === undefined) return [];
+    const out: Suggestion[] = [];
+    // Param hints only at `/cmd ` with no typed arg yet — so a leading number
+    // for /goal turns does not keep the greyed row forever.
+    if (slashState.prefix.length === 0 && cmd.params !== undefined) {
+      for (const p of cmd.params) {
+        out.push({
+          kind: "param",
+          parentName: slashState.parentName,
+          name: p.name,
+          description: p.description,
+          optional: p.optional === true,
+        });
+      }
+    }
+    if (cmd.subcommands !== undefined) {
+      for (const s of cmd.subcommands) {
+        if (s.name.startsWith(slashState.prefix)) {
+          out.push({ kind: "subcommand", parentName: slashState.parentName, sub: s });
+        }
+      }
+    }
+    return out;
+
   }, [slashState]);
+
 
   // Clamp selectedIdx whenever suggestions change.
   const clampedIdx = suggestions.length > 0 ? Math.min(selectedIdx, suggestions.length - 1) : 0;
@@ -372,8 +397,12 @@ export function ChatInput({
         if (sel !== undefined) {
           if (sel.kind === "command") {
             onChange(`/${sel.name} `);
-          } else {
+          } else if (sel.kind === "subcommand") {
             onChange(`/${sel.parentName} ${sel.sub.name} `);
+          } else {
+            // Optional param hint (e.g. greyed "turns") — do not insert the
+            // name; leave `/goal ` so the operator can type a number or skip.
+            onChange(`/${sel.parentName} `);
           }
         }
         setSelectedIdx(0);
@@ -381,14 +410,23 @@ export function ChatInput({
       }
       if (key.return) {
         const sel = suggestions[clampedIdx];
+        // Param rows are hints only — Enter does not submit an incomplete goal.
+        if (sel?.kind === "param") {
+          onChange(`/${sel.parentName} `);
+          setSelectedIdx(0);
+          return;
+        }
         let completed = value;
         if (sel !== undefined) {
-          completed = sel.kind === "command" ? `/${sel.name}` : `/${sel.parentName} ${sel.sub.name}`;
+          if (sel.kind === "command") completed = `/${sel.name}`;
+          else if (sel.kind === "subcommand") completed = `/${sel.parentName} ${sel.sub.name}`;
         }
         dispatchCommand(completed);
         resetField();
         return;
+
       }
+
       if (key.escape) {
         resetField();
         return;
@@ -531,12 +569,29 @@ export function ChatInput({
       {showSlash && (
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
           {suggestions.map((s, i) => {
-            const label = s.kind === "command" ? `/${s.name}` : `/${s.parentName} ${s.sub.name}`;
-            const desc = s.kind === "command" ? s.description : s.sub.description;
+            const label =
+              s.kind === "command"
+                ? `/${s.name}`
+                : s.kind === "subcommand"
+                  ? `/${s.parentName} ${s.sub.name}`
+                  : `/${s.parentName} ${s.name}`;
+            const desc =
+              s.kind === "command"
+                ? s.description
+                : s.kind === "subcommand"
+                  ? s.sub.description
+                  : s.description;
+            const isParam = s.kind === "param";
+            const selected = i === clampedIdx;
             return (
               <Box key={label} flexDirection="row" gap={1}>
                 <Box width={22} flexShrink={0}>
-                  <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx} wrap="truncate-end">
+                  <Text
+                    color={isParam ? "gray" : selected ? "cyan" : "white"}
+                    bold={selected && !isParam}
+                    dimColor={isParam}
+                    wrap="truncate-end"
+                  >
                     {label}
                   </Text>
                 </Box>
@@ -544,6 +599,7 @@ export function ChatInput({
               </Box>
             );
           })}
+
         </Box>
       )}
       {showAt && (
