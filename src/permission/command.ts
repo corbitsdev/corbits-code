@@ -175,6 +175,14 @@ function unwrapGroup(segment: string): string | null {
   return null;
 }
 
+// A full-line shell comment (or empty line) is a no-op: agents often paste
+// markdown headings like `# worktree` into multi-line run_shell arguments, and
+// those must not become approval subjects or allow-pattern prefixes.
+export function isShellCommentOnly(segment: string): boolean {
+  const trimmed = segment.trim();
+  return trimmed.length === 0 || trimmed.startsWith("#");
+}
+
 // Split a single command segment into whitespace-separated tokens, treating a
 // quoted run as one token.
 export function tokenize(command: string): string[] {
