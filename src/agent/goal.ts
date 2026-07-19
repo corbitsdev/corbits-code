@@ -213,7 +213,7 @@ function notMetNudge(brief: string, reason: string, criteria: GoalCriterion[]): 
     `Open:\n${openLines}\n` +
     `Note: ${reason}\n` +
     "Mark each acceptance criterion done via manage_goal only when verifiably complete. " +
-    "Use manage_tasks for work steps — not as a substitute for acceptance. " +
+    "Keep manage_tasks (Work) live — add, cancel, re-title, and status-update steps as the plan changes. " +
     "Do not stop until every criterion is done, or the operator pauses/clears the goal."
   );
 }
@@ -231,6 +231,7 @@ export function goalKickoffUserMessage(
       `Goal resumed.\nBrief: ${brief}\n` +
       "Continue the acceptance checklist (manage_goal) and work plan (manage_tasks). " +
       "Update acceptance criteria as you verify each item. " +
+      "Revise manage_tasks freely as work evolves (add/cancel/replan). " +
       "If criteria are still empty or vague, define or clarify them before more work."
     );
   }
@@ -248,7 +249,9 @@ export function goalKickoffUserMessage(
     "\"PR description documents migration steps\").\n" +
     "3. Call manage_tasks with action=\"create\" for the work plan to satisfy those criteria " +
     "(implementation steps, not acceptance restatements).\n" +
-    "4. Execute the work plan. Update manage_tasks as you go. " +
+    "4. Execute. Keep manage_tasks live throughout: update status as you go; " +
+    "append new steps (update with new id+title); cancel obsolete steps; " +
+    "or create again to replan the whole list. " +
     "Mark manage_goal items done only with evidence that the criterion is met. " +
     "The goal is achieved only when every acceptance criterion is done."
   );
