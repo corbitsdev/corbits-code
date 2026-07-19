@@ -99,6 +99,26 @@ describe("evidenceFromTurns", () => {
     const evidence = evidenceFromTurns(turns);
     expect(evidence).toContain("fix the bug");
     expect(evidence).toContain("edit_file");
-    expect(evidence).toContain("a.ts");
+    expect(evidence).toContain("path=a.ts");
+  });
+
+  test("includes shell command in tool-call evidence", () => {
+    const turns: ConversationTurn[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "1",
+            name: "run_shell",
+            arguments: { command: "bun test src/agent/goal.test.ts" },
+          },
+        ],
+        timestamp: 1,
+      },
+    ];
+    const evidence = evidenceFromTurns(turns);
+    expect(evidence).toContain("run_shell");
+    expect(evidence).toContain("command=bun test src/agent/goal.test.ts");
   });
 });

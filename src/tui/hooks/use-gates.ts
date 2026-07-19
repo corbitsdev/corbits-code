@@ -61,6 +61,7 @@ type PermissionQueueEntry = {
   resolve: (outcome: ApprovalOutcome) => void;
   timer: ReturnType<typeof setTimeout> | null;
   timeoutMs?: number;
+  timeoutMessage?: string;
   settled: boolean;
 };
 
@@ -88,6 +89,18 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
   const setGatePendingRef = useRef(setGatePending);
   setGatePendingRef.current = setGatePending;
 
+  // Clock starts only when the request is the visible head — queued items must
+  // not burn budget while the operator is still answering an earlier prompt.
+  const armHeadTimeout = (entry: PermissionQueueEntry) => {
+    if (entry.settled || entry.timer !== null) return;
+    const timeoutMs = entry.timeoutMs;
+    if (timeoutMs === undefined || timeoutMs <= 0) return;
+    const message = entry.timeoutMessage ?? goalApprovalTimeoutMessage(timeoutMs);
+    entry.timer = setTimeout(() => {
+      dropPermissionEntry(entry, { allow: false, message });
+    }, timeoutMs);
+  };
+
   const dropPermissionEntry = (entry: PermissionQueueEntry, outcome: ApprovalOutcome) => {
     const idx = permissionQueue.current.indexOf(entry);
     if (idx === -1 || entry.settled) return;
@@ -96,6 +109,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       const next = permissionQueue.current[0] ?? null;
       setPendingPermission(next ? next.request : null);
       setPermissionTimeoutMs(next?.timeoutMs ?? null);
+      if (next !== null) armHeadTimeout(next);
     }
     setPermissionQueueDepth(permissionQueue.current.length);
     setGatePendingRef.current(false);
@@ -134,17 +148,13 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
         timer: null,
         settled: false,
         ...(timeoutMs !== undefined && timeoutMs > 0 ? { timeoutMs } : {}),
+        ...(timeoutMessage !== undefined ? { timeoutMessage } : {}),
       };
-      if (timeoutMs !== undefined && timeoutMs > 0) {
-        const message = timeoutMessage ?? goalApprovalTimeoutMessage(timeoutMs);
-        entry.timer = setTimeout(() => {
-          dropPermissionEntry(entry, { allow: false, message });
-        }, timeoutMs);
-      }
       permissionQueue.current.push(entry);
       if (permissionQueue.current.length === 1) {
         setPendingPermission(request);
         setPermissionTimeoutMs(entry.timeoutMs ?? null);
+        armHeadTimeout(entry);
       }
       setPermissionQueueDepth(permissionQueue.current.length);
       setGatePending(true);
@@ -152,8 +162,17 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     eventEmitter.on("permission.gate", handler);
     return () => {
       eventEmitter.off("permission.gate", handler);
+      // Tear down mid-flight: clear timers and deny remaining so promises settle.
+      const remaining = permissionQueue.current.splice(0);
+      for (const entry of remaining) {
+        settlePermission(entry, { allow: false });
+        setGatePendingRef.current(false);
+      }
+      setPendingPermission(null);
+      setPermissionQueueDepth(0);
+      setPermissionTimeoutMs(null);
     };
-    // dropPermissionEntry closes over refs; intentional stable handler.
+    // armHeadTimeout / dropPermissionEntry close over refs; intentional stable handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventEmitter, setGatePending]);
 

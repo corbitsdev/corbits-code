@@ -202,9 +202,8 @@ export function evidenceFromTurns(turns: ConversationTurn[], maxChars = 12_000):
       if (block.type === "text" && block.text.trim().length > 0) {
         parts.push(block.text.trim().slice(0, 800));
       } else if (block.type === "tool_call") {
-        const args = block.arguments as Record<string, unknown> | undefined;
-        const path = typeof args?.path === "string" ? args.path : undefined;
-        parts.push(`tool ${block.name}${path !== undefined ? ` ${path}` : ""}`);
+        const argSummary = summarizeToolCallArgs(block.arguments);
+        parts.push(`tool ${block.name}${argSummary.length > 0 ? ` ${argSummary}` : ""}`);
       } else if (block.type === "tool_result") {
         const text =
           typeof block.content === "string"
@@ -226,4 +225,20 @@ export function evidenceFromTurns(turns: ConversationTurn[], maxChars = 12_000):
     used += line.length;
   }
   return chunks.reverse().join("\n");
+}
+
+const EVIDENCE_ARG_KEYS = ["command", "path", "description", "query", "pattern", "url"] as const;
+
+/** Compact tool-call arg summary for the evaluator (not a full dump). */
+export function summarizeToolCallArgs(args: unknown): string {
+  if (args === null || typeof args !== "object") return "";
+  const record = args as Record<string, unknown>;
+  const bits: string[] = [];
+  for (const key of EVIDENCE_ARG_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      bits.push(`${key}=${value.trim().slice(0, 120)}`);
+    }
+  }
+  return bits.join(" ");
 }

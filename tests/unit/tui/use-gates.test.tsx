@@ -336,3 +336,53 @@ test("operator answer before goal timeout cancels the timer", async () => {
   await new Promise((r) => setTimeout(r, 250));
   expect(outcome).toEqual({ allow: true });
 });
+
+test("queued permission timeout starts only when the request becomes visible head", async () => {
+  const emitter = new EventEmitter();
+  let first: { allow: boolean; message?: string } | null = null;
+  let second: { allow: boolean; message?: string } | null = null;
+  const { stdin, lastFrame } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "first", scopes: [] },
+    resolve: (o: { allow: boolean; message?: string }) => {
+      first = o;
+    },
+    timeoutMs: 500,
+    timeoutMessage: "first timed out",
+  });
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "second", scopes: [] },
+    resolve: (o: { allow: boolean; message?: string }) => {
+      second = o;
+    },
+    timeoutMs: 80,
+    timeoutMessage: "second timed out",
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:first");
+  expect(first).toBeNull();
+  expect(second).toBeNull();
+
+  // Hold the first modal longer than the second entry's timeout budget. The
+  // second must not auto-deny while still queued (timer arms only when head).
+  await new Promise((r) => setTimeout(r, 120));
+  expect(first).toBeNull();
+  expect(second).toBeNull();
+  expect(lastFrame()).toContain("perm:first");
+
+  // Approve first — second becomes head and only then starts its 80ms clock.
+  stdin.write("p");
+  await tick();
+  expect(first).toEqual({ allow: true });
+  expect(second).toBeNull();
+  expect(lastFrame()).toContain("perm:second");
+
+  await new Promise((r) => setTimeout(r, 40));
+  expect(second).toBeNull();
+
+  await new Promise((r) => setTimeout(r, 80));
+  expect(second).toEqual({ allow: false, message: "second timed out" });
+  expect(lastFrame()).toContain("none none none open=0");
+});
