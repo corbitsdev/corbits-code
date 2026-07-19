@@ -63,7 +63,9 @@ Continues from the last saved state in the working directory.
 
 ## Slash Commands (TUI)
 
-The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (open the agent configuration surface), `/settings`, `/permissions`, `/plugins`, `/login`, `/clear`, `/new`, and `/mcp`, plus a `/<name>` command per available workflow. Plugins can register additional commands.
+The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (open the agent configuration surface), `/settings`, `/permissions`, `/plugins`, `/login`, `/clear`, `/new`, `/mcp`, and `/goal` (session goal: auto-continue until a verifiable condition is met — see `/goal`, `/goal pause|resume|clear`, optional `--turns N` / `--tokens N` / `--replace`), plus a `/<name>` command per available workflow. Plugins can register additional commands.
+
+`/goal <condition>` arms a session-scoped goal governor: after each clean yield the agent is re-inferred until an external evaluator marks the condition met, the turn/token budget soft-stops, or the operator pauses/clears. Resume restores a prior goal as **paused** (never silently re-armed). Pair with auto mode and/or `--dangerously-skip-permissions` for longer unattended runs. Goal mode does not shrink tools, skills, slash commands, sub-agents, or MCP.
 
 `/agent` opens a dedicated full-screen modal — the single place agent configuration lives. Today it holds a Provider / Model section: it lists configured providers, marks the active one, and lets you switch provider and model. A switch applies to the running session immediately (no restart), and can be saved as this project's default (written to the per-repo selection file). The surface is section-based so future configuration (system-prompt overrides, profiles) lands as additional sections rather than new slash commands.
 
