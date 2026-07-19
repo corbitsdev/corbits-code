@@ -1998,7 +1998,9 @@ export function App({
           onSelectOperator={gates.selectOperator}
           pendingPermission={gates.pendingPermission}
           permissionQueueDepth={gates.permissionQueueDepth}
+          permissionTimeoutMs={gates.permissionTimeoutMs}
           onResolvePermission={gates.resolvePermission}
+
           width={columns}
         />
       </Box>

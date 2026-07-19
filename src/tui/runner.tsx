@@ -68,6 +68,12 @@ import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
+import {
+  DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+  goalApprovalTimeoutMessage,
+  isGoalApprovalTimeoutActive,
+} from "../permission/goal-approval-timeout.js";
+
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
@@ -244,6 +250,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     loadGlobalApprovals(),
     loadProviderModelApprovals(),
   ]);
+  // Goal governor is created after liveSource (evaluator closure); the gate
+  // holds a ref so requestApproval can arm a timeout once a goal is active.
+  const goalGovernorRef: { current: ReturnType<typeof createGoalGovernor> | null } = {
+    current: null,
+  };
+
   const seededApprovals: Approval[] = [
     ...sessionApprovals,
     ...projectApprovals,
@@ -258,7 +270,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     model: config.model,
     requestApproval: (request) =>
       new Promise((resolve) => {
-        const event: PermissionGateEvent = { request, resolve };
+        const snap = goalGovernorRef.current?.get() ?? null;
+        const event: PermissionGateEvent = {
+          request,
+          resolve,
+          ...(isGoalApprovalTimeoutActive(snap?.status)
+            ? {
+                timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+                timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
+              }
+            : {}),
+        };
         emitter.emit("permission.gate", event);
       }),
     persist: (approval: Approval, scope: GrantScope) => {
@@ -276,6 +298,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
   });
+
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
@@ -713,6 +736,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const settings = config.settings;
         const refs = tierProviderRefs("fast", settings, { fallbackChain: true });
         const head = refs[0];
+
         if (head !== undefined) {
           const fast = buildInferenceSourceForRef(
             head,
@@ -752,6 +776,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       );
     },
   });
+  goalGovernorRef.current = goalGovernor;
 
   // Resume restores condition as paused so autonomy is never silently re-armed.
   {

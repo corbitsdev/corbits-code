@@ -288,3 +288,51 @@ test("resetGates balances refcount when multiple permission gates are queued", a
 
   expect(gateCalls).toEqual([true, true, false, false]);
 });
+
+test("goal-mode permission timeout auto-denies with a message for the agent", async () => {
+  const emitter = new EventEmitter();
+  let outcome: { allow: boolean; message?: string } | null = null;
+  const { lastFrame } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean; message?: string }) => {
+      outcome = o;
+    },
+    timeoutMs: 40,
+    timeoutMessage: "Goal mode: skipped (test)",
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:bun install");
+  expect(outcome).toBeNull();
+
+  await new Promise((r) => setTimeout(r, 80));
+  expect(outcome).toEqual({ allow: false, message: "Goal mode: skipped (test)" });
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+test("operator answer before goal timeout cancels the timer", async () => {
+  const emitter = new EventEmitter();
+  let outcome: { allow: boolean } | null = null;
+  const { stdin, lastFrame } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "ls", scopes: [] },
+    resolve: (o: { allow: boolean }) => {
+      outcome = o;
+    },
+    timeoutMs: 200,
+    timeoutMessage: "should not fire",
+  });
+  await tick();
+  stdin.write("p");
+  await tick();
+  expect(outcome).toEqual({ allow: true });
+  expect(lastFrame()).toContain("open=0");
+
+  // Wait past the original timeout — must not double-resolve or flip outcome.
+  await new Promise((r) => setTimeout(r, 250));
+  expect(outcome).toEqual({ allow: true });
+});

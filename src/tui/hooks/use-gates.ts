@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
 import type { OperatorResult } from "../../agent/tools.js";
 import type { PlanStep } from "../use-stream.js";
+import { goalApprovalTimeoutMessage } from "../../permission/goal-approval-timeout.js";
 
 export type PlanGateEvent = {
   plan: PlanStep[];
@@ -18,6 +19,13 @@ export type OperatorGateEvent = {
 export type PermissionGateEvent = {
   request: PermissionRequest;
   resolve: (outcome: ApprovalOutcome) => void;
+  /**
+   * When set (goal mode active), auto-deny if the operator has not answered
+   * within this many ms so an unattended goal cannot park on the modal forever.
+   */
+  timeoutMs?: number;
+  /** Override the agent-facing deny message on timeout. */
+  timeoutMessage?: string;
 };
 
 export type PendingOperator = { question: string; options: string[] };
@@ -28,6 +36,11 @@ export type GateController = {
   pendingPermission: PermissionRequest | null;
   /** Permission gates still queued, including the visible modal. */
   permissionQueueDepth: number;
+  /**
+   * Auto-skip budget for the visible permission modal (goal mode). Null when the
+   * head request has no timeout.
+   */
+  permissionTimeoutMs: number | null;
   gateOpen: boolean;
   approve: () => void;
   reject: () => void;
@@ -43,17 +56,51 @@ export type UseGatesArgs = {
 
 type PlanQueueEntry = { plan: PlanStep[]; resolve: (approved: boolean) => void };
 type OperatorQueueEntry = { question: string; options: string[]; resolve: (result: OperatorResult) => void };
-type PermissionQueueEntry = { request: PermissionRequest; resolve: (outcome: ApprovalOutcome) => void };
+type PermissionQueueEntry = {
+  request: PermissionRequest;
+  resolve: (outcome: ApprovalOutcome) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+  timeoutMs?: number;
+  settled: boolean;
+};
+
+function settlePermission(entry: PermissionQueueEntry, outcome: ApprovalOutcome): void {
+  if (entry.settled) return;
+  entry.settled = true;
+  if (entry.timer !== null) {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+  entry.resolve(outcome);
+}
 
 export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateController {
   const [pendingPlan, setPendingPlan] = useState<PlanStep[] | null>(null);
   const [pendingOperator, setPendingOperator] = useState<PendingOperator | null>(null);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
   const [permissionQueueDepth, setPermissionQueueDepth] = useState(0);
+  const [permissionTimeoutMs, setPermissionTimeoutMs] = useState<number | null>(null);
 
   const planQueue = useRef<PlanQueueEntry[]>([]);
   const operatorQueue = useRef<OperatorQueueEntry[]>([]);
   const permissionQueue = useRef<PermissionQueueEntry[]>([]);
+  // Keep setGatePending stable for timer callbacks without re-binding listeners.
+  const setGatePendingRef = useRef(setGatePending);
+  setGatePendingRef.current = setGatePending;
+
+  const dropPermissionEntry = (entry: PermissionQueueEntry, outcome: ApprovalOutcome) => {
+    const idx = permissionQueue.current.indexOf(entry);
+    if (idx === -1 || entry.settled) return;
+    permissionQueue.current.splice(idx, 1);
+    if (idx === 0) {
+      const next = permissionQueue.current[0] ?? null;
+      setPendingPermission(next ? next.request : null);
+      setPermissionTimeoutMs(next?.timeoutMs ?? null);
+    }
+    setPermissionQueueDepth(permissionQueue.current.length);
+    setGatePendingRef.current(false);
+    settlePermission(entry, outcome);
+  };
 
   useEffect(() => {
     const handler = ({ plan, resolve }: PlanGateEvent) => {
@@ -62,7 +109,9 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       setGatePending(true);
     };
     eventEmitter.on("plan.gate", handler);
-    return () => { eventEmitter.off("plan.gate", handler); };
+    return () => {
+      eventEmitter.off("plan.gate", handler);
+    };
   }, [eventEmitter, setGatePending]);
 
   useEffect(() => {
@@ -72,18 +121,40 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       setGatePending(true);
     };
     eventEmitter.on("operator.gate", handler);
-    return () => { eventEmitter.off("operator.gate", handler); };
+    return () => {
+      eventEmitter.off("operator.gate", handler);
+    };
   }, [eventEmitter, setGatePending]);
 
   useEffect(() => {
-    const handler = ({ request, resolve }: PermissionGateEvent) => {
-      permissionQueue.current.push({ request, resolve });
-      if (permissionQueue.current.length === 1) setPendingPermission(request);
+    const handler = ({ request, resolve, timeoutMs, timeoutMessage }: PermissionGateEvent) => {
+      const entry: PermissionQueueEntry = {
+        request,
+        resolve,
+        timer: null,
+        settled: false,
+        ...(timeoutMs !== undefined && timeoutMs > 0 ? { timeoutMs } : {}),
+      };
+      if (timeoutMs !== undefined && timeoutMs > 0) {
+        const message = timeoutMessage ?? goalApprovalTimeoutMessage(timeoutMs);
+        entry.timer = setTimeout(() => {
+          dropPermissionEntry(entry, { allow: false, message });
+        }, timeoutMs);
+      }
+      permissionQueue.current.push(entry);
+      if (permissionQueue.current.length === 1) {
+        setPendingPermission(request);
+        setPermissionTimeoutMs(entry.timeoutMs ?? null);
+      }
       setPermissionQueueDepth(permissionQueue.current.length);
       setGatePending(true);
     };
     eventEmitter.on("permission.gate", handler);
-    return () => { eventEmitter.off("permission.gate", handler); };
+    return () => {
+      eventEmitter.off("permission.gate", handler);
+    };
+    // dropPermissionEntry closes over refs; intentional stable handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventEmitter, setGatePending]);
 
   const resolvePlanHead = (approved: boolean) => {
@@ -96,19 +167,20 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
 
   const resetGates = () => {
     const pendingCount =
-      planQueue.current.length +
-      operatorQueue.current.length +
-      permissionQueue.current.length;
+      planQueue.current.length + operatorQueue.current.length + permissionQueue.current.length;
     for (const entry of planQueue.current) entry.resolve(false);
     planQueue.current = [];
     for (const entry of operatorQueue.current) entry.resolve({ kind: "cancel" });
     operatorQueue.current = [];
-    for (const entry of permissionQueue.current) entry.resolve({ allow: false });
+    for (const entry of permissionQueue.current) {
+      settlePermission(entry, { allow: false });
+    }
     permissionQueue.current = [];
     setPendingPlan(null);
     setPendingOperator(null);
     setPendingPermission(null);
     setPermissionQueueDepth(0);
+    setPermissionTimeoutMs(null);
     for (let i = 0; i < pendingCount; i += 1) {
       setGatePending(false);
     }
@@ -119,6 +191,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
     pendingOperator,
     pendingPermission,
     permissionQueueDepth,
+    permissionTimeoutMs,
     gateOpen: pendingPlan !== null || pendingOperator !== null || pendingPermission !== null,
     approve: () => resolvePlanHead(true),
     reject: () => resolvePlanHead(false),
@@ -130,12 +203,9 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       head?.resolve(result);
     },
     resolvePermission: (outcome: ApprovalOutcome) => {
-      const head = permissionQueue.current.shift();
-      const next = permissionQueue.current[0] ?? null;
-      setPendingPermission(next ? next.request : null);
-      setPermissionQueueDepth(permissionQueue.current.length);
-      setGatePending(false);
-      head?.resolve(outcome);
+      const head = permissionQueue.current[0];
+      if (head === undefined) return;
+      dropPermissionEntry(head, outcome);
     },
     resetGates,
   };
