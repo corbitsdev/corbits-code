@@ -76,10 +76,21 @@ export type CreateGoalGovernorOpts = {
 
 export type GoalGovernor = ReturnType<typeof createGoalGovernor>;
 
-export const DEFAULT_GOAL_TURN_BUDGET = 25;
+export const DEFAULT_GOAL_TURN_BUDGET = 0;
 export const DEFAULT_GOAL_RESUME_EXTEND = 25;
 export const DEFAULT_MAX_EVAL_FAILURES = 3;
 export const DEFAULT_MAX_EMPTY_YIELDS = 2;
+
+/** `0` (and negative) means no turn soft-stop — goal runs until met, paused, or cleared. */
+export function isUnlimitedTurnBudget(turnBudget: number): boolean {
+  return turnBudget <= 0;
+}
+
+/** Display helper for status lines and the TUI header. */
+export function formatGoalTurns(turnsUsed: number, turnBudget: number): string {
+  if (isUnlimitedTurnBudget(turnBudget)) return `${turnsUsed}/∞`;
+  return `${turnsUsed}/${turnBudget}`;
+}
 
 function goalNudgeTurn(text: string): ConversationTurn {
   return {
@@ -129,7 +140,35 @@ function notMetNudge(condition: string, reason: string): string {
     `Condition: ${condition}\n` +
     `Evaluator: ${reason}\n` +
     "Continue working toward the condition. Do not stop until it is verifiably met " +
-    "or the operator pauses/clears the goal."
+    "or the operator pauses/clears the goal. If success criteria are still ambiguous, " +
+    "ask the operator once — do not thrash on vague goals."
+  );
+}
+
+/**
+ * User message injected when `/goal` sets or resumes. Clarify-first: vague
+ * conditions must lock a checkable success criterion before substantial work.
+ */
+export function goalKickoffUserMessage(
+  condition: string,
+  phase: "set" | "resume" = "set",
+): string {
+  if (phase === "resume") {
+    return (
+      `Goal resumed: ${condition}\n` +
+      "Continue until this condition is verifiably met. Prefer tools and evidence over claims. " +
+      "If success criteria are still ambiguous, ask once before more work — do not thrash."
+    );
+  }
+  return (
+    `Session goal is set:\n${condition}\n\n` +
+    "Order of operations (do not invert):\n" +
+    "1. If this condition is vague or multi-interpretable, ask the operator ONE short " +
+    "clarifying question to lock a concrete, checkable success criterion. " +
+    "Do not run tests, make edits, install deps, or explore the repo until success is defined.\n" +
+    "2. If the condition is already concrete and verifiable " +
+    '(e.g. "bun test exits 0", "typecheck clean", "PR open with CI green"), skip clarification and start immediately.\n' +
+    "3. Once criteria are clear, work until they are met with evidence. Do not stop at partial progress."
   );
 }
 
@@ -202,10 +241,15 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     }
     const extend = resumeOpts?.extendTurnBudget ?? defaultResumeExtend;
     const { lastReason: _cleared, ...rest } = snapshot;
+    // Unlimited goals stay unlimited on resume. Finite budgets get headroom so
+    // /goal resume after budget_limited (or pause) can keep going.
+    const nextTurnBudget = isUnlimitedTurnBudget(snapshot.turnBudget)
+      ? 0
+      : snapshot.turnsUsed + extend;
     snapshot = {
       ...rest,
       status: "active",
-      turnBudget: snapshot.turnsUsed + extend,
+      turnBudget: nextTurnBudget,
       consecutiveEvalFailures: 0,
       consecutiveEmptyYields: 0,
     };
@@ -288,6 +332,8 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
   }
 
   function turnBudgetExhausted(): boolean {
+    // 0 = unlimited: never soft-stop on turns alone.
+    if (isUnlimitedTurnBudget(snapshot.turnBudget)) return false;
     // turnsUsed is the number of continue attempts already spent. Soft-stop when
     // the next continue would exceed the budget (turnsUsed >= turnBudget means
     // no more continues remain).
@@ -468,7 +514,7 @@ export function formatGoalStatus(snap: GoalSnapshot | null): string {
     `Goal: ${snap.condition}`,
     `Status: ${snap.status}`,
     `Duration: ${duration}`,
-    `Turns: ${snap.turnsUsed}/${snap.turnBudget}`,
+    `Turns: ${formatGoalTurns(snap.turnsUsed, snap.turnBudget)}`,
     `Tokens: ${tokens}` +
       (snap.tokenBudget !== undefined ? `/${snap.tokenBudget}` : "") +
       ` (main ${snap.mainTokens}, eval ${snap.evalTokens})`,

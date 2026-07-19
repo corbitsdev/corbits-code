@@ -3,6 +3,10 @@ import type { ReactorAction, ReactorCapabilities } from "@intx/types/runtime";
 import {
   createGoalGovernor,
   formatGoalStatus,
+  formatGoalTurns,
+  goalKickoffUserMessage,
+  isUnlimitedTurnBudget,
+  DEFAULT_GOAL_TURN_BUDGET,
   type GoalEvaluateFn,
   type GoalInterceptContext,
 } from "./goal.js";
@@ -40,6 +44,19 @@ function failingEval(message = "network down"): GoalEvaluateFn {
 }
 
 describe("goal governor state machine", () => {
+  test("default turn budget is unlimited (0)", () => {
+    expect(DEFAULT_GOAL_TURN_BUDGET).toBe(0);
+    expect(isUnlimitedTurnBudget(0)).toBe(true);
+    expect(isUnlimitedTurnBudget(25)).toBe(false);
+    expect(formatGoalTurns(3, 0)).toBe("3/∞");
+    expect(formatGoalTurns(3, 25)).toBe("3/25");
+
+    const g = createGoalGovernor({ evaluate: alwaysNotMet(), now: () => 1000 });
+    const first = g.set("all tests green");
+    expect(first.turnBudget).toBe(0);
+    expect(first.status).toBe("active");
+  });
+
   test("set activates and replace resets counters", () => {
     const g = createGoalGovernor({ evaluate: alwaysNotMet(), now: () => 1000 });
     expect(g.get()).toBeNull();
@@ -54,9 +71,10 @@ describe("goal governor state machine", () => {
     expect(second.condition).toBe("ship the feature");
     expect(second.turnsUsed).toBe(0);
     expect(second.status).toBe("active");
+    expect(second.turnBudget).toBe(0);
   });
 
-  test("pause and resume extend the turn budget", () => {
+  test("pause and resume extend a finite turn budget", () => {
     const g = createGoalGovernor({
       evaluate: alwaysNotMet(),
       defaultTurnBudget: 5,
@@ -66,6 +84,16 @@ describe("goal governor state machine", () => {
     expect(g.pause()?.status).toBe("paused");
     expect(g.resume()?.status).toBe("active");
     expect(g.get()?.turnBudget).toBe(10);
+  });
+
+  test("resume keeps unlimited turn budget unlimited", () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("ship it");
+    expect(g.get()?.turnBudget).toBe(0);
+    g.pause();
+    const resumed = g.resume();
+    expect(resumed?.turnBudget).toBe(0);
+    expect(resumed?.status).toBe("active");
   });
 
   test("clear returns to inactive", () => {
@@ -90,6 +118,24 @@ describe("goal governor state machine", () => {
 
     g.restore({ status: "cleared", condition: "old", startedAt: 1, turnBudget: 5 });
     expect(g.get()).toBeNull();
+  });
+});
+
+describe("goalKickoffUserMessage", () => {
+  test("set path requires clarify-before-work for vague goals", () => {
+    const text = goalKickoffUserMessage("test goal", "set");
+    expect(text).toContain("test goal");
+    expect(text.toLowerCase()).toContain("clarif");
+    expect(text).toMatch(/Do not run tests/i);
+    expect(text).toMatch(/until success is defined/i);
+    expect(text).toMatch(/do not invert/i);
+  });
+
+  test("resume path continues without re-forcing full setup ritual", () => {
+    const text = goalKickoffUserMessage("all tests pass", "resume");
+    expect(text).toContain("resumed");
+    expect(text).toContain("all tests pass");
+    expect(text).not.toMatch(/Order of operations/i);
   });
 });
 
@@ -218,6 +264,18 @@ describe("goal interceptTerminal", () => {
     expect(second).toBeNull();
     expect(g.get()?.status).toBe("budget_limited");
     expect(g.get()?.lastReason).toContain("Turn budget");
+  });
+
+  test("unlimited turn budget does not soft-stop on turns alone", async () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("keep going");
+    for (let i = 0; i < 30; i++) {
+      const next = await g.interceptTerminal(waitTerminal, capabilities, ctx());
+      expect(next?.some((a) => a.type === "infer")).toBe(true);
+    }
+    expect(g.get()?.status).toBe("active");
+    expect(g.get()?.turnsUsed).toBe(30);
+    expect(g.get()?.turnBudget).toBe(0);
   });
 
   test("token budget soft-stops when main+eval exceed the cap", async () => {

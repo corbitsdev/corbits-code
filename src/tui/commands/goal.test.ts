@@ -10,7 +10,7 @@ function snap(partial: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status: "active",
     condition: "tests green",
     startedAt: Date.now() - 60_000,
-    turnBudget: 25,
+    turnBudget: 0,
     turnsUsed: 0,
     mainTokens: 0,
     evalTokens: 0,
@@ -85,7 +85,7 @@ describe("/goal command", () => {
         set: (c, opts) => {
           setCond = c;
           setOpts = opts;
-          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 25 });
+          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 0 });
         },
         pause: () => null,
         resume: () => null,
@@ -118,7 +118,7 @@ describe("/goal command", () => {
         get: () => null,
         set: (c, opts) => {
           setOpts = opts;
-          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 25 });
+          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 0 });
         },
         pause: () => null,
         resume: () => null,

@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
 import type { GoalSnapshot } from "../../agent/goal.js";
+import { formatGoalTurns } from "../../agent/goal.js";
 
 export type HeaderWorkflow = {
   name: string;
@@ -33,7 +34,7 @@ function truncate(s: string, max: number): string {
 }
 
 function goalLine(goal: GoalSnapshot, width: number): string {
-  const turns = `${goal.turnsUsed}/${goal.turnBudget}`;
+  const turns = formatGoalTurns(goal.turnsUsed, goal.turnBudget);
   const label = `goal · ${goal.status} · ${turns} · ${goal.condition}`;
   return truncate(label, Math.max(20, width - 4));
 }

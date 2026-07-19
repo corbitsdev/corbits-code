@@ -119,6 +119,7 @@ import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
+import { goalKickoffUserMessage } from "../agent/goal.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import {
   extractPastedImagePaths,
@@ -1347,12 +1348,11 @@ export function App({
             pause: goalApi.pause,
             resume: goalApi.resume,
             clear: goalApi.clear,
-            kickoff: (condition: string) => {
+            kickoff: (condition: string, phase: "set" | "resume" = "set") => {
               // Start a turn immediately so the agent works without a second prompt.
+              // Set path forces clarify-first for vague goals; resume continues.
               sendMessageRef.current({
-                text:
-                  `Goal is active: ${condition}\n` +
-                  "Work until this condition is verifiably met. Prefer tools and evidence over claims.",
+                text: goalKickoffUserMessage(condition, phase),
                 attachments: [],
               });
             },

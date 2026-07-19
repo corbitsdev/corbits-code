@@ -1,6 +1,6 @@
 import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
-import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
+import { formatGoalStatus, formatGoalTurns, type GoalSetOpts } from "../../agent/goal.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
 // /clever stay out of the slash menu until the user configures one; app.tsx
@@ -201,11 +201,11 @@ registerCommand({
   name: "goal",
   description: "Set, pause, resume, or clear a session goal (auto-continue until met)",
   // Claude-style free-form arg guidance. Leading turns are optional positional
-  // (`/goal 25 all tests pass`); default budget applies when omitted.
+  // (`/goal 25 all tests pass`); omit for unlimited turns (default).
   argumentHint: "[turns] <condition>",
   subcommands: [
     { name: "pause", description: "Stop auto-continue; keep the goal" },
-    { name: "resume", description: "Re-arm auto-continue (extends turn budget if limited)" },
+    { name: "resume", description: "Re-arm auto-continue (extends finite turn budget if limited)" },
     { name: "clear", description: "Drop the goal" },
   ],
 
@@ -228,7 +228,7 @@ registerCommand({
       if (snap === null) {
         return { type: "message", text: "No paused or budget-limited goal to resume." };
       }
-      api.kickoff?.(snap.condition);
+      api.kickoff?.(snap.condition, "resume");
       return { type: "message", text: `Goal resumed.\n${formatGoalStatus(snap)}` };
     }
     if (parsed.sub === "clear") {
@@ -257,10 +257,12 @@ registerCommand({
       };
     }
     const snap = api.set(condition, parsed.opts);
-    api.kickoff?.(condition);
+    api.kickoff?.(condition, "set");
     return {
       type: "message",
-      text: `Goal set (status: ${snap.status}, turns ${snap.turnsUsed}/${snap.turnBudget}).\nCondition: ${snap.condition}`,
+      text:
+        `Goal set (status: ${snap.status}, turns ${formatGoalTurns(snap.turnsUsed, snap.turnBudget)}).\n` +
+        `Condition: ${snap.condition}`,
     };
   },
 });
