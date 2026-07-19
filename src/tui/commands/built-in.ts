@@ -259,14 +259,7 @@ registerCommand({
     }
     const snap = api.set(condition, parsed.opts);
     api.kickoff?.(condition, "set");
-    return {
-      type: "message",
-      text:
-        `Goal brief set (${snap.status}). The agent will expand this into an acceptance checklist ` +
-        `(manage_goal) — that checklist is the real goal.\n` +
-        `Brief: ${snap.brief}\n` +
-        `Check progress anytime with /goal status.`,
-    };
+    return { type: "message", text: `Goal set.\nBrief: ${snap.brief}` };
   },
 });
 
