@@ -43,6 +43,13 @@ function byPriority(a: GoalCriterion, b: GoalCriterion): number {
   return rank[a.status] - rank[b.status];
 }
 
+/** Chrome for the panel label — muted like Tasks weight, success only when done. */
+function labelColor(status: GoalSnapshot["status"]): string {
+  if (status === "achieved") return color("success");
+  if (status === "blocked" || status === "budget_limited") return color("warning");
+  return color("muted");
+}
+
 export function GoalView({ goal, compact }: GoalViewProps) {
   if (goal.status === "inactive" || goal.status === "cleared") return null;
 
@@ -53,7 +60,7 @@ export function GoalView({ goal, compact }: GoalViewProps) {
     return (
       <Box paddingX={1} flexDirection="column">
         <Box gap={1}>
-          <Text bold color={color("accent")}>
+          <Text bold color={labelColor(goal.status)}>
             Goal
           </Text>
           <Text color={color("dim")} dimColor>
@@ -79,6 +86,11 @@ export function GoalView({ goal, compact }: GoalViewProps) {
           <Text wrap="truncate-end">
             Goal {progress.done}/{progress.total}
           </Text>
+          {goal.status !== "active" && goal.status !== "achieved" && (
+            <Text color={color("dim")} dimColor>
+              {goal.status}
+            </Text>
+          )}
         </Box>
       );
     }
@@ -98,14 +110,14 @@ export function GoalView({ goal, compact }: GoalViewProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box gap={1}>
-        <Text bold color={color("accent")}>
+        <Text bold color={labelColor(goal.status)}>
           Goal
         </Text>
         <Text color={color("dim")} dimColor>
           {progress.done}/{progress.total}
         </Text>
         {goal.status !== "active" && (
-          <Text color={color("muted")} dimColor>
+          <Text color={color("dim")} dimColor>
             {goal.status}
           </Text>
         )}

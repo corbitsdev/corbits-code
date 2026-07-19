@@ -90,8 +90,16 @@ export function Header({
           )}
           {showGoal && focusedAgent === undefined && (
             <Box>
-              <Text color={color("accent")}>
-                ◈ {goalLine(goal, Math.max(16, Math.floor(width * 0.5)))}
+              <Text
+                color={
+                  goal!.status === "achieved"
+                    ? color("success")
+                    : goal!.status === "blocked" || goal!.status === "budget_limited"
+                      ? color("warning")
+                      : color("muted")
+                }
+              >
+                ◈ {goalLine(goal!, Math.max(16, Math.floor(width * 0.5)))}
               </Text>
             </Box>
           )}

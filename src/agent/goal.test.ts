@@ -117,6 +117,41 @@ describe("goal governor state machine", () => {
     expect(snap?.criteria.find((c) => c.id === "c1")?.status).toBe("done");
     expect(snap?.criteria.find((c) => c.id === "c1")?.note).toBe("verified");
     expect(snap?.criteria.find((c) => c.id === "c2")?.status).toBe("todo");
+    expect(snap?.status).toBe("active");
+  });
+
+  test("updateCriteria marks achieved when last open criterion is done", () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("ship");
+    g.setCriteria([
+      { id: "c1", title: "a", status: "done" },
+      { id: "c2", title: "b", status: "todo" },
+    ]);
+    expect(g.get()?.status).toBe("active");
+    const snap = g.updateCriteria([{ id: "c2", status: "done", note: "green" }]);
+    expect(snap?.status).toBe("achieved");
+    expect(snap?.lastReason).toBe("All acceptance criteria marked done.");
+  });
+
+  test("setCriteria marks achieved when create lands fully done", () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("already done");
+    const snap = g.setCriteria([
+      { id: "c1", title: "a", status: "done" },
+      { id: "c2", title: "b", status: "done" },
+    ]);
+    expect(snap?.status).toBe("achieved");
+  });
+
+  test("updateCriteria ignores cancelled when deciding achieved", () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("ship");
+    g.setCriteria([
+      { id: "c1", title: "a", status: "todo" },
+      { id: "c2", title: "skip", status: "cancelled" },
+    ]);
+    const snap = g.updateCriteria([{ id: "c1", status: "done" }]);
+    expect(snap?.status).toBe("achieved");
   });
 
   test("pause and resume extend a finite turn budget", () => {

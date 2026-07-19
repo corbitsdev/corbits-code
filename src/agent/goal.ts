@@ -311,6 +311,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       criteria: next,
       condition: synthesizeGoalCondition(snapshot.brief, next),
     };
+    maybeAchieveFromCriteria();
     return emit();
   }
 
@@ -342,7 +343,24 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       criteria: next,
       condition: synthesizeGoalCondition(snapshot.brief, next),
     };
+    maybeAchieveFromCriteria();
     return emit();
+  }
+
+  /**
+   * Checklist is the source of truth: once every non-cancelled criterion is done,
+   * flip to achieved immediately (do not wait for the next clean yield).
+   */
+  function maybeAchieveFromCriteria(): void {
+    if (snapshot.status === "achieved" || snapshot.status === "cleared" || snapshot.status === "inactive") {
+      return;
+    }
+    if (!criteriaAllDone(snapshot.criteria)) return;
+    snapshot = {
+      ...snapshot,
+      status: "achieved",
+      lastReason: "All acceptance criteria marked done.",
+    };
   }
 
   function pause(): GoalSnapshot | null {
