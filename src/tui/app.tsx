@@ -37,6 +37,7 @@ import {
 } from "./sent-message-history.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
+import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
@@ -2085,6 +2086,13 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
+          {goalSnapshot !== null &&
+            goalSnapshot.status !== "inactive" &&
+            goalSnapshot.status !== "cleared" && (
+            <Box flexDirection="column" marginTop={1}>
+              <GoalView goal={goalSnapshot} compact={!tasksExpanded} />
+            </Box>
+          )}
           {hasActiveTasks(state.tasks) && (
             <Box flexDirection="column" marginTop={1}>
               <TaskView tasks={state.tasks} compact={!tasksExpanded} />

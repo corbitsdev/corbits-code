@@ -6,17 +6,21 @@ import type { GoalSnapshot } from "../../agent/goal.js";
 import "./built-in.js";
 
 function snap(partial: Partial<GoalSnapshot> = {}): GoalSnapshot {
+  const condition = partial.condition ?? "tests green";
   return {
-    status: "active",
-    condition: "tests green",
-    startedAt: Date.now() - 60_000,
-    turnBudget: 0,
-    turnsUsed: 0,
-    mainTokens: 0,
-    evalTokens: 0,
-    consecutiveEvalFailures: 0,
-    consecutiveEmptyYields: 0,
-    ...partial,
+    status: partial.status ?? "active",
+    condition,
+    brief: partial.brief ?? condition,
+    criteria: partial.criteria ?? [],
+    startedAt: partial.startedAt ?? Date.now() - 60_000,
+    turnBudget: partial.turnBudget ?? 0,
+    turnsUsed: partial.turnsUsed ?? 0,
+    mainTokens: partial.mainTokens ?? 0,
+    evalTokens: partial.evalTokens ?? 0,
+    consecutiveEvalFailures: partial.consecutiveEvalFailures ?? 0,
+    consecutiveEmptyYields: partial.consecutiveEmptyYields ?? 0,
+    ...(partial.tokenBudget !== undefined ? { tokenBudget: partial.tokenBudget } : {}),
+    ...(partial.lastReason !== undefined ? { lastReason: partial.lastReason } : {}),
   };
 }
 
@@ -64,7 +68,6 @@ describe("parseGoalArgs", () => {
     expect(p.opts).toBeUndefined();
   });
 
-
   test("replace with leading turns", () => {
     const p = parseGoalArgs("5 --replace new condition");
     expect(p.condition).toBe("new condition");
@@ -74,7 +77,7 @@ describe("parseGoalArgs", () => {
 });
 
 describe("/goal command", () => {
-  test("set kicks off and reports", () => {
+  test("set kicks off and reports brief", () => {
     let setCond = "";
     let kicked = "";
     let setOpts: unknown;
@@ -85,7 +88,7 @@ describe("/goal command", () => {
         set: (c, opts) => {
           setCond = c;
           setOpts = opts;
-          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 0 });
+          return snap({ condition: c, brief: c, turnBudget: opts?.turnBudget ?? 0 });
         },
         pause: () => null,
         resume: () => null,
@@ -97,13 +100,15 @@ describe("/goal command", () => {
     };
     const cmd = getCommand("goal");
     expect(cmd).toBeDefined();
-    expect(cmd!.argumentHint).toBe("[turns] <condition>");
+    expect(cmd!.argumentHint).toBe("[turns] <brief>");
 
     const result = cmd!.handler("ship the feature", ctx);
     expect(result.type).toBe("message");
     if (result.type === "message") {
-      expect(result.text).toContain("Goal set");
+      expect(result.text).toContain("Goal brief set");
       expect(result.text).toContain("ship the feature");
+      expect(result.text).toContain("manage_goal");
+      expect(result.text).toContain("/goal status");
     }
     expect(setCond).toBe("ship the feature");
     expect(setOpts).toBeUndefined();
@@ -118,7 +123,7 @@ describe("/goal command", () => {
         get: () => null,
         set: (c, opts) => {
           setOpts = opts;
-          return snap({ condition: c, turnBudget: opts?.turnBudget ?? 0 });
+          return snap({ condition: c, brief: c, turnBudget: opts?.turnBudget ?? 0 });
         },
         pause: () => null,
         resume: () => null,
@@ -135,7 +140,14 @@ describe("/goal command", () => {
     const ctx: CommandContext = {
       signalClear: () => {},
       goal: {
-        get: () => snap({ lastReason: "still red" }),
+        get: () =>
+          snap({
+            lastReason: "still red",
+            criteria: [
+              { id: "c1", title: "typecheck clean", status: "done" },
+              { id: "c2", title: "tests green", status: "todo" },
+            ],
+          }),
         set: () => snap(),
         pause: () => null,
         resume: () => null,
@@ -147,6 +159,7 @@ describe("/goal command", () => {
     if (result.type === "message") {
       expect(result.text).toContain("tests green");
       expect(result.text).toContain("still red");
+      expect(result.text).toContain("typecheck clean");
     }
   });
 
@@ -154,8 +167,8 @@ describe("/goal command", () => {
     const ctx: CommandContext = {
       signalClear: () => {},
       goal: {
-        get: () => snap({ condition: "old" }),
-        set: (c) => snap({ condition: c }),
+        get: () => snap({ condition: "old", brief: "old" }),
+        set: (c) => snap({ condition: c, brief: c }),
         pause: () => null,
         resume: () => null,
         clear: () => {},
@@ -170,7 +183,7 @@ describe("/goal command", () => {
     const ok = getCommand("goal")!.handler("--replace new goal", ctx);
     expect(ok.type).toBe("message");
     if (ok.type === "message") {
-      expect(ok.text).toContain("Goal set");
+      expect(ok.text).toContain("Goal brief set");
       expect(ok.text).toContain("new goal");
     }
   });

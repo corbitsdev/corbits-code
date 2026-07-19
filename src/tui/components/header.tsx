@@ -2,7 +2,7 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
 import type { GoalSnapshot } from "../../agent/goal.js";
-import { formatGoalTurns } from "../../agent/goal.js";
+import { formatGoalTurns, goalCriteriaProgress, isUnlimitedTurnBudget } from "../../agent/goal.js";
 
 export type HeaderWorkflow = {
   name: string;
@@ -33,10 +33,23 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
+/** Compact header chip: progress over criteria, not the raw brief. */
 function goalLine(goal: GoalSnapshot, width: number): string {
-  const turns = formatGoalTurns(goal.turnsUsed, goal.turnBudget);
-  const label = `goal · ${goal.status} · ${turns} · ${goal.condition}`;
-  return truncate(label, Math.max(20, width - 4));
+  const progress = goalCriteriaProgress(goal.criteria);
+  const parts: string[] = ["goal"];
+  if (progress.total > 0) {
+    parts.push(`${progress.done}/${progress.total}`);
+  } else {
+    parts.push("planning");
+  }
+  if (goal.status !== "active") {
+    parts.push(goal.status);
+  }
+  // Only surface turns when the operator set a finite budget.
+  if (!isUnlimitedTurnBudget(goal.turnBudget)) {
+    parts.push(formatGoalTurns(goal.turnsUsed, goal.turnBudget));
+  }
+  return truncate(parts.join(" · "), Math.max(20, width - 4));
 }
 
 export function Header({

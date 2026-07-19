@@ -672,13 +672,17 @@ describe("goal continue-rule", () => {
       evaluate: async () => ({ met: false, reason: "tests still red" }),
     });
     g.set("all tests pass");
+    g.setCriteria([
+      { id: "c1", title: "unit tests green", status: "todo" },
+      { id: "c2", title: "typecheck clean", status: "todo" },
+    ]);
     director.setGoalGovernor(g);
 
     const actions = actionsArray(await director.decide(textTurn(), stateWithTurns, mockCapabilities));
     expect(actions.some((a) => a.type === "infer")).toBe(true);
     expect(actions.some((a) => a.type === "reply")).toBe(false);
     expect(g.get()?.turnsUsed).toBe(1);
-    expect(g.get()?.lastReason).toBe("tests still red");
+    expect(g.get()?.lastReason).toContain("tests still red");
   });
 
   test("met goal leaves terminal reply and marks achieved", async () => {
@@ -688,6 +692,10 @@ describe("goal continue-rule", () => {
       evaluate: async () => ({ met: true, reason: "green" }),
     });
     g.set("all tests pass");
+    g.setCriteria([
+      { id: "c1", title: "unit tests green", status: "done" },
+      { id: "c2", title: "typecheck clean", status: "done" },
+    ]);
     director.setGoalGovernor(g);
 
     const actions = actionsArray(await director.decide(textTurn(), stateWithTurns, mockCapabilities));

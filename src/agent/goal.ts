@@ -1,8 +1,8 @@
 import type {
+  ConversationTurn,
+  InferenceOptions,
   ReactorAction,
   ReactorCapabilities,
-  InferenceOptions,
-  ConversationTurn,
 } from "@intx/types/runtime";
 
 export type GoalStatus =
@@ -14,8 +14,28 @@ export type GoalStatus =
   | "budget_limited"
   | "blocked";
 
+/** One acceptance criterion in the expanded goal checklist. */
+export type GoalCriterionStatus = "todo" | "doing" | "done" | "blocked" | "cancelled";
+
+export type GoalCriterion = {
+  id: string;
+  /** Concrete, checkable success item — not a work step title. */
+  title: string;
+  status: GoalCriterionStatus;
+  /** Optional evidence note when done/blocked. */
+  note?: string;
+};
+
 export type GoalSnapshot = {
   status: GoalStatus;
+  /** Original operator brief from `/goal …` (not the expanded checklist). */
+  brief: string;
+  /** Expanded acceptance criteria — the real goal definition once planned. */
+  criteria: GoalCriterion[];
+  /**
+   * Synthesized acceptance text for the evaluator / legacy paths.
+   * Prefer `criteria` for UX and met checks when non-empty.
+   */
   condition: string;
   startedAt: number;
   turnBudget: number;
@@ -92,6 +112,49 @@ export function formatGoalTurns(turnsUsed: number, turnBudget: number): string {
   return `${turnsUsed}/${turnBudget}`;
 }
 
+/** Progress over non-cancelled criteria. */
+export function goalCriteriaProgress(criteria: GoalCriterion[]): { done: number; total: number } {
+  const counted = criteria.filter((c) => c.status !== "cancelled");
+  return {
+    done: counted.filter((c) => c.status === "done").length,
+    total: counted.length,
+  };
+}
+
+export function criteriaAllDone(criteria: GoalCriterion[]): boolean {
+  const counted = criteria.filter((c) => c.status !== "cancelled");
+  return counted.length > 0 && counted.every((c) => c.status === "done");
+}
+
+/** Build evaluator/legacy condition text from brief + criteria. */
+export function synthesizeGoalCondition(brief: string, criteria: GoalCriterion[]): string {
+  if (criteria.length === 0) return brief;
+  const lines = criteria
+    .filter((c) => c.status !== "cancelled")
+    .map((c) => `- [${c.status}] ${c.title}`);
+  return `Brief: ${brief}\nAcceptance criteria:\n${lines.join("\n")}`;
+}
+
+function cloneCriteria(criteria: GoalCriterion[]): GoalCriterion[] {
+  return criteria.map((c) => ({ ...c }));
+}
+
+function emptySnapshot(defaultTurnBudget: number): GoalSnapshot {
+  return {
+    status: "inactive",
+    brief: "",
+    criteria: [],
+    condition: "",
+    startedAt: 0,
+    turnBudget: defaultTurnBudget,
+    turnsUsed: 0,
+    mainTokens: 0,
+    evalTokens: 0,
+    consecutiveEvalFailures: 0,
+    consecutiveEmptyYields: 0,
+  };
+}
+
 function goalNudgeTurn(text: string): ConversationTurn {
   return {
     role: "user",
@@ -134,41 +197,52 @@ function tokensTotal(snap: GoalSnapshot): number {
   return snap.mainTokens + snap.evalTokens;
 }
 
-function notMetNudge(condition: string, reason: string): string {
+function notMetNudge(brief: string, reason: string, criteria: GoalCriterion[]): string {
+  const progress = goalCriteriaProgress(criteria);
+  const open = criteria.filter(
+    (c) => c.status === "todo" || c.status === "doing" || c.status === "blocked",
+  );
+  const openLines =
+    open.length > 0
+      ? open.map((c) => `  - [${c.status}] ${c.title}`).join("\n")
+      : "  (none listed — define criteria with manage_goal if still empty)";
   return (
-    "\n\nGoal still active and not yet met.\n" +
-    `Condition: ${condition}\n` +
-    `Evaluator: ${reason}\n` +
-    "Continue working toward the condition. Do not stop until it is verifiably met " +
-    "or the operator pauses/clears the goal. If success criteria are still ambiguous, " +
-    "ask the operator once — do not thrash on vague goals."
+    "\n\nGoal still active — acceptance criteria not all done.\n" +
+    `Brief: ${brief}\n` +
+    `Progress: ${progress.done}/${progress.total}\n` +
+    `Open:\n${openLines}\n` +
+    `Note: ${reason}\n` +
+    "Mark each criterion done via manage_goal only when verifiably complete. " +
+    "Do not stop until every criterion is done, or the operator pauses/clears the goal."
   );
 }
 
 /**
- * User message injected when `/goal` sets or resumes. Clarify-first: vague
- * conditions must lock a checkable success criterion before substantial work.
+ * User message injected when `/goal` sets or resumes.
+ * The expanded checklist (via manage_goal) is the real goal — not the raw brief.
  */
 export function goalKickoffUserMessage(
-  condition: string,
+  brief: string,
   phase: "set" | "resume" = "set",
 ): string {
   if (phase === "resume") {
     return (
-      `Goal resumed: ${condition}\n` +
-      "Continue until this condition is verifiably met. Prefer tools and evidence over claims. " +
-      "If success criteria are still ambiguous, ask once before more work — do not thrash."
+      `Goal resumed.\nBrief: ${brief}\n` +
+      "Continue the acceptance checklist (manage_goal). Update criteria as you verify each item. " +
+      "If criteria are still empty or vague, define or clarify them before more work."
     );
   }
   return (
-    `Session goal is set:\n${condition}\n\n` +
+    `Session goal brief:\n${brief}\n\n` +
     "Order of operations (do not invert):\n" +
-    "1. If this condition is vague or multi-interpretable, ask the operator ONE short " +
-    "clarifying question to lock a concrete, checkable success criterion. " +
+    "1. If the brief is vague or multi-interpretable, ask_operator ONE short clarifying question. " +
     "Do not run tests, make edits, install deps, or explore the repo until success is defined.\n" +
-    "2. If the condition is already concrete and verifiable " +
-    '(e.g. "bun test exits 0", "typecheck clean", "PR open with CI green"), skip clarification and start immediately.\n' +
-    "3. Once criteria are clear, work until they are met with evidence. Do not stop at partial progress."
+    "2. Call manage_goal with action=\"create\" and a detailed multi-item acceptance checklist " +
+    "(typically 3–12 concrete, checkable conditions). Expand the brief — do not restate it as a single item. " +
+    "Each item must be independently verifiable (e.g. \"bun test exits 0\", \"typecheck clean\", " +
+    "\"PR description documents migration steps\").\n" +
+    "3. Work the checklist. Use manage_goal action=\"update\" to mark items doing/done with evidence. " +
+    "The goal is met only when every criterion is done."
   );
 }
 
@@ -185,33 +259,31 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
   const defaultResumeExtend = opts.defaultResumeExtend ?? DEFAULT_GOAL_RESUME_EXTEND;
   const now = opts.now ?? (() => Date.now());
 
-  let snapshot: GoalSnapshot = {
-    status: "inactive",
-    condition: "",
-    startedAt: 0,
-    turnBudget: defaultTurnBudget,
-    turnsUsed: 0,
-    mainTokens: 0,
-    evalTokens: 0,
-    consecutiveEvalFailures: 0,
-    consecutiveEmptyYields: 0,
-  };
+  let snapshot: GoalSnapshot = emptySnapshot(defaultTurnBudget);
 
   function emit(): GoalSnapshot {
-    const copy = { ...snapshot };
+    const copy: GoalSnapshot = {
+      ...snapshot,
+      criteria: cloneCriteria(snapshot.criteria),
+    };
     opts.onChange?.(copy);
     return copy;
   }
 
   function get(): GoalSnapshot | null {
     if (snapshot.status === "inactive") return null;
-    return { ...snapshot };
+    return {
+      ...snapshot,
+      criteria: cloneCriteria(snapshot.criteria),
+    };
   }
 
-  function set(condition: string, setOpts?: GoalSetOpts): GoalSnapshot {
-    const trimmed = condition.trim();
+  function set(brief: string, setOpts?: GoalSetOpts): GoalSnapshot {
+    const trimmed = brief.trim();
     snapshot = {
       status: "active",
+      brief: trimmed,
+      criteria: [],
       condition: trimmed,
       startedAt: now(),
       turnBudget: setOpts?.turnBudget ?? defaultTurnBudget,
@@ -221,6 +293,54 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       evalTokens: 0,
       consecutiveEvalFailures: 0,
       consecutiveEmptyYields: 0,
+    };
+    return emit();
+  }
+
+  /** Replace the full acceptance checklist (manage_goal create). */
+  function setCriteria(criteria: GoalCriterion[]): GoalSnapshot | null {
+    if (snapshot.status === "inactive" || snapshot.status === "cleared") return null;
+    const next = criteria.map((c) => ({
+      id: c.id,
+      title: c.title.trim(),
+      status: c.status,
+      ...(c.note !== undefined && c.note.length > 0 ? { note: c.note } : {}),
+    }));
+    snapshot = {
+      ...snapshot,
+      criteria: next,
+      condition: synthesizeGoalCondition(snapshot.brief, next),
+    };
+    return emit();
+  }
+
+  /** Patch criteria by id (manage_goal update). */
+  function updateCriteria(
+    updates: Array<{ id: string; title?: string; status?: GoalCriterionStatus; note?: string }>,
+  ): GoalSnapshot | null {
+    if (snapshot.status === "inactive" || snapshot.status === "cleared") return null;
+    if (updates.length === 0) return get();
+    const byId = new Map(updates.map((u) => [u.id, u]));
+    const next = snapshot.criteria.map((c) => {
+      const patch = byId.get(c.id);
+      if (patch === undefined) return c;
+      return {
+        id: c.id,
+        title: patch.title !== undefined ? patch.title.trim() : c.title,
+        status: patch.status ?? c.status,
+        ...(patch.note !== undefined
+          ? patch.note.length > 0
+            ? { note: patch.note }
+            : {}
+          : c.note !== undefined
+            ? { note: c.note }
+            : {}),
+      };
+    });
+    snapshot = {
+      ...snapshot,
+      criteria: next,
+      condition: synthesizeGoalCondition(snapshot.brief, next),
     };
     return emit();
   }
@@ -264,17 +384,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       status: "cleared",
     };
     emit();
-    snapshot = {
-      status: "inactive",
-      condition: "",
-      startedAt: 0,
-      turnBudget: defaultTurnBudget,
-      turnsUsed: 0,
-      mainTokens: 0,
-      evalTokens: 0,
-      consecutiveEvalFailures: 0,
-      consecutiveEmptyYields: 0,
-    };
+    snapshot = emptySnapshot(defaultTurnBudget);
   }
 
   /**
@@ -284,6 +394,8 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
   function restore(saved: {
     status: GoalStatus;
     condition: string;
+    brief?: string;
+    criteria?: GoalCriterion[];
     startedAt: number;
     turnBudget: number;
     turnsUsed?: number;
@@ -293,24 +405,18 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     lastReason?: string;
   }): GoalSnapshot | null {
     if (saved.status === "inactive" || saved.status === "cleared") {
-      snapshot = {
-        status: "inactive",
-        condition: "",
-        startedAt: 0,
-        turnBudget: defaultTurnBudget,
-        turnsUsed: 0,
-        mainTokens: 0,
-        evalTokens: 0,
-        consecutiveEvalFailures: 0,
-        consecutiveEmptyYields: 0,
-      };
+      snapshot = emptySnapshot(defaultTurnBudget);
       return null;
     }
     const restoredStatus: GoalStatus =
       saved.status === "active" ? "paused" : saved.status === "achieved" ? "achieved" : "paused";
+    const brief = (saved.brief ?? saved.condition).trim();
+    const criteria = cloneCriteria(saved.criteria ?? []);
     snapshot = {
       status: restoredStatus,
-      condition: saved.condition,
+      brief,
+      criteria,
+      condition: synthesizeGoalCondition(brief, criteria) || saved.condition,
       startedAt: saved.startedAt,
       turnBudget: saved.turnBudget,
       turnsUsed: saved.turnsUsed ?? 0,
@@ -328,7 +434,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     if (snapshot.status !== "active" && snapshot.status !== "paused") return;
     if (n <= 0) return;
     snapshot = { ...snapshot, mainTokens: snapshot.mainTokens + n };
-    opts.onChange?.({ ...snapshot });
+    opts.onChange?.({ ...snapshot, criteria: cloneCriteria(snapshot.criteria) });
   }
 
   function turnBudgetExhausted(): boolean {
@@ -389,7 +495,10 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     emit();
     return [
       ...stripTerminal(actions),
-      inferWithNudge(capabilities, notMetNudge(snapshot.condition, reason)),
+      inferWithNudge(
+        capabilities,
+        notMetNudge(snapshot.brief || snapshot.condition, reason, snapshot.criteria),
+      ),
     ];
   }
 
@@ -434,12 +543,41 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       return continueOrBudget(
         actions,
         capabilities,
-        "Empty yield while goal active — continuing.",
+        "Empty yield — no text or tool calls on the last turn.",
+      );
+    }
+    snapshot = { ...snapshot, consecutiveEmptyYields: 0 };
+
+    // Checklist is the source of truth once planned.
+    if (snapshot.criteria.length === 0) {
+      return continueOrBudget(
+        actions,
+        capabilities,
+        "Acceptance criteria not defined yet. Call manage_goal create with a detailed multi-item checklist " +
+          "(or ask_operator if the brief is still vague).",
       );
     }
 
-    snapshot = { ...snapshot, consecutiveEmptyYields: 0 };
+    if (criteriaAllDone(snapshot.criteria)) {
+      snapshot = {
+        ...snapshot,
+        status: "achieved",
+        lastReason: "All acceptance criteria marked done.",
+      };
+      emit();
+      return null;
+    }
 
+    // Open criteria: nudge with the list. Optional LLM evaluator as a soft
+    // second opinion when evidence is rich — skip if empty evidence to save tokens.
+    const open = snapshot.criteria.filter(
+      (c) => c.status === "todo" || c.status === "doing" || c.status === "blocked",
+    );
+    const progress = goalCriteriaProgress(snapshot.criteria);
+    const openSummary = open.map((c) => `[${c.status}] ${c.title}`).join("; ");
+
+    // Fail-open evaluator still available for long evidence-backed runs, but
+    // met is never true while criteria remain open (checklist wins).
     let verdict: GoalEvaluateVerdict;
     try {
       verdict = await opts.evaluate({
@@ -471,7 +609,11 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
         emit();
         return null;
       }
-      return continueOrBudget(actions, capabilities, verdict.reason);
+      return continueOrBudget(
+        actions,
+        capabilities,
+        `${progress.done}/${progress.total} criteria done. Open: ${openSummary}. ${verdict.reason}`,
+      );
     }
 
     snapshot = {
@@ -480,18 +622,19 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       lastReason: verdict.reason,
     };
 
-    if (verdict.met) {
-      snapshot = { ...snapshot, status: "achieved" };
-      emit();
-      return null;
-    }
-
-    return continueOrBudget(actions, capabilities, verdict.reason);
+    // Checklist still open — never auto-achieve from evaluator alone.
+    return continueOrBudget(
+      actions,
+      capabilities,
+      `${progress.done}/${progress.total} criteria done. Open: ${openSummary}. ${verdict.reason}`,
+    );
   }
 
   return {
     get,
     set,
+    setCriteria,
+    updateCriteria,
     pause,
     resume,
     clear,
@@ -501,26 +644,48 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
   };
 }
 
+const CRITERION_GLYPH: Record<GoalCriterionStatus, string> = {
+  todo: "○",
+  doing: "●",
+  done: "✓",
+  blocked: "!",
+  cancelled: "✗",
+};
+
 export function formatGoalStatus(snap: GoalSnapshot | null): string {
   if (snap === null || snap.status === "inactive") {
-    return "No goal is set. Use /goal <condition> to start one.";
+    return "No goal is set. Use /goal <brief> to start one — the agent expands it into a checklist.";
   }
-  const durationMs = Date.now() - snap.startedAt;
-  const mins = Math.floor(durationMs / 60_000);
-  const secs = Math.floor((durationMs % 60_000) / 1000);
-  const duration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-  const tokens = tokensTotal(snap);
-  const lines = [
-    `Goal: ${snap.condition}`,
-    `Status: ${snap.status}`,
-    `Duration: ${duration}`,
-    `Turns: ${formatGoalTurns(snap.turnsUsed, snap.turnBudget)}`,
-    `Tokens: ${tokens}` +
-      (snap.tokenBudget !== undefined ? `/${snap.tokenBudget}` : "") +
-      ` (main ${snap.mainTokens}, eval ${snap.evalTokens})`,
+
+  const progress = goalCriteriaProgress(snap.criteria);
+  const lines: string[] = [
+    `Brief: ${snap.brief || snap.condition}`,
   ];
-  if (snap.lastReason !== undefined && snap.lastReason.length > 0) {
-    lines.push(`Last reason: ${snap.lastReason}`);
+
+  if (snap.criteria.length === 0) {
+    lines.push("Criteria: (not planned yet — waiting for manage_goal create)");
+  } else {
+    lines.push(`Progress: ${progress.done}/${progress.total}`);
+    for (const c of snap.criteria) {
+      const glyph = CRITERION_GLYPH[c.status];
+      const note = c.note !== undefined && c.note.length > 0 ? ` — ${c.note}` : "";
+      lines.push(`  ${glyph} ${c.title}${note}`);
+    }
   }
+
+  if (snap.status !== "active") {
+    lines.push(`State: ${snap.status}`);
+  }
+  if (snap.lastReason !== undefined && snap.lastReason.length > 0) {
+    lines.push(`Note: ${snap.lastReason}`);
+  }
+  // Budget only when finite (operator opted in) or when limited.
+  if (!isUnlimitedTurnBudget(snap.turnBudget) || snap.status === "budget_limited") {
+    lines.push(`Turns: ${formatGoalTurns(snap.turnsUsed, snap.turnBudget)}`);
+  }
+  if (snap.tokenBudget !== undefined) {
+    lines.push(`Tokens: ${tokensTotal(snap)}/${snap.tokenBudget}`);
+  }
+
   return lines.join("\n");
 }

@@ -26,6 +26,8 @@ export type SummaryContext = {
   goal?: {
     condition: string;
     status: string;
+    brief?: string;
+    criteriaSummary?: string;
   };
 };
 
@@ -121,8 +123,14 @@ function workflowPreamble(ctx: SummaryContext | undefined): string {
   }
   const goal = ctx?.goal;
   if (goal !== undefined && goal.condition.length > 0) {
+    const brief = goal.brief !== undefined && goal.brief.length > 0 ? goal.brief : goal.condition;
+    const criteria =
+      goal.criteriaSummary !== undefined && goal.criteriaSummary.length > 0
+        ? `\nAcceptance criteria: ${goal.criteriaSummary}`
+        : "";
     parts.push(
-      `Active goal (${goal.status}): ${goal.condition}\nThe agent must keep working until this condition is verifiably met.`,
+      `Active goal (${goal.status}): ${brief}${criteria}\n` +
+        "The agent must keep working until every acceptance criterion is done.",
     );
   }
   if (parts.length === 0) return "";

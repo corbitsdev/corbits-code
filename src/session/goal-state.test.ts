@@ -29,6 +29,33 @@ describe("goal state persistence", () => {
     }
   });
 
+  test("round-trips brief and criteria", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "goal-state-"));
+    try {
+      await saveGoalState(cwd, "s1", {
+        status: "active",
+        condition: "typecheck; tests",
+        brief: "ship the feature",
+        criteria: [
+          { id: "c1", title: "typecheck clean", status: "done" },
+          { id: "c2", title: "tests green", status: "todo", note: "2 failing" },
+        ],
+        startedAt: 100,
+        turnBudget: 0,
+        turnsUsed: 3,
+        mainTokens: 10,
+        evalTokens: 2,
+      });
+      const loaded = await loadGoalState(cwd, "s1");
+      expect(loaded?.brief).toBe("ship the feature");
+      expect(loaded?.criteria).toHaveLength(2);
+      expect(loaded?.criteria?.[0]?.status).toBe("done");
+      expect(loaded?.criteria?.[1]?.note).toBe("2 failing");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("ignores corrupt JSON", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "goal-state-"));
     try {

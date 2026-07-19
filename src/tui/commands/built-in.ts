@@ -1,6 +1,6 @@
 import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
-import { formatGoalStatus, formatGoalTurns, type GoalSetOpts } from "../../agent/goal.js";
+import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
 // /clever stay out of the slash menu until the user configures one; app.tsx
@@ -199,14 +199,15 @@ registerCommand({
 // See docs/plans/v0.3-goal-mode.md.
 registerCommand({
   name: "goal",
-  description: "Set, pause, resume, or clear a session goal (auto-continue until met)",
+  description: "Set a session goal brief; agent expands into an acceptance checklist",
   // Claude-style free-form arg guidance. Leading turns are optional positional
-  // (`/goal 25 all tests pass`); omit for unlimited turns (default).
-  argumentHint: "[turns] <condition>",
+  // (`/goal 25 ship the feature`); omit for unlimited turns (default).
+  argumentHint: "[turns] <brief>",
   subcommands: [
     { name: "pause", description: "Stop auto-continue; keep the goal" },
     { name: "resume", description: "Re-arm auto-continue (extends finite turn budget if limited)" },
     { name: "clear", description: "Drop the goal" },
+    { name: "status", description: "Show acceptance checklist and progress" },
   ],
 
   handler: (args, ctx) => {
@@ -228,7 +229,7 @@ registerCommand({
       if (snap === null) {
         return { type: "message", text: "No paused or budget-limited goal to resume." };
       }
-      api.kickoff?.(snap.condition, "resume");
+      api.kickoff?.(snap.brief || snap.condition, "resume");
       return { type: "message", text: `Goal resumed.\n${formatGoalStatus(snap)}` };
     }
     if (parsed.sub === "clear") {
@@ -240,7 +241,7 @@ registerCommand({
     if (condition.length === 0) {
       return {
         type: "message",
-        text: "Usage: /goal [turns] <condition> | /goal pause | /goal resume | /goal clear",
+        text: "Usage: /goal [turns] <brief> | /goal pause | /goal resume | /goal clear | /goal status",
       };
     }
     const existing = api.get();
@@ -253,7 +254,7 @@ registerCommand({
         type: "message",
         text:
           `A goal is already ${existing.status}:\n${formatGoalStatus(existing)}\n\n` +
-          `Clear it first (/goal clear) or replace with /goal --replace <condition>.`,
+          `Clear it first (/goal clear) or replace with /goal --replace <brief>.`,
       };
     }
     const snap = api.set(condition, parsed.opts);
@@ -261,8 +262,10 @@ registerCommand({
     return {
       type: "message",
       text:
-        `Goal set (status: ${snap.status}, turns ${formatGoalTurns(snap.turnsUsed, snap.turnBudget)}).\n` +
-        `Condition: ${snap.condition}`,
+        `Goal brief set (${snap.status}). The agent will expand this into an acceptance checklist ` +
+        `(manage_goal) — that checklist is the real goal.\n` +
+        `Brief: ${snap.brief}\n` +
+        `Check progress anytime with /goal status.`,
     };
   },
 });

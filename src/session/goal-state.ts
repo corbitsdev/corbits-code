@@ -2,12 +2,16 @@ import { mkdir, writeFile, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { sessionDir } from "./index.js";
-import type { GoalStatus } from "../agent/goal.js";
+import type { GoalCriterion, GoalCriterionStatus, GoalStatus } from "../agent/goal.js";
 import { atomicWrite, warnUnreadableState } from "./state.js";
 
 export type PersistedGoalState = {
   status: GoalStatus;
   condition: string;
+  /** Operator brief; falls back to condition for older goal.json files. */
+  brief?: string;
+  /** Expanded acceptance checklist. */
+  criteria?: GoalCriterion[];
   startedAt: number;
   turnBudget: number;
   turnsUsed: number;
@@ -31,11 +35,39 @@ const VALID_STATUSES: readonly GoalStatus[] = [
   "blocked",
 ];
 
+const VALID_CRITERION_STATUSES: readonly GoalCriterionStatus[] = [
+  "todo",
+  "doing",
+  "done",
+  "blocked",
+  "cancelled",
+];
+
+function isValidCriterion(data: unknown): data is GoalCriterion {
+  if (typeof data !== "object" || data === null) return false;
+  const c = data as Record<string, unknown>;
+  if (typeof c.id !== "string" || c.id.length === 0) return false;
+  if (typeof c.title !== "string" || c.title.length === 0) return false;
+  if (
+    typeof c.status !== "string" ||
+    !VALID_CRITERION_STATUSES.includes(c.status as GoalCriterionStatus)
+  ) {
+    return false;
+  }
+  if (c.note !== undefined && typeof c.note !== "string") return false;
+  return true;
+}
+
 function isValidPersistedGoal(data: unknown): data is PersistedGoalState {
   if (typeof data !== "object" || data === null) return false;
   const s = data as Record<string, unknown>;
   if (typeof s.status !== "string" || !VALID_STATUSES.includes(s.status as GoalStatus)) return false;
   if (typeof s.condition !== "string") return false;
+  if (s.brief !== undefined && typeof s.brief !== "string") return false;
+  if (s.criteria !== undefined) {
+    if (!Array.isArray(s.criteria)) return false;
+    if (!s.criteria.every(isValidCriterion)) return false;
+  }
   if (typeof s.startedAt !== "number") return false;
   if (typeof s.turnBudget !== "number") return false;
   if (typeof s.turnsUsed !== "number") return false;

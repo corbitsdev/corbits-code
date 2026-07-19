@@ -542,6 +542,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
+    getGoalGovernor: () => goalGovernorRef.current,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
@@ -765,6 +766,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           : {
               status: snap.status,
               condition: snap.condition,
+              brief: snap.brief,
+              criteria: snap.criteria,
               startedAt: snap.startedAt,
               turnBudget: snap.turnBudget,
               turnsUsed: snap.turnsUsed,
@@ -809,7 +812,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           }
         : {}),
       ...(goalActive
-        ? { goal: { condition: goalSnap.condition, status: goalSnap.status } }
+        ? {
+            goal: {
+              condition: goalSnap.condition,
+              status: goalSnap.status,
+              brief: goalSnap.brief,
+              ...(goalSnap.criteria.length > 0
+                ? {
+                    criteriaSummary: goalSnap.criteria
+                      .map((c) => `[${c.status}] ${c.title}`)
+                      .join("; "),
+                  }
+                : {}),
+            },
+          }
         : {}),
     });
   };
