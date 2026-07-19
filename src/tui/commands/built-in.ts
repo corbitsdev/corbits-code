@@ -200,16 +200,15 @@ registerCommand({
 registerCommand({
   name: "goal",
   description: "Set, pause, resume, or clear a session goal (auto-continue until met)",
-  // First param option: greyed in the slash picker. Type a number before the
-  // condition — not a --turns flag. Fully optional (default budget applies).
-  params: [
-    { name: "turns", description: "optional turn budget · /goal 25 <condition>", optional: true },
-  ],
+  // Claude-style free-form arg guidance. Leading turns are optional positional
+  // (`/goal 25 all tests pass`); default budget applies when omitted.
+  argumentHint: "[turns] <condition>",
   subcommands: [
     { name: "pause", description: "Stop auto-continue; keep the goal" },
     { name: "resume", description: "Re-arm auto-continue (extends turn budget if limited)" },
     { name: "clear", description: "Drop the goal" },
   ],
+
   handler: (args, ctx) => {
     const api = ctx.goal;
     if (api === undefined) {

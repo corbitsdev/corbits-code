@@ -182,7 +182,10 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
   - `commands/<ns>/<sub>.md` → `/<ns> <sub>` (namespaced). The first arg selects
     the subcommand file; the remaining args interpolate into its body.
 - Frontmatter is optional. `description` populates the command list / `/help`;
-  other fields (e.g. `argument-hint`) are accepted and ignored in v1.
+  `argument-hint` (Claude Code field) is copied onto the command as free-form arg
+  guidance and shown greyed in the slash picker next to the name and after
+  `/cmd ` until the operator types real args (never inserted on Tab).
+
 - A directory with commands and no agents is recognized as `kind: "command"`
   (inferred when no `manifest.json` is present; an explicit `manifest.json`
   always wins). `loadDataOnlyPlugin` (`src/plugins/data-only.ts`) unifies agent
@@ -200,12 +203,15 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 - **Skill-commands.** Every skill in an enabled plugin is also surfaced as a
   `/<skill-name> [args]` slash command that sends the skill body (plus args) to
   the agent. `loadSkillCommands` (`src/plugins/skill-commands.ts`) synthesizes
-  them; they merge into the same `commandPlugin` as `commands/*.md`. This is an
-  additional surface: `discoverSkills` is unchanged, so the model can still
-  auto-invoke any skill via `use_skill` — the slash command is a direct user
-  entry point on top. (An earlier revision gated this on the
-  `disable-model-invocation`/`user-invocable` frontmatter tags; that gate was
-  dropped so untagged skills like `linear-create` are reachable too.)
+  them; they merge into the same `commandPlugin` as `commands/*.md`. Frontmatter
+  `argument-hint` is preserved so the TUI can show greyed arg guidance (e.g.
+  `/linear-create` → `[description] [--from-doc]`). This is an additional
+  surface: `discoverSkills` is unchanged, so the model can still auto-invoke any
+  skill via `use_skill` — the slash command is a direct user entry point on top.
+  (An earlier revision gated this on the `disable-model-invocation`/
+  `user-invocable` frontmatter tags; that gate was dropped so untagged skills
+  like `linear-create` are reachable too.)
+
 - **Mixed plugins wire both sides.** A plugin contributing agents AND commands
   (the common marketplace shape) infers `kind: "agent"` so profiles wire, and
   `isEnabledCommandPlugin` (`src/plugins/register.ts`) also wires commands for

@@ -36,18 +36,15 @@ export type SubcommandDefinition = {
   description: string;
 };
 
-/** Optional positional/hint params shown greyed in the slash picker (not inserted on Tab). */
-export type ParamDefinition = {
-  name: string;
-  description: string;
-  optional?: boolean;
-};
-
 export type CommandDefinition = {
   name: string;
   description: string;
-  /** Greyed first-class param hints shown after `/cmd ` before subcommands. */
-  params?: readonly ParamDefinition[];
+  /**
+   * Claude Code–compatible free-form arg guidance (frontmatter `argument-hint`).
+   * Shown greyed next to the command and after `/cmd ` until the operator types.
+   * Never inserted into the prompt on Tab.
+   */
+  argumentHint?: string;
   subcommands?: readonly SubcommandDefinition[];
   handler: (args: string, ctx: CommandContext) => CommandResult;
   // Optional visibility gate. When present and returns false the command is
@@ -86,4 +83,12 @@ export function listCommands(): CommandDefinition[] {
   return [...registry.values()]
     .filter((c) => !hidden.has(c.name) && (c.available === undefined || c.available()))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Read Claude-style `argument-hint` from parsed frontmatter. */
+export function argumentHintFromFrontmatter(frontmatter: Record<string, unknown>): string | undefined {
+  const raw = frontmatter["argument-hint"];
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

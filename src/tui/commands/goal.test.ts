@@ -97,8 +97,8 @@ describe("/goal command", () => {
     };
     const cmd = getCommand("goal");
     expect(cmd).toBeDefined();
-    expect(cmd!.params?.[0]?.name).toBe("turns");
-    expect(cmd!.params?.[0]?.optional).toBe(true);
+    expect(cmd!.argumentHint).toBe("[turns] <condition>");
+
     const result = cmd!.handler("ship the feature", ctx);
     expect(result.type).toBe("message");
     if (result.type === "message") {
