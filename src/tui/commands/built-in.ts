@@ -1,5 +1,6 @@
 import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
+import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
 // /clever stay out of the slash menu until the user configures one; app.tsx
@@ -12,6 +13,57 @@ export function setConfiguredTiers(tiers: Partial<Record<ProviderTier, TierConfi
   for (const tier of PROVIDER_TIERS) {
     if (tiers[tier] !== undefined) configuredTiers.add(tier);
   }
+}
+
+const GOAL_CLEAR_ALIASES = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
+
+/** Parse optional `--turns N` / `--tokens N` / `--replace` flags and the remaining condition. */
+export function parseGoalArgs(raw: string): {
+  sub?: "pause" | "resume" | "clear" | "status";
+  condition?: string;
+  opts?: GoalSetOpts;
+  replace?: boolean;
+} {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { sub: "status" };
+
+  const first = trimmed.split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+  if (first === "pause") return { sub: "pause" };
+  if (first === "resume") return { sub: "resume" };
+  if (GOAL_CLEAR_ALIASES.has(first)) return { sub: "clear" };
+
+  let rest = trimmed;
+  const opts: GoalSetOpts = {};
+  let replace = false;
+  // Pull leading flags: --turns N, --tokens N, --replace — in any order.
+  for (;;) {
+    const turnsOrTokens = rest.match(/^--(turns|tokens)\s+(\d+)\s*/i);
+    if (turnsOrTokens !== null) {
+      const value = Number(turnsOrTokens[2]);
+      if (turnsOrTokens[1]!.toLowerCase() === "turns") opts.turnBudget = value;
+      else opts.tokenBudget = value;
+      rest = rest.slice(turnsOrTokens[0].length);
+      continue;
+    }
+    const replaceFlag = rest.match(/^--replace\s*/i);
+    if (replaceFlag !== null) {
+      replace = true;
+      rest = rest.slice(replaceFlag[0].length);
+      continue;
+    }
+    break;
+  }
+  const condition = rest.trim();
+  if (condition.length === 0) return { sub: "status" };
+  const result: {
+    sub?: "pause" | "resume" | "clear" | "status";
+    condition?: string;
+    opts?: GoalSetOpts;
+    replace?: boolean;
+  } = { condition };
+  if (Object.keys(opts).length > 0) result.opts = opts;
+  if (replace) result.replace = true;
+  return result;
 }
 
 registerCommand({
@@ -123,6 +175,69 @@ registerCommand({
       return `${s.name}: ${toolList}`;
     });
     return { type: "message", text: lines.join("\n") };
+  },
+});
+
+// Session-scoped goal: keep working until a verifiable condition is met.
+// See docs/plans/v0.3-goal-mode.md.
+registerCommand({
+  name: "goal",
+  description: "Set, pause, resume, or clear a session goal (auto-continue until met)",
+  subcommands: [
+    { name: "pause", description: "Stop auto-continue; keep the goal" },
+    { name: "resume", description: "Re-arm auto-continue (extends turn budget if limited)" },
+    { name: "clear", description: "Drop the goal" },
+  ],
+  handler: (args, ctx) => {
+    const api = ctx.goal;
+    if (api === undefined) {
+      return { type: "message", text: "Goal mode is not available in this session." };
+    }
+    const parsed = parseGoalArgs(args);
+    if (parsed.sub === "status") {
+      return { type: "message", text: formatGoalStatus(api.get()) };
+    }
+    if (parsed.sub === "pause") {
+      const snap = api.pause();
+      if (snap === null) return { type: "message", text: "No goal is set." };
+      return { type: "message", text: `Goal paused.\n${formatGoalStatus(snap)}` };
+    }
+    if (parsed.sub === "resume") {
+      const snap = api.resume();
+      if (snap === null) {
+        return { type: "message", text: "No paused or budget-limited goal to resume." };
+      }
+      api.kickoff?.(snap.condition);
+      return { type: "message", text: `Goal resumed.\n${formatGoalStatus(snap)}` };
+    }
+    if (parsed.sub === "clear") {
+      if (api.get() === null) return { type: "message", text: "No goal is set." };
+      api.clear();
+      return { type: "message", text: "Goal cleared." };
+    }
+    const condition = parsed.condition ?? "";
+    if (condition.length === 0) {
+      return { type: "message", text: "Usage: /goal <condition> | /goal pause | /goal resume | /goal clear" };
+    }
+    const existing = api.get();
+    if (
+      existing !== null &&
+      (existing.status === "active" || existing.status === "paused" || existing.status === "budget_limited") &&
+      parsed.replace !== true
+    ) {
+      return {
+        type: "message",
+        text:
+          `A goal is already ${existing.status}:\n${formatGoalStatus(existing)}\n\n` +
+          `Clear it first (/goal clear) or replace with /goal --replace <condition>.`,
+      };
+    }
+    const snap = api.set(condition, parsed.opts);
+    api.kickoff?.(condition);
+    return {
+      type: "message",
+      text: `Goal set (status: ${snap.status}, turns ${snap.turnsUsed}/${snap.turnBudget}).\nCondition: ${snap.condition}`,
+    };
   },
 });
 

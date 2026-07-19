@@ -438,6 +438,19 @@ export type AppProps = {
   sessionStartedAt?: number;
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
+  /** Goal mode operator surface (CL-3936/CL-3937). */
+  goalApi?: {
+    get: () => import("../agent/goal.js").GoalSnapshot | null;
+    set: (
+      condition: string,
+      opts?: import("../agent/goal.js").GoalSetOpts,
+    ) => import("../agent/goal.js").GoalSnapshot;
+    pause: () => import("../agent/goal.js").GoalSnapshot | null;
+    resume: (
+      opts?: import("../agent/goal.js").GoalResumeOpts,
+    ) => import("../agent/goal.js").GoalSnapshot | null;
+    clear: () => void;
+  };
 };
 
 export function App({
@@ -488,6 +501,7 @@ export function App({
   mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
+  goalApi,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -588,6 +602,9 @@ export function App({
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
   const [workflowHistory, setWorkflowHistory] = useState<WorkflowStatus[]>([]);
+  const [goalSnapshot, setGoalSnapshot] = useState<import("../agent/goal.js").GoalSnapshot | null>(
+    () => goalApi?.get() ?? null,
+  );
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
@@ -793,6 +810,14 @@ export function App({
     };
     eventEmitter.on("workflow", onWorkflow);
     return () => { eventEmitter.off("workflow", onWorkflow); };
+  }, [eventEmitter]);
+
+  useEffect(() => {
+    const onGoal = (snap: import("../agent/goal.js").GoalSnapshot | null) => {
+      setGoalSnapshot(snap);
+    };
+    eventEmitter.on("goal", onGoal);
+    return () => { eventEmitter.off("goal", onGoal); };
   }, [eventEmitter]);
 
   useEffect(() => {
@@ -1314,7 +1339,27 @@ export function App({
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
-  }), [mcpStatus.servers, onStartWorkflow, onRenameSession]);
+    ...(goalApi !== undefined
+      ? {
+          goal: {
+            get: goalApi.get,
+            set: goalApi.set,
+            pause: goalApi.pause,
+            resume: goalApi.resume,
+            clear: goalApi.clear,
+            kickoff: (condition: string) => {
+              // Start a turn immediately so the agent works without a second prompt.
+              sendMessageRef.current({
+                text:
+                  `Goal is active: ${condition}\n` +
+                  "Work until this condition is verifiably met. Prefer tools and evidence over claims.",
+                attachments: [],
+              });
+            },
+          },
+        }
+      : {}),
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -1862,6 +1907,7 @@ export function App({
                 },
               }
             : {})}
+          {...(goalSnapshot !== null ? { goal: goalSnapshot } : goalApi !== undefined ? { goal: goalApi.get() } : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">

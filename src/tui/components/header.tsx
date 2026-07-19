@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
+import type { GoalSnapshot } from "../../agent/goal.js";
 
 export type HeaderWorkflow = {
   name: string;
@@ -22,6 +23,8 @@ export type HeaderProps = {
   workflow?: HeaderWorkflow;
   // When set, the operator is observing a sub-agent session (not the parent).
   focusedAgent?: HeaderFocusedAgent;
+  /** Active session goal (CL-3936/CL-3937). */
+  goal?: GoalSnapshot | null;
 };
 
 function truncate(s: string, max: number): string {
@@ -29,7 +32,26 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-export function Header({ latestUserMessage, width, profile, workflow, focusedAgent }: HeaderProps): ReactNode {
+function goalLine(goal: GoalSnapshot, width: number): string {
+  const turns = `${goal.turnsUsed}/${goal.turnBudget}`;
+  const label = `goal · ${goal.status} · ${turns} · ${goal.condition}`;
+  return truncate(label, Math.max(20, width - 4));
+}
+
+export function Header({
+  latestUserMessage,
+  width,
+  profile,
+  workflow,
+  focusedAgent,
+  goal,
+}: HeaderProps): ReactNode {
+  const showGoal =
+    goal !== undefined &&
+    goal !== null &&
+    goal.status !== "inactive" &&
+    goal.status !== "cleared";
+
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
@@ -49,6 +71,13 @@ export function Header({ latestUserMessage, width, profile, workflow, focusedAge
             <Box>
               <Text color={color("accent")}>
                 ⟳ {truncate(`${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`, Math.max(16, Math.floor(width * 0.4)))}
+              </Text>
+            </Box>
+          )}
+          {showGoal && focusedAgent === undefined && (
+            <Box>
+              <Text color={color("accent")}>
+                ◈ {goalLine(goal, Math.max(16, Math.floor(width * 0.5)))}
               </Text>
             </Box>
           )}

@@ -1,4 +1,5 @@
 import type { ProviderTier } from "../../config/settings.js";
+import type { GoalSnapshot, GoalSetOpts, GoalResumeOpts } from "../../agent/goal.js";
 
 export type CommandContext = {
   signalClear: () => void;
@@ -7,6 +8,16 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */
   renameSession?: (name: string) => string | undefined;
+  /** Goal mode operator surface (CL-3936/CL-3937). */
+  goal?: {
+    get: () => GoalSnapshot | null;
+    set: (condition: string, opts?: GoalSetOpts) => GoalSnapshot;
+    pause: () => GoalSnapshot | null;
+    resume: (opts?: GoalResumeOpts) => GoalSnapshot | null;
+    clear: () => void;
+    /** Kick off a turn after set/resume so the agent starts working immediately. */
+    kickoff?: (condition: string) => void;
+  };
 };
 
 export type CommandResult =
