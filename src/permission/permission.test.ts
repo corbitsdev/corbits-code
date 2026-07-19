@@ -213,6 +213,11 @@ describe("buildRequests", () => {
     expect(buildRequests(shellCall("  # heading  "))).toEqual([]);
   });
 
+  test("multi-line pure comments produce no approval subjects", () => {
+    expect(buildRequests(shellCall("# a\n# b"))).toEqual([]);
+    expect(buildRequests(shellCall("# worktree\n\n# still a heading"))).toEqual([]);
+  });
+
   test("markdown headings mixed with real commands only prompt the real command", () => {
     const reqs = buildRequests(shellCall("# worktree\ngit worktree list"));
     expect(reqs.map((r) => r.subject)).toEqual(["git worktree list"]);
@@ -298,6 +303,22 @@ describe("gate authorizes every subshell segment independently", () => {
       skipPermissions: false,
     });
     const verdict = await gate.evaluate(shellCall("# worktree"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("multi-line pure comments never prompt", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("# a\n# b\n\n# c"));
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
