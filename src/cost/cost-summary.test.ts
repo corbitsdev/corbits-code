@@ -1,7 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
+import { setModelContextWindows } from "../provider/context-window.js";
 import { buildCostSummary, formatCostCommandOutput, formatStatusBarSegments } from "./cost-summary.js";
 import type { CostSummaryInput } from "./cost-summary.js";
+
+afterEach(() => setModelContextWindows(undefined));
 
 const baseInput: CostSummaryInput = {
   modelId: "test-model",
@@ -26,14 +29,30 @@ describe("buildCostSummary", () => {
     expect(summary.contextPercentUsed).toBe(100);
   });
 
+  it("reports percent as unknown when the context window is non-positive", () => {
+    setModelContextWindows({ "test-model": 0 });
+    const summary = buildCostSummary(baseInput);
+    expect(summary.contextPercentUsed).toBeNull();
+  });
+
   it("hides cost for a free-named model", () => {
     const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
-    expect(summary.hideCost).toBe(true);
+    expect(summary.costHiddenReason).toBe("free-model");
+  });
+
+  it("hides cost for a coding-plan base URL", () => {
+    const summary = buildCostSummary({ ...baseInput, baseURL: "https://api.z.ai/api/coding/paas/v4" });
+    expect(summary.costHiddenReason).toBe("coding-plan");
+  });
+
+  it("hides cost for a provider marked free", () => {
+    const summary = buildCostSummary({ ...baseInput, providerFree: true });
+    expect(summary.costHiddenReason).toBe("provider-free");
   });
 
   it("shows cost for a normal metered model", () => {
     const summary = buildCostSummary(baseInput);
-    expect(summary.hideCost).toBe(false);
+    expect(summary.costHiddenReason).toBeNull();
   });
 });
 
@@ -46,6 +65,12 @@ describe("formatStatusBarSegments", () => {
   it("omits cost but keeps context when cost is hidden", () => {
     const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
     expect(formatStatusBarSegments(summary)).toEqual({ contextLabel: "Ctx 50%" });
+  });
+
+  it("renders an unknown context window as --% rather than 0%", () => {
+    setModelContextWindows({ "test-model": 0 });
+    const summary = buildCostSummary(baseInput);
+    expect(formatStatusBarSegments(summary).contextLabel).toBe("Ctx --%");
   });
 });
 
@@ -62,8 +87,24 @@ describe("formatCostCommandOutput", () => {
     );
   });
 
-  it("reports cost as hidden for a free model", () => {
+  it("reports the reason cost is hidden for a free model", () => {
     const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
-    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (free model or coding plan)");
+    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (free model)");
+  });
+
+  it("reports the reason cost is hidden for a coding-plan endpoint", () => {
+    const summary = buildCostSummary({ ...baseInput, baseURL: "https://api.z.ai/api/coding/paas/v4" });
+    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (coding-plan endpoint)");
+  });
+
+  it("reports the reason cost is hidden for a provider marked free", () => {
+    const summary = buildCostSummary({ ...baseInput, providerFree: true });
+    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (provider marked free)");
+  });
+
+  it("prints unknown for a non-positive context window", () => {
+    setModelContextWindows({ "test-model": 0 });
+    const summary = buildCostSummary(baseInput);
+    expect(formatCostCommandOutput(summary)).toContain("Context: 64000/unknown (--%)");
   });
 });

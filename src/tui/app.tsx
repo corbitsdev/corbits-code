@@ -1367,21 +1367,32 @@ export function App({
   };
   const startNewSession = () => startNewSessionRef.current();
 
-  const getCostSummary = () => buildCostSummary({
-    modelId: modelRef.current,
-    pricingCache: getActivePricingCache(),
-    totalCost: state.totalCost,
-    formattedCost: state.formattedCost,
-    inputTokens: state.inputTokens,
-    outputTokens: state.outputTokens,
-    cacheReadTokens: state.cacheReadTokens,
-    contextTokens: state.contextTokens,
-  });
+  const getCostSummary = () => {
+    const activeProvider = providerCatalog.find((p) => p.name === provider);
+    return buildCostSummary({
+      modelId: modelRef.current,
+      baseURL: activeProvider?.baseURL,
+      providerFree: activeProvider?.free,
+      pricingCache: getActivePricingCache(),
+      totalCost: state.totalCost,
+      formattedCost: state.formattedCost,
+      inputTokens: state.inputTokens,
+      outputTokens: state.outputTokens,
+      cacheReadTokens: state.cacheReadTokens,
+      contextTokens: state.contextTokens,
+    });
+  };
+  // commandContext below is memoized, so it would otherwise capture a stale
+  // getCostSummary closure (provider/state from an old render). Routing the
+  // call through a ref updated every render keeps the memoized context reading
+  // live values, matching the signalClear/startNewSessionRef pattern.
+  const getCostSummaryRef = useRef(getCostSummary);
+  getCostSummaryRef.current = getCostSummary;
 
   const commandContext = useMemo(() => ({
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
-    getCostSummary,
+    getCostSummary: () => getCostSummaryRef.current(),
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
     ...(goalApi !== undefined
