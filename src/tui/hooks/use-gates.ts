@@ -130,12 +130,18 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       head?.resolve(result);
     },
     resolvePermission: (outcome: ApprovalOutcome) => {
-      const head = permissionQueue.current.shift();
-      const next = permissionQueue.current[0] ?? null;
-      setPendingPermission(next ? next.request : null);
-      setPermissionQueueDepth(permissionQueue.current.length);
-      setGatePending(false);
-      head?.resolve(outcome);
+      // One operator decision covers the whole currently queued batch (parallel
+      // tool calls that all hit the gate before any was answered). Persist/grant
+      // applies on every entry; the gate dedupes identical session grants.
+      const batch = permissionQueue.current.splice(0);
+      setPendingPermission(null);
+      setPermissionQueueDepth(0);
+      for (let i = 0; i < batch.length; i += 1) {
+        setGatePending(false);
+      }
+      for (const entry of batch) {
+        entry.resolve(outcome);
+      }
     },
     resetGates,
   };

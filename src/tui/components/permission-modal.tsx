@@ -30,18 +30,26 @@ const PERSISTENT_GRANTS: { grant: GrantScope; note: string }[] = [
   { grant: "global", note: "all projects" },
 ];
 
-function buildChoices(request: PermissionRequest): Choice[] {
+function buildChoices(request: PermissionRequest, queueDepth: number): Choice[] {
+  const batchCount = Math.max(1, queueDepth);
+  const onceLabel = batchCount > 1 ? `Accept all ${batchCount}` : "Accept once";
+  const onceHint =
+    batchCount > 1
+      ? `this parallel batch · start typing to add a message`
+      : "this call only · start typing to add a message";
+  const rejectLabel = batchCount > 1 ? `Reject all ${batchCount}` : "Reject";
+
   const choices: Choice[] = [
     {
-      label: "Reject",
+      label: rejectLabel,
       hint: "start typing to add a message",
       hintStyle: "note",
       messageable: true,
       outcome: { allow: false },
     },
     {
-      label: "Accept once",
-      hint: "this call only · start typing to add a message",
+      label: onceLabel,
+      hint: onceHint,
       hintStyle: "note",
       messageable: true,
       outcome: { allow: true },
@@ -122,7 +130,7 @@ export function PermissionModal({
   width = 80,
 }: PermissionModalProps): ReactNode {
   const queuedBehind = Math.max(0, permissionQueueDepth - 1);
-  const choices = buildChoices(request);
+  const choices = buildChoices(request, permissionQueueDepth);
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState(false);

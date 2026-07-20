@@ -216,6 +216,43 @@ test("permission gate surfaces a request and resolves the outcome", async () => 
   expect(lastFrame()).toContain("none none none open=0");
 });
 
+// Parallel tool calls enqueue multiple permission gates. One operator decision
+// must cover the full currently queued batch (exact planned commands only).
+test("one permission decision resolves the full queued batch", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  const outcomes: Array<{ allow: boolean }> = [];
+  const { lastFrame, stdin } = render(
+    <Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />,
+  );
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push(o); },
+  });
+  emitter.emit("permission.gate", {
+    request: {
+      tool: "run_shell",
+      action: "Run",
+      subject: "git submodule update --init --recursive",
+      scopes: [],
+    },
+    resolve: (o: { allow: boolean }) => { outcomes.push(o); },
+  });
+  await tick();
+
+  expect(lastFrame()).toContain("perm:bun install");
+  expect(gateCalls).toEqual([true, true]);
+
+  stdin.write("p");
+  await tick();
+
+  expect(outcomes).toEqual([{ allow: true }, { allow: true }]);
+  expect(gateCalls).toEqual([true, true, false, false]);
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
 // resetGates drains all queues, resolves each with safe defaults, and clears
 // visible state — simulating a /clear rotation that fires while gates are open.
 test("resetGates resolves all pending gates and clears visible state", async () => {

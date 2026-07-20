@@ -158,7 +158,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   search_agents: "find agent profiles by role or team before spawning with task(agent=...)",
   manage_tasks: "maintain your own work checklist (create/update status) — separate from spawning sub-agents",
   submit_output: "signal the task is complete — the only way to finish",
-  ask_operator: "pause and ask the user when blocked or genuinely ambiguous; for install/setup sequences pass commands[] so one yes covers the full shell batch",
+  ask_operator: "pause and ask the user when blocked or genuinely ambiguous; for a planned multi-command shell sequence pass commands[] with the exact commands so one yes covers that batch",
   present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
   use_skill: "load a listed skill's full instructions before doing work it covers",

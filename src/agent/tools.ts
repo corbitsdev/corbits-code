@@ -17,7 +17,7 @@ import {
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
-import { preApproveShellFamily } from "../permission/command.js";
+import { preApproveExactShellCommands } from "../permission/command.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
@@ -246,16 +246,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
         const chosen = options[index]!;
-        // Operator approved this option. Pre-authorize declared shell command(s)
-        // as exact + family prefixes so install/setup sequences do not re-prompt
-        // for every follow-on variant in the same batch.
+        // Operator approved this option. Pre-authorize the exact shell command(s)
+        // declared on this ask so that planned parallel / sequence run_shell
+        // calls do not re-prompt. Exact only — not family wildcards.
         const batch = [
           ...(command !== undefined ? [command] : []),
           ...(commands ?? []),
         ];
-        for (const cmd of batch) {
-          preApproveShellFamily(permissionGate.preApprove, cmd);
-        }
+        preApproveExactShellCommands(permissionGate.preApprove, batch);
         return chosen;
       },
     }),

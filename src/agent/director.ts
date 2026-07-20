@@ -87,9 +87,8 @@ export const askOperatorDefinition: ToolDefinition = {
   name: "ask_operator",
   description:
     "Pause execution and ask the operator a clarifying question. Execution resumes when the operator selects an option. " +
-    "If the question is really asking permission to run shell command(s), pass them via `command` (one) or `commands` (batch) " +
-    "instead of only describing them in the option text — approval then pre-authorizes those run_shell calls (exact + family " +
-    "prefixes like `bun install *`), so the operator is not asked again for each follow-on shell.",
+    "If the question is really asking permission to run shell command(s), pass them via `command` (one) or `commands` (batch of exact planned commands) " +
+    "instead of only describing them in the option text — approval then pre-authorizes those exact run_shell calls so the operator is not asked again for each one.",
   inputSchema: {
     type: "object",
     properties: {
@@ -106,14 +105,14 @@ export const askOperatorDefinition: ToolDefinition = {
       command: {
         type: "string",
         description:
-          "One shell command this question is asking permission to run, verbatim. " +
-          "Approving pre-authorizes that command and its family prefixes for run_shell.",
+          "One exact shell command this question is asking permission to run, verbatim. " +
+          "Approving pre-authorizes that run_shell call only.",
       },
       commands: {
         type: "array",
         description:
-          "Batch of shell commands this question is asking permission to run (e.g. install + setup sequence). " +
-          "Approving pre-authorizes each command and its family prefixes so follow-on shells in the batch do not re-prompt.",
+          "Batch of exact shell commands this question is asking permission to run (e.g. a planned install + setup sequence). " +
+          "Approving pre-authorizes each listed command so those planned shells do not re-prompt.",
         items: { type: "string" },
       },
     },

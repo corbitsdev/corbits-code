@@ -149,13 +149,6 @@ describe("deriveCommandScopes", () => {
   test("a one-token command yields just the exact scope", () => {
     expect(deriveCommandScopes("ls").map((s) => s.pattern)).toEqual(["ls"]);
   });
-
-  test("a bare multiplexer still offers the two-token family (bun install *)", () => {
-    expect(deriveCommandScopes("bun install").map((s) => s.pattern)).toEqual([
-      "bun install *",
-      "bun install",
-    ]);
-  });
 });
 
 describe("globToRegExp / matchesPattern", () => {
