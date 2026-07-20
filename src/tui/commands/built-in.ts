@@ -1,5 +1,6 @@
 import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
+import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
 // /clever stay out of the slash menu until the user configures one; app.tsx
@@ -12,6 +13,74 @@ export function setConfiguredTiers(tiers: Partial<Record<ProviderTier, TierConfi
   for (const tier of PROVIDER_TIERS) {
     if (tiers[tier] !== undefined) configuredTiers.add(tier);
   }
+}
+
+const GOAL_CLEAR_ALIASES = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
+
+/**
+ * Parse /goal args.
+ * - bare → status
+ * - pause | resume | clear(+aliases)
+ * - optional leading turn budget as a bare integer: `/goal 25 all tests pass`
+ * - optional `--tokens N` / `--replace` flags (anywhere before the condition)
+ * - remaining text is the condition
+ *
+ * `--turns N` is still accepted as a quiet alias for the leading integer form.
+ */
+export function parseGoalArgs(raw: string): {
+  sub?: "pause" | "resume" | "clear" | "status";
+  condition?: string;
+  opts?: GoalSetOpts;
+  replace?: boolean;
+} {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { sub: "status" };
+
+  const first = trimmed.split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+  if (first === "pause") return { sub: "pause" };
+  if (first === "resume") return { sub: "resume" };
+  if (GOAL_CLEAR_ALIASES.has(first)) return { sub: "clear" };
+
+  let rest = trimmed;
+  const opts: GoalSetOpts = {};
+  let replace = false;
+
+  // Leading bare integer is the optional turn budget: /goal 25 <condition>
+  const leadingTurns = rest.match(/^(\d+)\s+/);
+  if (leadingTurns !== null) {
+    opts.turnBudget = Number(leadingTurns[1]);
+    rest = rest.slice(leadingTurns[0].length);
+  }
+
+  // Optional flags: --tokens N, --replace, and legacy --turns N — any order.
+  for (;;) {
+    const turnsOrTokens = rest.match(/^--(turns|tokens)\s+(\d+)\s*/i);
+    if (turnsOrTokens !== null) {
+      const value = Number(turnsOrTokens[2]);
+      if (turnsOrTokens[1]!.toLowerCase() === "turns") opts.turnBudget = value;
+      else opts.tokenBudget = value;
+      rest = rest.slice(turnsOrTokens[0].length);
+      continue;
+    }
+    const replaceFlag = rest.match(/^--replace\s*/i);
+    if (replaceFlag !== null) {
+      replace = true;
+      rest = rest.slice(replaceFlag[0].length);
+      continue;
+    }
+    break;
+  }
+  const condition = rest.trim();
+  if (condition.length === 0) return { sub: "status" };
+  const result: {
+    sub?: "pause" | "resume" | "clear" | "status";
+    condition?: string;
+    opts?: GoalSetOpts;
+    replace?: boolean;
+  } = { condition };
+  if (Object.keys(opts).length > 0) result.opts = opts;
+  if (replace) result.replace = true;
+  return result;
 }
 
 registerCommand({
@@ -123,6 +192,74 @@ registerCommand({
       return `${s.name}: ${toolList}`;
     });
     return { type: "message", text: lines.join("\n") };
+  },
+});
+
+// Session-scoped goal: keep working until a verifiable condition is met.
+// See docs/plans/v0.3-goal-mode.md.
+registerCommand({
+  name: "goal",
+  description: "Set a session goal brief; agent expands into an acceptance checklist",
+  // Claude-style free-form arg guidance. Leading turns are optional positional
+  // (`/goal 25 ship the feature`); omit for unlimited turns (default).
+  argumentHint: "[turns] <brief>",
+  subcommands: [
+    { name: "pause", description: "Stop auto-continue; keep the goal" },
+    { name: "resume", description: "Re-arm auto-continue (extends finite turn budget if limited)" },
+    { name: "clear", description: "Drop the goal" },
+    { name: "status", description: "Show acceptance checklist and progress" },
+  ],
+
+  handler: (args, ctx) => {
+    const api = ctx.goal;
+    if (api === undefined) {
+      return { type: "message", text: "Goal mode is not available in this session." };
+    }
+    const parsed = parseGoalArgs(args);
+    if (parsed.sub === "status") {
+      return { type: "message", text: formatGoalStatus(api.get()) };
+    }
+    if (parsed.sub === "pause") {
+      const snap = api.pause();
+      if (snap === null) return { type: "message", text: "No goal is set." };
+      return { type: "message", text: `Goal paused.\n${formatGoalStatus(snap)}` };
+    }
+    if (parsed.sub === "resume") {
+      const snap = api.resume();
+      if (snap === null) {
+        return { type: "message", text: "No paused or budget-limited goal to resume." };
+      }
+      api.kickoff?.(snap.brief || snap.condition, "resume");
+      return { type: "message", text: `Goal resumed.\n${formatGoalStatus(snap)}` };
+    }
+    if (parsed.sub === "clear") {
+      if (api.get() === null) return { type: "message", text: "No goal is set." };
+      api.clear();
+      return { type: "message", text: "Goal cleared." };
+    }
+    const condition = parsed.condition ?? "";
+    if (condition.length === 0) {
+      return {
+        type: "message",
+        text: "Usage: /goal [turns] <brief> | /goal pause | /goal resume | /goal clear | /goal status",
+      };
+    }
+    const existing = api.get();
+    if (
+      existing !== null &&
+      (existing.status === "active" || existing.status === "paused" || existing.status === "budget_limited") &&
+      parsed.replace !== true
+    ) {
+      return {
+        type: "message",
+        text:
+          `A goal is already ${existing.status}:\n${formatGoalStatus(existing)}\n\n` +
+          `Clear it first (/goal clear) or replace with /goal --replace <brief>.`,
+      };
+    }
+    const snap = api.set(condition, parsed.opts);
+    api.kickoff?.(condition, "set");
+    return { type: "message", text: `Goal set.\nBrief: ${snap.brief}` };
   },
 });
 

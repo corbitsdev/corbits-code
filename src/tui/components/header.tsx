@@ -1,6 +1,13 @@
-import { Box, Text } from "ink";
 import type { ReactNode } from "react";
+import { Box, Text } from "ink";
 import { color } from "../theme.js";
+import type { GoalSnapshot } from "../../agent/goal.js";
+import {
+  formatGoalCompleted,
+  formatGoalTurns,
+  goalCriteriaProgress,
+  isUnlimitedTurnBudget,
+} from "../../agent/goal.js";
 
 export type HeaderWorkflow = {
   name: string;
@@ -22,6 +29,8 @@ export type HeaderProps = {
   workflow?: HeaderWorkflow;
   // When set, the operator is observing a sub-agent session (not the parent).
   focusedAgent?: HeaderFocusedAgent;
+  /** Active session goal (CL-3936/CL-3937). */
+  goal?: GoalSnapshot | null;
 };
 
 function truncate(s: string, max: number): string {
@@ -29,7 +38,41 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-export function Header({ latestUserMessage, width, profile, workflow, focusedAgent }: HeaderProps): ReactNode {
+/** Compact header chip: lifecycle phase + acceptance progress, or frozen complete. */
+function goalLine(goal: GoalSnapshot, width: number): string {
+  const completed = formatGoalCompleted(goal);
+  if (completed !== null) {
+    return truncate(completed, Math.max(20, width - 4));
+  }
+  const progress = goalCriteriaProgress(goal.criteria);
+  const parts: string[] = [goal.phase];
+  if (progress.total > 0) {
+    parts.push(`${progress.done}/${progress.total}`);
+  }
+  if (goal.status !== "active") {
+    parts.push(goal.status);
+  }
+  // Only surface turns when the operator set a finite budget (and still running).
+  if (!isUnlimitedTurnBudget(goal.turnBudget)) {
+    parts.push(formatGoalTurns(goal.turnsUsed, goal.turnBudget));
+  }
+  return truncate(parts.join(" · "), Math.max(20, width - 4));
+}
+
+export function Header({
+  latestUserMessage,
+  width,
+  profile,
+  workflow,
+  focusedAgent,
+  goal,
+}: HeaderProps): ReactNode {
+  const showGoal =
+    goal !== undefined &&
+    goal !== null &&
+    goal.status !== "inactive" &&
+    goal.status !== "cleared";
+
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="row">
@@ -49,6 +92,21 @@ export function Header({ latestUserMessage, width, profile, workflow, focusedAge
             <Box>
               <Text color={color("accent")}>
                 ⟳ {truncate(`${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`, Math.max(16, Math.floor(width * 0.4)))}
+              </Text>
+            </Box>
+          )}
+          {showGoal && focusedAgent === undefined && (
+            <Box>
+              <Text
+                color={
+                  goal!.status === "achieved"
+                    ? color("success")
+                    : goal!.status === "blocked" || goal!.status === "budget_limited"
+                      ? color("warning")
+                      : color("muted")
+                }
+              >
+                ◈ {goalLine(goal!, Math.max(16, Math.floor(width * 0.5)))}
               </Text>
             </Box>
           )}

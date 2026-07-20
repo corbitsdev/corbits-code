@@ -37,7 +37,12 @@ import {
 } from "./sent-message-history.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
+import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
+import {
+  goalShowsAcceptancePanel,
+  goalShowsWorkPrimary,
+} from "../agent/goal.js";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
   INFERENCE_ABORT_USER_STOP,
@@ -119,6 +124,7 @@ import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
+import { goalKickoffUserMessage } from "../agent/goal.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import {
   extractPastedImagePaths,
@@ -438,6 +444,19 @@ export type AppProps = {
   sessionStartedAt?: number;
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
+  /** Goal mode operator surface (CL-3936/CL-3937). */
+  goalApi?: {
+    get: () => import("../agent/goal.js").GoalSnapshot | null;
+    set: (
+      condition: string,
+      opts?: import("../agent/goal.js").GoalSetOpts,
+    ) => import("../agent/goal.js").GoalSnapshot;
+    pause: () => import("../agent/goal.js").GoalSnapshot | null;
+    resume: (
+      opts?: import("../agent/goal.js").GoalResumeOpts,
+    ) => import("../agent/goal.js").GoalSnapshot | null;
+    clear: () => void;
+  };
 };
 
 export function App({
@@ -488,6 +507,7 @@ export function App({
   mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
+  goalApi,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -588,6 +608,9 @@ export function App({
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
   const [workflowHistory, setWorkflowHistory] = useState<WorkflowStatus[]>([]);
+  const [goalSnapshot, setGoalSnapshot] = useState<import("../agent/goal.js").GoalSnapshot | null>(
+    () => goalApi?.get() ?? null,
+  );
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
@@ -796,6 +819,14 @@ export function App({
   }, [eventEmitter]);
 
   useEffect(() => {
+    const onGoal = (snap: import("../agent/goal.js").GoalSnapshot | null) => {
+      setGoalSnapshot(snap);
+    };
+    eventEmitter.on("goal", onGoal);
+    return () => { eventEmitter.off("goal", onGoal); };
+  }, [eventEmitter]);
+
+  useEffect(() => {
     if (subAgentSessions === undefined) return;
     return subAgentSessions.subscribe(() => {
       setSessionsTick((n) => n + 1);
@@ -837,12 +868,36 @@ export function App({
     return subAgentSessions.get(enteredSessionId);
   }, [enteredSessionId, subAgentSessions, sessionsTick]);
 
-  // The task strip renders above the in-flight indicator: one line when compact,
-  // the full checklist (plus heading and surrounding margins) when expanded.
+  // Goal chrome follows lifecycle phase:
+  // planning / reviewing / completed → Acceptance panel
+  // implementing → Work primary (Acceptance compact; header shows phase)
+  const goalActive =
+    goalSnapshot !== null &&
+    goalSnapshot.status !== "inactive" &&
+    goalSnapshot.status !== "cleared";
+  const goalPhase = goalActive ? goalSnapshot!.phase : null;
+  const showAcceptance = goalPhase !== null && goalShowsAcceptancePanel(goalPhase);
+  const workPrimary = goalPhase !== null && goalShowsWorkPrimary(goalPhase);
+  // Default-expand Work when entering implementing; Ctrl+T can still collapse.
+  const wasWorkPrimary = useRef(false);
+  useEffect(() => {
+    if (workPrimary && !wasWorkPrimary.current) {
+      setTasksExpanded(true);
+    }
+    wasWorkPrimary.current = workPrimary;
+  }, [workPrimary]);
+  const workExpanded = tasksExpanded;
+  const goalChromeRows = !goalActive
+    ? 0
+    : showAcceptance
+      ? (goalSnapshot!.criteria.length === 0
+          ? 2
+          : goalSnapshot!.criteria.length + 2) + 2
+      : 3; // compact phase strip during implementing
   const taskChromeRows =
     !hasActiveTasks(state.tasks)
       ? 0
-      : (tasksExpanded ? state.tasks.length + 1 : 1) + 2;
+      : (workExpanded ? state.tasks.length + 1 : 1) + 2;
 
   // The plugins overlay renders outside the modal-stack accounting (like the
   // permissions overlay), so reserve rows for its box: chrome + one row per
@@ -896,6 +951,7 @@ export function App({
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
+    goalChromeRows +
     taskChromeRows +
     pluginChromeRows +
     (state.quotaError !== null ? 1 : 0) +
@@ -1314,7 +1370,26 @@ export function App({
     getMCPServers: () => mcpStatus.servers,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
-  }), [mcpStatus.servers, onStartWorkflow, onRenameSession]);
+    ...(goalApi !== undefined
+      ? {
+          goal: {
+            get: goalApi.get,
+            set: goalApi.set,
+            pause: goalApi.pause,
+            resume: goalApi.resume,
+            clear: goalApi.clear,
+            kickoff: (condition: string, phase: "set" | "resume" = "set") => {
+              // Start a turn immediately so the agent works without a second prompt.
+              // Set path forces clarify-first for vague goals; resume continues.
+              sendMessageRef.current({
+                text: goalKickoffUserMessage(condition, phase),
+                attachments: [],
+              });
+            },
+          },
+        }
+      : {}),
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -1862,6 +1937,7 @@ export function App({
                 },
               }
             : {})}
+          {...(goalSnapshot !== null ? { goal: goalSnapshot } : goalApi !== undefined ? { goal: goalApi.get() } : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -1952,7 +2028,9 @@ export function App({
           onSelectOperator={gates.selectOperator}
           pendingPermission={gates.pendingPermission}
           permissionQueueDepth={gates.permissionQueueDepth}
+          permissionTimeoutMs={gates.permissionTimeoutMs}
           onResolvePermission={gates.resolvePermission}
+
           width={columns}
         />
       </Box>
@@ -2037,11 +2115,35 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
-          {hasActiveTasks(state.tasks) && (
-            <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={state.tasks} compact={!tasksExpanded} />
-            </Box>
-          )}
+          {(() => {
+            const workBlock = hasActiveTasks(state.tasks) ? (
+              <Box flexDirection="column" marginTop={1} key="work">
+                <TaskView
+                  tasks={state.tasks}
+                  compact={!workExpanded}
+                  title={goalActive ? "Work" : "Tasks"}
+                />
+              </Box>
+            ) : null;
+            const acceptBlock =
+              goalActive && goalSnapshot !== null ? (
+                <Box flexDirection="column" marginTop={1} key="accept">
+                  <GoalView goal={goalSnapshot} compact={!showAcceptance} />
+                </Box>
+              ) : null;
+            // implementing: Work on top; planning/reviewing/completed: Acceptance on top
+            return workPrimary ? (
+              <>
+                {workBlock}
+                {acceptBlock}
+              </>
+            ) : (
+              <>
+                {acceptBlock}
+                {workBlock}
+              </>
+            );
+          })()}
           {agentsStripVisible ? (
             <Box flexDirection="column" marginTop={1}>
               <AgentsStrip
