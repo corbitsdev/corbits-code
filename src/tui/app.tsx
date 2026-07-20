@@ -25,6 +25,7 @@ import {
 } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
+import { useGitBranch } from "./git-branch.js";
 import { buildCostSummary, formatCostCommandOutput, formatStatusBarSegments } from "../cost/cost-summary.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -1600,6 +1601,9 @@ export function App({
   // Whole-session timer for the status bar. Held in state so /new can zero it.
   const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
   const sessionElapsedMs = useSessionClock(sessionStartedAt);
+  // Persistent status bar segment (CL-3118): refreshes on an interval, never
+  // blocks render on the git process.
+  const gitBranch = useGitBranch(cwd);
   // Ambient verb shown beside the steer hint while the agent runs.
   const revolvingVerb = useRevolvingVerb(state.isProcessing, sendCounterRef.current);
 
@@ -2276,6 +2280,10 @@ export function App({
           <StatusBar
             sessionElapsedMs={sessionElapsedMs}
             mcpCount={mcpStatus.connected.length}
+            model={model}
+            cwd={cwd}
+            gitBranch={gitBranch}
+            columns={columns}
             {...formatStatusBarSegments(getCostSummary())}
           />
         </Box>

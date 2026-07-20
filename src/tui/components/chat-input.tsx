@@ -564,8 +564,10 @@ export function ChatInput({
   // starts with /, @ picker fires for any other @ token in the input.
   const showSlash = suggestions.length > 0;
   const showAt = !showSlash && atMention.suggestions.length > 0;
-  const hasPrompt = value.trim().length > 0;
-  const showSteerHint = isProcessing && hasPrompt;
+  // Visible whenever the agent is in flight, not just once the user has
+  // typed something — interruption works either way and should be
+  // discoverable immediately (CL-3118).
+  const showSteerHint = isProcessing;
 
   return (
     <Box flexDirection="column">
@@ -632,16 +634,18 @@ export function ChatInput({
         <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
       {(() => {
-        // Action bar: the row directly above the prompt box. While processing
-        // with text typed, the revolving verb + steer hint sit on the left; the
+        // Action bar: the row directly above the prompt box. While processing,
+        // the revolving verb + action hint sit on the left; the
         // profile · model · effort is always right-aligned on the same baseline.
-        const steerText = !steerOnEnter
-          ? queuedCount > 0
-            ? `${queuedCount} queued · Enter queues for orchestrator`
-            : "Enter queues for orchestrator"
-          : queuedCount > 0
-            ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
+        // Enter and Alt+Enter are no-ops on an empty field, so with nothing
+        // typed the hint advertises the interrupt chord instead.
+        const hasPromptText = value.trim().length > 0;
+        const actionsText = !hasPromptText
+          ? "Esc Esc interrupt"
+          : !steerOnEnter
+            ? "Enter queues for orchestrator"
             : "Enter steer · Alt+Enter queue";
+        const steerText = queuedCount > 0 ? `${queuedCount} queued · ${actionsText}` : actionsText;
         const modelText = composePromptActionBarModelLabel({
           ...(profile !== undefined ? { profile } : {}),
           ...(model !== undefined ? { model } : {}),
