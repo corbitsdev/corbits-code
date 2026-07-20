@@ -3,15 +3,11 @@ import { join } from "node:path";
 
 import { type } from "arktype";
 
-import {
-  plugin as defaultPlugin,
-  REASONING_EFFORTS,
-} from "@intercode/default-agents";
+import { defaultAgentsPlugin as defaultPlugin } from "./default-agents.js";
+import { REASONING_EFFORTS } from "./profile-types.js";
 
-// Public agent profile types live in @intercode/default-agents so plugin
-// authors can depend on that package without pulling in the full runtime.
-export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode, InferenceLeg, InferenceSpec, ReasoningEffort } from "@intercode/default-agents";
-import type { AgentProfile } from "@intercode/default-agents";
+export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode, InferenceLeg, InferenceSpec, ReasoningEffort } from "./profile-types.js";
+import type { AgentProfile } from "./profile-types.js";
 
 // Exported so agent-kind plugins can validate contributed profiles.
 export { AgentProfileSchema };

@@ -3,10 +3,10 @@
 // "variant" or a separate model — the same model accepts an effort level that
 // trades latency and cost against reasoning depth.
 
-// The canonical literal set lives in @intercode/default-agents so plugin
-// authors and the runtime cannot drift. Re-exported here for callers that
-// already import from this module.
-import { REASONING_EFFORTS as CANONICAL_EFFORTS } from "@intercode/default-agents";
+// The canonical literal set lives in the agent profile contract so the
+// profile schema and the runtime cannot drift. Re-exported here for callers
+// that already import from this module.
+import { REASONING_EFFORTS as CANONICAL_EFFORTS } from "../agent/profile-types.js";
 
 export const REASONING_EFFORTS = CANONICAL_EFFORTS;
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
