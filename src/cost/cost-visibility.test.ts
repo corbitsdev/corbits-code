@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { shouldHideCost, isCodingPlanBaseURL, isFreeModelId } from "./cost-visibility.js";
+import { costHiddenReason, isCodingPlanBaseURL, isFreeModelId } from "./cost-visibility.js";
 import type { PricingCache } from "./pricing-fetcher.js";
 
 const pricingCache: PricingCache = {
@@ -51,32 +51,32 @@ describe("isCodingPlanBaseURL", () => {
   });
 });
 
-describe("shouldHideCost", () => {
+describe("costHiddenReason", () => {
   it("hides for a manual provider override", () => {
-    expect(shouldHideCost({ modelId: "glm-5.1", providerFree: true, pricingCache })).toBe(true);
+    expect(costHiddenReason({ modelId: "glm-5.1", providerFree: true, pricingCache })).toBe("provider-free");
   });
 
   it("hides for a coding-plan base URL", () => {
     expect(
-      shouldHideCost({ modelId: "glm-5.1", baseURL: "https://api.z.ai/api/coding/paas/v4", pricingCache }),
-    ).toBe(true);
+      costHiddenReason({ modelId: "glm-5.1", baseURL: "https://api.z.ai/api/coding/paas/v4", pricingCache }),
+    ).toBe("coding-plan");
   });
 
   it("hides for a free-named model", () => {
-    expect(shouldHideCost({ modelId: "qwen3:free", pricingCache })).toBe(true);
+    expect(costHiddenReason({ modelId: "qwen3:free", pricingCache })).toBe("free-model");
   });
 
   it("hides for a model priced at zero", () => {
-    expect(shouldHideCost({ modelId: "free-model", pricingCache })).toBe(true);
+    expect(costHiddenReason({ modelId: "free-model", pricingCache })).toBe("zero-priced");
   });
 
   it("shows cost for a normal metered model", () => {
     expect(
-      shouldHideCost({ modelId: "glm-5.1", baseURL: "https://api.z.ai/api/paas/v4", pricingCache }),
-    ).toBe(false);
+      costHiddenReason({ modelId: "glm-5.1", baseURL: "https://api.z.ai/api/paas/v4", pricingCache }),
+    ).toBeNull();
   });
 
   it("shows cost for an unknown model with no signals", () => {
-    expect(shouldHideCost({ modelId: "mystery-model", pricingCache: null })).toBe(false);
+    expect(costHiddenReason({ modelId: "mystery-model", pricingCache: null })).toBeNull();
   });
 });

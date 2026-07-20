@@ -89,6 +89,34 @@ test("App renders header and status bar", async () => {
   expect(lastFrame()).toContain("test-model");
 });
 
+test("App status bar shows cost for a metered provider", async () => {
+  const emitter = new EventEmitter();
+  const { lastFrame } = await renderAppReady(emitter);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("$");
+  expect(frame).toContain("Ctx");
+});
+
+test("App status bar hides cost for a coding-plan provider base URL", async () => {
+  const emitter = new EventEmitter();
+  const { lastFrame } = await renderAppReady(emitter, {
+    providers: [{ ...testProvider, baseURL: "https://api.z.ai/api/coding/paas/v4" }],
+  });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("$");
+  expect(frame).toContain("Ctx");
+});
+
+test("App status bar hides cost for a provider marked free", async () => {
+  const emitter = new EventEmitter();
+  const { lastFrame } = await renderAppReady(emitter, {
+    providers: [{ ...testProvider, free: true }],
+  });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("$");
+  expect(frame).toContain("Ctx");
+});
+
 test("App renders chat input", async () => {
   const emitter = new EventEmitter();
   const { lastFrame } = await renderAppReady(emitter);

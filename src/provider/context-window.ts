@@ -42,11 +42,3 @@ export function compactionThresholdFor(model: string | undefined): number {
   const window = model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
   return Math.floor(window * COMPACTION_WINDOW_FRACTION);
 }
-
-const CONTEXT_DISPLAY_THRESHOLD = 0.6;
-
-export function formatContextUsage(usedTokens: number, model: string): string | undefined {
-  const window = contextWindowFor(model);
-  if (!Number.isFinite(usedTokens) || usedTokens / window <= CONTEXT_DISPLAY_THRESHOLD) return undefined;
-  return `Context: ${String(usedTokens)}/${String(window)}`;
-}
