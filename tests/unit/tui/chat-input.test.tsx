@@ -103,9 +103,10 @@ test("ChatInput shows the steer and queue hint while processing regardless of in
     />,
   );
   // The interrupt affordance must be discoverable immediately, before the
-  // user has typed anything.
-  expect(empty.lastFrame()).toContain("queued");
-  expect(empty.lastFrame()).toContain("steer");
+  // user has typed anything. Enter/Alt+Enter are no-ops on an empty field,
+  // so the empty-field hint advertises the interrupt chord instead.
+  expect(empty.lastFrame()).toContain("1 queued · Esc Esc interrupt");
+  expect(empty.lastFrame()).not.toContain("steer");
 
   const idle = render(
     <ChatInput
