@@ -411,7 +411,7 @@ describe("flat line buffer", () => {
       },
     ];
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Read 1 line of package.json"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ◇ Read 1 line of package.json"]);
     expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
   });
 
@@ -482,7 +482,7 @@ describe("flat line buffer", () => {
   test("consecutive file edits collapse into one group", () => {
     const blocks = [0, 1, 2, 3].flatMap(editPair);
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Edited 4 files"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ✐ Edited 4 files"]);
   });
 
   test("expanded file edits render individually", () => {
@@ -491,7 +491,7 @@ describe("flat line buffer", () => {
     const text = lineText(buildLines(blocks, COLUMNS, false, (block) => expandedIds.has(block.id))).join("\n");
 
     expect(text).toContain("Edited src/file-0.ts");
-    expect(text).toContain("● Edit");
+    expect(text).toContain("✐ Edit");
     expect(text).toContain("src/file-1.ts");
     expect(text).toContain("Edited src/file-2.ts");
     expect(text).not.toContain("Edited 3 files");
@@ -722,8 +722,8 @@ describe("flat line buffer", () => {
     expect(lines).toEqual([
       " ● I'll read the config then edit it.",
       "",
-      "  ● Read 1 line of package.json",
-      "  ● Edited package.json (1 replacement)",
+      "  ◇ Read 1 line of package.json",
+      "  ✐ Edited package.json (1 replacement)",
     ]);
   });
 });
