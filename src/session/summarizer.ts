@@ -22,6 +22,13 @@ export type SummaryContext = {
     stepIndex?: number;
     total?: number;
   };
+  /** Active session goal — preserved across compaction so the continue-rule survives. */
+  goal?: {
+    condition: string;
+    status: string;
+    brief?: string;
+    criteriaSummary?: string;
+  };
 };
 
 const SYSTEM_INSTRUCTION = [
@@ -101,15 +108,33 @@ export function condenseTurns(turns: ConversationTurn[]): string {
 }
 
 function workflowPreamble(ctx: SummaryContext | undefined): string {
+  const parts: string[] = [];
   const wf = ctx?.workflow;
-  if (wf === undefined || wf.name === undefined) return "";
-  const step =
-    wf.stepIndex !== undefined && wf.total !== undefined
-      ? ` (step ${wf.stepIndex + 1}/${wf.total}${wf.stepLabel ? `: ${wf.stepLabel}` : ""})`
-      : wf.stepLabel
-        ? ` (current step: ${wf.stepLabel})`
+  if (wf !== undefined && wf.name !== undefined) {
+    const step =
+      wf.stepIndex !== undefined && wf.total !== undefined
+        ? ` (step ${wf.stepIndex + 1}/${wf.total}${wf.stepLabel ? `: ${wf.stepLabel}` : ""})`
+        : wf.stepLabel
+          ? ` (current step: ${wf.stepLabel})`
+          : "";
+    parts.push(
+      `Active workflow: /${wf.name}${step}\nThis session is mid-workflow — preserve everything needed to resume it.`,
+    );
+  }
+  const goal = ctx?.goal;
+  if (goal !== undefined && goal.condition.length > 0) {
+    const brief = goal.brief !== undefined && goal.brief.length > 0 ? goal.brief : goal.condition;
+    const criteria =
+      goal.criteriaSummary !== undefined && goal.criteriaSummary.length > 0
+        ? `\nAcceptance criteria: ${goal.criteriaSummary}`
         : "";
-  return `Active workflow: /${wf.name}${step}\nThis session is mid-workflow — preserve everything needed to resume it.\n\n`;
+    parts.push(
+      `Active goal (${goal.status}): ${brief}${criteria}\n` +
+        "The agent must keep working until every acceptance criterion is done.",
+    );
+  }
+  if (parts.length === 0) return "";
+  return `${parts.join("\n\n")}\n\n`;
 }
 
 /** Build the user-content prompt for the summary call. Pure and testable. */

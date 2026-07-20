@@ -80,7 +80,10 @@ export type ModalStackProps = {
 
   pendingPermission: PermissionRequest | null;
   permissionQueueDepth?: number;
+  /** Goal-mode auto-skip budget for the visible permission modal. */
+  permissionTimeoutMs?: number | null;
   onResolvePermission: (outcome: ApprovalOutcome) => void;
+
 
   width?: number;
 };
@@ -120,9 +123,11 @@ export function ModalStack({
   onSelectOperator,
   pendingPermission,
   permissionQueueDepth,
+  permissionTimeoutMs,
   onResolvePermission,
   width,
 }: ModalStackProps): ReactNode {
+
   return (
     <>
       {hookPanelOpen ? <HookPanel hooks={hooks} /> : null}
@@ -168,10 +173,14 @@ export function ModalStack({
         <PermissionModal
           request={pendingPermission}
           {...(permissionQueueDepth !== undefined ? { permissionQueueDepth } : {})}
+          {...(permissionTimeoutMs !== undefined && permissionTimeoutMs !== null
+            ? { goalTimeoutMs: permissionTimeoutMs }
+            : {})}
           onResolve={onResolvePermission}
           {...(width !== undefined ? { width } : {})}
         />
       )}
+
     </>
   );
 }
