@@ -1,6 +1,6 @@
 # Intercode
 
-A coding agent CLI using the LLM (OpenAI-compatible) built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
+A single-process coding agent CLI using the LLM (OpenAI-compatible) built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
 
 ## Stack
 
