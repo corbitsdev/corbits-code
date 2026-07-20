@@ -1,5 +1,11 @@
 # Intercode
 
+Copyright (C) 2026 ABK Labs, Inc.
+
+Licensed under the GNU General Public License Version 2 with the
+supplemental terms in `GPLv2-AI-Exception.md`; see `LICENSE.md`.
+Contributions are accepted under the terms of `CLA.md`.
+
 A single-process coding agent CLI using the LLM (OpenAI-compatible) built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
 
 ## Stack

@@ -2,6 +2,7 @@
   "name": "intercode",
   "version": "0.2.79",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "bin": {
     "intercode": "./dist/index.js"
