@@ -184,8 +184,38 @@ test("operator tool pre-approves the declared command for run_shell when an opti
     command: "bun install",
   });
 
+  // Exact + family prefix so follow-on variants (bun install foo) do not re-prompt.
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "bun install *");
   expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "bun install");
-  expect(fakePermissionGate.preApprove).toHaveBeenCalledTimes(1);
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledTimes(2);
+});
+
+test("operator tool batch-pre-approves commands[] families on approval", async () => {
+  fakePermissionGate.preApprove.mockClear();
+
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  await callOperator(toolset, {
+    question: "Install and set up submodules?",
+    options: ["Yes, run the setup"],
+    commands: ["bun install", "git submodule update --init --recursive"],
+  });
+
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "bun install *");
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "bun install");
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "git submodule *");
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith(
+    "run_shell",
+    "git submodule update *",
+  );
+  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith(
+    "run_shell",
+    "git submodule update --init --recursive",
+  );
 });
 
 test("operator tool does not pre-approve anything when no command is declared", async () => {

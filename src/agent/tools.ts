@@ -17,6 +17,7 @@ import {
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
+import { preApproveShellFamily } from "../permission/command.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
@@ -46,6 +47,7 @@ const AskOperatorArgs = type({
   question: "string",
   options: "string[]",
   "command?": "string",
+  "commands?": "string[]",
 });
 
 const AdvanceWorkflowArgs = type({
@@ -228,7 +230,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (parsed instanceof type.errors) {
           return "Error: ask_operator requires question (string) and options (array of strings).";
         }
-        const { question, options, command } = parsed;
+        const { question, options, command, commands } = parsed;
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
@@ -244,10 +246,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
         const chosen = options[index]!;
-        // The operator just approved this exact answer by selecting it. The model
-        // declares the command it's really asking about via `command`, so the
-        // follow-up run_shell call for that exact string does not prompt again.
-        if (command !== undefined) permissionGate.preApprove("run_shell", command);
+        // Operator approved this option. Pre-authorize declared shell command(s)
+        // as exact + family prefixes so install/setup sequences do not re-prompt
+        // for every follow-on variant in the same batch.
+        const batch = [
+          ...(command !== undefined ? [command] : []),
+          ...(commands ?? []),
+        ];
+        for (const cmd of batch) {
+          preApproveShellFamily(permissionGate.preApprove, cmd);
+        }
         return chosen;
       },
     }),

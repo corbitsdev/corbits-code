@@ -236,6 +236,10 @@ const MULTIPLEXERS = new Set([
 // Build the ladder of approval scopes for a shell command segment, broad to
 // specific: "git commit *", "git commit -m *", then the exact command. The
 // caller prepends a "just once" option.
+//
+// Multiplexers never offer a bare program wildcard (`npm *`). When the command
+// is exactly the minPrefix tokens (`bun install`), still offer `bun install *`
+// so a session grant covers later arg variants without re-prompting.
 export function deriveCommandScopes(command: string): ApprovalScope[] {
   const tokens = tokenize(command);
   if (tokens.length === 0) return [];
@@ -248,12 +252,21 @@ export function deriveCommandScopes(command: string): ApprovalScope[] {
   }
 
   const scopes: ApprovalScope[] = [];
-  const minPrefix = MULTIPLEXERS.has(tokens[0]!) ? 2 : 1;
-  const prefixLimit = Math.min(tokens.length - 1, minPrefix + MAX_PREFIX_SCOPES - 1);
-  for (let n = minPrefix; n <= prefixLimit; n++) {
-    const prefix = tokens.slice(0, n).join(" ");
-    const pattern = `${prefix} *`;
-    scopes.push({ id: `prefix-${n}`, label: `Always allow ${pattern}`, pattern });
+  const isMux = MULTIPLEXERS.has(tokens[0]!);
+  const minPrefix = isMux ? 2 : 1;
+  const hasExtra = tokens.length > minPrefix;
+
+  // Prefix ladder: broad → narrow. Non-mux one-token commands (`ls`) stay exact-only.
+  // Mux at exactly minPrefix (`bun install`) still gets `bun install *`.
+  if (isMux || hasExtra) {
+    const lastPrefixN = hasExtra
+      ? Math.min(tokens.length - 1, minPrefix + MAX_PREFIX_SCOPES - 1)
+      : minPrefix;
+    for (let n = minPrefix; n <= lastPrefixN; n++) {
+      const prefix = tokens.slice(0, n).join(" ");
+      const pattern = `${prefix} *`;
+      scopes.push({ id: `prefix-${n}`, label: `Always allow ${pattern}`, pattern });
+    }
   }
 
   const exact = tokens.join(" ");
@@ -261,4 +274,20 @@ export function deriveCommandScopes(command: string): ApprovalScope[] {
     scopes.push({ id: "exact", label: `Always allow this exact command`, pattern: exact });
   }
   return scopes;
+}
+
+// Session-grant every scope for a shell command (exact + prefix family) so one
+// operator yes covers follow-on variants without re-prompting. Used by
+// ask_operator multi-command approval and similar batch pre-approve paths.
+export function preApproveShellFamily(
+  preApprove: (tool: string, pattern: string) => void,
+  command: string,
+): void {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return;
+  for (const scope of deriveCommandScopes(trimmed)) {
+    const pattern = scope.pattern;
+    if (pattern === null) continue;
+    preApprove("run_shell", pattern);
+  }
 }

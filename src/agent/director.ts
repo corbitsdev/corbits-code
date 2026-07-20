@@ -87,9 +87,9 @@ export const askOperatorDefinition: ToolDefinition = {
   name: "ask_operator",
   description:
     "Pause execution and ask the operator a clarifying question. Execution resumes when the operator selects an option. " +
-    "If the question is really asking permission to run one specific shell command, pass that exact command as `command` " +
-    "instead of just describing it in the option text — approval here then covers the matching run_shell call too, so the " +
-    "operator is not asked to approve the same action twice.",
+    "If the question is really asking permission to run shell command(s), pass them via `command` (one) or `commands` (batch) " +
+    "instead of only describing them in the option text — approval then pre-authorizes those run_shell calls (exact + family " +
+    "prefixes like `bun install *`), so the operator is not asked again for each follow-on shell.",
   inputSchema: {
     type: "object",
     properties: {
@@ -106,8 +106,15 @@ export const askOperatorDefinition: ToolDefinition = {
       command: {
         type: "string",
         description:
-          "The exact shell command this question is asking permission to run, verbatim, if applicable. " +
-          "Approving an option here pre-authorizes the run_shell call for this exact command.",
+          "One shell command this question is asking permission to run, verbatim. " +
+          "Approving pre-authorizes that command and its family prefixes for run_shell.",
+      },
+      commands: {
+        type: "array",
+        description:
+          "Batch of shell commands this question is asking permission to run (e.g. install + setup sequence). " +
+          "Approving pre-authorizes each command and its family prefixes so follow-on shells in the batch do not re-prompt.",
+        items: { type: "string" },
       },
     },
     required: ["question", "options"],
