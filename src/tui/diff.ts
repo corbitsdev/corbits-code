@@ -102,6 +102,10 @@ export type DiffRenderOptions = {
   // Lines of unchanged context to keep around each change. Undefined keeps the
   // diff uncollapsed (the right call for the small localized edit hunks).
   contextLines?: number;
+  // Hide the old/new line-number gutter. edit_file hunks diff old_string
+  // against new_string, so their row indices are snippet-relative and would
+  // read as (wrong) file line numbers if shown.
+  lineNumbers?: false;
 };
 
 function tokenizeWords(line: string): string[] {
@@ -172,12 +176,14 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
   let rows = numberRows(diffLines(oldText, newText));
   if (opts.contextLines !== undefined) rows = collapseContext(rows, opts.contextLines);
 
+  const showNumbers = opts.lineNumbers !== false;
+
   // Right-align both columns to the widest line number that actually appears,
   // so a 3-digit file doesn't waste columns a 1000-line file would need.
   const maxOldNum = rows.reduce((max, row) => Math.max(max, row.oldNum ?? 0), 0);
   const maxNewNum = rows.reduce((max, row) => Math.max(max, row.newNum ?? 0), 0);
   const numWidth = Math.max(1, String(maxOldNum).length, String(maxNewNum).length);
-  const numColWidth = numWidth * 2 + 2; // "<old> <new> "
+  const numColWidth = showNumbers ? numWidth * 2 + 2 : 0; // "<old> <new> "
   const numColor = color("diffContext");
 
   const lines: StyledLine[] = [];
@@ -202,7 +208,7 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
       const range = ranges[idx]!;
       const piece = sliceSegments(bodySegs, range.start, range.end);
       lines.push([
-        { text: idx === 0 ? numCol : " ".repeat(numColWidth), color: numColor },
+        ...(showNumbers ? [{ text: idx === 0 ? numCol : " ".repeat(numColWidth), color: numColor }] : []),
         { text: idx === 0 ? sign : "  ", color: segColor },
         ...(piece.length > 0 ? piece : [{ text: "", color: segColor }]),
       ]);

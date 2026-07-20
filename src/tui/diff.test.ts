@@ -122,10 +122,15 @@ describe("renderDiff line numbers", () => {
 
   test("del rows show only the old number, add rows show only the new number", () => {
     const lines = renderDiff("old", "new", 40);
-    const delText = lines[0]!.map((seg) => seg.text).join("");
-    const addText = lines[1]!.map((seg) => seg.text).join("");
-    expect(delText.trimStart().startsWith("1")).toBe(true);
-    expect(addText.trimStart().startsWith("1")).toBe(true);
+    // The number column is "<old> <new> " — the absent side renders blank.
+    expect(lines[0]![0]!.text).toBe("1   ");
+    expect(lines[1]![0]!.text).toBe("  1 ");
+  });
+
+  test("lineNumbers: false omits the number gutter entirely", () => {
+    const lines = renderDiff("old", "new", 40, { lineNumbers: false });
+    const texts = lines.map((line) => line.map((seg) => seg.text).join(""));
+    expect(texts).toEqual(["- old", "+ new"]);
   });
 
   test("line numbers stay right-aligned as the file grows past one digit", () => {
