@@ -1,5 +1,6 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { commandHasRecursiveRm } from "../shell/run-shell-authz.js";
+import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { tokenize } from "./command.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
@@ -103,6 +104,18 @@ const RECURSIVE_RM_ASK_RULE: AutoShellRule = {
   patterns: [],
 };
 
+// Shell commands that mention a secret file (`.env`, keys, certs, …) never run
+// unattended in auto mode. The operator can still approve them — secret-guard
+// only hard-denies path-keyed tools, not shell — so legitimate uses like
+// `--env-file=.env.staging` work after an explicit yes.
+const SENSITIVE_PATH_ASK_RULE: AutoShellRule = {
+  name: "sensitive-path",
+  effect: "ask",
+  reason:
+    "This command references a sensitive file (credentials, keys, or env secrets). It needs explicit operator approval and never runs unattended in auto mode.",
+  patterns: [],
+};
+
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
 
 function safeWorktreeCommand(command: string): boolean | undefined {
@@ -127,7 +140,13 @@ export function autoShellRuleForCall(
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
   if (commandHasRecursiveRm(command)) return RECURSIVE_RM_ASK_RULE;
+  // Deny rules (file-mutation) beat sensitive-path ask: `echo x > .env` must
+  // stay hard-denied in auto, not demoted to an operator prompt just because
+  // a secret path token is present.
+  const matched = matchAutoShellRule(command);
+  if (matched?.effect === "deny") return matched;
+  if (commandReferencesSensitivePath(command) !== undefined) return SENSITIVE_PATH_ASK_RULE;
   const safeWorktree = safeWorktreeCommand(command);
   if (safeWorktree === false) return WORKTREE_ASK_RULE;
-  return matchAutoShellRule(command);
+  return matched;
 }

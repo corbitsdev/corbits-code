@@ -6,6 +6,7 @@ import {
   isUserFacingJSON,
   describeToolCall,
   humanizeToolName,
+  toolGlyph,
 } from "./tool-formatter.js";
 
 describe("humanizeToolName", () => {
@@ -59,6 +60,38 @@ describe("describeToolCall", () => {
   });
   test("a destructive shell command reads as danger", () => {
     expect(describeToolCall("run_shell", '{"command":"rm -rf build"}').role).toBe("danger");
+  });
+});
+
+describe("toolGlyph", () => {
+  test("assigns a distinct glyph per known tool type", () => {
+    const known = [
+      "run_shell",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "grep",
+      "search_files",
+      "list_dir",
+      "web_search",
+      "web_fetch",
+      "task",
+      "present",
+    ];
+    const glyphs = known.map(toolGlyph);
+    expect(new Set(glyphs).size).toBe(known.length);
+  });
+
+  test("falls back to the generic bullet for unknown tools", () => {
+    expect(toolGlyph("some_unlisted_tool")).toBe("●");
+  });
+
+  test("describeToolCall carries the same glyph as toolGlyph", () => {
+    expect(describeToolCall("run_shell", '{"command":"npm test"}').glyph).toBe(toolGlyph("run_shell"));
+    expect(describeToolCall("read_file", '{"path":"a"}').glyph).toBe(toolGlyph("read_file"));
+    expect(describeToolCall("present", "{}").glyph).toBe(toolGlyph("present"));
+    expect(describeToolCall("task", '{"agent":"claude"}').glyph).toBe(toolGlyph("task"));
+    expect(describeToolCall("unknown_tool", "{}").glyph).toBe("●");
   });
 });
 

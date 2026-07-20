@@ -1,7 +1,6 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import {
   contextWindowFor,
-  formatContextUsage,
   compactionThresholdFor,
   setModelContextWindows,
 } from "../../src/provider/context-window.js";
@@ -35,15 +34,5 @@ describe("compactionThresholdFor", () => {
 
   test("falls back to the default window when the model is unknown", () => {
     expect(compactionThresholdFor(undefined)).toBe(76_800);
-  });
-});
-
-describe("formatContextUsage", () => {
-  test("is hidden at or below 60 percent", () => {
-    expect(formatContextUsage(240_000, "gpt-5-codex")).toBeUndefined();
-  });
-
-  test("shows used and max tokens above 60 percent", () => {
-    expect(formatContextUsage(280_000, "gpt-5-codex")).toBe("Context: 280000/400000");
   });
 });

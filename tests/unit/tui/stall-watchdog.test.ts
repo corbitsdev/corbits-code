@@ -2,75 +2,98 @@ import { test, expect } from "bun:test";
 import { applyStallRecovery, shouldAbortForStall } from "../../../src/tui/app.js";
 import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../../../src/inference-abort.js";
 
+const base = {
+  status: "running" as const,
+  lastActivityAt: 0,
+  nowMs: 130_000,
+  stallTimeoutMs: 120_000,
+  isProcessing: true,
+  streamingType: null as "text" | "thinking" | "tool" | null,
+};
+
 test("shouldAbortForStall: fires when running, awaiting, and stalled beyond timeout", () => {
   expect(shouldAbortForStall({
-    status: "running",
+    ...base,
     awaitingResponse: true,
-    lastActivityAt: 0,
-    nowMs: 130000,
-    stallTimeoutMs: 120000,
   })).toBe(true);
 });
 
 test("shouldAbortForStall: does not fire when activity is recent", () => {
   expect(shouldAbortForStall({
-    status: "running",
+    ...base,
     awaitingResponse: true,
-    lastActivityAt: 120000,
-    nowMs: 130000,
-    stallTimeoutMs: 120000,
+    lastActivityAt: 120_000,
   })).toBe(false);
 });
 
-test("shouldAbortForStall: does not fire when not awaiting response", () => {
+test("shouldAbortForStall: does not fire when not awaiting and not mid-stream", () => {
   expect(shouldAbortForStall({
-    status: "running",
+    ...base,
     awaitingResponse: false,
-    lastActivityAt: 0,
-    nowMs: 130000,
-    stallTimeoutMs: 120000,
+    isProcessing: false,
+    streamingType: null,
+  })).toBe(false);
+});
+
+test("shouldAbortForStall: fires on mid-thinking silence beyond timeout", () => {
+  expect(shouldAbortForStall({
+    ...base,
+    awaitingResponse: false,
+    isProcessing: true,
+    streamingType: "thinking",
+  })).toBe(true);
+});
+
+test("shouldAbortForStall: does not fire on long tool execution without parent stream events", () => {
+  expect(shouldAbortForStall({
+    ...base,
+    awaitingResponse: false,
+    isProcessing: true,
+    streamingType: "tool",
+  })).toBe(false);
+});
+
+test("shouldAbortForStall: mid-stream with recent tokens does not fire", () => {
+  expect(shouldAbortForStall({
+    ...base,
+    awaitingResponse: false,
+    isProcessing: true,
+    streamingType: "thinking",
+    lastActivityAt: 120_000,
   })).toBe(false);
 });
 
 test("shouldAbortForStall: does not fire when status is not running", () => {
   expect(shouldAbortForStall({
+    ...base,
     status: "done",
     awaitingResponse: true,
-    lastActivityAt: 0,
-    nowMs: 130000,
-    stallTimeoutMs: 120000,
   })).toBe(false);
 });
 
 test("shouldAbortForStall: does not fire when status is stopping", () => {
   expect(shouldAbortForStall({
+    ...base,
     status: "stopping",
     awaitingResponse: true,
-    lastActivityAt: 0,
-    nowMs: 130000,
-    stallTimeoutMs: 120000,
   })).toBe(false);
 });
 
 test("shouldAbortForStall: recent activity prevents abort (simulating a token arriving)", () => {
-  // activityTick increments reset lastActivityAt in the app; simulate by
-  // passing a recent lastActivityAt to confirm the guard holds.
   expect(shouldAbortForStall({
-    status: "running",
+    ...base,
     awaitingResponse: true,
-    lastActivityAt: 119999,
-    nowMs: 120000,
-    stallTimeoutMs: 120000,
+    lastActivityAt: 119_999,
+    nowMs: 120_000,
   })).toBe(false);
 });
 
 test("shouldAbortForStall: boundary — exactly at timeout fires", () => {
   expect(shouldAbortForStall({
-    status: "running",
+    ...base,
     awaitingResponse: true,
+    nowMs: 120_000,
     lastActivityAt: 0,
-    nowMs: 120000,
-    stallTimeoutMs: 120000,
   })).toBe(true);
 });
 

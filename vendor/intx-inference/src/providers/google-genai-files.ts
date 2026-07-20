@@ -169,9 +169,8 @@ export async function uploadGoogleGenAIFile(
   const init: RequestInit = {
     method: "POST",
     headers,
-    // Uint8Array is a valid fetch body; the DOM BodyInit union is tighter
-    // under some TS lib versions than the runtime accepts.
-    body: opts.bytes as BodyInit,
+    // DOM lib BodyInit is narrower than Node's Uint8Array typing; fetch accepts bytes.
+    body: opts.bytes as unknown as BodyInit,
   };
   // `RequestInit.signal` is typed as `AbortSignal | null` under
   // `exactOptionalPropertyTypes`; only attach the property when

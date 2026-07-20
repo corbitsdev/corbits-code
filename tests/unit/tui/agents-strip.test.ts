@@ -3,9 +3,13 @@ import { describe, expect, test } from "bun:test";
 import {
   activeStripSessions,
   agentsStripRowCount,
+  computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
   formatSessionLabel,
+  mergeInFlightSubAgents,
+  shouldShowAgentsStrip,
 } from "../../../src/tui/components/agents-strip.js";
+import type { Task } from "../../../src/agent/tasks.js";
 import type {
   SubAgentSession,
   SubAgentSessionStatus,
@@ -27,6 +31,15 @@ describe("agentsStripRowCount", () => {
     expect(agentsStripRowCount(20, DEFAULT_STRIP_MAX_VISIBLE)).toBe(
       1 + DEFAULT_STRIP_MAX_VISIBLE + 1,
     );
+  });
+});
+
+describe("computeAgentsStripWindow", () => {
+  test("centers the selection when browsing a long list", () => {
+    const w = computeAgentsStripWindow(30, 20, DEFAULT_STRIP_MAX_VISIBLE);
+    expect(w.start).toBeLessThanOrEqual(20);
+    expect(w.end - w.start).toBe(DEFAULT_STRIP_MAX_VISIBLE);
+    expect(w.hiddenBelow).toBe(30 - w.end);
   });
 });
 
@@ -62,6 +75,99 @@ describe("activeStripSessions", () => {
         session("c", "cancelled"),
       ]),
     ).toEqual([]);
+  });
+
+  test("reports N running sessions in the chrome strip while all are active", () => {
+    const n = 5;
+    const running = activeStripSessions(
+      Array.from({ length: n }, (_, i) => session(`worker-${i}`, "running")),
+    );
+    expect(running).toHaveLength(n);
+    expect(running.map((s) => s.id)).toEqual(
+      Array.from({ length: n }, (_, i) => `worker-${i}`),
+    );
+  });
+});
+
+describe("mergeInFlightSubAgents", () => {
+  const session = (id: string, status: SubAgentSessionStatus): SubAgentSession => ({
+    id,
+    description: id,
+    agentId: "agent",
+    brief: "",
+    status,
+    toolNames: [],
+    currentToolName: null,
+    entries: [],
+    startedAt: 0,
+  });
+
+  test("surfaces N parallel sub-agents from parent stream when the store is empty", () => {
+    const tasks: Task[] = Array.from({ length: 3 }, (_, i) => ({
+      id: `call-${i}`,
+      title: `worker: job ${i}`,
+      status: "doing",
+    }));
+    const chrome = activeStripSessions(mergeInFlightSubAgents([], tasks));
+    expect(chrome).toHaveLength(3);
+    expect(chrome.map((s) => s.id)).toEqual(["call-0", "call-1", "call-2"]);
+  });
+
+  test("keeps the session-store row when the same id is already running", () => {
+    const store = [{ ...session("call-1", "running"), description: "from store" }];
+    const tasks: Task[] = [{ id: "call-1", title: "worker: from task", status: "doing" }];
+    const merged = mergeInFlightSubAgents(store, tasks);
+    expect(merged.find((s) => s.id === "call-1")?.description).toBe("from store");
+  });
+
+  test("does not resurrect a terminal store session when parent task still shows doing", () => {
+    const store = [session("call-1", "done")];
+    const tasks: Task[] = [{ id: "call-1", title: "worker: lagging", status: "doing" }];
+    const chrome = activeStripSessions(mergeInFlightSubAgents(store, tasks));
+    expect(chrome).toHaveLength(0);
+  });
+
+  test("parses tool suffix from live progress titles", () => {
+    const tasks: Task[] = [
+      { id: "c1", title: "researcher: scan repo · grep", status: "doing" },
+    ];
+    const chrome = activeStripSessions(mergeInFlightSubAgents([], tasks));
+    expect(chrome[0]?.currentToolName).toBe("grep");
+    expect(chrome[0]?.agentId).toBe("researcher");
+  });
+});
+
+describe("shouldShowAgentsStrip", () => {
+  const running = (id: string): SubAgentSession => ({
+    id,
+    description: id,
+    agentId: "agent",
+    brief: "",
+    status: "running",
+    toolNames: [],
+    currentToolName: null,
+    entries: [],
+    startedAt: 0,
+  });
+
+  test("shows chrome when at least one running worker is visible", () => {
+    expect(
+      shouldShowAgentsStrip({
+        chromeSessions: [running("a")],
+        browseSessions: [],
+        agentsNavOpen: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("hides chrome when idle and agents-nav is closed", () => {
+    expect(
+      shouldShowAgentsStrip({
+        chromeSessions: [],
+        browseSessions: [],
+        agentsNavOpen: false,
+      }),
+    ).toBe(false);
   });
 });
 

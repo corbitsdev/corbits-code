@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
+import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
 import {
   createTaskTool,
+  createSubAgentSessionStore,
+  createSubAgentSpawnRegistryPlugin,
   DEFAULT_SUBAGENT_MAX_TURNS,
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
+  disposeSubAgentSession,
   evaluateSubAgentStop,
   fingerprintToolCalls,
   forcedStopReport,
   nextToolCallStreak,
   parseSubAgentReport,
+  SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
   type RunSubAgentParams,
@@ -41,6 +46,76 @@ async function callTask(
   );
   return typeof result.content === "string" ? result.content : JSON.stringify(result.content);
 }
+
+describe("sub-agent teardown", () => {
+  test("disposeSubAgentSession closes agent, awaits stream, and disposes posix tools once", async () => {
+    let closeCount = 0;
+    let disposeCount = 0;
+    let streamResolved = false;
+    const agent = {
+      close: async () => {
+        closeCount += 1;
+      },
+    };
+    const streamPromise = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        streamResolved = true;
+        resolve();
+      }, 5);
+    });
+    const posixTools = {
+      dispose: async () => {
+        disposeCount += 1;
+      },
+    };
+    const controller = new AbortController();
+    const closeOnAbort = (): void => controller.abort();
+    controller.signal.addEventListener("abort", closeOnAbort);
+
+    await disposeSubAgentSession({
+      signal: controller.signal,
+      closeOnAbort,
+      agent,
+      streamPromise,
+      posixTools,
+    });
+
+    expect(closeCount).toBe(1);
+    expect(disposeCount).toBe(1);
+    expect(streamResolved).toBe(true);
+    await disposeSubAgentSession({ agent, posixTools });
+    expect(disposeCount).toBe(2);
+  });
+
+  test("spawn registry tracks in-flight plugin tool calls", async () => {
+    const { plugin, snapshot } = createSubAgentSpawnRegistryPlugin();
+    expect(plugin.middleware).toBeDefined();
+    const middleware = plugin.middleware!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const handler = middleware(async (call) => {
+      expect(snapshot().inFlightToolCalls).toBe(1);
+      expect(snapshot().inFlightByTool.run_shell).toBe(1);
+      await gate;
+      return { callId: call.id, content: "ok" };
+    });
+    const run = handler(
+      { id: "c1", name: "run_shell", arguments: { command: "true" } },
+      new AbortController().signal,
+    );
+    expect(snapshot().inFlightToolCalls).toBe(1);
+    release();
+    await run;
+    expect(snapshot().inFlightToolCalls).toBe(0);
+  });
+
+  test("teardown limits document missing global spawn registry", () => {
+    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("posixTools.dispose");
+    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("spawn hooks");
+  });
+});
 
 describe("sub-agent stop helpers", () => {
   test("default turn budget is tight enough to bound runaway cost", () => {
@@ -373,5 +448,42 @@ describe("createTaskTool", () => {
     expect(captured?.signal?.aborted).toBe(true);
     // Abort during run is reported as cancel, not a completed report.
     expect(out).toContain("cancelled by operator");
+  });
+
+  test("inference auth failure marks tool error and fails the sub-agent session", async () => {
+    const sessions = createSubAgentSessionStore();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      sessions,
+      run: async () => {
+        throw new CodexAuthError("work", "refresh-failed", "401 Unauthorized");
+      },
+    });
+    if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+    const result = await tool.handler(
+      {
+        id: "auth-call",
+        name: "task",
+        arguments: { description: "auth probe", prompt: "x" },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    const toolText = String(result.content);
+    expect(toolText).toContain("Re-authenticate");
+    // Exactly one Error: prefix on the tool result (formatter is bare).
+    expect(toolText.startsWith("Error: ")).toBe(true);
+    expect(toolText.includes("Error: Error:")).toBe(false);
+    const row = sessions.list().find((s) => s.description === "auth probe");
+    expect(row?.status).toBe("failed");
+    // session.error is bare; report entry is prefixed once by SessionStore.fail.
+    expect(row?.error?.startsWith("Error:")).toBe(false);
+    expect(row?.error).toContain("Re-authenticate");
+    const report = row?.entries.find((e) => e.kind === "report");
+    expect(report?.content.startsWith("Error: ")).toBe(true);
+    expect(report?.content.includes("Error: Error:")).toBe(false);
   });
 });

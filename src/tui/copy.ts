@@ -19,7 +19,9 @@ function oneLine(text: string, max = 56): string {
 function diffText(block: Extract<ContentBlock, { type: "tool_call" }>): string | null {
   const edit = editDiffFromArgs(block.name, block.arguments);
   if (edit === null) return null;
-  return renderDiff(edit.oldText, edit.newText, 120)
+  // edit_file positions are snippet-relative with no known file offset, so
+  // its copies omit the line-number gutter; write_file numbers from 1.
+  return renderDiff(edit.oldText, edit.newText, 120, block.name === "write_file" ? {} : { lineNumbers: false })
     .map((line) => line.map((seg) => seg.text).join(""))
     .join("\n");
 }

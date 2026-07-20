@@ -2,12 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createBlobReader } from "@intx/types/runtime";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import {
   READ_FILE_DEFAULT_MAX_LINES,
   READ_FILE_MAX_BYTES,
   READ_FILE_MAX_LINE_LENGTH,
   READ_FILE_MAX_SCAN_BYTES,
+  READ_FILE_MAX_TOOL_OUTPUT_BYTES,
+  readBytesBounded,
   readFileBounded,
   readFileGuardPlugin,
 } from "./read-file-guard-plugin.js";
@@ -120,6 +123,39 @@ describe("readFileBounded", () => {
     expect(content).toContain("scan limit");
   });
 
+  test("abort rejects with read_file timeout guidance", async () => {
+    const p = await fixture("abort.txt", "line one\nline two\n");
+    const controller = new AbortController();
+    controller.abort();
+    let message = "";
+    try {
+      await readFileBounded(p, 0, 2000, controller.signal);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain("[timed out before completing]");
+    expect(message).toContain("not an empty file");
+  });
+
+  test("offset and limit slice in-memory tool-output bytes without loading all lines", async () => {
+    const lines = Array.from({ length: 20_000 }, (_, i) => `line-${i}`).join("\n");
+    const bytes = new TextEncoder().encode(lines);
+    const { content, isError } = await readBytesBounded(
+      bytes,
+      2,
+      3,
+      neverAbort(),
+      "tool-output:///slice-test",
+    );
+    expect(isError).toBeUndefined();
+    expect(content).toContain("line-2");
+    expect(content).toContain("line-3");
+    expect(content).toContain("line-4");
+    expect(content).not.toContain("line-0");
+    expect(content).not.toContain("line-5");
+    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(READ_FILE_MAX_BYTES);
+  });
+
   test("offset past the scan ceiling reports the scan limit, not a fake EOF", async () => {
     // Many short lines totaling more than the scan ceiling; a huge offset can
     // never be reached within one scan pass.
@@ -139,8 +175,9 @@ describe("readFileGuardPlugin", () => {
     content: "FALLBACK",
   });
 
-  function run(call: ToolCall): Promise<ToolResult> {
-    return readFileGuardPlugin(dir).middleware!(fallback)(call, neverAbort());
+  function run(call: ToolCall, blobReader?: ReturnType<typeof createBlobReader>): Promise<ToolResult> {
+    const plugin = readFileGuardPlugin(dir, blobReader !== undefined ? { blobReader } : {});
+    return plugin.middleware!(fallback)(call, neverAbort());
   }
 
   test("intercepts read_file for real paths", async () => {
@@ -163,13 +200,60 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toContain("Use offset=");
   });
 
-  test("passes tool-output URIs through to the stock handler", async () => {
+  test("rejects tool-output URIs when no blob reader is configured", async () => {
     const result = await run({
       id: "r2",
       name: "read_file",
       arguments: { path: "tool-output:///call-123" },
     });
-    expect(result.content).toBe("FALLBACK");
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("no blob reader is configured");
+  });
+
+  test("bounds tool-output blobs with offset and limit when a blob reader is configured", async () => {
+    const encoder = new TextEncoder();
+    const body = Array.from({ length: 8_000 }, (_, i) => `row-${i}`).join("\n");
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "big") return encoder.encode(body);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const result = await run(
+      {
+        id: "r2b",
+        name: "read_file",
+        arguments: { path: "tool-output:///big", offset: 10, limit: 2 },
+      },
+      blobReader,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("row-10");
+    expect(result.content).toContain("row-11");
+    expect(result.content).not.toContain("row-9");
+    expect(result.content).not.toContain("row-12");
+    expect(result.content).not.toBe("FALLBACK");
+  });
+
+  test("pages tool-output blobs above the display ceiling instead of rejecting the spill", async () => {
+    const encoder = new TextEncoder();
+    const huge = encoder.encode("x".repeat(READ_FILE_MAX_TOOL_OUTPUT_BYTES + 1));
+    const blobReader = createBlobReader({
+      async readBlob() {
+        return huge;
+      },
+    });
+    const result = await run(
+      {
+        id: "r2c",
+        name: "read_file",
+        arguments: { path: "tool-output:///huge", limit: 5 },
+      },
+      blobReader,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("x");
+    expect(result.content).not.toBe("FALLBACK");
   });
 
   test("delegates missing files to the stock handler", async () => {

@@ -9,6 +9,8 @@ import {
   presentDefinition,
 } from "../agent/director.js";
 import { manageTasksDefinition } from "./tasks.js";
+import { createManageGoalTool } from "./manage-goal.js";
+import type { GoalGovernor } from "./goal.js";
 import { validateView } from "../tui/view/index.js";
 import {
   advertiseShellGuardTimeout,
@@ -18,10 +20,13 @@ import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
+import { createLazyBlobReader } from "./lazy-blob-reader.js";
+import type { BlobReader } from "@intx/types/runtime";
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
+import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 import { advertisedToolNamesForSessionMode } from "./tool-search.js";
@@ -73,12 +78,20 @@ export type AgentToolsetArgs = {
   // Shell command timeout defaults/cap, resolved from settings. When omitted the
   // shell-guard plugin applies its built-in defaults.
   shellTimeout?: ShellTimeoutConfig;
+  // Outer per-invocation tool run budget (dynamic runner). When omitted built-in
+  // defaults apply.
+  toolWatchdog?: ToolWatchdogConfig;
+  // Session blob store for tool-output:// reads; resolved when tools run so agent
+  // rebuilds do not require recreating the posix toolset.
+  getBlobReader?: () => BlobReader | undefined;
   // Whether a workflow is currently running. advance_workflow rides the wire
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
   // Primary session mode: single-agent sessions omit sub-agent tooling.
   sessionMode?: SessionMode;
+  // When a goal governor is live, manage_goal mutates its acceptance checklist.
+  getGoalGovernor?: () => GoalGovernor | null;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -135,8 +148,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     extraToolPlugins = [],
     skillDirs = [],
     shellTimeout,
+    toolWatchdog,
+    getBlobReader,
     sessionMode = "orchestrator",
   } = args;
+  const sessionBlobReader =
+    getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
   const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode);
 
@@ -144,12 +161,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   const posixTools = createPosixTools({
     cwd,
+    ...(sessionBlobReader !== undefined ? { blobReader: sessionBlobReader } : {}),
     plugins: buildCorePosixToolPlugins({
       cwd,
       permissionGate,
       ...(webProvider !== undefined ? { webProvider } : {}),
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       extraToolPlugins,
+      ...(sessionBlobReader !== undefined
+        ? { readFileGuard: { blobReader: sessionBlobReader } }
+        : {}),
     }),
   });
 
@@ -182,6 +203,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             ...(args.subAgent.settings !== undefined ? { settings: args.subAgent.settings } : {}),
             ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
             ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
+            ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
           }),
           ...(args.subAgent.profiles !== undefined
             ? [
@@ -203,6 +225,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         return "Tasks updated.";
       },
     }),
+    ...(args.getGoalGovernor !== undefined
+      ? [createManageGoalTool(args.getGoalGovernor)]
+      : []),
     stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
@@ -276,7 +301,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  const dynamicRunner = createDynamicToolRunner(baseTools);
+  const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
   runnerRef = dynamicRunner;
   const connectedClients: MCPClient[] = [];
 

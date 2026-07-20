@@ -68,13 +68,11 @@ export function editFileLineRangePlugin(): ToolPlugin {
       }
 
       try {
-        const content = await runEditFileLineRange(
-          parsed,
-          signal,
+        const lineRangeOpts =
           parseOptions?.fileContent !== undefined
             ? { fileContentUtf8: parseOptions.fileContent }
-            : undefined,
-        );
+            : {};
+        const content = await runEditFileLineRange(parsed, signal, lineRangeOpts);
         return { callId: call.id, content };
       } catch (err) {
         return {

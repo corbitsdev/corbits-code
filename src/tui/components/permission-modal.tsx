@@ -9,9 +9,15 @@ export type PermissionModalProps = {
   request: PermissionRequest;
   /** Permission gates still queued, including this modal. */
   permissionQueueDepth?: number;
+  /**
+   * When set (goal mode), show that the request auto-skips after this many ms
+   * if the operator does not answer.
+   */
+  goalTimeoutMs?: number | null;
   onResolve: (outcome: ApprovalOutcome) => void;
   width?: number;
 };
+
 
 // `command` choices show their hint in [] with dim styling (shell patterns/paths).
 // `note` choices show their hint in () with muted styling.
@@ -118,6 +124,7 @@ function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
 export function PermissionModal({
   request,
   permissionQueueDepth = 1,
+  goalTimeoutMs = null,
   onResolve,
   width = 80,
 }: PermissionModalProps): ReactNode {
@@ -134,6 +141,11 @@ export function PermissionModal({
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
+  const goalTimeoutSecs =
+    goalTimeoutMs !== null && goalTimeoutMs !== undefined && goalTimeoutMs > 0
+      ? Math.max(1, Math.round(goalTimeoutMs / 1000))
+      : null;
+
 
   useInput((input, key) => {
     if (key.escape) {
@@ -199,7 +211,13 @@ export function PermissionModal({
       width={Math.max(24, width - 2)}
     >
       <Text bold color={toolColor}>Approval needed</Text>
+      {goalTimeoutSecs !== null && (
+        <Text color={color("muted")}>
+          {`Goal mode · auto-skip in ~${goalTimeoutSecs}s if no response`}
+        </Text>
+      )}
       <Box marginTop={1} flexDirection="column" gap={0}>
+
         <Text color={color("muted")}>
           {request.action}
           {descriptor.isShell ? null : (

@@ -2,10 +2,13 @@ import { resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
-import { splitChainedCommand, deriveCommandScopes, tokenize } from "./command.js";
+import { splitChainedCommand, deriveCommandScopes, tokenize, isShellCommentOnly } from "./command.js";
 import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
-import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  commandReferencesSensitivePath,
+  isSensitivePath,
+} from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
@@ -108,8 +111,10 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // A safe read command auto-runs only when every path-like argument stays inside
 // the workspace. Containment — not a secret-name denylist — is the real
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
-// `strings /proc/self/environ` from auto-reading any file on the host. The
-// secret guard remains a hard-deny backstop for secrets that live inside cwd.
+// `strings /proc/self/environ` from auto-reading any file on the host. Sensitive
+// path names (`.env`, keys) additionally never auto-allow; the permission gate
+// asks so the operator can approve legitimate shell uses (e.g. `--env-file`).
+// Path-keyed secret reads remain a hard deny in secret-guard.
 function realpathOr(path: string): string {
   try {
     return realpathSync(path);
@@ -146,7 +151,10 @@ function argEscapesWorkspace(token: string, realCwd: string): boolean {
 // judged in isolation — authz applies to the full command string, not each stage.
 export function isAutoAllowedShellSegment(segment: string, cwd: string = process.cwd()): boolean {
   const trimmed = segment.trim();
+  // Empty is not auto-allowed as a "command"; full-line comments are no-ops
+  // (markdown headings pasted into multi-line agent shells) and never need approval.
   if (trimmed.length === 0) return false;
+  if (isShellCommentOnly(trimmed)) return true;
   if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
   const realCwd = realpathOr(cwd);
   return isAutoAllowedSegment(segment, realCwd);
@@ -155,6 +163,8 @@ export function isAutoAllowedShellSegment(segment: string, cwd: string = process
 function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
+  if (isShellCommentOnly(trimmed)) return true;
+  if (commandReferencesSensitivePath(trimmed)) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
   // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
   // token, defeating the anchored flag checks below.
@@ -176,6 +186,11 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
 export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
+  // Single-line full comments are no-ops. Multi-line strings that merely *start*
+  // with `#` can still contain real commands on later lines, so those go through
+  // the normal segment path (buildRequests filters comment-only segments).
+  if (!trimmed.includes("\n") && isShellCommentOnly(trimmed)) return true;
+  if (commandReferencesSensitivePath(trimmed)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).
@@ -219,13 +234,17 @@ function stringArg(call: ToolCall, key: string): string {
 export function buildRequests(call: ToolCall): PermissionRequest[] {
   if (call.name === "run_shell") {
     const command = stringArg(call, "command");
-    return splitChainedCommand(command).map((segment) => ({
-      tool: "run_shell",
-      action: "Run shell command",
-      subject: segment,
-      arguments: { command: segment },
-      scopes: deriveCommandScopes(segment),
-    }));
+    // Full-line comments (markdown headings, shell comments) are no-ops — never
+    // surface them as approval subjects or derive allow patterns from them.
+    return splitChainedCommand(command)
+      .filter((segment) => !isShellCommentOnly(segment))
+      .map((segment) => ({
+        tool: "run_shell",
+        action: "Run shell command",
+        subject: segment,
+        arguments: { command: segment },
+        scopes: deriveCommandScopes(segment),
+      }));
   }
   if (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file") {
     const path = stringArg(call, "path");

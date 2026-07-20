@@ -25,6 +25,9 @@ import {
 } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
+import { useGitBranch } from "./git-branch.js";
+import { buildCostSummary, formatCostCommandOutput, formatStatusBarSegments } from "../cost/cost-summary.js";
+import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
 import {
@@ -37,7 +40,12 @@ import {
 } from "./sent-message-history.js";
 import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import { TaskView } from "./components/task-view.js";
+import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
+import {
+  goalShowsAcceptancePanel,
+  goalShowsWorkPrimary,
+} from "../agent/goal.js";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
   INFERENCE_ABORT_USER_STOP,
@@ -47,7 +55,10 @@ import {
   activeStripSessions,
   AgentsStrip,
   agentsStripRowCount,
+  computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
+  mergeInFlightSubAgents,
+  shouldShowAgentsStrip,
 } from "./components/agents-strip.js";
 import {
   SubAgentSessionView,
@@ -116,6 +127,7 @@ import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
+import { goalKickoffUserMessage } from "../agent/goal.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import {
   extractPastedImagePaths,
@@ -257,14 +269,35 @@ export type ShouldAbortForStallArgs = {
   lastActivityAt: number;
   nowMs: number;
   stallTimeoutMs: number;
+  isProcessing: boolean;
+  streamingType: "text" | "thinking" | "tool" | null;
 };
 
 // Pure decision helper: returns true when the run is genuinely stuck and should
 // be aborted. Extracted so the timeout logic is unit-testable without a React harness.
-export function shouldAbortForStall({ status, awaitingResponse, lastActivityAt, nowMs, stallTimeoutMs }: ShouldAbortForStallArgs): boolean {
+export function shouldAbortForStall({
+  status,
+  awaitingResponse,
+  lastActivityAt,
+  nowMs,
+  stallTimeoutMs,
+  isProcessing,
+  streamingType,
+}: ShouldAbortForStallArgs): boolean {
   if (status !== "running") return false;
-  if (!awaitingResponse) return false;
-  return nowMs - lastActivityAt >= stallTimeoutMs;
+  const stalled = nowMs - lastActivityAt >= stallTimeoutMs;
+  if (!stalled) return false;
+  if (awaitingResponse) return true;
+  // Mid-stream hang: model stream stalled after first token (CL-3487). Long
+  // in-flight tool runs do not emit parent stream events; do not abort those.
+  if (
+    isProcessing &&
+    streamingType !== null &&
+    streamingType !== "tool"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export type ApplyStallRecoveryDeps = {
@@ -324,6 +357,26 @@ function QuotaErrorBanner({ retryAt }: { retryAt: number }): ReactNode {
           : `Rate limit reached — auto-retry in ${formatCountdown(remaining)}`}
       </Text>
       <Text color="cyan">{"[/agent] Switch provider"}</Text>
+    </Box>
+  );
+}
+
+function GatewayRetryBanner({
+  attempt,
+  retryAt,
+}: {
+  attempt: number;
+  retryAt: number;
+}): ReactNode {
+  const remaining = retryAt - Date.now();
+  const expired = remaining <= 0;
+  return (
+    <Box flexDirection="column" paddingX={1} paddingY={0}>
+      <Text color="yellow">
+        {expired
+          ? `Inference gateway overloaded — retrying (attempt ${attempt})…`
+          : `Inference gateway overloaded — retrying (attempt ${attempt}) in ${formatCountdown(remaining)}`}
+      </Text>
     </Box>
   );
 }
@@ -394,6 +447,19 @@ export type AppProps = {
   sessionStartedAt?: number;
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
+  /** Goal mode operator surface (CL-3936/CL-3937). */
+  goalApi?: {
+    get: () => import("../agent/goal.js").GoalSnapshot | null;
+    set: (
+      condition: string,
+      opts?: import("../agent/goal.js").GoalSetOpts,
+    ) => import("../agent/goal.js").GoalSnapshot;
+    pause: () => import("../agent/goal.js").GoalSnapshot | null;
+    resume: (
+      opts?: import("../agent/goal.js").GoalResumeOpts,
+    ) => import("../agent/goal.js").GoalSnapshot | null;
+    clear: () => void;
+  };
 };
 
 export function App({
@@ -444,6 +510,7 @@ export function App({
   mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
+  goalApi,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -544,10 +611,14 @@ export function App({
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
   const [workflowHistory, setWorkflowHistory] = useState<WorkflowStatus[]>([]);
+  const [goalSnapshot, setGoalSnapshot] = useState<import("../agent/goal.js").GoalSnapshot | null>(
+    () => goalApi?.get() ?? null,
+  );
   // Messages queued while the agent is processing. Drained one-at-a-time when
   // isProcessing goes false (connector.reply fires). Lives in React state so
   // the drain path goes through sendMessage(), which correctly sets isProcessing.
   const pendingQueueRef = useRef<OutboundUserMessage[]>([]);
+  const tryDrainQueuedMessageRef = useRef<() => void>(() => {});
   const [queuedCount, setQueuedCount] = useState(0);
   const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([]);
 
@@ -751,9 +822,18 @@ export function App({
   }, [eventEmitter]);
 
   useEffect(() => {
+    const onGoal = (snap: import("../agent/goal.js").GoalSnapshot | null) => {
+      setGoalSnapshot(snap);
+    };
+    eventEmitter.on("goal", onGoal);
+    return () => { eventEmitter.off("goal", onGoal); };
+  }, [eventEmitter]);
+
+  useEffect(() => {
     if (subAgentSessions === undefined) return;
     return subAgentSessions.subscribe(() => {
       setSessionsTick((n) => n + 1);
+      tryDrainQueuedMessageRef.current();
     });
   }, [subAgentSessions]);
 
@@ -762,8 +842,12 @@ export function App({
   // for later inspection but no longer occupy the strip.
   const agentSessions = useMemo(() => {
     void sessionsTick;
-    return activeStripSessions(subAgentSessions?.listForStrip() ?? []);
-  }, [subAgentSessions, sessionsTick]);
+    const merged = mergeInFlightSubAgents(
+      subAgentSessions?.listForStrip() ?? [],
+      state.subAgents,
+    );
+    return activeStripSessions(merged);
+  }, [subAgentSessions, sessionsTick, state.subAgents]);
 
   // Ctrl+E browses the full strip surface (running + recent completed). The
   // chrome strip filters to running only; nav must still reach finished sessions
@@ -787,12 +871,38 @@ export function App({
     return subAgentSessions.get(enteredSessionId);
   }, [enteredSessionId, subAgentSessions, sessionsTick]);
 
+  // Goal chrome follows lifecycle phase:
+  // planning / reviewing / completed → Acceptance panel
+  // implementing → Work primary (Acceptance compact; header shows phase)
+  const goalActive =
+    goalSnapshot !== null &&
+    goalSnapshot.status !== "inactive" &&
+    goalSnapshot.status !== "cleared";
+  const goalPhase = goalActive ? goalSnapshot!.phase : null;
+  const showAcceptance = goalPhase !== null && goalShowsAcceptancePanel(goalPhase);
+  const workPrimary = goalPhase !== null && goalShowsWorkPrimary(goalPhase);
+  // Default-expand Work when entering implementing; Ctrl+T can still collapse.
+  const wasWorkPrimary = useRef(false);
+  useEffect(() => {
+    if (workPrimary && !wasWorkPrimary.current) {
+      setTasksExpanded(true);
+    }
+    wasWorkPrimary.current = workPrimary;
+  }, [workPrimary]);
+  const workExpanded = tasksExpanded;
+  const goalChromeRows = !goalActive
+    ? 0
+    : showAcceptance
+      ? (goalSnapshot!.criteria.length === 0
+          ? 2
+          : goalSnapshot!.criteria.length + 2) + 2
+      : 3; // compact phase strip during implementing
   // The task strip renders above the in-flight indicator: one line when compact,
-  // the full checklist (plus heading) when expanded. +1 is the marginTop wrapper.
+  // the full checklist plus its heading when expanded. +1 is the marginTop wrapper.
   const taskChromeRows =
     !hasActiveTasks(state.tasks)
       ? 0
-      : (tasksExpanded ? state.tasks.length + 1 : 1) + 1;
+      : (workExpanded ? state.tasks.length + 1 : 1) + 1;
 
   // The plugins overlay renders outside the modal-stack accounting (like the
   // permissions overlay), so reserve rows for its box: chrome + one row per
@@ -810,25 +920,47 @@ export function App({
     () => state.subAgents.filter((a) => a.status !== "done" && a.status !== "cancelled"),
     [state.subAgents],
   );
+  const activeSubAgentsRef = useRef(activeSubAgents);
+  activeSubAgentsRef.current = activeSubAgents;
+  const hasRunningSubAgentSessions = (): boolean =>
+    subAgentSessions?.list().some((session) => session.status === "running") ?? false;
+  const steerOnEnter =
+    state.isProcessing && activeSubAgents.length === 0 && !hasRunningSubAgentSessions();
   // The strip caps rendered rows so retained history never crowds out the
   // transcript; +1 accounts for the surrounding marginTop wrapper. When nav is
   // open the list may include completed sessions, so size against browseSessions.
-  const agentsStripRows =
-    agentsNavOpen && browseSessions.length > 0
-      ? agentsStripRowCount(browseSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
-      : agentSessions.length > 0
-        ? agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
-        : activeSubAgents.length > 0
-          ? activeSubAgents.length + 2
-          : 0;
+  const agentsStripVisible = shouldShowAgentsStrip({
+    chromeSessions: agentSessions,
+    browseSessions,
+    agentsNavOpen,
+  });
+  const agentsStripScrollWindow =
+    agentsNavOpen && browseSessions.length > DEFAULT_STRIP_MAX_VISIBLE
+      ? computeAgentsStripWindow(
+          browseSessions.length,
+          agentsNavIndexClamped,
+          DEFAULT_STRIP_MAX_VISIBLE,
+        )
+      : undefined;
+  const agentsStripRows = agentsStripVisible
+    ? agentsNavOpen && browseSessions.length > 0
+      ? agentsStripRowCount(
+          browseSessions.length,
+          DEFAULT_STRIP_MAX_VISIBLE,
+          agentsStripScrollWindow,
+        ) + 1
+      : agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
+    : 0;
   const subAgentChromeRows = agentsStripRows;
 
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
+    goalChromeRows +
     taskChromeRows +
     pluginChromeRows +
     (state.quotaError !== null ? 1 : 0) +
+    (state.inferenceRetry !== null ? 1 : 0) +
     subAgentChromeRows +
     extraPromptChromeRows(inputValue, columns ?? 80, rows ?? 24);
 
@@ -1168,6 +1300,17 @@ export function App({
   };
   const sendMessage = (message: OutboundUserMessage) => sendMessageRef.current(message);
 
+  tryDrainQueuedMessageRef.current = () => {
+    if (stateRef.current.status === "blocked") return;
+    if (stateRef.current.isProcessing) return;
+    if (activeSubAgentsRef.current.length > 0) return;
+    if (hasRunningSubAgentSessions()) return;
+    if (pendingQueueRef.current.length === 0) return;
+    const next = pendingQueueRef.current.shift()!;
+    setQueuedCount((c) => Math.max(0, c - 1));
+    sendMessageRef.current(next);
+  };
+
   const requestStop = () => {
     quotaAutoRetryFiredRef.current = true;
     sendAbortRef.current?.abort(INFERENCE_ABORT_USER_STOP);
@@ -1227,12 +1370,54 @@ export function App({
   };
   const startNewSession = () => startNewSessionRef.current();
 
+  const getCostSummary = () => {
+    const activeProvider = providerCatalog.find((p) => p.name === provider);
+    return buildCostSummary({
+      modelId: modelRef.current,
+      baseURL: activeProvider?.baseURL,
+      providerFree: activeProvider?.free,
+      pricingCache: getActivePricingCache(),
+      totalCost: state.totalCost,
+      formattedCost: state.formattedCost,
+      inputTokens: state.inputTokens,
+      outputTokens: state.outputTokens,
+      cacheReadTokens: state.cacheReadTokens,
+      contextTokens: state.contextTokens,
+    });
+  };
+  // commandContext below is memoized, so it would otherwise capture a stale
+  // getCostSummary closure (provider/state from an old render). Routing the
+  // call through a ref updated every render keeps the memoized context reading
+  // live values, matching the signalClear/startNewSessionRef pattern.
+  const getCostSummaryRef = useRef(getCostSummary);
+  getCostSummaryRef.current = getCostSummary;
+
   const commandContext = useMemo(() => ({
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
+    getCostSummary: () => getCostSummaryRef.current(),
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
-  }), [mcpStatus.servers, onStartWorkflow, onRenameSession]);
+    ...(goalApi !== undefined
+      ? {
+          goal: {
+            get: goalApi.get,
+            set: goalApi.set,
+            pause: goalApi.pause,
+            resume: goalApi.resume,
+            clear: goalApi.clear,
+            kickoff: (condition: string, phase: "set" | "resume" = "set") => {
+              // Start a turn immediately so the agent works without a second prompt.
+              // Set path forces clarify-first for vague goals; resume continues.
+              sendMessageRef.current({
+                text: goalKickoffUserMessage(condition, phase),
+                attachments: [],
+              });
+            },
+          },
+        }
+      : {}),
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
 
   useEffect(() => {
     if (!initialAuto) onToggleAuto?.(true);
@@ -1250,6 +1435,8 @@ export function App({
         lastActivityAt: stateRef.current.lastActivityAt,
         nowMs: Date.now(),
         stallTimeoutMs: STALL_TIMEOUT_MS,
+        isProcessing: stateRef.current.isProcessing,
+        streamingType: stateRef.current.streamingType,
       })) {
         applyStallRecovery({
           abortInFlight: (reason) => sendAbortRef.current?.abort(reason),
@@ -1286,20 +1473,11 @@ export function App({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.quotaError]);
 
-  // Drain one queued message when the agent finishes a response cycle.
-  // Uses a ref for sendMessage so the closure never goes stale. Guards on
-  // !isProcessing to avoid double-sending if connector.reply fires back-to-back.
+  // Drain one queued message when the orchestrator is idle and no sub-agents run.
   useEffect(() => {
     const onEvent = (event: { type: string }) => {
       if (event.type !== "connector.reply") return;
-      if (pendingQueueRef.current.length === 0) return;
-      // Do not drain while a gate is open — connector.reply should not fire
-      // mid-gate, but if it does, markRunning() would zero gateCount and
-      // corrupt the blocked state.
-      if (stateRef.current.status === "blocked") return;
-      const text = pendingQueueRef.current.shift()!;
-      setQueuedCount((c) => Math.max(0, c - 1));
-      sendMessageRef.current(text);
+      tryDrainQueuedMessageRef.current();
     };
     eventEmitter.on("event", onEvent);
     return () => { eventEmitter.off("event", onEvent); };
@@ -1386,7 +1564,9 @@ export function App({
       // can be stale by the time this resolves. A previous turn can finish and
       // drain the queue during the async window; reading the stale value would
       // then queue a message nothing will ever drain, leaving the UI stuck.
-      if (stateRef.current.isProcessing) {
+      const childWorkActive =
+        activeSubAgentsRef.current.length > 0 || hasRunningSubAgentSessions();
+      if (stateRef.current.isProcessing || childWorkActive) {
         pendingQueueRef.current.push(outbound);
         setQueuedCount((c) => c + 1);
         return;
@@ -1423,6 +1603,9 @@ export function App({
   // Whole-session timer for the status bar. Held in state so /new can zero it.
   const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
   const sessionElapsedMs = useSessionClock(sessionStartedAt);
+  // Persistent status bar segment (CL-3118): refreshes on an interval, never
+  // blocks render on the git process.
+  const gitBranch = useGitBranch(cwd);
   // Ambient verb shown beside the steer hint while the agent runs.
   const revolvingVerb = useRevolvingVerb(state.isProcessing, sendCounterRef.current);
 
@@ -1453,7 +1636,8 @@ export function App({
       isRunning:
         state.status === "running"
         || state.status === "blocked"
-        || state.quotaError !== null,
+        || state.quotaError !== null
+        || state.inferenceRetry !== null,
     },
     {
       clearInput: () => setInputValue(""),
@@ -1784,6 +1968,7 @@ export function App({
                 },
               }
             : {})}
+          {...(goalSnapshot !== null ? { goal: goalSnapshot } : goalApi !== undefined ? { goal: goalApi.get() } : {})}
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
@@ -1874,7 +2059,9 @@ export function App({
           onSelectOperator={gates.selectOperator}
           pendingPermission={gates.pendingPermission}
           permissionQueueDepth={gates.permissionQueueDepth}
+          permissionTimeoutMs={gates.permissionTimeoutMs}
           onResolvePermission={gates.resolvePermission}
+
           width={columns}
         />
       </Box>
@@ -1959,12 +2146,36 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
-          {hasActiveTasks(state.tasks) && (
-            <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={state.tasks} compact={!tasksExpanded} />
-            </Box>
-          )}
-          {agentSessions.length > 0 || (agentsNavOpen && browseSessions.length > 0) ? (
+          {(() => {
+            const workBlock = hasActiveTasks(state.tasks) ? (
+              <Box flexDirection="column" marginTop={1} key="work">
+                <TaskView
+                  tasks={state.tasks}
+                  compact={!workExpanded}
+                  title={goalActive ? "Work" : "Tasks"}
+                />
+              </Box>
+            ) : null;
+            const acceptBlock =
+              goalActive && goalSnapshot !== null ? (
+                <Box flexDirection="column" marginTop={1} key="accept">
+                  <GoalView goal={goalSnapshot} compact={!showAcceptance} />
+                </Box>
+              ) : null;
+            // implementing: Work on top; planning/reviewing/completed: Acceptance on top
+            return workPrimary ? (
+              <>
+                {workBlock}
+                {acceptBlock}
+              </>
+            ) : (
+              <>
+                {acceptBlock}
+                {workBlock}
+              </>
+            );
+          })()}
+          {agentsStripVisible ? (
             <Box flexDirection="column" marginTop={1}>
               <AgentsStrip
                 sessions={agentsNavOpen ? browseSessions : agentSessions}
@@ -1974,10 +2185,6 @@ export function App({
                 enteredId={enteredSessionId}
                 navActive={agentsNavOpen}
               />
-            </Box>
-          ) : activeSubAgents.length > 0 ? (
-            <Box flexDirection="column" marginTop={1}>
-              <TaskView tasks={activeSubAgents} title="Agents" />
             </Box>
           ) : null}
           <Box paddingX={1}><Text dimColor>{chromeDividerLine(Math.max(8, columns - 2))}</Text></Box>
@@ -1999,6 +2206,12 @@ export function App({
           />
           {state.quotaError !== null && (
             <QuotaErrorBanner retryAt={state.quotaError.retryAt} />
+          )}
+          {state.inferenceRetry !== null && (
+            <GatewayRetryBanner
+              attempt={state.inferenceRetry.attempt}
+              retryAt={state.inferenceRetry.retryAt}
+            />
           )}
           {copyModeOpen && (
             <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={color("brand")} paddingX={1}>
@@ -2034,6 +2247,7 @@ export function App({
               active={inputActive}
               queuedCount={queuedCount}
               isProcessing={state.isProcessing}
+              steerOnEnter={steerOnEnter}
               onInterrupt={handleInterrupt}
               onSentHistoryPrevious={() => {
                 const step = stepSentHistoryUp(sentHistoryBrowse, inputValue);
@@ -2068,6 +2282,11 @@ export function App({
           <StatusBar
             sessionElapsedMs={sessionElapsedMs}
             mcpCount={mcpStatus.connected.length}
+            model={model}
+            cwd={cwd}
+            gitBranch={gitBranch}
+            columns={columns}
+            {...formatStatusBarSegments(getCostSummary())}
           />
         </Box>
         </Box>

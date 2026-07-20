@@ -58,6 +58,16 @@ describe("loadDataOnlyCommands", () => {
     expect(res).toEqual({ type: "send", text: "Hello world!" });
   });
 
+  test("copies argument-hint from command frontmatter", async () => {
+    const dir = await makePlugin({
+      "commands/greet.md":
+        "---\ndescription: Greet someone\nargument-hint: <name>\n---\nHello $ARGUMENTS!",
+    });
+    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find((c) => c.name === "greet")!;
+    expect(cmd.argumentHint).toBe("<name>");
+  });
+
+
   test("falls back to the first body line when frontmatter omits a description", async () => {
     const dir = await makePlugin({ "commands/plain.md": "Summarize the working tree.\nMore detail." });
     const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands[0]!;

@@ -17,6 +17,7 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import { DefaultDirector } from "@intx/inference";
 import type {
   ReactorInboundEvent,
@@ -38,6 +39,8 @@ import {
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { createLazyBlobReader } from "../agent/lazy-blob-reader.js";
+import type { BlobReader } from "@intx/types/runtime";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 
@@ -49,6 +52,7 @@ import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { withSubAgentSlot } from "./concurrency.js";
+import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { Settings, ProviderTier } from "../config/settings.js";
@@ -365,6 +369,8 @@ export type SubAgentSandboxDeps = {
   webProvider?: WebProvider;
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
+  /** Parent session blob store for bounded tool-output:// reads in workers. */
+  getBlobReader?: () => BlobReader | undefined;
 };
 
 export type NestedDispatchDeps = SubAgentSandboxDeps & {
@@ -556,16 +562,32 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   });
 
   const permissionGate = params.permissionGate;
+  const spawnRegistry = createSubAgentSpawnRegistryPlugin();
+  const sessionBlobReader =
+    params.getBlobReader !== undefined ? createLazyBlobReader(params.getBlobReader) : undefined;
   const posixTools = createPosixTools({
     cwd: params.cwd,
+    ...(sessionBlobReader !== undefined ? { blobReader: sessionBlobReader } : {}),
     plugins: buildCorePosixToolPlugins({
       cwd: params.cwd,
       permissionGate,
       ...(params.webProvider !== undefined ? { webProvider: params.webProvider } : {}),
       ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
-      ...(params.extraToolPlugins !== undefined ? { extraToolPlugins: params.extraToolPlugins } : {}),
+      ...(sessionBlobReader !== undefined
+        ? { readFileGuard: { blobReader: sessionBlobReader } }
+        : {}),
+      extraToolPlugins: [
+        ...(params.extraToolPlugins ?? []),
+        spawnRegistry.plugin,
+      ],
     }),
   });
+
+  let agent: Awaited<ReturnType<typeof createAgent>> | null = null;
+  let streamPromise: Promise<void> | undefined;
+  let closeOnAbort: (() => void) | undefined;
+
+  try {
   const shellDefaultMs = params.shellTimeout?.defaultMs;
   let tools = fromToolRunner(posixTools).map((tool) => ({
     ...tool,
@@ -685,7 +707,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   const toolsFactory = defineTool({
     id: "intercode/subagent-tools",
-    factory: () => createToolRunner(tools),
+    factory: () => createDynamicToolRunner(tools),
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());
@@ -720,7 +742,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const inferenceDeps = await createInferenceDependencies();
   const subagentSource =
     bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
-  const agent = await createAgent(def, {
+  agent = await createAgent(def, {
     sources: bundle.sources,
     defaultSource: bundle.defaultSource,
     storage,
@@ -759,14 +781,23 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }
     params.onEvent?.(event);
   };
-  const streamPromise = consumeStream(agent.stream(), streamSink);
+  streamPromise = consumeStream(agent.stream(), streamSink);
 
   // Aborting the send signal only rejects the promise; the child reactor keeps
   // running until close() (same hard-stop rule as the parent in runner.tsx).
-  const closeOnAbort = (): void => {
-    void agent.close().catch(() => {
-      // close is idempotent; ignore races with the finally block.
-    });
+  closeOnAbort = (): void => {
+    void (async () => {
+      try {
+        await agent?.close();
+      } catch {
+        // close is idempotent; ignore races with disposeSubAgentSession.
+      }
+      try {
+        await posixTools.dispose();
+      } catch {
+        // ignore
+      }
+    })();
   };
   if (params.signal !== undefined) {
     if (params.signal.aborted) {
@@ -776,7 +807,6 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }
   }
 
-  try {
     const fullPrompt = buildDispatchBrief({
       description: params.description,
       prompt: params.prompt,
@@ -808,24 +838,13 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     const report = formatSubAgentReport(parseSubAgentReport(reply));
     return appendActivitySummary(report, toolNamesUsed);
   } finally {
-    if (params.signal !== undefined) {
-      params.signal.removeEventListener("abort", closeOnAbort);
-    }
-    try {
-      await agent.close();
-    } catch {
-      // ignore
-    }
-    try {
-      await streamPromise;
-    } catch {
-      // ignore
-    }
-    try {
-      await posixTools.dispose();
-    } catch {
-      // LSP shutdown can fail when several sub-agents exit together.
-    }
+    await disposeSubAgentSession({
+      ...(params.signal !== undefined ? { signal: params.signal } : {}),
+      ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
+      agent,
+      ...(streamPromise !== undefined ? { streamPromise } : {}),
+      posixTools,
+    });
   }
 }
 
@@ -844,6 +863,99 @@ export function isSubAgentCancelError(err: unknown, signal?: AbortSignal): boole
     return true;
   }
   return false;
+}
+
+/** Wall-clock wait for in-flight plugin tool calls to finish before posix dispose. */
+export const SUBAGENT_SPAWN_DRAIN_MS = 2_000;
+
+/**
+ * Honest limits for plugin-spawn teardown (for operator docs and output notes).
+ * Intercode can dispose posix tools and LSP sidecars per sub-agent session; OS
+ * children spawned inside shell-guard and ripgrep middleware are aborted via the
+ * tool AbortSignal on cancel/close but are not centrally registered without
+ * upstream spawn hooks on those plugins.
+ */
+export const SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS =
+  "Per sub-agent session Intercode runs agent.close(), drains in-flight tool middleware (best-effort), then posixTools.dispose() (LSP and plugin dispose callbacks). " +
+  "run_shell and ripgrep spawns honor AbortSignal process-group kill but are not tracked in a global registry until shell-guard/ripgrep expose spawn hooks.";
+
+export type SubAgentSpawnSnapshot = {
+  inFlightToolCalls: number;
+  inFlightByTool: Readonly<Record<string, number>>;
+};
+
+const PLUGIN_SPAWN_TRACKED_TOOLS = new Set(["run_shell", "grep", "search_files"]);
+
+export type SubAgentSpawnRegistry = {
+  plugin: ToolPlugin;
+  snapshot: () => SubAgentSpawnSnapshot;
+};
+
+/** Middleware plugin: visibility for plugin-layer tool calls that may spawn children. */
+export function createSubAgentSpawnRegistryPlugin(): SubAgentSpawnRegistry {
+  const inFlight = new Map<string, number>();
+  const bump = (name: string, delta: number): void => {
+    const next = (inFlight.get(name) ?? 0) + delta;
+    if (next <= 0) inFlight.delete(name);
+    else inFlight.set(name, next);
+  };
+  const snapshot = (): SubAgentSpawnSnapshot => {
+    let total = 0;
+    const byTool: Record<string, number> = {};
+    for (const [name, count] of inFlight) {
+      total += count;
+      byTool[name] = count;
+    }
+    return { inFlightToolCalls: total, inFlightByTool: byTool };
+  };
+  const plugin: ToolPlugin = {
+    middleware: (next) => async (call, signal) => {
+      const track = PLUGIN_SPAWN_TRACKED_TOOLS.has(call.name);
+      if (track) bump(call.name, 1);
+      try {
+        return await next(call, signal);
+      } finally {
+        if (track) bump(call.name, -1);
+      }
+    },
+    dispose: async () => {
+      const deadline = Date.now() + SUBAGENT_SPAWN_DRAIN_MS;
+      while (snapshot().inFlightToolCalls > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    },
+  };
+  return { plugin, snapshot };
+}
+
+export type SubAgentSessionDisposeInput = {
+  signal?: AbortSignal | undefined;
+  closeOnAbort?: (() => void) | undefined;
+  agent: { close(): Promise<void> } | null;
+  streamPromise?: Promise<void> | undefined;
+  posixTools: { dispose(): Promise<void> };
+};
+
+/** Idempotent teardown for one sub-agent loop (completion, error, or cancel). */
+export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput): Promise<void> {
+  if (input.signal !== undefined && input.closeOnAbort !== undefined) {
+    input.signal.removeEventListener("abort", input.closeOnAbort);
+  }
+  try {
+    await input.agent?.close();
+  } catch {
+    // ignore
+  }
+  try {
+    await input.streamPromise;
+  } catch {
+    // ignore
+  }
+  try {
+    await input.posixTools.dispose();
+  } catch {
+    // LSP shutdown can fail when several sub-agents exit together.
+  }
 }
 
 const TaskToolArgs = type({
@@ -1123,6 +1235,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         ...(deps.webProvider !== undefined ? { webProvider: deps.webProvider } : {}),
         ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
         ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
+        ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
       };
       const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
         ? {
@@ -1220,9 +1333,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           }
           return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
-        const message = err instanceof Error ? err.message : String(err);
-        if (session !== undefined) deps.sessions?.fail(session.id, message);
-        return taskToolResult(call.id, `Error: sub-agent "${description}" failed: ${message}`);
+        const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
+        const message =
+          authMessage !== null
+            ? `Error: ${authMessage}`
+            : `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
+        const sessionError = err instanceof Error ? err.message : String(err);
+        // fail() prefixes "Error:" on the transcript report entry — pass bare text.
+        const failReason = authMessage ?? sessionError;
+        if (session !== undefined) deps.sessions?.fail(session.id, failReason);
+        return taskToolResult(call.id, message);
       } finally {
         signal.removeEventListener("abort", onParentAbort);
       }

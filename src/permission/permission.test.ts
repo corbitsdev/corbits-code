@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
-import { splitChainedCommand, tokenize, deriveCommandScopes } from "./command.js";
+import { splitChainedCommand, tokenize, deriveCommandScopes, isShellCommentOnly } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
@@ -15,6 +15,22 @@ import type { Approval, PermissionRequest } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
 const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+
+describe("isShellCommentOnly", () => {
+  test("full-line comments and empty lines are comment-only", () => {
+    expect(isShellCommentOnly("# worktree")).toBe(true);
+    expect(isShellCommentOnly("  # note  ")).toBe(true);
+    expect(isShellCommentOnly("#")).toBe(true);
+    expect(isShellCommentOnly("")).toBe(true);
+    expect(isShellCommentOnly("   ")).toBe(true);
+  });
+
+  test("real commands are not comment-only, even with trailing comments", () => {
+    expect(isShellCommentOnly("npm test")).toBe(false);
+    expect(isShellCommentOnly("npm test # suite")).toBe(false);
+    expect(isShellCommentOnly("git worktree list")).toBe(false);
+  });
+});
 
 describe("splitChainedCommand", () => {
   test("splits on &&, ||, |, ; and newlines", () => {
@@ -192,6 +208,29 @@ describe("buildRequests", () => {
     expect(reqs.every((r) => r.tool === "run_shell")).toBe(true);
   });
 
+  test("full-line shell comments never become approval subjects", () => {
+    expect(buildRequests(shellCall("# worktree"))).toEqual([]);
+    expect(buildRequests(shellCall("  # heading  "))).toEqual([]);
+  });
+
+  test("multi-line pure comments produce no approval subjects", () => {
+    expect(buildRequests(shellCall("# a\n# b"))).toEqual([]);
+    expect(buildRequests(shellCall("# worktree\n\n# still a heading"))).toEqual([]);
+  });
+
+  test("markdown headings mixed with real commands only prompt the real command", () => {
+    const reqs = buildRequests(shellCall("# worktree\ngit worktree list"));
+    expect(reqs.map((r) => r.subject)).toEqual(["git worktree list"]);
+    expect(reqs.flatMap((r) => r.scopes.map((s) => s.pattern))).not.toContain("# *");
+    expect(reqs.flatMap((r) => r.scopes.map((s) => s.pattern))).not.toContain("# worktree");
+  });
+
+  test("trailing comments on a real command still produce one request", () => {
+    const reqs = buildRequests(shellCall("npm test # suite"));
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe("npm test # suite");
+  });
+
   test("write_file yields one path-keyed request with file scopes", () => {
     const reqs = buildRequests({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
     expect(reqs).toHaveLength(1);
@@ -250,6 +289,54 @@ describe("gate authorizes every subshell segment independently", () => {
     const verdict = await gate.evaluate(shellCall("(cd a && bunx tsc --noEmit) && curl x"));
     expect(verdict.allowed).toBe(true);
     expect(prompted).toEqual(["cd a", "bunx tsc --noEmit", "curl x"]);
+  });
+
+  test("comment-only shell commands never prompt", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("# worktree"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("multi-line pure comments never prompt", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("# a\n# b\n\n# c"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("multi-line comment plus real command only prompts the real command", async () => {
+    const prompted: string[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("# worktree\ngit worktree add ../wt -b feature"));
+    expect(verdict.allowed).toBe(true);
+    expect(prompted).toEqual(["git worktree add ../wt -b feature"]);
   });
 });
 
@@ -825,8 +912,10 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
-  // In auto mode everything is auto-approved. The authz and secret-guard plugins
-  // hard-deny dangerous and credential-reading commands before reaching this gate.
+  // In auto mode most consequential tools auto-approve. Authz hard-denies
+  // catastrophic commands upstream; secret-guard hard-denies path-keyed secret
+  // reads. Shell commands that only mention a secret path force an ask via the
+  // auto-shell policy rather than a hard deny.
   test("auto mode auto-approves file writes and shell but prompts for unknown tools", async () => {
     let asked = 0;
     const gate = createPermissionGate({
@@ -1045,6 +1134,11 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("cat a.ts"))).toBe(true);
   });
 
+  test("auto-allows full-line comments as no-ops", () => {
+    expect(isAutoAllowedShellCall(shellCall("# worktree"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("  # note"))).toBe(true);
+  });
+
   test("does not auto-allow find (blocked as open-ended search by authz policy)", () => {
     expect(isAutoAllowedShellCall(shellCall("find . -name x"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("find docs -type f -name a -o -name b"))).toBe(false);
@@ -1194,8 +1288,9 @@ describe("createPermissionGate restricted paths", () => {
   });
 
   // Auto-allowing gitignored reads at the gate does not widen what the model can
-  // see: the secret-guard plugin sits ahead of the gate in the tool call
-  // pipeline and hard-blocks sensitive files independent of any gate decision.
+  // see via path-keyed tools: the secret-guard plugin hard-blocks sensitive-file
+  // reads/writes independent of any gate decision. Shell commands that mention
+  // those paths are ask-gated instead (see classify-security tests).
   test(".env reads are still hard-blocked by the secret-guard plugin even though the gate auto-allows gitignored reads", async () => {
     const gate = restrictedGate(() => {
       throw new Error("the plugin should block before the gate is ever consulted for approval");

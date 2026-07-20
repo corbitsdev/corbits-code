@@ -6,7 +6,7 @@ import { elapsedMsFromAnchor } from "../hooks/use-spinner.js";
 import { createMemoizedParseMarkdown } from "../markdown-parser.js";
 import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
-import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
+import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult, toolGlyph } from "../tool-formatter.js";
 import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
@@ -76,14 +76,6 @@ function indentLines(lines: StyledLine[], spaces: number): StyledLine[] {
   if (spaces <= 0) return lines;
   const pad: StyledSegment = { text: " ".repeat(spaces) };
   return lines.map((line) => [pad, ...line]);
-}
-
-// Tints every segment in every line with the same backgroundColor, giving a
-// tool row a status-card wash. Applied after indentLines so the gutter is
-// tinted too, and the row-level pad added by RenderedLine/RunningToolRow
-// picks it up via uniformBackground below to reach the full row width.
-function applyBackground(lines: StyledLine[], backgroundColor: string): StyledLine[] {
-  return lines.map((line) => line.map((seg) => ({ ...seg, backgroundColor })));
 }
 
 // When every segment in a line shares one backgroundColor, the row's trailing
@@ -469,7 +461,7 @@ function toolCallLines(
   expanded: boolean,
   meta?: { pending?: boolean; durationSuffix?: string },
 ): StyledLine[] {
-  const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
+  const { display, role, summary, full, isShell, glyph } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
   // A pending row bakes no duration text; its live spinner and elapsed clock are
   // painted by the running-row component from the startedAt marker instead.
@@ -491,18 +483,20 @@ function toolCallLines(
 
   if (expanded) {
     const headline = wrapStyledLine([
-      { text: "● ", color: roleColor },
+      { text: `${glyph} `, color: roleColor },
       { text: `${display}${durationSuffix}`, color: roleColor },
     ], contentWidth);
     const edit = editDiffFromArgs(block.name, block.arguments);
     if (edit !== null) {
-      // write_file replaces a whole file, so collapse its unchanged context;
-      // edit_file hunks are already small and read best in full.
+      // write_file replaces a whole file, so collapse its unchanged context
+      // and number lines from 1. edit_file hunks diff old_string against
+      // new_string with no known file offset, so the number gutter stays off
+      // rather than showing snippet-relative numbers as if they were real.
       const diff = renderDiff(
         edit.oldText,
         edit.newText,
         width,
-        block.name === "write_file" ? { contextLines: 3 } : {},
+        block.name === "write_file" ? { contextLines: 3 } : { lineNumbers: false },
       );
       return [...headline, ...diff];
     }
@@ -515,7 +509,7 @@ function toolCallLines(
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
-      { text: "● ", color: roleColor, dim: role !== "danger" },
+      { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
       { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
@@ -526,7 +520,7 @@ function toolCallLines(
 function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
   return wrapStyledLine(
     [
-      { text: "● ", color: color("success"), dim: true },
+      { text: `${toolGlyph("edit_file")} `, color: color("success"), dim: true },
       { text: `Edited ${count} files`, color: color("muted"), dim: true },
     ],
     width,
@@ -538,7 +532,7 @@ function mergedToolLines(
   result: Extract<RenderableBlock, { type: "tool_result" }>,
   width: number,
 ): StyledLine[] {
-  const { role, isShell, summary } = describeToolCall(call.name, call.arguments);
+  const { role, isShell, summary, glyph } = describeToolCall(call.name, call.arguments);
   const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const roleColor = color(role);
 
@@ -559,7 +553,7 @@ function mergedToolLines(
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
-      { text: "● ", color: roleColor, dim: role !== "danger" },
+      { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
       { text: `${merged}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
     ],
     width,
@@ -724,16 +718,12 @@ function blockToLines(
         }),
         TOOL_INDENT,
       );
-      // Wash only the collapsed status-card row; an expanded body (diff, full
-      // args) is a document, not a card, so it keeps the surface background.
-      const bg = pending ? color("toolPendingBg") : result?.isError === true ? color("toolErrorBg") : color("toolSuccessBg");
-      const callLines = expanded ? indented : applyBackground(indented, bg);
+      const callLines = indented;
       return pending ? markRunningRow(callLines, started) : callLines;
     }
     case "tool_result": {
       const indented = indentLines(toolResultLines(block, columns, width - TOOL_INDENT, expanded), TOOL_INDENT);
-      if (expanded) return indented;
-      return applyBackground(indented, block.isError ? color("toolErrorBg") : color("toolSuccessBg"));
+      return indented;
     }
     case "view":
       return viewToLines(block.node, columns);
@@ -837,10 +827,9 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       && !isExpanded(block)
       && !isExpanded(next)
     ) {
-      const mergedBg = next.isError ? color("toolErrorBg") : color("toolSuccessBg");
-      const mergedLines = applyBackground(
-        indentLines(mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT), TOOL_INDENT),
-        mergedBg,
+      const mergedLines = indentLines(
+        mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT),
+        TOOL_INDENT,
       );
       lines.push(...mergedLines);
       if (i + 1 < blocks.length) blockLineStarts[i + 1] = lines.length;
@@ -1029,8 +1018,9 @@ export function buildLinesIncremental(
   // burst of token deltas. Reusing prev's filtered result on a reference match
   // skips re-walking every block on every token, which is what kept this
   // O(transcript length) per streamed token instead of O(1).
+  const key = layoutKey ?? "";
   const blocks =
-    prev !== undefined && prev.sourceBlocks === contentBlocks
+    prev !== undefined && prev.sourceBlocks === contentBlocks && prev.layoutKey === key
       ? prev.blocks
       : renderableBlocks(contentBlocks).filter((b) => thinkingExpanded || b.type !== "thinking");
   // Prune stale cache entries only when blocks were removed (cache has more
@@ -1039,8 +1029,6 @@ export function buildLinesIncremental(
   if (cache !== undefined && cache.size > blocks.length) {
     pruneBlockLineCache(cache, blocks);
   }
-
-  const key = layoutKey ?? "";
 
   let startBlockIndex = 0;
   let prefixLines: StyledLine[] = [];

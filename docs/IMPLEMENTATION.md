@@ -108,7 +108,7 @@ src/
     loader.ts                  Plugin discovery + loadPluginEntry
     path-escape-plugin.ts      Path sandboxing (first)
     tool-output-uri-plugin.ts  Normalize read_file tool-output URIs
-    secret-guard-plugin.ts     Hard-deny secret files
+    secret-guard-plugin.ts     Hard-deny path-keyed secret files
     authz-plugin.ts            Catastrophic command blocking (thin wrapper)
     permission-plugin.ts       Tiered operator approval
   shell/
@@ -193,7 +193,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Intercode prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.intercode/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Today only the interactive TUI (`runTUI`) resolves `sessionMode`; headless/CLI entry points still default to orchestrator-style tooling until wired.
 
-- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist, as is the global file, so the agent cannot read its own credentials.
+- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 
@@ -319,6 +319,32 @@ See `docs/PLUGINS.md` for the full design. Summary:
 - **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `web` → `resolveWebProviderFromPlugins` picks the active backend (`settings.web` id override, else the single enabled web plugin); web is plugin-only, so when none resolves (or a plugin fails to start) `web_search`/`web_fetch` are left unregistered rather than falling back to a built-in fetcher; `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.tsx` (via `tools.ts` helpers).
 - **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
 - Configure via `/plugins`, which writes `settings.plugins` (enabled / consented / credentials), `settings.web`, and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. When a web plugin is active its tool calls render under its brand (e.g. "Exa Search"). Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
+
+## Hardening wave — deferred and upstream-owned items
+
+Intercode v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `interchange/` submodule and `vendor/` trees are out of scope for that wave (`scripts/verify-intercode-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Intercode because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
+
+### Child-supervisor IPC awaiter deadlines
+
+| Field | Detail |
+|---|---|
+| **Status** | Not applicable in Intercode; deferred to upstream Interchange |
+| **Risk** | Cross-process tool handlers can hang indefinitely when a supervisor reply is lost or stalled (mail submit, substrate write, pack transfer ack paths). |
+| **Why Intercode-only scope cannot close it** | Intercode does not run the workflow-host child supervisor or pack-transport sender loops. There is no `src/` surface that registers pending IPC awaiters for `outbound.result`, `substrate.write.response`, or `repo.pack.ack`. Chat and sub-agent sessions use in-process `@intx/agent` reactors, not the child bridges under `interchange/packages/workflow-host` or `interchange/packages/pack-transport`. |
+| **Upstream owner** | Interchange `workflow-host` (outbound mail and substrate write bridges) and `pack-transport` (pack sender). Deadline behavior should align with existing gated correlation timeouts in the supervisor stack. |
+| **Operator note** | Intercode operators are not exposed to this stall vector unless a future product mode embeds workflow-host children; track closure in Interchange, not in this repo. |
+
+### Bounded audit collector retention between checkpoints
+
+| Field | Detail |
+|---|---|
+| **Status** | Not applicable on the default path; deferred until real audit persistence is enabled |
+| **Risk** | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs. |
+| **Why Intercode-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.tsx` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
+| **Upstream owner** | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata. |
+| **Future Intercode work** | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only. |
+
+Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; only the two rows above remain upstream or product-gated.
 
 ## Build and Validation
 

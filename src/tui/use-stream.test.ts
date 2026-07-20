@@ -13,6 +13,7 @@ import {
   settleSubAgentOnToolResult,
   type ContentBlockData,
 } from "./use-stream.js";
+import { resolveSessionSpinnerLabel } from "./session-chrome.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
@@ -511,6 +512,34 @@ describe("createAgentStreamState", () => {
     expect(state.isProcessing).toBe(false);
   });
 
+  test("inference.retry exposes gateway retry countdown state", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.retry", { attempt: 2, delayMs: 12_000, previousError: { category: "retryable", message: "503" } }));
+
+    expect(state.inferenceRetry).toMatchObject({ attempt: 2, delayMs: 12_000 });
+    expect(state.inferenceRetry?.retryAt).toBeGreaterThan(Date.now());
+
+    state.addEvent(event("inference.start", { model: "test" }));
+    expect(state.inferenceRetry).toBeNull();
+  });
+
+  test("HTML gateway protocol_mismatch does not render a terminal error block", () => {
+    const html503 = "<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>";
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.error", {
+      error: {
+        category: "protocol_mismatch",
+        message: "malformed JSON in SSE data payload",
+        raw: html503,
+      },
+    }));
+
+    expect(state.contentBlocks.some((b) => b.type === "error")).toBe(false);
+    expect(state.status).toBe("running");
+  });
+
   test("requestStop finalizes an in-flight tool_call so it stops rendering as running", () => {
     const state = createAgentStreamState();
     state.markRunning();
@@ -539,8 +568,9 @@ describe("createAgentStreamState", () => {
     state.addEvent(event("reactor.error", { fatal: true, error: "boom" }));
 
     expect(state.status).toBe("failed");
-    expect(state.contentBlocks.some((b) => b.type === "tool_result" && b.callId === "call-err")).toBe(true);
     expect(state.isProcessing).toBe(false);
+    expect(state.streamingType).toBeNull();
+    expect(state.contentBlocks.some((b) => b.type === "tool_result" && b.callId === "call-err")).toBe(true);
   });
 
   test("reactor.done clears isProcessing even without connector.reply", () => {
@@ -576,6 +606,68 @@ describe("createAgentStreamState", () => {
     // Transient: status stays running-ish (not failed) and processing remains.
     expect(state.status).not.toBe("failed");
     expect(state.isProcessing).toBe(true);
+  });
+
+  test("terminal inference.error after thinking clears processing chrome", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.thinking.delta", { token: "hmm" }));
+
+    expect(resolveSessionSpinnerLabel({
+      isProcessing: state.isProcessing,
+      status: state.status,
+      awaitingResponse: state.awaitingResponse,
+      currentToolName: state.currentToolName,
+      streamingType: state.streamingType,
+    })).toBe("Thinking…");
+
+    state.addEvent(event("inference.error", {
+      error: { category: "protocol_mismatch", message: "bad payload" },
+    }));
+
+    expect(state.status).toBe("failed");
+    expect(state.isProcessing).toBe(false);
+    expect(state.streamingType).toBeNull();
+    expect(resolveSessionSpinnerLabel({
+      isProcessing: state.isProcessing,
+      status: state.status,
+      awaitingResponse: state.awaitingResponse,
+      currentToolName: state.currentToolName,
+      streamingType: state.streamingType,
+    })).toBeUndefined();
+  });
+
+  test("reactor.done without connector.reply clears processing chrome", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.thinking.delta", { token: "plan" }));
+    state.addEvent(event("reactor.done", {}));
+
+    expect(state.status).toBe("done");
+    expect(state.isProcessing).toBe(false);
+    expect(state.streamingType).toBeNull();
+  });
+
+  test("connector.reply still clears processing after streaming", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.text.delta", { token: "hi" }));
+    state.addEvent(event("connector.reply", { content: "" }));
+
+    expect(state.isProcessing).toBe(false);
+  });
+
+  test("retryable inference.error leaves processing chrome until terminal settle", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.thinking.delta", { token: "x" }));
+    state.addEvent(event("inference.error", {
+      error: { category: "retryable", message: "transient" },
+    }));
+
+    expect(state.status).toBe("running");
+    expect(state.isProcessing).toBe(true);
+    expect(state.streamingType).toBe("thinking");
   });
 
   test("finalizing does not double-resolve a call that already completed", () => {

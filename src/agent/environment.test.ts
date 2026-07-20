@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { gatherEnvironment } from "./environment.js";
+import { gatherEnvironment, getGitBranch } from "./environment.js";
 
 const run = promisify(execFile);
 
@@ -47,6 +47,27 @@ test("gatherEnvironment gathers branch and dirty status from the same work tree"
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("getGitBranch returns the branch name via the injected git runner", async () => {
+  const branch = await getGitBranch("/repo", async (cwd, args) => {
+    expect(cwd).toBe("/repo");
+    expect(args).toEqual(["rev-parse", "--abbrev-ref", "HEAD"]);
+    return "feature/cl-3118";
+  });
+  expect(branch).toBe("feature/cl-3118");
+});
+
+test("getGitBranch returns null when the git runner reports failure", async () => {
+  expect(await getGitBranch("/not-a-repo", async () => null)).toBe(null);
+});
+
+test("getGitBranch returns null for detached HEAD", async () => {
+  expect(await getGitBranch("/repo", async () => "HEAD")).toBe(null);
+});
+
+test("getGitBranch returns null for empty output", async () => {
+  expect(await getGitBranch("/repo", async () => "")).toBe(null);
 });
 
 test("gatherEnvironment reports a non-git directory without throwing", async () => {

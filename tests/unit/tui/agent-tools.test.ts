@@ -1,5 +1,6 @@
 import { test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
+import { TOOL_NAMES } from "../../../interchange/packages/tools-posix/src/registry.js";
 
 const mockDispose = mock(async () => {});
 
@@ -18,6 +19,15 @@ const mockPosixTools = {
 
 mock.module("@intx/tools-posix", () => ({
   createPosixTools: () => mockPosixTools,
+  TOOL_NAMES,
+}));
+
+mock.module("../../../src/agent/posix-tool-plugins.js", () => ({
+  buildCorePosixToolPlugins: () => [],
+}));
+
+mock.module("../../../src/mcp/plugin.js", () => ({
+  mcpClientToAgentTools: () => [],
 }));
 
 mock.module("../../../src/plugins/path-escape-plugin.js", () => ({
@@ -34,10 +44,30 @@ mock.module("../../../src/plugins/verify-plugin.js", () => ({
 
 mock.module("../../../src/plugins/permission-plugin.js", () => ({
   permissionPlugin: () => ({}),
+  gateToolCall: async (
+    _gate: unknown,
+    call: ToolCall,
+    signal: AbortSignal,
+    next: (call: ToolCall, signal: AbortSignal) => Promise<unknown>,
+  ) => next(call, signal),
 }));
 
 mock.module("../../../src/plugins/secret-guard-plugin.js", () => ({
   secretGuardPlugin: () => ({}),
+}));
+
+mock.module("../../../src/plugins/shell-guard-plugin.js", () => ({
+  shellGuardPlugin: () => ({}),
+  advertiseShellGuardTimeout: (defs: ToolDefinition[]) => defs,
+  DEFAULT_SHELL_TIMEOUT_MS: 15_000,
+}));
+
+mock.module("../../../src/plugins/read-file-guard-plugin.js", () => ({
+  readFileGuardPlugin: () => ({}),
+}));
+
+mock.module("../../../src/plugins/edit-file-line-range.js", () => ({
+  advertiseEditFileLineRange: (defs: ToolDefinition[]) => defs,
 }));
 
 mock.module("../../../src/web/plugin.js", () => ({
@@ -48,6 +78,16 @@ mock.module("../../../src/agent/director.js", () => ({
   askOperatorDefinition: {
     name: "ask_operator",
     description: "Ask operator",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  } as ToolDefinition,
+  presentDefinition: {
+    name: "present",
+    description: "Present structured output",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  } as ToolDefinition,
+  advanceWorkflowDefinition: {
+    name: "advance_workflow",
+    description: "Advance workflow",
     inputSchema: { type: "object", properties: {}, required: [] },
   } as ToolDefinition,
   createChatDirector: mock(() => ({})),

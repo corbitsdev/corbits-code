@@ -32,6 +32,8 @@ export type ChatInputProps = {
   // When true, Enter interrupts the running agent with the current input.
   // Alt+Enter queues the message as a follow-up instead.
   isProcessing?: boolean;
+  // When false while processing, Enter queues via onSubmit instead of onInterrupt.
+  steerOnEnter?: boolean;
   // Called when the user presses Enter while isProcessing is true.
   onInterrupt?: (message: string) => void;
   /** Recall previously sent messages (readline-style). Return true when handled. */
@@ -217,15 +219,22 @@ function parseSlashState(value: string): SlashState | null {
   if (spaceIdx === -1) return { kind: "command", prefix: value.slice(1) };
   const parentName = value.slice(1, spaceIdx);
   const cmd = getCommand(parentName);
-  if (cmd?.subcommands !== undefined) {
+  // Open the post-command picker for subcommands and/or a free-form argument-hint
+  // (e.g. /goal, /linear-create show greyed guidance until args are typed).
+  const hasSubs = cmd?.subcommands !== undefined && cmd.subcommands.length > 0;
+  const hasHint = typeof cmd?.argumentHint === "string" && cmd.argumentHint.length > 0;
+  if (hasSubs || hasHint) {
     return { kind: "subcommand", parentName, prefix: value.slice(spaceIdx + 1) };
   }
   return null;
 }
 
 type Suggestion =
-  | { kind: "command"; name: string; description: string }
-  | { kind: "subcommand"; parentName: string; sub: SubcommandDefinition };
+  | { kind: "command"; name: string; description: string; argumentHint?: string }
+  | { kind: "subcommand"; parentName: string; sub: SubcommandDefinition }
+  | { kind: "hint"; parentName: string; hint: string };
+
+
 
 function slashPrefix(value: string): string | null {
   if (!value.startsWith("/")) return null;
@@ -245,6 +254,7 @@ export function ChatInput({
   active = true,
   queuedCount = 0,
   isProcessing = false,
+  steerOnEnter = true,
   onInterrupt,
   onSentHistoryPrevious,
   onSentHistoryNext,
@@ -282,14 +292,35 @@ export function ChatInput({
     if (slashState.kind === "command") {
       return listCommands()
         .filter((c) => c.name.startsWith(slashState.prefix))
-        .map((c) => ({ kind: "command" as const, name: c.name, description: c.description }));
+        .map((c) => ({
+          kind: "command" as const,
+          name: c.name,
+          description: c.description,
+          ...(c.argumentHint !== undefined ? { argumentHint: c.argumentHint } : {}),
+        }));
     }
     const cmd = getCommand(slashState.parentName);
-    if (cmd?.subcommands === undefined) return [];
-    return cmd.subcommands
-      .filter((s) => s.name.startsWith(slashState.prefix))
-      .map((s) => ({ kind: "subcommand" as const, parentName: slashState.parentName, sub: s }));
+    if (cmd === undefined) return [];
+    const out: Suggestion[] = [];
+    // Free-form arg guidance only while the operator has not started typing.
+    if (
+      slashState.prefix.length === 0 &&
+      typeof cmd.argumentHint === "string" &&
+      cmd.argumentHint.length > 0
+    ) {
+      out.push({ kind: "hint", parentName: slashState.parentName, hint: cmd.argumentHint });
+    }
+    if (cmd.subcommands !== undefined) {
+      for (const s of cmd.subcommands) {
+        if (s.name.startsWith(slashState.prefix)) {
+          out.push({ kind: "subcommand", parentName: slashState.parentName, sub: s });
+        }
+      }
+    }
+    return out;
   }, [slashState]);
+
+
 
   // Clamp selectedIdx whenever suggestions change.
   const clampedIdx = suggestions.length > 0 ? Math.min(selectedIdx, suggestions.length - 1) : 0;
@@ -369,8 +400,11 @@ export function ChatInput({
         if (sel !== undefined) {
           if (sel.kind === "command") {
             onChange(`/${sel.name} `);
-          } else {
+          } else if (sel.kind === "subcommand") {
             onChange(`/${sel.parentName} ${sel.sub.name} `);
+          } else {
+            // Argument-hint row — leave `/cmd ` so the operator types real args.
+            onChange(`/${sel.parentName} `);
           }
         }
         setSelectedIdx(0);
@@ -378,14 +412,24 @@ export function ChatInput({
       }
       if (key.return) {
         const sel = suggestions[clampedIdx];
+        // Hint rows are guidance only — Enter does not submit incomplete input.
+        if (sel?.kind === "hint") {
+          onChange(`/${sel.parentName} `);
+          setSelectedIdx(0);
+          return;
+        }
         let completed = value;
         if (sel !== undefined) {
-          completed = sel.kind === "command" ? `/${sel.name}` : `/${sel.parentName} ${sel.sub.name}`;
+          if (sel.kind === "command") completed = `/${sel.name}`;
+          else if (sel.kind === "subcommand") completed = `/${sel.parentName} ${sel.sub.name}`;
         }
         dispatchCommand(completed);
         resetField();
         return;
+
       }
+
+
       if (key.escape) {
         resetField();
         return;
@@ -453,7 +497,7 @@ export function ChatInput({
       if (trimmed.length > 0 || canSubmitEmpty) {
         if (trimmed.startsWith("/")) {
           dispatchCommand(trimmed);
-        } else if (isProcessing && onInterrupt !== undefined) {
+        } else if (isProcessing && steerOnEnter && onInterrupt !== undefined) {
           onInterrupt(trimmed);
         } else {
           onSubmit(trimmed);
@@ -520,39 +564,88 @@ export function ChatInput({
   // starts with /, @ picker fires for any other @ token in the input.
   const showSlash = suggestions.length > 0;
   const showAt = !showSlash && atMention.suggestions.length > 0;
-  const hasPrompt = value.trim().length > 0;
-  const showSteerHint = isProcessing && hasPrompt;
+  // Visible whenever the agent is in flight, not just once the user has
+  // typed something — interruption works either way and should be
+  // discoverable immediately (CL-3118).
+  const showSteerHint = isProcessing;
 
   return (
     <Box flexDirection="column">
       {showSlash && (
         <Box flexDirection="column" paddingX={1} paddingBottom={0}>
           {suggestions.map((s, i) => {
-            const label = s.kind === "command" ? `/${s.name}` : `/${s.parentName} ${s.sub.name}`;
-            const desc = s.kind === "command" ? s.description : s.sub.description;
+            const selected = i === clampedIdx;
+            if (s.kind === "command") {
+              return (
+                <Box key={`/${s.name}`} flexDirection="row" gap={1}>
+                  <Box width={22} flexShrink={0}>
+                    <Text
+                      color={selected ? "cyan" : "white"}
+                      bold={selected}
+                      wrap="truncate-end"
+                    >
+                      {`/${s.name}`}
+                    </Text>
+                  </Box>
+                  {s.argumentHint !== undefined && s.argumentHint.length > 0 && (
+                    <Text color="gray" dimColor wrap="truncate-end">
+                      {s.argumentHint}
+                    </Text>
+                  )}
+                  <Text color="gray" wrap="truncate-end">{s.description}</Text>
+                </Box>
+              );
+            }
+            if (s.kind === "hint") {
+              return (
+                <Box key={`hint-${s.parentName}`} flexDirection="row" gap={1}>
+                  <Box width={22} flexShrink={0}>
+                    <Text color="gray" dimColor wrap="truncate-end">
+                      {s.hint}
+                    </Text>
+                  </Box>
+                  <Text color="gray" wrap="truncate-end">
+                    args (optional pattern)
+                  </Text>
+                </Box>
+              );
+            }
+            const label = `/${s.parentName} ${s.sub.name}`;
             return (
               <Box key={label} flexDirection="row" gap={1}>
                 <Box width={22} flexShrink={0}>
-                  <Text color={i === clampedIdx ? "cyan" : "white"} bold={i === clampedIdx} wrap="truncate-end">
+                  <Text
+                    color={selected ? "cyan" : "white"}
+                    bold={selected}
+                    wrap="truncate-end"
+                  >
                     {label}
                   </Text>
                 </Box>
-                <Text color="gray" wrap="truncate-end">{desc}</Text>
+                <Text color="gray" wrap="truncate-end">{s.sub.description}</Text>
               </Box>
             );
           })}
+
+
         </Box>
       )}
       {showAt && (
         <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
       {(() => {
-        // Action bar: the row directly above the prompt box. While processing
-        // with text typed, the revolving verb + steer hint sit on the left; the
+        // Action bar: the row directly above the prompt box. While processing,
+        // the revolving verb + action hint sit on the left; the
         // profile · model · effort is always right-aligned on the same baseline.
-        const steerText = queuedCount > 0
-          ? `${queuedCount} queued · Enter steer · Alt+Enter queue`
-          : "Enter steer · Alt+Enter queue";
+        // Enter and Alt+Enter are no-ops on an empty field, so with nothing
+        // typed the hint advertises the interrupt chord instead.
+        const hasPromptText = value.trim().length > 0;
+        const actionsText = !hasPromptText
+          ? "Esc Esc interrupt"
+          : !steerOnEnter
+            ? "Enter queues for orchestrator"
+            : "Enter steer · Alt+Enter queue";
+        const steerText = queuedCount > 0 ? `${queuedCount} queued · ${actionsText}` : actionsText;
         const modelText = composePromptActionBarModelLabel({
           ...(profile !== undefined ? { profile } : {}),
           ...(model !== undefined ? { model } : {}),

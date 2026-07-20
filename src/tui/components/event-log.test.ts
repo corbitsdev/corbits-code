@@ -170,17 +170,12 @@ describe("pending tool row width budget", () => {
 });
 
 describe("tool row backgrounds", () => {
-  // Status-tinted tool fills (PR #74 / CL-3116) painted every successful tool
-  // green and never padded to full width, so the transcript became green soup
-  // and was reverted. CL-3437 revisits this deliberately restrained: a single
-  // subtle wash per semantic token (toolPendingBg/toolSuccessBg/toolErrorBg),
-  // applied only to the collapsed status-card row (never an expanded body),
-  // and padded to the full row width rather than stopping at the last glyph.
+  // CL-3471: collapsed tool rows rely on semantic text/icons only — no status wash.
   function segmentBackgrounds(lines: ReturnType<typeof buildLines>): Array<string | undefined> {
     return lines.flatMap((line) => line.map((seg) => seg.backgroundColor));
   }
 
-  test("a pending tool row carries the pending wash across its full width", () => {
+  test("a pending tool row has no status wash", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "run1",
@@ -191,11 +186,10 @@ describe("tool row backgrounds", () => {
     };
     const lines = buildLines([call], COLUMNS, false, isExpanded);
     const backgrounds = segmentBackgrounds(lines);
-    expect(backgrounds.every((bg) => bg !== undefined)).toBe(true);
-    expect(new Set(backgrounds).size).toBe(1);
+    expect(backgrounds.every((bg) => bg === undefined)).toBe(true);
   });
 
-  test("a completed successful tool row carries the success wash", () => {
+  test("a completed successful tool row has no status wash", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "bg1",
@@ -223,11 +217,10 @@ describe("tool row backgrounds", () => {
       isExpanded,
     );
     const backgrounds = segmentBackgrounds(lines);
-    expect(backgrounds.every((bg) => bg !== undefined)).toBe(true);
-    expect(new Set(backgrounds).size).toBe(1);
+    expect(backgrounds.every((bg) => bg === undefined)).toBe(true);
   });
 
-  test("error tool results keep danger text and carry the error wash", () => {
+  test("error tool results keep danger text and have no status wash", () => {
     const lines = buildLines(
       [
         {
@@ -245,11 +238,11 @@ describe("tool row backgrounds", () => {
       isExpanded,
     );
     const segs = lines.flat();
-    expect(segs.every((seg) => seg.backgroundColor !== undefined)).toBe(true);
+    expect(segs.every((seg) => seg.backgroundColor === undefined)).toBe(true);
     expect(segs.some((seg) => seg.color !== undefined && seg.text.includes("error:"))).toBe(true);
   });
 
-  test("an expanded tool call body keeps the surface background, not the status wash", () => {
+  test("an expanded tool call body has no status wash", () => {
     const call: ContentBlock = {
       type: "tool_call",
       id: "exp1",
@@ -418,7 +411,7 @@ describe("flat line buffer", () => {
       },
     ];
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Read 1 line of package.json"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ◇ Read 1 line of package.json"]);
     expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
   });
 
@@ -489,7 +482,7 @@ describe("flat line buffer", () => {
   test("consecutive file edits collapse into one group", () => {
     const blocks = [0, 1, 2, 3].flatMap(editPair);
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ● Edited 4 files"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ✐ Edited 4 files"]);
   });
 
   test("expanded file edits render individually", () => {
@@ -498,7 +491,7 @@ describe("flat line buffer", () => {
     const text = lineText(buildLines(blocks, COLUMNS, false, (block) => expandedIds.has(block.id))).join("\n");
 
     expect(text).toContain("Edited src/file-0.ts");
-    expect(text).toContain("● Edit");
+    expect(text).toContain("✐ Edit");
     expect(text).toContain("src/file-1.ts");
     expect(text).toContain("Edited src/file-2.ts");
     expect(text).not.toContain("Edited 3 files");
@@ -729,8 +722,8 @@ describe("flat line buffer", () => {
     expect(lines).toEqual([
       " ● I'll read the config then edit it.",
       "",
-      "  ● Read 1 line of package.json",
-      "  ● Edited package.json (1 replacement)",
+      "  ◇ Read 1 line of package.json",
+      "  ✐ Edited package.json (1 replacement)",
     ]);
   });
 });

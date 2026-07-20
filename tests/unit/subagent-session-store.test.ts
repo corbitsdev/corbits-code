@@ -280,9 +280,17 @@ describe("createTaskTool session recording", () => {
   async function call(
     tool: ReturnType<typeof createTaskTool>,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<string> {
-    if (tool.kind !== "string") throw new Error("expected string tool");
-    return tool.handler(args, new AbortController().signal);
+    const result = await tool.handler(
+      {
+        id: "task-call-test",
+        name: "task",
+        arguments: args,
+      },
+      signal ?? new AbortController().signal,
+    );
+    return result.content;
   }
 
   test("records a session on spawn and completes it with the report", async () => {
@@ -417,11 +425,7 @@ describe("createTaskTool session recording", () => {
         return "nope";
       },
     });
-    if (tool.kind !== "string") throw new Error("expected string tool");
-    const out = await tool.handler(
-      { description: "parent stop child", prompt: "x" },
-      parent.signal,
-    );
+    const out = await call(tool, { description: "parent stop child", prompt: "x" }, parent.signal);
     expect(out).toContain("cancelled by operator");
     expect(store.list()[0]?.status).toBe("cancelled");
   });

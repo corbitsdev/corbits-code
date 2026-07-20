@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
+import type { Task } from "../../agent/tasks.js";
 import type { SubAgentSession, SubAgentSessionStatus } from "../../subagent/session-store.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
@@ -31,13 +32,142 @@ export function activeStripSessions(
   return sessions.filter((s) => s.status === "running");
 }
 
-// Rows the strip occupies for a given session count: the "Agents" header, the
-// capped session rows, and an overflow row when sessions are hidden.
-export function agentsStripRowCount(sessionCount: number, maxVisible: number): number {
+// Parent stream state (task tool_call.end → tool.done) can show a sub-agent as
+// "doing" before the session store has started, or if store updates are missed
+// for a frame. Merge those in-flight rows so the chrome strip never stays empty
+// while workers are live.
+export function mergeInFlightSubAgents(
+  storeSessions: readonly SubAgentSession[],
+  inFlight: readonly Task[],
+): SubAgentSession[] {
+  const byId = new Map(storeSessions.map((s) => [s.id, s]));
+  for (const task of inFlight) {
+    if (task.status !== "doing") continue;
+    const existing = byId.get(task.id);
+    if (existing !== undefined) {
+      if (existing.status === "running") continue;
+      // Store already reached a terminal state; parent tool.done may lag one frame.
+      if (
+        existing.status === "done" ||
+        existing.status === "failed" ||
+        existing.status === "cancelled"
+      ) {
+        continue;
+      }
+    }
+    const { agentId, description, currentToolName } = parseSubAgentTaskTitle(task.title);
+    byId.set(task.id, {
+      id: task.id,
+      description,
+      agentId,
+      brief: "",
+      status: "running",
+      toolNames: currentToolName !== null ? [currentToolName] : [],
+      currentToolName,
+      entries: [],
+      startedAt: existing?.startedAt ?? 0,
+      ...(existing?.parentSessionId !== undefined
+        ? { parentSessionId: existing.parentSessionId }
+        : {}),
+    });
+  }
+  return [...byId.values()].sort(stripSessionSort);
+}
+
+function stripSessionSort(a: SubAgentSession, b: SubAgentSession): number {
+  if (a.status === "running" && b.status !== "running") return -1;
+  if (a.status !== "running" && b.status === "running") return 1;
+  return b.startedAt - a.startedAt;
+}
+
+function parseSubAgentTaskTitle(title: string): {
+  agentId: string;
+  description: string;
+  currentToolName: string | null;
+} {
+  let base = title;
+  let currentToolName: string | null = null;
+  const toolSep = " · ";
+  const toolIdx = base.lastIndexOf(toolSep);
+  if (toolIdx !== -1) {
+    currentToolName = base.slice(toolIdx + toolSep.length).trim() || null;
+    base = base.slice(0, toolIdx);
+  }
+  const colon = base.indexOf(": ");
+  if (colon === -1) {
+    return { agentId: "worker", description: base.trim(), currentToolName };
+  }
+  return {
+    agentId: base.slice(0, colon).trim() || "worker",
+    description: base.slice(colon + 2).trim(),
+    currentToolName,
+  };
+}
+
+// Chrome shows the strip whenever there is a running worker to surface, or when
+// agents-nav is browsing historical sessions.
+export function shouldShowAgentsStrip(input: {
+  chromeSessions: readonly SubAgentSession[];
+  browseSessions: readonly SubAgentSession[];
+  agentsNavOpen: boolean;
+}): boolean {
+  return (
+    input.chromeSessions.length > 0 ||
+    (input.agentsNavOpen && input.browseSessions.length > 0)
+  );
+}
+
+export type AgentsStripWindow = {
+  start: number;
+  end: number;
+  hiddenAbove: number;
+  hiddenBelow: number;
+};
+
+/** Keep the keyboard selection inside the visible window when browsing long lists. */
+export function computeAgentsStripWindow(
+  total: number,
+  selectedIndex: number,
+  maxVisible: number,
+): AgentsStripWindow {
+  if (total <= 0) {
+    return { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
+  }
+  if (total <= maxVisible) {
+    return { start: 0, end: total, hiddenAbove: 0, hiddenBelow: 0 };
+  }
+  const idx = Math.max(0, Math.min(selectedIndex, total - 1));
+  let start = idx - Math.floor(maxVisible / 2);
+  if (start < 0) start = 0;
+  let end = start + maxVisible;
+  if (end > total) {
+    end = total;
+    start = end - maxVisible;
+  }
+  return {
+    start,
+    end,
+    hiddenAbove: start,
+    hiddenBelow: total - end,
+  };
+}
+
+// Rows the strip occupies: header, visible session rows, and optional scroll hints.
+export function agentsStripRowCount(
+  sessionCount: number,
+  maxVisible: number,
+  scrollHints?: Pick<AgentsStripWindow, "hiddenAbove" | "hiddenBelow">,
+): number {
   if (sessionCount === 0) return 0;
   const shown = Math.min(sessionCount, maxVisible);
-  const overflow = sessionCount > shown ? 1 : 0;
-  return 1 + shown + overflow;
+  let rows = 1 + shown;
+  if (scrollHints !== undefined) {
+    if (scrollHints.hiddenAbove > 0) rows += 1;
+    if (scrollHints.hiddenBelow > 0) rows += 1;
+  } else if (sessionCount > shown) {
+    rows += 1;
+  }
+  return rows;
 }
 
 const STATUS_GLYPH: Record<SubAgentSessionStatus, string> = {
@@ -56,10 +186,21 @@ export function AgentsStrip({
 }: AgentsStripProps): ReactNode {
   if (sessions.length === 0) return null;
 
-  // sessions arrive running-first then newest, so the head keeps live and
-  // recent work visible while older completed sessions fold into the count.
-  const visible = sessions.slice(0, Math.max(1, maxVisible));
-  const hiddenCount = sessions.length - visible.length;
+  const selectedIndex =
+    selectedId !== null && selectedId !== undefined
+      ? Math.max(0, sessions.findIndex((s) => s.id === selectedId))
+      : 0;
+  const window =
+    navActive && sessions.length > maxVisible
+      ? computeAgentsStripWindow(sessions.length, selectedIndex, maxVisible)
+      : {
+          start: 0,
+          end: Math.min(sessions.length, maxVisible),
+          hiddenAbove: 0,
+          hiddenBelow: Math.max(0, sessions.length - maxVisible),
+        };
+  const visible = sessions.slice(window.start, window.end);
+  const hiddenCount = window.hiddenBelow;
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -81,20 +222,19 @@ export function AgentsStrip({
           </Text>
         )}
       </Box>
+      {navActive && window.hiddenAbove > 0 && (
+        <Text color={color("dim")} dimColor>
+          {`  ↑ ${window.hiddenAbove} more above`}
+        </Text>
+      )}
       {visible.map((session, index) => {
         const selected = session.id === selectedId;
         const entered = session.id === enteredId;
         const prefix = selected ? "› " : entered ? "· " : "  ";
         const label = formatSessionLabel(session);
         const tree = treeIndent(session, visible, index);
-        const rowBg = rowBackground(session.status);
         return (
-          <Box
-            key={session.id}
-            gap={1}
-            width="100%"
-            {...(rowBg !== undefined ? { backgroundColor: rowBg } : {})}
-          >
+          <Box key={session.id} gap={1} width="100%">
             <Text
               color={statusColor(session.status)}
               bold={session.status === "running" || selected}
@@ -115,28 +255,11 @@ export function AgentsStrip({
       })}
       {hiddenCount > 0 && (
         <Text color={color("dim")} dimColor>
-          {`  … +${hiddenCount} more`}
+          {navActive ? `  ↓ ${hiddenCount} more below` : `  … +${hiddenCount} more`}
         </Text>
       )}
     </Box>
   );
-}
-
-// A background-tinted status card per row, mirroring the tool-row treatment
-// in event-log.tsx: a running wash while live, success/error tint once the
-// worker reaches a terminal state. Cancelled rows stay untinted — cancel is
-// an operator action, not an outcome worth calling out visually.
-function rowBackground(status: SubAgentSessionStatus): string | undefined {
-  switch (status) {
-    case "running":
-      return color("toolPendingBg");
-    case "done":
-      return color("toolSuccessBg");
-    case "failed":
-      return color("toolErrorBg");
-    case "cancelled":
-      return undefined;
-  }
 }
 
 // Nested (one-hop) dispatches carry parentSessionId; render them under their
