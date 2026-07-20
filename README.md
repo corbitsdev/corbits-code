@@ -52,7 +52,7 @@ Intercode keeps repository guidance and sub-agent profiles separate:
 
 - `AGENTS.md` — shared startup instructions and project context
 - `CLAUDE.md` — Claude-specific workspace notes
-- `packages/agents/` — built-in sub-agent profiles shipped with Intercode (`greybeard`, `critique`)
+- `src/agent/default-agents.ts` — built-in sub-agent profiles shipped with Intercode (`greybeard`, `critique`)
 - `.agents/agents/` — optional local profile overrides or additions; this directory is not required and may be absent
 
 Named `task` sub-agents resolve from built-ins first, then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles. Add a local profile under `.agents/agents/` or use an installed profile id such as `greybeard`.

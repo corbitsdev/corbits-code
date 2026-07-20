@@ -1,12 +1,13 @@
-// Public contract for agent plugin authors.
+// Agent profile contract. External profiles are data (JSON/YAML under
+// .agents/agents/ or contributed by agent-kind plugins) validated against
+// this shape at load time; these types never cross the repo boundary.
 
 // Reasoning-effort levels carried through to the provider. The canonical
-// definition lives here so plugin authors and runtime stay in sync without
-// re-declaring the literal set. Mirrored as a runtime array by
-// src/provider/reasoning-effort.ts. Ordered from least to most effort; "ultra"
-// is not simply a bigger thinking budget than "max" — it additionally enables
-// automatic sub-task delegation, so code that treats effort as a scalar dial
-// may need to branch on it separately.
+// definition lives here; src/provider/reasoning-effort.ts mirrors it as the
+// runtime array. Ordered from least to most effort; "ultra" is not simply a
+// bigger thinking budget than "max" — it additionally enables automatic
+// sub-task delegation, so code that treats effort as a scalar dial may need
+// to branch on it separately.
 export const REASONING_EFFORTS = [
   "none",
   "minimal",
@@ -76,8 +77,7 @@ export type AgentProfile = {
   maxTurns?: number;
 };
 
-// The shape every agent plugin package must export as "plugin" or as the
-// default export.
+// The shape an agent-kind plugin contributes: a list of profiles.
 export type AgentPlugin = {
   agents: AgentProfile[];
 };
