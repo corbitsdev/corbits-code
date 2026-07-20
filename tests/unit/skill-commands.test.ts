@@ -53,6 +53,7 @@ describe("loadSkillCommands", () => {
     // Tagged skill, no $ARGUMENTS in body -> args append.
     const workflow = cmds!.find((c) => c.name === "linear-issue-workflow")!;
     expect(workflow.description).toBe("Implement a Linear issue");
+    expect(workflow.argumentHint).toBe("<issue-id>");
     expect(workflow.handler("ABC-123", ctx)).toEqual({
       type: "send",
       text: "Implement the issue.\n\nABC-123",
@@ -61,6 +62,16 @@ describe("loadSkillCommands", () => {
     // Untagged skill still becomes a command.
     expect(cmds!.find((c) => c.name === "linear-create")).toBeDefined();
   });
+
+  test("copies argument-hint from skill frontmatter", async () => {
+    const dir = await makePlugin({
+      "skills/linear-create/SKILL.md":
+        "---\nname: linear-create\ndescription: Create Linear issues\nargument-hint: \"[description] [--from-doc]\"\n---\nCreate the artifacts.",
+    });
+    const cmd = (await loadSkillCommands(dir))!.find((c) => c.name === "linear-create")!;
+    expect(cmd.argumentHint).toBe("[description] [--from-doc]");
+  });
+
 
   test("$ARGUMENTS in a skill body interpolates inline", async () => {
     const dir = await makePlugin({

@@ -1,6 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CommandDefinition, CommandResult } from "../tui/commands/registry.js";
+import {
+  argumentHintFromFrontmatter,
+  type CommandDefinition,
+  type CommandResult,
+} from "../tui/commands/registry.js";
 import { splitFrontmatter } from "./frontmatter.js";
 
 // Every skill in an enabled plugin is surfaced as a user slash command:
@@ -66,12 +70,15 @@ export async function loadSkillCommands(
         ? frontmatter.description.trim()
         : name;
 
+    const argumentHint = argumentHintFromFrontmatter(frontmatter);
     const capturedBody = body;
-    commands.push({
+    const def: CommandDefinition = {
       name,
       description,
       handler: (args: string): CommandResult => ({ type: "send", text: buildPrompt(capturedBody, args) }),
-    });
+    };
+    if (argumentHint !== undefined) def.argumentHint = argumentHint;
+    commands.push(def);
   }
 
   if (commands.length === 0) return null;
