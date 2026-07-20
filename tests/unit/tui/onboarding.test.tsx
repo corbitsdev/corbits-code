@@ -4,8 +4,33 @@ import { ProviderSetupPanel } from "../../../src/tui/onboarding.js";
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
 
-function renderPanel(onSubmit: (v: Record<string, string>) => Promise<void> = () => Promise.resolve()) {
+type SetPhase = (phase: "testing" | "saving") => void;
+type SubmitOpts = { skipValidation: boolean };
+
+function renderPanel(
+  onSubmit: (v: Record<string, string>, setPhase: SetPhase, opts: SubmitOpts) => Promise<void> = () =>
+    Promise.resolve(),
+) {
   return render(<ProviderSetupPanel onSubmit={onSubmit} />);
+}
+
+async function fillAllFields(stdin: { write: (s: string) => void }): Promise<void> {
+  stdin.write("name");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("https://api.example.com");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("sk-key");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("gpt-4o");
+  await tick();
+  stdin.write("\r");
+  await tick();
 }
 
 test("shows Provider name label on mount", () => {
@@ -135,12 +160,114 @@ test("input ignored while submitting", async () => {
   await tick();
   stdin.write("\r");
   await tick();
-  // now submitting — frame should show spinner text
-  expect(lastFrame()).toContain("Writing settings");
+  // now submitting — frame should show the testing-connection phase, since
+  // onSubmit hasn't advanced to the "saving" phase yet
+  expect(lastFrame()).toContain("Testing connection");
   // further input should be ignored
   stdin.write("extra");
   await tick();
-  expect(lastFrame()).toContain("Writing settings");
+  expect(lastFrame()).toContain("Testing connection");
   resolveSubmit!();
   await tick();
+});
+
+test("submit shows testing-connection phase, then saving phase once onSubmit advances", async () => {
+  let advancePhase: SetPhase = () => {};
+  let resolveSubmit: () => void;
+  const onSubmit = (_v: Record<string, string>, setPhase: SetPhase): Promise<void> => {
+    advancePhase = setPhase;
+    return new Promise((r) => { resolveSubmit = r; });
+  };
+  const { lastFrame, stdin } = renderPanel(onSubmit);
+  stdin.write("name");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("https://api.example.com");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("sk-key");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("gpt-4o");
+  await tick();
+  stdin.write("\r");
+  await tick();
+
+  expect(lastFrame()).toContain("Testing connection");
+
+  advancePhase("saving");
+  await tick();
+  expect(lastFrame()).toContain("Writing settings");
+
+  resolveSubmit!();
+  await tick();
+});
+
+test("onSubmit rejection during connection test shows the error and never advances to saving", async () => {
+  const onSubmit = async (_v: Record<string, string>, setPhase: SetPhase): Promise<void> => {
+    setPhase("testing");
+    throw new Error("could not reach https://api.example.com/models");
+  };
+  const { lastFrame, stdin } = renderPanel(onSubmit);
+  stdin.write("name");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("https://api.example.com");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("sk-key");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  stdin.write("gpt-4o");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  await tick();
+  expect(lastFrame()).toContain("could not reach https://api.example.com/models");
+  expect(lastFrame()).not.toContain("Writing settings");
+});
+
+test("connection-test failure offers a save-anyway path", async () => {
+  const onSubmit = async (): Promise<void> => {
+    throw new Error("connection refused");
+  };
+  const { lastFrame, stdin } = renderPanel(onSubmit);
+  await fillAllFields(stdin);
+  await tick();
+  expect(lastFrame()).toContain("connection refused");
+  expect(lastFrame()).toContain("save anyway");
+});
+
+test("Ctrl+S after a failed connection test resubmits with skipValidation", async () => {
+  const submissions: SubmitOpts[] = [];
+  const onSubmit = async (_v: Record<string, string>, _setPhase: SetPhase, opts: SubmitOpts): Promise<void> => {
+    submissions.push(opts);
+    if (!opts.skipValidation) {
+      throw new Error("connection refused");
+    }
+  };
+  const { stdin } = renderPanel(onSubmit);
+  await fillAllFields(stdin);
+  await tick();
+  stdin.write("\x13");
+  await tick();
+  expect(submissions).toEqual([{ skipValidation: false }, { skipValidation: true }]);
+});
+
+test("failure during the saving phase does not offer save anyway", async () => {
+  const onSubmit = async (_v: Record<string, string>, setPhase: SetPhase): Promise<void> => {
+    setPhase("saving");
+    throw new Error("disk full");
+  };
+  const { lastFrame, stdin } = renderPanel(onSubmit);
+  await fillAllFields(stdin);
+  await tick();
+  expect(lastFrame()).toContain("disk full");
+  expect(lastFrame()).not.toContain("save anyway");
 });
