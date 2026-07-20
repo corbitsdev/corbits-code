@@ -19,13 +19,25 @@ export type EnvironmentInfo = {
 const GIT_STATUS_LINES = 12;
 const TOP_LEVEL_ENTRIES = 40;
 
+const GIT_TIMEOUT_MS = 3000;
+
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await run("git", args, { cwd, timeout: 3000 });
+    const { stdout } = await run("git", args, { cwd, timeout: GIT_TIMEOUT_MS });
     return stdout.trim();
   } catch {
     return null;
   }
+}
+
+export type GitRunner = (cwd: string, args: string[]) => Promise<string | null>;
+
+// Detached HEAD (or a repo with zero commits) makes rev-parse print "HEAD"
+// itself rather than a branch name; treat that as "no branch".
+export async function getGitBranch(cwd: string, runGit: GitRunner = git): Promise<string | null> {
+  const branch = await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (branch === null || branch.length === 0 || branch === "HEAD") return null;
+  return branch;
 }
 
 async function gatherGit(cwd: string): Promise<Partial<EnvironmentInfo>> {
@@ -35,7 +47,7 @@ async function gatherGit(cwd: string): Promise<Partial<EnvironmentInfo>> {
   // Branch and status both depend only on being inside a work tree, so run
   // their subprocesses concurrently rather than paying each 3s timeout in turn.
   const [branch, status] = await Promise.all([
-    git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
+    getGitBranch(cwd),
     git(cwd, ["status", "--porcelain"]),
   ]);
   const lines = status ? status.split("\n").filter((l) => l.length > 0) : [];
