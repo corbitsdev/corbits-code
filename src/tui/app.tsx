@@ -897,10 +897,12 @@ export function App({
           ? 2
           : goalSnapshot!.criteria.length + 2) + 2
       : 3; // compact phase strip during implementing
+  // The task strip renders above the in-flight indicator: one line when compact,
+  // the full checklist plus its heading when expanded. +1 is the marginTop wrapper.
   const taskChromeRows =
     !hasActiveTasks(state.tasks)
       ? 0
-      : (workExpanded ? state.tasks.length + 1 : 1) + 2;
+      : (workExpanded ? state.tasks.length + 1 : 1) + 1;
 
   // The plugins overlay renders outside the modal-stack accounting (like the
   // permissions overlay), so reserve rows for its box: chrome + one row per
