@@ -488,13 +488,15 @@ function toolCallLines(
     ], contentWidth);
     const edit = editDiffFromArgs(block.name, block.arguments);
     if (edit !== null) {
-      // write_file replaces a whole file, so collapse its unchanged context;
-      // edit_file hunks are already small and read best in full.
+      // write_file replaces a whole file, so collapse its unchanged context
+      // and number lines from 1. edit_file hunks diff old_string against
+      // new_string with no known file offset, so the number gutter stays off
+      // rather than showing snippet-relative numbers as if they were real.
       const diff = renderDiff(
         edit.oldText,
         edit.newText,
         width,
-        block.name === "write_file" ? { contextLines: 3 } : {},
+        block.name === "write_file" ? { contextLines: 3 } : { lineNumbers: false },
       );
       return [...headline, ...diff];
     }
