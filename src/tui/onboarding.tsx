@@ -7,6 +7,7 @@ import { enterAltScreen } from "../util/alt-screen.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
 import { loadSettings, saveGlobalSettings } from "../config/settings.js";
 import type { Settings } from "../config/settings.js";
+import { validateProviderConnection } from "../provider/validate-connection.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 
@@ -30,11 +31,29 @@ const FIELD_HINTS: Record<Field, string> = {
 
 type FormValues = Record<Field, string>;
 
+// "testing" covers the connection-check call against the entered credentials;
+// "saving" covers the settings write that follows once the test succeeds.
+type SubmitPhase = "testing" | "saving";
+
+const SUBMIT_PHASE_LABEL: Record<SubmitPhase, string> = {
+  testing: "Testing connection…",
+  saving: "Writing settings…",
+};
+
+export type SubmitOpts = {
+  // True when the operator chose to save despite a failed connection test —
+  // some providers speak chat completions but not /models, so validation
+  // cannot be a hard gate.
+  skipValidation: boolean;
+};
+
 export type ProviderSetupPanelProps = {
-  // Called when the user completes all fields. The panel shows a spinner until
-  // the promise resolves, then calls exit(). If it rejects, the error is shown
-  // inline and the user can retry or correct their input.
-  onSubmit: (values: FormValues) => Promise<void>;
+  // Called when the user completes all fields. The panel shows a phase label
+  // until the promise resolves, then calls exit(). `setPhase` lets onSubmit
+  // report progress (e.g. move from "testing" to "saving") as it runs. If the
+  // promise rejects, the error is shown inline and the user can retry or
+  // correct their input; nothing is saved.
+  onSubmit: (values: FormValues, setPhase: (phase: SubmitPhase) => void, opts: SubmitOpts) => Promise<void>;
 };
 
 export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): ReactNode {
@@ -48,10 +67,41 @@ export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): React
     model: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("testing");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [saveAnywayOffered, setSaveAnywayOffered] = useState(false);
 
   const currentField = FIELDS[fieldIndex] as Field;
   const val = values[currentField];
+
+  const clearError = (): void => {
+    setSubmitError(null);
+    setSaveAnywayOffered(false);
+  };
+
+  const submit = (skipValidation: boolean): void => {
+    setSubmitting(true);
+    setSubmitPhase("testing");
+    clearError();
+
+    // Track the phase locally so the rejection handler knows whether the
+    // failure happened during the connection test (retryable and bypassable)
+    // or during the settings write.
+    let phase: SubmitPhase = "testing";
+    const setPhase = (p: SubmitPhase): void => {
+      phase = p;
+      setSubmitPhase(p);
+    };
+
+    onSubmit(values, setPhase, { skipValidation }).then(
+      () => exit(),
+      (err: unknown) => {
+        setSubmitting(false);
+        setSubmitError(err instanceof Error ? err.message : String(err));
+        setSaveAnywayOffered(phase === "testing");
+      },
+    );
+  };
 
   const advance = (): void => {
     // apiKey is optional — blank means a keyless local provider (e.g. Ollama).
@@ -59,44 +109,40 @@ export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): React
 
     if (fieldIndex < FIELDS.length - 1) {
       setFieldIndex((i) => i + 1);
-      setSubmitError(null);
+      clearError();
       return;
     }
 
-    setSubmitting(true);
-    setSubmitError(null);
-    onSubmit(values).then(
-      () => exit(),
-      (err: unknown) => {
-        setSubmitting(false);
-        setSubmitError(err instanceof Error ? err.message : String(err));
-      },
-    );
+    submit(false);
   };
 
   useInput((input, key) => {
     if (submitting) return;
 
+    if (saveAnywayOffered && key.ctrl && input === "s") {
+      submit(true);
+      return;
+    }
     if (key.return) {
       advance();
       return;
     }
     if (key.backspace || key.delete) {
       setValues((v) => ({ ...v, [currentField]: v[currentField].slice(0, -1) }));
-      setSubmitError(null);
+      clearError();
       return;
     }
     if (key.escape) {
       if (fieldIndex > 0) {
         setFieldIndex((i) => i - 1);
-        setSubmitError(null);
+        clearError();
       }
       return;
     }
     if (key.ctrl || key.meta || key.tab) return;
     if (input.length > 0) {
       setValues((v) => ({ ...v, [currentField]: v[currentField] + input }));
-      setSubmitError(null);
+      clearError();
     }
   });
 
@@ -176,9 +222,15 @@ export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): React
           </Box>
         )}
 
+        {submitError !== null && saveAnywayOffered && (
+          <Box>
+            <Text color={color("muted")}>Enter retry · Ctrl+S save anyway</Text>
+          </Box>
+        )}
+
         {submitting && (
           <Box marginTop={2}>
-            <Text color={color("muted")}>Writing settings…</Text>
+            <Text color={color("muted")}>{SUBMIT_PHASE_LABEL[submitPhase]}</Text>
           </Box>
         )}
       </Box>
@@ -210,12 +262,28 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
 
   const { waitUntilExit } = render(
     <ProviderSetupPanel
-      onSubmit={async (values) => {
+      onSubmit={async (values, setPhase, { skipValidation }) => {
         const { name, baseURL, apiKey, model } = values;
         const providerName = name.trim();
+        const trimmedBaseURL = baseURL.trim();
         const trimmedKey = apiKey.trim();
+
+        // Fail fast on a bad base URL/key here rather than mid-conversation
+        // during the first real stream request. The operator can bypass the
+        // check (Ctrl+S) for providers that don't expose /models.
+        if (!skipValidation) {
+          const check = await validateProviderConnection({
+            baseURL: trimmedBaseURL,
+            apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
+          });
+          if (!check.ok) {
+            throw new Error(check.error);
+          }
+        }
+
+        setPhase("saving");
         const newProvider = {
-          baseURL: baseURL.trim(),
+          baseURL: trimmedBaseURL,
           models: [model.trim()],
           defaultModel: model.trim(),
           ...(trimmedKey.length > 0

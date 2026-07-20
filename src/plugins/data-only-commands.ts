@@ -1,18 +1,19 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-  CommandDefinition,
-  CommandPlugin,
-  CommandResult,
-  SubcommandDefinition,
+import {
+  argumentHintFromFrontmatter,
+  type CommandDefinition,
+  type CommandPlugin,
+  type CommandResult,
+  type SubcommandDefinition,
 } from "../tui/commands/registry.js";
 import { splitFrontmatter } from "./frontmatter.js";
 
 // A data-only command plugin declares its slash commands as markdown files, the
 // same convention Claude Code (`.claude/commands/`), OpenCode
 // (`.opencode/command/`), and Codex use. The filename stem is the command name;
-// optional YAML frontmatter carries a description (and is otherwise ignored in
-// v1); the body is the prompt sent to the agent when the command runs.
+// optional YAML frontmatter carries description + argument-hint; the body is the
+// prompt sent to the agent when the command runs.
 //
 // Two layouts are recognized:
 //   commands/<name>.md        ->  /<name> <args>      (flat command)
@@ -26,7 +27,7 @@ import { splitFrontmatter } from "./frontmatter.js";
 
 const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-type LoadedBody = { description: string; body: string };
+type LoadedBody = { description: string; body: string; argumentHint?: string };
 
 // Replace `$ARGUMENTS` (Claude Code / OpenCode convention) with the args string.
 function interpolate(body: string, args: string): string {
@@ -52,16 +53,22 @@ async function loadBody(filePath: string, name: string): Promise<LoadedBody | nu
     typeof frontmatter.description === "string" && frontmatter.description.trim().length > 0
       ? frontmatter.description.trim()
       : firstLineDescription(body, name);
-  return { description, body };
+  const argumentHint = argumentHintFromFrontmatter(frontmatter);
+  const loaded: LoadedBody = { description, body };
+  if (argumentHint !== undefined) loaded.argumentHint = argumentHint;
+  return loaded;
 }
 
 function buildFlatCommand(name: string, loaded: LoadedBody): CommandDefinition {
-  return {
+  const def: CommandDefinition = {
     name,
     description: loaded.description,
     handler: (args: string): CommandResult => ({ type: "send", text: interpolate(loaded.body, args) }),
   };
+  if (loaded.argumentHint !== undefined) def.argumentHint = loaded.argumentHint;
+  return def;
 }
+
 
 function buildNamespacedCommand(
   ns: string,

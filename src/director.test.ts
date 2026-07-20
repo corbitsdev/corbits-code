@@ -635,3 +635,103 @@ describe("CL-3181 transient nudges", () => {
     }
   });
 });
+
+describe("goal continue-rule", () => {
+  const textTurn = (): ReactorInboundEvent =>
+    ({
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [{ type: "text", text: "done for now" }],
+      },
+      usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { model: "test-model" },
+    }) as unknown as ReactorInboundEvent;
+
+  const stateWithTurns: ReactorState = {
+    turns: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "make tests green" }],
+        timestamp: 0,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "still failing" }],
+        timestamp: 1,
+      },
+    ],
+  } as unknown as ReactorState;
+
+  test("active not-met goal rewrites a clean yield into re-infer", async () => {
+    const { createGoalGovernor } = await import("./agent/goal.js");
+    const director = createChatDirector("base", []);
+    const g = createGoalGovernor({
+      evaluate: async () => ({ met: false, reason: "tests still red" }),
+    });
+    g.set("all tests pass");
+    g.setCriteria([
+      { id: "c1", title: "unit tests green", status: "todo" },
+      { id: "c2", title: "typecheck clean", status: "todo" },
+    ]);
+    director.setGoalGovernor(g);
+
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTurns, mockCapabilities));
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+    expect(actions.some((a) => a.type === "reply")).toBe(false);
+    expect(g.get()?.turnsUsed).toBe(1);
+    expect(g.get()?.lastReason).toContain("tests still red");
+  });
+
+  test("met goal leaves terminal reply and marks achieved", async () => {
+    const { createGoalGovernor } = await import("./agent/goal.js");
+    const director = createChatDirector("base", []);
+    const g = createGoalGovernor({
+      evaluate: async () => ({ met: true, reason: "green" }),
+    });
+    g.set("all tests pass");
+    g.setCriteria([
+      { id: "c1", title: "unit tests green", status: "done" },
+      { id: "c2", title: "typecheck clean", status: "done" },
+    ]);
+    director.setGoalGovernor(g);
+
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTurns, mockCapabilities));
+    expect(actions.some((a) => a.type === "reply")).toBe(true);
+    expect(actions.some((a) => a.type === "infer")).toBe(false);
+    expect(g.get()?.status).toBe("achieved");
+  });
+
+  test("open-task nudge still wins over goal when tasks are open", async () => {
+    const { createGoalGovernor } = await import("./agent/goal.js");
+    let evals = 0;
+    const director = createChatDirector("base", []);
+    const g = createGoalGovernor({
+      evaluate: async () => {
+        evals++;
+        return { met: false, reason: "should not run yet" };
+      },
+    });
+    g.set("x");
+    director.setGoalGovernor(g);
+
+    await director.decide(
+      makeInferenceDoneEvent([
+        {
+          id: "m",
+          name: "manage_tasks",
+          args: { action: "create", tasks: [{ id: "t1", title: "work", status: "doing" }] },
+        },
+      ]),
+      stateWithTurns,
+      mockCapabilities,
+    );
+
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTurns, mockCapabilities));
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+    expect(evals).toBe(0);
+  });
+});
+

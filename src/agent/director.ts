@@ -20,6 +20,8 @@ import { type } from "arktype";
 import { applyManageTasks, hasActiveTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 import { createIntercodeRetryPolicy } from "./retry-policy.js";
 import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
+import type { GoalGovernor } from "./goal.js";
+import { evidenceFromTurns } from "./goal-evaluator.js";
 
 const RETRY_POLICY = createIntercodeRetryPolicy();
 
@@ -311,6 +313,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private lastTaskSummary: string | undefined;
   private startedAt = Date.now();
   private readonly compaction: CompactionGovernor;
+  private goal: GoalGovernor | undefined;
 
   constructor(
     systemPrompt: string,
@@ -337,6 +340,14 @@ class ChatDirectorImpl extends DefaultDirector {
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
     this.workflowCoordinator = coordinator;
+  }
+
+  setGoalGovernor(goal: GoalGovernor | undefined): void {
+    this.goal = goal;
+  }
+
+  getGoalGovernor(): GoalGovernor | undefined {
+    return this.goal;
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
@@ -479,6 +490,16 @@ class ChatDirectorImpl extends DefaultDirector {
         (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
+      // Attribute main-loop tokens to an active goal for soft token budgets.
+      if (this.goal !== undefined) {
+        const u = event.usage;
+        if (u !== undefined) {
+          const n =
+            (typeof u.input === "number" ? u.input : 0) +
+            (typeof u.output === "number" ? u.output : 0);
+          if (n > 0) this.goal.noteMainTokens(n);
+        }
+      }
       if (this.workflowCoordinator?.isActive()) {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
@@ -612,6 +633,17 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
+    // Goal continue-rule runs last among terminal rewrites so open-task and
+    // workflow nudges keep precedence. Only fires when we would otherwise yield.
+    if (this.goal !== undefined) {
+      const goalRewrite = await this.goal.interceptTerminal(baseActions, capabilities, {
+        atWorkflowGate,
+        lastTurnHadContent: this.lastInferenceTurnHadContent,
+        evidence: evidenceFromTurns(state.turns ?? []),
+      });
+      if (goalRewrite !== null) return goalRewrite;
+    }
+
     return base;
   }
 }
@@ -643,5 +675,7 @@ export function createChatDirector(
 export interface ChatDirector extends ReactorDirector {
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
+  setGoalGovernor(goal: GoalGovernor | undefined): void;
+  getGoalGovernor(): GoalGovernor | undefined;
   getTasks(): Task[];
 }

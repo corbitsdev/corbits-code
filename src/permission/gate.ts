@@ -33,6 +33,7 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "edit_file",
   "delete_file",
   "manage_tasks",
+  "manage_goal",
   "present",
   "tool_search",
   "use_skill",

@@ -40,7 +40,7 @@ export function TaskView({ tasks, compact, title = "Tasks" }: TaskViewProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box gap={1}>
-        <Text bold color={color("accent")}>{title}</Text>
+        <Text bold color={color("muted")}>{title}</Text>
         <Text color={color("dim")} dimColor>{`${doneCount}/${sorted.length}`}</Text>
       </Box>
       {sorted.map((task) => (

@@ -1,4 +1,4 @@
-import { normalizeOpenAICompatibleBaseURL } from "./settings.js";
+import { requestModelsEndpoint } from "../provider/models-endpoint.js";
 
 /**
  * Fetch the model list from a Bifrost gateway for the given virtual key.
@@ -11,18 +11,13 @@ export async function fetchBifrostModels(
   baseURL: string,
   apiKey: string,
 ): Promise<string[]> {
-  const normalized = normalizeOpenAICompatibleBaseURL(baseURL);
-  const url = normalized.replace(/\/$/, "") + "/models";
   const headers: Record<string, string> = {
     "x-bf-vk": apiKey,
   };
   if (apiKey && apiKey.length > 0) {
     headers.authorization = `Bearer ${apiKey}`;
   }
-  const res = await fetch(url, {
-    method: "GET",
-    headers,
-  });
+  const res = await requestModelsEndpoint({ baseURL, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to list Bifrost models (${res.status}): ${text}`);

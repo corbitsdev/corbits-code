@@ -81,7 +81,10 @@ export type ModalStackProps = {
   pendingPermission: PermissionRequest | null;
   permissionQueueDepth?: number;
   permissionBatchSize?: number;
+  /** Goal-mode auto-skip budget for the visible permission modal. */
+  permissionTimeoutMs?: number | null;
   onResolvePermission: (outcome: ApprovalOutcome) => void;
+
 
   width?: number;
 };
@@ -122,9 +125,11 @@ export function ModalStack({
   pendingPermission,
   permissionQueueDepth,
   permissionBatchSize,
+  permissionTimeoutMs,
   onResolvePermission,
   width,
 }: ModalStackProps): ReactNode {
+
   return (
     <>
       {hookPanelOpen ? <HookPanel hooks={hooks} /> : null}
@@ -172,10 +177,14 @@ export function ModalStack({
           request={pendingPermission}
           {...(permissionQueueDepth !== undefined ? { permissionQueueDepth } : {})}
           {...(permissionBatchSize !== undefined ? { permissionBatchSize } : {})}
+          {...(permissionTimeoutMs !== undefined && permissionTimeoutMs !== null
+            ? { goalTimeoutMs: permissionTimeoutMs }
+            : {})}
           onResolve={onResolvePermission}
           {...(width !== undefined ? { width } : {})}
         />
       )}
+
     </>
   );
 }

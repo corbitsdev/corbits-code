@@ -9,6 +9,8 @@ import {
   presentDefinition,
 } from "../agent/director.js";
 import { manageTasksDefinition } from "./tasks.js";
+import { createManageGoalTool } from "./manage-goal.js";
+import type { GoalGovernor } from "./goal.js";
 import { validateView } from "../tui/view/index.js";
 import {
   advertiseShellGuardTimeout,
@@ -90,6 +92,8 @@ export type AgentToolsetArgs = {
   isWorkflowActive?: () => boolean;
   // Primary session mode: single-agent sessions omit sub-agent tooling.
   sessionMode?: SessionMode;
+  // When a goal governor is live, manage_goal mutates its acceptance checklist.
+  getGoalGovernor?: () => GoalGovernor | null;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -223,6 +227,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         return "Tasks updated.";
       },
     }),
+    ...(args.getGoalGovernor !== undefined
+      ? [createManageGoalTool(args.getGoalGovernor)]
+      : []),
     stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {

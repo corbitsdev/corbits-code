@@ -56,15 +56,24 @@ import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/type
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
+import { createGoalGovernor } from "../agent/goal.js";
+import { createGoalEvaluator } from "../agent/goal-evaluator.js";
+import { loadGoalState, saveGoalState } from "../session/goal-state.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { loadAgentContextExtensions, loadSystemPromptOverrides } from "../agent/context-extensions.js";
-import { buildMainSessionSources } from "../config/inference-sources.js";
+import { buildMainSessionSources, buildInferenceSourceForRef, tierProviderRefs } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
+import {
+  DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+  goalApprovalTimeoutMessage,
+  isGoalApprovalTimeoutActive,
+} from "../permission/goal-approval-timeout.js";
+
 import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
@@ -241,6 +250,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     loadGlobalApprovals(),
     loadProviderModelApprovals(),
   ]);
+  // Goal governor is created after liveSource (evaluator closure); the gate
+  // holds a ref so requestApproval can arm a timeout once a goal is active.
+  const goalGovernorRef: { current: ReturnType<typeof createGoalGovernor> | null } = {
+    current: null,
+  };
+
   const seededApprovals: Approval[] = [
     ...sessionApprovals,
     ...projectApprovals,
@@ -255,7 +270,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     model: config.model,
     requestApproval: (request) =>
       new Promise((resolve) => {
-        const event: PermissionGateEvent = { request, resolve };
+        const snap = goalGovernorRef.current?.get() ?? null;
+        const event: PermissionGateEvent = {
+          request,
+          resolve,
+          ...(isGoalApprovalTimeoutActive(snap?.status)
+            ? {
+                timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+                timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
+              }
+            : {}),
+        };
         emitter.emit("permission.gate", event);
       }),
     persist: (approval: Approval, scope: GrantScope) => {
@@ -273,6 +298,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
   });
+
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
@@ -516,6 +542,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
+    getGoalGovernor: () => goalGovernorRef.current,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options, commands) =>
@@ -626,6 +653,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
       );
+      d.setGoalGovernor(goalGovernor);
       directorHolder.instance = d;
       return d;
     },
@@ -705,6 +733,68 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         : buildOpenAICompatibleInitialSource();
   }
 
+  // Goal governor survives director rebuilds; reattached in the factory below.
+  // Evaluator prefers the fast tier when configured, else the live session model.
+  // Fail-open if inference fails.
+  const goalGovernor = createGoalGovernor({
+    evaluate: createGoalEvaluator({
+      getSource: () => {
+        const settings = config.settings;
+        const refs = tierProviderRefs("fast", settings, { fallbackChain: true });
+        const head = refs[0];
+
+        if (head !== undefined) {
+          const fast = buildInferenceSourceForRef(
+            head,
+            {
+              sessionId,
+              catalog: config.providers,
+              ...(config.reasoningEffort !== undefined
+                ? { reasoningEffort: config.reasoningEffort }
+                : {}),
+            },
+            settings,
+          );
+          if (fast !== null) return fast;
+        }
+        return liveSource;
+      },
+      deps: inferenceDeps,
+    }),
+    onChange: (snap) => {
+      emitter.emit("goal", snap.status === "inactive" || snap.status === "cleared" ? null : snap);
+      void saveGoalState(
+        config.cwd,
+        sessionId,
+        snap.status === "inactive" || snap.status === "cleared"
+          ? null
+          : {
+              status: snap.status,
+              condition: snap.condition,
+              brief: snap.brief,
+              criteria: snap.criteria,
+              startedAt: snap.startedAt,
+              ...(snap.completedAt !== undefined ? { completedAt: snap.completedAt } : {}),
+              turnBudget: snap.turnBudget,
+              turnsUsed: snap.turnsUsed,
+              ...(snap.tokenBudget !== undefined ? { tokenBudget: snap.tokenBudget } : {}),
+              mainTokens: snap.mainTokens,
+              evalTokens: snap.evalTokens,
+              ...(snap.lastReason !== undefined ? { lastReason: snap.lastReason } : {}),
+            },
+      );
+    },
+  });
+  goalGovernorRef.current = goalGovernor;
+
+  // Resume restores condition as paused so autonomy is never silently re-armed.
+  {
+    const persistedGoal = await loadGoalState(config.cwd, sessionId);
+    if (persistedGoal !== null) {
+      goalGovernor.restore(persistedGoal);
+    }
+  }
+
   // Compaction summarizer: produces a structured, workflow-aware handoff via a
   // one-shot call on the live model, falling back to the deterministic summary
   // on any failure. The workflow context is read at call time so a compaction
@@ -712,9 +802,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const compactionSummarize = createModelSummarizer({ getSource: () => liveSource, deps: inferenceDeps });
   const summarizeForCompaction = (turns: Parameters<typeof compactionSummarize>[0]): Promise<string> => {
     const status = workflowController.status();
-    return compactionSummarize(
-      turns,
-      status.active
+    const goalSnap = goalGovernor.get();
+    const goalActive =
+      goalSnap !== null &&
+      (goalSnap.status === "active" || goalSnap.status === "paused" || goalSnap.status === "budget_limited");
+    return compactionSummarize(turns, {
+      ...(status.active
         ? {
             workflow: {
               ...(status.name !== undefined ? { name: status.name } : {}),
@@ -723,8 +816,24 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               total: status.total,
             },
           }
-        : undefined,
-    );
+        : {}),
+      ...(goalActive
+        ? {
+            goal: {
+              condition: goalSnap.condition,
+              status: goalSnap.status,
+              brief: goalSnap.brief,
+              ...(goalSnap.criteria.length > 0
+                ? {
+                    criteriaSummary: goalSnap.criteria
+                      .map((c) => `[${c.status}] ${c.title}`)
+                      .join("; "),
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    });
   };
 
   // Mutable reference so the compaction summarize callback reads the live mode
@@ -996,8 +1105,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         currentAgent = await buildAgent();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
         await persistRunSnapshot("running");
-        // A fresh session drops any active workflow.
+        // A fresh session drops any active workflow and goal.
         workflowController.reset();
+        goalGovernor.clear();
         fatalBuildError = null;
       } catch (err) {
         recordRunError(err);
@@ -1120,6 +1230,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       mouseEvents={mouseEvents}
       sessionStartedAt={startedAt}
       subAgentSessions={subAgentSessions}
+      goalApi={{
+        get: () => goalGovernor.get(),
+        set: (condition, opts) => goalGovernor.set(condition, opts),
+        pause: () => goalGovernor.pause(),
+        resume: (opts) => goalGovernor.resume(opts),
+        clear: () => goalGovernor.clear(),
+      }}
     />,
     {
       exitOnCtrlC: false,
