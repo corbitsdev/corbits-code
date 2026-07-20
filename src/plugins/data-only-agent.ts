@@ -8,7 +8,7 @@ import type {
   ReasoningEffort,
 } from "../agent/profiles.js";
 import { AgentProfileSchema } from "../agent/profiles.js";
-import { REASONING_EFFORTS } from "@intercode/default-agents";
+import { REASONING_EFFORTS } from "../agent/profile-types.js";
 import { splitFrontmatter } from "./frontmatter.js";
 import { type } from "arktype";
 

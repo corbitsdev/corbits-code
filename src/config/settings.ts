@@ -717,7 +717,7 @@ export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignm
   };
 }
 
-import type { InferenceSpec } from "@intercode/default-agents";
+import type { InferenceSpec } from "../agent/profile-types.js";
 
 // A resolved inference leg, with reasoningEffort threaded through.
 export type ResolvedInference = {

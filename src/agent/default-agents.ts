@@ -1,20 +1,9 @@
-export type {
-  AgentProfile,
-  AgentPlugin,
-  CapabilityFilter,
-  CapabilityMode,
-  InferenceLeg,
-  InferenceSpec,
-  ReasoningEffort,
-} from "./types.js";
-export { REASONING_EFFORTS } from "./types.js";
-
-import type { AgentPlugin } from "./types.js";
+import type { AgentPlugin } from "./profile-types.js";
 
 // Default agent profiles shipped with intercode. These are the sub-agents
 // referenced by the built-in workflows. Repositories can override any of
 // these by placing a same-id profile in .agents/agents/.
-export const plugin: AgentPlugin = {
+export const defaultAgentsPlugin: AgentPlugin = {
   agents: [
     {
       id: "greybeard",
