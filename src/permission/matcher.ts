@@ -1,11 +1,18 @@
 import type { Approval } from "./types.js";
 
 // Translate a shell-style glob (opencode semantics: `*` = zero or more chars,
-// `?` = exactly one char, everything else literal) into an anchored RegExp.
+// `?` = exactly one char, `\` escapes the next char to a literal, everything
+// else literal) into an anchored RegExp.
 export function globToRegExp(pattern: string): RegExp {
   let out = "^";
+  let escaped = false;
   for (const ch of pattern) {
-    if (ch === "*") {
+    if (escaped) {
+      out += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      escaped = false;
+    } else if (ch === "\\") {
+      escaped = true;
+    } else if (ch === "*") {
       out += ".*";
     } else if (ch === "?") {
       out += ".";
@@ -13,8 +20,16 @@ export function globToRegExp(pattern: string): RegExp {
       out += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
   }
+  // A trailing lone backslash escapes nothing; keep it literal.
+  if (escaped) out += "\\\\";
   out += "$";
   return new RegExp(out);
+}
+
+// Escape a literal string so it matches only itself as an approval pattern —
+// `*` and `?` lose their wildcard meaning, `\` its escaping meaning.
+export function escapeGlob(literal: string): string {
+  return literal.replace(/[\\*?]/g, "\\$&");
 }
 
 export function matchesPattern(subject: string, pattern: string): boolean {

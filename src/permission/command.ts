@@ -1,4 +1,5 @@
 import type { ApprovalScope } from "./types.js";
+import { escapeGlob } from "./matcher.js";
 
 // Split a shell command into the individual commands it chains together, so each
 // is classified and approved on its own. Operators recognised: && || | ; and a
@@ -277,12 +278,14 @@ export function normalizeExactShellCommands(commands: readonly string[]): string
 
 // Session-grant the exact shell command(s) the operator just approved so those
 // planned run_shell calls do not re-prompt. Does not expand to family wildcards
-// (e.g. `bun install *`) — only the declared strings.
+// (e.g. `bun install *`) — only the declared strings. Glob metacharacters in a
+// declared command are escaped so the grant matches the literal string the
+// operator read, never a pattern (`rm *.tmp` grants only that exact text).
 export function preApproveExactShellCommands(
   preApprove: (tool: string, pattern: string) => void,
   commands: readonly string[],
 ): void {
   for (const command of normalizeExactShellCommands(commands)) {
-    preApprove("run_shell", command);
+    preApprove("run_shell", escapeGlob(command));
   }
 }
