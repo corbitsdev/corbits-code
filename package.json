@@ -3,6 +3,9 @@
   "version": "0.2.79",
   "private": true,
   "type": "module",
+  "engines": {
+    "bun": ">=1.2"
+  },
   "bin": {
     "intercode": "./dist/index.js"
   },
@@ -13,7 +16,7 @@
     "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",
     "test:bench": "bun test ./bench",
     "bench": "bun run bench/run.ts",
-    "run": "bun run build && ./dist/index.js"
+    "start": "bun run build && bun ./dist/index.js"
   },
   "workspaces": [
     ".",
