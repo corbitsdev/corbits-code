@@ -25,6 +25,8 @@ import {
 } from "./components/event-log.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
+import { buildCostSummary, formatCostCommandOutput, formatStatusBarSegments } from "../cost/cost-summary.js";
+import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
 import {
@@ -1365,9 +1367,21 @@ export function App({
   };
   const startNewSession = () => startNewSessionRef.current();
 
+  const getCostSummary = () => buildCostSummary({
+    modelId: modelRef.current,
+    pricingCache: getActivePricingCache(),
+    totalCost: state.totalCost,
+    formattedCost: state.formattedCost,
+    inputTokens: state.inputTokens,
+    outputTokens: state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    contextTokens: state.contextTokens,
+  });
+
   const commandContext = useMemo(() => ({
     signalClear: () => startNewSessionRef.current(),
     getMCPServers: () => mcpStatus.servers,
+    getCostSummary,
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
     ...(goalApi !== undefined
@@ -2251,6 +2265,7 @@ export function App({
           <StatusBar
             sessionElapsedMs={sessionElapsedMs}
             mcpCount={mcpStatus.connected.length}
+            {...formatStatusBarSegments(getCostSummary())}
           />
         </Box>
         </Box>

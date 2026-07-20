@@ -1,9 +1,11 @@
 import type { ProviderTier } from "../../config/settings.js";
 import type { GoalSnapshot, GoalSetOpts, GoalResumeOpts } from "../../agent/goal.js";
+import type { CostSummary } from "../../cost/cost-summary.js";
 
 export type CommandContext = {
   signalClear: () => void;
   getMCPServers?: () => Array<{ name: string; tools: string[] }>;
+  getCostSummary?: () => CostSummary;
   // Start a workflow by name; returns a status message to surface to the user.
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */
