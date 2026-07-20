@@ -7,14 +7,14 @@ export const CHROME_ZONE_ROWS = {
   header: 2,
   /** Hairline between the transcript and the progress/prompt stack. */
   progressDivider: 1,
-  /** In-flight spinner / idle placeholder. */
-  progress: 1,
+  /** InFlightIndicator: its own marginTop={1} + one content line. */
+  progress: 2,
   /** Profile · model · effort line above the prompt border (ChatInput action bar). */
   modelBar: 1,
   /** Round-bordered prompt: top border + content + bottom border. */
   prompt: 3,
-  /** Status bar under the prompt. */
-  status: 1,
+  /** StatusBar under the prompt: App's marginTop={1} wrapper + one content line. */
+  status: 2,
 } as const;
 
 export type ChromeZone = keyof typeof CHROME_ZONE_ROWS;

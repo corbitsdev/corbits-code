@@ -573,6 +573,41 @@ describe("createAgentStreamState", () => {
     expect(state.contentBlocks.some((b) => b.type === "tool_result" && b.callId === "call-err")).toBe(true);
   });
 
+  test("reactor.done clears isProcessing even without connector.reply", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    expect(state.isProcessing).toBe(true);
+
+    state.addEvent(event("reactor.done", {}));
+
+    expect(state.status).toBe("done");
+    expect(state.isProcessing).toBe(false);
+    expect(state.awaitingResponse).toBe(false);
+  });
+
+  test("terminal inference.error clears isProcessing", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.error", {
+      error: { category: "provider", message: "hard failure" },
+    }));
+
+    expect(state.status).toBe("failed");
+    expect(state.isProcessing).toBe(false);
+  });
+
+  test("non-terminal inference.error keeps isProcessing so a retry can continue", () => {
+    const state = createAgentStreamState();
+    state.markRunning();
+    state.addEvent(event("inference.error", {
+      error: { category: "timeout", message: "slow" },
+    }));
+
+    // Transient: status stays running-ish (not failed) and processing remains.
+    expect(state.status).not.toBe("failed");
+    expect(state.isProcessing).toBe(true);
+  });
+
   test("terminal inference.error after thinking clears processing chrome", () => {
     const state = createAgentStreamState();
     state.markRunning();
