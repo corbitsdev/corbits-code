@@ -4,7 +4,7 @@ import {
   resolveInferenceWithPolicy,
   type Settings,
 } from "../../src/config/settings.js";
-import type { InferenceSpec } from "@intercode/default-agents";
+import type { InferenceSpec } from "../../src/agent/profile-types.js";
 
 const baseSettings: Settings = {
   providers: {
