@@ -6,7 +6,7 @@ import { elapsedMsFromAnchor } from "../hooks/use-spinner.js";
 import { createMemoizedParseMarkdown } from "../markdown-parser.js";
 import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
-import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult } from "../tool-formatter.js";
+import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult, toolGlyph } from "../tool-formatter.js";
 import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
@@ -461,7 +461,7 @@ function toolCallLines(
   expanded: boolean,
   meta?: { pending?: boolean; durationSuffix?: string },
 ): StyledLine[] {
-  const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
+  const { display, role, summary, full, isShell, glyph } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
   // A pending row bakes no duration text; its live spinner and elapsed clock are
   // painted by the running-row component from the startedAt marker instead.
@@ -483,7 +483,7 @@ function toolCallLines(
 
   if (expanded) {
     const headline = wrapStyledLine([
-      { text: "● ", color: roleColor },
+      { text: `${glyph} `, color: roleColor },
       { text: `${display}${durationSuffix}`, color: roleColor },
     ], contentWidth);
     const edit = editDiffFromArgs(block.name, block.arguments);
@@ -507,7 +507,7 @@ function toolCallLines(
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
-      { text: "● ", color: roleColor, dim: role !== "danger" },
+      { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
       { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
@@ -518,7 +518,7 @@ function toolCallLines(
 function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
   return wrapStyledLine(
     [
-      { text: "● ", color: color("success"), dim: true },
+      { text: `${toolGlyph("edit_file")} `, color: color("success"), dim: true },
       { text: `Edited ${count} files`, color: color("muted"), dim: true },
     ],
     width,
@@ -530,7 +530,7 @@ function mergedToolLines(
   result: Extract<RenderableBlock, { type: "tool_result" }>,
   width: number,
 ): StyledLine[] {
-  const { role, isShell, summary } = describeToolCall(call.name, call.arguments);
+  const { role, isShell, summary, glyph } = describeToolCall(call.name, call.arguments);
   const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const roleColor = color(role);
 
@@ -551,7 +551,7 @@ function mergedToolLines(
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
-      { text: "● ", color: roleColor, dim: role !== "danger" },
+      { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
       { text: `${merged}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
     ],
     width,

@@ -19,6 +19,9 @@ export type ToolCallDescriptor = {
   full: string;
   // run_shell is rendered leanly: the command is the headline, not a loud tag.
   isShell: boolean;
+  // Leading marker distinguishing tool type at a glance, independent of the
+  // status colour applied around it.
+  glyph: string;
 };
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -35,6 +38,32 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   submit_output: "Submit",
   ask_operator: "Ask operator",
 };
+
+// Every tool call used to render with the same "●" bullet, colour alone
+// telling shell/read/write/search apart — a reader had to parse the text to
+// know what happened. A distinct glyph per tool type makes that a pre-attentive
+// signal instead. Symbols are chosen from Unicode blocks with a Narrow/Neutral
+// East Asian width and no default emoji presentation, so they render as a
+// single terminal cell rather than the double-wide glyphs emoji fonts substitute.
+const DEFAULT_TOOL_GLYPH = "●";
+
+const TOOL_GLYPHS: Record<string, string> = {
+  run_shell: "$",
+  read_file: "◇",
+  write_file: "✎",
+  edit_file: "✐",
+  grep: "⌕",
+  search_files: "⌗",
+  list_dir: "☰",
+  web_search: "⊛",
+  web_fetch: "⇣",
+  task: "⚑",
+  present: "▣",
+};
+
+export function toolGlyph(toolName: string): string {
+  return TOOL_GLYPHS[toolName] ?? DEFAULT_TOOL_GLYPH;
+}
 
 // Brand of the active web plugin (e.g. "Exa"), set at startup when a web plugin
 // overrides the built-in provider. Renders web_search/web_fetch as branded
@@ -98,12 +127,26 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
   // turns-to-blocks.ts leaves the tool_call in place, so this line is all the
   // user sees alongside the separate error tool_result — keep it labeled.
   if (toolName === "present") {
-    return { display: "Render view", role: "accent", summary: "(invalid spec)", full: "", isShell: false };
+    return {
+      display: "Render view",
+      role: "accent",
+      summary: "(invalid spec)",
+      full: "",
+      isShell: false,
+      glyph: toolGlyph(toolName),
+    };
   }
   if (toolName === "run_shell") {
     const shellParsed = ShellArgSchema(tryParseObject(rawArgs));
     const command = !(shellParsed instanceof type.errors) ? shellParsed.command : rawArgs.trim();
-    return { display: "Shell", role: shellRole(command), summary: command, full: command, isShell: true };
+    return {
+      display: "Shell",
+      role: shellRole(command),
+      summary: command,
+      full: command,
+      isShell: true,
+      glyph: toolGlyph(toolName),
+    };
   }
   if (toolName === "task") {
     const taskParsed = TaskArgSchema(tryParseObject(rawArgs));
@@ -115,11 +158,18 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
       const summary = description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "";
-      return { display, role: "accent", summary, full: summary, isShell: false };
+      return { display, role: "accent", summary, full: summary, isShell: false, glyph: toolGlyph(toolName) };
     }
   }
   const { summary, full } = summarizeToolArgs(toolName, rawArgs);
-  return { display: humanizeToolName(toolName), role: toolRole(toolName), summary, full, isShell: false };
+  return {
+    display: humanizeToolName(toolName),
+    role: toolRole(toolName),
+    summary,
+    full,
+    isShell: false,
+    glyph: toolGlyph(toolName),
+  };
 }
 
 export type ToolResultSummary = {
