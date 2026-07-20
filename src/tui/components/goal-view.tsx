@@ -1,14 +1,19 @@
 import { Box, Text } from "ink";
-import type { GoalCriterion, GoalCriterionStatus, GoalSnapshot } from "../../agent/goal.js";
-import { goalCriteriaProgress } from "../../agent/goal.js";
+import {
+  GOAL_PHASES,
+  deriveGoalPhase,
+  goalCriteriaProgress,
+  type GoalCriterion,
+  type GoalCriterionStatus,
+  type GoalPhase,
+  type GoalSnapshot,
+  type GoalStatus,
+} from "../../agent/goal.js";
 import { color } from "../theme.js";
 
 export type GoalViewProps = {
   goal: GoalSnapshot;
-  /**
-   * Compact: one line for current open criterion.
-   * Default (expanded): full acceptance checklist — preferred while a goal is active.
-   */
+  /** When true, show only brief + phase strip (implementing phase). */
   compact?: boolean;
 };
 
@@ -20,7 +25,154 @@ const GLYPH: Record<GoalCriterionStatus, string> = {
   cancelled: "✗",
 };
 
-function statusColor(status: GoalCriterionStatus): string {
+/**
+ * Expanded acceptance checklist — primary goal surface.
+ * Quiet styling (muted labels, no bright accent wash).
+ */
+export function GoalView({ goal, compact }: GoalViewProps) {
+  const snapshot = goal;
+  if (snapshot.status === "inactive" || snapshot.status === "cleared") return null;
+
+  const phase = snapshot.phase ?? deriveGoalPhase(snapshot.criteria, snapshot.status);
+  const progress = goalCriteriaProgress(snapshot.criteria);
+  const brief = snapshot.brief || snapshot.condition;
+  const quiet = isQuietStatus(snapshot.status);
+
+  if (compact || snapshot.criteria.length === 0) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Box gap={1}>
+          <Text bold color={color("muted")}>
+            Goal
+          </Text>
+          <PhaseTrail phase={phase} />
+          {!quiet && (
+            <Text color={statusColor(snapshot.status)} dimColor={quiet}>
+              {snapshot.status}
+            </Text>
+          )}
+        </Box>
+        <Text wrap="truncate-end" dimColor={quiet}>
+          {brief}
+        </Text>
+        {snapshot.criteria.length === 0 && phase === "planning" && (
+          <Text color={color("dim")} dimColor>
+            planning acceptance…
+          </Text>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Box gap={1}>
+        <Text bold color={color("muted")}>
+          Acceptance
+        </Text>
+        <PhaseTrail phase={phase} />
+        <Text color={color("dim")} dimColor>
+          {`${progress.done}/${progress.total}`}
+        </Text>
+        {!quiet && (
+          <Text color={statusColor(snapshot.status)} dimColor={quiet}>
+            {snapshot.status}
+          </Text>
+        )}
+      </Box>
+      <Text wrap="truncate-end" color={color("dim")} dimColor>
+        {brief}
+      </Text>
+      {sortedCriteria(snapshot.criteria).map((c) => (
+        <Box key={c.id} gap={1}>
+          <Text color={criterionColor(c.status)}>{GLYPH[c.status]}</Text>
+          <Text
+            {...(c.status === "done" || c.status === "cancelled"
+              ? { color: color("dim"), strikethrough: true }
+              : {})}
+            bold={c.status === "doing"}
+            wrap="truncate-end"
+          >
+            {c.title}
+          </Text>
+          {c.note !== undefined && c.note.length > 0 && (
+            <Text color={color("dim")} dimColor wrap="truncate-end">
+              {c.note}
+            </Text>
+          )}
+        </Box>
+      ))}
+      {snapshot.lastReason !== undefined && snapshot.lastReason.length > 0 && (
+        <Text color={color("dim")} dimColor wrap="truncate-end">
+          {snapshot.lastReason}
+        </Text>
+      )}
+    </Box>
+  );
+}
+
+/** planning → implementing → reviewing → completed with current phase emphasized. */
+function PhaseTrail({ phase }: { phase: GoalPhase }) {
+  return (
+    <Box gap={0}>
+      {GOAL_PHASES.map((p, i) => {
+        const current = p === phase;
+        const past = GOAL_PHASES.indexOf(phase) > i;
+        return (
+          <Box key={p} gap={0}>
+            {i > 0 && (
+              <Text color={color("dim")} dimColor>
+                {" → "}
+              </Text>
+            )}
+            <Text
+              bold={current}
+              color={current ? color("text") : color("dim")}
+              dimColor={!current}
+              {...(past && !current ? { strikethrough: false } : {})}
+            >
+              {p}
+            </Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+function sortedCriteria(criteria: GoalCriterion[]): GoalCriterion[] {
+  const rank: Record<GoalCriterionStatus, number> = {
+    doing: 0,
+    blocked: 1,
+    todo: 2,
+    done: 3,
+    cancelled: 4,
+  };
+  return [...criteria].sort((a, b) => rank[a.status] - rank[b.status]);
+}
+
+function isQuietStatus(status: GoalStatus): boolean {
+  return status === "active" || status === "paused";
+}
+
+function statusColor(status: GoalStatus): string {
+  switch (status) {
+    case "achieved":
+      return color("success");
+    case "budget_limited":
+    case "blocked":
+      return color("warning");
+    case "paused":
+      return color("muted");
+    case "active":
+      return color("muted");
+    case "cleared":
+    case "inactive":
+      return color("dim");
+  }
+}
+
+function criterionColor(status: GoalCriterionStatus): string {
   switch (status) {
     case "done":
       return color("success");
@@ -33,114 +185,4 @@ function statusColor(status: GoalCriterionStatus): string {
     case "todo":
       return color("muted");
   }
-}
-
-function byPriority(a: GoalCriterion, b: GoalCriterion): number {
-  const rank: Record<GoalCriterionStatus, number> = {
-    doing: 0,
-    blocked: 1,
-    todo: 2,
-    cancelled: 3,
-    done: 4,
-  };
-  return rank[a.status] - rank[b.status];
-}
-
-/** Chrome for the panel label — muted, success only when achieved. */
-function labelColor(status: GoalSnapshot["status"]): string {
-  if (status === "achieved") return color("success");
-  if (status === "blocked" || status === "budget_limited") return color("warning");
-  return color("muted");
-}
-
-/**
- * Session goal acceptance checklist.
- * This is *what done means* — not the work plan (that is Tasks / manage_tasks).
- */
-export function GoalView({ goal, compact = false }: GoalViewProps) {
-  if (goal.status === "inactive" || goal.status === "cleared") return null;
-
-  const progress = goalCriteriaProgress(goal.criteria);
-  const sorted = [...goal.criteria].sort(byPriority);
-
-  if (goal.criteria.length === 0) {
-    return (
-      <Box paddingX={1} flexDirection="column">
-        <Box gap={1}>
-          <Text bold color={labelColor(goal.status)}>
-            Acceptance
-          </Text>
-          <Text color={color("dim")} dimColor>
-            planning…
-          </Text>
-        </Box>
-        <Text color={color("muted")} dimColor wrap="truncate-end">
-          {goal.brief || goal.condition}
-        </Text>
-      </Box>
-    );
-  }
-
-  if (compact) {
-    const open = sorted.filter(
-      (c) => c.status === "todo" || c.status === "doing" || c.status === "blocked",
-    );
-    const current = open.find((c) => c.status === "doing") ?? open[0];
-    if (current === undefined) {
-      return (
-        <Box paddingX={1} gap={1}>
-          <Text color={color("success")}>✓</Text>
-          <Text wrap="truncate-end">
-            Acceptance {progress.done}/{progress.total}
-          </Text>
-          {goal.status !== "active" && goal.status !== "achieved" && (
-            <Text color={color("dim")} dimColor>
-              {goal.status}
-            </Text>
-          )}
-        </Box>
-      );
-    }
-    const remaining = open.length - 1;
-    return (
-      <Box paddingX={1} gap={1}>
-        <Text color={statusColor(current.status)}>{GLYPH[current.status]}</Text>
-        <Text wrap="truncate-end">{current.title}</Text>
-        <Text color={color("dim")} dimColor>
-          {progress.done}/{progress.total}
-          {remaining > 0 ? ` +${remaining}` : ""}
-        </Text>
-      </Box>
-    );
-  }
-
-  return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box gap={1}>
-        <Text bold color={labelColor(goal.status)}>
-          Acceptance
-        </Text>
-        <Text color={color("dim")} dimColor>
-          {progress.done}/{progress.total}
-        </Text>
-        {goal.status !== "active" && (
-          <Text color={color("dim")} dimColor>
-            {goal.status}
-          </Text>
-        )}
-      </Box>
-      {sorted.map((c) => (
-        <Box key={c.id} gap={1}>
-          <Text color={statusColor(c.status)}>{GLYPH[c.status]}</Text>
-          <Text
-            {...(c.status === "done" ? { color: color("dim"), strikethrough: true } : {})}
-            bold={c.status === "doing"}
-            wrap="truncate-end"
-          >
-            {c.title}
-          </Text>
-        </Box>
-      ))}
-    </Box>
-  );
 }

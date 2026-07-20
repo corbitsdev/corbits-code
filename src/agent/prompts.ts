@@ -157,9 +157,9 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "spawn a sub-agent for a self-contained job (not a checklist item); optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens in description and prompt so they do not duplicate work",
   search_agents: "find agent profiles by role or team before spawning with task(agent=...)",
   manage_tasks:
-    "maintain your own work checklist — create/replace, update status, append new steps, cancel obsolete ones as the plan evolves; under /goal this is Work (not Acceptance); separate from spawning sub-agents",
+    "maintain Work checklist — create/replace, update status, append, cancel; under /goal this is Work (steps), not Acceptance; primary surface during implementing",
   manage_goal:
-    "define/update the session goal acceptance checklist (what done means) — only while /goal is set; not a work plan (use manage_tasks for work)",
+    "define/update Acceptance checklist (what done means) while /goal is set — planning phase first, then progressive updates during reviewing; not a work plan (use manage_tasks)",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
   present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",

@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { ReactorAction, ReactorCapabilities } from "@intx/types/runtime";
 import {
   createGoalGovernor,
+  deriveGoalPhase,
   formatGoalStatus,
   formatGoalTurns,
   goalKickoffUserMessage,
+  goalShowsAcceptancePanel,
+  goalShowsWorkPrimary,
   isUnlimitedTurnBudget,
   DEFAULT_GOAL_TURN_BUDGET,
   type GoalCriterion,
@@ -96,6 +99,7 @@ describe("goal governor state machine", () => {
   test("setCriteria expands the real goal and synthesizes condition", () => {
     const g = createGoalGovernor({ evaluate: alwaysNotMet() });
     g.set("ship the feature");
+    expect(g.get()?.phase).toBe("planning");
     const snap = g.setCriteria([
       { id: "c1", title: "typecheck clean", status: "todo" },
       { id: "c2", title: "tests green", status: "todo" },
@@ -104,6 +108,46 @@ describe("goal governor state machine", () => {
     expect(snap?.condition).toContain("typecheck clean");
     expect(snap?.condition).toContain("tests green");
     expect(snap?.brief).toBe("ship the feature");
+    expect(snap?.phase).toBe("implementing");
+  });
+
+  test("lifecycle phase advances planning → implementing → reviewing → completed", () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("ship");
+    expect(g.get()?.phase).toBe("planning");
+    expect(goalShowsAcceptancePanel("planning")).toBe(true);
+    expect(goalShowsWorkPrimary("planning")).toBe(false);
+
+    g.setCriteria([
+      { id: "c1", title: "a", status: "todo" },
+      { id: "c2", title: "b", status: "todo" },
+    ]);
+    expect(g.get()?.phase).toBe("implementing");
+    expect(goalShowsWorkPrimary("implementing")).toBe(true);
+    expect(goalShowsAcceptancePanel("implementing")).toBe(false);
+
+    g.updateCriteria([{ id: "c1", status: "doing" }]);
+    expect(g.get()?.phase).toBe("reviewing");
+    expect(goalShowsAcceptancePanel("reviewing")).toBe(true);
+
+    g.updateCriteria([
+      { id: "c1", status: "done", note: "ok" },
+      { id: "c2", status: "done", note: "ok" },
+    ]);
+    expect(g.get()?.status).toBe("achieved");
+    expect(g.get()?.phase).toBe("completed");
+  });
+
+  test("deriveGoalPhase treats blocked as review start", () => {
+    expect(
+      deriveGoalPhase(
+        [
+          { id: "c1", title: "a", status: "blocked" },
+          { id: "c2", title: "b", status: "todo" },
+        ],
+        "active",
+      ),
+    ).toBe("reviewing");
   });
 
   test("updateCriteria patches status and notes", () => {
@@ -437,6 +481,7 @@ describe("goal interceptTerminal", () => {
     g.set("ship it", { turnBudget: 12 });
     const planning = formatGoalStatus(g.get());
     expect(planning).toContain("ship it");
+    expect(planning).toContain("Phase: planning");
     expect(planning).toMatch(/planning|not planned|criteria/i);
 
     g.setCriteria([
@@ -446,6 +491,17 @@ describe("goal interceptTerminal", () => {
     const text = formatGoalStatus(g.get());
     expect(text).toContain("typecheck");
     expect(text).toContain("tests");
+    expect(text).toContain("Phase: reviewing");
     expect(text).toMatch(/1\/2|Progress/i);
+  });
+
+  test("kickoff message names lifecycle phases", () => {
+    const msg = goalKickoffUserMessage("typecheck clean");
+    expect(msg).toContain("planning");
+    expect(msg).toContain("implementing");
+    expect(msg).toContain("reviewing");
+    expect(msg).toContain("completed");
+    expect(msg).toContain("manage_goal");
+    expect(msg).toContain("manage_tasks");
   });
 });

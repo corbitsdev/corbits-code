@@ -14,6 +14,25 @@ export type GoalStatus =
   | "budget_limited"
   | "blocked";
 
+/**
+ * Lifecycle phase for a live goal — orthogonal to autonomy status (paused /
+ * budget_limited / blocked). Derived from acceptance checklist progress so the
+ * UI can show Work during implement and Acceptance during review.
+ *
+ *   planning     → brief set, acceptance checklist not yet defined
+ *   implementing → acceptance defined; work plan is the primary surface
+ *   reviewing    → acceptance progress started (doing/done/blocked on any item)
+ *   completed    → all non-cancelled criteria done (status usually achieved)
+ */
+export type GoalPhase = "planning" | "implementing" | "reviewing" | "completed";
+
+export const GOAL_PHASES: readonly GoalPhase[] = [
+  "planning",
+  "implementing",
+  "reviewing",
+  "completed",
+] as const;
+
 /** One acceptance criterion in the expanded goal checklist. */
 export type GoalCriterionStatus = "todo" | "doing" | "done" | "blocked" | "cancelled";
 
@@ -28,6 +47,12 @@ export type GoalCriterion = {
 
 export type GoalSnapshot = {
   status: GoalStatus;
+  /**
+   * Lifecycle phase derived from acceptance progress. Always present on values
+   * returned from get()/emit(); may be absent on in-flight internal mutations
+   * until the next attachPhase.
+   */
+  phase?: GoalPhase;
   /** Original operator brief from `/goal …` (not the expanded checklist). */
   brief: string;
   /** Expanded acceptance criteria — the real goal definition once planned. */
@@ -126,6 +151,35 @@ export function criteriaAllDone(criteria: GoalCriterion[]): boolean {
   return counted.length > 0 && counted.every((c) => c.status === "done");
 }
 
+/**
+ * Derive lifecycle phase from checklist progress.
+ * Autonomy status (paused / blocked / budget_limited) does not change phase —
+ * only acceptance progress and achieved do.
+ */
+export function deriveGoalPhase(
+  criteria: GoalCriterion[],
+  status: GoalStatus,
+): GoalPhase {
+  if (status === "achieved" || criteriaAllDone(criteria)) return "completed";
+  if (criteria.length === 0) return "planning";
+  // Any acceptance progress means the agent is checking criteria (review).
+  const acceptanceStarted = criteria.some(
+    (c) => c.status === "doing" || c.status === "done" || c.status === "blocked",
+  );
+  if (acceptanceStarted) return "reviewing";
+  return "implementing";
+}
+
+/** Full Acceptance panel: planning (define it), reviewing, completed. */
+export function goalShowsAcceptancePanel(phase: GoalPhase): boolean {
+  return phase === "planning" || phase === "reviewing" || phase === "completed";
+}
+
+/** Work is the primary chrome surface while implementing. */
+export function goalShowsWorkPrimary(phase: GoalPhase): boolean {
+  return phase === "implementing";
+}
+
 /** Build evaluator/legacy condition text from brief + criteria. */
 export function synthesizeGoalCondition(brief: string, criteria: GoalCriterion[]): string {
   if (criteria.length === 0) return brief;
@@ -152,6 +206,13 @@ function emptySnapshot(defaultTurnBudget: number): GoalSnapshot {
     evalTokens: 0,
     consecutiveEvalFailures: 0,
     consecutiveEmptyYields: 0,
+  };
+}
+
+function attachPhase(snap: GoalSnapshot): GoalSnapshot {
+  return {
+    ...snap,
+    phase: deriveGoalPhase(snap.criteria, snap.status),
   };
 }
 
@@ -229,9 +290,8 @@ export function goalKickoffUserMessage(
   if (phase === "resume") {
     return (
       `Goal resumed.\nBrief: ${brief}\n` +
-      "Continue the acceptance checklist (manage_goal) and work plan (manage_tasks). " +
-      "Update acceptance criteria as you verify each item. " +
-      "Revise manage_tasks freely as work evolves (add/cancel/replan). " +
+      "Continue the lifecycle: planning → implementing → reviewing → completed. " +
+      "Update manage_tasks (Work) during implementing; mark manage_goal (Acceptance) as you verify in review. " +
       "If criteria are still empty or vague, define or clarify them before more work."
     );
   }
@@ -240,6 +300,11 @@ export function goalKickoffUserMessage(
     "Two lists (do not conflate them):\n" +
     "- manage_goal = Acceptance — what \"done\" means (checkable success criteria).\n" +
     "- manage_tasks = Work — the steps you take to get there.\n\n" +
+    "Lifecycle phases (the UI follows these):\n" +
+    "1. planning — define Acceptance via manage_goal create (before heavy work).\n" +
+    "2. implementing — execute Work via manage_tasks; leave Acceptance items todo until you verify.\n" +
+    "3. reviewing — mark Acceptance doing/done with evidence as you check each criterion.\n" +
+    "4. completed — every non-cancelled Acceptance item is done (auto-achieves the goal).\n\n" +
     "Order of operations (do not invert):\n" +
     "1. If the brief is vague or multi-interpretable, ask_operator ONE short clarifying question. " +
     "Do not run tests, make edits, install deps, or explore the repo until success is defined.\n" +
@@ -249,10 +314,9 @@ export function goalKickoffUserMessage(
     "\"PR description documents migration steps\").\n" +
     "3. Call manage_tasks with action=\"create\" for the work plan to satisfy those criteria " +
     "(implementation steps, not acceptance restatements).\n" +
-    "4. Execute. Keep manage_tasks live throughout: update status as you go; " +
-    "append new steps (update with new id+title); cancel obsolete steps; " +
-    "or create again to replan the whole list. " +
-    "Mark manage_goal items done only with evidence that the criterion is met. " +
+    "4. Implement with Work live: update/add/cancel manage_tasks as the plan evolves. " +
+    "Do not mass-mark Acceptance done until you are verifying — progressive manage_goal updates " +
+    "during review (doing → done with evidence). " +
     "The goal is achieved only when every acceptance criterion is done."
   );
 }
@@ -273,6 +337,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
   let snapshot: GoalSnapshot = emptySnapshot(defaultTurnBudget);
 
   function emit(): GoalSnapshot {
+    snapshot = attachPhase(snapshot);
     const copy: GoalSnapshot = {
       ...snapshot,
       criteria: cloneCriteria(snapshot.criteria),
@@ -283,9 +348,10 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
 
   function get(): GoalSnapshot | null {
     if (snapshot.status === "inactive") return null;
+    const phased = attachPhase(snapshot);
     return {
-      ...snapshot,
-      criteria: cloneCriteria(snapshot.criteria),
+      ...phased,
+      criteria: cloneCriteria(phased.criteria),
     };
   }
 
@@ -687,8 +753,10 @@ export function formatGoalStatus(snap: GoalSnapshot | null): string {
   }
 
   const progress = goalCriteriaProgress(snap.criteria);
+  const phase = snap.phase ?? deriveGoalPhase(snap.criteria, snap.status);
   const lines: string[] = [
     `Brief: ${snap.brief || snap.condition}`,
+    `Phase: ${phase}`,
   ];
 
   if (snap.criteria.length === 0) {

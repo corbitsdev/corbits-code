@@ -103,10 +103,11 @@ export function parseManageGoalArgs(rawArgs: unknown): ManageGoalArgs | null {
 
 function summarize(snap: NonNullable<ReturnType<GoalGovernor["get"]>>): string {
   const progress = goalCriteriaProgress(snap.criteria);
+  const phase = snap.phase ?? "planning";
   const head =
     snap.status === "achieved"
       ? `Goal achieved — all ${progress.total} acceptance criteria done.`
-      : `Goal checklist updated (${progress.done}/${progress.total} done).`;
+      : `Goal checklist updated (${progress.done}/${progress.total} done, phase=${phase}).`;
   return `${head}\n${formatGoalStatus(snap)}`;
 }
 

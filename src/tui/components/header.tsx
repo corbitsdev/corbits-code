@@ -2,7 +2,12 @@ import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
 import type { GoalSnapshot } from "../../agent/goal.js";
-import { formatGoalTurns, goalCriteriaProgress, isUnlimitedTurnBudget } from "../../agent/goal.js";
+import {
+  deriveGoalPhase,
+  formatGoalTurns,
+  goalCriteriaProgress,
+  isUnlimitedTurnBudget,
+} from "../../agent/goal.js";
 
 export type HeaderWorkflow = {
   name: string;
@@ -33,14 +38,13 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-/** Compact header chip: acceptance progress, not the raw brief. */
+/** Compact header chip: lifecycle phase + acceptance progress. */
 function goalLine(goal: GoalSnapshot, width: number): string {
+  const phase = goal.phase ?? deriveGoalPhase(goal.criteria, goal.status);
   const progress = goalCriteriaProgress(goal.criteria);
-  const parts: string[] = ["accept"];
+  const parts: string[] = [phase];
   if (progress.total > 0) {
     parts.push(`${progress.done}/${progress.total}`);
-  } else {
-    parts.push("planning");
   }
   if (goal.status !== "active") {
     parts.push(goal.status);

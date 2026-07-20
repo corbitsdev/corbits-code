@@ -40,6 +40,11 @@ import { TaskView } from "./components/task-view.js";
 import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
 import {
+  deriveGoalPhase,
+  goalShowsAcceptancePanel,
+  goalShowsWorkPrimary,
+} from "../agent/goal.js";
+import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
   INFERENCE_ABORT_USER_STOP,
   type InferenceAbortReason,
@@ -864,21 +869,31 @@ export function App({
     return subAgentSessions.get(enteredSessionId);
   }, [enteredSessionId, subAgentSessions, sessionsTick]);
 
-  // Acceptance (goal) is always expanded while set. Work (tasks) stays
-  // compact until Ctrl+T so the two lists read as different surfaces.
+  // Goal chrome follows lifecycle phase:
+  // planning / reviewing / completed → Acceptance panel
+  // implementing → Work primary (Acceptance compact or hidden; header shows phase)
   const goalActive =
     goalSnapshot !== null &&
     goalSnapshot.status !== "inactive" &&
     goalSnapshot.status !== "cleared";
+  const goalPhase = goalActive
+    ? (goalSnapshot!.phase ?? deriveGoalPhase(goalSnapshot!.criteria, goalSnapshot!.status))
+    : null;
+  const showAcceptance = goalPhase !== null && goalShowsAcceptancePanel(goalPhase);
+  const workPrimary = goalPhase !== null && goalShowsWorkPrimary(goalPhase);
+  // Expand Work by default while implementing so the plan is visible without Ctrl+T.
+  const workExpanded = tasksExpanded || workPrimary;
   const goalChromeRows = !goalActive
     ? 0
-    : (goalSnapshot!.criteria.length === 0
-        ? 2
-        : goalSnapshot!.criteria.length + 1) + 2;
+    : showAcceptance
+      ? (goalSnapshot!.criteria.length === 0
+          ? 2
+          : goalSnapshot!.criteria.length + 2) + 2
+      : 3; // compact phase strip during implementing
   const taskChromeRows =
     !hasActiveTasks(state.tasks)
       ? 0
-      : (tasksExpanded ? state.tasks.length + 1 : 1) + 2;
+      : (workExpanded ? state.tasks.length + 1 : 1) + 2;
 
   // The plugins overlay renders outside the modal-stack accounting (like the
   // permissions overlay), so reserve rows for its box: chrome + one row per
@@ -2096,28 +2111,35 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
-          {goalSnapshot !== null &&
-            goalSnapshot.status !== "inactive" &&
-            goalSnapshot.status !== "cleared" && (
-            <Box flexDirection="column" marginTop={1}>
-              <GoalView goal={goalSnapshot} />
-            </Box>
-          )}
-          {hasActiveTasks(state.tasks) && (
-            <Box flexDirection="column" marginTop={1}>
-              <TaskView
-                tasks={state.tasks}
-                compact={!tasksExpanded}
-                title={
-                  goalSnapshot !== null &&
-                  goalSnapshot.status !== "inactive" &&
-                  goalSnapshot.status !== "cleared"
-                    ? "Work"
-                    : "Tasks"
-                }
-              />
-            </Box>
-          )}
+          {(() => {
+            const workBlock = hasActiveTasks(state.tasks) ? (
+              <Box flexDirection="column" marginTop={1} key="work">
+                <TaskView
+                  tasks={state.tasks}
+                  compact={!workExpanded}
+                  title={goalActive ? "Work" : "Tasks"}
+                />
+              </Box>
+            ) : null;
+            const acceptBlock =
+              goalActive && goalSnapshot !== null ? (
+                <Box flexDirection="column" marginTop={1} key="accept">
+                  <GoalView goal={goalSnapshot} compact={!showAcceptance} />
+                </Box>
+              ) : null;
+            // implementing: Work on top; planning/reviewing/completed: Acceptance on top
+            return workPrimary ? (
+              <>
+                {workBlock}
+                {acceptBlock}
+              </>
+            ) : (
+              <>
+                {acceptBlock}
+                {workBlock}
+              </>
+            );
+          })()}
           {agentsStripVisible ? (
             <Box flexDirection="column" marginTop={1}>
               <AgentsStrip
