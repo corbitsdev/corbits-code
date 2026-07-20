@@ -264,6 +264,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const preApprove = (tool: string, pattern: string): void => {
     const approval: Approval = { tool, pattern };
+    // Repeated ask_operator approvals for the same command must not pile up
+    // duplicate session grants.
+    if (approvals.some((a) => sameApproval(a, approval))) return;
     approvals.push(approval);
     sessionGrants.push(approval);
   };

@@ -407,6 +407,25 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(2);
   });
 
+  test("preApprove dedupes identical session grants", () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+    });
+    gate.preApprove("run_shell", "bun install");
+    gate.preApprove("run_shell", "bun install");
+    gate.preApprove("run_shell", "bun test");
+    expect(gate.getSessionApprovals()).toEqual([
+      { tool: "run_shell", pattern: "bun install" },
+      { tool: "run_shell", pattern: "bun test" },
+    ]);
+    expect(gate.getApprovals()).toEqual([
+      { tool: "run_shell", pattern: "bun install" },
+      { tool: "run_shell", pattern: "bun test" },
+    ]);
+  });
+
   test("exposes session grants and revokes one live without touching persisted ones", async () => {
     const sessionScope: PermissionRequest["scopes"][number] = {
       id: "s", label: "", pattern: "curl *", grant: "session",
