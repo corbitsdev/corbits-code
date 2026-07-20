@@ -39,7 +39,7 @@ export type GateController = {
   pendingPermission: PermissionRequest | null;
   /** Permission gates still queued, including the visible modal. */
   permissionQueueDepth: number;
-  /** Queued requests identical to the visible modal's (same tool and subject), head included. */
+  /** Queued requests identical to the visible modal's (same tool, subject, and arguments), head included. */
   permissionBatchSize: number;
   /**
    * Auto-skip budget for the visible permission modal (goal mode). Null when the
@@ -85,8 +85,24 @@ function settlePermission(entry: PermissionQueueEntry, outcome: ApprovalOutcome)
   entry.resolve(outcome);
 }
 
+// Key-order-insensitive canonical form so two argument payloads compare by
+// value. Batch identity must cover the full payload: subjects omit
+// consequential arguments (MCP tools key on the tool name, file writes on the
+// path), so tool + subject alone would collapse materially different calls.
+const stableStringify = (value: unknown): string => {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? String(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
+};
+
 const isSameRequest = (a: PermissionQueueEntry, b: PermissionQueueEntry): boolean =>
-  a.request.tool === b.request.tool && a.request.subject === b.request.subject;
+  a.request.tool === b.request.tool &&
+  a.request.subject === b.request.subject &&
+  stableStringify(a.request.arguments) === stableStringify(b.request.arguments);
 
 // How many queued entries (head included) one decision on the head resolves.
 const batchSizeOf = (queue: readonly PermissionQueueEntry[]): number => {
@@ -256,7 +272,7 @@ export function useGates({ eventEmitter, setGatePending }: UseGatesArgs): GateCo
       const head = permissionQueue.current[0];
       if (head === undefined || head.settled) return;
       // One decision also covers queued duplicates of the request the modal
-      // showed — same tool, same subject — and nothing else. Requests for other
+      // showed — same tool, subject, and arguments — and nothing else. Requests for other
       // tools or other subjects, including ones that arrived while the modal
       // was open, stay queued for their own prompt. Only the head carries a
       // persistent grant: duplicates are the same pattern, so one write is the

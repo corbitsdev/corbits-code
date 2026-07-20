@@ -10,9 +10,9 @@ export type PermissionModalProps = {
   /** Permission gates still queued, including this modal. */
   permissionQueueDepth?: number;
   /**
-   * Queued requests identical to this one (same tool and subject), this modal
-   * included. One decision resolves the whole identical batch; requests for
-   * anything else prompt separately.
+   * Queued requests identical to this one (same tool, subject, and arguments),
+   * this modal included. One decision resolves the whole identical batch;
+   * requests for anything else prompt separately.
    */
   permissionBatchSize?: number;
   /**

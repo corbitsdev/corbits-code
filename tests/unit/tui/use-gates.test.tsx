@@ -564,3 +564,44 @@ test("queued permission timeout starts only when the request becomes visible hea
   expect(second).toEqual({ allow: false, message: "second timed out" });
   expect(lastFrame()).toContain("none none none open=0");
 });
+
+// A head that times out is denied on its own — the timeout must never stand in
+// for an operator decision on queued duplicates. The identical duplicate stays
+// queued, surfaces as the next prompt, and gets its own explicit decision.
+test("head timeout denies only the head, not queued identical duplicates", async () => {
+  const emitter = new EventEmitter();
+  let first: { allow: boolean; message?: string } | null = null;
+  let second: { allow: boolean; message?: string } | null = null;
+  const { stdin, lastFrame } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  const request = { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] };
+  emitter.emit("permission.gate", {
+    request,
+    resolve: (o: { allow: boolean; message?: string }) => {
+      first = o;
+    },
+    timeoutMs: 40,
+    timeoutMessage: "first timed out",
+  });
+  emitter.emit("permission.gate", {
+    request: { ...request },
+    resolve: (o: { allow: boolean; message?: string }) => {
+      second = o;
+    },
+  });
+  await tick();
+  expect(lastFrame()).toContain("batch=2");
+
+  await new Promise((r) => setTimeout(r, 80));
+  expect(first).toEqual({ allow: false, message: "first timed out" });
+  // The duplicate was not swept up in the timeout denial; it is now the head.
+  expect(second).toBeNull();
+  expect(lastFrame()).toContain("perm:bun install");
+  expect(lastFrame()).toContain("batch=1");
+
+  stdin.write("p");
+  await tick();
+  expect(second).toEqual({ allow: true });
+  expect(lastFrame()).toContain("none none none open=0");
+});
