@@ -1,4 +1,4 @@
 [submodule "interchange"]
 	path = interchange
-	url = git@github.com:faremeter/interchange.git
+	url = https://github.com/faremeter/interchange.git
 	branch = main
