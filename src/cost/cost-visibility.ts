@@ -37,14 +37,21 @@ export type CostVisibilityInput = {
   pricingCache: PricingCache | null;
 };
 
-// True when the status bar should suppress the dollar cost: a manual provider
+export type CostHiddenReason =
+  | "provider-free"
+  | "coding-plan"
+  | "free-model"
+  | "zero-priced";
+
+// Non-null when the dollar cost should be suppressed: a manual provider
 // override, a coding-plan endpoint, a free-named model, or a model the pricing
-// registry reports as zero-cost.
-export function shouldHideCost(input: CostVisibilityInput): boolean {
-  if (input.providerFree === true) return true;
-  if (isCodingPlanBaseURL(input.baseURL)) return true;
-  if (isFreeModelId(input.modelId)) return true;
-  return isFreeModelByPricing(input.pricingCache, input.modelId);
+// registry reports as zero-cost. The reason is carried to the display so /cost
+// can say which condition hid the figure.
+export function costHiddenReason(input: CostVisibilityInput): CostHiddenReason | null {
+  if (input.providerFree === true) return "provider-free";
+  if (isCodingPlanBaseURL(input.baseURL)) return "coding-plan";
+  if (isFreeModelId(input.modelId)) return "free-model";
+  return isFreeModelByPricing(input.pricingCache, input.modelId) ? "zero-priced" : null;
 }
 
 // The pricing cache loaded at startup. Held as a module global so the render
