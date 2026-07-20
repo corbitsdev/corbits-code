@@ -159,7 +159,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   manage_tasks:
     "maintain Work checklist — create/replace, update status, append, cancel; under /goal this is Work (steps), not Acceptance; primary surface during implementing",
   manage_goal:
-    "define/update Acceptance checklist (what done means) while /goal is set — planning phase first, then progressive updates during reviewing; not a work plan (use manage_tasks)",
+    "define/update Acceptance checklist (what done means) while /goal is set — planning first; mark done/blocked only when verified (that enters reviewing); not a work plan (use manage_tasks)",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
   present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",

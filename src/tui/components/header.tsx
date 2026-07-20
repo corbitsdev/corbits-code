@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { color } from "../theme.js";
 import type { GoalSnapshot } from "../../agent/goal.js";
 import {
-  deriveGoalPhase,
   formatGoalTurns,
   goalCriteriaProgress,
   isUnlimitedTurnBudget,
@@ -40,9 +39,8 @@ function truncate(s: string, max: number): string {
 
 /** Compact header chip: lifecycle phase + acceptance progress. */
 function goalLine(goal: GoalSnapshot, width: number): string {
-  const phase = goal.phase ?? deriveGoalPhase(goal.criteria, goal.status);
   const progress = goalCriteriaProgress(goal.criteria);
-  const parts: string[] = [phase];
+  const parts: string[] = [goal.phase];
   if (progress.total > 0) {
     parts.push(`${progress.done}/${progress.total}`);
   }

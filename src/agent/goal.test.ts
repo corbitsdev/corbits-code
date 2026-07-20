@@ -126,19 +126,29 @@ describe("goal governor state machine", () => {
     expect(goalShowsWorkPrimary("implementing")).toBe(true);
     expect(goalShowsAcceptancePanel("implementing")).toBe(false);
 
+    // `doing` alone stays implementing — review starts on done/blocked.
     g.updateCriteria([{ id: "c1", status: "doing" }]);
+    expect(g.get()?.phase).toBe("implementing");
+
+    g.updateCriteria([{ id: "c1", status: "done", note: "ok" }]);
     expect(g.get()?.phase).toBe("reviewing");
     expect(goalShowsAcceptancePanel("reviewing")).toBe(true);
 
-    g.updateCriteria([
-      { id: "c1", status: "done", note: "ok" },
-      { id: "c2", status: "done", note: "ok" },
-    ]);
+    g.updateCriteria([{ id: "c2", status: "done", note: "ok" }]);
     expect(g.get()?.status).toBe("achieved");
     expect(g.get()?.phase).toBe("completed");
   });
 
-  test("deriveGoalPhase treats blocked as review start", () => {
+  test("deriveGoalPhase treats blocked as review start, not mere doing", () => {
+    expect(
+      deriveGoalPhase(
+        [
+          { id: "c1", title: "a", status: "doing" },
+          { id: "c2", title: "b", status: "todo" },
+        ],
+        "active",
+      ),
+    ).toBe("implementing");
     expect(
       deriveGoalPhase(
         [
@@ -369,6 +379,27 @@ describe("goal interceptTerminal", () => {
     const actions = await g.interceptTerminal(waitTerminal, capabilities, ctx());
     expect(actions?.some((a) => a.type === "infer")).toBe(true);
     expect(g.get()?.status).toBe("active");
+  });
+
+  test("empty evidence skips evaluator while criteria remain open", async () => {
+    let evals = 0;
+    const g = createGoalGovernor({
+      evaluate: async () => {
+        evals++;
+        return { met: true, reason: "should not run" };
+      },
+    });
+    g.set("tests green");
+    seedCriteria(g);
+    const actions = await g.interceptTerminal(
+      waitTerminal,
+      capabilities,
+      ctx({ evidence: "   " }),
+    );
+    expect(evals).toBe(0);
+    expect(actions?.some((a) => a.type === "infer")).toBe(true);
+    expect(g.get()?.status).toBe("active");
+    expect(g.get()?.consecutiveEvalFailures).toBe(0);
   });
 
   test("fail-open treats evaluator errors as not-met", async () => {

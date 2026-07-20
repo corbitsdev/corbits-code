@@ -7,11 +7,14 @@ import "./built-in.js";
 
 function snap(partial: Partial<GoalSnapshot> = {}): GoalSnapshot {
   const condition = partial.condition ?? "tests green";
+  const criteria = partial.criteria ?? [];
+  const status = partial.status ?? "active";
   return {
-    status: partial.status ?? "active",
+    status,
+    phase: partial.phase ?? (criteria.length === 0 ? "planning" : "implementing"),
     condition,
     brief: partial.brief ?? condition,
-    criteria: partial.criteria ?? [],
+    criteria,
     startedAt: partial.startedAt ?? Date.now() - 60_000,
     turnBudget: partial.turnBudget ?? 0,
     turnsUsed: partial.turnsUsed ?? 0,

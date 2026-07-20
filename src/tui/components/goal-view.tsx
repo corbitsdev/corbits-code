@@ -1,7 +1,5 @@
 import { Box, Text } from "ink";
 import {
-  GOAL_PHASES,
-  deriveGoalPhase,
   goalCriteriaProgress,
   type GoalCriterion,
   type GoalCriterionStatus,
@@ -25,20 +23,34 @@ const GLYPH: Record<GoalCriterionStatus, string> = {
   cancelled: "✗",
 };
 
+/** Compact phase labels for narrow TUI chrome (full words in /status). */
+const PHASE_SHORT: Record<GoalPhase, string> = {
+  planning: "plan",
+  implementing: "impl",
+  reviewing: "review",
+  completed: "done",
+};
+
+const PHASE_ORDER: readonly GoalPhase[] = [
+  "planning",
+  "implementing",
+  "reviewing",
+  "completed",
+];
+
 /**
  * Expanded acceptance checklist — primary goal surface.
  * Quiet styling (muted labels, no bright accent wash).
  */
 export function GoalView({ goal, compact }: GoalViewProps) {
-  const snapshot = goal;
-  if (snapshot.status === "inactive" || snapshot.status === "cleared") return null;
+  if (goal.status === "inactive" || goal.status === "cleared") return null;
 
-  const phase = snapshot.phase ?? deriveGoalPhase(snapshot.criteria, snapshot.status);
-  const progress = goalCriteriaProgress(snapshot.criteria);
-  const brief = snapshot.brief || snapshot.condition;
-  const quiet = isQuietStatus(snapshot.status);
+  const phase = goal.phase;
+  const progress = goalCriteriaProgress(goal.criteria);
+  const brief = goal.brief || goal.condition;
+  const quiet = isQuietStatus(goal.status);
 
-  if (compact || snapshot.criteria.length === 0) {
+  if (compact || goal.criteria.length === 0) {
     return (
       <Box flexDirection="column" paddingX={1}>
         <Box gap={1}>
@@ -47,15 +59,15 @@ export function GoalView({ goal, compact }: GoalViewProps) {
           </Text>
           <PhaseTrail phase={phase} />
           {!quiet && (
-            <Text color={statusColor(snapshot.status)} dimColor={quiet}>
-              {snapshot.status}
+            <Text color={statusColor(goal.status)} dimColor={quiet}>
+              {goal.status}
             </Text>
           )}
         </Box>
         <Text wrap="truncate-end" dimColor={quiet}>
           {brief}
         </Text>
-        {snapshot.criteria.length === 0 && phase === "planning" && (
+        {goal.criteria.length === 0 && phase === "planning" && (
           <Text color={color("dim")} dimColor>
             planning acceptance…
           </Text>
@@ -75,15 +87,15 @@ export function GoalView({ goal, compact }: GoalViewProps) {
           {`${progress.done}/${progress.total}`}
         </Text>
         {!quiet && (
-          <Text color={statusColor(snapshot.status)} dimColor={quiet}>
-            {snapshot.status}
+          <Text color={statusColor(goal.status)} dimColor={quiet}>
+            {goal.status}
           </Text>
         )}
       </Box>
       <Text wrap="truncate-end" color={color("dim")} dimColor>
         {brief}
       </Text>
-      {sortedCriteria(snapshot.criteria).map((c) => (
+      {sortedCriteria(goal.criteria).map((c) => (
         <Box key={c.id} gap={1}>
           <Text color={criterionColor(c.status)}>{GLYPH[c.status]}</Text>
           <Text
@@ -102,36 +114,35 @@ export function GoalView({ goal, compact }: GoalViewProps) {
           )}
         </Box>
       ))}
-      {snapshot.lastReason !== undefined && snapshot.lastReason.length > 0 && (
+      {goal.lastReason !== undefined && goal.lastReason.length > 0 && (
         <Text color={color("dim")} dimColor wrap="truncate-end">
-          {snapshot.lastReason}
+          {goal.lastReason}
         </Text>
       )}
     </Box>
   );
 }
 
-/** planning → implementing → reviewing → completed with current phase emphasized. */
+/** plan → impl → review → done with current phase emphasized. */
 function PhaseTrail({ phase }: { phase: GoalPhase }) {
+  const idx = PHASE_ORDER.indexOf(phase);
   return (
     <Box gap={0}>
-      {GOAL_PHASES.map((p, i) => {
+      {PHASE_ORDER.map((p, i) => {
         const current = p === phase;
-        const past = GOAL_PHASES.indexOf(phase) > i;
         return (
           <Box key={p} gap={0}>
             {i > 0 && (
               <Text color={color("dim")} dimColor>
-                {" → "}
+                →
               </Text>
             )}
             <Text
               bold={current}
               color={current ? color("text") : color("dim")}
-              dimColor={!current}
-              {...(past && !current ? { strikethrough: false } : {})}
+              dimColor={!current || i < idx}
             >
-              {p}
+              {PHASE_SHORT[p]}
             </Text>
           </Box>
         );

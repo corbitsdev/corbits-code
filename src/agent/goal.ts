@@ -20,8 +20,8 @@ export type GoalStatus =
  * UI can show Work during implement and Acceptance during review.
  *
  *   planning     → brief set, acceptance checklist not yet defined
- *   implementing → acceptance defined; work plan is the primary surface
- *   reviewing    → acceptance progress started (doing/done/blocked on any item)
+ *   implementing → acceptance defined; no done/blocked items yet (Work primary)
+ *   reviewing    → at least one criterion is done or blocked (verifying Acceptance)
  *   completed    → all non-cancelled criteria done (status usually achieved)
  */
 export type GoalPhase = "planning" | "implementing" | "reviewing" | "completed";
@@ -49,10 +49,9 @@ export type GoalSnapshot = {
   status: GoalStatus;
   /**
    * Lifecycle phase derived from acceptance progress. Always present on values
-   * returned from get()/emit(); may be absent on in-flight internal mutations
-   * until the next attachPhase.
+   * returned from get()/emit() (recomputed via attachPhase).
    */
-  phase?: GoalPhase;
+  phase: GoalPhase;
   /** Original operator brief from `/goal …` (not the expanded checklist). */
   brief: string;
   /** Expanded acceptance criteria — the real goal definition once planned. */
@@ -155,6 +154,10 @@ export function criteriaAllDone(criteria: GoalCriterion[]): boolean {
  * Derive lifecycle phase from checklist progress.
  * Autonomy status (paused / blocked / budget_limited) does not change phase —
  * only acceptance progress and achieved do.
+ *
+ * `doing` alone does **not** enter reviewing — agents often mark a criterion
+ * "doing" while still implementing. Review starts on the first verified
+ * (`done`) or stuck (`blocked`) acceptance item.
  */
 export function deriveGoalPhase(
   criteria: GoalCriterion[],
@@ -162,11 +165,10 @@ export function deriveGoalPhase(
 ): GoalPhase {
   if (status === "achieved" || criteriaAllDone(criteria)) return "completed";
   if (criteria.length === 0) return "planning";
-  // Any acceptance progress means the agent is checking criteria (review).
-  const acceptanceStarted = criteria.some(
-    (c) => c.status === "doing" || c.status === "done" || c.status === "blocked",
+  const reviewStarted = criteria.some(
+    (c) => c.status === "done" || c.status === "blocked",
   );
-  if (acceptanceStarted) return "reviewing";
+  if (reviewStarted) return "reviewing";
   return "implementing";
 }
 
@@ -199,6 +201,7 @@ function emptySnapshot(defaultTurnBudget: number): GoalSnapshot {
     brief: "",
     criteria: [],
     condition: "",
+    phase: "planning",
     startedAt: 0,
     turnBudget: defaultTurnBudget,
     turnsUsed: 0,
@@ -303,7 +306,7 @@ export function goalKickoffUserMessage(
     "Lifecycle phases (the UI follows these):\n" +
     "1. planning — define Acceptance via manage_goal create (before heavy work).\n" +
     "2. implementing — execute Work via manage_tasks; leave Acceptance items todo until you verify.\n" +
-    "3. reviewing — mark Acceptance doing/done with evidence as you check each criterion.\n" +
+    "3. reviewing — mark Acceptance done (with evidence) or blocked as you check each criterion.\n" +
     "4. completed — every non-cancelled Acceptance item is done (auto-achieves the goal).\n\n" +
     "Order of operations (do not invert):\n" +
     "1. If the brief is vague or multi-interpretable, ask_operator ONE short clarifying question. " +
@@ -315,8 +318,7 @@ export function goalKickoffUserMessage(
     "3. Call manage_tasks with action=\"create\" for the work plan to satisfy those criteria " +
     "(implementation steps, not acceptance restatements).\n" +
     "4. Implement with Work live: update/add/cancel manage_tasks as the plan evolves. " +
-    "Do not mass-mark Acceptance done until you are verifying — progressive manage_goal updates " +
-    "during review (doing → done with evidence). " +
+    "Mark Acceptance done (with evidence) or blocked only when verifying — that enters reviewing. " +
     "The goal is achieved only when every acceptance criterion is done."
   );
 }
@@ -359,6 +361,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     const trimmed = brief.trim();
     snapshot = {
       status: "active",
+      phase: "planning",
       brief: trimmed,
       criteria: [],
       condition: trimmed,
@@ -509,6 +512,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     const criteria = cloneCriteria(saved.criteria ?? []);
     snapshot = {
       status: restoredStatus,
+      phase: deriveGoalPhase(criteria, restoredStatus),
       brief,
       criteria,
       condition: synthesizeGoalCondition(brief, criteria) || saved.condition,
@@ -529,7 +533,8 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     if (snapshot.status !== "active" && snapshot.status !== "paused") return;
     if (n <= 0) return;
     snapshot = { ...snapshot, mainTokens: snapshot.mainTokens + n };
-    opts.onChange?.({ ...snapshot, criteria: cloneCriteria(snapshot.criteria) });
+    // Keep phase attached for UI listeners (same contract as emit/get).
+    opts.onChange?.(attachPhase({ ...snapshot, criteria: cloneCriteria(snapshot.criteria) }));
   }
 
   function turnBudgetExhausted(): boolean {
@@ -663,21 +668,32 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       return null;
     }
 
-    // Open criteria: nudge with the list. Optional LLM evaluator as a soft
-    // second opinion when evidence is rich — skip if empty evidence to save tokens.
+    // Open criteria: checklist is the source of truth. Skip the LLM evaluator
+    // when there is no evidence — it cannot mark met while items remain open and
+    // would only burn tokens for a soft reason string.
     const open = snapshot.criteria.filter(
       (c) => c.status === "todo" || c.status === "doing" || c.status === "blocked",
     );
     const progress = goalCriteriaProgress(snapshot.criteria);
     const openSummary = open.map((c) => `[${c.status}] ${c.title}`).join("; ");
+    const evidence = ctx.evidence.trim();
 
-    // Fail-open evaluator still available for long evidence-backed runs, but
+    if (evidence.length === 0) {
+      return continueOrBudget(
+        actions,
+        capabilities,
+        `${progress.done}/${progress.total} criteria done. Open: ${openSummary}. ` +
+          "Continue work and mark Acceptance done via manage_goal when verified.",
+      );
+    }
+
+    // Fail-open evaluator: soft second opinion for the nudge reason only —
     // met is never true while criteria remain open (checklist wins).
     let verdict: GoalEvaluateVerdict;
     try {
       verdict = await opts.evaluate({
         condition: snapshot.condition,
-        evidence: ctx.evidence,
+        evidence,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -753,7 +769,7 @@ export function formatGoalStatus(snap: GoalSnapshot | null): string {
   }
 
   const progress = goalCriteriaProgress(snap.criteria);
-  const phase = snap.phase ?? deriveGoalPhase(snap.criteria, snap.status);
+  const phase = snap.phase;
   const lines: string[] = [
     `Brief: ${snap.brief || snap.condition}`,
     `Phase: ${phase}`,

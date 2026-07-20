@@ -40,7 +40,6 @@ import { TaskView } from "./components/task-view.js";
 import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
 import {
-  deriveGoalPhase,
   goalShowsAcceptancePanel,
   goalShowsWorkPrimary,
 } from "../agent/goal.js";
@@ -871,18 +870,23 @@ export function App({
 
   // Goal chrome follows lifecycle phase:
   // planning / reviewing / completed → Acceptance panel
-  // implementing → Work primary (Acceptance compact or hidden; header shows phase)
+  // implementing → Work primary (Acceptance compact; header shows phase)
   const goalActive =
     goalSnapshot !== null &&
     goalSnapshot.status !== "inactive" &&
     goalSnapshot.status !== "cleared";
-  const goalPhase = goalActive
-    ? (goalSnapshot!.phase ?? deriveGoalPhase(goalSnapshot!.criteria, goalSnapshot!.status))
-    : null;
+  const goalPhase = goalActive ? goalSnapshot!.phase : null;
   const showAcceptance = goalPhase !== null && goalShowsAcceptancePanel(goalPhase);
   const workPrimary = goalPhase !== null && goalShowsWorkPrimary(goalPhase);
-  // Expand Work by default while implementing so the plan is visible without Ctrl+T.
-  const workExpanded = tasksExpanded || workPrimary;
+  // Default-expand Work when entering implementing; Ctrl+T can still collapse.
+  const wasWorkPrimary = useRef(false);
+  useEffect(() => {
+    if (workPrimary && !wasWorkPrimary.current) {
+      setTasksExpanded(true);
+    }
+    wasWorkPrimary.current = workPrimary;
+  }, [workPrimary]);
+  const workExpanded = tasksExpanded;
   const goalChromeRows = !goalActive
     ? 0
     : showAcceptance
