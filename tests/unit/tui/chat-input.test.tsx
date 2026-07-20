@@ -90,7 +90,7 @@ test("ChatInput renders its controlled value", () => {
   expect(lastFrame()).toContain("hello");
 });
 
-test("ChatInput only shows steer and queue hint while processing with prompt text", () => {
+test("ChatInput shows the steer and queue hint while processing regardless of input state (CL-3118)", () => {
   const empty = render(
     <ChatInput
       onSubmit={() => {}}
@@ -102,8 +102,22 @@ test("ChatInput only shows steer and queue hint while processing with prompt tex
       queuedCount={1}
     />,
   );
-  expect(empty.lastFrame()).not.toContain("queued");
-  expect(empty.lastFrame()).not.toContain("steer");
+  // The interrupt affordance must be discoverable immediately, before the
+  // user has typed anything.
+  expect(empty.lastFrame()).toContain("queued");
+  expect(empty.lastFrame()).toContain("steer");
+
+  const idle = render(
+    <ChatInput
+      onSubmit={() => {}}
+      onCommand={() => {}}
+      commandContext={noopContext}
+      value=""
+      onChange={() => {}}
+      isProcessing={false}
+    />,
+  );
+  expect(idle.lastFrame()).not.toContain("steer");
 
   const filled = render(
     <ChatInput

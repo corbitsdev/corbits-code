@@ -564,8 +564,10 @@ export function ChatInput({
   // starts with /, @ picker fires for any other @ token in the input.
   const showSlash = suggestions.length > 0;
   const showAt = !showSlash && atMention.suggestions.length > 0;
-  const hasPrompt = value.trim().length > 0;
-  const showSteerHint = isProcessing && hasPrompt;
+  // Visible whenever the agent is in flight, not just once the user has
+  // typed something — interruption works either way and should be
+  // discoverable immediately (CL-3118).
+  const showSteerHint = isProcessing;
 
   return (
     <Box flexDirection="column">
