@@ -1,6 +1,7 @@
 import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
 import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
+import { formatCostCommandOutput } from "../../cost/cost-summary.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
 // /clever stay out of the slash menu until the user configures one; app.tsx
@@ -192,6 +193,18 @@ registerCommand({
       return `${s.name}: ${toolList}`;
     });
     return { type: "message", text: lines.join("\n") };
+  },
+});
+
+registerCommand({
+  name: "cost",
+  description: "Show session cost, token totals, and context-window usage",
+  handler: (_args, ctx) => {
+    const summary = ctx.getCostSummary?.();
+    if (summary === undefined) {
+      return { type: "message", text: "Cost tracking is not available in this session." };
+    }
+    return { type: "message", text: formatCostCommandOutput(summary) };
   },
 });
 

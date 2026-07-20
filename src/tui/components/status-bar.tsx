@@ -6,6 +6,10 @@ export type StatusBarProps = {
   // Whole-session elapsed time, always counting (not per-turn).
   sessionElapsedMs: number;
   mcpCount: number;
+  // Pre-formatted by src/cost/cost-summary.ts; omitted entirely when cost
+  // should stay hidden (free model, coding plan) rather than shown as $0.
+  costLabel?: string;
+  contextLabel?: string;
 };
 
 const BRAND = "Intercode";
@@ -26,11 +30,17 @@ export function formatElapsed(elapsedMs: number): string {
 // Slim footer: brand anchors the bottom-left with the session timer beside it;
 // MCP health sits on the right. The per-turn timer lives on the in-flight
 // indicator above the prompt box, not here.
-export function StatusBar({ sessionElapsedMs, mcpCount }: StatusBarProps): ReactNode {
+export function StatusBar({ sessionElapsedMs, mcpCount, costLabel, contextLabel }: StatusBarProps): ReactNode {
   return (
     <Box flexDirection="row" paddingX={1} gap={1} overflow="hidden">
       <Text bold color={color("muted")} dimColor wrap="truncate-end">{BRAND}</Text>
       <Text color={color("muted")} dimColor>{formatElapsed(sessionElapsedMs)}</Text>
+      {costLabel !== undefined && (
+        <Text color={color("muted")} dimColor>{costLabel}</Text>
+      )}
+      {contextLabel !== undefined && (
+        <Text color={color("muted")} dimColor>{contextLabel}</Text>
+      )}
       <Box flexGrow={1} />
       {mcpCount > 0 && (
         <Text color={color("success")} dimColor>{`MCP ✓ ${mcpCount}`}</Text>
