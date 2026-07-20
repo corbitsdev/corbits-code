@@ -17,7 +17,7 @@ import {
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
-import { preApproveExactShellCommands } from "../permission/command.js";
+import { normalizeExactShellCommands, preApproveExactShellCommands } from "../permission/command.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
@@ -47,7 +47,7 @@ const AskOperatorArgs = type({
   question: "string",
   options: "string[]",
   "command?": "string",
-  "commands?": "string[]",
+  "commands?": "string[] <= 20",
 });
 
 const AdvanceWorkflowArgs = type({
@@ -65,7 +65,7 @@ export type OperatorResult =
 export type AgentToolsetArgs = {
   cwd: string;
   permissionGate: PermissionGate;
-  onOperatorGate: (question: string, options: string[]) => Promise<OperatorResult>;
+  onOperatorGate: (question: string, options: string[], commands?: readonly string[]) => Promise<OperatorResult>;
   mcpServers?: MCPServerConfig[];
   // Pre-resolved web provider. When omitted, the built-in local provider is used.
   webProvider?: WebProvider;
@@ -234,7 +234,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (options.length === 0) {
           return "Error: ask_operator requires at least one option.";
         }
-        const result = await onOperatorGate(question, options);
+        // Normalized once so the modal shows exactly the strings an approval
+        // will session-grant.
+        const declaredCommands = normalizeExactShellCommands([
+          ...(command !== undefined ? [command] : []),
+          ...(commands ?? []),
+        ]);
+        const result = await onOperatorGate(question, options, declaredCommands);
         if (result.kind === "cancel") {
           return "The operator dismissed the question without answering. Do not ask it again; proceed with your best judgment or continue with other work.";
         }
@@ -246,14 +252,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
         }
         const chosen = options[index]!;
-        // Operator approved this option. Pre-authorize the exact shell command(s)
-        // declared on this ask so that planned parallel / sequence run_shell
-        // calls do not re-prompt. Exact only — not family wildcards.
-        const batch = [
-          ...(command !== undefined ? [command] : []),
-          ...(commands ?? []),
-        ];
-        preApproveExactShellCommands(permissionGate.preApprove, batch);
+        // Operator approved this option after reading the declared command(s)
+        // in the modal. Pre-authorize exactly those strings — not family
+        // wildcards — so the planned run_shell calls do not re-prompt.
+        preApproveExactShellCommands(permissionGate.preApprove, declaredCommands);
         return chosen;
       },
     }),

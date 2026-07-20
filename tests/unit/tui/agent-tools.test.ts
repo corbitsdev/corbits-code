@@ -212,6 +212,45 @@ test("operator tool batch-pre-approves exact commands[] on approval", async () =
   expect(fakePermissionGate.preApprove).toHaveBeenCalledTimes(2);
 });
 
+test("operator tool forwards the normalized declared commands to the gate for display", async () => {
+  let shown: readonly string[] | undefined;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async (_question, _options, commands) => {
+      shown = commands;
+      return { kind: "option", index: 0 };
+    },
+  });
+
+  await callOperator(toolset, {
+    question: "Install and test?",
+    options: ["Yes"],
+    command: "bun install",
+    commands: ["  bun install  ", "bun test", ""],
+  });
+
+  expect(shown).toEqual(["bun install", "bun test"]);
+});
+
+test("operator tool rejects a commands batch larger than 20", async () => {
+  fakePermissionGate.preApprove.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  const result = await callOperator(toolset, {
+    question: "Run everything?",
+    options: ["Yes"],
+    commands: Array.from({ length: 21 }, (_, i) => `echo ${i}`),
+  });
+
+  expect(result).toMatch(/^Error:/);
+  expect(fakePermissionGate.preApprove).not.toHaveBeenCalled();
+});
+
 test("operator tool does not pre-approve anything when no command is declared", async () => {
   fakePermissionGate.preApprove.mockClear();
 

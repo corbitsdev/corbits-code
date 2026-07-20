@@ -9,6 +9,12 @@ export type PermissionModalProps = {
   request: PermissionRequest;
   /** Permission gates still queued, including this modal. */
   permissionQueueDepth?: number;
+  /**
+   * Queued requests identical to this one (same tool and subject), this modal
+   * included. One decision resolves the whole identical batch; requests for
+   * anything else prompt separately.
+   */
+  permissionBatchSize?: number;
   onResolve: (outcome: ApprovalOutcome) => void;
   width?: number;
 };
@@ -30,12 +36,12 @@ const PERSISTENT_GRANTS: { grant: GrantScope; note: string }[] = [
   { grant: "global", note: "all projects" },
 ];
 
-function buildChoices(request: PermissionRequest, queueDepth: number): Choice[] {
-  const batchCount = Math.max(1, queueDepth);
+function buildChoices(request: PermissionRequest, batchSize: number): Choice[] {
+  const batchCount = Math.max(1, batchSize);
   const onceLabel = batchCount > 1 ? `Accept all ${batchCount}` : "Accept once";
   const onceHint =
     batchCount > 1
-      ? `this parallel batch · start typing to add a message`
+      ? `${batchCount} identical calls · start typing to add a message`
       : "this call only · start typing to add a message";
   const rejectLabel = batchCount > 1 ? `Reject all ${batchCount}` : "Reject";
 
@@ -126,11 +132,13 @@ function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
 export function PermissionModal({
   request,
   permissionQueueDepth = 1,
+  permissionBatchSize = 1,
   onResolve,
   width = 80,
 }: PermissionModalProps): ReactNode {
-  const queuedBehind = Math.max(0, permissionQueueDepth - 1);
-  const choices = buildChoices(request, permissionQueueDepth);
+  const batchSize = Math.max(1, permissionBatchSize);
+  const queuedBehind = Math.max(0, permissionQueueDepth - batchSize);
+  const choices = buildChoices(request, batchSize);
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -216,6 +224,7 @@ export function PermissionModal({
               <Text color={toolColor}>{descriptor.display}</Text>
             </>
           )}
+          {batchSize > 1 ? ` · ×${batchSize} identical calls` : ""}
           {queuedBehind > 0
             ? ` · +${queuedBehind} more approval${queuedBehind === 1 ? "" : "s"} queued`
             : ""}

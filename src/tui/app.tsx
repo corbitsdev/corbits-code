@@ -1952,6 +1952,7 @@ export function App({
           onSelectOperator={gates.selectOperator}
           pendingPermission={gates.pendingPermission}
           permissionQueueDepth={gates.permissionQueueDepth}
+          permissionBatchSize={gates.permissionBatchSize}
           onResolvePermission={gates.resolvePermission}
           width={columns}
         />

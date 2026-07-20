@@ -13,6 +13,13 @@ function Harness({ emitter, onGate, onReset }: { emitter: EventEmitter; onGate: 
     if (input === "r") gates.reject();
     if (input === "0") gates.selectOperator({ kind: "option", index: 0 });
     if (input === "p") gates.resolvePermission({ allow: true });
+    if (input === "q") gates.resolvePermission({ allow: false });
+    if (input === "g") {
+      gates.resolvePermission({
+        allow: true,
+        persist: { id: "session", label: "Allow bun install", pattern: "bun install", grant: "session" },
+      });
+    }
     if (input === "x") gates.resetGates();
   });
   // Expose resetGates to the test once on first render.
@@ -20,7 +27,7 @@ function Harness({ emitter, onGate, onReset }: { emitter: EventEmitter; onGate: 
   const plan = gates.pendingPlan === null ? "none" : `plan:${gates.pendingPlan.length}`;
   const op = gates.pendingOperator === null ? "none" : `op:${gates.pendingOperator.question}`;
   const perm = gates.pendingPermission === null ? "none" : `perm:${gates.pendingPermission.subject}`;
-  return <Text>{`${plan} ${op} ${perm} open=${gates.gateOpen ? "1" : "0"}`}</Text>;
+  return <Text>{`${plan} ${op} ${perm} open=${gates.gateOpen ? "1" : "0"} batch=${gates.permissionBatchSize}`}</Text>;
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -216,9 +223,10 @@ test("permission gate surfaces a request and resolves the outcome", async () => 
   expect(lastFrame()).toContain("none none none open=0");
 });
 
-// Parallel tool calls enqueue multiple permission gates. One operator decision
-// must cover the full currently queued batch (exact planned commands only).
-test("one permission decision resolves the full queued batch", async () => {
+// Parallel duplicate tool calls enqueue identical permission gates. One
+// operator decision resolves every queued request with the same tool and
+// subject — and nothing else.
+test("one permission decision resolves all queued identical requests", async () => {
   const emitter = new EventEmitter();
   const gateCalls: boolean[] = [];
   const outcomes: Array<{ allow: boolean }> = [];
@@ -232,17 +240,13 @@ test("one permission decision resolves the full queued batch", async () => {
     resolve: (o: { allow: boolean }) => { outcomes.push(o); },
   });
   emitter.emit("permission.gate", {
-    request: {
-      tool: "run_shell",
-      action: "Run",
-      subject: "git submodule update --init --recursive",
-      scopes: [],
-    },
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
     resolve: (o: { allow: boolean }) => { outcomes.push(o); },
   });
   await tick();
 
   expect(lastFrame()).toContain("perm:bun install");
+  expect(lastFrame()).toContain("batch=2");
   expect(gateCalls).toEqual([true, true]);
 
   stdin.write("p");
@@ -250,6 +254,143 @@ test("one permission decision resolves the full queued batch", async () => {
 
   expect(outcomes).toEqual([{ allow: true }, { allow: true }]);
   expect(gateCalls).toEqual([true, true, false, false]);
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+// A queue mixing tools must never be resolved by one decision: only requests
+// identical to the visible one are covered; the rest prompt on their own.
+test("a decision on the head leaves queued requests for other tools pending", async () => {
+  const emitter = new EventEmitter();
+  const outcomes: Array<{ tool: string; allow: boolean }> = [];
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push({ tool: "run_shell", allow: o.allow }); },
+  });
+  emitter.emit("permission.gate", {
+    request: { tool: "write_file", action: "Write", subject: "/etc/hosts", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push({ tool: "write_file", allow: o.allow }); },
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:bun install");
+  expect(lastFrame()).toContain("batch=1");
+
+  stdin.write("p");
+  await tick();
+
+  expect(outcomes).toEqual([{ tool: "run_shell", allow: true }]);
+  expect(lastFrame()).toContain("perm:/etc/hosts");
+  expect(lastFrame()).toContain("open=1");
+
+  stdin.write("q");
+  await tick();
+  expect(outcomes).toEqual([
+    { tool: "run_shell", allow: true },
+    { tool: "write_file", allow: false },
+  ]);
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+test("one rejection resolves all queued identical requests as denied", async () => {
+  const emitter = new EventEmitter();
+  const outcomes: Array<{ allow: boolean }> = [];
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push(o); },
+  });
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push(o); },
+  });
+  await tick();
+
+  stdin.write("q");
+  await tick();
+
+  expect(outcomes).toEqual([{ allow: false }, { allow: false }]);
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+// A persistent grant chosen while duplicates are queued must be written once:
+// the head carries the persist payload, duplicates resolve allow-once.
+test("a persistent grant in batch mode applies to the head request only", async () => {
+  const emitter = new EventEmitter();
+  const outcomes: Array<{ allow: boolean; persist?: unknown }> = [];
+  const { stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean; persist?: unknown }) => { outcomes.push(o); },
+  });
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean; persist?: unknown }) => { outcomes.push(o); },
+  });
+  await tick();
+
+  stdin.write("g");
+  await tick();
+
+  expect(outcomes).toHaveLength(2);
+  expect(outcomes[0]?.allow).toBe(true);
+  expect(outcomes[0]?.persist).toEqual({
+    id: "session",
+    label: "Allow bun install",
+    pattern: "bun install",
+    grant: "session",
+  });
+  expect(outcomes[1]?.allow).toBe(true);
+  expect(outcomes[1]?.persist).toBeUndefined();
+});
+
+// A request that arrives while the decision modal is already open is only
+// covered when it is identical to what the modal shows; anything else waits
+// for its own prompt.
+test("a different request arriving while the modal is open is not covered by the decision", async () => {
+  const emitter = new EventEmitter();
+  const outcomes: Array<{ subject: string; allow: boolean }> = [];
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push({ subject: "bun install", allow: o.allow }); },
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:bun install");
+
+  // Arrives while the modal is open: identical, so the decision covers it.
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push({ subject: "bun install", allow: o.allow }); },
+  });
+  // Arrives while the modal is open: different subject, must not be covered.
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "rm -rf /tmp/x", scopes: [] },
+    resolve: (o: { allow: boolean }) => { outcomes.push({ subject: "rm -rf /tmp/x", allow: o.allow }); },
+  });
+  await tick();
+  expect(lastFrame()).toContain("batch=2");
+
+  stdin.write("p");
+  await tick();
+
+  expect(outcomes).toEqual([
+    { subject: "bun install", allow: true },
+    { subject: "bun install", allow: true },
+  ]);
+  expect(lastFrame()).toContain("perm:rm -rf /tmp/x");
+  expect(lastFrame()).toContain("open=1");
+
+  stdin.write("q");
+  await tick();
+  expect(outcomes[2]).toEqual({ subject: "rm -rf /tmp/x", allow: false });
   expect(lastFrame()).toContain("none none none open=0");
 });
 

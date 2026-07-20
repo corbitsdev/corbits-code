@@ -10,6 +10,11 @@ import { inkPropsForSegment } from "../styled-segment-props.js";
 export type OperatorModalProps = {
   question: string;
   options: string[];
+  /**
+   * Exact shell commands that selecting an option pre-authorizes. Rendered
+   * verbatim so the operator reads every command a yes would cover.
+   */
+  commands?: string[];
   onSelect: (result: OperatorResult) => void;
   width?: number;
 };
@@ -97,7 +102,7 @@ function renderOptionsList(options: string[], selected: number): ReactNode {
   );
 }
 
-export function OperatorModal({ question, options, onSelect, width = 80 }: OperatorModalProps): ReactNode {
+export function OperatorModal({ question, options, commands = [], onSelect, width = 80 }: OperatorModalProps): ReactNode {
   const [selected, setSelected] = useState(0);
   const [draft, setDraft] = useState("");
   const typing = draft.length > 0;
@@ -172,6 +177,17 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
       <Box marginBottom={1}>
         <MarkdownText text={question} width={innerWidth} />
       </Box>
+      {commands.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color={color("muted")}>Selecting an option approves running:</Text>
+          {commands.map((cmd, i) => (
+            <Text key={i} wrap="wrap">
+              <Text color={color("muted")} dimColor>{"  $ "}</Text>
+              <Text color={color("text")}>{cmd}</Text>
+            </Text>
+          ))}
+        </Box>
+      )}
       {typing ? (
         <Box flexDirection="column">
           <Box flexDirection="row" gap={1}>

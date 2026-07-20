@@ -112,8 +112,10 @@ export const askOperatorDefinition: ToolDefinition = {
         type: "array",
         description:
           "Batch of exact shell commands this question is asking permission to run (e.g. a planned install + setup sequence). " +
-          "Approving pre-authorizes each listed command so those planned shells do not re-prompt.",
+          "Approving pre-authorizes each listed command so those planned shells do not re-prompt. " +
+          "The commands are shown verbatim to the operator alongside the question.",
         items: { type: "string" },
+        maxItems: 20,
       },
     },
     required: ["question", "options"],

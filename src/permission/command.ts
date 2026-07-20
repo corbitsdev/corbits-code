@@ -263,6 +263,18 @@ export function deriveCommandScopes(command: string): ApprovalScope[] {
   return scopes;
 }
 
+// Trim, drop empties, and dedupe a declared command batch. This canonical form
+// is both what the operator modal displays and what gets session-granted on
+// approval, so the operator reads exactly the strings a yes will authorize.
+export function normalizeExactShellCommands(commands: readonly string[]): string[] {
+  const seen = new Set<string>();
+  for (const command of commands) {
+    const trimmed = command.trim();
+    if (trimmed.length > 0) seen.add(trimmed);
+  }
+  return [...seen];
+}
+
 // Session-grant the exact shell command(s) the operator just approved so those
 // planned run_shell calls do not re-prompt. Does not expand to family wildcards
 // (e.g. `bun install *`) — only the declared strings.
@@ -270,11 +282,7 @@ export function preApproveExactShellCommands(
   preApprove: (tool: string, pattern: string) => void,
   commands: readonly string[],
 ): void {
-  const seen = new Set<string>();
-  for (const command of commands) {
-    const trimmed = command.trim();
-    if (trimmed.length === 0 || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    preApprove("run_shell", trimmed);
+  for (const command of normalizeExactShellCommands(commands)) {
+    preApprove("run_shell", command);
   }
 }

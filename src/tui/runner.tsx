@@ -518,9 +518,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
-    onOperatorGate: (question, options) =>
+    onOperatorGate: (question, options, commands) =>
       new Promise<OperatorResult>((resolve) => {
-        const event: OperatorGateEvent = { question, options, resolve };
+        const event: OperatorGateEvent = {
+          question,
+          options,
+          ...(commands !== undefined && commands.length > 0 ? { commands: [...commands] } : {}),
+          resolve,
+        };
         emitter.emit("operator.gate", event);
       }),
     sessionMode: liveSessionMode,
