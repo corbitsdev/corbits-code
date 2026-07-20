@@ -1,6 +1,35 @@
 # Intercode
 
-A single-process coding agent CLI using the LLM (OpenAI-compatible) built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
+Intercode is a local-first coding agent. It lives in your terminal and works with whatever model you point it at — Anthropic, OpenAI, Google, a local Ollama, or any OpenAI-compatible endpoint. Your machine, your keys, your code.
+
+## Quickstart
+
+[Bun](https://bun.sh) v1.2+ is required.
+
+```sh
+git clone --recurse-submodules https://github.com/corbitsdev/intercode.git
+cd intercode
+bun install
+bun run start
+```
+
+`bun run start` builds and launches Intercode in your terminal.
+
+Optionally, add an `intercode` command to your shell by putting an alias
+in your shell rc:
+
+```sh
+alias intercode="bun run /path/to/intercode/dist/index.js"
+```
+
+The alias runs the built bundle; after pulling new changes, rebuild it
+with `bun run build` (or launch once with `bun run start`).
+
+## Contributing
+
+Before your first commit: `git config core.hooksPath .githooks` and `./bin/check-env`.
+
+Every change must pass `bun run typecheck`, `bun run build`, and `bun test`, and behavior changes come with tests. Conventions live in `AGENTS.md` (functional TypeScript, no classes, arktype at boundaries, plain-English commit messages); the system design is documented in `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION.md`.
 
 ## Stack
 
@@ -13,6 +42,8 @@ A single-process coding agent CLI using the LLM (OpenAI-compatible) built on Int
 - **TUI (Phase 5):** Ink + React
 
 ## Architecture
+
+Intercode is a single-process CLI built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
 
 ```
 CLI (src/index.ts)
