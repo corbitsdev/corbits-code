@@ -6,6 +6,11 @@ import { color } from "./theme.js";
 export type DiffRowKind = "add" | "del" | "context";
 export type DiffRow = { kind: DiffRowKind; text: string };
 
+// A row plus its position in the old/new file. `collapsed` marks the "N
+// unchanged lines" summary row inserted by collapseContext, which occupies no
+// real line in either file and so carries no line numbers.
+type NumberedRow = DiffRow & { oldNum?: number; newNum?: number; collapsed?: boolean };
+
 // Longest-common-subsequence line diff. The classic dynamic-programming table
 // is fine here: edit hunks (old_string vs new_string) are small, and even a
 // whole-file write diffs against an empty side, so the quadratic cost never
@@ -52,20 +57,32 @@ function rowColor(kind: DiffRowKind): string {
   return color("diffContext");
 }
 
+// Attach each row's position in the old/new file before any collapsing, so a
+// hidden stretch still leaves the surviving rows numbered correctly.
+function numberRows(rows: DiffRow[]): NumberedRow[] {
+  let oldLine = 1;
+  let newLine = 1;
+  return rows.map((row) => {
+    if (row.kind === "context") return { ...row, oldNum: oldLine++, newNum: newLine++ };
+    if (row.kind === "del") return { ...row, oldNum: oldLine++ };
+    return { ...row, newNum: newLine++ };
+  });
+}
+
 // Collapse long unchanged stretches to a few lines of context on each side of a
 // change so a large file write or a wide edit does not bury the actual delta.
-function collapseContext(rows: DiffRow[], pad: number): DiffRow[] {
+function collapseContext(rows: NumberedRow[], pad: number): NumberedRow[] {
   const keep = new Array<boolean>(rows.length).fill(false);
   rows.forEach((row, idx) => {
     if (row.kind === "context") return;
     for (let k = Math.max(0, idx - pad); k <= Math.min(rows.length - 1, idx + pad); k++) keep[k] = true;
   });
 
-  const out: DiffRow[] = [];
+  const out: NumberedRow[] = [];
   let hidden = 0;
   const flush = (): void => {
     if (hidden > 0) {
-      out.push({ kind: "context", text: `… ${hidden} unchanged line${hidden === 1 ? "" : "s"}` });
+      out.push({ kind: "context", text: `… ${hidden} unchanged line${hidden === 1 ? "" : "s"}`, collapsed: true });
       hidden = 0;
     }
   };
@@ -147,15 +164,28 @@ function sliceSegments(segments: StyledSegment[], start: number, end: number): S
   return out;
 }
 
+function padNum(n: number | undefined, width: number): string {
+  return n === undefined ? " ".repeat(width) : String(n).padStart(width, " ");
+}
+
 export function renderDiff(oldText: string, newText: string, width: number, opts: DiffRenderOptions = {}): StyledLine[] {
-  let rows = diffLines(oldText, newText);
+  let rows = numberRows(diffLines(oldText, newText));
   if (opts.contextLines !== undefined) rows = collapseContext(rows, opts.contextLines);
 
+  // Right-align both columns to the widest line number that actually appears,
+  // so a 3-digit file doesn't waste columns a 1000-line file would need.
+  const maxOldNum = rows.reduce((max, row) => Math.max(max, row.oldNum ?? 0), 0);
+  const maxNewNum = rows.reduce((max, row) => Math.max(max, row.newNum ?? 0), 0);
+  const numWidth = Math.max(1, String(maxOldNum).length, String(maxNewNum).length);
+  const numColWidth = numWidth * 2 + 2; // "<old> <new> "
+  const numColor = color("diffContext");
+
   const lines: StyledLine[] = [];
-  const bodyWidth = Math.max(1, width - 2);
+  const bodyWidth = Math.max(1, width - numColWidth - 2);
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r]!;
-    const gutter = GUTTER[row.kind];
+    const numCol = row.collapsed === true ? " ".repeat(numColWidth) : `${padNum(row.oldNum, numWidth)} ${padNum(row.newNum, numWidth)} `;
+    const sign = GUTTER[row.kind];
     const paired =
       row.kind === "del" && rows[r + 1]?.kind === "add" ? rows[r + 1]!.text
       : row.kind === "add" && rows[r - 1]?.kind === "del" ? rows[r - 1]!.text
@@ -172,7 +202,8 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
       const range = ranges[idx]!;
       const piece = sliceSegments(bodySegs, range.start, range.end);
       lines.push([
-        { text: idx === 0 ? gutter : "  ", color: segColor },
+        { text: idx === 0 ? numCol : " ".repeat(numColWidth), color: numColor },
+        { text: idx === 0 ? sign : "  ", color: segColor },
         ...(piece.length > 0 ? piece : [{ text: "", color: segColor }]),
       ]);
     }
