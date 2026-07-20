@@ -1,33 +1,67 @@
 import { test, expect } from "bun:test";
-import { fetchGitBranch, parseGitBranchOutput } from "./git-branch.js";
+import { createGuardedRefresh } from "./git-branch.js";
 
-test("parseGitBranchOutput returns the trimmed branch name on success", () => {
-  expect(parseGitBranchOutput({ exitCode: 0, stdout: "main\n" })).toBe("main");
+test("createGuardedRefresh reports the fetched branch", async () => {
+  const seen: (string | null)[] = [];
+  const refresh = createGuardedRefresh(
+    "/repo",
+    async (cwd) => {
+      expect(cwd).toBe("/repo");
+      return "main";
+    },
+    (branch) => seen.push(branch),
+  );
+
+  refresh();
+  await Bun.sleep(0);
+  expect(seen).toEqual(["main"]);
 });
 
-test("parseGitBranchOutput returns null on a non-zero exit code", () => {
-  expect(parseGitBranchOutput({ exitCode: 128, stdout: "" })).toBe(null);
+test("createGuardedRefresh skips refreshes while one is in flight", async () => {
+  let calls = 0;
+  let resolveFirst: (branch: string | null) => void = () => {};
+  const refresh = createGuardedRefresh(
+    "/repo",
+    () => {
+      calls += 1;
+      return new Promise((resolve) => {
+        resolveFirst = resolve;
+      });
+    },
+    () => {},
+  );
+
+  refresh();
+  refresh();
+  refresh();
+  expect(calls).toBe(1);
+
+  resolveFirst("main");
+  await Bun.sleep(0);
+
+  refresh();
+  expect(calls).toBe(2);
 });
 
-test("parseGitBranchOutput returns null for detached HEAD", () => {
-  expect(parseGitBranchOutput({ exitCode: 0, stdout: "HEAD\n" })).toBe(null);
-});
+test("createGuardedRefresh recovers when the fetch rejects", async () => {
+  let calls = 0;
+  const seen: (string | null)[] = [];
+  const refresh = createGuardedRefresh(
+    "/repo",
+    () => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new Error("boom"));
+      return Promise.resolve("main");
+    },
+    (branch) => seen.push(branch),
+  );
 
-test("parseGitBranchOutput returns null for empty output", () => {
-  expect(parseGitBranchOutput({ exitCode: 0, stdout: "   \n" })).toBe(null);
-});
+  refresh();
+  await Bun.sleep(0);
+  expect(seen).toEqual([]);
 
-test("fetchGitBranch resolves the branch name via the injected git runner", async () => {
-  const branch = await fetchGitBranch("/repo", async (cwd) => {
-    expect(cwd).toBe("/repo");
-    return { exitCode: 0, stdout: "feature/cl-3118\n" };
-  });
-  expect(branch).toBe("feature/cl-3118");
-});
-
-test("fetchGitBranch returns null when the git runner throws (not a repo, git missing, etc.)", async () => {
-  const branch = await fetchGitBranch("/not-a-repo", async () => {
-    throw new Error("spawn git ENOENT");
-  });
-  expect(branch).toBe(null);
+  refresh();
+  await Bun.sleep(0);
+  expect(calls).toBe(2);
+  expect(seen).toEqual(["main"]);
 });
