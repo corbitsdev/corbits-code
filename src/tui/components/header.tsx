@@ -1,8 +1,9 @@
-import { Box, Text } from "ink";
 import type { ReactNode } from "react";
+import { Box, Text } from "ink";
 import { color } from "../theme.js";
 import type { GoalSnapshot } from "../../agent/goal.js";
 import {
+  formatGoalCompleted,
   formatGoalTurns,
   goalCriteriaProgress,
   isUnlimitedTurnBudget,
@@ -37,8 +38,12 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
-/** Compact header chip: lifecycle phase + acceptance progress. */
+/** Compact header chip: lifecycle phase + acceptance progress, or frozen complete. */
 function goalLine(goal: GoalSnapshot, width: number): string {
+  const completed = formatGoalCompleted(goal);
+  if (completed !== null) {
+    return truncate(completed, Math.max(20, width - 4));
+  }
   const progress = goalCriteriaProgress(goal.criteria);
   const parts: string[] = [goal.phase];
   if (progress.total > 0) {
@@ -47,7 +52,7 @@ function goalLine(goal: GoalSnapshot, width: number): string {
   if (goal.status !== "active") {
     parts.push(goal.status);
   }
-  // Only surface turns when the operator set a finite budget.
+  // Only surface turns when the operator set a finite budget (and still running).
   if (!isUnlimitedTurnBudget(goal.turnBudget)) {
     parts.push(formatGoalTurns(goal.turnsUsed, goal.turnBudget));
   }

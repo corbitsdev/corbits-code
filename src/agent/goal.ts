@@ -62,6 +62,11 @@ export type GoalSnapshot = {
    */
   condition: string;
   startedAt: number;
+  /**
+   * Wall-clock when status flipped to achieved. Freezes the "Goal completed in …"
+   * duration so the UI stops counting after success.
+   */
+  completedAt?: number;
   turnBudget: number;
   turnsUsed: number;
   tokenBudget?: number;
@@ -134,6 +139,30 @@ export function isUnlimitedTurnBudget(turnBudget: number): boolean {
 export function formatGoalTurns(turnsUsed: number, turnBudget: number): string {
   if (isUnlimitedTurnBudget(turnBudget)) return `${turnsUsed}/∞`;
   return `${turnsUsed}/${turnBudget}`;
+}
+
+/** Compact wall-clock duration for "Goal completed in …". */
+export function formatGoalDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}m ${seconds}s`;
+  const minutes = totalMinutes % 60;
+  const hours = Math.floor(totalMinutes / 60);
+  return `${hours}h ${minutes}m`;
+}
+
+/**
+ * Frozen completion line once achieved. Uses completedAt when present so the
+ * duration does not keep ticking after success.
+ */
+export function formatGoalCompleted(snap: GoalSnapshot, nowMs?: number): string | null {
+  if (snap.status !== "achieved" && snap.phase !== "completed") return null;
+  if (snap.startedAt <= 0 || snap.completedAt === undefined) return "Goal completed";
+  const end = snap.completedAt;
+  void nowMs; // reserved for tests / future live-preview before freeze
+  return `Goal completed in ${formatGoalDuration(end - snap.startedAt)}`;
 }
 
 /** Progress over non-cancelled criteria. */
@@ -436,10 +465,16 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       return;
     }
     if (!criteriaAllDone(snapshot.criteria)) return;
+    markAchieved("All acceptance criteria marked done.");
+  }
+
+  function markAchieved(reason: string): void {
+    if (snapshot.status === "achieved") return;
     snapshot = {
       ...snapshot,
       status: "achieved",
-      lastReason: "All acceptance criteria marked done.",
+      completedAt: snapshot.completedAt ?? now(),
+      lastReason: reason,
     };
   }
 
@@ -495,6 +530,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     brief?: string;
     criteria?: GoalCriterion[];
     startedAt: number;
+    completedAt?: number;
     turnBudget: number;
     turnsUsed?: number;
     tokenBudget?: number;
@@ -517,6 +553,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
       criteria,
       condition: synthesizeGoalCondition(brief, criteria) || saved.condition,
       startedAt: saved.startedAt,
+      ...(saved.completedAt !== undefined ? { completedAt: saved.completedAt } : {}),
       turnBudget: saved.turnBudget,
       turnsUsed: saved.turnsUsed ?? 0,
       ...(saved.tokenBudget !== undefined ? { tokenBudget: saved.tokenBudget } : {}),
@@ -659,11 +696,7 @@ export function createGoalGovernor(opts: CreateGoalGovernorOpts) {
     }
 
     if (criteriaAllDone(snapshot.criteria)) {
-      snapshot = {
-        ...snapshot,
-        status: "achieved",
-        lastReason: "All acceptance criteria marked done.",
-      };
+      markAchieved("All acceptance criteria marked done.");
       emit();
       return null;
     }
@@ -770,10 +803,15 @@ export function formatGoalStatus(snap: GoalSnapshot | null): string {
 
   const progress = goalCriteriaProgress(snap.criteria);
   const phase = snap.phase;
+  const completed = formatGoalCompleted(snap);
   const lines: string[] = [
     `Brief: ${snap.brief || snap.condition}`,
     `Phase: ${phase}`,
   ];
+
+  if (completed !== null) {
+    lines.push(completed);
+  }
 
   if (snap.criteria.length === 0) {
     lines.push("Criteria: (not planned yet — waiting for manage_goal create)");
@@ -786,17 +824,21 @@ export function formatGoalStatus(snap: GoalSnapshot | null): string {
     }
   }
 
-  if (snap.status !== "active") {
+  if (snap.status !== "active" && snap.status !== "achieved") {
     lines.push(`State: ${snap.status}`);
   }
   if (snap.lastReason !== undefined && snap.lastReason.length > 0) {
     lines.push(`Note: ${snap.lastReason}`);
   }
-  // Budget only when finite (operator opted in) or when limited.
-  if (!isUnlimitedTurnBudget(snap.turnBudget) || snap.status === "budget_limited") {
+  // Stop counting turns after success; only surface budgets while still running
+  // or when soft-stopped on budget.
+  if (
+    snap.status !== "achieved" &&
+    (!isUnlimitedTurnBudget(snap.turnBudget) || snap.status === "budget_limited")
+  ) {
     lines.push(`Turns: ${formatGoalTurns(snap.turnsUsed, snap.turnBudget)}`);
   }
-  if (snap.tokenBudget !== undefined) {
+  if (snap.status !== "achieved" && snap.tokenBudget !== undefined) {
     lines.push(`Tokens: ${tokensTotal(snap)}/${snap.tokenBudget}`);
   }
 

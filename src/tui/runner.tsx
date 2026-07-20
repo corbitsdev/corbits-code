@@ -769,6 +769,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               brief: snap.brief,
               criteria: snap.criteria,
               startedAt: snap.startedAt,
+              ...(snap.completedAt !== undefined ? { completedAt: snap.completedAt } : {}),
               turnBudget: snap.turnBudget,
               turnsUsed: snap.turnsUsed,
               ...(snap.tokenBudget !== undefined ? { tokenBudget: snap.tokenBudget } : {}),

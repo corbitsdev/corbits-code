@@ -3,6 +3,8 @@ import type { ReactorAction, ReactorCapabilities } from "@intx/types/runtime";
 import {
   createGoalGovernor,
   deriveGoalPhase,
+  formatGoalCompleted,
+  formatGoalDuration,
   formatGoalStatus,
   formatGoalTurns,
   goalKickoffUserMessage,
@@ -175,16 +177,26 @@ describe("goal governor state machine", () => {
   });
 
   test("updateCriteria marks achieved when last open criterion is done", () => {
-    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    let clock = 1_000_000;
+    const g = createGoalGovernor({
+      evaluate: alwaysNotMet(),
+      now: () => clock,
+    });
     g.set("ship");
     g.setCriteria([
       { id: "c1", title: "a", status: "done" },
       { id: "c2", title: "b", status: "todo" },
     ]);
     expect(g.get()?.status).toBe("active");
+    clock = 1_000_000 + 125_000; // 2m 5s later
     const snap = g.updateCriteria([{ id: "c2", status: "done", note: "green" }]);
     expect(snap?.status).toBe("achieved");
     expect(snap?.lastReason).toBe("All acceptance criteria marked done.");
+    expect(snap?.completedAt).toBe(1_125_000);
+    expect(formatGoalCompleted(snap!)).toBe("Goal completed in 2m 5s");
+    // Duration freezes — later wall clock must not change the line.
+    clock = 9_999_999;
+    expect(formatGoalCompleted(g.get()!)).toBe("Goal completed in 2m 5s");
   });
 
   test("setCriteria marks achieved when create lands fully done", () => {
@@ -524,6 +536,31 @@ describe("goal interceptTerminal", () => {
     expect(text).toContain("tests");
     expect(text).toContain("Phase: reviewing");
     expect(text).toMatch(/1\/2|Progress/i);
+  });
+
+  test("formatGoalStatus freezes completed duration and drops turn counting", () => {
+    let clock = 5_000_000;
+    const g = createGoalGovernor({
+      evaluate: alwaysNotMet(),
+      now: () => clock,
+    });
+    g.set("done ship", { turnBudget: 10 });
+    g.setCriteria([
+      { id: "c1", title: "a", status: "todo" },
+    ]);
+    clock = 5_000_000 + 90_000;
+    g.updateCriteria([{ id: "c1", status: "done" }]);
+    const text = formatGoalStatus(g.get());
+    expect(text).toContain("Goal completed in 1m 30s");
+    expect(text).not.toMatch(/Turns:/);
+    expect(text).not.toContain("State: achieved");
+  });
+
+  test("formatGoalDuration covers seconds minutes hours", () => {
+    expect(formatGoalDuration(0)).toBe("0s");
+    expect(formatGoalDuration(45_000)).toBe("45s");
+    expect(formatGoalDuration(125_000)).toBe("2m 5s");
+    expect(formatGoalDuration(3_661_000)).toBe("1h 1m");
   });
 
   test("kickoff message names lifecycle phases", () => {

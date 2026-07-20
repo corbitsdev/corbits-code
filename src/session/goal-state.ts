@@ -13,6 +13,8 @@ export type PersistedGoalState = {
   /** Expanded acceptance checklist. */
   criteria?: GoalCriterion[];
   startedAt: number;
+  /** Wall-clock when status flipped to achieved (freezes completion duration). */
+  completedAt?: number;
   turnBudget: number;
   turnsUsed: number;
   tokenBudget?: number;
@@ -69,6 +71,7 @@ function isValidPersistedGoal(data: unknown): data is PersistedGoalState {
     if (!s.criteria.every(isValidCriterion)) return false;
   }
   if (typeof s.startedAt !== "number") return false;
+  if (s.completedAt !== undefined && typeof s.completedAt !== "number") return false;
   if (typeof s.turnBudget !== "number") return false;
   if (typeof s.turnsUsed !== "number") return false;
   if (s.tokenBudget !== undefined && typeof s.tokenBudget !== "number") return false;

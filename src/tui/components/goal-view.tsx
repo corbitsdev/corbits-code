@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import {
+  formatGoalCompleted,
   goalCriteriaProgress,
   type GoalCriterion,
   type GoalCriterionStatus,
@@ -41,6 +42,7 @@ const PHASE_ORDER: readonly GoalPhase[] = [
 /**
  * Expanded acceptance checklist — primary goal surface.
  * Quiet styling (muted labels, no bright accent wash).
+ * On achieve: freezes on "Goal completed in …" and stops looking like work-in-progress.
  */
 export function GoalView({ goal, compact }: GoalViewProps) {
   if (goal.status === "inactive" || goal.status === "cleared") return null;
@@ -49,6 +51,37 @@ export function GoalView({ goal, compact }: GoalViewProps) {
   const progress = goalCriteriaProgress(goal.criteria);
   const brief = goal.brief || goal.condition;
   const quiet = isQuietStatus(goal.status);
+  const completed = formatGoalCompleted(goal);
+
+  if (completed !== null) {
+    return (
+      <Box flexDirection="column" paddingX={1}>
+        <Box gap={1}>
+          <Text bold color={color("success")}>
+            Goal
+          </Text>
+          <Text color={color("success")}>{completed}</Text>
+          {progress.total > 0 && (
+            <Text color={color("dim")} dimColor>
+              {`${progress.done}/${progress.total}`}
+            </Text>
+          )}
+        </Box>
+        <Text wrap="truncate-end" color={color("dim")} dimColor>
+          {brief}
+        </Text>
+        {goal.criteria.length > 0 &&
+          sortedCriteria(goal.criteria).map((c) => (
+            <Box key={c.id} gap={1}>
+              <Text color={criterionColor(c.status)}>{GLYPH[c.status]}</Text>
+              <Text color={color("dim")} strikethrough={c.status === "done" || c.status === "cancelled"} wrap="truncate-end">
+                {c.title}
+              </Text>
+            </Box>
+          ))}
+      </Box>
+    );
+  }
 
   if (compact || goal.criteria.length === 0) {
     return (
