@@ -207,7 +207,8 @@ export function handleKey(
     actions.toggleHelp();
     return lastEscMs;
   }
-  if (key.ctrl && input === "y") {
+  // Alt+C (not Ctrl+Y, which the prompt uses for readline yank).
+  if (key.meta && input === "c") {
     actions.enterCopyMode();
     return lastEscMs;
   }

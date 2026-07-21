@@ -69,11 +69,18 @@ describe("handleKey quota cancel", () => {
 });
 
 describe("copy mode", () => {
-  test("Ctrl+Y enters copy mode", () => {
+  test("Alt+C enters copy mode", () => {
+    let entered = false;
+    const actions: KeymapActions = { ...noopActions, enterCopyMode: () => { entered = true; } };
+    handleKey("c", key({ meta: true }), baseContext, actions, 0, 0);
+    expect(entered).toBe(true);
+  });
+
+  test("Ctrl+Y no longer enters copy mode (reserved for prompt yank)", () => {
     let entered = false;
     const actions: KeymapActions = { ...noopActions, enterCopyMode: () => { entered = true; } };
     handleKey("y", key({ ctrl: true }), baseContext, actions, 0, 0);
-    expect(entered).toBe(true);
+    expect(entered).toBe(false);
   });
 
   test("while open, arrows move the selection and y copies", () => {
