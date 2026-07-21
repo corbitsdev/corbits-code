@@ -182,8 +182,9 @@ export function CodexLoginModal({
     }
 
     if (step === "pending") {
-      // Ctrl+Y copies the authorize URL for pasting into a browser manually.
-      if (key.ctrl && input === "y" && authorizeUrl !== null) {
+      // Alt+C copies the authorize URL for pasting into a browser manually,
+      // matching the copy binding used elsewhere (Ctrl+Y is readline yank).
+      if (key.meta && input === "c" && authorizeUrl !== null) {
         writeClipboard(authorizeUrl);
         return;
       }
@@ -311,7 +312,7 @@ export function CodexLoginModal({
         <Text dimColor>
           {step === "list" && "Up/Down navigate · Enter use · a add · x remove · Esc close"}
           {step === "name" && "Type a profile name · Enter sign in · Esc back"}
-          {step === "pending" && "Ctrl+Y copy link · Esc cancel"}
+          {step === "pending" && "Alt+C copy link · Esc cancel"}
           {step === "done" && "Enter close"}
           {step === "error" && "Enter close"}
           {step === "remove" && "y remove · n cancel · Esc back"}
