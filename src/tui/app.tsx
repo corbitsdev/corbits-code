@@ -96,6 +96,7 @@ import { useGates } from "./hooks/use-gates.js";
 import { useScroll } from "./hooks/use-scroll.js";
 import { useKeymap } from "./hooks/use-keymap.js";
 import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
+import { isExitCommand } from "./exit-command.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { removeAgentProfile, upsertAgentProfile } from "./agent-profiles.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
@@ -1555,6 +1556,10 @@ export function App({
   };
 
   const handleSend = (message: string) => {
+    if (isExitCommand(message)) {
+      exit();
+      return;
+    }
     setCommandMessage(null);
     const attachments = pendingImages;
     setPendingImages([]);
@@ -1576,6 +1581,11 @@ export function App({
   };
 
   const handleInterrupt = (message: string) => {
+    if (isExitCommand(message)) {
+      requestStop();
+      exit();
+      return;
+    }
     setCommandMessage(null);
     // requestStop must fire synchronously before any async work so the abort
     // signal reaches the in-flight HTTP request before at-mention resolution
