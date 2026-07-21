@@ -37,6 +37,10 @@ consumer transparently uses the local copy.
 3. `bun install`.
 4. Add a row to the table above recording the submodule commit it was copied
    from.
+5. Keep the package's `"license": "LGPL-2.1-only"` field and copy
+   `interchange/LICENSE` into the vendored directory as `LICENSE`. Vendored
+   interchange code stays LGPL-2.1-only; the repo's GPLv2 license and AI
+   exception do not apply to it.
 
 Do not vendor a package unless a change actually needs to land locally — an
 unmodified vendored copy only adds drift. If a planned change turns out not to
