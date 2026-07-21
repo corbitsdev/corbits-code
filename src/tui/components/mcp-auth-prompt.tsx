@@ -27,7 +27,7 @@ export function McpAuthPrompt({ servers }: McpAuthPromptProps): ReactNode {
           <Text color={color("muted")}>{s.url}</Text>
         </Box>
       ))}
-      <Text color={color("muted")}>press Ctrl+Y to copy URL</Text>
+      <Text color={color("muted")}>press Alt+C to copy URL</Text>
     </Box>
   );
 }
