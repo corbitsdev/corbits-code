@@ -83,7 +83,7 @@ shows an authorization prompt listing the server and its authorize URL:
 
 - The URL is rendered as a clickable hyperlink (`open in browser`) in terminals
   that support OSC 8.
-- Press **Ctrl+Y** to copy the URL for pasting into a browser instead.
+- Press **Alt+C** to copy the URL for pasting into a browser instead.
 
 Complete the consent flow in the browser. A loopback callback server catches the
 redirect and exchanges the authorization code for tokens automatically — the
