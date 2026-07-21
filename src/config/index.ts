@@ -4,6 +4,7 @@ import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
 import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
+import type { PricingFetcherOptions } from "../cost/pricing-fetcher.js";
 import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
 import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
 import {
@@ -253,6 +254,10 @@ export type LoadConfigOptions = {
   // instead of throwing. The TUI uses this to open the onboarding flow rather
   // than exiting. Headless callers should leave this false (the default).
   allowUnconfigured?: boolean;
+  // Pricing metadata fetcher overrides. Tests must inject an offline fetchImpl
+  // here — the default performs a real request to models.dev, and a stray
+  // background fetch inside the suite destabilizes timing-sensitive tests.
+  pricing?: PricingFetcherOptions;
 };
 
 export async function loadConfig(
@@ -342,7 +347,7 @@ export async function loadConfig(
   }
 
   const pricingCachePath = join(cwd, ".cache", "models-pricing.json");
-  await bootstrapPricingMetadata({ cachePath: pricingCachePath });
+  await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
   const settings =
     configPath !== undefined
