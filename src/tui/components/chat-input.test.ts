@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { applyKey, applyPaste, type EditState, type InputKey } from "./chat-input.js";
+import { applyKey, applyKillYank, applyPaste, type EditState, type InputKey } from "./chat-input.js";
+import { emptyKillRing, type KillRing } from "../kill-ring.js";
 
 const state = (value: string, cursor: number): EditState => ({ value, cursor });
 
@@ -182,6 +183,32 @@ describe("applyKey — Home / End via ctrl sequences", () => {
   });
 });
 
+describe("applyKey — readline character movement and deletion", () => {
+  test("ctrl+b moves one character left", () => {
+    expect(applyKey(state("hello", 3), "b", key({ ctrl: true }))).toEqual(state("hello", 2));
+  });
+
+  test("ctrl+b clamps at 0", () => {
+    expect(applyKey(state("hello", 0), "b", key({ ctrl: true }))).toEqual(state("hello", 0));
+  });
+
+  test("ctrl+f moves one character right", () => {
+    expect(applyKey(state("hello", 3), "f", key({ ctrl: true }))).toEqual(state("hello", 4));
+  });
+
+  test("ctrl+f clamps at end", () => {
+    expect(applyKey(state("hello", 5), "f", key({ ctrl: true }))).toEqual(state("hello", 5));
+  });
+
+  test("ctrl+d deletes the character at point", () => {
+    expect(applyKey(state("hello", 1), "d", key({ ctrl: true }))).toEqual(state("hllo", 1));
+  });
+
+  test("ctrl+d at end of buffer is a no-op", () => {
+    expect(applyKey(state("hello", 5), "d", key({ ctrl: true }))).toEqual(state("hello", 5));
+  });
+});
+
 describe("applyKey — keys that should not mutate state", () => {
   test("return does not modify value", () => {
     expect(applyKey(state("hello", 5), "", key({ return: true }))).toEqual(state("hello", 5));
@@ -243,6 +270,127 @@ describe("applyPaste — insertion at cursor", () => {
   test("paste at cursor past end is clamped by slice semantics (same as appending)", () => {
     // Cursor past value.length: slice are forgiving and treat it like end.
     expect(applyPaste(state("hi", 10), "!")).toEqual(state("hi!", 11));
+  });
+});
+
+// applyKillYank drives the readline kill/yank commands. Chains thread the
+// returned ring through successive calls the way the component's ref does.
+describe("applyKillYank — kill commands", () => {
+  const run = (
+    value: string,
+    cursor: number,
+    input: string,
+    k: Partial<InputKey>,
+    ring: KillRing = emptyKillRing,
+  ) => applyKillYank(state(value, cursor), ring, input, key(k));
+
+  test("returns null for keys it does not own", () => {
+    expect(run("hello", 3, "x", {})).toBeNull();
+    expect(run("hello", 3, "z", { ctrl: true })).toBeNull();
+    expect(run("hello", 3, "x", { meta: true })).toBeNull();
+  });
+
+  test("C-k kills from cursor to end of line", () => {
+    const r = run("hello world", 5, "k", { ctrl: true })!;
+    expect(r.state).toEqual(state("hello", 5));
+    expect(r.ring.entries).toEqual([" world"]);
+  });
+
+  test("C-k at end of a line kills the newline", () => {
+    const r = run("one\ntwo", 3, "k", { ctrl: true })!;
+    expect(r.state).toEqual(state("onetwo", 3));
+    expect(r.ring.entries).toEqual(["\n"]);
+  });
+
+  test("C-k at end of buffer is a no-op that keeps the ring", () => {
+    const r = run("hello", 5, "k", { ctrl: true })!;
+    expect(r.state).toEqual(state("hello", 5));
+    expect(r.ring.entries).toEqual([]);
+  });
+
+  test("C-u kills from line start to cursor", () => {
+    const r = run("hello world", 5, "u", { ctrl: true })!;
+    expect(r.state).toEqual(state(" world", 0));
+    expect(r.ring.entries).toEqual(["hello"]);
+  });
+
+  test("C-u respects the current line in multi-line input", () => {
+    const r = run("one\ntwo three", 8, "u", { ctrl: true })!;
+    expect(r.state).toEqual(state("one\nthree", 4));
+    expect(r.ring.entries).toEqual(["two "]);
+  });
+
+  test("C-w kills back to the previous word start", () => {
+    const r = run("hello world", 11, "w", { ctrl: true })!;
+    expect(r.state).toEqual(state("hello ", 6));
+    expect(r.ring.entries).toEqual(["world"]);
+  });
+
+  test("M-d kills forward to the next word end", () => {
+    const r = run("hello world", 0, "d", { meta: true })!;
+    expect(r.state).toEqual(state(" world", 0));
+    expect(r.ring.entries).toEqual(["hello"]);
+  });
+
+  test("M-backspace kills back to the previous word start", () => {
+    const r = run("hello world", 11, "", { meta: true, backspace: true })!;
+    expect(r.state).toEqual(state("hello ", 6));
+    expect(r.ring.entries).toEqual(["world"]);
+  });
+
+  test("consecutive kills accumulate into one ring entry", () => {
+    const first = run("foo bar baz", 0, "d", { meta: true })!;
+    const second = applyKillYank(first.state, first.ring, "d", key({ meta: true }))!;
+    expect(second.state).toEqual(state(" baz", 0));
+    expect(second.ring.entries).toEqual(["foo bar"]);
+  });
+});
+
+describe("applyKillYank — yank and yank-pop", () => {
+  const killOf = (text: string): KillRing =>
+    applyKillYank(state(text, 0), emptyKillRing, "k", key({ ctrl: true }))!.ring;
+
+  test("C-y with an empty ring is a handled no-op", () => {
+    const r = applyKillYank(state("hi", 1), emptyKillRing, "y", key({ ctrl: true }))!;
+    expect(r.state).toEqual(state("hi", 1));
+  });
+
+  test("C-y inserts the most recent kill at the cursor", () => {
+    const ring = killOf("world");
+    const r = applyKillYank(state("hello ", 6), ring, "y", key({ ctrl: true }))!;
+    expect(r.state).toEqual(state("hello world", 11));
+  });
+
+  test("M-y without a preceding yank is unhandled", () => {
+    const ring = killOf("world");
+    expect(applyKillYank(state("hello", 5), ring, "y", key({ meta: true }))).toBeNull();
+  });
+
+  test("M-y after C-y replaces the yank with the previous kill", () => {
+    let ring = killOf("old");
+    // A fresh kill after a break: simulate a second, newer kill.
+    ring = applyKillYank(state("new", 0), { ...ring, lastAction: "other" }, "k", key({ ctrl: true }))!.ring;
+    const yanked = applyKillYank(state("> ", 2), ring, "y", key({ ctrl: true }))!;
+    expect(yanked.state).toEqual(state("> new", 5));
+    const popped = applyKillYank(yanked.state, yanked.ring, "y", key({ meta: true }))!;
+    expect(popped.state).toEqual(state("> old", 5));
+  });
+
+  test("M-y cycles back around to the newest kill", () => {
+    let ring = killOf("old");
+    ring = applyKillYank(state("new", 0), { ...ring, lastAction: "other" }, "k", key({ ctrl: true }))!.ring;
+    const yanked = applyKillYank(state("", 0), ring, "y", key({ ctrl: true }))!;
+    const pop1 = applyKillYank(yanked.state, yanked.ring, "y", key({ meta: true }))!;
+    const pop2 = applyKillYank(pop1.state, pop1.ring, "y", key({ meta: true }))!;
+    expect(pop2.state).toEqual(state("new", 3));
+  });
+
+  test("kill then yank round-trips multi-line kills", () => {
+    const killed = applyKillYank(state("one\ntwo", 3), emptyKillRing, "k", key({ ctrl: true }))!;
+    const killed2 = applyKillYank(killed.state, killed.ring, "k", key({ ctrl: true }))!;
+    expect(killed2.state).toEqual(state("one", 3));
+    const yanked = applyKillYank(killed2.state, killed2.ring, "y", key({ ctrl: true }))!;
+    expect(yanked.state).toEqual(state("one\ntwo", 7));
   });
 });
 

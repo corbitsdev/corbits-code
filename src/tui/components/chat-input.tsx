@@ -12,6 +12,14 @@ import {
   promptVisualLines,
 } from "../prompt-layout.js";
 import { composePromptActionBarModelLabel } from "./prompt-action-bar-label.js";
+import {
+  beginYank,
+  breakKillSequence,
+  emptyKillRing,
+  recordKill,
+  rotateYank,
+  type KillRing,
+} from "../kill-ring.js";
 
 export type ChatInputProps = {
   onSubmit: (message: string) => void;
@@ -182,11 +190,20 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
     };
   }
 
-  // ctrl+a / ctrl+e are the readline Home and End bindings. We treat them as
-  // jump-to-start / jump-to-end and ignore all other ctrl combos.
+  // Readline control bindings: C-a/C-e jump, C-b/C-f move by one character,
+  // C-d deletes the character at point (delete-char does not touch the kill
+  // ring, matching readline). Kill commands (C-k, C-u, C-w) live in
+  // applyKillYank because they need the kill ring. All other ctrl combos
+  // are ignored.
   if (key.ctrl) {
     if (input === "a") return { value, cursor: 0 };
     if (input === "e") return { value, cursor: value.length };
+    if (input === "b") return { value, cursor: Math.max(0, cursor - 1) };
+    if (input === "f") return { value, cursor: Math.min(value.length, cursor + 1) };
+    if (input === "d") {
+      if (cursor >= value.length) return state;
+      return { value: value.slice(0, cursor) + value.slice(cursor + 1), cursor };
+    }
     return state;
   }
 
@@ -207,6 +224,78 @@ export function applyKey(state: EditState, input: string, key: InputKey): EditSt
     value: value.slice(0, cursor) + input + value.slice(cursor),
     cursor: cursor + input.length,
   };
+}
+
+export type KillYankResult = { state: EditState; ring: KillRing };
+
+// Pure readline kill/yank layer, checked before applyKey. Returns null when
+// the keystroke is not a kill or yank command so the caller falls through.
+// Word boundaries are whitespace-based, matching the Alt+arrow movement above.
+export function applyKillYank(
+  state: EditState,
+  ring: KillRing,
+  input: string,
+  key: InputKey,
+): KillYankResult | null {
+  const { value, cursor } = state;
+
+  const kill = (start: number, end: number, direction: "forward" | "backward"): KillYankResult => {
+    const text = value.slice(start, end);
+    if (text.length === 0) return { state, ring };
+    return {
+      state: { value: value.slice(0, start) + value.slice(end), cursor: start },
+      ring: recordKill(ring, text, direction),
+    };
+  };
+
+  // M-d: kill to word end. M-backspace: kill to word start.
+  if (key.meta && !key.ctrl) {
+    if (input === "d") return kill(cursor, nextWordEnd(value, cursor), "forward");
+    if (key.backspace) return kill(previousWordStart(value, cursor), cursor, "backward");
+    if (input === "y") {
+      const rotated = rotateYank(ring);
+      if (rotated === null) return null;
+      const { span, text } = rotated;
+      // The last yank's span must still be intact (submit/clear invalidates it).
+      if (span.end > value.length) return null;
+      return {
+        state: {
+          value: value.slice(0, span.start) + text + value.slice(span.end),
+          cursor: span.start + text.length,
+        },
+        ring: rotated.ring,
+      };
+    }
+    return null;
+  }
+
+  if (key.ctrl && !key.meta) {
+    // C-k: kill to line end; at line end, kill the newline itself.
+    if (input === "k") {
+      let end = lineEnd(value, cursor);
+      if (end === cursor && cursor < value.length) end = cursor + 1;
+      return kill(cursor, end, "forward");
+    }
+    // C-u: kill back to line start (unix-line-discard).
+    if (input === "u") return kill(lineStart(value, cursor), cursor, "backward");
+    // C-w: kill back to word start (unix-word-rubout).
+    if (input === "w") return kill(previousWordStart(value, cursor), cursor, "backward");
+    // C-y: yank the most recent kill at point.
+    if (input === "y") {
+      const yank = beginYank(ring, cursor);
+      if (yank === null) return { state, ring };
+      return {
+        state: {
+          value: value.slice(0, cursor) + yank.text + value.slice(cursor),
+          cursor: cursor + yank.text.length,
+        },
+        ring: yank.ring,
+      };
+    }
+    return null;
+  }
+
+  return null;
 }
 
 type SlashState =
@@ -285,6 +374,10 @@ export function ChatInput({
   }, [value]);
 
   const atMention = useAtSuggestions(cwd);
+
+  // Kill ring for readline kill/yank. A ref, not state: every mutation also
+  // changes value or cursor, so no render depends on the ring alone.
+  const killRing = useRef<KillRing>(emptyKillRing);
 
   const slashState = useMemo(() => parseSlashState(value), [value]);
   const suggestions = useMemo((): Suggestion[] => {
@@ -369,6 +462,28 @@ export function ChatInput({
       onPasteImage();
       return;
     }
+
+    // Kill/yank dispatch runs first: the suggestion pickers below never claim
+    // these chords, and readline semantics need every non-kill keystroke to
+    // break kill accumulation and the M-y rotation window — including keys
+    // that return early from the picker branches.
+    const killYank = applyKillYank({ value, cursor }, killRing.current, input, key);
+    if (killYank !== null) {
+      killRing.current = killYank.ring;
+      const nextState = killYank.state;
+      if (nextState.value !== value) {
+        onSentHistoryExitBrowse?.();
+        selfSetValue.current = nextState.value;
+        onChange(nextState.value);
+        setCursor(nextState.cursor);
+        atMention.refresh(nextState.value, nextState.cursor);
+      } else if (nextState.cursor !== cursor) {
+        setCursor(nextState.cursor);
+        atMention.refresh(nextState.value, nextState.cursor);
+      }
+      return;
+    }
+    killRing.current = breakKillSequence(killRing.current);
 
     // @ picker takes priority over slash suggestions (they are mutually exclusive
     // by construction: slash state only fires when value starts with /).
@@ -539,6 +654,7 @@ export function ChatInput({
   // useInput — this avoids 10K+ individual re-renders on a large paste.
   usePaste((text) => {
     if (!active) return;
+    killRing.current = breakKillSequence(killRing.current);
     if (onPasteText?.(text) === true) return;
     const next = applyPaste({ value, cursor }, text);
     if (next.value === value) return; // empty text — nothing changed
