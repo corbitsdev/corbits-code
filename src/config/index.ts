@@ -218,6 +218,11 @@ export type Config = {
   totalTimeoutMs?: number;
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
+  /**
+   * Where `mcpServers` came from. Local project settings replace global MCP
+   * entirely; only `"local"` sources require project trust before connect.
+   */
+  mcpServersSource?: "local" | "global" | "none";
   sessionId: string;
   /** When true, runTUI shows a session picker first (resume flow). */
   resumePicker?: boolean;
@@ -278,9 +283,10 @@ export async function loadConfig(
   let force = false;
   let dangerouslySkipPermissions = false;
   // Auto mode is the default: non-destructive consequential actions (file
-  // writes/edits, safe read-only shell) run without prompting, while malicious
-  // commands stay denied and script-runners still ask. Pass --no-auto to revert
-  // to ask-on-every-write, or toggle live in the TUI with /auto.
+  // writes/edits and unconstrained shell) run without prompting, while shell
+  // file-mutation stays denied and installs / recursive rm / worktree /
+  // sensitive-path / opaque-wrapper shell still ask. Pass --no-auto to revert
+  // to ask-on-every-write, or toggle live in the TUI with SHIFT+TAB.
   let auto = true;
   let configPath: string | undefined;
   let provider: string | undefined;
@@ -462,10 +468,10 @@ export async function loadConfig(
     ...(profile.totalTimeoutMs !== undefined ? { totalTimeoutMs: profile.totalTimeoutMs } : {}),
     ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
     ...(local?.mcpServers !== undefined
-      ? { mcpServers: local.mcpServers }
+      ? { mcpServers: local.mcpServers, mcpServersSource: "local" as const }
       : settings?.mcpServers !== undefined
-        ? { mcpServers: settings.mcpServers }
-        : {}),
+        ? { mcpServers: settings.mcpServers, mcpServersSource: "global" as const }
+        : { mcpServersSource: "none" as const }),
     ...(settings?.tiers !== undefined ? { tiers: settings.tiers } : {}),
     ...(settings !== null ? { settings } : {}),
   };
