@@ -4,7 +4,7 @@ import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId } from "../session/index.js";
 import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
-import type { PricingFetcherOptions } from "../cost/pricing-fetcher.js";
+import { defaultPricingCachePath, type PricingFetcherOptions } from "../cost/pricing-fetcher.js";
 import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
 import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
 import {
@@ -352,7 +352,7 @@ export async function loadConfig(
     positional.push(arg);
   }
 
-  const pricingCachePath = join(cwd, ".cache", "models-pricing.json");
+  const pricingCachePath = defaultPricingCachePath();
   await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
   const settings =

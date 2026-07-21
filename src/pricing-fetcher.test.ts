@@ -1,4 +1,6 @@
 import { describe, test, expect } from "bun:test";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import {
   parseModelsDevPricing,
   parseModelsDevReasoning,
@@ -9,8 +11,30 @@ import {
   readPricingCache,
   writePricingCache,
   startPricingRefresh,
+  defaultPricingCachePath,
   type PricingCache,
 } from "./cost/pricing-fetcher.js";
+
+// ---------------------------------------------------------------------------
+// defaultPricingCachePath
+// ---------------------------------------------------------------------------
+
+describe("defaultPricingCachePath", () => {
+  test("resolves under ~/.intercode/, not project cwd .cache/", () => {
+    const path = defaultPricingCachePath();
+    expect(isAbsolute(path)).toBe(true);
+    expect(path).toBe(join(homedir(), ".intercode", "cache", "models-pricing.json"));
+    // Must not be the old cwd-relative default that polluted project directories.
+    expect(path).not.toBe(".cache/models-pricing.json");
+    expect(path.endsWith(join(".cache", "models-pricing.json"))).toBe(false);
+  });
+
+  test("accepts an injectable home directory", () => {
+    expect(defaultPricingCachePath("/tmp/fake-home")).toBe(
+      join("/tmp/fake-home", ".intercode", "cache", "models-pricing.json"),
+    );
+  });
+});
 
 describe("parseModelsDevReasoning", () => {
   test("collects the per-model reasoning flag from a nested models.dev payload", () => {
