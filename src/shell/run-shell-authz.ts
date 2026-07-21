@@ -1,6 +1,8 @@
 // Shared run_shell authorization policy used by the authz plugin (hard deny at
 // execution) and the permission gate (do not auto-allow what authz would reject).
 
+import { splitChainedCommand, tokenize } from "../permission/command.js";
+
 // A command-position anchor: the start of the command, or immediately after a
 // shell separator or subshell open, optionally preceded by a run of NAME=value
 // environment assignments (so `X=1 sudo …` is still recognised as `sudo` in
@@ -265,6 +267,34 @@ const ENV_ASSIGNMENT = /^\w+=/;
 const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
 const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 
+// Interpreters whose `-c` / `--command` payload is an independent shell subject.
+const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+// Transparent prefixes that sit in front of a real program without changing it.
+const PREFIX_WRAPPERS = new Set(["command", "env", "builtin", "time", "nice", "nohup", "timeout"]);
+const MAX_PEEL_DEPTH = 4;
+
+// xargs flags that consume the following token as a value.
+const XARGS_VALUE_FLAGS = new Set([
+  "-I",
+  "-i",
+  "-n",
+  "-P",
+  "-s",
+  "-E",
+  "-e",
+  "-L",
+  "-l",
+  "-d",
+  "-a",
+  "--max-args",
+  "--max-procs",
+  "--replace",
+  "--delimiter",
+  "--max-chars",
+  "--arg-file",
+  "--exit",
+]);
+
 // A recursive rm is catastrophic only when it targets a root the agent can never
 // recover from — /, the home directory, a system tree, or a bare cwd-wide glob.
 // A recursive rm of an ordinary relative path (e.g. ./build, node_modules) is
@@ -287,6 +317,185 @@ function programBasename(token: string): string {
   return slash >= 0 ? bare.slice(slash + 1) : bare;
 }
 
+// Payload we cannot statically inspect: empty, a bare expansion, or a leading
+// command substitution. Argument-position expansions like `rm -rf $HOME` stay
+// parseable so catastrophic-target checks still fire.
+function isOpaquePayload(payload: string): boolean {
+  const trimmed = payload.trim();
+  if (trimmed.length === 0) return true;
+  if (/^\$[{(]?[\w*@#?$!-]+[)}]?$/.test(trimmed)) return true;
+  if (/^\$\(/.test(trimmed) || /^`/.test(trimmed)) return true;
+  return false;
+}
+
+type PeelOutcome =
+  | { kind: "inner"; command: string }
+  | { kind: "opaque" }
+  | { kind: "none" };
+
+function peelShellDashC(tokens: string[], start: number): PeelOutcome {
+  let i = start;
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (t === "--") {
+      i++;
+      break;
+    }
+    if (t === "-c" || t === "--command") {
+      const payload = tokens[i + 1];
+      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      return { kind: "inner", command: payload };
+    }
+    if (t.startsWith("--command=")) {
+      const payload = t.slice("--command=".length);
+      if (isOpaquePayload(payload)) return { kind: "opaque" };
+      return { kind: "inner", command: payload };
+    }
+    // Clustered short flags that include `c` (`-lc`, `-ic`, …): `c` takes the
+    // next token as the command string, matching bash/sh/zsh.
+    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(t)) {
+      const payload = tokens[i + 1];
+      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      return { kind: "inner", command: payload };
+    }
+    if (t.startsWith("-") && t !== "-") {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return { kind: "none" };
+}
+
+function peelXargs(tokens: string[], start: number): PeelOutcome {
+  let i = start;
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (t === "--") {
+      i++;
+      break;
+    }
+    if (!t.startsWith("-") || t === "-") break;
+    if (t.includes("=") && t.startsWith("--")) {
+      i++;
+      continue;
+    }
+    if (XARGS_VALUE_FLAGS.has(t)) {
+      i++;
+      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+      continue;
+    }
+    // Clustered short options; -I/-i/-n/… with glued values are treated as one token.
+    i++;
+  }
+  if (i >= tokens.length) return { kind: "opaque" };
+  const utility = tokens.slice(i).join(" ");
+  if (isOpaquePayload(utility)) return { kind: "opaque" };
+  return { kind: "inner", command: utility };
+}
+
+// Peel one layer of transparent prefix / shell -c / xargs from a single segment.
+function peelOnce(segment: string): PeelOutcome {
+  const tokens = tokenize(segment);
+  let i = 0;
+  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+
+  let strippedPrefix = false;
+  while (i < tokens.length) {
+    const base = programBasename(tokens[i]!);
+    if (base === "env") {
+      strippedPrefix = true;
+      i++;
+      while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+      continue;
+    }
+    if (base === "timeout") {
+      strippedPrefix = true;
+      i++;
+      // Optional duration (10, 30s, 1m, …) and common long/short flags.
+      while (i < tokens.length) {
+        const t = tokens[i]!;
+        if (/^\d/.test(t)) {
+          i++;
+          continue;
+        }
+        if (t.startsWith("-") && t !== "-") {
+          // Flags that take a value: -k / --kill-after / -s / --signal.
+          if (t === "-k" || t === "--kill-after" || t === "-s" || t === "--signal" || t.startsWith("--kill-after=") || t.startsWith("--signal=")) {
+            i++;
+            if (!t.includes("=") && i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+            continue;
+          }
+          i++;
+          continue;
+        }
+        break;
+      }
+      continue;
+    }
+    if (PREFIX_WRAPPERS.has(base) && base !== "env" && base !== "timeout") {
+      strippedPrefix = true;
+      i++;
+      continue;
+    }
+    break;
+  }
+
+  if (i >= tokens.length) return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
+
+  const prog = programBasename(tokens[i]!);
+  if (SHELL_INTERPRETERS.has(prog)) {
+    const shellPeel = peelShellDashC(tokens, i + 1);
+    if (shellPeel.kind !== "none") return shellPeel;
+    // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
+    return { kind: "none" };
+  }
+  if (prog === "xargs") return peelXargs(tokens, i + 1);
+
+  // Prefix-only peel: `env FOO=1 rm -rf build` → `rm -rf build`.
+  if (strippedPrefix) {
+    return { kind: "inner", command: tokens.slice(i).join(" ") };
+  }
+  return { kind: "none" };
+}
+
+export type ShellExpandResult = {
+  /** Original command plus every successfully peeled inner payload. */
+  subjects: string[];
+  /** True when a wrapper was present but its payload could not be inspected. */
+  opaque: boolean;
+};
+
+// Expand a shell command into subjects the auto-shell policy and recursive-rm
+// checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs utility tails, and
+// transparent prefixes (env/nice/timeout/…), recursing with a depth cap so
+// nested wrappers cannot hide a dangerous payload.
+//
+// Chain splitting is quote-aware (`splitChainedCommand`) so a pipe inside a
+// `bash -c '…|…'` payload is not mistaken for an outer pipeline boundary.
+export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH): ShellExpandResult {
+  const subjects: string[] = [];
+  const seen = new Set<string>();
+  let opaque = false;
+
+  const visit = (cmd: string, depth: number): void => {
+    const trimmed = cmd.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    subjects.push(trimmed);
+    if (depth >= maxDepth) return;
+
+    for (const segment of splitChainedCommand(trimmed)) {
+      const peeled = peelOnce(segment);
+      if (peeled.kind === "opaque") opaque = true;
+      if (peeled.kind === "inner") visit(peeled.command, depth + 1);
+    }
+  };
+
+  visit(command, 0);
+  return { subjects, opaque };
+}
+
 function segmentRmArgs(segment: string): string[] | undefined {
   const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
   let i = 0;
@@ -305,7 +514,8 @@ export function segmentHasRecursiveRm(segment: string): boolean {
 export function commandHasRecursiveRm(command: string): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
-  return trimmed.split(CHAIN).some(segmentHasRecursiveRm);
+  const { subjects } = expandShellSubjects(trimmed);
+  return subjects.some((subject) => subject.split(CHAIN).some(segmentHasRecursiveRm));
 }
 
 function isCatastrophicRm(segment: string): boolean {
@@ -318,8 +528,11 @@ function isCatastrophicRm(segment: string): boolean {
 }
 
 function isDestructive(command: string): boolean {
-  if (BLOCKED_PATTERNS.some((pattern) => pattern.test(command))) return true;
-  return command.split(CHAIN).some(isCatastrophicRm);
+  const { subjects } = expandShellSubjects(command);
+  return subjects.some((subject) => {
+    if (BLOCKED_PATTERNS.some((pattern) => pattern.test(subject))) return true;
+    return subject.split(CHAIN).some(isCatastrophicRm);
+  });
 }
 
 function isOpenEndedSearch(command: string): boolean {
