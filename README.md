@@ -68,6 +68,35 @@ The chat director adds context management on top of the reactor:
 - **Overflow recovery:** A context-overflow error triggers a bounded compact-and-retry instead of failing the turn.
 - **Workflow nudges:** When a workflow is active, the director keeps the run on the current step and surfaces a visible message if it stalls.
 
+## Permissions and auto mode
+
+Intercode defaults to **auto mode** (`auto = true`). Workspace file writes/edits/deletes and unconstrained shell commands run without per-action prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode, or press **SHIFT+TAB** in the TUI to toggle at any time. Enabling auto prints a one-line reminder of the envelope below.
+
+### What auto allows
+
+- File tools inside the workspace: `write_file`, `edit_file`, `delete_file` (and other non-shell built-ins such as `manage_tasks`, `task`, …)
+- Unconstrained shell (builds, tests, git, one-off commands that match no deny/ask rule)
+- Read-only tools (`read_file`, `grep`, `search_files`, `list_dir`, `lsp`, …) always allow regardless of mode
+
+### What still asks (even in auto)
+
+- Dependency installs and remote runners (`npm install` / `i` / `ci` / `add`, `pip install`, `cargo add`, `brew install`, `npx` / `bunx`, …)
+- Recursive `rm` (`-r` / `-R` / `--recursive`)
+- Git worktree boundary changes (`add` / `remove` / `prune`; read-only `git worktree list` is fine)
+- Shell that references sensitive paths (`.env`, private keys, certs, credential files, …)
+- Opaque shell wrappers the policy cannot statically inspect (variable expansion or command substitution in a wrapper payload)
+- Paths outside the workspace, writes under `.agent-state`, mutating MCP tools, and unknown built-ins
+
+### What auto hard-denies (use the file tools instead)
+
+- File creation or edits via shell: redirects (`>` / `>>`), `tee`, `sed -i` / `perl -i` / similar, interpreter inline programs or heredocs (`python -c`, `node -e`, …)
+
+Wrappers such as `bash -c '…'`, `sh`/`zsh -c`, `xargs`, and transparent prefixes (`env`, `nice`, `timeout`) are peeled so the same rules apply to the inner command. Unparseable wrappers fall through to ask rather than auto-allow.
+
+Catastrophic patterns (`rm -rf /`, `sudo`, `curl | bash`, force-push, open-ended `find`/`rg`/`grep -r`, …) are always denied by authorization, independent of auto mode. `--dangerously-skip-permissions` is a separate escape hatch that bypasses the permission gate (not secret-guard path denies or authz hard blocks).
+
+Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md` (permission gate and auto-shell policy).
+
 ## Development
 
 ```bash
