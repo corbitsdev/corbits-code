@@ -7,7 +7,7 @@ FAIL=0
 ok()   { echo "  ok   $*"; ((PASS++)) || true; }
 fail() { echo "  FAIL $*"; ((FAIL++)) || true; }
 
-echo "interchange-code: environment check"
+echo "intercode: environment check"
 echo ""
 
 # Git hooks

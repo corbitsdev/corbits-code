@@ -60,9 +60,9 @@ authoritative list; at a high level:
   instead of a full partial-response snapshot per token), and committed output
   is delivered incrementally rather than as a terminal burst.
 - Streaming inactivity timeout measures silence since the last semantic SSE
-  event the adapter parsed, not since the last raw chunk (CL-3477).
+  event the adapter parsed, not since the last raw chunk.
 - The reactor checkpoints after each tool batch with `addToHistory` so an
-  interrupt rebuild reloads assistant tool_call turns and results (CL-3478).
+  interrupt rebuild reloads assistant tool_call turns and results.
 
 ## Keeping in sync with upstream
 
@@ -72,7 +72,7 @@ A vendored copy drifts from `interchange` over time. When adopting a newer
 them), then update the submodule commit recorded in the table above. Treat that
 commit as the baseline the current vendored copy was derived from.
 
-### Sync checklist (CL-3331)
+### Sync checklist
 
 Before bumping the `interchange` submodule or cutting a release that touches inference:
 

@@ -153,34 +153,37 @@ web = trial search; others = load/contract check), and the kind-selector toggle
 where relevant (web override). Add-by-path (`a`) already exists. Everything
 persists to global settings immediately.
 
-## Migration plan (all phases landed)
+## Implemented capabilities
 
-**Phase 0 — web-provider slice (done).**
-Manifest type, `kind`, `settings.plugins`/`web`/`pluginPaths`, web resolution,
-tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
+### Web providers
 
-**Phase 1 — command kind + enabled gating (done).**
+Manifest type, `kind`, `settings.plugins` / `web` / `pluginPaths`, web
+resolution, tool-name branding, `/plugins` UI, and add-by-path. Web is the
+first kind-selector surface; other kinds share the same discovery and settings
+shape.
+
+### Command plugins and enable gating
+
 - `command` plugins (`commandPlugin` export) register their slash commands only
   when `settings.plugins[id].enabled` is true, via `registerCommandPlugins`
   (`src/plugins/register.ts`); enabling one in `/plugins` wires it in live.
-- A `command` plugin declares a manifest and is gated this way; enabling one in
-  `/plugins` wires it in live. Commands may also be authored as data-only
-  markdown (Phase 5).
-- Removed `settings.workflowPlugins`/`agentPlugins` and their loaders.
+- Commands may also be authored as data-only markdown (see below).
+- Legacy `settings.workflowPlugins` / `agentPlugins` specifier arrays and their
+  loaders are removed; everything flows through discovery + `pluginPaths`.
 
-**Phase 2 — tool kind with consent (done).**
+### Tool plugins with consent
+
 - `kind: "tool"` plugins export `createToolPlugin(credentials)` and contribute
   posix `ToolPlugin`s, resolved in `src/plugins/tool-plugins.ts` and wired into
   the toolset in `src/tui/runner.tsx` and `tools.ts` (appended last, so they cannot
   shadow core middleware).
 - A tool plugin is wired in only when **enabled AND consented**. Enabling one in
   `/plugins` prompts a one-time y/n consent recorded in `settings.plugins[id]`.
-
-**Phase 3 — polish (done).**
-- Per-kind verify in `/plugins` (web = trial search; tool = load check).
+- Per-kind verify in `/plugins` covers web (trial search) and tool (load check).
 - `plugins/example-tool` is a worked example of a `tool` plugin.
 
-**Phase 4 — agent kind (done).**
+### Agent plugins
+
 - `agent` plugins (`agentPlugin` export) contribute `AgentProfile`s that the
   `task` tool can dispatch to, resolved in `src/plugins/agent-plugins.ts` and
   merged into the profile registry alongside local `.agents/agents/` profiles.
@@ -196,7 +199,8 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
 - Add-by-path (`a`) uses the same path suggestion UX as `@` mentions
   (`listPathSuggestions`) so registering a plugin from disk can browse directories.
 
-**Phase 5 — data-only command plugins (done).**
+### Data-only command plugins
+
 - `command` plugins may be authored as pure markdown, the same convention as
   Claude Code (`.claude/commands/`), OpenCode (`.opencode/command/`), and Codex:
   a `commands/` directory where each file is a slash command. No `index.ts`.
@@ -210,14 +214,14 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
   `argument-hint` (Claude Code field) is copied onto the command as free-form arg
   guidance and shown greyed in the slash picker next to the name and after
   `/cmd ` until the operator types real args (never inserted on Tab).
-
 - A directory with commands and no agents is recognized as `kind: "command"`
   (inferred when no `manifest.json` is present; an explicit `manifest.json`
   always wins). `loadDataOnlyPlugin` (`src/plugins/data-only.ts`) unifies agent
   and command data loading and routes by kind, so `loadPluginEntry` has a single
   data-only entry point.
 
-**Phase 6 — Claude marketplace + skill-commands (done).**
+### Claude marketplace plugins and skill-commands
+
 - Plugins authored for the Claude Code marketplace self-describe via
   `.claude-plugin/plugin.json` (`{ name, description?, ... }`, no `id`/`kind`).
   `readClaudePluginManifest` adapts it: `name` becomes `id`+`name`, `kind` is
@@ -236,14 +240,14 @@ tool-name branding, `/plugins` UI, add-by-path. The seed the rest grew from.
   (An earlier revision gated this on the `disable-model-invocation`/
   `user-invocable` frontmatter tags; that gate was dropped so untagged skills
   like `linear-create` are reachable too.)
-
 - **Mixed plugins wire both sides.** A plugin contributing agents AND commands
   (the common marketplace shape) infers `kind: "agent"` so profiles wire, and
   `isEnabledCommandPlugin` (`src/plugins/register.ts`) also wires commands for
   `kind: "agent"` — commands are a low-trust, additive surface. `web`/`tool`
   kinds still do not auto-wire commands.
 
-**Phase 7 — Claude marketplaces (done).**
+### Claude marketplaces
+
 - A plugin path may point at a Claude Code marketplace: a directory with
   `.claude-plugin/marketplace.json` declaring `plugins: [{ name, source }]`.
   `expandPluginPath` (`src/plugins/loader.ts`) resolves each `source` (relative
