@@ -8,6 +8,31 @@ below double as the reference for the system and the record of why it is shaped
 this way. (The "Current state (the problem)" section is retained as the
 historical motivation.)
 
+## Trust model (untrusted repo)
+
+Plugin **code execution** is gated by origin. Clone-and-run of a foreign repo
+must not import project-local plugins or path plugins until the operator trusts
+that absolute path.
+
+| Origin | Path | Auto-trusted? |
+|---|---|---|
+| `repo` | Product-shipped `plugins/` next to the Intercode binary | Yes |
+| `user` | `~/.intercode/plugins/` | Yes (user home) |
+| `project` | `<cwd>/.intercode/plugins/` | **No** — path-bound trust |
+| `path` | `settings.pluginPaths` entries | **No** — path-bound trust |
+
+Untrusted `project` / `path` plugins are discovered as **metadata-only**: the
+loader reads `manifest.json` (or equivalent) but does **not** `import()` the
+module and does **not** load markdown agents/commands. Enabling a listed
+project plugin in `/plugins`, or adding a path via the UI, records trust in
+`<cwd>/.intercode/trust.json` (gitignored) and full-loads the module.
+
+Tool-plugin `consented` remains a separate gate for **in-process tool**
+activation after the module is trusted and loaded.
+
+See also `docs/MCP.md` — local MCP servers from `.intercode/settings.json` use
+the same trust file (fingerprints) and fail closed when headless.
+
 ## Goals
 
 - One contract a plugin author learns once, regardless of what the plugin does.

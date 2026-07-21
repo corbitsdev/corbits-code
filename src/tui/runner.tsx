@@ -40,6 +40,12 @@ import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import {
+  isPluginTrusted,
+  loadProjectTrust,
+  trustPlugin,
+  type ProjectTrustStore,
+} from "../trust/project-trust.js";
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
@@ -152,15 +158,24 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
+  // Project/path origins without a trust entry load metadata-only (no import).
+  let projectTrust: ProjectTrustStore = await loadProjectTrust(config.cwd);
+  const isTrustedPath = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const pluginModules = dedupePluginModules([
     ...(await discoverRepoPlugins(config.cwd)),
-    ...(await discoverUserPlugins(config.cwd)),
-    ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd)),
+    ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isTrustedPath })),
+    ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd, {
+      isPluginTrusted: isTrustedPath,
+    })),
   ]);
+  // Mutable list so trusting a project plugin can replace a metadata-only stub
+  // with a fully loaded module without restarting the process.
+  let livePluginModules = pluginModules;
+  const executablePlugins = () => livePluginModules.filter((m) => m.metadataOnly !== true);
   // Command plugins are wired in only when explicitly enabled in settings.
   const pluginConfig = config.settings?.plugins ?? {};
-  registerWorkflowPlugins(pluginModules, pluginConfig);
-  registerCommandPlugins(pluginModules, pluginConfig);
+  registerWorkflowPlugins(executablePlugins(), pluginConfig);
+  registerCommandPlugins(executablePlugins(), pluginConfig);
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
   // loadConfig already bootstrapped pricing metadata for this cwd; re-read cache
   // here so a TUI-only entry (tests) still picks up the project cache path.
@@ -322,9 +337,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // land here only — never in the parent chat transcript.
   const subAgentSessions = createSubAgentSessionStore();
 
-  const webPluginCandidates = collectWebPlugins(pluginModules);
+  const webPluginCandidates = collectWebPlugins(executablePlugins());
   // Tool plugins are wired in only when enabled AND consented.
-  const toolPluginCandidates = collectToolPlugins(pluginModules);
+  const toolPluginCandidates = collectToolPlugins(executablePlugins());
   // Web and tool plugin resolution are independent, so resolve them concurrently.
   const [activeWeb, extraToolPlugins] = await Promise.all([
     resolveWebProviderFromPlugins({
@@ -355,12 +370,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(m.description !== undefined ? { description: m.description } : {}),
           credentials: m.credentials ?? [],
         };
-  const pluginDescriptors: PluginDescriptor[] = pluginModules
+  const pluginDescriptors: PluginDescriptor[] = livePluginModules
     .map((m) => toDescriptor(m.manifest))
     .filter((d): d is PluginDescriptor => d !== undefined);
   // Attach agent profiles to their descriptors so the /plugins UI can show
   // which sub-agents and tiers a plugin contributes.
-  for (const mod of pluginModules) {
+  for (const mod of livePluginModules) {
     if (mod.manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
     const desc = pluginDescriptors.find((d) => d.id === mod.manifest!.id);
     if (desc === undefined) continue;
@@ -392,9 +407,42 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     getWebOverride: () => liveWebOverride,
     saveConfig: async (id, cfg) => {
       livePluginConfig = { ...livePluginConfig, [id]: cfg };
+      // Enabling a project/path plugin records path trust and full-loads code.
+      if (cfg.enabled === true) {
+        const stub = livePluginModules.find((m) => m.manifest?.id === id);
+        if (
+          stub?.metadataOnly === true
+          && stub.pluginPath !== undefined
+        ) {
+          projectTrust = await trustPlugin(config.cwd, stub.pluginPath);
+          const full = await loadPluginEntry(stub.pluginPath, {
+            cwd: config.cwd,
+            origin: stub.origin ?? "project",
+          });
+          if (full !== null) {
+            livePluginModules = livePluginModules.map((m) =>
+              m.manifest?.id === id ? full : m,
+            );
+            // Refresh web/tool candidate lists from the newly loaded module.
+            for (const cand of collectWebPlugins([full])) {
+              const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
+              if (ci >= 0) webPluginCandidates.splice(ci, 1, cand);
+              else webPluginCandidates.push(cand);
+            }
+            for (const cand of collectToolPlugins([full])) {
+              const ci = toolPluginCandidates.findIndex((c) => c.id === cand.id);
+              if (ci >= 0) toolPluginCandidates.splice(ci, 1, cand);
+              else toolPluginCandidates.push(cand);
+            }
+            if (full.commandPlugin !== undefined && isEnabledCommandPlugin(full, livePluginConfig)) {
+              registerCommandPlugin(full.commandPlugin);
+            }
+          }
+        }
+      }
       // Live-wire a command plugin the moment it is enabled (no restart needed);
       // disabling takes effect on the next launch.
-      const mod = pluginModules.find((m) => m.manifest?.id === id);
+      const mod = livePluginModules.find((m) => m.manifest?.id === id);
       if (mod !== undefined && isEnabledCommandPlugin(mod, livePluginConfig)) {
         registerCommandPlugin(mod.commandPlugin!);
       }
@@ -407,7 +455,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     verify: async (id, credentials) => {
       // Agent plugins verify by checking they contribute valid profiles and
       // that each profile's tier resolves to a configured provider.
-      const agentMod = pluginModules.find((m) => m.manifest?.id === id && m.manifest?.kind === "agent");
+      const agentMod = livePluginModules.find((m) => m.manifest?.id === id && m.manifest?.kind === "agent");
       if (agentMod !== undefined) {
         const profiles = await resolveAgentPluginProfiles(
           [agentMod],
@@ -456,7 +504,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const path = rawPath.trim();
       if (path.length === 0) return { ok: false, message: "Enter a path" };
       const abs = isAbsolute(path) ? path : resolvePath(config.cwd, path);
-      const mod = await loadPluginEntry(abs, { cwd: config.cwd });
+      // Explicit add-by-path is user consent for that absolute path.
+      projectTrust = await trustPlugin(config.cwd, abs);
+      const mod = await loadPluginEntry(abs, { cwd: config.cwd, origin: "path" });
       if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
         return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
@@ -468,6 +518,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const existingIdx = pluginDescriptors.findIndex((d) => d.id === descriptor.id);
       if (existingIdx >= 0) pluginDescriptors.splice(existingIdx, 1, descriptor);
       else pluginDescriptors.push(descriptor);
+      const existingModIdx = livePluginModules.findIndex((m) => m.manifest?.id === descriptor.id);
+      if (existingModIdx >= 0) livePluginModules[existingModIdx] = mod;
+      else livePluginModules.push(mod);
       for (const cand of collectWebPlugins([mod])) {
         const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
         if (ci >= 0) webPluginCandidates.splice(ci, 1, cand);
@@ -492,7 +545,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   const profilesDir = join(config.cwd, ".agents", "agents");
   const pluginAgentProfiles = await resolveAgentPluginProfiles(
-    pluginModules,
+    executablePlugins(),
     config.settings?.plugins ?? {},
     (msg) => process.stderr.write(`plugins: ${msg}\n`),
   );
@@ -501,12 +554,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Skill directories from enabled plugins, in addition to project-local
   // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
-  const skillDirs = pluginModules
+  const skillDirs = executablePlugins()
     .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
     .map((m) => m.dir!);
 
   // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
-  const activePlugins = pluginModules
+  const activePlugins = executablePlugins()
     .filter((m) => m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
@@ -552,6 +605,26 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }),
     sessionMode: liveSessionMode,
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
+    mcpServersSource: config.mcpServersSource ?? "none",
+    projectTrust,
+    requestMcpTrust: async (server) => {
+      // TOFU via operator gate: Trust this local MCP server?
+      const result = await new Promise<OperatorResult>((resolve) => {
+        const event: OperatorGateEvent = {
+          question:
+            `Trust local MCP server "${server.name}" for this project?`
+            + (server.command !== undefined
+              ? `\nCommand: ${server.command}${(server.args ?? []).length > 0 ? ` ${(server.args ?? []).join(" ")}` : ""}`
+              : server.url !== undefined
+                ? `\nURL: ${server.url}`
+                : ""),
+          options: ["Trust and connect", "Deny"],
+          resolve,
+        };
+        emitter.emit("operator.gate", event);
+      });
+      return result.kind === "option" && result.index === 0;
+    },
     subAgent: {
       provider: () => liveSubAgentProvider.current,
       sessions: subAgentSessions,
