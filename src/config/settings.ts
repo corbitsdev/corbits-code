@@ -499,6 +499,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       ? { agentModelFallback: s.agentModelFallback }
       : {}),
     ...(s.shell !== undefined ? { shell: s.shell as Settings["shell"] } : {}),
+    ...(s.tools !== undefined ? { tools: s.tools as Settings["tools"] } : {}),
   } as Settings;
 }
 

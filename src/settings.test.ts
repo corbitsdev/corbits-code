@@ -22,6 +22,7 @@ import {
   resolveSubAgentMaxTurns,
   clampSubAgentMaxTurns,
   validateTaskMaxTurns,
+  toolWatchdogFromSettings,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -327,6 +328,27 @@ describe("loaders", () => {
       const path = join(dir, ".intercode", "settings.json");
       await writeFile(path, JSON.stringify({ provider: "a", apiKey: "leak" }));
       await expect(loadLocalSettings(path)).rejects.toThrow(/no credentials/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadSettings preserves tools block through a round trip", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".intercode", "settings.json");
+      const withTools: Settings = {
+        ...firepass,
+        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000 },
+      };
+      await saveGlobalSettings(path, withTools);
+      const loaded = await loadSettings(path);
+      expect(loaded?.tools).toEqual({ timeoutMs: 120_000, maxTimeoutMs: 600_000 });
+      expect(loaded).toEqual(withTools);
+      expect(toolWatchdogFromSettings(loaded)).toEqual({
+        defaultMs: 120_000,
+        maxMs: 600_000,
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
