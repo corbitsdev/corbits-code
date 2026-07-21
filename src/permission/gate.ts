@@ -97,10 +97,10 @@ export type PermissionGate = {
   // a store edit made through /permissions takes effect immediately.
   setSeededApprovals: (seeded: readonly Approval[]) => void;
   // Whether auto mode is currently on. Auto mode auto-approves non-destructive
-  // consequential actions (file writes/edits) without prompting.
+  // consequential actions (file writes/edits, unconstrained shell) without prompting.
   getAuto: () => boolean;
-  // Turn auto mode on or off for the rest of the session. The /auto command
-  // wires the TUI toggle here so a switch takes effect on the next tool call.
+  // Turn auto mode on or off for the rest of the session. SHIFT+TAB in the TUI
+  // wires the toggle here so a switch takes effect on the next tool call.
   setAuto: (value: boolean) => void;
   // Grant a session-only approval outside the normal ask flow, e.g. when the
   // operator already approved a literal command through ask_operator — so the

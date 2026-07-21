@@ -10,6 +10,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+G", description: "Toggle this help overlay" },
   { keys: "Alt+C", description: "Copy mode: pick a message, tool output, or diff (a = whole conversation)" },
   { keys: "Ctrl+E", description: "Agents strip: pick a sub-agent session to enter (observe)" },
+  { keys: "SHIFT+TAB", description: "Toggle auto mode (constrained permission envelope)" },
   { keys: "Alt+← / Alt+→", description: "Move prompt cursor by word" },
   { keys: "Cmd+← / Cmd+→", description: "Move prompt cursor to line start/end" },
   { keys: "Ctrl+B / Ctrl+F", description: "Move prompt cursor by character" },

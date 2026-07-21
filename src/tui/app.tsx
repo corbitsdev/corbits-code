@@ -607,6 +607,9 @@ export function App({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  // Tracks the live auto-mode flag so SHIFT+TAB can toggle (not only enable).
+  // Seeded from config.auto / --no-auto; gate is updated via onToggleAuto.
+  const [autoEnabled, setAutoEnabled] = useState(initialAuto);
   const [copyModeIndex, setCopyModeIndex] = useState<number | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
@@ -1420,10 +1423,6 @@ export function App({
       : {}),
   }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
 
-  useEffect(() => {
-    if (!initialAuto) onToggleAuto?.(true);
-  }, [initialAuto, onToggleAuto]);
-
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the
   // user knows they need to retry rather than waiting indefinitely.
@@ -1744,7 +1743,14 @@ export function App({
       },
       copyModeCancel: () => setCopyModeIndex(null),
       cycleMode: () => {
-        onToggleAuto?.(true);
+        const next = !autoEnabled;
+        setAutoEnabled(next);
+        onToggleAuto?.(next);
+        setCommandMessage(
+          next
+            ? "Auto mode on — workspace writes and unconstrained shell run without prompts; installs, recursive rm, worktree changes, sensitive paths, and opaque wrappers still ask. SHIFT+TAB toggles."
+            : "Auto mode off — consequential actions ask for approval. SHIFT+TAB toggles.",
+        );
       },
       enterAgentsNav: () => {
         if (browseSessions.length === 0) {
