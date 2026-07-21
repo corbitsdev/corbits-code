@@ -50,6 +50,7 @@ import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
+import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -177,10 +178,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   registerWorkflowPlugins(executablePlugins(), pluginConfig);
   registerCommandPlugins(executablePlugins(), pluginConfig);
   setHiddenCommands(config.settings?.hiddenCommands ?? []);
-  // loadConfig already bootstrapped pricing metadata for this cwd; re-read cache
-  // here so a TUI-only entry (tests) still picks up the project cache path.
+  // loadConfig already bootstrapped pricing metadata; re-read cache here so a
+  // TUI-only entry (tests) still picks up the tool-home cache path.
   await seedPricingMetadataFromCache({
-    cachePath: join(config.cwd, ".cache", "models-pricing.json"),
+    cachePath: defaultPricingCachePath(),
   });
   let sessionId = config.sessionId;
   let resumeSkipInitialTask = config.skipInitialTask === true;
@@ -1312,8 +1313,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       exitOnCtrlC: false,
       stdin: filteredStdin,
       // Incremental (line-diff) rendering materially cuts streaming repaint
-      // bytes versus Ink's default full-frame redraw; bench/tui-repaint.ts
-      // measures both modes.
+      // bytes versus Ink's default full-frame redraw.
       incrementalRendering: true,
     },
   );
