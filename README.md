@@ -87,3 +87,16 @@ Intercode keeps repository guidance and sub-agent profiles separate:
 - `.agents/agents/` — optional local profile overrides or additions; this directory is not required and may be absent
 
 Named `task` sub-agents resolve from built-ins first, then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles. Add a local profile under `.agents/agents/` or use an installed profile id such as `greybeard`.
+
+## License
+
+Copyright (C) 2026 ABK Labs, Inc.
+
+Licensed under the GNU General Public License Version 2 with the
+supplemental terms in `GPLv2-AI-Exception.md`; see `LICENSE.md`.
+Contributions are accepted under the terms of `CLA.md`.
+
+The `interchange` submodule and the vendored copies of its packages
+under `vendor/` are third-party code licensed under LGPL-2.1-only and
+keep their own license; see `interchange/LICENSE` and the `LICENSE`
+file in each vendored package.
