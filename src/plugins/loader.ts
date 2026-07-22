@@ -1,10 +1,15 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
+import {
+  originRequiresTrust,
+  type PluginOrigin,
+  type ProjectTrustStore,
+} from "../trust/project-trust.js";
 
 export type PluginModule = {
   // Self-description (id, name, kind, credential fields), when the module
@@ -24,6 +29,16 @@ export type PluginModule = {
   // A tool plugin factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>.
   // Typed as unknown so this module doesn't pull in the tools-posix type graph.
   createToolPlugin?: unknown;
+  /** Discovery origin; used for project-trust gating. */
+  origin?: PluginOrigin;
+  /** Absolute path used for path-bound trust (plugin directory or file). */
+  pluginPath?: string;
+  /**
+   * True when only manifest/metadata was read — no JS import, no markdown agent
+   * or command bodies. Untrusted project/path plugins stay in this state until
+   * the user records trust for that path.
+   */
+  metadataOnly?: boolean;
 };
 
 // Read and validate a manifest.json beside the module. Plugins may declare
@@ -38,6 +53,34 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
   }
 }
 
+// Safe metadata-only view: never import()s and never loads markdown agents/commands.
+async function readPluginMetadataOnly(
+  entryPath: string,
+  origin: PluginOrigin,
+): Promise<PluginModule | null> {
+  let dir = entryPath;
+  try {
+    const info = await stat(entryPath);
+    if (!info.isDirectory()) dir = dirname(entryPath);
+  } catch {
+    return null;
+  }
+  const abs = resolve(dir);
+  const manifest =
+    (await readManifestJson(abs))
+    ?? (await readManifestJson(join(abs, ".claude-plugin")));
+  if (manifest === null) {
+    return null;
+  }
+  return {
+    dir: abs,
+    manifest,
+    origin,
+    pluginPath: abs,
+    metadataOnly: true,
+  };
+}
+
 // Attempt to load a single plugin directory entry (a file or a directory with
 // an index file). Returns null if the entry cannot be resolved to a module.
 // Exported so the /plugins UI can register a plugin from an arbitrary path.
@@ -50,14 +93,21 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 // future server-mode) resolves skills correctly.
 export async function loadPluginEntry(
   entryPath: string,
-  opts: { cwd?: string; onWarning?: (msg: string) => void } = {},
+  opts: {
+    cwd?: string;
+    onWarning?: (msg: string) => void;
+    origin?: PluginOrigin;
+  } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
   const onWarning = opts.onWarning ?? ((msg: string) => process.stderr.write(`plugins: ${msg}\n`));
+  const origin = opts.origin;
   let target = entryPath;
+  let pluginDir = entryPath;
   try {
     const info = await stat(entryPath);
     if (info.isDirectory()) {
+      pluginDir = entryPath;
       // Prefer src/index.ts, then index.ts, then index.js.
       for (const candidate of ["src/index.ts", "index.ts", "index.js"]) {
         const candidatePath = join(entryPath, candidate);
@@ -77,10 +127,16 @@ export async function loadPluginEntry(
           const mod: PluginModule = { dir: entryPath, manifest: dataOnly.manifest };
           if (dataOnly.agentPlugin !== undefined) mod.agentPlugin = dataOnly.agentPlugin;
           if (dataOnly.commandPlugin !== undefined) mod.commandPlugin = dataOnly.commandPlugin;
+          if (origin !== undefined) {
+            mod.origin = origin;
+            mod.pluginPath = resolve(entryPath);
+          }
           return mod;
         }
         return null;
       }
+    } else {
+      pluginDir = dirname(entryPath);
     }
   } catch {
     return null;
@@ -116,6 +172,10 @@ export async function loadPluginEntry(
       } else if (manifest?.kind === "tool" && result.createToolPlugin === undefined) {
         result.createToolPlugin = mod.default;
       }
+    }
+    if (origin !== undefined) {
+      result.origin = origin;
+      result.pluginPath = resolve(pluginDir);
     }
     return result;
   } catch (err) {
@@ -195,7 +255,14 @@ async function expandPluginPath(path: string): Promise<string[]> {
 
 // Scan a plugins root directory and return all loaded plugin modules.
 // `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
-async function scanPluginsDir(dir: string, cwd: string): Promise<PluginModule[]> {
+// When `isTrusted` is set and origin requires trust, untrusted paths load
+// metadata-only (no import).
+async function scanPluginsDir(
+  dir: string,
+  cwd: string,
+  origin: PluginOrigin,
+  isTrusted?: (pluginPath: string) => boolean,
+): Promise<PluginModule[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -208,7 +275,13 @@ async function scanPluginsDir(dir: string, cwd: string): Promise<PluginModule[]>
     // Each entry may itself be a marketplace, so expand before loading.
     const dirs = await expandPluginPath(join(dir, entry));
     for (const d of dirs) {
-      const plugin = await loadPluginEntry(d, { cwd });
+      const abs = resolve(d);
+      if (originRequiresTrust(origin) && isTrusted !== undefined && !isTrusted(abs)) {
+        const meta = await readPluginMetadataOnly(abs, origin);
+        if (meta !== null) results.push(meta);
+        continue;
+      }
+      const plugin = await loadPluginEntry(d, { cwd, origin });
       if (plugin !== null) results.push(plugin);
     }
   }
@@ -216,15 +289,22 @@ async function scanPluginsDir(dir: string, cwd: string): Promise<PluginModule[]>
 }
 
 // Discover user-installed plugins from:
-//   <cwd>/.intercode/plugins/   (project-local)
-//   ~/.intercode/plugins/       (user-global)
-export async function discoverUserPlugins(cwd: string): Promise<PluginModule[]> {
-  const dirs = [
-    join(cwd, ".intercode", "plugins"),
-    join(homedir(), ".intercode", "plugins"),
-  ];
-  const batches = await Promise.all(dirs.map((d) => scanPluginsDir(d, cwd)));
-  return batches.flat();
+//   <cwd>/.intercode/plugins/   (project-local — requires path trust to execute)
+//   ~/.intercode/plugins/       (user-global — auto-trusted)
+//
+// Pass `isPluginTrusted` to gate project plugins. When omitted, project plugins
+// still load fully (backward compatible for tests/callers that do not pass trust).
+export async function discoverUserPlugins(
+  cwd: string,
+  opts: { isPluginTrusted?: (pluginPath: string) => boolean } = {},
+): Promise<PluginModule[]> {
+  const projectDir = join(cwd, ".intercode", "plugins");
+  const userDir = join(homedir(), ".intercode", "plugins");
+  const [project, user] = await Promise.all([
+    scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted),
+    scanPluginsDir(userDir, cwd, "user"),
+  ]);
+  return [...project, ...user];
 }
 
 // Collapse modules sharing a manifest id, keeping the last occurrence. Callers
@@ -256,7 +336,12 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
 // Relative paths resolve against cwd. Unresolvable entries are skipped. A path
 // may point at a Claude Code marketplace, in which case it expands to its member
 // plugin directories before loading.
-export async function loadPluginsFromPaths(paths: string[], cwd: string): Promise<PluginModule[]> {
+// Untrusted path origins load metadata-only when isPluginTrusted is provided.
+export async function loadPluginsFromPaths(
+  paths: string[],
+  cwd: string,
+  opts: { isPluginTrusted?: (pluginPath: string) => boolean } = {},
+): Promise<PluginModule[]> {
   const resolved = await Promise.all(
     paths.map(async (p) => {
       const abs = isAbsolute(p) ? p : join(cwd, p);
@@ -264,7 +349,13 @@ export async function loadPluginsFromPaths(paths: string[], cwd: string): Promis
     }),
   );
   const loaded = await Promise.all(
-    resolved.flat().map((p) => loadPluginEntry(p, { cwd })),
+    resolved.flat().map(async (p) => {
+      const abs = resolve(p);
+      if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
+        return readPluginMetadataOnly(abs, "path");
+      }
+      return loadPluginEntry(p, { cwd, origin: "path" });
+    }),
   );
   return loaded.filter((m): m is PluginModule => m !== null);
 }
@@ -273,9 +364,12 @@ export async function loadPluginsFromPaths(paths: string[], cwd: string): Promis
 // alongside this source file (two levels up: src/plugins/ -> plugins/).
 // Repo plugins resolve skills against the session cwd, not the repo root,
 // so project-local skills stay in scope when Intercode is invoked from a
-// different working directory.
+// different working directory. Product-shipped plugins are auto-trusted.
 export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> {
   const repoRoot = new URL("../../", import.meta.url).pathname;
   const pluginsDir = join(repoRoot, "plugins");
-  return scanPluginsDir(pluginsDir, cwd);
+  return scanPluginsDir(pluginsDir, cwd, "repo");
 }
+
+/** Re-export for callers that need the type without importing trust directly. */
+export type { PluginOrigin, ProjectTrustStore };

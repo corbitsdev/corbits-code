@@ -4,6 +4,7 @@ dist/
 .agent-state/
 .intercode/settings.json
 .intercode/permissions.json
+.intercode/trust.json
 .intercode/MEMORY.md
 .interchange/
 .cache/
