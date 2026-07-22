@@ -956,6 +956,31 @@ describe("createPermissionGate", () => {
     }
   });
 
+  test("auto mode asks for xargs feeding a shell -c recursive rm", async () => {
+    // Regression: rejoining dequoted tokens in the xargs peel used to split
+    // the `-c` payload, so `xargs -I{} sh -c 'sudo rm -rf {}'` auto-allowed.
+    for (const command of [
+      "echo x | xargs -I {} sh -c 'sudo rm -rf {}'",
+      "echo build | xargs -I{} bash -c 'rm -rf {}'",
+      "find . -name tmp | xargs -n1 sh -c 'rm -rf \"$0\"'",
+    ]) {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => {
+          asked++;
+          return { allow: true };
+        },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+      });
+      const verdict = await gate.evaluate(shellCall(command));
+      expect(asked).toBeGreaterThan(0);
+      expect(verdict.allowed).toBe(true);
+    }
+  });
+
   test("auto mode peels shell -c for git worktree ask", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-wrapper-"));
     let asked = 0;
