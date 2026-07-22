@@ -1,62 +1,24 @@
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 import type { CodexProfile } from "../auth/codex/store.js";
-import type { ProviderCatalogEntry } from "./index.js";
-import type { ProviderSettings } from "./settings.js";
-
-// Codex OAuth profiles surface through the same provider catalog as API-key
-// providers so the /agent picker lists them inline. Each profile becomes a
-// provider named "codex/<profile>"; the prefix namespaces them and signals the
-// OAuth origin in the UI without special-casing the picker.
+import { createOAuthProviderProjection } from "./oauth-providers.js";
 
 export const CODEX_PROVIDER_PREFIX = "codex/";
 
-export function codexProviderName(profile: string): string {
-  return `${CODEX_PROVIDER_PREFIX}${profile}`;
-}
-
-export function isCodexProviderName(name: string): boolean {
-  return name.startsWith(CODEX_PROVIDER_PREFIX);
-}
-
-// The profile name embedded in a "codex/<profile>" provider name, or undefined
-// if the name is not a Codex provider.
-export function codexProfileFromProviderName(name: string): string | undefined {
-  return isCodexProviderName(name) ? name.slice(CODEX_PROVIDER_PREFIX.length) : undefined;
-}
-
-// Project Codex profiles into synthetic ProviderSettings so resolveProvider can
-// treat a selected "codex/<profile>" exactly like any configured provider. The
-// apiKey seeds the stored access token; the send path refreshes it before use,
-// so a stale seed never reaches the wire.
-export function codexProvidersAsSettings(profiles: readonly CodexProfile[]): Record<string, ProviderSettings> {
-  const entries: Record<string, ProviderSettings> = {};
-  for (const profile of profiles) {
-    entries[codexProviderName(profile.name)] = {
-      name: codexProviderName(profile.name),
-      baseURL: CODEX_BASE_URL,
-      apiKey: profile.tokens.access,
-      models: [...CODEX_DEFAULT_MODELS],
-      defaultModel: CODEX_DEFAULT_MODELS[0],
-    };
-  }
-  return entries;
-}
-
-// Build provider catalog entries for Codex profiles. Unlike the settings
-// projection above, these carry the `codexProfile` marker and `codexAccountId`
-// so the runtime can route them to the Responses adapter and supply the
-// chatgpt-account-id header. The seeded `apiKey` is the stored access token;
-// the send path refreshes it before use.
-export function codexProfilesToCatalogEntries(
-  profiles: readonly CodexProfile[],
-): ProviderCatalogEntry[] {
-  return profiles.map((profile) => ({
-    name: codexProviderName(profile.name),
-    baseURL: CODEX_BASE_URL,
-    apiKey: profile.tokens.access,
-    models: [...CODEX_DEFAULT_MODELS],
-    defaultModel: CODEX_DEFAULT_MODELS[0],
+// Codex catalog entries carry the `codexProfile` marker and `codexAccountId`
+// so the runtime routes them to the Responses adapter and supplies the
+// chatgpt-account-id header.
+const projection = createOAuthProviderProjection<CodexProfile>({
+  prefix: CODEX_PROVIDER_PREFIX,
+  baseURL: CODEX_BASE_URL,
+  defaultModels: CODEX_DEFAULT_MODELS,
+  catalogExtras: (profile) => ({
     codexProfile: profile.name,
     ...(profile.tokens.accountId !== undefined ? { codexAccountId: profile.tokens.accountId } : {}),
-  }));
-}
+  }),
+});
+
+export const codexProviderName = projection.providerName;
+export const isCodexProviderName = projection.isProviderName;
+export const codexProfileFromProviderName = projection.profileFromProviderName;
+export const codexProvidersAsSettings = projection.providersAsSettings;
+export const codexProfilesToCatalogEntries = projection.profilesToCatalogEntries;
