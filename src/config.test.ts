@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
-import type { ResolvedProvider, Settings } from "./config/settings.js";
+import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {
@@ -526,12 +526,26 @@ describe("buildProviderCatalog", () => {
   });
 
   test("preserves non-provider fields from existing settings", () => {
+    // Full non-provider surface: provider saves must not re-own a subset of
+    // Settings keys (an allowlist previously dropped sessionMode/shell/tools/…).
     const existing: Settings = {
       defaultProvider: "fp",
       providers: { fp: { baseURL: "https://fp/v1", apiKey: "old-key", models: ["fp-small"] } },
       mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
       plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
+      pluginPaths: ["/abs/plugins/exa"],
+      web: "exa",
+      hiddenCommands: ["help"],
+      onboarded: true,
+      compactionMode: "pruning",
+      maxConcurrentSubAgents: 3,
+      subagentMaxTurns: 40,
+      sessionMode: "orchestrator",
+      agentModelFallback: "none",
+      shell: { timeoutMs: 30_000, maxTimeoutMs: 120_000 },
+      tools: { timeoutMs: 60_000 },
       tiers: { fast: { provider: "fp", model: "fp-large" } },
+      workflowProfiles: { fast: { implement: "fp-large" } },
     };
     const settings = providerCatalogToSettings(
       [
@@ -541,15 +555,59 @@ describe("buildProviderCatalog", () => {
       "oa",
       existing,
     );
-    expect(settings).toEqual({
-      defaultProvider: "oa",
+    const { providers: _ep, defaultProvider: _ed, ...restExisting } = existing;
+    const { providers: outProviders, defaultProvider: outDefault, ...restOut } = settings;
+    expect(outDefault).toBe("oa");
+    expect(outProviders).toEqual({
+      fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+      oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+    });
+    expect(restOut).toEqual(restExisting);
+  });
+});
+
+describe("mergeProviderIntoSettings", () => {
+  test("preserves plugins and non-provider fields when upserting a provider", () => {
+    const existing: Settings = {
+      providers: { old: { baseURL: "https://old/v1", apiKey: "k", models: ["m"] } },
+      plugins: { cmd: { enabled: true } },
+      pluginPaths: ["/abs/cmd"],
+      sessionMode: "orchestrator",
+      shell: { timeoutMs: 10_000 },
+      onboarded: true,
+    };
+    const merged = mergeProviderIntoSettings(existing, "new", {
+      baseURL: "https://new/v1",
+      apiKey: "nk",
+      models: ["n1"],
+      defaultModel: "n1",
+    });
+    expect(merged.defaultProvider).toBe("new");
+    expect(merged.providers.old).toEqual(existing.providers.old);
+    expect(merged.providers.new).toEqual({
+      baseURL: "https://new/v1",
+      apiKey: "nk",
+      models: ["n1"],
+      defaultModel: "n1",
+    });
+    expect(merged.plugins).toEqual({ cmd: { enabled: true } });
+    expect(merged.pluginPaths).toEqual(["/abs/cmd"]);
+    expect(merged.sessionMode).toBe("orchestrator");
+    expect(merged.shell).toEqual({ timeoutMs: 10_000 });
+    expect(merged.onboarded).toBe(true);
+  });
+
+  test("creates settings from null existing", () => {
+    const merged = mergeProviderIntoSettings(null, "only", {
+      baseURL: "https://only/v1",
+      keyless: true,
+      models: ["m"],
+    });
+    expect(merged).toEqual({
+      defaultProvider: "only",
       providers: {
-        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
-        oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
+        only: { baseURL: "https://only/v1", keyless: true, models: ["m"] },
       },
-      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
-      plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
-      tiers: { fast: { provider: "fp", model: "fp-large" } },
     });
   });
 });

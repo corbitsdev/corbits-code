@@ -518,36 +518,34 @@ export function providerCatalogToSettings(
   // settings.json. Exclude them so provider edits never persist short-lived
   // access tokens into the settings file.
   const persistable = catalog.filter((p) => p.codexProfile === undefined && p.xaiProfile === undefined);
-  // Preserve existing non-provider fields (mcpServers, workflow plugins, etc.)
-  // so they are never silently dropped when the provider catalog is saved.
-  const existingFields = existing !== undefined
-    ? {
-        ...(existing.mcpServers !== undefined ? { mcpServers: existing.mcpServers } : {}),
-        ...(existing.tiers !== undefined ? { tiers: existing.tiers } : {}),
-        ...(existing.workflowProfiles !== undefined ? { workflowProfiles: existing.workflowProfiles } : {}),
-        ...(existing.plugins !== undefined ? { plugins: existing.plugins } : {}),
-        ...(existing.pluginPaths !== undefined ? { pluginPaths: existing.pluginPaths } : {}),
-        ...(existing.web !== undefined ? { web: existing.web } : {}),
-        ...(existing.hiddenCommands !== undefined ? { hiddenCommands: existing.hiddenCommands } : {}),
-        ...(existing.onboarded !== undefined ? { onboarded: existing.onboarded } : {}),
-      }
-    : {};
+  const providers = Object.fromEntries(
+    persistable.map((p): [string, ProviderSettings] => [
+      p.name,
+      {
+        baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
+        ...(p.keyless === true ? { keyless: true } : {}),
+        ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
+        models: p.models,
+        ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+        ...(p.free !== undefined ? { free: p.free } : {}),
+        ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+      },
+    ]),
+  );
+  // Spread the full existing settings so provider saves never drop plugins,
+  // pluginPaths, sessionMode, shell, tools, etc. Only the catalog and
+  // defaultProvider are replaced. A hand-picked allowlist previously missed
+  // fields and could wipe unrelated settings after a /model save.
+  if (existing === undefined) {
+    return {
+      ...(defaultProvider !== undefined ? { defaultProvider } : {}),
+      providers,
+    };
+  }
+  const { providers: _dropProviders, defaultProvider: _dropDefault, ...rest } = existing;
   return {
+    ...rest,
     ...(defaultProvider !== undefined ? { defaultProvider } : {}),
-    ...existingFields,
-    providers: Object.fromEntries(
-      persistable.map((p): [string, ProviderSettings] => [
-        p.name,
-        {
-          baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
-          ...(p.keyless === true ? { keyless: true } : {}),
-          ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
-          models: p.models,
-          ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
-          ...(p.free !== undefined ? { free: p.free } : {}),
-          ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
-        },
-      ]),
-    ),
+    providers,
   };
 }
