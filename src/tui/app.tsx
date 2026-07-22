@@ -461,6 +461,13 @@ export type AppProps = {
     ) => import("../agent/goal.js").GoalSnapshot | null;
     clear: () => void;
   };
+  /** One-line passive notice shown once in the top-of-scrollback banner on
+   * the first run telemetry is active. Undefined/empty renders nothing. */
+  telemetryNotice?: string;
+  /** Whether anonymous telemetry is currently enabled, for /telemetry status. */
+  telemetryEnabled?: boolean;
+  /** Persists the /telemetry on|off toggle to global settings. */
+  onChangeTelemetryEnabled?: (enabled: boolean) => void;
 };
 
 export function App({
@@ -512,6 +519,9 @@ export function App({
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
+  telemetryNotice,
+  telemetryEnabled = false,
+  onChangeTelemetryEnabled,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -1052,8 +1062,8 @@ export function App({
   );
 
   const resourceBanner = useMemo(
-    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd),
-    [loadedSkills, activePlugins, contentWidth, cwd],
+    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd, telemetryNotice),
+    [loadedSkills, activePlugins, contentWidth, cwd, telemetryNotice],
   );
 
   const prefixLineCount =
@@ -1395,6 +1405,8 @@ export function App({
   // live values, matching the signalClear/startNewSessionRef pattern.
   const getCostSummaryRef = useRef(getCostSummary);
   getCostSummaryRef.current = getCostSummary;
+  const telemetryEnabledRef = useRef(telemetryEnabled);
+  telemetryEnabledRef.current = telemetryEnabled;
 
   const commandContext = useMemo(() => ({
     signalClear: () => startNewSessionRef.current(),
@@ -1402,6 +1414,14 @@ export function App({
     getCostSummary: () => getCostSummaryRef.current(),
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
+    ...(onChangeTelemetryEnabled !== undefined
+      ? {
+          telemetry: {
+            isEnabled: () => telemetryEnabledRef.current,
+            setEnabled: (enabled: boolean) => onChangeTelemetryEnabled(enabled),
+          },
+        }
+      : {}),
     ...(goalApi !== undefined
       ? {
           goal: {
@@ -1421,7 +1441,7 @@ export function App({
           },
         }
       : {}),
-  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, onChangeTelemetryEnabled, goalApi]);
 
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the

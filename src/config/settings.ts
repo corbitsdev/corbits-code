@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -101,6 +102,15 @@ export type Settings = {
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
   // Outer wall-clock budget for each tool `run()` (dynamic runner / agent dispatch).
   tools?: { timeoutMs?: number; maxTimeoutMs?: number };
+  // Anonymous PostHog telemetry. Global only — never written to per-repo
+  // local settings. `enabled` defaults to true (opt-out); `installationId`
+  // is a random UUID generated once on first use; `noticeShown` stamps that
+  // the first-run notice has already been shown.
+  telemetry?: {
+    enabled?: boolean;
+    installationId?: string;
+    noticeShown?: boolean;
+  };
 };
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
@@ -334,6 +344,11 @@ const SettingsSchema = type({
   "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
   "tools?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
+  "telemetry?": type({
+    "enabled?": "boolean",
+    "installationId?": "string",
+    "noticeShown?": "boolean",
+  }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -500,6 +515,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       : {}),
     ...(s.shell !== undefined ? { shell: s.shell as Settings["shell"] } : {}),
     ...(s.tools !== undefined ? { tools: s.tools as Settings["tools"] } : {}),
+    ...(s.telemetry !== undefined ? { telemetry: s.telemetry as Settings["telemetry"] } : {}),
   } as Settings;
 }
 
@@ -573,6 +589,33 @@ export async function markOnboarded(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
   await saveGlobalSettings(path, { ...base, onboarded: true });
+}
+
+// Ensure a persisted telemetry installationId exists, generating and saving
+// one on first use. Reads the on-disk global settings fresh (same rationale
+// as markOnboarded: never trust an in-memory Settings that may carry injected
+// credentials). Returns the settings with telemetry.installationId set.
+export async function ensureTelemetrySettings(path: string): Promise<Settings> {
+  const onDisk = await loadSettings(path);
+  const base: Settings = onDisk ?? { providers: {} };
+  if (base.telemetry?.installationId !== undefined) return base;
+  const next: Settings = {
+    ...base,
+    telemetry: { ...base.telemetry, installationId: randomUUID() },
+  };
+  await saveGlobalSettings(path, next);
+  return next;
+}
+
+// Stamp the global telemetry first-run notice as shown, without disturbing
+// any other telemetry field or settings.
+export async function markTelemetryNoticeShown(path: string): Promise<void> {
+  const onDisk = await loadSettings(path);
+  const base: Settings = onDisk ?? { providers: {} };
+  await saveGlobalSettings(path, {
+    ...base,
+    telemetry: { ...base.telemetry, noticeShown: true },
+  });
 }
 
 // Persist the per-repo provider/model selection. This is where the /agent modal

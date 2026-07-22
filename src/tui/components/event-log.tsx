@@ -381,6 +381,7 @@ export function buildResourceBanner(
   plugins: readonly string[],
   width: number,
   cwd: string,
+  telemetryNotice?: string,
 ): StyledLine[] {
   const lines: StyledLine[] = [
     [{ text: SESSION_BRAND, bold: true, color: color("brand") }],
@@ -395,6 +396,10 @@ export function buildResourceBanner(
   };
   section("Skills", skills.map((s) => s.name));
   section("Plugins", plugins);
+  if (telemetryNotice !== undefined && telemetryNotice.length > 0) {
+    lines.push([]);
+    lines.push(...plainLines(telemetryNotice, { color: color("muted"), dim: true }, width));
+  }
   lines.push([]);
   return lines;
 }

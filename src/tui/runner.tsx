@@ -19,6 +19,7 @@ import {
   loadLocalSettings,
   loadSettings,
   localSettingsPath,
+  markTelemetryNoticeShown,
   resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
@@ -49,6 +50,8 @@ import {
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
+import { createTelemetry } from "../telemetry/index.js";
+import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
@@ -1201,6 +1204,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
   const globallyOnboarded = globalSettingsForOnboarding?.onboarded === true;
 
+  // The one-time telemetry notice, keyed off the same TRUE global settings
+  // file for the same reason as `onboarded` above. It is passive (a banner
+  // line), never a prompt, and is stamped shown as soon as it renders.
+  let telemetryInstance = getTelemetry();
+  const showTelemetryNotice =
+    telemetryInstance.enabled && globalSettingsForOnboarding?.telemetry?.noticeShown !== true;
+  const telemetryNotice = showTelemetryNotice
+    ? "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable with /telemetry off. Docs: docs/TELEMETRY.md"
+    : undefined;
+  if (showTelemetryNotice) {
+    void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
+      // Best-effort: worst case the notice shows again next launch.
+    });
+  }
+
   const exitAltScreen = enterAltScreen();
 
   // Strip SGR mouse sequences before Ink's parser broadcasts input to every
@@ -1228,6 +1246,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       globalSettingsPath={config.globalSettingsPath}
       globalOnboardingPath={trueGlobalSettingsPath}
       globallyOnboarded={globallyOnboarded}
+      {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
+      telemetryEnabled={telemetryInstance.enabled}
+      onChangeTelemetryEnabled={(enabled) => {
+        void (async () => {
+          const current = await loadSettings(trueGlobalSettingsPath).catch(() => null);
+          const base: Settings = current ?? { providers: {} };
+          const next: Settings = { ...base, telemetry: { ...base.telemetry, enabled } };
+          await saveGlobalSettings(trueGlobalSettingsPath, next);
+          // Re-create so this session's remaining captures (session_end) honor
+          // the change immediately rather than needing a restart.
+          telemetryInstance = createTelemetry({ settings: next });
+          setTelemetry(telemetryInstance);
+        })();
+      }}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
@@ -1398,7 +1430,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   });
-  await hookManager.dispatchPostRun(createRunSummary({
+  const runSummary = createRunSummary({
     task: runTaskTitle.length > 0 ? runTaskTitle : config.task,
     status: summaryStatus,
     startedAt,
@@ -1408,7 +1440,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     turns: turnCollector.getTurns(),
     toolCallCount: turnCollector.getToolCallCount(),
     ...(sinkError !== undefined ? { error: sinkError } : {}),
-  }));
+  });
+  await hookManager.dispatchPostRun(runSummary);
+  getTelemetry().capture("session_end", {
+    status: runSummary.status,
+    turn_count: runSummary.turnsUsed,
+    duration_ms: runSummary.durationMs,
+    session_mode: liveSessionMode,
+  });
 
   await sessionOps.awaitTail();
   try {

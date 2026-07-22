@@ -10,6 +10,11 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */
   renameSession?: (name: string) => string | undefined;
+  /** Telemetry opt-in/out surface for the /telemetry command. */
+  telemetry?: {
+    isEnabled: () => boolean;
+    setEnabled: (enabled: boolean) => void;
+  };
   /** Goal mode operator surface. */
   goal?: {
     get: () => GoalSnapshot | null;
