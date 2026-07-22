@@ -5,6 +5,8 @@ dist/
 .intercode/settings.json
 .intercode/permissions.json
 .intercode/MEMORY.md
+.interchange/
+.cache/
 .pi
 .claude/settings.local.json
 .claude/worktrees

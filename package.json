@@ -14,10 +14,8 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
     "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/intercode",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src ./tests ./bench",
+    "test": "bun test ./src ./tests",
     "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",
-    "test:bench": "bun test ./bench",
-    "bench": "bun run bench/run.ts",
     "start": "bun run build && bun ./dist/index.js"
   },
   "workspaces": [
