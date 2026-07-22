@@ -1,9 +1,27 @@
 {
   "name": "@corbits/intercode",
   "version": "0.2.79",
+  "description": "Single-process coding agent CLI built on the Interchange runtime (Bun + TypeScript)",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corbitsdev/intercode.git"
+  },
+  "homepage": "https://github.com/corbitsdev/intercode#readme",
+  "bugs": {
+    "url": "https://github.com/corbitsdev/intercode/issues"
+  },
+  "keywords": [
+    "agent",
+    "cli",
+    "coding-agent",
+    "bun",
+    "typescript",
+    "interchange",
+    "mcp"
+  ],
   "engines": {
     "bun": ">=1.2"
   },
