@@ -26,6 +26,10 @@ import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
+import {
+  filterMcpServersForConnect,
+  type ProjectTrustStore,
+} from "../trust/project-trust.js";
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
@@ -67,6 +71,18 @@ export type AgentToolsetArgs = {
   permissionGate: PermissionGate;
   onOperatorGate: (question: string, options: string[]) => Promise<OperatorResult>;
   mcpServers?: MCPServerConfig[];
+  /**
+   * Where mcpServers came from. `"local"` requires project trust before spawn;
+   * `"global"` / `"none"` skip the trust filter.
+   */
+  mcpServersSource?: "local" | "global" | "none";
+  /**
+   * Project trust store for local MCP. When source is local and store is
+   * omitted, no local servers connect (fail closed).
+   */
+  projectTrust?: ProjectTrustStore;
+  /** Interactive MCP trust grant; omit for headless fail-closed. */
+  requestMcpTrust?: (server: MCPServerConfig) => Promise<boolean>;
   // Pre-resolved web provider. When omitted, the built-in local provider is used.
   webProvider?: WebProvider;
   // Pre-resolved tool plugins (enabled + consented kind:"tool" plugins). Their
@@ -144,6 +160,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     permissionGate,
     onOperatorGate,
     mcpServers = [],
+    mcpServersSource = "none",
+    projectTrust,
+    requestMcpTrust,
     webProvider,
     extraToolPlugins = [],
     skillDirs = [],
@@ -306,8 +325,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   const connectedClients: MCPClient[] = [];
 
   const connectMCP = async (callbacks: MCPConnectCallbacks, signal?: AbortSignal): Promise<void> => {
+    const toConnect = await filterMcpServersForConnect(mcpServers, {
+      source: mcpServersSource,
+      store: projectTrust ?? { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+      cwd,
+      ...(requestMcpTrust !== undefined ? { requestTrust: requestMcpTrust } : {}),
+    });
     await Promise.all(
-      mcpServers.map(async (config) => {
+      toConnect.map(async (config) => {
         callbacks.onStatus({ name: config.name, state: "connecting" });
         const result = await connectMCPServer(config, {
           stderr: "ignore",
@@ -327,6 +352,19 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
       }),
     );
+    // Report untrusted local servers as failed (fail closed) so the UI is honest.
+    if (mcpServersSource === "local") {
+      const connectedNames = new Set(toConnect.map((s) => s.name));
+      for (const server of mcpServers) {
+        if (!connectedNames.has(server.name)) {
+          callbacks.onStatus({
+            name: server.name,
+            state: "failed",
+            error: "Not trusted for this project (see .intercode/trust.json)",
+          });
+        }
+      }
+    }
   };
 
   return {

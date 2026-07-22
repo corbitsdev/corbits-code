@@ -5,9 +5,20 @@ servers to expose their tools to the agent. Configure them under `mcpServers` in
 either settings file:
 
 ```text
-~/.intercode/settings.json   # global — every repo
-.intercode/settings.json     # per-repo — this project only
+~/.intercode/settings.json   # global — every repo (user-home trusted)
+.intercode/settings.json     # per-repo — this project only (requires trust)
 ```
+
+**Project trust:** When `mcpServers` comes from **local** `.intercode/settings.json`,
+Intercode does **not** spawn or connect until each server is trusted for this
+project. Trust is stored as a fingerprint of `{ name, type, command, args, url }`
+in `.intercode/trust.json` (gitignored). The TUI prompts on first connect
+(trust-on-first-use). Headless runs without a trust callback **fail closed** —
+untrusted local servers are not connected.
+
+Global MCP from `~/.intercode/settings.json` is treated as user-configured and
+does not require project trust. Local settings **replace** global MCP entirely
+when present (they do not merge).
 
 Tools from connected servers are not advertised to the model up front; they are
 registered for dispatch and surfaced on demand through dynamic tool discovery
