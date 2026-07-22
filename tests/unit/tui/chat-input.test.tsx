@@ -90,7 +90,7 @@ test("ChatInput renders its controlled value", () => {
   expect(lastFrame()).toContain("hello");
 });
 
-test("ChatInput shows the steer and queue hint while processing regardless of input state (CL-3118)", () => {
+test("ChatInput shows the steer and queue hint while processing regardless of input state", () => {
   const empty = render(
     <ChatInput
       onSubmit={() => {}}

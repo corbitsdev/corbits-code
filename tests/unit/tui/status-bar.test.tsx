@@ -84,7 +84,7 @@ test("StatusBar omits model/cwd/branch segment when none are provided", () => {
   expect(frame).not.toContain("·");
 });
 
-test("StatusBar preserves CL-3111 cost and context segments alongside the new segments", () => {
+test("StatusBar preserves cost and context segments alongside the new segments", () => {
   const { lastFrame } = renderBar({
     costLabel: "$0.42",
     contextLabel: "Ctx 12%",

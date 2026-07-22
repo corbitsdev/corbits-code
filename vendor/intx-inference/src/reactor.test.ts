@@ -4509,7 +4509,7 @@ describe("createReactor — prompt well-formedness tripwire", () => {
 
 // ---------------------------------------------------------------------------
 // Per-event overhead: history is not re-serialized or re-copied needlessly
-// (CL-3265). Directors that decide without changing history must not drive a
+//. Directors that decide without changing history must not drive a
 // full-history write, and high-frequency delta events must not reach the
 // checkpoint path at all.
 // ---------------------------------------------------------------------------
