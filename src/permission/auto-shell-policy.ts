@@ -1,5 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
-import { commandHasRecursiveRm } from "../shell/run-shell-authz.js";
+import { commandHasRecursiveRm, expandShellSubjects } from "../shell/run-shell-authz.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { tokenize } from "./command.js";
 
@@ -11,7 +11,9 @@ import { tokenize } from "./command.js";
 // To add a category: append one rule. `deny` blocks the command outright and
 // returns `reason`; `ask` refuses to auto-allow and routes the call to the
 // operator approval prompt instead (the agent may still request it). The first
-// matching rule wins, so order most-specific first.
+// matching rule wins, so order most-specific first. Shell wrappers (bash -c,
+// xargs, env/nice/timeout prefixes) are peeled so rules see the inner payload;
+// unparseable wrappers force ask rather than auto-allow.
 
 export type AutoShellEffect = "deny" | "ask";
 
@@ -116,6 +118,14 @@ const SENSITIVE_PATH_ASK_RULE: AutoShellRule = {
   patterns: [],
 };
 
+const OPAQUE_WRAPPER_ASK_RULE: AutoShellRule = {
+  name: "opaque-wrapper",
+  effect: "ask",
+  reason:
+    "This command wraps a shell payload that cannot be statically inspected (variable expansion or command substitution). It needs explicit operator approval and never runs unattended in auto mode.",
+  patterns: [],
+};
+
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
 
 function safeWorktreeCommand(command: string): boolean | undefined {
@@ -132,6 +142,15 @@ function safeWorktreeCommand(command: string): boolean | undefined {
   return false;
 }
 
+// Prefer deny over ask when multiple expanded subjects match different effects.
+function preferRule(a: AutoShellRule | undefined, b: AutoShellRule | undefined): AutoShellRule | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  if (a.effect === "deny") return a;
+  if (b.effect === "deny") return b;
+  return a;
+}
+
 export function autoShellRuleForCall(
   call: ToolCall,
   _isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
@@ -139,14 +158,31 @@ export function autoShellRuleForCall(
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
+
+  // Peel bash/sh/zsh -c, xargs, and transparent prefixes so rules see the real
+  // payload. `stripQuoted` alone would delete a quoted -c body and miss every rule.
+  const { subjects, opaque } = expandShellSubjects(command);
+
   if (commandHasRecursiveRm(command)) return RECURSIVE_RM_ASK_RULE;
-  // Deny rules (file-mutation) beat sensitive-path ask: `echo x > .env` must
-  // stay hard-denied in auto, not demoted to an operator prompt just because
-  // a secret path token is present.
-  const matched = matchAutoShellRule(command);
+
+  // Deny rules (file-mutation) beat every ask: `bash -c 'echo x > .env'` must
+  // stay hard-denied in auto, not demoted because a secret path or opaque flag
+  // is also present.
+  let matched: AutoShellRule | undefined;
+  for (const subject of subjects) {
+    matched = preferRule(matched, matchAutoShellRule(subject));
+  }
   if (matched?.effect === "deny") return matched;
-  if (commandReferencesSensitivePath(command) !== undefined) return SENSITIVE_PATH_ASK_RULE;
-  const safeWorktree = safeWorktreeCommand(command);
-  if (safeWorktree === false) return WORKTREE_ASK_RULE;
-  return matched;
+
+  for (const subject of subjects) {
+    if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
+  }
+
+  for (const subject of subjects) {
+    if (safeWorktreeCommand(subject) === false) return WORKTREE_ASK_RULE;
+  }
+
+  if (matched !== undefined) return matched;
+  if (opaque) return OPAQUE_WRAPPER_ASK_RULE;
+  return undefined;
 }
