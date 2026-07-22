@@ -1,8 +1,8 @@
 import { realpathSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { SHELL_PWD_MARKER } from "../branding.js";
 
-/** Sentinel line suffix appended after the user command to read the shell's cwd. */
-export const SHELL_PWD_MARKER = "__INTERCODE_SHELL_PWD_END__";
+export { SHELL_PWD_MARKER };
 
 /**
  * Wrap a user command so a successful subshell run can report its final cwd

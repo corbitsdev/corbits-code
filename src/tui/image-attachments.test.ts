@@ -129,7 +129,7 @@ describe("image attachment helpers", () => {
       expect(result.contentType).toBe("image/jpeg");
       expect(result.data.byteLength).toBeLessThan(large.byteLength);
 
-      const tmpPath = `/tmp/intercode-image-cap-test-${process.pid}-${Date.now()}.jpg`;
+      const tmpPath = `/tmp/corbits-image-cap-test-${process.pid}-${Date.now()}.jpg`;
       await Bun.write(tmpPath, result.data);
       try {
         const dims = await Bun.$`sips -g pixelWidth -g pixelHeight ${tmpPath}`.text();

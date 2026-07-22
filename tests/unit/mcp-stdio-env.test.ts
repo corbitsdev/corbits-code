@@ -8,7 +8,7 @@ describe("buildStdioMcpProcessEnv", () => {
         PATH: "/bin",
         HOME: "/home/op",
         OPENAI_API_KEY: "secret",
-        INTERCODE_SESSION: "sess",
+        CORBITS_SESSION: "sess",
         AWS_SECRET_ACCESS_KEY: "aws",
       },
       undefined,

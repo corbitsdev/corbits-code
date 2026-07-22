@@ -2,10 +2,10 @@ node_modules
 dist/
 .env
 .agent-state/
-.intercode/settings.json
-.intercode/permissions.json
-.intercode/trust.json
-.intercode/MEMORY.md
+.corbits/settings.json
+.corbits/permissions.json
+.corbits/trust.json
+.corbits/MEMORY.md
 .interchange/
 .cache/
 .pi

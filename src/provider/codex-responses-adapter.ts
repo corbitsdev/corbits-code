@@ -18,6 +18,7 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "../auth/codex/constants.js";
 import { codexInstructions } from "../auth/codex/instructions.js";
+import { PRODUCT_NAME, ENVIRONMENT_TAG_NAME } from "../branding.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -136,15 +137,15 @@ function optionString(options: InferenceOptions, key: string): string | undefine
 }
 
 // `instructions` is pinned to the official Codex prompt (the backend rejects
-// anything else), so Intercode's operating prompt rides as a leading developer
+// anything else), so Corbits Code's operating prompt rides as a leading developer
 // message that also neutralizes the Codex prompt's references to tools that do
 // not exist here. The function tools sent with the request are authoritative.
 function bridgeMessage(systemPrompt: string): ResponsesInputItem {
-  const text = `<intercode_environment priority="0">
-You are NOT running in the Codex CLI. You are running in Intercode, a different harness. The base instructions above describe Codex CLI tools (apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool reference in the base instructions and use ONLY the function tools provided in this request. The following are your authoritative operating instructions:
+  const text = `<${ENVIRONMENT_TAG_NAME} priority="0">
+You are NOT running in the Codex CLI. You are running in ${PRODUCT_NAME}, a different harness. The base instructions above describe Codex CLI tools (apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool reference in the base instructions and use ONLY the function tools provided in this request. The following are your authoritative operating instructions:
 
 ${systemPrompt}
-</intercode_environment>`;
+</${ENVIRONMENT_TAG_NAME}>`;
   return { type: "message", role: "developer", content: [{ type: "input_text", text }] };
 }
 
@@ -154,7 +155,7 @@ function buildRequest(
   options: InferenceOptions,
 ): BuiltRequest {
   const conversation = messages.flatMap(toResponsesItems);
-  // Intercode's prompt cannot live in `instructions` (the backend pins that to
+  // Corbits Code's prompt cannot live in `instructions` (the backend pins that to
   // the official Codex prompt), so it leads the input as a developer message.
   const input =
     options.systemPrompt !== undefined

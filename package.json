@@ -1,5 +1,5 @@
 {
-  "name": "@corbits/intercode",
+  "name": "corbits",
   "version": "0.2.80",
   "description": "Single-process coding agent CLI built on the Interchange runtime (Bun + TypeScript)",
   "private": true,
@@ -26,11 +26,11 @@
     "bun": ">=1.2"
   },
   "bin": {
-    "intercode": "./dist/index.js"
+    "corbits": "./dist/index.js"
   },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
-    "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/intercode",
+    "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/corbits",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests",
     "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",

@@ -610,7 +610,7 @@ describe("flat line buffer", () => {
     const workspace = "/home/user/project";
     const banner = buildResourceBanner([{ name: "scribe" }, { name: "tdd" }], ["exa"], 80, workspace);
     const text = banner.map((line) => line.map((s) => s.text).join("")).join("\n");
-    expect(text.indexOf("Intercode")).toBeLessThan(text.indexOf("[Skills]"));
+    expect(text.indexOf("Corbits Code")).toBeLessThan(text.indexOf("[Skills]"));
     expect(text).toContain("Powered by Corbits");
     expect(text).toContain(workspace);
     expect(text).toContain("[Skills]");
@@ -619,7 +619,7 @@ describe("flat line buffer", () => {
     expect(text).toContain("exa");
     const brandOnly = buildResourceBanner([], [], 80, workspace);
     const brandText = brandOnly.map((line) => line.map((s) => s.text).join("")).join("\n");
-    expect(brandText).toContain("Intercode");
+    expect(brandText).toContain("Corbits Code");
     expect(brandText).toContain(workspace);
     expect(brandText).not.toContain("[Skills]");
     expect(brandOnly.length).toBeGreaterThan(0);
@@ -630,7 +630,7 @@ describe("flat line buffer", () => {
     const width = 40;
     const banner = buildResourceBanner([], [], width, longPath);
     const pathLines = banner.filter((line) =>
-      line.some((seg) => seg.text.length > 0 && !["Intercode", "Powered by Corbits"].includes(seg.text)),
+      line.some((seg) => seg.text.length > 0 && !["Corbits Code", "Powered by Corbits"].includes(seg.text)),
     );
     expect(pathLines.length).toBeGreaterThan(1);
     for (const line of pathLines) {

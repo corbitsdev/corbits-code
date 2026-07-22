@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 export async function loadAgentContextExtensions(cwd: string): Promise<string[]> {
   const extensions: string[] = [];
@@ -35,11 +36,11 @@ export interface SystemPromptOverrides {
   append: string[];
 }
 
-// Project-level system-prompt overrides, resolved repo-root first then .intercode/.
+// Project-level system-prompt overrides, resolved repo-root first then .corbits/.
 // SYSTEM.md replaces the base block; APPEND_SYSTEM.md is appended. Mirrors Pi's
 // SYSTEM.md / APPEND_SYSTEM.md convention.
 export async function loadSystemPromptOverrides(cwd: string): Promise<SystemPromptOverrides> {
-  const dirs = [cwd, join(cwd, ".intercode")];
+  const dirs = [cwd, join(cwd, SETTINGS_DIR_NAME)];
   const base = await firstFile(dirs, "SYSTEM.md");
   const appendBody = await firstFile(dirs, "APPEND_SYSTEM.md");
   return {

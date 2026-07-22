@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { MCPServerConfig } from "../config/settings.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 /** Where a plugin was discovered from. */
 export type PluginOrigin = "repo" | "user" | "project" | "path";
@@ -25,14 +26,14 @@ const emptyStore = (): ProjectTrustStore => ({
 });
 
 // SECURITY: trust records must NOT live inside the repo they authorize — a
-// hostile repo could otherwise ship its own `.intercode/trust.json` and
+// hostile repo could otherwise ship its own `.corbits/trust.json` and
 // pre-grant consent to its plugins and MCP servers. We store them under the
 // user's home, in a file keyed by the resolved repo path, so only prior
 // interactive consent on THIS machine can populate them.
 export function projectTrustPath(cwd: string, home: string = homedir()): string {
   const repo = resolve(cwd);
   const key = createHash("sha256").update(repo).digest("hex").slice(0, 32);
-  return join(home, ".intercode", "trust", `${key}.json`);
+  return join(home, SETTINGS_DIR_NAME, "trust", `${key}.json`);
 }
 
 export async function loadProjectTrust(cwd: string, home: string = homedir()): Promise<ProjectTrustStore> {

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createIntercodeRetryPolicy } from "./retry-policy.js";
+import { createCorbitsRetryPolicy } from "./retry-policy.js";
 
 const HTML_503 = `<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>`;
 
-describe("createIntercodeRetryPolicy", () => {
+describe("createCorbitsRetryPolicy", () => {
   test("retries protocol_mismatch when the body is an HTML 503 gateway page", async () => {
-    const policy = createIntercodeRetryPolicy();
+    const policy = createCorbitsRetryPolicy();
     const decision = await policy({
       attempt: 1,
       elapsedMs: 0,
@@ -19,7 +19,7 @@ describe("createIntercodeRetryPolicy", () => {
   });
 
   test("aborts long-window quota exhaustion", async () => {
-    const policy = createIntercodeRetryPolicy();
+    const policy = createCorbitsRetryPolicy();
     const decision = await policy({
       attempt: 1,
       elapsedMs: 0,

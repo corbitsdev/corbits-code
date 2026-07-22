@@ -1,5 +1,5 @@
 {
-  "name": "@intercode/plugin-implement-feature",
+  "name": "@corbits/plugin-implement-feature",
   "version": "0.0.0",
   "private": true,
   "type": "module",

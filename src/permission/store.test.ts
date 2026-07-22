@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe("project store", () => {
-  test("round-trips approvals at <cwd>/.intercode/permissions.json", async () => {
+  test("round-trips approvals at <cwd>/.corbits/permissions.json", async () => {
     expect(await loadProjectApprovals(dir)).toEqual([]);
     await saveProjectApproval(dir, { tool: "run_shell", pattern: "npm *" });
     await saveProjectApproval(dir, { tool: "write_file", pattern: "src/*" });

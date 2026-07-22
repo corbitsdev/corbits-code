@@ -1,6 +1,6 @@
 import type { AgentPlugin } from "./profile-types.js";
 
-// Default agent profiles shipped with intercode. These are the sub-agents
+// Default agent profiles shipped with corbits. These are the sub-agents
 // referenced by the built-in workflows. Repositories can override any of
 // these by placing a same-id profile in .agents/agents/.
 export const defaultAgentsPlugin: AgentPlugin = {

@@ -1,4 +1,4 @@
-# Intercode — Product
+# Corbits Code — Product
 
 ## What It Is
 
@@ -24,14 +24,14 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 6. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
 7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
 8. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
-9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Intercode asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/agent` provider switches). Headless/CLI entry points do not yet read `sessionMode` from config.
+9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Corbits Code asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/agent` provider switches). Headless/CLI entry points do not yet read `sessionMode` from config.
 
 ## User Experience
 
 ### TUI Mode (default)
 
 ```bash
-$ intercode "Add JWT auth to the API"
+$ corbits "Add JWT auth to the API"
 ```
 
 A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
@@ -39,7 +39,7 @@ A full-screen terminal interface: a pinned header (session title and workflow pr
 ### Headless Mode
 
 ```bash
-$ intercode --headless "Add JWT auth to the API"
+$ corbits --headless "Add JWT auth to the API"
 ```
 
 Streams the event log to stderr for scripts and CI. Non-interactive: any action that would need operator approval is denied unless `--dangerously-skip-permissions` is set.
@@ -47,7 +47,7 @@ Streams the event log to stderr for scripts and CI. Non-interactive: any action 
 ### Resume
 
 ```bash
-$ intercode resume
+$ corbits resume
 ```
 
 Continues from the last saved state in the working directory.
@@ -78,7 +78,7 @@ The TUI has an extensible slash-command framework. Built-ins include `/help` (sh
 
 ## Lifecycle Hooks
 
-Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatically, discovered from `.intercode/hooks` (per-repo) and `~/.intercode/hooks` (global). `postTurn` receives aggregated turn context (tool calls, results, token usage, duration); `postRun` receives a run summary. The TUI hook panel lists discovered hooks and lets the user enable/disable them. See `docs/HOOKS.md`.
+Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatically, discovered from `.corbits/hooks` (per-repo) and `~/.corbits/hooks` (global). `postTurn` receives aggregated turn context (tool calls, results, token usage, duration); `postRun` receives a run summary. The TUI hook panel lists discovered hooks and lets the user enable/disable them. See `docs/HOOKS.md`.
 
 ## Failure Modes and Recovery
 
@@ -98,11 +98,11 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 **What the user sees:** `Ctrl+C` mid-run, network error, or crash. The last state is persisted.
 
-**Recovery:** `intercode resume` reloads `RunState` and continues.
+**Recovery:** `corbits resume` reloads `RunState` and continues.
 
 ## Configuration
 
-Providers and models are configured in `~/.intercode/settings.json` (holds providers + credentials), with a selection-only per-repo `.intercode/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. Credentials are read only from these settings files — there is no environment-variable override and `.env` files are not loaded, so a stale or exported key can't shadow the configured provider. The agent is denied read access to both settings files.
+Providers and models are configured in `~/.corbits/settings.json` (holds providers + credentials), with a selection-only per-repo `.corbits/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. Credentials are read only from these settings files — there is no environment-variable override and `.env` files are not loaded, so a stale or exported key can't shadow the configured provider. The agent is denied read access to both settings files.
 
 ## Optional Capabilities (plugins)
 
@@ -114,7 +114,7 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 In the TUI, sub-agents are available when **session mode** is **orchestrator** (see value prop #9); **single-agent** mode removes the `task` and `search_agents` tools from the primary session.
 
-Intercode can fan work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
+Corbits Code can fan work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
 
 - **Agents** are runtime entities (primary session or child).
 - **Tasks** are checklist items owned by one agent via `manage_tasks`.

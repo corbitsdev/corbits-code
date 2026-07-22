@@ -120,8 +120,8 @@ export async function capImageForIngestion(
 
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const srcExt = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : mimeType === "image/gif" ? "gif" : "jpg";
-  const srcPath = join(tmpdir(), `intercode-image-cap-src-${stamp}.${srcExt}`);
-  const outPath = join(tmpdir(), `intercode-image-cap-out-${stamp}.jpg`);
+  const srcPath = join(tmpdir(), `corbits-image-cap-src-${stamp}.${srcExt}`);
+  const outPath = join(tmpdir(), `corbits-image-cap-out-${stamp}.jpg`);
 
   try {
     await writeFile(srcPath, data);
@@ -164,7 +164,7 @@ export async function readClipboardImage(): Promise<ClipboardImageResult> {
     return { ok: false, reason: "clipboard image paste is currently supported on macOS" };
   }
 
-  const tmpPath = `/tmp/intercode-clipboard-${process.pid}-${Date.now()}.png`;
+  const tmpPath = `/tmp/corbits-clipboard-${process.pid}-${Date.now()}.png`;
   const script = `
 set outPath to POSIX file ${JSON.stringify(tmpPath)}
 try

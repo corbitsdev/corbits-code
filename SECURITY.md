@@ -10,11 +10,11 @@ We will acknowledge reports as soon as practical and work with you on a fix and 
 
 ## Scope Notes
 
-Intercode is a coding agent that **executes shell commands and file operations on the host** under an authorization policy. Treat any unexpected command execution, path escape, or permission-bypass behavior as security-relevant.
+Corbits Code is a coding agent that **executes shell commands and file operations on the host** under an authorization policy. Treat any unexpected command execution, path escape, or permission-bypass behavior as security-relevant.
 
 When reporting, include:
 
-- Intercode version or commit
+- Corbits Code version or commit
 - Steps to reproduce
 - Expected vs actual behavior
 - Whether the issue requires a malicious prompt, config, skill, MCP server, or tool grant

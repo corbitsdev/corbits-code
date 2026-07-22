@@ -26,7 +26,7 @@ describe("deleteFilePlugin", () => {
   let cwd: string;
 
   beforeEach(async () => {
-    cwd = await mkdtemp(join(tmpdir(), "intercode-delete-file-"));
+    cwd = await mkdtemp(join(tmpdir(), "corbits-delete-file-"));
   });
 
   afterEach(async () => {
@@ -67,7 +67,7 @@ describe("deleteFilePlugin", () => {
   });
 
   test("restricted paths are blocked before deletion", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "intercode-delete-outside-"));
+    const outside = await mkdtemp(join(tmpdir(), "corbits-delete-outside-"));
     const path = join(outside, "keep.txt");
     await writeFile(path, "keep");
     const next = handler();
@@ -82,7 +82,7 @@ describe("deleteFilePlugin", () => {
   });
 
   test("refuses files reached through a directory symlink outside the workspace", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "intercode-delete-symlink-outside-"));
+    const outside = await mkdtemp(join(tmpdir(), "corbits-delete-symlink-outside-"));
     const path = join(outside, "keep.txt");
     await writeFile(path, "keep");
     await symlink(outside, join(cwd, "linked-outside"));

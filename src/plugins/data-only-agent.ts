@@ -30,10 +30,10 @@ import { type } from "arktype";
 //                    (legacy: tools: { read: true, bash: false })
 //   - corbitsdev:    name, description, mode, color, permission: { read: "allow", bash: "deny" }
 //
-// Native Intercode keys also work and win ties: tier, inference, capabilities,
+// Native Corbits Code keys also work and win ties: tier, inference, capabilities,
 // skills (frontmatter list, in addition to body `Load the X skill` lines).
 
-// Upstream tool-name aliases mapped to Intercode tool ids. Case-insensitive.
+// Upstream tool-name aliases mapped to Corbits Code tool ids. Case-insensitive.
 const TOOL_ALIASES: Record<string, string> = {
   read: "read_file",
   write: "write_file",
@@ -303,7 +303,7 @@ function normalizeModelField(
 }
 
 // Appendix injected into every data-only agent's system prompt so the upstream
-// markdown does not need to know Intercode-specific tool names or task rules.
+// markdown does not need to know Corbits Code-specific tool names or task rules.
 // Resolve a skill body via the shared skill resolver so data-only plugins and
 // the main session's `use_skill` tool agree on what a skill name means. The
 // plugin's own skills/ directory is prepended to the search path so it shadows
@@ -433,7 +433,7 @@ export async function loadDataOnlyAgentPlugin(
       skillBlocks.length > 0
         ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}`
         : body;
-    // The Intercode translation appendix is appended at prompt-build time by
+    // The Corbits Code translation appendix is appended at prompt-build time by
     // buildSubAgentSystemPrompt, so the systemPromptRole stays focused on the
     // agent's own definition (skills + body) and the appendix applies uniformly
     // to JS-plugin agents too.

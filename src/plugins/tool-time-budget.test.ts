@@ -5,7 +5,7 @@ import {
   formatToolExecutionTimeoutMessage,
 } from "./tool-time-budget.js";
 
-describe("tool-time-budget messages (intercode)", () => {
+describe("tool-time-budget messages (corbits)", () => {
   test("grep timeout explains scope vs empty results", () => {
     const msg = formatSearchTimeoutMessage("grep");
     expect(msg).toContain("grep");

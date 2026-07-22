@@ -7,7 +7,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 test("ExitConfirm renders the title and prompt", () => {
   const { lastFrame } = render(<ExitConfirm onConfirm={() => {}} onCancel={() => {}} />);
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Exit Intercode?");
+  expect(frame).toContain("Exit Corbits Code?");
   expect(frame).toContain("(y/n)");
 });
 

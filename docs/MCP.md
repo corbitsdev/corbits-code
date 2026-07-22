@@ -1,22 +1,22 @@
 # MCP Servers
 
-Intercode connects to [Model Context Protocol](https://modelcontextprotocol.io)
+Corbits Code connects to [Model Context Protocol](https://modelcontextprotocol.io)
 servers to expose their tools to the agent. Configure them under `mcpServers` in
 either settings file:
 
 ```text
-~/.intercode/settings.json   # global — every repo (user-home trusted)
-.intercode/settings.json     # per-repo — this project only (requires trust)
+~/.corbits/settings.json   # global — every repo (user-home trusted)
+.corbits/settings.json     # per-repo — this project only (requires trust)
 ```
 
-**Project trust:** When `mcpServers` comes from **local** `.intercode/settings.json`,
-Intercode does **not** spawn or connect until each server is trusted for this
+**Project trust:** When `mcpServers` comes from **local** `.corbits/settings.json`,
+Corbits Code does **not** spawn or connect until each server is trusted for this
 project. Trust is stored as a fingerprint of `{ name, type, command, args, url }`
-in `.intercode/trust.json` (gitignored). The TUI prompts on first connect
+in `.corbits/trust.json` (gitignored). The TUI prompts on first connect
 (trust-on-first-use). Headless runs without a trust callback **fail closed** —
 untrusted local servers are not connected.
 
-Global MCP from `~/.intercode/settings.json` is treated as user-configured and
+Global MCP from `~/.corbits/settings.json` is treated as user-configured and
 does not require project trust. Local settings **replace** global MCP entirely
 when present (they do not merge).
 
@@ -89,7 +89,7 @@ Because only `url` is set, `type` defaults to `http`.
 
 ### Authorization on first run
 
-The first time Intercode connects to an http server that requires auth, the TUI
+The first time Corbits Code connects to an http server that requires auth, the TUI
 shows an authorization prompt listing the server and its authorize URL:
 
 - The URL is rendered as a clickable hyperlink (`open in browser`) in terminals
@@ -106,7 +106,7 @@ needed.
 OAuth tokens are written to:
 
 ```text
-~/.intercode/mcp-auth/<slug>.json
+~/.corbits/mcp-auth/<slug>.json
 ```
 
 The file basename is a **slug** derived from the MCP server `name` in settings:

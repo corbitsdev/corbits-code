@@ -8,7 +8,7 @@ import { CODEX_RESPONSES_PROVIDER } from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 
-// Intercode ships three first-party adapters on top of the built-in provider
+// Corbits Code ships three first-party adapters on top of the built-in provider
 // set: a providerOptions-aware "openai-compatible" override, plus the Codex and
 // Grok responses adapters. The interchange runtime resolves adapters through an
 // injected registry rather than a mutable global, so we describe ours as a

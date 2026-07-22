@@ -15,7 +15,7 @@ import { createOpenAIAdapter } from "@intx/inference/providers";
 // delegates streaming, retry, and pacing untouched, and shallow-merges
 // providerOptions into the already-built body (the same contract the Google
 // adapter honors). Registering it under "openai-compatible" replaces the stock
-// adapter for every source intercode builds.
+// adapter for every source corbits builds.
 type AdapterSource = Parameters<typeof createOpenAIAdapter>[0];
 
 export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAdapter {

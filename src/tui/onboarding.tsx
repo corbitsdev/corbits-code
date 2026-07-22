@@ -16,6 +16,7 @@ import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { validateProviderConnection } from "../provider/validate-connection.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
+import { PRODUCT_NAME } from "../branding.js";
 
 type Field = "name" | "baseURL" | "apiKey" | "model";
 
@@ -172,7 +173,7 @@ export function ProviderSetupPanel({ onSubmit, showTelemetryNotice }: ProviderSe
         borderRight={false}
       >
         <Text bold color={color("brand")}>
-          Intercode
+          {PRODUCT_NAME}
         </Text>
         <Text color={color("muted")}> · </Text>
         <Text color={color("muted")}>Provider setup</Text>

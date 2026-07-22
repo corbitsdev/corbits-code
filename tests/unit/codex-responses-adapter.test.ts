@@ -62,7 +62,7 @@ describe("codex-responses buildRequest", () => {
     expect(input[0]).toMatchObject({ type: "message", role: "developer" });
     const leadText = (input[0]!["content"] as Array<{ text: string }>)[0]!.text;
     expect(leadText).toContain("be terse");
-    expect(leadText).toContain("Intercode");
+    expect(leadText).toContain("Corbits Code");
     expect(input[1]).toMatchObject({ type: "message", role: "user", content: [{ type: "input_text", text: "x" }] });
     expect(body["tools"]).toEqual([
       { type: "function", name: "read_file", description: "read a file", parameters: { type: "object", properties: {} } },

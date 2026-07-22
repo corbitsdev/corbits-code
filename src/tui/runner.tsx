@@ -122,6 +122,7 @@ import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
+import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -503,7 +504,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15_000);
         try {
-          const results = await provider.search("intercode connectivity test", controller.signal);
+          const results = await provider.search("corbits connectivity test", controller.signal);
           return { ok: true, message: `connected — ${results.length} results` };
         } finally {
           clearTimeout(timer);
@@ -722,7 +723,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   };
 
   const chatDirectorDef = defineDirector({
-    id: "intercode/chat",
+    id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
       const d = createChatDirector(
@@ -745,12 +746,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
 
   const toolsFactory = defineTool({
-    id: "intercode/tui-tools",
+    id: `${ID_PREFIX}/tui-tools`,
     factory: () => toolset.dynamicRunner,
   });
 
   const def = defineAgent({
-    id: "intercode/tui-agent",
+    id: `${ID_PREFIX}/tui-agent`,
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -937,7 +938,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       deps: inferenceDeps,
       audit: noopAuditStore(),
       authorize: permissiveAuthorize(),
-      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: "intercode/chat" }),
+      directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: `${ID_PREFIX}/chat` }),
       compactors: {
         "pruning-compactor": createPruningCompactor({
           keepRecentTurns: 6,
@@ -1439,7 +1440,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // Fire-and-forget: an aborted connect on exit is expected and ignored;
       // any other failure is logged rather than raised as an unhandled rejection.
       if (err instanceof Error && err.name === "AbortError") return;
-      getLogger(["intercode", "tui", "mcp"]).error("MCP connect failed: {error}", {
+      getLogger([LOG_NAMESPACE_ROOT, "tui", "mcp"]).error("MCP connect failed: {error}", {
         error: err instanceof Error ? err.message : String(err),
       });
     });

@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Per-server OAuth state persisted between sessions. Holding the PKCE verifier is
 // necessary because authorization spans a process boundary (browser round-trip);
@@ -14,7 +15,7 @@ export type MCPAuthState = {
 };
 
 export function mcpAuthDir(home: string = homedir()): string {
-  return join(home, ".intercode", "mcp-auth");
+  return join(home, SETTINGS_DIR_NAME, "mcp-auth");
 }
 
 // File names are derived from the server name, which is operator-controlled and

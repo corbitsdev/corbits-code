@@ -325,7 +325,7 @@ export async function runEditFileLineRange(
 }
 
 /**
- * Extend the model-visible edit_file schema with exclusive line-range mode (Intercode-only).
+ * Extend the model-visible edit_file schema with exclusive line-range mode (Corbits Code-only).
  */
 export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefinition {
   if (definition.name !== "edit_file") return definition;

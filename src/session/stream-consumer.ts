@@ -1,5 +1,6 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 // Stream failures are logged, not written to stderr: raw stderr writes land in
 // the middle of the TUI's frame output and corrupt the screen, which is
@@ -13,7 +14,7 @@ export async function consumeStream(
       sink(event);
     }
   } catch (err) {
-    getLogger(["intercode", "session", "stream"]).error(
+    getLogger([LOG_NAMESPACE_ROOT, "session", "stream"]).error(
       "agent event stream failed: {error}",
       { error: err instanceof Error ? err.message : String(err) },
     );

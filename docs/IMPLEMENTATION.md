@@ -1,6 +1,6 @@
-# Intercode — Implementation
+# Corbits Code — Implementation
 
-Package version: **0.2.35**. CLI binary: `intercode` (`./dist/index.js`).
+Package version: **0.2.35**. CLI binary: `corbits` (`./dist/index.js`).
 
 ## Runtime
 
@@ -40,7 +40,7 @@ Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`,
 
 ## Interchange submodule
 
-The `interchange/` git submodule tracks **`origin/main`** with no intercode-specific patches inside it. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
+The `interchange/` git submodule tracks **`origin/main`** with no corbits-specific patches inside it. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
 
 ## Developer Setup
 
@@ -56,7 +56,7 @@ Verify the environment (git hooks, bun install, interchange submodule, provider 
 ./bin/check-env
 ```
 
-`check-env` confirms a provider catalog exists in `~/.intercode/settings.json` (or that onboarding will create one).
+`check-env` confirms a provider catalog exists in `~/.corbits/settings.json` (or that onboarding will create one).
 
 ## File Structure
 
@@ -178,7 +178,7 @@ Token event batching in `use-stream.ts`: `TOKEN_EVENTS` (`inference.text.delta`,
 
 Provider and model configuration lives in JSON settings files. The global file holds provider definitions and API keys; the per-repo file selects among them and must not contain credentials.
 
-- Global: `~/.intercode/settings.json`
+- Global: `~/.corbits/settings.json`
 
   ```json
   {
@@ -200,9 +200,9 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for leaf sub-agents (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Applies when `sessionMode` is **orchestrator**.
 
-  Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Intercode prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.intercode/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Today only the interactive TUI (`runTUI`) resolves `sessionMode`; headless/CLI entry points still default to orchestrator-style tooling until wired.
+  Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Corbits Code prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.corbits/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Today only the interactive TUI (`runTUI`) resolves `sessionMode`; headless/CLI entry points still default to orchestrator-style tooling until wired.
 
-- Per-repo: `.intercode/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
+- Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 
@@ -218,14 +218,14 @@ Credentials and provider definitions come exclusively from the settings files. E
 
 OpenAI-compatible `baseURL` values are normalized during provider resolution. A plain base URL such as `https://provider.example.com/v1` is preserved, a trailing slash is removed, and a pasted full chat-completions endpoint such as `https://provider.example.com/v1/chat/completions` is reduced to `https://provider.example.com/v1` before the runtime appends `/chat/completions`. Invalid non-URL values fail with an explicit baseURL error.
 
-`--config <path>` replaces the global settings file as the provider source (useful for CI to inject a provider per run). The per-repo `.intercode/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). A provider must be defined in one of these settings files; there is no environment-variable fallback.
+`--config <path>` replaces the global settings file as the provider source (useful for CI to inject a provider per run). The per-repo `.corbits/settings.json` selection still applies on top of a `--config` source (definitions come from `--config`, selection from the local file; CLI `--provider`/`--model` override both). A provider must be defined in one of these settings files; there is no environment-variable fallback.
 
 ### Profiles (`src/config/profiles.ts`)
 
 Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).
 
-- Project profile: `.intercode/profile.json` in the repo root — committed, credential-free.
-- Named profiles: `~/.intercode/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag.
+- Project profile: `.corbits/profile.json` in the repo root — committed, credential-free.
+- Named profiles: `~/.corbits/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag.
 
 ```json
 {
@@ -240,7 +240,7 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 
 ### Provider Configuration
 
-Providers and credentials are read exclusively from settings files: the global `~/.intercode/settings.json` (definitions + credentials) and the per-repo `.intercode/settings.json` (selection only). There are no `OPENAI_COMPATIBLE_*` environment-variable overrides, and `index.ts` does not load `.env` files — a deliberately stale or exported key can no longer shadow the configured provider.
+Providers and credentials are read exclusively from settings files: the global `~/.corbits/settings.json` (definitions + credentials) and the per-repo `.corbits/settings.json` (selection only). There are no `OPENAI_COMPATIBLE_*` environment-variable overrides, and `index.ts` does not load `.env` files — a deliberately stale or exported key can no longer shadow the configured provider.
 
 ### CLI Verbs and Flags
 
@@ -249,7 +249,7 @@ Providers and credentials are read exclusively from settings files: the global `
 | `run` (optional) | — | Run a task (default verb) |
 | `resume` | — | Resume the last run in the working directory |
 | `--cwd <dir>` | `process.cwd()` | Working directory |
-| `--config <path>` | `~/.intercode/settings.json` | Settings file to use |
+| `--config <path>` | `~/.corbits/settings.json` | Settings file to use |
 | `--provider <name>` | from settings | Select a configured provider |
 | `--model <id>` | provider default | Select a model for the active provider |
 
@@ -294,7 +294,7 @@ session; that tree re-write is inherent to git and left as residual cost.
 
 ### Crash Logging
 
-`index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each writes a best-effort crash report to `~/.intercode/projects/<project-slug>/errors/<timestamp>.txt`, where the slug is the cwd with non-alphanumeric runs collapsed to `-`. The file records the failure kind, an ISO timestamp, the cwd, and the stack. The logger swallows its own errors so it can never mask the original crash, then exits non-zero after printing a one-line message to stderr.
+`index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each writes a best-effort crash report to `~/.corbits/projects/<project-slug>/errors/<timestamp>.txt`, where the slug is the cwd with non-alphanumeric runs collapsed to `-`. The file records the failure kind, an ISO timestamp, the cwd, and the stack. The logger swallows its own errors so it can never mask the original crash, then exits non-zero after printing a one-line message to stderr.
 
 ### Event Stream
 
@@ -310,7 +310,7 @@ Mid-run queue steering is entirely in `app.tsx`: `queuedCount` tracks `pendingQu
 
 ### Lifecycle Hooks
 
-- Discovered from `.intercode/hooks` (local) and `~/.intercode/hooks` (global)
+- Discovered from `.corbits/hooks` (local) and `~/.corbits/hooks` (global)
 - Types: `typescript` (imported by file URL) and `shell` (executed)
 - `postTurn(TurnContext)` fired per turn; `postRun(RunSummary)` fired once at completion
 - See `docs/HOOKS.md`
@@ -326,7 +326,7 @@ Mid-run queue steering is entirely in `app.tsx`: `queuedCount` tracks `pendingQu
 See `docs/PLUGINS.md` for the full design. Summary:
 
 - Every installable plugin exports a `manifest` (`{ id, name, kind, description?, credentials? }`) with `kind` one of `web | command | tool`. A workflow is just a slash command, so there is no separate workflow/agent kind.
-- Plugins are auto-discovered from `plugins/`, `<cwd>/.intercode/plugins/`, and `~/.intercode/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. When `settings.discoverClaudePlugins` is true, plugins listed in `~/.claude/plugins/installed_plugins.json` are also loaded (install paths only; still require enable). The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path. Discovery resolves relative imports to absolute first (`loadPluginEntry`).
+- Plugins are auto-discovered from `plugins/`, `<cwd>/.corbits/plugins/`, and `~/.corbits/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. When `settings.discoverClaudePlugins` is true, plugins listed in `~/.claude/plugins/installed_plugins.json` are also loaded (install paths only; still require enable). The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path. Discovery resolves relative imports to absolute first (`loadPluginEntry`).
 
 - **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `web` → `resolveWebProviderFromPlugins` picks the active backend (`settings.web` id override, else the single enabled web plugin); web is plugin-only, so when none resolves (or a plugin fails to start) `web_search`/`web_fetch` are left unregistered rather than falling back to a built-in fetcher; `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.tsx` (via `tools.ts` helpers).
 - **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
@@ -334,17 +334,17 @@ See `docs/PLUGINS.md` for the full design. Summary:
 
 ## Hardening wave — deferred and upstream-owned items
 
-Intercode v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `interchange/` submodule and `vendor/` trees are out of scope for that wave (`scripts/verify-intercode-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Intercode because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
+Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `interchange/` submodule and `vendor/` trees are out of scope for that wave (`scripts/verify-corbits-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Corbits Code because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
 
 ### Child-supervisor IPC awaiter deadlines
 
 | Field | Detail |
 |---|---|
-| **Status** | Not applicable in Intercode; deferred to upstream Interchange |
+| **Status** | Not applicable in Corbits Code; deferred to upstream Interchange |
 | **Risk** | Cross-process tool handlers can hang indefinitely when a supervisor reply is lost or stalled (mail submit, substrate write, pack transfer ack paths). |
-| **Why Intercode-only scope cannot close it** | Intercode does not run the workflow-host child supervisor or pack-transport sender loops. There is no `src/` surface that registers pending IPC awaiters for `outbound.result`, `substrate.write.response`, or `repo.pack.ack`. Chat and sub-agent sessions use in-process `@intx/agent` reactors, not the child bridges under `interchange/packages/workflow-host` or `interchange/packages/pack-transport`. |
+| **Why Corbits Code-only scope cannot close it** | Corbits Code does not run the workflow-host child supervisor or pack-transport sender loops. There is no `src/` surface that registers pending IPC awaiters for `outbound.result`, `substrate.write.response`, or `repo.pack.ack`. Chat and sub-agent sessions use in-process `@intx/agent` reactors, not the child bridges under `interchange/packages/workflow-host` or `interchange/packages/pack-transport`. |
 | **Upstream owner** | Interchange `workflow-host` (outbound mail and substrate write bridges) and `pack-transport` (pack sender). Deadline behavior should align with existing gated correlation timeouts in the supervisor stack. |
-| **Operator note** | Intercode operators are not exposed to this stall vector unless a future product mode embeds workflow-host children; track closure in Interchange, not in this repo. |
+| **Operator note** | Corbits Code operators are not exposed to this stall vector unless a future product mode embeds workflow-host children; track closure in Interchange, not in this repo. |
 
 ### Bounded audit collector retention between checkpoints
 
@@ -352,9 +352,9 @@ Intercode v0.3 memory and stall hardening is implemented under `src/`, `tests/`,
 |---|---|
 | **Status** | Not applicable on the default path; deferred until real audit persistence is enabled |
 | **Risk** | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs. |
-| **Why Intercode-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.tsx` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
+| **Why Corbits Code-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.tsx` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
 | **Upstream owner** | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata. |
-| **Future Intercode work** | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only. |
+| **Future Corbits Code work** | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only. |
 
 Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; only the two rows above remain upstream or product-gated.
 
@@ -379,5 +379,5 @@ Run all three before declaring work complete.
 ## Deployment
 
 - Single bundled entry: `./dist/index.js`
-- CLI name: `intercode`
+- CLI name: `corbits`
 - Self-contained: runtime dependencies are workspace-linked or bundled; no container or orchestration required

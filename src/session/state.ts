@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { sessionDir } from "./index.js";
+import { COMMAND_NAME } from "../branding.js";
 
 export type ConnectedMcpServer = {
   name: string;
@@ -44,7 +45,7 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
 // A corrupt or shape-invalid state file means resume is silently starting over
 // and prior progress is being discarded. Surface it rather than swallowing it.
 export function warnUnreadableState(path: string, reason: string): void {
-  process.stderr.write(`intercode: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
+  process.stderr.write(`${COMMAND_NAME}: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
 }
 
 export async function saveState(cwd: string, sessionId: string, state: RunState): Promise<void> {

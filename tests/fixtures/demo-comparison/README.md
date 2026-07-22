@@ -47,7 +47,7 @@ From the repository root, run the comparison script:
 # Run both tools and compare
 ./scripts/demo-compare.sh --both
 
-# Run Intercode only
+# Run Corbits Code only
 ./scripts/demo-compare.sh --interchange
 
 # Run opencode only
@@ -63,5 +63,5 @@ The script copies the fixture into a temp directory, runs the agent, then report
 ## Prerequisites
 
 - `bun` on PATH
-- `interchange` CLI on PATH (for Intercode runs)
+- `interchange` CLI on PATH (for Corbits Code runs)
 - `opencode` CLI on PATH (for opencode / Grok Build runs)

@@ -28,7 +28,7 @@ describe("persistent-shell-cwd helpers", () => {
   });
 
   test("assertShellCwdUsable rejects missing paths", () => {
-    expect(() => assertShellCwdUsable("/nonexistent-intercode-cwd-test")).toThrow(
+    expect(() => assertShellCwdUsable("/nonexistent-corbits-cwd-test")).toThrow(
       /Shell working directory/,
     );
   });

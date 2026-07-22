@@ -58,9 +58,9 @@ describe("loadDataOnlyAgentPlugin", () => {
     const agent = plugin!.agentPlugin.agents[0] as { id: string; systemPromptRole: string };
     expect(agent.id).toBe("karen");
     expect(agent.systemPromptRole).toContain("You orchestrate.");
-    // The Intercode appendix is appended at prompt-build time by
+    // The Corbits Code appendix is appended at prompt-build time by
     // buildSubAgentSystemPrompt, not stored on the profile.
-    expect(agent.systemPromptRole).not.toContain("Intercode notes");
+    expect(agent.systemPromptRole).not.toContain("Corbits Code notes");
   });
 
   test("uses frontmatter name when id is absent", async () => {
@@ -99,7 +99,7 @@ describe("loadDataOnlyAgentPlugin", () => {
     expect(agent.capabilities).toBeUndefined();
   });
 
-  test("Claude Code tools[] allowlist is aliased to Intercode tool names", async () => {
+  test("Claude Code tools[] allowlist is aliased to Corbits Code tool names", async () => {
     const dir = await makePlugin({
       "agents/scout.md":
         "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",

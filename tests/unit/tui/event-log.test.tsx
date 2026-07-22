@@ -231,17 +231,17 @@ test("EventLog renders web_search result envelopes as a readable summary", () =>
 });
 
 test("EventLog collapses a real JSON document result until expanded", () => {
-  const json = '{"name":"intercode","version":"1.0.0"}';
+  const json = '{"name":"corbits","version":"1.0.0"}';
   const blocks: ContentBlock[] = [
     { id: "json", type: "tool_result", callId: "c1", name: "read_file", content: json, isError: false },
   ];
 
   const collapsedFrame = renderLog(blocks).lastFrame() ?? "";
   expect(collapsedFrame).toContain("Read 1 line");
-  expect(collapsedFrame).not.toContain("intercode");
+  expect(collapsedFrame).not.toContain("corbits");
 
   const expandedFrame = renderLog(blocks, { expandedTools: new Set(["json"]) }).lastFrame() ?? "";
-  expect(expandedFrame).toContain("intercode");
+  expect(expandedFrame).toContain("corbits");
   expect(expandedFrame).toContain("1.0.0");
 });
 
