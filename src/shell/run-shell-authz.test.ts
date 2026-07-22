@@ -33,6 +33,24 @@ describe("recursive rm detection", () => {
     expect(commandHasRecursiveRm("bash -c 'rm -f stale.log'")).toBe(false);
   });
 
+  test("commandHasRecursiveRm survives xargs feeding a shell -c payload", () => {
+    // The quoted payload must survive the xargs peel intact: rejoining
+    // dequoted tokens once re-split `-c 'rm -rf {}'` into fragments and lost
+    // the classification.
+    expect(commandHasRecursiveRm("xargs -I{} bash -c 'rm -rf {}'")).toBe(true);
+    expect(commandHasRecursiveRm("echo x | xargs -I {} sh -c 'sudo rm -rf {}'")).toBe(true);
+    expect(commandHasRecursiveRm("echo build | xargs -I{} bash -c 'rm -rf {}'")).toBe(true);
+    expect(commandHasRecursiveRm("find . -name tmp | xargs -n1 sh -c 'rm -rf \"$0\"'")).toBe(true);
+    expect(commandHasRecursiveRm("echo hi | xargs -I{} bash -c 'echo {}'")).toBe(false);
+  });
+
+  test("authz hard-blocks catastrophic rm behind xargs + shell -c", () => {
+    expect(runShellAuthzBlockReason("echo / | xargs -I{} bash -c 'rm -rf {}'")).toBeUndefined();
+    expect(runShellAuthzBlockReason("xargs -I{} bash -c 'rm -rf /'")).toMatch(
+      /Destructive command blocked/,
+    );
+  });
+
   test("authz still hard-blocks catastrophic recursive rm", () => {
     expect(runShellAuthzBlockReason("rm -rf /")).toMatch(/Destructive command blocked/);
     expect(runShellAuthzBlockReason("rm -rf node_modules")).toBeUndefined();

@@ -333,6 +333,25 @@ type PeelOutcome =
   | { kind: "opaque" }
   | { kind: "none" };
 
+// Tokens that survive rejoining without quotes. Anything else is re-quoted so
+// a payload token that originally carried quotes (e.g. the argument of a
+// nested `sh -c 'rm -rf {}'`) is not re-split when the rejoined command is
+// tokenized again one peel level down — rejoining dequoted tokens with bare
+// spaces is exactly how the xargs → shell -c bypass slipped through.
+const SAFE_REJOIN_TOKEN = /^[A-Za-z0-9_@%+=:,./-]+$/;
+
+function quoteTokenForRejoin(token: string): string {
+  if (SAFE_REJOIN_TOKEN.test(token)) return token;
+  return `'${token.replaceAll("'", String.raw`'\''`)}'`;
+}
+
+// Rebuild a command string from tokens, preserving token boundaries through a
+// subsequent tokenize(). Opacity checks must run on the raw (unquoted) join —
+// quoting would disguise `$CMD`-style payloads from isOpaquePayload.
+function rejoinTokens(tokens: string[]): string {
+  return tokens.map(quoteTokenForRejoin).join(" ");
+}
+
 function peelShellDashC(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
@@ -389,9 +408,9 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
     i++;
   }
   if (i >= tokens.length) return { kind: "opaque" };
-  const utility = tokens.slice(i).join(" ");
-  if (isOpaquePayload(utility)) return { kind: "opaque" };
-  return { kind: "inner", command: utility };
+  const utilityTokens = tokens.slice(i);
+  if (isOpaquePayload(utilityTokens.join(" "))) return { kind: "opaque" };
+  return { kind: "inner", command: rejoinTokens(utilityTokens) };
 }
 
 // Peel one layer of transparent prefix / shell -c / xargs from a single segment.
@@ -454,7 +473,7 @@ function peelOnce(segment: string): PeelOutcome {
 
   // Prefix-only peel: `env FOO=1 rm -rf build` → `rm -rf build`.
   if (strippedPrefix) {
-    return { kind: "inner", command: tokens.slice(i).join(" ") };
+    return { kind: "inner", command: rejoinTokens(tokens.slice(i)) };
   }
   return { kind: "none" };
 }
