@@ -14,6 +14,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -28,5 +33,7 @@ jobs:
       - name: Build
         run: bun run build
 
+      # Intercode codebase only — ./src and ./tests. The vendored interchange
+      # inference package (vendor/) is out of scope for this repo's CI.
       - name: Test
-        run: bun test ./src ./tests
+        run: bun run test
