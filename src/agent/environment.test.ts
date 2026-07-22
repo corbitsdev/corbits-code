@@ -53,9 +53,9 @@ test("getGitBranch returns the branch name via the injected git runner", async (
   const branch = await getGitBranch("/repo", async (cwd, args) => {
     expect(cwd).toBe("/repo");
     expect(args).toEqual(["rev-parse", "--abbrev-ref", "HEAD"]);
-    return "feature/status-bar";
+    return "feature/example-branch";
   });
-  expect(branch).toBe("feature/status-bar");
+  expect(branch).toBe("feature/example-branch");
 });
 
 test("getGitBranch returns null when the git runner reports failure", async () => {

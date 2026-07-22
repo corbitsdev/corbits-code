@@ -46,7 +46,7 @@ describe("formatMcpResult", () => {
   });
 });
 
-// CL-1693: the detection primitives decide which renderer fires (table vs card
+// The detection primitives decide which renderer fires (table vs card
 // vs text). Getting them wrong renders a list as a card or dumps raw JSON.
 describe("extractMcpRecords (list detection)", () => {
   test("a bare array of objects is detected as records", () => {
