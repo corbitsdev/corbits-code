@@ -1093,7 +1093,7 @@ describe("runInference — incremental delivery and memory-linear buffering", ()
 
   // Drive a long stream, tracking the largest gap between events produced
   // at the wire and events delivered to the caller. That gap is the depth
-  // of the wrapper's retained buffer — the quantity CL-3259 makes linear.
+  // of the wrapper's retained buffer — the quantity this guard keeps linear.
   // The `done` event is kept for correctness assertions; per-delta events
   // are deliberately not retained so the test itself stays linear.
   async function runLongStream(opts: {

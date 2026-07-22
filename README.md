@@ -39,7 +39,7 @@ Every change must pass `bun run typecheck`, `bun run build`, and `bun test`, and
 - **Tools:** `@intx/tools-posix` with path-escape, authz, and verify plugins
 - **Persistence:** `@intx/storage-isogit` for git-backed resume
 - **Testing:** `@intx/inference-testing` for deterministic agent loop tests
-- **TUI (Phase 5):** Ink + React
+- **TUI:** Ink + React
 
 ## Architecture
 

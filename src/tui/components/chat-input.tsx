@@ -682,7 +682,7 @@ export function ChatInput({
   const showAt = !showSlash && atMention.suggestions.length > 0;
   // Visible whenever the agent is in flight, not just once the user has
   // typed something — interruption works either way and should be
-  // discoverable immediately (CL-3118).
+  // discoverable immediately.
   const showSteerHint = isProcessing;
 
   return (

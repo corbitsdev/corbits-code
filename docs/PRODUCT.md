@@ -120,8 +120,8 @@ Dispatch uses a structured brief (context / goal / optional goals seed) and retu
 
 ## Roadmap (planned, not yet shipped)
 
-- **Fast provider/model switching** in the TUI with a persisted default (CL-1221).
-- **Perpetual-session context management** — compaction/curation so a long-running session's context window stays bounded (CL-930).
+- **Fast provider/model switching** in the TUI with a persisted default.
+- **Perpetual-session context management** — compaction/curation so a long-running session's context window stays bounded.
 
 ## Business Justification
 

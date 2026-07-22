@@ -475,14 +475,14 @@ describe("createAgentStreamState", () => {
     // Simulate the mid-flight state where callId→name was wiped (retry / partial
     // bookkeeping) but the Agents fallback still holds a "doing" entry.
     const agents = [
-      { id: "call-lost-name", title: "critique: Re-review CL-3460 branch", status: "doing" as const },
+      { id: "call-lost-name", title: "critique: Re-review feature branch", status: "doing" as const },
     ];
     const next = settleSubAgentOnToolResult(
       agents,
       "call-lost-name",
       undefined, // name map miss → toolName unknown
       false,
-      "critique: Re-review CL-3460 branch",
+      "critique: Re-review feature branch",
     );
     expect(next).toEqual([]);
   });

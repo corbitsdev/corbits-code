@@ -556,7 +556,7 @@ test("D3: contentBlocks returns the same reference when nothing changed", () => 
 // A follow-up streamed token delta into an *existing* block used to also
 // return a new reference here — the getter re-copied the whole contentBlocks
 // array on every token. That made steady-state streaming layout cost grow
-// with transcript length (CL-3264) instead of staying O(1): a token delta
+// with transcript length instead of staying O(1): a token delta
 // mutates the trailing block's content in place, so the array's shape and
 // object identities are unchanged and no new snapshot is needed. React
 // re-rendering on a token delta does not depend on this reference changing —
@@ -977,7 +977,7 @@ test("gate count does not stick after an abort while a gate is open", () => {
   expect(state.status).toBe("running");
 });
 
-test("CL-1692: a block keeps its stable id across a submit_plan splice that shifts indices", () => {
+test("a block keeps its stable id across a submit_plan splice that shifts indices", () => {
   const state = createAgentStreamState();
   state.addEvent({
     type: "inference.tool_call.start",

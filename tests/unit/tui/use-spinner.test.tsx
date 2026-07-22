@@ -50,9 +50,9 @@ test("flipping active to false clears anchor and elapsedMs", async () => {
   expect(lastFrame()).toContain("elapsed:0");
 });
 
-// CL-1699: when resetKey changes, the cumulative elapsed must restart at 0 so a
+// When resetKey changes, the cumulative elapsed must restart at 0 so a
 // new user turn does not inherit the prior turn's running total.
-test("CL-1699: changing resetKey resets elapsedMs to 0 even after prior accumulation", async () => {
+test("changing resetKey resets elapsedMs to 0 even after prior accumulation", async () => {
   const { lastFrame, rerender } = render(<Harness active={true} resetKey={1} />);
   await tick(200);
 
@@ -72,9 +72,9 @@ test("CL-1699: changing resetKey resets elapsedMs to 0 even after prior accumula
   expect(Number(match![1])).toBeLessThan(150);
 });
 
-// CL-1699: within a single turn, re-arming with the same resetKey must still
+// Within a single turn, re-arming with the same resetKey must still
 // accumulate (preserves C2 behavior).
-test("CL-1699: same resetKey preserves cumulative elapsed across re-arms", async () => {
+test("same resetKey preserves cumulative elapsed across re-arms", async () => {
   const { lastFrame, rerender } = render(<Harness active={true} resetKey={1} />);
   await tick(200);
 
