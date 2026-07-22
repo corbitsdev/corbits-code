@@ -48,6 +48,7 @@ import {
   type ProviderSettings,
 } from "./settings.js";
 import { resolveProfile } from "./profiles.js";
+import { migrateLegacyGlobalDir, migrateLegacyLocalDir } from "./migrate-legacy-dir.js";
 
 // The per-call token ceiling for the inference source. Lives here so agent
 // creation (runner.tsx) and live provider switching (the /agent
@@ -354,6 +355,15 @@ export async function loadConfig(
 
   const pricingCachePath = defaultPricingCachePath();
   await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
+
+  // TEMPORARY: migrate a legacy `.intercode` directory into the new `.corbits`
+  // one before anything reads either. Only run against the real home/cwd
+  // (never a --config file or a test-injected globalSettingsPath), and only
+  // copies when the new directory is missing/empty — see migrate-legacy-dir.ts.
+  if (configPath === undefined && options.globalSettingsPath === undefined) {
+    await migrateLegacyGlobalDir();
+  }
+  await migrateLegacyLocalDir(cwd);
 
   const settings =
     configPath !== undefined
