@@ -7,6 +7,17 @@ export function isPluginEnabled(config: Record<string, PluginConfig>, id: string
   return config[id]?.enabled === true;
 }
 
+// Mark a plugin enabled while preserving credentials/consented and other fields.
+// Path-add and similar consent actions must call this so restart re-wires slash
+// commands (isPluginEnabled is strict: missing entry === disabled).
+export function enablePluginConfig(
+  config: Record<string, PluginConfig>,
+  id: string,
+): Record<string, PluginConfig> {
+  const prev = config[id] ?? {};
+  return { ...config, [id]: { ...prev, enabled: true } };
+}
+
 export function isEnabledCommandPlugin(mod: PluginModule, config: Record<string, PluginConfig>): boolean {
   if (mod.commandPlugin === undefined) return false;
   const kind = mod.manifest?.kind;

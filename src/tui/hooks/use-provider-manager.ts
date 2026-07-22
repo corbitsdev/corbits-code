@@ -3,6 +3,7 @@ import type { InferenceSource } from "@intx/types/runtime";
 import { useState } from "react";
 import { providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
 import {
+  loadSettings,
   localSettingsPath,
   saveGlobalSettings,
   saveLocalSettings,
@@ -103,6 +104,23 @@ function settingsWithTiers(
   nextTiers: Partial<Record<ProviderTier, TierConfig>>,
 ): Settings {
   return { ...providerCatalogToSettings(catalog, defaultProvider, baseSettings), tiers: nextTiers };
+}
+
+// Prefer current on-disk global settings as the merge base so a mid-session
+// /plugins write is not clobbered by the session-start initialSettings snapshot.
+// Fail closed on load errors — never fall back to a stale snapshot that could
+// wipe plugins or other non-provider fields.
+async function loadMergeBase(
+  globalSettingsPath: string,
+  initialSettings: Settings | undefined,
+): Promise<Settings | undefined> {
+  try {
+    const onDisk = await loadSettings(globalSettingsPath);
+    if (onDisk !== null) return onDisk;
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+  return initialSettings;
 }
 
 function persistGlobalSettings(
@@ -263,24 +281,37 @@ export function useProviderManager({
     defaultProvider: string | undefined,
     successMessage: string,
   ): void => {
-    let settings: Settings;
-    try {
-      settings = settingsWithTiers(catalog, defaultProvider, initialSettings, tiers);
-    } catch (err) {
-      onMessage(
-        `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
+    // Disk-first merge base: mid-session /plugins writes must survive a later
+    // provider save. Fail closed if settings cannot be re-read.
+    void (async () => {
+      let base: Settings | undefined;
+      try {
+        base = await loadMergeBase(globalSettingsPath, initialSettings);
+      } catch (err) {
+        onMessage(
+          `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      let settings: Settings;
+      try {
+        settings = settingsWithTiers(catalog, defaultProvider, base, tiers);
+      } catch (err) {
+        onMessage(
+          `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      setProviderCatalog(catalog);
+      setGlobalDefaultProvider(defaultProvider);
+      persistGlobalSettings(
+        globalSettingsPath,
+        settings,
+        onMessage,
+        successMessage,
+        "Provider settings changed locally, but saving failed",
       );
-      return;
-    }
-    setProviderCatalog(catalog);
-    setGlobalDefaultProvider(defaultProvider);
-    persistGlobalSettings(
-      globalSettingsPath,
-      settings,
-      onMessage,
-      successMessage,
-      "Provider settings changed locally, but saving failed",
-    );
+    })();
   };
 
   const upsertProvider = (submission: ProviderSubmission): { ok: true } | { ok: false; error: string } => {
@@ -327,13 +358,22 @@ export function useProviderManager({
   ): void => {
     setTiers(nextTiers);
     pushLiveSources(nextTiers);
-    persistGlobalSettings(
-      globalSettingsPath,
-      settingsWithTiers(providerCatalog, globalDefaultProvider, initialSettings, nextTiers),
-      onMessage,
-      successMessage,
-      failPrefix,
-    );
+    void (async () => {
+      let base: Settings | undefined;
+      try {
+        base = await loadMergeBase(globalSettingsPath, initialSettings);
+      } catch (err) {
+        onMessage(`${failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      persistGlobalSettings(
+        globalSettingsPath,
+        settingsWithTiers(providerCatalog, globalDefaultProvider, base, nextTiers),
+        onMessage,
+        successMessage,
+        failPrefix,
+      );
+    })();
   };
 
   const saveTierAssignment = (

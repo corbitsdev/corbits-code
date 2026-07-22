@@ -1,9 +1,15 @@
 name: CI
 
+# Temporarily disabled: GitHub Actions billing/spending limit blocks runs
+# (jobs fail before steps start). Re-enable push/pull_request triggers when
+# org billing is fixed.
+#
+# Previous triggers:
+#   push:
+#     branches: [main]
+#   pull_request:
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   check:

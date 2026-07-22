@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { registerCommandPlugins, isEnabledCommandPlugin } from "../../src/plugins/register.js";
+import {
+  registerCommandPlugins,
+  isEnabledCommandPlugin,
+  enablePluginConfig,
+  isPluginEnabled,
+} from "../../src/plugins/register.js";
 import type { PluginModule } from "../../src/plugins/loader.js";
 
 function cmdModule(id: string): PluginModule {
@@ -35,4 +40,23 @@ test("registerCommandPlugins registers only enabled command plugins", () => {
   const mods = [cmdModule("reg-on"), cmdModule("reg-off")];
   const registered = registerCommandPlugins(mods, { "reg-on": { enabled: true } });
   expect(registered).toEqual(["reg-on"]);
+});
+
+test("enablePluginConfig marks enabled and preserves credentials/consented", () => {
+  // Path-add must leave plugins[id].enabled === true so restart re-wires commands.
+  expect(isPluginEnabled({}, "path-cmd")).toBe(false);
+  const enabled = enablePluginConfig({}, "path-cmd");
+  expect(enabled).toEqual({ "path-cmd": { enabled: true } });
+  expect(isPluginEnabled(enabled, "path-cmd")).toBe(true);
+  expect(isEnabledCommandPlugin(cmdModule("path-cmd"), enabled)).toBe(true);
+
+  const withCreds = enablePluginConfig(
+    { "path-cmd": { enabled: false, consented: true, credentials: { apiKey: "k" } } },
+    "path-cmd",
+  );
+  expect(withCreds["path-cmd"]).toEqual({
+    enabled: true,
+    consented: true,
+    credentials: { apiKey: "k" },
+  });
 });
