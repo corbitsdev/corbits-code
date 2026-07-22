@@ -276,30 +276,6 @@ registerCommand({
   },
 });
 
-registerCommand({
-  name: "telemetry",
-  description: "Show or change anonymous usage telemetry (on/off)",
-  subcommands: [
-    { name: "on", description: "Enable anonymous usage telemetry" },
-    { name: "off", description: "Disable anonymous usage telemetry" },
-  ],
-  handler: (args, ctx) => {
-    if (ctx.telemetry === undefined) {
-      return { type: "message", text: "Telemetry is not available in this session." };
-    }
-    const sub = args.trim().toLowerCase();
-    if (sub === "on" || sub === "off") {
-      ctx.telemetry.setEnabled(sub === "on");
-      return { type: "message", text: `Telemetry ${sub === "on" ? "enabled" : "disabled"}.` };
-    }
-    const status = ctx.telemetry.isEnabled() ? "enabled" : "disabled";
-    return {
-      type: "message",
-      text: `Telemetry is ${status}. Use /telemetry on or /telemetry off to change it. See docs/TELEMETRY.md.`,
-    };
-  },
-});
-
 // One slash command per provider tier so a configured tier is one keystroke to
 // switch to. The handler only emits the intent; app.tsx resolves the tier's
 // current provider+model against live state and applies it, so a tier reassigned

@@ -598,6 +598,11 @@ export async function markOnboarded(path: string): Promise<void> {
 export async function ensureTelemetrySettings(path: string): Promise<Settings> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
+  // Read-then-write, not read-then-lock: two concurrent first launches could
+  // each generate a different installationId and the second save wins. This
+  // only matters once, at first run, and the cost of colliding is a rare
+  // duplicate distinct_id rather than any correctness or security issue, so
+  // it's accepted rather than adding cross-process locking for it.
   if (base.telemetry?.installationId !== undefined) return base;
   const next: Settings = {
     ...base,

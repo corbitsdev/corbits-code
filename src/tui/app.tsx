@@ -464,9 +464,9 @@ export type AppProps = {
   /** One-line passive notice shown once in the top-of-scrollback banner on
    * the first run telemetry is active. Undefined/empty renders nothing. */
   telemetryNotice?: string;
-  /** Whether anonymous telemetry is currently enabled, for /telemetry status. */
+  /** Whether anonymous telemetry is currently enabled, for the settings toggle. */
   telemetryEnabled?: boolean;
-  /** Persists the /telemetry on|off toggle to global settings. */
+  /** Persists the settings Telemetry on|off toggle to global settings. */
   onChangeTelemetryEnabled?: (enabled: boolean) => void;
 };
 
@@ -601,6 +601,7 @@ export function App({
   };
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [liveTelemetryEnabled, setLiveTelemetryEnabled] = useState(telemetryEnabled);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
     initialSettings?.compactionMode ?? "llm",
   );
@@ -1405,8 +1406,6 @@ export function App({
   // live values, matching the signalClear/startNewSessionRef pattern.
   const getCostSummaryRef = useRef(getCostSummary);
   getCostSummaryRef.current = getCostSummary;
-  const telemetryEnabledRef = useRef(telemetryEnabled);
-  telemetryEnabledRef.current = telemetryEnabled;
 
   const commandContext = useMemo(() => ({
     signalClear: () => startNewSessionRef.current(),
@@ -1414,14 +1413,6 @@ export function App({
     getCostSummary: () => getCostSummaryRef.current(),
     ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
     ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
-    ...(onChangeTelemetryEnabled !== undefined
-      ? {
-          telemetry: {
-            isEnabled: () => telemetryEnabledRef.current,
-            setEnabled: (enabled: boolean) => onChangeTelemetryEnabled(enabled),
-          },
-        }
-      : {}),
     ...(goalApi !== undefined
       ? {
           goal: {
@@ -1441,7 +1432,7 @@ export function App({
           },
         }
       : {}),
-  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, onChangeTelemetryEnabled, goalApi]);
+  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
 
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the
@@ -2134,6 +2125,11 @@ export function App({
             if (scope === "global") setSavedGlobalSessionMode(mode);
             else setSavedLocalSessionMode(mode);
             void onChangeSessionMode?.(mode, scope);
+          }}
+          telemetryEnabled={liveTelemetryEnabled}
+          onChangeTelemetryEnabled={(enabled) => {
+            setLiveTelemetryEnabled(enabled);
+            onChangeTelemetryEnabled?.(enabled);
           }}
           onClose={() => setSettingsOpen(false)}
           maxHeight={permissionsOverlayRows}

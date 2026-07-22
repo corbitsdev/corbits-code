@@ -52,6 +52,7 @@ import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { createTelemetry } from "../telemetry/index.js";
 import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
+import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
@@ -940,7 +941,22 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   };
 
-  const runSink = createRunSink({ emitter, hookManager });
+  const runSink = createRunSink({
+    emitter,
+    hookManager,
+    onTurnComplete: (ctx) => {
+      getTelemetry().capture("message_send", {
+        provider_id: liveSource.id,
+        model_id: liveSource.model,
+        input_tokens: ctx.usage.input,
+        output_tokens: ctx.usage.output,
+        cache_read_tokens: ctx.usage.cacheRead,
+        cache_write_tokens: ctx.usage.cacheWrite,
+        thinking_tokens: ctx.usage.thinking,
+        duration_ms: ctx.durationMs,
+      });
+    },
+  });
 
   // MCP servers connected so far, keyed by name so a reconnect after a failure
   // replaces rather than duplicates the entry.
@@ -1208,10 +1224,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // file for the same reason as `onboarded` above. It is passive (a banner
   // line), never a prompt, and is stamped shown as soon as it renders.
   let telemetryInstance = getTelemetry();
+  const onChangeTelemetryEnabled = createTelemetryToggleHandler(trueGlobalSettingsPath);
   const showTelemetryNotice =
     telemetryInstance.enabled && globalSettingsForOnboarding?.telemetry?.noticeShown !== true;
   const telemetryNotice = showTelemetryNotice
-    ? "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable with /telemetry off. Docs: docs/TELEMETRY.md"
+    ? "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md"
     : undefined;
   if (showTelemetryNotice) {
     void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
@@ -1249,16 +1266,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
       telemetryEnabled={telemetryInstance.enabled}
       onChangeTelemetryEnabled={(enabled) => {
-        void (async () => {
-          const current = await loadSettings(trueGlobalSettingsPath).catch(() => null);
-          const base: Settings = current ?? { providers: {} };
-          const next: Settings = { ...base, telemetry: { ...base.telemetry, enabled } };
-          await saveGlobalSettings(trueGlobalSettingsPath, next);
-          // Re-create so this session's remaining captures (session_end) honor
-          // the change immediately rather than needing a restart.
-          telemetryInstance = createTelemetry({ settings: next });
-          setTelemetry(telemetryInstance);
-        })();
+        onChangeTelemetryEnabled(enabled);
+        // Local render state mirrors the singleton immediately (the toggle
+        // handler swaps it synchronously on opt-out; on opt-in it lags until
+        // the settings load/save resolves, same as before this refactor).
+        telemetryInstance = getTelemetry();
       }}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
@@ -1442,12 +1454,24 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   });
   await hookManager.dispatchPostRun(runSummary);
+  // exit_reason mirrors status at present — "cancelled" covers both an
+  // operator interrupt and Ctrl+C, since the emit site here cannot tell them
+  // apart (runSink only distinguishes done/failed/cancelled).
+  const exitReason = runSummary.status === "done"
+    ? "done"
+    : runSummary.status === "failed"
+      ? "error"
+      : "cancelled";
   getTelemetry().capture("session_end", {
     status: runSummary.status,
     turn_count: runSummary.turnsUsed,
     duration_ms: runSummary.durationMs,
     session_mode: liveSessionMode,
+    exit_reason: exitReason,
   });
+  // Bound against process.exit dropping the session_end capture for short
+  // sessions; each request is already capped at 3s via AbortSignal.
+  await getTelemetry().flush();
 
   await sessionOps.awaitTail();
   try {

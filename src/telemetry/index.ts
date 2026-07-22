@@ -9,14 +9,24 @@ const DEFAULT_POSTHOG_API_KEY = "";
 export const POSTHOG_HOST = process.env.INTERCODE_TELEMETRY_HOST ?? DEFAULT_POSTHOG_HOST;
 export const POSTHOG_API_KEY = process.env.INTERCODE_TELEMETRY_KEY ?? DEFAULT_POSTHOG_API_KEY;
 
-export type TelemetryEvent = "cli_start" | "session_end";
+export type TelemetryEvent = "cli_start" | "session_end" | "message_send";
 
 // Per-event property allowlist. Anything not listed here is stripped before
 // the payload leaves the process — this is the single choke point for what
 // telemetry can ever contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
-  session_end: ["status", "turn_count", "duration_ms", "session_mode"],
+  session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
+  message_send: [
+    "provider_id",
+    "model_id",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "thinking_tokens",
+    "duration_ms",
+  ],
 };
 
 function truthyEnvFlag(value: string | undefined): boolean {
@@ -65,6 +75,10 @@ export type CreateTelemetryOptions = {
 export type Telemetry = {
   enabled: boolean;
   capture(event: TelemetryEvent, properties?: Record<string, unknown>): void;
+  // Waits for any captures currently in flight to settle (success or
+  // failure). Callers use this to bound process exit against dropped
+  // fire-and-forget requests without ever making capture() itself blocking.
+  flush(): Promise<void>;
 };
 
 // Fire-and-forget PostHog capture client. Never throws, never blocks the
@@ -78,9 +92,14 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const fetchFn = options.fetchFn ?? fetch;
   const installationId = options.settings?.telemetry?.installationId ?? "";
 
+  // Tracked so flush() can wait for in-flight requests without making
+  // capture() itself awaitable — each request is bounded by its own 3s
+  // AbortSignal, so flush() can never hang longer than that.
+  const pending = new Set<Promise<void>>();
+
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    if (!(event === "cli_start" || event === "session_end")) return;
+    if (!(event === "cli_start" || event === "session_end" || event === "message_send")) return;
 
     const body = {
       api_key: apiKey,
@@ -88,7 +107,6 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
       distinct_id: installationId,
       properties: {
         ...allowedProperties(event, properties),
-        $geoip_disable: true,
         service_version: pkg.version,
         os_type: process.platform,
         os_arch: process.arch,
@@ -96,15 +114,24 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
       },
     };
 
-    fetchFn(`${host}/capture/`, {
+    const request = fetchFn(`${host}/capture/`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(3000),
-    }).catch(() => {
-      // Swallow all errors — telemetry must never surface failures.
-    });
+    })
+      .then(() => undefined)
+      .catch(() => {
+        // Swallow all errors — telemetry must never surface failures.
+      });
+    pending.add(request);
+    void request.finally(() => pending.delete(request));
   }
 
-  return { enabled, capture };
+  async function flush(): Promise<void> {
+    if (pending.size === 0) return;
+    await Promise.allSettled(pending);
+  }
+
+  return { enabled, capture, flush };
 }
