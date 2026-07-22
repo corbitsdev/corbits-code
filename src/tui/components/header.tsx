@@ -29,7 +29,7 @@ export type HeaderProps = {
   workflow?: HeaderWorkflow;
   // When set, the operator is observing a sub-agent session (not the parent).
   focusedAgent?: HeaderFocusedAgent;
-  /** Active session goal (CL-3936/CL-3937). */
+  /** Active session goal. */
   goal?: GoalSnapshot | null;
 };
 

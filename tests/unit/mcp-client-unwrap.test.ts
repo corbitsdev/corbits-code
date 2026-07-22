@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { unwrapToolContent } from "../../src/mcp/client.js";
 
-// CL-1693 / N1: the MCP content-array envelope is removed at the client boundary,
+// The MCP content-array envelope is removed at the client boundary,
 // so the TUI formatter (formatMcpResult / extractMcpRecords) only ever sees plain
 // text or JSON, never the {content:[{type,text}]} wrapper. These pin that.
 describe("unwrapToolContent", () => {

@@ -21,7 +21,7 @@ import type {
   LastCycleSource,
 } from "@intx/types/runtime";
 
-// Regression guard for CL-3478: the reactor committed context only at cycle
+// Regression guard: the reactor committed context only at cycle
 // terminals (wait/reply/done/suspend). A tool-call turn continued to the next
 // inference without committing, so an interrupt that rebuilt the agent from the
 // persisted store between the tool batch and the follow-up inference erased the
