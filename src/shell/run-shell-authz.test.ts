@@ -51,6 +51,15 @@ describe("recursive rm detection", () => {
     );
   });
 
+  test("an embedded apostrophe in the payload does not drop the dangerous tail", () => {
+    // The rejoin must round-trip through tokenize() (no backslash escapes), so a
+    // payload token containing a literal quote is re-wrapped in the other quote
+    // character rather than the POSIX '\'' idiom, which would re-split it.
+    const cmd = "echo x | xargs -I{} sh -c \"don't stop; rm -rf /\"";
+    expect(commandHasRecursiveRm(cmd)).toBe(true);
+    expect(runShellAuthzBlockReason(cmd)).toMatch(/Destructive command blocked/);
+  });
+
   test("authz still hard-blocks catastrophic recursive rm", () => {
     expect(runShellAuthzBlockReason("rm -rf /")).toMatch(/Destructive command blocked/);
     expect(runShellAuthzBlockReason("rm -rf node_modules")).toBeUndefined();
