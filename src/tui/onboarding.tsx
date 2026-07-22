@@ -5,8 +5,7 @@ import { useState, type ReactNode } from "react";
 import { runTUI } from "./runner.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
-import { loadSettings, saveGlobalSettings } from "../config/settings.js";
-import type { Settings } from "../config/settings.js";
+import { loadSettings, mergeProviderIntoSettings, saveGlobalSettings } from "../config/settings.js";
 import { validateProviderConnection } from "../provider/validate-connection.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -292,14 +291,9 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
         };
         // Merge new provider with any pre-existing ones. Single write — the TUI
         // stays open (spinner) until saveGlobalSettings resolves, so the user
-        // sees confirmation before the screen is cleared.
-        const merged: Settings = {
-          defaultProvider: providerName,
-          providers:
-            existing !== null && Object.keys(existing.providers).length > 0
-              ? { ...existing.providers, [providerName]: newProvider }
-              : { [providerName]: newProvider },
-        };
+        // sees confirmation before the screen is cleared. Full-spread merge so
+        // plugins/pluginPaths/sessionMode/shell/tools survive re-onboarding.
+        const merged = mergeProviderIntoSettings(existing, providerName, newProvider);
         await saveGlobalSettings(settingsPath, merged);
         submitted = true;
       }}

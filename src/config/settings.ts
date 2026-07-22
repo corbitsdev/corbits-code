@@ -534,6 +534,22 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   } as LocalSettings;
 }
 
+// Upsert one provider onto existing settings without dropping plugins,
+// pluginPaths, sessionMode, shell, tools, or any other non-provider field.
+// Used by first-run onboarding (and any similar single-provider write).
+export function mergeProviderIntoSettings(
+  existing: Settings | null | undefined,
+  providerName: string,
+  provider: ProviderSettings,
+): Settings {
+  const base: Settings = existing ?? { providers: {} };
+  return {
+    ...base,
+    defaultProvider: providerName,
+    providers: { ...base.providers, [providerName]: provider },
+  };
+}
+
 // Persist the global settings file. Validates before writing so a written file
 // always round-trips back through loadSettings, and written via temp-file +
 // rename so a concurrent reader never sees a torn file.

@@ -5,19 +5,42 @@ import { act } from "react";
 
 const mockSaveGlobalSettings = mock(async (_path: string, _settings: unknown) => {});
 const mockSaveLocalSettings = mock(async (_path: string, _settings: unknown) => {});
+const mockLoadSettings = mock(async (_path: string): Promise<unknown> => null);
 
+// Keep real settings exports (PROVIDER_TIERS, etc.) and only stub I/O so the
+// inference-sources import chain still resolves.
+const settingsActual = await import("../../../src/config/settings.js");
 mock.module("../../../src/config/settings.js", () => ({
+  ...settingsActual,
   saveGlobalSettings: mockSaveGlobalSettings,
   saveLocalSettings: mockSaveLocalSettings,
+  loadSettings: mockLoadSettings,
   localSettingsPath: (cwd: string) => `${cwd}/.agent/settings.json`,
 }));
 
+const indexActual = await import("../../../src/config/index.js");
 mock.module("../../../src/config/index.js", () => ({
+  ...indexActual,
   buildOpenAISource: (opts: unknown) => opts,
-  providerCatalogToSettings: (catalog: unknown[], defaultProvider: string | undefined) => ({
-    providers: {},
-    defaultProvider,
-  }),
+  // Mirror production: keep every non-provider field from the merge base.
+  providerCatalogToSettings: (
+    _catalog: unknown[],
+    defaultProvider: string | undefined,
+    existing?: Record<string, unknown>,
+  ) => {
+    if (existing === undefined) {
+      return {
+        ...(defaultProvider !== undefined ? { defaultProvider } : {}),
+        providers: {},
+      };
+    }
+    const { providers: _p, defaultProvider: _d, ...rest } = existing;
+    return {
+      ...rest,
+      ...(defaultProvider !== undefined ? { defaultProvider } : {}),
+      providers: {},
+    };
+  },
 }));
 
 const { useProviderManager } = await import(
@@ -72,6 +95,8 @@ function CapturingHarness({ args }: { args: UseProviderManagerArgs }) {
 beforeEach(() => {
   mockSaveGlobalSettings.mockClear();
   mockSaveLocalSettings.mockClear();
+  mockLoadSettings.mockClear();
+  mockLoadSettings.mockImplementation(async () => null);
 });
 
 test("initial state: provider and model match initial values", () => {
@@ -285,4 +310,97 @@ test("deleteProvider success removes from catalog and calls saveGlobalSettings",
   const state = JSON.parse(lastFrame()!);
   expect(state.catalogLen).toBe(1);
   expect(mockSaveGlobalSettings).toHaveBeenCalled();
+});
+
+test("provider save merges plugins from on-disk settings, not only session-start snapshot", async () => {
+  // Session started without plugins; mid-session /plugins wrote them to disk.
+  // A later provider save must not stomp that enablement with initialSettings.
+  mockLoadSettings.mockImplementation(async () => ({
+    providers: {
+      openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-test", models: ["gpt-4o"] },
+    },
+    plugins: { "path-plugin": { enabled: true } },
+    pluginPaths: ["/abs/plugins/path-plugin"],
+  }));
+
+  const args = makeArgs({
+    initialSettings: {
+      providers: {
+        openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-test", models: ["gpt-4o"] },
+      },
+    },
+  });
+  render(<CapturingHarness args={args} />);
+
+  await act(async () => {
+    capturedCtrl.upsertProvider({
+      name: "mistral",
+      baseURL: "https://api.mistral.ai/v1",
+      apiKey: "sk-mis",
+      models: ["mistral-large"],
+    });
+  });
+  await tick();
+
+  expect(mockLoadSettings).toHaveBeenCalledWith("/home/.agent/settings.json");
+  expect(mockSaveGlobalSettings).toHaveBeenCalled();
+  const saved = mockSaveGlobalSettings.mock.calls[0]![1] as {
+    plugins?: Record<string, { enabled?: boolean }>;
+    pluginPaths?: string[];
+  };
+  expect(saved.plugins).toEqual({ "path-plugin": { enabled: true } });
+  expect(saved.pluginPaths).toEqual(["/abs/plugins/path-plugin"]);
+});
+
+test("provider save fails closed when on-disk settings cannot be loaded", async () => {
+  mockLoadSettings.mockImplementation(async () => {
+    throw new Error("Invalid JSON in settings file");
+  });
+  const onMessage = mock((_msg: string) => {});
+  const args = makeArgs({ onMessage });
+  render(<CapturingHarness args={args} />);
+
+  await act(async () => {
+    capturedCtrl.upsertProvider({
+      name: "mistral",
+      baseURL: "https://api.mistral.ai/v1",
+      apiKey: "sk-mis",
+      models: ["mistral-large"],
+    });
+  });
+  await tick();
+
+  expect(mockSaveGlobalSettings).not.toHaveBeenCalled();
+  expect(onMessage).toHaveBeenCalledWith(expect.stringContaining("saving failed"));
+});
+
+test("tier save merges plugins from on-disk settings", async () => {
+  mockLoadSettings.mockImplementation(async () => ({
+    providers: {
+      openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-test", models: ["gpt-4o"] },
+    },
+    plugins: { cmd: { enabled: true } },
+    pluginPaths: ["/abs/cmd"],
+  }));
+  const args = makeArgs({
+    initialSettings: {
+      providers: {
+        openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-test", models: ["gpt-4o"] },
+      },
+    },
+  });
+  render(<CapturingHarness args={args} />);
+
+  await act(async () => {
+    capturedCtrl.saveTierAssignment("fast", "openai", "gpt-4o");
+  });
+  await tick();
+
+  expect(mockLoadSettings).toHaveBeenCalled();
+  const saved = mockSaveGlobalSettings.mock.calls[0]![1] as {
+    plugins?: Record<string, { enabled?: boolean }>;
+    tiers?: Record<string, unknown>;
+  };
+  expect(saved.plugins).toEqual({ cmd: { enabled: true } });
+  expect(saved.tiers).toBeDefined();
 });

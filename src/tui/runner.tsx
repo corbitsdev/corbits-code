@@ -46,7 +46,7 @@ import {
   trustPlugin,
   type ProjectTrustStore,
 } from "../trust/project-trust.js";
-import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin } from "../plugins/register.js";
+import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -535,7 +535,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         else toolPluginCandidates.push(cand);
       }
       // Register slash commands immediately so they show up without a restart.
-      if (mod.commandPlugin !== undefined) {
+      // Also persist enabled: true — path-add is consent to use the plugin; without
+      // this, restart loads the path but isPluginEnabled stays false and commands vanish.
+      livePluginConfig = enablePluginConfig(livePluginConfig, descriptor.id);
+      if (mod.commandPlugin !== undefined && isEnabledCommandPlugin(mod, livePluginConfig)) {
         registerCommandPlugin(mod.commandPlugin);
       }
       // Persist the resolved absolute path so it reloads regardless of the cwd
