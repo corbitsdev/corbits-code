@@ -1197,7 +1197,7 @@ describe("createPermissionGate", () => {
     expect(secondPatterns.some((p) => p !== null && p.startsWith("echo"))).toBe(false);
   });
 
-  // CL-1694: the gate must own its approval state, not mutate the caller's array.
+  // The gate must own its approval state, not mutate the caller's array.
   test("gate does not mutate the caller's approvals array and exposes its own via getApprovals", async () => {
     const seed: Approval[] = [];
     const persistScope: PermissionRequest["scopes"][number] = { id: "p", label: "", pattern: "npm *" };

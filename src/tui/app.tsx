@@ -289,7 +289,7 @@ export function shouldAbortForStall({
   const stalled = nowMs - lastActivityAt >= stallTimeoutMs;
   if (!stalled) return false;
   if (awaitingResponse) return true;
-  // Mid-stream hang: model stream stalled after first token (CL-3487). Long
+  // Mid-stream hang: model stream stalled after first token. Long
   // in-flight tool runs do not emit parent stream events; do not abort those.
   if (
     isProcessing &&
@@ -448,7 +448,7 @@ export type AppProps = {
   sessionStartedAt?: number;
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
-  /** Goal mode operator surface (CL-3936/CL-3937). */
+  /** Goal mode operator surface. */
   goalApi?: {
     get: () => import("../agent/goal.js").GoalSnapshot | null;
     set: (
@@ -1613,7 +1613,7 @@ export function App({
   // Whole-session timer for the status bar. Held in state so /new can zero it.
   const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
   const sessionElapsedMs = useSessionClock(sessionStartedAt);
-  // Persistent status bar segment (CL-3118): refreshes on an interval, never
+  // Persistent status bar segment: refreshes on an interval, never
   // blocks render on the git process.
   const gitBranch = useGitBranch(cwd);
   // Ambient verb shown beside the steer hint while the agent runs.
