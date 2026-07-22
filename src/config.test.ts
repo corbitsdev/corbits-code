@@ -526,12 +526,26 @@ describe("buildProviderCatalog", () => {
   });
 
   test("preserves non-provider fields from existing settings", () => {
+    // Full non-provider surface: provider saves must not re-own a subset of
+    // Settings keys (an allowlist previously dropped sessionMode/shell/tools/…).
     const existing: Settings = {
       defaultProvider: "fp",
       providers: { fp: { baseURL: "https://fp/v1", apiKey: "old-key", models: ["fp-small"] } },
       mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
       plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
+      pluginPaths: ["/abs/plugins/exa"],
+      web: "exa",
+      hiddenCommands: ["help"],
+      onboarded: true,
+      compactionMode: "pruning",
+      maxConcurrentSubAgents: 3,
+      subagentMaxTurns: 40,
+      sessionMode: "orchestrator",
+      agentModelFallback: "none",
+      shell: { timeoutMs: 30_000, maxTimeoutMs: 120_000 },
+      tools: { timeoutMs: 60_000 },
       tiers: { fast: { provider: "fp", model: "fp-large" } },
+      workflowProfiles: { fast: { implement: "fp-large" } },
     };
     const settings = providerCatalogToSettings(
       [
@@ -541,15 +555,13 @@ describe("buildProviderCatalog", () => {
       "oa",
       existing,
     );
-    expect(settings).toEqual({
-      defaultProvider: "oa",
-      providers: {
-        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
-        oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
-      },
-      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
-      plugins: { exa: { enabled: true, credentials: { apiKey: "k" } } },
-      tiers: { fast: { provider: "fp", model: "fp-large" } },
+    const { providers: _ep, defaultProvider: _ed, ...restExisting } = existing;
+    const { providers: outProviders, defaultProvider: outDefault, ...restOut } = settings;
+    expect(outDefault).toBe("oa");
+    expect(outProviders).toEqual({
+      fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+      oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
     });
+    expect(restOut).toEqual(restExisting);
   });
 });
