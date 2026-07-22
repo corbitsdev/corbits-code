@@ -504,8 +504,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const path = rawPath.trim();
       if (path.length === 0) return { ok: false, message: "Enter a path" };
       const abs = isAbsolute(path) ? path : resolvePath(config.cwd, path);
-      // Explicit add-by-path is user consent for that absolute path.
-      projectTrust = await trustPlugin(config.cwd, abs);
+      // Explicit add-by-path is user consent to load that absolute path.
       const mod = await loadPluginEntry(abs, { cwd: config.cwd, origin: "path" });
       if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
@@ -513,6 +512,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }
       const descriptor = toDescriptor(mod.manifest);
       if (descriptor === undefined) return { ok: false, message: "Invalid plugin manifest" };
+      // Persist trust only once it resolves to a real plugin, so a bogus path
+      // never leaves a dangling entry in the trust store.
+      projectTrust = await trustPlugin(config.cwd, abs);
       // Replace any existing descriptor/candidate with the same id so re-adding
       // refreshes rather than duplicates.
       const existingIdx = pluginDescriptors.findIndex((d) => d.id === descriptor.id);
