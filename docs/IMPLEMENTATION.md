@@ -146,7 +146,16 @@ docs/
 
 ### Auto Mode
 
-SHIFT+TAB (wired through `use-keymap`'s `cycleMode` action to `onToggleAuto` in `src/tui/app.tsx`) enables auto mode. The permission gate reads this flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) and auto-approves non-destructive consequential actions — file writes and edits — without prompting on the next tool call. Destructive actions still gate normally.
+Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-auto` to start off, or `--auto` to force on). SHIFT+TAB (wired through `use-keymap`'s `cycleMode` action to `onToggleAuto` in `src/tui/app.tsx`) toggles it for the rest of the session; enabling prints a one-line envelope reminder via `commandMessage`. The permission gate reads the flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) on the next tool call.
+
+When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOLS` and any `run_shell` that does not match the auto-shell policy. The policy (`autoShellRuleForCall` / `AUTO_SHELL_RULES` in `src/permission/auto-shell-policy.ts`) peels wrappers via `expandShellSubjects` (`bash`/`sh`/`zsh -c`, `xargs`, transparent prefixes), then applies:
+
+| Effect | Categories |
+|---|---|
+| **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc) |
+| **ask** | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, opaque unparseable wrappers |
+
+Unmatched shell auto-allows. Paths outside the workspace, writes under `.agent-state`, mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
 Plan approval is handled separately by `use-gates` (`pendingPlan`), independent of auto mode.
 
@@ -246,6 +255,8 @@ Providers and credentials are read exclusively from settings files: the global `
 
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
+| `--auto` | true (default) | Force auto mode on (workspace writes + unconstrained shell without prompts) |
+| `--no-auto` | false | Start with auto mode off (ask on every consequential action); SHIFT+TAB still toggles live |
 | `--no-workflow` | false | Deprecated no-op; workflows are manual slash commands only |
 | `--help` | — | Show help |
 
