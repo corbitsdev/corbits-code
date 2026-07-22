@@ -10,7 +10,7 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */
   renameSession?: (name: string) => string | undefined;
-  /** Goal mode operator surface (CL-3936/CL-3937). */
+  /** Goal mode operator surface. */
   goal?: {
     get: () => GoalSnapshot | null;
     set: (condition: string, opts?: GoalSetOpts) => GoalSnapshot;

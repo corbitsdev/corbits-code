@@ -72,7 +72,7 @@ describe("operator declined tool calls", () => {
   const hasInfer = (actions: ReactorAction[]): boolean => actions.some((a) => a.type === "infer");
   const hasDone = (actions: ReactorAction[]): boolean => actions.some((a) => a.type === "done");
 
-  // CL-1698 contract — interactive chat surfaces the rejection and waits for
+  // Contract: interactive chat surfaces the rejection and waits for
   // the next user message; it does NOT emit done(), which would kill the
   // reactor and break further sends, and it does not re-infer off a bare
   // decline.
@@ -169,7 +169,7 @@ describe("open-task termination guard", () => {
     expect(ended.some((a) => a.type === "infer")).toBe(false);
   });
 
-  // CL-3287: the budget used to reset on any tool call, which taught weak
+  // The budget used to reset on any tool call, which taught weak
   // models that no-op shell narration (e.g. `echo`) resets the clock. A model
   // that only echoes between nudges must still converge to the cap within a
   // single user turn — the budget is monotonic per inbound message, not per
@@ -524,7 +524,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   // End-to-end: tool_search matches an MCP tool, the runner's promote wiring
   // (mirrored here via createActivatedToolTracker + updateToolDefinitions) grows
   // the wire set once with the tool's full definition, and it then holds steady.
-  // This is the CL-3294 fix — on a strict provider, a model can only call a tool
+  // On a strict provider, a model can only call a tool
   // that was actually declared on the wire, so promotion must land here.
   test("a tool_search match is on the wire on the next turn, then the array holds stable", async () => {
     const linearTool = {
@@ -624,7 +624,7 @@ describe("advance_workflow handler", () => {
   });
 });
 
-describe("CL-3181 transient nudges", () => {
+describe("transient nudges", () => {
   const manageTasksEvent = (status: "todo" | "doing") =>
     makeInferenceDoneEvent([
       { id: "mt", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "x", status }] } },

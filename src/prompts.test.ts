@@ -68,14 +68,14 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(guidelines).toContain("load the style and philosophy skills");
 });
 
-test("chat system prompt satisfies CL-3117 quality markers", () => {
+test("chat system prompt satisfies system prompt quality markers", () => {
   const prompt = buildChatSystemPrompt();
   for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
     expect(prompt).toContain(marker);
   }
 });
 
-test("single session mode satisfies CL-3117 quality markers", () => {
+test("single session mode satisfies system prompt quality markers", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
   for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
     expect(prompt).toContain(marker);

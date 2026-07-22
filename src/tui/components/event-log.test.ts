@@ -170,7 +170,7 @@ describe("pending tool row width budget", () => {
 });
 
 describe("tool row backgrounds", () => {
-  // CL-3471: collapsed tool rows rely on semantic text/icons only — no status wash.
+  // Collapsed tool rows rely on semantic text/icons only — no status wash.
   function segmentBackgrounds(lines: ReturnType<typeof buildLines>): Array<string | undefined> {
     return lines.flatMap((line) => line.map((seg) => seg.backgroundColor));
   }

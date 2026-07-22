@@ -26,7 +26,7 @@ describe("shouldAutoRetryQuota", () => {
     expect(shouldAutoRetryQuota({ ...base, alreadyFired: true })).toBe(false);
   });
 
-  // Regression guard for CL-3478: an interrupt clears the last-sent prompt so a
+  // Regression guard: an interrupt clears the last-sent prompt so a
   // stopped turn is never silently replayed by the quota auto-retry loop.
   test("does not replay a cleared last-sent message after an interrupt", () => {
     expect(shouldAutoRetryQuota({ ...base, lastSentMessage: "" })).toBe(false);
