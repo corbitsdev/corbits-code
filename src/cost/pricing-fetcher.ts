@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { type } from "arktype";
 
@@ -31,7 +32,11 @@ export type PricingFetcherOptions = {
   refreshIntervalMs?: number;
 };
 
-const DEFAULT_CACHE_PATH = ".cache/models-pricing.json";
+/** Default models-pricing cache under the tool home dir (not project cwd). */
+export function defaultPricingCachePath(home: string = homedir()): string {
+  return join(home, ".intercode", "cache", "models-pricing.json");
+}
+
 const DEFAULT_ENDPOINT = "https://models.dev/api.json";
 const DEFAULT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_FETCH_TIMEOUT_MS = 5000;
@@ -138,7 +143,7 @@ export function parseModelsDevContextWindows(payload: unknown): Record<string, n
   return windows;
 }
 
-export async function readPricingCache(cachePath = DEFAULT_CACHE_PATH): Promise<PricingCache | null> {
+export async function readPricingCache(cachePath = defaultPricingCachePath()): Promise<PricingCache | null> {
   try {
     const payload = JSON.parse(await Bun.file(cachePath).text());
     const parsed = pricingCacheHeaderValidator(payload);
@@ -178,7 +183,7 @@ export function lookupModelReasoning(cache: PricingCache | null, modelId: string
   return cache?.reasoning?.[modelId];
 }
 
-export async function writePricingCache(cache: PricingCache, cachePath = DEFAULT_CACHE_PATH): Promise<void> {
+export async function writePricingCache(cache: PricingCache, cachePath = defaultPricingCachePath()): Promise<void> {
   try {
     await mkdir(dirname(cachePath), { recursive: true });
     await Bun.write(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
@@ -211,7 +216,7 @@ export async function fetchPricing(options: PricingFetcherOptions = {}): Promise
 }
 
 export async function loadPricing(options: PricingFetcherOptions = {}): Promise<PricingCache | null> {
-  const cachePath = options.cachePath ?? DEFAULT_CACHE_PATH;
+  const cachePath = options.cachePath ?? defaultPricingCachePath();
   try {
     const pricing = await fetchPricing(options);
     await writePricingCache(pricing, cachePath);
