@@ -9,13 +9,7 @@ import {
   codexProvidersAsSettings,
   isCodexProviderName,
 } from "./codex-providers.js";
-import {
-  isXaiProviderName,
-  xaiProfileFromProviderName,
-  xaiProfilesToCatalogEntries,
-  xaiProviderName,
-  xaiProvidersAsSettings,
-} from "./xai-providers.js";
+import { xaiProfilesToCatalogEntries } from "./xai-providers.js";
 
 // Characterization tests pinning the projection behavior both provider
 // wrappers must preserve through the shared implementation.
@@ -45,13 +39,8 @@ describe("provider name round-trip", () => {
     expect(codexProfileFromProviderName("openai")).toBeUndefined();
   });
 
-  test("xai", () => {
-    expect(xaiProviderName("work")).toBe("xai/work");
-    expect(isXaiProviderName("xai/work")).toBe(true);
-    expect(isXaiProviderName("codex/work")).toBe(false);
-    expect(xaiProfileFromProviderName("xai/work")).toBe("work");
-    expect(xaiProfileFromProviderName("openai")).toBeUndefined();
-  });
+  // xai naming/settings projection is characterized in xai-providers.test.ts;
+  // here we only assert cross-provider isolation (below), not re-test it.
 });
 
 describe("settings projection", () => {
@@ -64,13 +53,6 @@ describe("settings projection", () => {
     expect(entry?.baseURL).toBeString();
   });
 
-  test("xai profiles project identically under their own prefix", () => {
-    const settings = xaiProvidersAsSettings([xaiProfile]);
-    const entry = settings["xai/work"];
-    expect(entry?.name).toBe("xai/work");
-    expect(entry?.apiKey).toBe("xai-access");
-    expect(entry?.defaultModel).toBe(entry?.models?.[0]);
-  });
 });
 
 describe("catalog projection", () => {
