@@ -46,15 +46,17 @@ These match the CI workflow in `.github/workflows/ci.yml`. Run the full suite be
 3. Use plain-English commit messages (no `feat:` / `fix:` prefixes). Details are in `AGENTS.md`.
 4. Do not commit secrets, credentials, or generated noise.
 
-## Code of conduct
-
-Participation is governed by `CODE_OF_CONDUCT.md`.
-
 ## Contributor License Agreement
 
 All contributions require acceptance of the Contributor License Agreement in `CLA.md`. The CLA grants ABK Labs, Inc. rights needed to distribute contributions under the project license and alternative terms.
 
-Automated CLA enforcement is not yet enabled; the acceptance mechanism is being finalized. Until then, contributors accept the CLA by opening a pull request, and maintainers confirm acceptance during review.
+CLA Assistant enforces this on pull requests (see `.github/workflows/cla.yml`). Sign once by posting a PR comment with exactly:
+
+```text
+I have read the CLA Document and I hereby sign the CLA
+```
+
+Signatures are stored on the `cla-signatures` branch and do not touch `main`.
 
 ## Architecture docs
 
