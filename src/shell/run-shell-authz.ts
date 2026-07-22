@@ -340,16 +340,33 @@ type PeelOutcome =
 // spaces is exactly how the xargs → shell -c bypass slipped through.
 const SAFE_REJOIN_TOKEN = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
-function quoteTokenForRejoin(token: string): string {
+// IMPORTANT: the output of this function must round-trip through THIS project's
+// `tokenize()` (src/permission/command.ts) as a single token — not through a
+// POSIX shell. `tokenize()` is a naive quote-toggle with NO backslash escape
+// support, so the bash `'\''` idiom does not work: an embedded quote would
+// re-split the token and drop the dangerous tail. Instead we wrap in whichever
+// delimiter (' or ") the token does not itself contain. If the token contains
+// both, no representation round-trips, so we return null and the caller treats
+// the whole wrapper as opaque (→ ask), never emitting a mis-parsed command.
+function quoteTokenForRejoin(token: string): string | null {
   if (SAFE_REJOIN_TOKEN.test(token)) return token;
-  return `'${token.replaceAll("'", String.raw`'\''`)}'`;
+  if (!token.includes("'")) return `'${token}'`;
+  if (!token.includes('"')) return `"${token}"`;
+  return null;
 }
 
 // Rebuild a command string from tokens, preserving token boundaries through a
-// subsequent tokenize(). Opacity checks must run on the raw (unquoted) join —
-// quoting would disguise `$CMD`-style payloads from isOpaquePayload.
-function rejoinTokens(tokens: string[]): string {
-  return tokens.map(quoteTokenForRejoin).join(" ");
+// subsequent tokenize(). Returns null when any token cannot be safely quoted
+// (see quoteTokenForRejoin). Opacity checks must run on the raw (unquoted)
+// join — quoting would disguise `$CMD`-style payloads from isOpaquePayload.
+function rejoinTokens(tokens: string[]): string | null {
+  const quoted: string[] = [];
+  for (const token of tokens) {
+    const q = quoteTokenForRejoin(token);
+    if (q === null) return null;
+    quoted.push(q);
+  }
+  return quoted.join(" ");
 }
 
 function peelShellDashC(tokens: string[], start: number): PeelOutcome {
@@ -410,7 +427,9 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
   if (i >= tokens.length) return { kind: "opaque" };
   const utilityTokens = tokens.slice(i);
   if (isOpaquePayload(utilityTokens.join(" "))) return { kind: "opaque" };
-  return { kind: "inner", command: rejoinTokens(utilityTokens) };
+  const command = rejoinTokens(utilityTokens);
+  if (command === null) return { kind: "opaque" };
+  return { kind: "inner", command };
 }
 
 // Peel one layer of transparent prefix / shell -c / xargs from a single segment.
@@ -473,7 +492,9 @@ function peelOnce(segment: string): PeelOutcome {
 
   // Prefix-only peel: `env FOO=1 rm -rf build` → `rm -rf build`.
   if (strippedPrefix) {
-    return { kind: "inner", command: rejoinTokens(tokens.slice(i)) };
+    const command = rejoinTokens(tokens.slice(i));
+    if (command === null) return { kind: "opaque" };
+    return { kind: "inner", command };
   }
   return { kind: "none" };
 }
