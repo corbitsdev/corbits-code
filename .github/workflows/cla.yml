@@ -50,7 +50,7 @@ jobs:
           path-to-signatures: 'signatures/version1/cla.json'
           branch: 'cla-signatures'
           # People who never need to sign (maintainers, bots).
-          allowlist: TheGreatAxios,*[bot]
+          allowlist: TheGreatAxios,brianjfox,*[bot]
           custom-notsigned-prcomment: >-
             Thank you for your contribution to Intercode. Before it can be merged,
             please read our [Contributor License Agreement](https://github.com/corbitsdev/intercode/blob/main/CLA.md)
