@@ -12,6 +12,7 @@ import { manageTasksDefinition } from "./tasks.js";
 import { createManageGoalTool } from "./manage-goal.js";
 import type { GoalGovernor } from "./goal.js";
 import { validateView } from "../tui/view/index.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 import {
   advertiseShellGuardTimeout,
   type ShellTimeoutConfig,
@@ -360,7 +361,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           callbacks.onStatus({
             name: server.name,
             state: "failed",
-            error: "Not trusted for this project (see .intercode/trust.json)",
+            error: `Not trusted for this project (see ${SETTINGS_DIR_NAME}/trust.json)`,
           });
         }
       }

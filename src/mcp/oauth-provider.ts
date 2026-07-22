@@ -1,6 +1,7 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationFull, OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { loadAuthState, saveAuthState, type MCPAuthState } from "./auth-store.js";
+import { MCP_CLIENT_NAME } from "../branding.js";
 
 export type OAuthProviderOptions = {
   serverName: string;
@@ -9,9 +10,9 @@ export type OAuthProviderOptions = {
   onAuthorizationState?: (state: string) => void;
   home?: string;
 };
-export type IntercodeOAuthProvider = OAuthClientProvider & { resetAuthorization(): Promise<void> };
+export type CorbitsOAuthProvider = OAuthClientProvider & { resetAuthorization(): Promise<void> };
 
-export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<IntercodeOAuthProvider> {
+export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<CorbitsOAuthProvider> {
   const stored: MCPAuthState = await loadAuthState(opts.serverName, opts.home);
   const persist = (): Promise<void> => saveAuthState(opts.serverName, stored, opts.home);
   let oauthState: string | undefined;
@@ -22,7 +23,7 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<I
       return oauthState;
     },
     get clientMetadata(): OAuthClientMetadata {
-      return { client_name: "intercode", redirect_uris: [opts.redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
+      return { client_name: MCP_CLIENT_NAME, redirect_uris: [opts.redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
     },
     clientInformation(): OAuthClientInformationMixed | undefined { return stored.clientInformation; },
     saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {

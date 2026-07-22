@@ -16,6 +16,7 @@ import { color } from "../theme.js";
 import { inkPropsForSegment } from "../styled-segment-props.js";
 import { osc8Hyperlink } from "../osc8.js";
 import { editDiffFromArgs, renderDiff } from "../diff.js";
+import { PRODUCT_NAME, PRODUCT_SHORT_NAME } from "../../branding.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
 
@@ -371,8 +372,8 @@ function limitLines(content: string, maxLines: number): string {
   ].join("\n");
 }
 
-const SESSION_BRAND = "Intercode";
-const SESSION_ATTRIBUTION = "Powered by Corbits";
+const SESSION_BRAND = PRODUCT_NAME;
+const SESSION_ATTRIBUTION = `Powered by ${PRODUCT_SHORT_NAME}`;
 
 // Static header at the top of the parent-session scrollback: product identity,
 // workspace path, then skills/plugins loaded for this session.

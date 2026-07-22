@@ -30,13 +30,13 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Intercode with mode-specific primary roles", () => {
+test("agent identity is Corbits Code with mode-specific primary roles", () => {
   const single = buildChatRole("single");
-  expect(single).toContain("Intercode");
+  expect(single).toContain("Corbits Code");
   expect(single).toContain("senior coding assistant");
   expect(single).toContain("read, edit");
   const orchestrator = buildChatRole("orchestrator");
-  expect(orchestrator).toContain("Intercode");
+  expect(orchestrator).toContain("Corbits Code");
   expect(orchestrator).toContain("orchestrator");
   expect(orchestrator).toContain("delegate");
   expect(orchestrator).toContain("Match their tone");
@@ -52,7 +52,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("tool_search");
   expect(facts).toContain("plugins or integrations");
   expect(facts).toContain("slash-command steps");
-  expect(facts).toContain(".intercode/MEMORY.md");
+  expect(facts).toContain(".corbits/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
   expect(facts).not.toContain("Tool results already render richly");
 });
@@ -154,13 +154,13 @@ test("buildActiveContext includes the current date in DD/MM/YYYY and the memory 
   const context = buildActiveContext(new Date(2026, 5, 5), "/repo/root");
   expect(context).toContain("Active context:");
   expect(context).toContain("Current Date: 05/06/2026 (prompt cache survives for <=24hr)");
-  expect(context).toContain("/repo/root/.intercode/MEMORY.md");
+  expect(context).toContain("/repo/root/.corbits/MEMORY.md");
   expect(context).toContain("Working Directory: /repo/root");
 });
 
 test("without an env, the chat prompt ends with the static active context", () => {
   const prompt = buildChatSystemPrompt();
-  expect(prompt.trim()).toMatch(/\.intercode\/MEMORY\.md/);
+  expect(prompt.trim()).toMatch(/\.corbits\/MEMORY\.md/);
   expect(prompt).toMatch(/Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/);
 });
 
@@ -214,7 +214,7 @@ test("buildAvailableTools lists exactly the tools it is given", () => {
 
 test("sub-agent prompt carries the report-back contract and harness facts", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("short-lived child agent dispatched by Intercode");
+  expect(prompt).toContain("short-lived child agent dispatched by Corbits Code");
   expect(prompt).toContain("Reporting back:");
   expect(prompt).toContain("only thing returned to the parent");
   expect(prompt).toContain("Change files with write_file/edit_file");
@@ -233,17 +233,17 @@ test("sub-agent prompt does not advertise tool_search (it gets the full toolset)
 // Pins the appendix-last invariant for JS-plugin agents: regardless of how the
 // systemPromptRole is sourced (data-only markdown vs. a JS plugin's
 // `agentPlugin.agents[i].systemPromptRole`), `buildSubAgentSystemPrompt` is
-// the single point that appends the Intercode translation notes — so a
+// the single point that appends the Corbits Code translation notes — so a
 // JS-plugin-only path that bypasses the data-only loader still gets them.
-test("sub-agent prompt always appends Intercode notes, even with a JS-plugin-style systemPromptRole", () => {
+test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-style systemPromptRole", () => {
   const role = "You are a JS-plugin scout. Map the call graph and report.";
   const prompt = buildSubAgentSystemPrompt([role]);
   expect(prompt).toContain(role);
-  expect(prompt).toContain("## Intercode notes");
+  expect(prompt).toContain("## Corbits Code notes");
   // Leaf agents get the no-recursion rule, not the spawn syntax.
   expect(prompt).toContain("leaf sub-agent");
   // Agent voice leads; translation notes are the last section.
-  expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Intercode notes"));
+  expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Corbits Code notes"));
 });
 
 // Default sub-agents must NOT recurse — the appendix tells them to return a
@@ -251,7 +251,7 @@ test("sub-agent prompt always appends Intercode notes, even with a JS-plugin-sty
 // stops a fan-out of sub-agents each fanning out further.
 test("default sub-agent prompt forbids recursion", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("Only the primary Intercode session (or an orchestrator profile) may call `task`");
+  expect(prompt).toContain("Only the primary Corbits Code session (or an orchestrator profile) may call `task`");
   expect(prompt).toContain("leaf sub-agent");
 });
 
@@ -267,7 +267,7 @@ test("orchestrator sub-agent prompt grants the task-tool recursion exception", (
   expect(prompt).toContain('task(agent="');
   // Must NOT contain the default no-recursion line — that would contradict
   // the permission grant in the same appendix.
-  expect(prompt).not.toContain("Only the primary Intercode session (or an orchestrator profile) may call `task`");
+  expect(prompt).not.toContain("Only the primary Corbits Code session (or an orchestrator profile) may call `task`");
 });
 
 test("sub-agent prompt requires structured report envelope and stick-to-brief", () => {

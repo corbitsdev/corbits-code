@@ -6,7 +6,7 @@ import { HookPanel } from "../../../src/tui/components/hook-panel.js";
 test("HookPanel renders empty state", () => {
   const { lastFrame } = render(<HookPanel hooks={[]} />);
   expect(lastFrame()).toContain("none registered");
-  expect(lastFrame()).toContain(".intercode/hooks, ~/.intercode/hooks");
+  expect(lastFrame()).toContain(".corbits/hooks, ~/.corbits/hooks");
 });
 
 test("HookPanel renders hook status details", () => {

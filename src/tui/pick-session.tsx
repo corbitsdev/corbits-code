@@ -20,8 +20,8 @@ export async function pickSession(
   if (sessions.length === 0) {
     process.stderr.write(
       options?.includeCompleted === true
-        ? "intercode: no previous sessions found in this directory.\n"
-        : "intercode: no in-progress sessions found (use --force to resume completed runs).\n",
+        ? "corbits: no previous sessions found in this directory.\n"
+        : "corbits: no in-progress sessions found (use --force to resume completed runs).\n",
     );
     return null;
   }

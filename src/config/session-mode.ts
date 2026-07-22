@@ -8,7 +8,7 @@ export function isSessionMode(value: unknown): value is SessionMode {
   return value === "single" || value === "orchestrator";
 }
 
-// Per-repo local selection wins over the global default in ~/.intercode/settings.json.
+// Per-repo local selection wins over the global default in ~/.corbits/settings.json.
 export function resolveSessionMode(
   global: Settings | null | undefined,
   local: LocalSettings | null | undefined,

@@ -1,6 +1,6 @@
-# Intercode
+# Corbits Code
 
-Intercode is a local-first coding agent. It lives in your terminal and works with whatever model you point it at — Anthropic, OpenAI, Google, a local Ollama, or any OpenAI-compatible endpoint. Your machine, your keys, your code.
+Corbits Code is a local-first coding agent. It lives in your terminal and works with whatever model you point it at — Anthropic, OpenAI, Google, a local Ollama, or any OpenAI-compatible endpoint. Your machine, your keys, your code.
 
 ## Quickstart
 
@@ -13,13 +13,13 @@ bun install
 bun run start
 ```
 
-`bun run start` builds and launches Intercode in your terminal.
+`bun run start` builds and launches Corbits Code in your terminal.
 
-Optionally, add an `intercode` command to your shell by putting an alias
+Optionally, add a `corbits` command to your shell by putting an alias
 in your shell rc:
 
 ```sh
-alias intercode="bun run /path/to/intercode/dist/index.js"
+alias corbits="bun run /path/to/intercode/dist/index.js"
 ```
 
 The alias runs the built bundle; after pulling new changes, rebuild it
@@ -43,7 +43,7 @@ Every change must pass `bun run typecheck`, `bun run build`, and `bun test`, and
 
 ## Architecture
 
-Intercode is a single-process CLI built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
+Corbits Code is a single-process CLI built on Interchange primitives. The goal is raw feature implementation throughput that outperforms other coding agents through deterministic event-loop discipline, better prompts, and a custom reactor director.
 
 ```
 CLI (src/index.ts)
@@ -70,7 +70,7 @@ The chat director adds context management on top of the reactor:
 
 ## Permissions and auto mode
 
-Intercode defaults to **auto mode** (`auto = true`). Workspace file writes/edits/deletes and unconstrained shell commands run without per-action prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode, or press **SHIFT+TAB** in the TUI to toggle at any time. Enabling auto prints a one-line reminder of the envelope below.
+Corbits Code defaults to **auto mode** (`auto = true`). Workspace file writes/edits/deletes and unconstrained shell commands run without per-action prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode, or press **SHIFT+TAB** in the TUI to toggle at any time. Enabling auto prints a one-line reminder of the envelope below.
 
 ### What auto allows
 
@@ -108,11 +108,11 @@ bun test
 
 ## Agent Workspace
 
-Intercode keeps repository guidance and sub-agent profiles separate:
+Corbits Code keeps repository guidance and sub-agent profiles separate:
 
 - `AGENTS.md` — shared startup instructions and project context
 - `CLAUDE.md` — Claude-specific workspace notes
-- `src/agent/default-agents.ts` — built-in sub-agent profiles shipped with Intercode (`greybeard`, `critique`)
+- `src/agent/default-agents.ts` — built-in sub-agent profiles shipped with Corbits Code (`greybeard`, `critique`)
 - `.agents/agents/` — optional local profile overrides or additions; this directory is not required and may be absent
 
 Named `task` sub-agents resolve from built-ins first, then enabled agent plugins, then local `.agents/agents/*.json|*.yaml` profiles. Add a local profile under `.agents/agents/` or use an installed profile id such as `greybeard`.

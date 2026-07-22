@@ -16,10 +16,10 @@ that absolute path.
 
 | Origin | Path | Auto-trusted? |
 |---|---|---|
-| `repo` | Product-shipped `plugins/` next to the Intercode binary | Yes |
-| `user` | `~/.intercode/plugins/` | Yes (user home) |
+| `repo` | Product-shipped `plugins/` next to the Corbits Code binary | Yes |
+| `user` | `~/.corbits/plugins/` | Yes (user home) |
 | `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) |
-| `project` | `<cwd>/.intercode/plugins/` | **No** — path-bound trust |
+| `project` | `<cwd>/.corbits/plugins/` | **No** — path-bound trust |
 | `path` | `settings.pluginPaths` entries | **No** — path-bound trust |
 
 
@@ -27,12 +27,12 @@ Untrusted `project` / `path` plugins are discovered as **metadata-only**: the
 loader reads `manifest.json` (or equivalent) but does **not** `import()` the
 module and does **not** load markdown agents/commands. Enabling a listed
 project plugin in `/plugins`, or adding a path via the UI, records trust in
-`<cwd>/.intercode/trust.json` (gitignored) and full-loads the module.
+`<cwd>/.corbits/trust.json` (gitignored) and full-loads the module.
 
 Tool-plugin `consented` remains a separate gate for **in-process tool**
 activation after the module is trusted and loaded.
 
-See also `docs/MCP.md` — local MCP servers from `.intercode/settings.json` use
+See also `docs/MCP.md` — local MCP servers from `.corbits/settings.json` use
 the same trust file (fingerprints) and fail closed when headless.
 
 ## Goals
@@ -112,8 +112,8 @@ A module with no valid manifest is ignored (not silently half-loaded).
 ```
 discoverPlugins(cwd) =
     repo plugins/         (built-in)
-  + <cwd>/.intercode/plugins/
-  + ~/.intercode/plugins/
+  + <cwd>/.corbits/plugins/
+  + ~/.corbits/plugins/
   + settings.pluginPaths  (explicit file/dir paths, added via /plugins)
   + [opt-in] ~/.claude/plugins/installed_plugins.json
       when settings.discoverClaudePlugins is true

@@ -390,7 +390,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       maxTurns: 25,
       run: async (params) => {
@@ -411,7 +411,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       settings: { providers: {}, subagentMaxTurns: 42 },
       run: async (params) => {
@@ -430,7 +430,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       run: async (params) => {
         captured = params;
@@ -539,7 +539,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       run: async () => "done",
     });
@@ -559,7 +559,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       profiles: [{ id: "deep", maxTurns: 45 }],
       run: async (params) => {
@@ -582,7 +582,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       profiles: [{ id: "deep", maxTurns: 45 }],
       run: async (params) => {
@@ -605,7 +605,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       run: async () => forcedStopReport("turn-budget", "partial"),
     });
@@ -626,7 +626,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       inheritMcpTools: () => inherited,
       run: async (params) => {
@@ -648,7 +648,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       run: async (params) => {
         captured = params;
@@ -738,7 +738,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       sessions,
       run: async () => {

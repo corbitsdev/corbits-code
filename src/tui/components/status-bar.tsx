@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
+import { PRODUCT_NAME } from "../../branding.js";
 
 export type StatusBarProps = {
   // Whole-session elapsed time, always counting (not per-turn).
@@ -19,7 +20,7 @@ export type StatusBarProps = {
   columns?: number;
 };
 
-const BRAND = "Intercode";
+const BRAND = PRODUCT_NAME;
 
 export function abbreviateHome(path: string): string {
   const home = homedir();

@@ -599,7 +599,7 @@ describe("createPermissionGate", () => {
 
   test("auto mode auto-allows read-only git worktree list inside the workspace", async () => {
     let asked = 0;
-    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => { asked++; return { allow: false }; },
@@ -617,7 +617,7 @@ describe("createPermissionGate", () => {
   });
 
   test("auto mode prompts for git worktree add inside the workspace", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -637,7 +637,7 @@ describe("createPermissionGate", () => {
   });
 
   test("auto mode prompts for unsafe git worktree operations", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-policy-"));
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
     const outside = join(cwd, "..", "outside-worktree");
     const commands = [
       `git worktree add ${outside}`,
@@ -982,7 +982,7 @@ describe("createPermissionGate", () => {
   });
 
   test("auto mode peels shell -c for git worktree ask", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "intercode-worktree-wrapper-"));
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-wrapper-"));
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1515,7 +1515,7 @@ describe("read-only tools in auto mode", () => {
   });
 
   test("a read-only tool on a path outside the workspace still asks", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "intercode-lsp-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-lsp-outside-"));
     const target = join(outside, "escape.ts");
     writeFileSync(target, "");
     let asked = 0;
@@ -1590,7 +1590,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
   });
 
   test("a write inside a registered worktree root is auto-allowed", async () => {
-    const worktree = mkdtempSync(join(tmpdir(), "intercode-worktree-"));
+    const worktree = mkdtempSync(join(tmpdir(), "corbits-worktree-"));
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1630,7 +1630,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
   });
 
   test("a write outside the workspace and any registered worktree still asks", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "intercode-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-outside-"));
     const target = join(outside, "escape.ts");
     writeFileSync(target, "");
     let asked = 0;
@@ -1648,7 +1648,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
   });
 
   test("a symlink inside the workspace that points outside still asks", async () => {
-    const base = mkdtempSync(join(tmpdir(), "intercode-symlink-"));
+    const base = mkdtempSync(join(tmpdir(), "corbits-symlink-"));
     const workspace = join(base, "ws");
     const outside = join(base, "outside");
     mkdirSync(workspace);
@@ -1674,7 +1674,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
   });
 
   test("a sibling directory sharing the workspace path as a prefix still asks", async () => {
-    const base = mkdtempSync(join(tmpdir(), "intercode-prefix-"));
+    const base = mkdtempSync(join(tmpdir(), "corbits-prefix-"));
     const workspace = join(base, "repo");
     const evil = join(base, "repo-evil");
     mkdirSync(workspace);
@@ -1704,7 +1704,7 @@ describe("listWorktreeRoots", () => {
   };
 
   const createRepoWithWorktree = (): { repo: string; worktree: string } => {
-    const base = mkdtempSync(join(tmpdir(), "intercode-git-"));
+    const base = mkdtempSync(join(tmpdir(), "corbits-git-"));
     const repo = join(base, "repo");
     const worktree = join(base, "secondary");
     mkdirSync(repo);
@@ -1722,7 +1722,7 @@ describe("listWorktreeRoots", () => {
   });
 
   test("returns no roots outside a git repo", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "intercode-nogit-"));
+    const dir = mkdtempSync(join(tmpdir(), "corbits-nogit-"));
     expect(await listWorktreeRoots(dir)).toEqual([]);
   });
 
@@ -1755,7 +1755,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
   };
 
   const createRepo = (): string => {
-    const base = mkdtempSync(join(tmpdir(), "intercode-lazy-"));
+    const base = mkdtempSync(join(tmpdir(), "corbits-lazy-"));
     const repo = join(base, "repo");
     mkdirSync(repo);
     git(repo, "init", "-b", "main");
@@ -1788,7 +1788,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
 
   test("a genuinely foreign path still asks for permission even after a refresh is triggered", async () => {
     const repo = createRepo();
-    const outside = mkdtempSync(join(tmpdir(), "intercode-foreign-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-foreign-"));
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1816,7 +1816,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       return [];
     };
     const restriction = createPathRestriction(repo, createWorktreeRootsProvider(repo, lister));
-    const outside = mkdtempSync(join(tmpdir(), "intercode-burst-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-burst-"));
     for (let i = 0; i < 5; i++) {
       expect(restriction.isRestricted(join(outside, `file-${i}.ts`), false)).toBe(true);
     }
@@ -1834,7 +1834,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     };
     const provider = createWorktreeRootsProvider(repo, lister, 0);
     const restriction = createPathRestriction(repo, provider);
-    const outside = mkdtempSync(join(tmpdir(), "intercode-window-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-window-"));
     expect(restriction.isRestricted(join(outside, "a.ts"), false)).toBe(true);
     expect(restriction.isRestricted(join(outside, "b.ts"), false)).toBe(true);
     // A zero-width debounce window means the initial listing plus one forced

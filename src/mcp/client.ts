@@ -5,10 +5,11 @@ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { OAuthError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { MCPServerConfig } from "../config/settings.js";
-import { createOAuthProvider, type IntercodeOAuthProvider } from "./oauth-provider.js";
+import { createOAuthProvider, type CorbitsOAuthProvider } from "./oauth-provider.js";
 import { startCallbackServer, type CallbackServer } from "./callback-server.js";
 import type { McpToolAnnotations } from "./tool-permissions.js";
 import { buildStdioMcpProcessEnv } from "./stdio-env.js";
+import { MCP_CLIENT_NAME } from "../branding.js";
 
 export type MCPTool = { name: string; description: string; inputSchema: Record<string, unknown>; annotations?: McpToolAnnotations };
 export type MCPClient = {
@@ -38,7 +39,7 @@ export function unwrapToolContent(content: unknown): string {
   }).join("\n");
 }
 
-type HTTPAuthContext = { url: URL; authProvider: IntercodeOAuthProvider; callback: CallbackServer; signal?: AbortSignal; interactive: boolean };
+type HTTPAuthContext = { url: URL; authProvider: CorbitsOAuthProvider; callback: CallbackServer; signal?: AbortSignal; interactive: boolean };
 
 function isRecoverableAuthError(err: unknown): boolean {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
@@ -105,7 +106,7 @@ async function connectStdio(config: MCPServerConfig, options: MCPConnectOptions)
   const transportOptions: { command: string; args?: string[]; env?: Record<string, string>; stderr?: "inherit" | "ignore" | "pipe" } = { command: config.command, env: buildStdioMcpProcessEnv(process.env, config.env) };
   if (config.args !== undefined) transportOptions.args = config.args;
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
-  const client = new Client({ name: "intercode", version: "1.0.0" });
+  const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   try {
     await client.connect(new StdioClientTransport(transportOptions));
     return { ok: true, client: await finishClient(client, config.name) };
@@ -126,7 +127,7 @@ async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions):
     onAuthorizationState: callback.expectState,
   });
   const makeTransport = (): Transport => new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
-  const client = new Client({ name: "intercode", version: "1.0.0" });
+  const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   const authContext: HTTPAuthContext = { url, authProvider, callback, interactive: options.onAuthURL !== undefined, ...(options.signal !== undefined ? { signal: options.signal } : {}) };
   try {
     await withHTTPAuthorizationRecovery(authContext, () => client.connect(makeTransport()));

@@ -8,7 +8,7 @@ import { generateSessionId, initSessionDir, listSessions } from "./index.js";
 let cwd = "";
 
 beforeEach(async () => {
-  cwd = join(tmpdir(), `intercode-list-sessions-${Date.now()}`);
+  cwd = join(tmpdir(), `corbits-list-sessions-${Date.now()}`);
   await mkdir(cwd, { recursive: true });
 });
 

@@ -12,7 +12,7 @@ import {
   wrapCommandWithPwdProbe,
 } from "../shell/persistent-shell-cwd.js";
 
-// Intercode-side replacement for stock `@intx/tools-posix` run_shell.
+// Corbits Code-side replacement for stock `@intx/tools-posix` run_shell.
 // We do not patch interchange: this middleware short-circuits run_shell and
 // enforces a short default timeout, an output-byte cap, and process-group kill
 // so open-ended walks cannot OOM the host.
@@ -32,7 +32,7 @@ export type ShellTimeoutConfig = {
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
  * 15s default; rewrite the definition the model sees so schema and behavior agree.
- * Intercode-only — does not patch interchange.
+ * Corbits Code-only — does not patch interchange.
  */
 export function advertiseShellGuardTimeout(
   definition: ToolDefinition,

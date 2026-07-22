@@ -1,4 +1,4 @@
-# Contributing to Intercode
+# Contributing to Corbits Code
 
 Thanks for contributing. This document covers setup, workflow, and legal requirements. Coding conventions live in `AGENTS.md` — read that before writing code.
 

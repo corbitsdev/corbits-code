@@ -1,7 +1,7 @@
 // Onboarding submits provider credentials before they've ever been used for
 // inference — a bad base URL or key otherwise only surfaces as a stream error
 // mid-conversation. This does a lightweight GET against the OpenAI-compatible
-// /models endpoint (supported by every provider intercode targets, including
+// /models endpoint (supported by every provider corbits targets, including
 // keyless local ones like Ollama) to fail fast with an actionable message.
 
 import { requestModelsEndpoint } from "./models-endpoint.js";

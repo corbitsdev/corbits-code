@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { SETTINGS_DIR_NAME } from "../../branding.js";
 
 // On-disk store for named OAuth profiles. A user may hold multiple subscriptions
 // for the same provider, so credentials are keyed by a user-chosen profile name
@@ -33,7 +34,7 @@ export type AuthStore<TTokens extends BaseTokens> = {
 };
 
 export type AuthStoreOptions<TTokens extends BaseTokens> = {
-  // Filename under ~/.intercode/ (e.g. "codex-auth.json").
+  // Filename under ~/.corbits/ (e.g. "codex-auth.json").
   filename: string;
   isTokens: (value: unknown) => value is TTokens;
 };
@@ -54,7 +55,7 @@ function isProfile<TTokens extends BaseTokens>(
 export function createAuthStore<TTokens extends BaseTokens>(
   options: AuthStoreOptions<TTokens>,
 ): AuthStore<TTokens> {
-  const authPath = (home: string = homedir()): string => join(home, ".intercode", options.filename);
+  const authPath = (home: string = homedir()): string => join(home, SETTINGS_DIR_NAME, options.filename);
 
   async function readAuthFile(home: string): Promise<AuthFile<TTokens>> {
     let raw: string;

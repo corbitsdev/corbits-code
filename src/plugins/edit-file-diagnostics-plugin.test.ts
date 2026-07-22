@@ -126,7 +126,7 @@ describe("editFileDiagnosticsPlugin", () => {
   let cwd: string;
 
   beforeEach(async () => {
-    cwd = await mkdtemp(join(tmpdir(), "intercode-edit-diag-"));
+    cwd = await mkdtemp(join(tmpdir(), "corbits-edit-diag-"));
   });
 
   afterEach(async () => {

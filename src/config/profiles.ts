@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 const ProfileSchema = type({
   "profile?": "string",
@@ -25,11 +26,11 @@ const ProfileSchema = type({
 export type ProfileConfig = typeof ProfileSchema.infer;
 
 export function profilesDir(home: string = homedir()): string {
-  return join(home, ".intercode", "profiles");
+  return join(home, SETTINGS_DIR_NAME, "profiles");
 }
 
 export function projectProfilePath(cwd: string): string {
-  return join(cwd, ".intercode", "profile.json");
+  return join(cwd, SETTINGS_DIR_NAME, "profile.json");
 }
 
 function isENOENT(err: unknown): boolean {

@@ -2,6 +2,7 @@ import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { coreToolNamesForSessionMode, CORE_TOOL_NAMES } from "./tool-search.js";
+import { PRODUCT_NAME, SETTINGS_DIR_NAME } from "../branding.js";
 
 // Fallback tool list for sub-agent prompts when the caller does not pass the
 // installed set. Matches the leaf sub-agent install (posix + manage_tasks).
@@ -29,13 +30,13 @@ function formatDateDDMMYYYY(date: Date): string {
 export function buildChatRole(sessionMode: SessionMode = "orchestrator"): string {
   if (sessionMode === "single") {
     return [
-      "You are Intercode, a senior coding assistant in a terminal harness.",
+      `You are ${PRODUCT_NAME}, a senior coding assistant in a terminal harness.`,
       "You work directly in this session: read, edit, run checks, and report back yourself.",
       "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
     ].join(" ");
   }
   return [
-    "You are Intercode, an orchestrator in a terminal harness.",
+    `You are ${PRODUCT_NAME}, an orchestrator in a terminal harness.`,
     "The operator chats with you and may queue more work while workers run.",
     "Your job is to triage, delegate implementation and exploration to sub-agents via `task`, track the fleet, and synthesize their reports — not to do large edits or deep repo walks yourself unless a quick unblock is faster than dispatching.",
     "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
@@ -80,7 +81,7 @@ export function buildHarnessFacts(
         ]
       : ["- The tools below are your full toolset."]),
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
-    "- Session memory lives at .intercode/MEMORY.md; store durable preferences only, never secrets.",
+    `- Session memory lives at ${SETTINGS_DIR_NAME}/MEMORY.md; store durable preferences only, never secrets.`,
     subAgent
       ? "- If permission denies an action or the brief is unclear, make a best-effort call, finish what you can, and record assumptions under Blockers — you cannot ask the parent mid-run."
       : "- If an action is blocked or the request is genuinely ambiguous, ask_operator.",
@@ -178,7 +179,7 @@ export function buildActiveContext(date = new Date(), cwd = process.cwd()): stri
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
     `Working Directory: ${cwd} — this is the project root and your shell already runs here.`,
-    `Memory file: ${cwd}/.intercode/MEMORY.md`,
+    `Memory file: ${cwd}/${SETTINGS_DIR_NAME}/MEMORY.md`,
   ].join("\n");
 }
 
@@ -201,7 +202,7 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
   }
   if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
-  lines.push(`Memory file: ${env.cwd}/.intercode/MEMORY.md`);
+  lines.push(`Memory file: ${env.cwd}/${SETTINGS_DIR_NAME}/MEMORY.md`);
   lines.push("</env>");
   return lines.join("\n");
 }
@@ -268,9 +269,9 @@ export function buildChatSystemPrompt(
 }
 
 // Notes appended to every sub-agent's system prompt so corbitsdev-format
-// agent definitions translate cleanly to Intercode: the `task` tool is the
+// agent definitions translate cleanly to Corbits Code: the `task` tool is the
 // *spawn* surface (wire name kept for compatibility), tool names are
-// Intercode-native, and the upstream `mode: primary` distinction collapses.
+// Corbits Code-native, and the upstream `mode: primary` distinction collapses.
 //
 // Vocabulary: an *agent* is a runtime entity; a *task* is a checklist item
 // owned via manage_tasks; a *sub-agent* is a short-lived child agent. Do not
@@ -287,12 +288,12 @@ export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): st
   const recursionRule =
     opts.orchestrator === true
       ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf sub-agents — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
-      : "- Only the primary Intercode session (or an orchestrator profile) may call `task` to spawn sub-agents. You are a leaf sub-agent: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.";
+      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a leaf sub-agent: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
-    "## Intercode notes",
+    `## ${PRODUCT_NAME} notes`,
     "",
     recursionRule,
-    "- Tools use Intercode names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks.",
+    `- Tools use ${PRODUCT_NAME} names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks.`,
     "- Upstream `mode: primary` is not encoded — every profile here is a spawnable sub-agent definition.",
   ].join("\n");
 }
@@ -331,7 +332,7 @@ export function buildSubAgentSystemPrompt(
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
       : joinSections([
-          "You are a sub-agent — a short-lived child agent dispatched by Intercode to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.",
+          `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
           buildHarnessFacts({ dynamicTools: false, subAgent: true }),
           buildGuidelines({ subAgent: true }),
           buildSubAgentReportContract(),
@@ -342,7 +343,7 @@ export function buildSubAgentSystemPrompt(
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
-  // Always-last: the Intercode translation notes apply to every dispatched
+  // Always-last: the Corbits Code translation notes apply to every dispatched
   // agent, regardless of whether its definition came from a JS plugin or a
   // corbitsdev-format markdown file. The orchestrator flag rewrites the
   // recursion rule for profiles whose purpose is to dispatch other agents.

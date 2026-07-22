@@ -29,14 +29,14 @@ describe("isSensitivePath", () => {
     "secrets/server.pem",
     "id_ed25519",
     ".aws/credentials",
-    ".intercode/settings.json",
-    "/Users/me/.intercode/settings.json",
+    ".corbits/settings.json",
+    "/Users/me/.corbits/settings.json",
   ];
   for (const p of sensitive) {
     test(`flags ${p}`, () => expect(isSensitivePath(p)).toBe(true));
   }
 
-  const ok = ["src/index.ts", "README.md", "env.ts", "environment.json", ".env.example.md", "docs/pem.md", ".intercode/hooks/post-turn.ts"];
+  const ok = ["src/index.ts", "README.md", "env.ts", "environment.json", ".env.example.md", "docs/pem.md", ".corbits/hooks/post-turn.ts"];
   for (const p of ok) {
     test(`allows ${p}`, () => expect(isSensitivePath(p)).toBe(false));
   }
@@ -64,8 +64,8 @@ describe("secretGuardPlugin", () => {
 describe("commandReferencesSensitivePath", () => {
   const blocked = [
     "cat .env",
-    "cat ~/.intercode/settings.json",
-    "less /Users/me/.intercode/settings.json",
+    "cat ~/.corbits/settings.json",
+    "less /Users/me/.corbits/settings.json",
     "xxd .ssh/id_rsa",
     "base64 secrets/server.pem",
     "grep KEY .env.production",
@@ -124,7 +124,7 @@ describe("secretGuardPlugin run_shell", () => {
 
   test("does not hard-deny a shell read of the credential settings file", async () => {
     const result = await handler()(
-      shell("cat ~/.intercode/settings.json"),
+      shell("cat ~/.corbits/settings.json"),
       new AbortController().signal,
     );
     expect(result.isError).not.toBe(true);

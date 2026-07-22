@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useState, useEffect, useRef } from "react";
 import { color } from "../theme.js";
 import pkg from "../../../package.json" with { type: "json" };
+import { PRODUCT_NAME } from "../../branding.js";
 
 export type OnboardingAnimationProps = {
   onComplete: () => void;
@@ -11,7 +12,7 @@ export type OnboardingAnimationProps = {
   isFirstTime: boolean;
 };
 
-const BRAND = "Intercode";
+const BRAND = PRODUCT_NAME;
 const TAGLINE = "Your AI coding partner";
 
 const TYPE_INTERVAL_MS = 65;

@@ -288,7 +288,7 @@ test("ChatInput pre-wraps long lines to the inner box width (prefix + chrome)", 
     />,
   );
   const frame = lastFrame() ?? "";
-  const promptLines = frame.split("\n").filter((line) => line.includes("a") && !line.includes("Intercode"));
+  const promptLines = frame.split("\n").filter((line) => line.includes("a") && !line.includes("Corbits Code"));
   expect(promptLines.length).toBe(1);
   expect(promptLines[0]).toContain(chunk);
 });

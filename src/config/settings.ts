@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import { type } from "arktype";
 
+import { SETTINGS_DIR_NAME } from "../branding.js";
 import { REASONING_EFFORTS, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { isSessionMode, type SessionMode } from "./session-mode.js";
 
@@ -67,7 +68,7 @@ export type Settings = {
   // Explicit plugin paths (file or directory) to load in addition to the
   // auto-discovered plugin directories. Added through the /plugins UI so a
   // plugin can be registered from anywhere on disk, not just by dropping it
-  // into .intercode/plugins/.
+  // into .corbits/plugins/.
   pluginPaths?: string[];
   // When true, also discover plugins listed in ~/.claude/plugins/installed_plugins.json
   // (Claude Code marketplace installs under the cache). Default false — opt-in so
@@ -219,7 +220,7 @@ export type PluginConfig = {
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
 // subprocess (`command` + `args`). An http server is a remote Streamable-HTTP
-// endpoint (`url`) that intercode connects to directly and authorizes via OAuth.
+// endpoint (`url`) that corbits connects to directly and authorizes via OAuth.
 // `type` defaults to "stdio" when `command` is set and "http" when only `url` is.
 export type MCPServerConfig = {
   name: string;
@@ -277,11 +278,11 @@ export function normalizeOpenAICompatibleBaseURL(raw: string): string {
 }
 
 export function globalSettingsPath(home: string = homedir()): string {
-  return join(home, ".intercode", "settings.json");
+  return join(home, SETTINGS_DIR_NAME, "settings.json");
 }
 
 export function localSettingsPath(cwd: string): string {
-  return join(cwd, ".intercode", "settings.json");
+  return join(cwd, SETTINGS_DIR_NAME, "settings.json");
 }
 
 function isENOENT(err: unknown): boolean {
@@ -491,7 +492,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
   // feature without a trace.
   if (s.workflowPlugins !== undefined || s.agentPlugins !== undefined) {
     process.stderr.write(
-      `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .intercode/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
+      `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .corbits/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
     );
   }
   return {

@@ -29,7 +29,7 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 // Claude Code marketplace plugins self-describe via `.claude-plugin/plugin.json`
 // (or occasionally `.claude-plugin/manifest.json`) with
 // `{ name, description?, version?, author? }` — no `id`/`kind`. We adapt it
-// to the intercode manifest: `name` becomes `id`+`name`; `kind` is inferred from
+// to the corbits manifest: `name` becomes `id`+`name`; `kind` is inferred from
 // the plugin's contents (agents present -> "agent", else "command") since a
 // native root `manifest.json`, when present, is always preferred and authoritative.
 type ClaudePluginManifest = { id: string; name: string; description?: string };

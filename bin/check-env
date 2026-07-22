@@ -7,7 +7,7 @@ FAIL=0
 ok()   { echo "  ok   $*"; ((PASS++)) || true; }
 fail() { echo "  FAIL $*"; ((FAIL++)) || true; }
 
-echo "intercode: environment check"
+echo "corbits: environment check"
 echo ""
 
 # Git hooks
@@ -50,7 +50,7 @@ echo ""
 # Provider settings — credentials come exclusively from the settings file;
 # environment variables and .env files are not used.
 echo "provider settings"
-SETTINGS_FILE="${HOME}/.intercode/settings.json"
+SETTINGS_FILE="${HOME}/.corbits/settings.json"
 if [[ -f "$SETTINGS_FILE" ]]; then
   if grep -q '"providers"' "$SETTINGS_FILE"; then
     ok "$SETTINGS_FILE has a provider catalog"

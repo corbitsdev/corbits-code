@@ -12,6 +12,7 @@ import {
   segmentFileName,
 } from "./incremental-jsonl.js";
 import type { ContextCommit, ContextStore } from "@intx/types/runtime";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -20,7 +21,7 @@ const MANIFEST_FILE = "manifest.jsonl";
 const METADATA_FILE = "metadata.json";
 const TOOL_OUTPUT_DIR = "tool-output";
 
-const log = getLogger(["intercode", "session", "context-store"]);
+const log = getLogger([LOG_NAMESPACE_ROOT, "session", "context-store"]);
 
 const AUTHOR = {
   name: "interchange-harness",

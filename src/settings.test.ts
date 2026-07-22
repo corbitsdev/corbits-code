@@ -326,8 +326,8 @@ describe("loaders", () => {
   test("loadLocalSettings rejects credentials", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      await mkdir(join(dir, ".intercode"), { recursive: true });
-      const path = join(dir, ".intercode", "settings.json");
+      await mkdir(join(dir, ".corbits"), { recursive: true });
+      const path = join(dir, ".corbits", "settings.json");
       await writeFile(path, JSON.stringify({ provider: "a", apiKey: "leak" }));
       await expect(loadLocalSettings(path)).rejects.toThrow(/no credentials/);
     } finally {
@@ -338,7 +338,7 @@ describe("loaders", () => {
   test("loadSettings preserves tools block through a round trip", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       const withTools: Settings = {
         ...firepass,
         tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000 },
@@ -361,7 +361,7 @@ describe("sessionMode", () => {
   test("loadSettings round-trips sessionMode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, { ...firepass, sessionMode: "single" });
       expect(await loadSettings(path)).toEqual({ ...firepass, sessionMode: "single" });
     } finally {
@@ -372,7 +372,7 @@ describe("sessionMode", () => {
   test("loadLocalSettings round-trips sessionMode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-local-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, { provider: "a", sessionMode: "orchestrator" });
       expect(await loadLocalSettings(path)).toEqual({ provider: "a", sessionMode: "orchestrator" });
     } finally {
@@ -395,7 +395,7 @@ describe("maxConcurrentSubAgents", () => {
   test("loadSettings round-trips maxConcurrentSubAgents", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, { ...firepass, maxConcurrentSubAgents: 6 });
       expect(await loadSettings(path)).toEqual({ ...firepass, maxConcurrentSubAgents: 6 });
     } finally {
@@ -457,7 +457,7 @@ describe("subagentMaxTurns", () => {
   test("loadSettings round-trips subagentMaxTurns", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, { ...firepass, subagentMaxTurns: 42 });
       expect(await loadSettings(path)).toEqual({ ...firepass, subagentMaxTurns: 42 });
     } finally {
@@ -485,7 +485,7 @@ describe("saveGlobalSettings", () => {
   test("round-trips a settings object through loadSettings", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       expect(await loadSettings(path)).toEqual(firepass);
     } finally {
@@ -493,10 +493,10 @@ describe("saveGlobalSettings", () => {
     }
   });
 
-  test("creates the .intercode directory when missing", async () => {
+  test("creates the .corbits directory when missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, "nested", ".intercode", "settings.json");
+      const path = join(dir, "nested", ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       const loaded = await loadSettings(path);
       expect(loaded?.defaultProvider).toBe("firepass");
@@ -508,7 +508,7 @@ describe("saveGlobalSettings", () => {
   test("refuses to write invalid settings", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       const invalid = { providers: { x: { models: [] } } } as unknown as Settings;
       await expect(saveGlobalSettings(path, invalid)).rejects.toThrow(/invalid global settings/);
     } finally {
@@ -521,7 +521,7 @@ describe("saveLocalSettings", () => {
   test("round-trips a selection through loadLocalSettings", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, { provider: "firepass", model: "fp-small" });
       expect(await loadLocalSettings(path)).toEqual({ provider: "firepass", model: "fp-small" });
     } finally {
@@ -532,7 +532,7 @@ describe("saveLocalSettings", () => {
   test("round-trips a reasoningEffort through loadLocalSettings", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, { provider: "firepass", model: "fp-small", reasoningEffort: "high" });
       expect(await loadLocalSettings(path)).toEqual({
         provider: "firepass",
@@ -547,8 +547,8 @@ describe("saveLocalSettings", () => {
   test("loadLocalSettings rejects an invalid reasoningEffort", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      await mkdir(join(dir, ".intercode"), { recursive: true });
-      const path = join(dir, ".intercode", "settings.json");
+      await mkdir(join(dir, ".corbits"), { recursive: true });
+      const path = join(dir, ".corbits", "settings.json");
       await writeFile(path, JSON.stringify({ model: "m", reasoningEffort: "legendary" }));
       await expect(loadLocalSettings(path)).rejects.toThrow(/reasoningEffort/);
     } finally {
@@ -556,10 +556,10 @@ describe("saveLocalSettings", () => {
     }
   });
 
-  test("creates the .intercode directory when missing", async () => {
+  test("creates the .corbits directory when missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, "nested", ".intercode", "settings.json");
+      const path = join(dir, "nested", ".corbits", "settings.json");
       await saveLocalSettings(path, { provider: "a" });
       expect(await loadLocalSettings(path)).toEqual({ provider: "a" });
     } finally {
@@ -570,7 +570,7 @@ describe("saveLocalSettings", () => {
   test("refuses to write credentials", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
-      const path = join(dir, ".intercode", "settings.json");
+      const path = join(dir, ".corbits", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
       const leaky = { provider: "a", apiKey: "leak" } as unknown as { provider?: string };
       await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/allowed/);

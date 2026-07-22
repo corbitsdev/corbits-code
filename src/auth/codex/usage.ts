@@ -6,6 +6,7 @@ import {
   CODEX_AUTHORIZE_EXTRA_PARAMS,
 } from "./constants.js";
 import { getValidCodexToken } from "./session.js";
+import { COMMAND_NAME } from "../../branding.js";
 
 // Live usage/quota for a prepaid Codex plan. Since the subscription is not
 // billed per token, dollar cost is meaningless — what matters is how much of
@@ -70,7 +71,7 @@ async function codexAuthHeaders(profileName: string): Promise<Record<string, str
   const headers: Record<string, string> = {
     authorization: `Bearer ${access}`,
     originator: CODEX_AUTHORIZE_EXTRA_PARAMS["originator"] ?? "codex_cli_rs",
-    "user-agent": `intercode (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
+    "user-agent": `${COMMAND_NAME} (codex_cli_rs/${CODEX_CLIENT_VERSION})`,
   };
   if (accountId !== undefined) headers["chatgpt-account-id"] = accountId;
   return headers;

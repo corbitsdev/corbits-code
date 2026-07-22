@@ -289,7 +289,7 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
       <Text bold color={color("accent")}>Plugins</Text>
       {plugins.length === 0 ? (
         <Box marginTop={1}>
-          <Text color={color("muted")}>No plugins discovered. Drop one in .intercode/plugins/ or ~/.intercode/plugins/.</Text>
+          <Text color={color("muted")}>No plugins discovered. Drop one in .corbits/plugins/ or ~/.corbits/plugins/.</Text>
         </Box>
       ) : (
         plugins.map((p, i) => {

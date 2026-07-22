@@ -66,7 +66,7 @@ function renderApp(emitter: EventEmitter, options?: RenderAppOptions) {
       initialModel={initialModel ?? "test-model"}
       initialProvider={initialProvider ?? "test-provider"}
       providers={providers ?? [testProvider]}
-      globalSettingsPath={globalSettingsPath ?? "/tmp/intercode-test-settings.json"}
+      globalSettingsPath={globalSettingsPath ?? "/tmp/corbits-test-settings.json"}
       globalDefaultProvider={globalDefaultProvider ?? "test-provider"}
       globallyOnboarded={true}
       cwd={cwd ?? "/tmp"}
@@ -85,7 +85,7 @@ async function renderAppReady(emitter: EventEmitter, options?: RenderAppOptions)
 test("App renders header and status bar", async () => {
   const emitter = new EventEmitter();
   const { lastFrame } = await renderAppReady(emitter);
-  expect(lastFrame()).toContain("Intercode");
+  expect(lastFrame()).toContain("Corbits Code");
   expect(lastFrame()).toContain("test-model");
 });
 
@@ -176,7 +176,7 @@ test("CTRL+C with text in the prompt clears the input and does not open exit con
   stdin.write("\x03");
   await tick();
   const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("Exit Intercode?");
+  expect(frame).not.toContain("Exit Corbits Code?");
   expect(frame).not.toContain("hello");
 });
 
@@ -198,8 +198,8 @@ test("CTRL+C while the agent is running stops the run instead of exiting", async
   stdin.write("\x03");
   await tick();
   const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("Exit Intercode?");
-  expect(frame).toContain("Intercode");
+  expect(frame).not.toContain("Exit Corbits Code?");
+  expect(frame).toContain("Corbits Code");
 });
 
 test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
@@ -216,10 +216,10 @@ test("a second CTRL+C after a stop escalates to the exit confirm", async () => {
   await tick();
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).not.toContain("Exit Intercode?");
+  expect(lastFrame()).not.toContain("Exit Corbits Code?");
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).toContain("Exit Intercode?");
+  expect(lastFrame()).toContain("Exit Corbits Code?");
 });
 
 test("CTRL+C with an empty prompt opens the exit confirm overlay once idle", async () => {
@@ -229,7 +229,7 @@ test("CTRL+C with an empty prompt opens the exit confirm overlay once idle", asy
   await tick();
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).toContain("Exit Intercode?");
+  expect(lastFrame()).toContain("Exit Corbits Code?");
 });
 
 test("exit confirm cancels on N and closes the overlay", async () => {
@@ -239,10 +239,10 @@ test("exit confirm cancels on N and closes the overlay", async () => {
   await tick();
   stdin.write("\x03");
   await tick();
-  expect(lastFrame()).toContain("Exit Intercode?");
+  expect(lastFrame()).toContain("Exit Corbits Code?");
   stdin.write("n");
   await tick();
-  expect(lastFrame()).not.toContain("Exit Intercode?");
+  expect(lastFrame()).not.toContain("Exit Corbits Code?");
 });
 
 test("ESC never opens the exit confirm overlay", async () => {
@@ -250,7 +250,7 @@ test("ESC never opens the exit confirm overlay", async () => {
   const { stdin, lastFrame } = await renderAppReady(emitter, { stdout: { columns: 120, rows: 30 } });
   stdin.write("\x1B");
   await tick();
-  expect(lastFrame()).not.toContain("Exit Intercode?");
+  expect(lastFrame()).not.toContain("Exit Corbits Code?");
 });
 
 test("double ESC within the window clears the prompt", async () => {
@@ -282,7 +282,7 @@ test("App keeps header and footer visible after many events", async () => {
   }
 
   await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(lastFrame()).toContain("Intercode");
+  expect(lastFrame()).toContain("Corbits Code");
   expect(lastFrame()).toContain("> ");
   expect(lastFrame()).toContain("test-model");
 });

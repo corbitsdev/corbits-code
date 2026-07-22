@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { type } from "arktype";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 export type ModelPricing = {
   inputPricePerToken: number;
@@ -34,7 +35,7 @@ export type PricingFetcherOptions = {
 
 /** Default models-pricing cache under the tool home dir (not project cwd). */
 export function defaultPricingCachePath(home: string = homedir()): string {
-  return join(home, ".intercode", "cache", "models-pricing.json");
+  return join(home, SETTINGS_DIR_NAME, "cache", "models-pricing.json");
 }
 
 const DEFAULT_ENDPOINT = "https://models.dev/api.json";

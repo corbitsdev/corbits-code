@@ -26,7 +26,7 @@ export function HookPanel({ hooks }: HookPanelProps): ReactNode {
         hooks  {hooks.length === 0 ? "none registered" : `${hooks.length} registered`}
       </Text>
       {hooks.length === 0 ? (
-        <Text color="gray">.intercode/hooks, ~/.intercode/hooks</Text>
+        <Text color="gray">.corbits/hooks, ~/.corbits/hooks</Text>
       ) : null}
       {hooks.map((hook, index) => (
         <Box key={hook.id} flexDirection="column">
