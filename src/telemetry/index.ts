@@ -4,7 +4,7 @@ import type { Settings } from "../config/settings.js";
 // Compiled-in defaults, overridable via env for testing. An empty API key
 // disables export entirely regardless of the enabled flag.
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
-const DEFAULT_POSTHOG_API_KEY = "";
+const DEFAULT_POSTHOG_API_KEY = "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbLp";
 
 export const POSTHOG_HOST = process.env.INTERCODE_TELEMETRY_HOST ?? DEFAULT_POSTHOG_HOST;
 export const POSTHOG_API_KEY = process.env.INTERCODE_TELEMETRY_KEY ?? DEFAULT_POSTHOG_API_KEY;
@@ -34,6 +34,12 @@ function truthyEnvFlag(value: string | undefined): boolean {
   return value !== "" && value !== "0" && value.toLowerCase() !== "false";
 }
 
+// Env kills win over everything and require no settings at all — callers use
+// this to skip settings writes (installationId generation) entirely.
+export function telemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.INTERCODE_TELEMETRY === "0" || truthyEnvFlag(env.DO_NOT_TRACK);
+}
+
 // Fail closed: telemetry only runs when explicitly not disabled, the DNT
 // convention is absent, and a real installation id and API key exist.
 export function resolveTelemetryEnabled(
@@ -42,8 +48,7 @@ export function resolveTelemetryEnabled(
   apiKey: string = POSTHOG_API_KEY,
 ): boolean {
   if (settings?.telemetry?.enabled === false) return false;
-  if (env.INTERCODE_TELEMETRY === "0") return false;
-  if (truthyEnvFlag(env.DO_NOT_TRACK)) return false;
+  if (telemetryDisabledByEnv(env)) return false;
   if (typeof settings?.telemetry?.installationId !== "string" || settings.telemetry.installationId.length === 0) {
     return false;
   }

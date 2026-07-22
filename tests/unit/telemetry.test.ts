@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTelemetry, resolveTelemetryEnabled } from "../../src/telemetry/index.js";
+import { createTelemetry, resolveTelemetryEnabled, telemetryDisabledByEnv } from "../../src/telemetry/index.js";
 import { ensureTelemetrySettings } from "../../src/config/settings.js";
 import type { Settings } from "../../src/config/settings.js";
 
@@ -35,6 +35,14 @@ test("resolveTelemetryEnabled is false when INTERCODE_TELEMETRY=0", () => {
 
 test("resolveTelemetryEnabled is false when DO_NOT_TRACK is truthy", () => {
   expect(resolveTelemetryEnabled(settingsWith("id"), { DO_NOT_TRACK: "1" })).toBe(false);
+});
+
+test("telemetryDisabledByEnv reflects env kills only", () => {
+  expect(telemetryDisabledByEnv({})).toBe(false);
+  expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "0" })).toBe(true);
+  expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "1" })).toBe(true);
+  expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "true" })).toBe(true);
+  expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "0" })).toBe(false);
 });
 
 test("resolveTelemetryEnabled is false when installationId is missing", () => {

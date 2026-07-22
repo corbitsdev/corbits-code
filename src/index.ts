@@ -1,6 +1,6 @@
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
-import { createTelemetry } from "./telemetry/index.js";
+import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import { runTUI } from "./tui/runner.js";
@@ -22,10 +22,14 @@ export async function mainWithRunners(
   // breaking re-enable. Never let telemetry setup delay or crash startup:
   // settings persistence is awaited (it's local disk I/O), but the capture
   // call itself is fire-and-forget per createTelemetry's contract.
-  const settings = await ensureTelemetrySettings(globalSettingsPath()).catch(() => null);
-  const telemetry = createTelemetry({ settings });
-  setTelemetry(telemetry);
-  telemetry.capture("cli_start");
+  // Env kills short-circuit before ensureTelemetrySettings so a disabled run
+  // never touches the settings file (no installationId generation).
+  if (!telemetryDisabledByEnv()) {
+    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch(() => null);
+    const telemetry = createTelemetry({ settings });
+    setTelemetry(telemetry);
+    telemetry.capture("cli_start");
+  }
   const exitCode = config.configured
     ? await runners.runTUI(config)
     : await runners.runOnboarding(config);
