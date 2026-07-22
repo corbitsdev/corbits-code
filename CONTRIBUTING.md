@@ -54,20 +54,7 @@ Participation is governed by `CODE_OF_CONDUCT.md`.
 
 All contributions require acceptance of the Contributor License Agreement in `CLA.md`. The CLA grants ABK Labs, Inc. rights needed to distribute contributions under the project license and alternative terms.
 
-CLA acceptance is enforced on pull requests via the CLA Assistant workflow (`.github/workflows/cla.yml`). On your first contribution, the bot will ask you to comment:
-
-```text
-I have read the CLA Document and I hereby sign the CLA
-```
-
-Signatures are stored under `signatures/version1/cla.json`.
-
-### Maintainer setup (one-time)
-
-1. Ensure the CLA workflow file is on the default branch.
-2. Confirm `path-to-document` in `.github/workflows/cla.yml` points at the published `CLA.md` URL.
-3. The signature storage branch (`main` by default) must allow the action to commit signature updates. If you store signatures remotely, add a `PERSONAL_ACCESS_TOKEN` repository secret with repo write access and uncomment that env var in the workflow.
-4. Optionally install the [CLA Assistant GitHub App](https://github.com/apps/cla-assistant) if you prefer the hosted app in addition to (or instead of) the action — the workflow as checked in uses `contributor-assistant/github-action` and does not require the App.
+Automated CLA enforcement is not yet enabled; the acceptance mechanism is being finalized. Until then, contributors accept the CLA by opening a pull request, and maintainers confirm acceptance during review.
 
 ## Architecture docs
 
