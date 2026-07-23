@@ -1,3 +1,4 @@
+import { getLogger } from "@intx/log";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
@@ -25,7 +26,13 @@ export async function mainWithRunners(
   // Env kills short-circuit before ensureTelemetrySettings so a disabled run
   // never touches the settings file (no installationId generation).
   if (!telemetryDisabledByEnv()) {
-    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch(() => null);
+    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch((err: unknown) => {
+      getLogger(["intercode", "telemetry"]).warn(
+        "Failed to ensure telemetry settings at startup: {error}",
+        { error: err },
+      );
+      return null;
+    });
     const telemetry = createTelemetry({ settings });
     setTelemetry(telemetry);
     telemetry.capture("cli_start");

@@ -11,6 +11,7 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
 } {
   let instance: Telemetry = createTelemetry({
     settings: { providers: {}, telemetry: { enabled: true, installationId: "id" } },
+    env: {},
     apiKey: "test-key",
   });
   let calls = 0;
@@ -25,8 +26,14 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
       instance = t;
     },
     loadSettings: async () => ({ providers: {}, telemetry: { enabled: true, installationId: "id" } }),
+    ensureTelemetrySettings: async () => ({
+      providers: {},
+      telemetry: { enabled: true, installationId: "id" },
+    }),
     saveGlobalSettings: async () => {},
-    createTelemetry: (opts) => createTelemetry({ ...opts, apiKey: opts.apiKey ?? "test-key", fetchFn }),
+    // env is pinned to {} (matching telemetry.test.ts) so a developer's real
+    // DO_NOT_TRACK / INTERCODE_TELEMETRY never bleeds into these tests.
+    createTelemetry: (opts) => createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
     ...overrides,
   };
   return { deps, getInstance: () => instance, fetchCalls: () => calls };
@@ -77,6 +84,42 @@ test("load failure skips persistence entirely and stays disabled in memory", asy
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(saveCalled).toBe(false);
   expect(getInstance().enabled).toBe(false);
+});
+
+test("toggle on generates an installationId when the on-disk settings lack one", async () => {
+  let saved: Settings | undefined;
+  const { deps, getInstance } = fakeDeps({
+    ensureTelemetrySettings: async () => ({
+      providers: {},
+      telemetry: { installationId: "fresh-id" },
+    }),
+    saveGlobalSettings: async (_path, settings) => {
+      saved = settings;
+    },
+  });
+  const handler = createTelemetryToggleHandler("/fake/path", deps);
+  handler(true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(saved?.telemetry?.installationId).toBe("fresh-id");
+  expect(saved?.telemetry?.enabled).toBe(true);
+  expect(getInstance().enabled).toBe(true);
+});
+
+test("toggle on failure to ensure settings skips persistence and leaves the instance unchanged", async () => {
+  let saveCalled = false;
+  const { deps, getInstance } = fakeDeps({
+    ensureTelemetrySettings: async () => {
+      throw new Error("disk full");
+    },
+    saveGlobalSettings: async () => {
+      saveCalled = true;
+    },
+  });
+  const handler = createTelemetryToggleHandler("/fake/path", deps);
+  handler(true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(saveCalled).toBe(false);
+  expect(getInstance().enabled).toBe(true);
 });
 
 test("toggle on re-enables after settings load/save resolve", async () => {

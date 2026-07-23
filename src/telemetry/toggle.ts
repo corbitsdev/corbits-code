@@ -1,5 +1,10 @@
 import { getLogger } from "@intx/log";
-import { loadSettings, saveGlobalSettings, type Settings } from "../config/settings.js";
+import {
+  ensureTelemetrySettings,
+  loadSettings,
+  saveGlobalSettings,
+  type Settings,
+} from "../config/settings.js";
 import { createTelemetry, type CreateTelemetryOptions, type Telemetry } from "./index.js";
 import { getTelemetry, setTelemetry } from "./singleton.js";
 
@@ -9,6 +14,7 @@ export type TelemetryToggleDeps = {
   getTelemetry: () => Telemetry;
   setTelemetry: (telemetry: Telemetry) => void;
   loadSettings: (path: string) => Promise<Settings | null>;
+  ensureTelemetrySettings: (path: string) => Promise<Settings>;
   saveGlobalSettings: (path: string, settings: Settings) => Promise<void>;
   createTelemetry: (options: CreateTelemetryOptions) => Telemetry;
 };
@@ -17,6 +23,7 @@ const defaultDeps: TelemetryToggleDeps = {
   getTelemetry,
   setTelemetry,
   loadSettings,
+  ensureTelemetrySettings,
   saveGlobalSettings,
   createTelemetry,
 };
@@ -41,10 +48,19 @@ export function createTelemetryToggleHandler(
     }
 
     void (async () => {
-      const current = await deps.loadSettings(globalSettingsPath).catch((err: unknown) => {
-        logger.warn("Failed to load global settings for telemetry toggle: {error}", { error: err });
-        return undefined;
-      });
+      // Re-enable goes through ensureTelemetrySettings so an installationId
+      // always exists — writing { enabled: true } without one would leave the
+      // re-created instance resolving disabled and the toggle a silent no-op.
+      // Opt-out keeps plain loadSettings: disabling must never generate an id.
+      const current = enabled
+        ? await deps.ensureTelemetrySettings(globalSettingsPath).catch((err: unknown) => {
+            logger.warn("Failed to ensure telemetry settings for re-enable: {error}", { error: err });
+            return undefined;
+          })
+        : await deps.loadSettings(globalSettingsPath).catch((err: unknown) => {
+            logger.warn("Failed to load global settings for telemetry toggle: {error}", { error: err });
+            return undefined;
+          });
       if (current === undefined) {
         // Load failed (corrupt file, I/O error): never persist over it — a
         // bare `{ providers: {} }` write would wipe unrelated settings. The
