@@ -10,7 +10,7 @@ Three events, each with a small set of properties:
 
 | Event | When | Properties |
 |---|---|---|
-| `cli_start` | Once per process launch | (none beyond common properties) |
+| `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
 | `message_send` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
 
@@ -47,15 +47,26 @@ silently ignored.
 
 ## First-run disclosure
 
-A one-time notice is shown in whichever surface a new user reaches first:
-the onboarding panel on a fresh install, the TUI banner otherwise. On a
-fresh install both may appear in the same launch — the onboarding panel
-never marks the notice as shown, so the TUI banner (which does) still
-renders once; this double display is deliberate and fails toward showing
-the disclosure. The first `cli_start` fires at startup, moments before the
-notice renders; it carries only the random installation id, version, and
-OS/arch. To suppress it entirely, set `DO_NOT_TRACK=1` or
-`INTERCODE_TELEMETRY=0` before the first run.
+Nothing is ever sent before the user has had the notice in front of them
+and taken an affirmative action (consent by proceeding). Until the one-time
+notice has been shown, startup leaves telemetry as a disabled no-op — no
+event of any kind can leave the process. The notice renders in whichever
+surface a new user reaches first: the onboarding panel on a fresh install,
+the TUI banner otherwise. Telemetry then activates — and the held
+`cli_start` fires — on the first affirmative action taken with the notice
+visible: completing onboarding, or interactively submitting the first
+prompt in the TUI. Quitting without acting sends nothing for that launch;
+disabling in `/settings` before acting means nothing is ever sent. A user
+who saw the notice but took no action starts sending from the next launch.
+
+Two consequences worth naming. `cli_start` counts used sessions, not
+launches: someone who launches, looks around, and quits never registers, so
+the dashboard number is "sessions where the user did something", by design.
+And explicitly switching the `/settings` Telemetry toggle to On while the
+first-run hold is active is itself an affirmative action — it enables
+telemetry immediately through the toggle path, without waiting for a first
+prompt; the held `cli_start` still fires when (and only when) a first
+prompt is later submitted.
 
 ## Identification
 

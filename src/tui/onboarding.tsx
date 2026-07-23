@@ -5,9 +5,14 @@ import { useState, type ReactNode } from "react";
 import { runTUI } from "./runner.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
-import { loadSettings, mergeProviderIntoSettings, saveGlobalSettings } from "../config/settings.js";
+import {
+  globalSettingsPath,
+  loadSettings,
+  mergeProviderIntoSettings,
+  saveGlobalSettings,
+} from "../config/settings.js";
+import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
-import { getTelemetry } from "../telemetry/singleton.js";
 import { validateProviderConnection } from "../provider/validate-connection.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -266,13 +271,13 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   const settingsPath = config.globalSettingsPath;
   const existing = await loadSettings(settingsPath);
 
-  // Disclosure must accompany the first launch: cli_start has already fired
-  // by the time onboarding renders, so show the notice here rather than
-  // waiting for the TUI banner on a later run. noticeShown is not stamped —
-  // runTUI (reached right after a successful submit) shows the banner again
-  // and owns the stamp, keeping a single write path for the flag.
-  const showTelemetryNotice =
-    getTelemetry().enabled && existing?.telemetry?.noticeShown !== true;
+  // Disclosure before any send: startup held telemetry because the notice
+  // has never been shown, so render it here and treat a completed submit as
+  // the affirmative action that activates telemetry (consent by proceeding).
+  // Read from the TRUE global settings file — telemetry state never lives in
+  // a --config override file.
+  const trueGlobalSettings = await loadSettings(globalSettingsPath()).catch(() => null);
+  const showTelemetryNotice = telemetryFirstRunPending(trueGlobalSettings);
 
   const exitAltScreen = enterAltScreen();
 
@@ -325,9 +330,16 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   exitAltScreen();
 
   // If the user cancelled (Ctrl+C) onSubmit was never called and settings were
-  // never written. Skip launching the TUI.
+  // never written. Skip launching the TUI — and leave telemetry held, so a
+  // cancelled first run sends nothing.
   if (!submitted) {
     return 1;
+  }
+
+  // Completing setup with the disclosure on screen is the affirmative action
+  // that unlocks telemetry and fires the held cli_start.
+  if (showTelemetryNotice) {
+    await activateHeldTelemetry(globalSettingsPath());
   }
 
   const argv: string[] = ["--cwd", config.cwd];

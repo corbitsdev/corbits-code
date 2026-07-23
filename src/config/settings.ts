@@ -617,6 +617,7 @@ export async function ensureTelemetrySettings(path: string): Promise<Settings> {
 export async function markTelemetryNoticeShown(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
+  if (base.telemetry?.noticeShown === true) return;
   await saveGlobalSettings(path, {
     ...base,
     telemetry: { ...base.telemetry, noticeShown: true },

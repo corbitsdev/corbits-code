@@ -50,7 +50,8 @@ import {
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
-import { createTelemetry, TELEMETRY_NOTICE } from "../telemetry/index.js";
+import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
+import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -1220,15 +1221,22 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
   const globallyOnboarded = globalSettingsForOnboarding?.onboarded === true;
 
-  // The one-time telemetry notice, keyed off the same TRUE global settings
-  // file for the same reason as `onboarded` above. It is passive (a banner
-  // line), never a prompt, and is stamped shown as soon as it renders.
-  let telemetryInstance = getTelemetry();
+  // Consent by proceeding (see telemetry/first-run.ts): on a first run the
+  // singleton is a held no-op and the passive banner below is the
+  // disclosure. The first interactively submitted prompt activates telemetry
+  // and fires the held cli_start; a user who never acts keeps the hold for
+  // this whole launch, and the render stamp means events start normally on
+  // the next one. Keyed off the same TRUE global settings file as
+  // `onboarded` above.
   const onChangeTelemetryEnabled = createTelemetryToggleHandler(trueGlobalSettingsPath);
-  const showTelemetryNotice =
-    telemetryInstance.enabled && globalSettingsForOnboarding?.telemetry?.noticeShown !== true;
-  const telemetryNotice = showTelemetryNotice ? TELEMETRY_NOTICE : undefined;
-  if (showTelemetryNotice) {
+  const telemetryFirstRun = telemetryFirstRunPending(globalSettingsForOnboarding);
+  const telemetryNotice = telemetryFirstRun ? TELEMETRY_NOTICE : undefined;
+  // Tracks the user's intent (persisted opt-in, updated live by the settings
+  // toggle) rather than the held instance's state, so the settings tab shows
+  // On during the hold and an opt-out before the first action suppresses
+  // activation entirely.
+  let liveTelemetryIntent = telemetryFirstRun || getTelemetry().enabled;
+  if (telemetryFirstRun) {
     void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
       // Best-effort: worst case the notice shows again next launch.
     });
@@ -1262,14 +1270,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       globalOnboardingPath={trueGlobalSettingsPath}
       globallyOnboarded={globallyOnboarded}
       {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
-      telemetryEnabled={telemetryInstance.enabled}
+      telemetryEnabled={liveTelemetryIntent}
       onChangeTelemetryEnabled={(enabled) => {
+        liveTelemetryIntent = enabled;
         onChangeTelemetryEnabled(enabled);
-        // Local render state mirrors the singleton immediately (the toggle
-        // handler swaps it synchronously on opt-out; on opt-in it lags until
-        // the settings load/save resolves, same as before this refactor).
-        telemetryInstance = getTelemetry();
       }}
+      {...(telemetryFirstRun
+        ? {
+            onFirstUserMessage: () => {
+              if (!liveTelemetryIntent) return;
+              void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
+            },
+          }
+        : {})}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}

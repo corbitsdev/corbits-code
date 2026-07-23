@@ -468,6 +468,10 @@ export type AppProps = {
   telemetryEnabled?: boolean;
   /** Persists the settings Telemetry on|off toggle to global settings. */
   onChangeTelemetryEnabled?: (enabled: boolean) => void;
+  /** Fired once, on the first interactively submitted prompt of the session.
+   * The runner uses this as the affirmative action that activates telemetry
+   * held for first-run disclosure; auto-sent initial tasks never count. */
+  onFirstUserMessage?: () => void;
 };
 
 export function App({
@@ -522,6 +526,7 @@ export function App({
   telemetryNotice,
   telemetryEnabled = false,
   onChangeTelemetryEnabled,
+  onFirstUserMessage,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -1240,6 +1245,7 @@ export function App({
   const sendAbortRef = useRef<AbortController | null>(null);
   const [, forceRender] = useState(0);
   const didSendInitial = useRef(false);
+  const firstUserMessageFired = useRef(false);
   // Incremented on every send so useSpinner can reset its elapsed clock per turn.
   const sendCounterRef = useRef(0);
   const lastSentMessageRef = useRef<string>("");
@@ -1569,6 +1575,10 @@ export function App({
     if (isExitCommand(message)) {
       exit();
       return;
+    }
+    if (!firstUserMessageFired.current) {
+      firstUserMessageFired.current = true;
+      onFirstUserMessage?.();
     }
     setCommandMessage(null);
     const attachments = pendingImages;

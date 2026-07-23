@@ -33,9 +33,16 @@ export async function mainWithRunners(
       );
       return null;
     });
-    const telemetry = createTelemetry({ settings });
-    setTelemetry(telemetry);
-    telemetry.capture("cli_start");
+    // Consent by proceeding: until the disclosure has been shown, the
+    // default disabled no-op singleton stays in place so no event of any
+    // kind can leave the process. The disclosure surfaces activate telemetry
+    // (and fire the held cli_start) on the first affirmative user action —
+    // see telemetry/first-run.ts.
+    if (settings?.telemetry?.noticeShown === true) {
+      const telemetry = createTelemetry({ settings });
+      setTelemetry(telemetry);
+      telemetry.capture("cli_start");
+    }
   }
   const exitCode = config.configured
     ? await runners.runTUI(config)
