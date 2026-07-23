@@ -19,7 +19,7 @@ const FLUSH_DEADLINE_MS = 500;
 export const TELEMETRY_NOTICE =
   "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md";
 
-export type TelemetryEvent = "cli_start" | "session_end" | "message_send";
+export type TelemetryEvent = "cli_start" | "session_end" | "inference_turn";
 
 // Per-event property allowlist. Anything not listed here is stripped before
 // the payload leaves the process — this is the single choke point for what
@@ -27,7 +27,7 @@ export type TelemetryEvent = "cli_start" | "session_end" | "message_send";
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
   session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
-  message_send: [
+  inference_turn: [
     "provider_id",
     "model_id",
     "input_tokens",
@@ -122,7 +122,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    if (!(event === "cli_start" || event === "session_end" || event === "message_send")) return;
+    if (!(event === "cli_start" || event === "session_end" || event === "inference_turn")) return;
 
     const body = {
       api_key: apiKey,

@@ -12,7 +12,7 @@ Three events, each with a small set of properties:
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
-| `message_send` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
+| `inference_turn` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
 
 Common properties attached to every event: a random installation UUID
 (`distinct_id`), `service_version`, `os_type`, `os_arch`, and a

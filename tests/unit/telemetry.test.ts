@@ -129,7 +129,7 @@ test("capture strips properties not in the event's allowlist", async () => {
   expect(body.properties.secret_field).toBeUndefined();
 });
 
-test("capture strips properties not in message_send's allowlist", async () => {
+test("capture strips properties not in inference_turn's allowlist", async () => {
   const calls: unknown[] = [];
   const impl = ((_url: string, init: RequestInit) => {
     calls.push(JSON.parse(init.body as string));
@@ -141,7 +141,7 @@ test("capture strips properties not in message_send's allowlist", async () => {
     fetchFn: impl,
     apiKey: "test-key",
   });
-  telemetry.capture("message_send", {
+  telemetry.capture("inference_turn", {
     provider_id: "anthropic",
     model_id: "claude-x",
     input_tokens: 10,
@@ -155,7 +155,7 @@ test("capture strips properties not in message_send's allowlist", async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(calls.length).toBe(1);
   const body = calls[0] as { event: string; properties: Record<string, unknown> };
-  expect(body.event).toBe("message_send");
+  expect(body.event).toBe("inference_turn");
   expect(body.properties.provider_id).toBe("anthropic");
   expect(body.properties.model_id).toBe("claude-x");
   expect(body.properties.input_tokens).toBe(10);
