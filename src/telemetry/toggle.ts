@@ -5,7 +5,12 @@ import {
   saveGlobalSettings,
   type Settings,
 } from "../config/settings.js";
-import { createTelemetry, type CreateTelemetryOptions, type Telemetry } from "./index.js";
+import {
+  createTelemetry,
+  telemetryDisabledByEnv,
+  type CreateTelemetryOptions,
+  type Telemetry,
+} from "./index.js";
 import { getTelemetry, setTelemetry } from "./singleton.js";
 
 const logger = getLogger(["intercode", "telemetry", "toggle"]);
@@ -14,6 +19,7 @@ export type TelemetryToggleDeps = {
   getTelemetry: () => Telemetry;
   setTelemetry: (telemetry: Telemetry) => void;
   loadSettings: (path: string) => Promise<Settings | null>;
+  telemetryDisabledByEnv: () => boolean;
   ensureTelemetrySettings: (path: string) => Promise<Settings>;
   saveGlobalSettings: (path: string, settings: Settings) => Promise<void>;
   createTelemetry: (options: CreateTelemetryOptions) => Telemetry;
@@ -23,6 +29,7 @@ const defaultDeps: TelemetryToggleDeps = {
   getTelemetry,
   setTelemetry,
   loadSettings,
+  telemetryDisabledByEnv,
   ensureTelemetrySettings,
   saveGlobalSettings,
   createTelemetry,
@@ -37,6 +44,16 @@ export function createTelemetryToggleHandler(
   deps: TelemetryToggleDeps = defaultDeps,
 ): (enabled: boolean) => void {
   return (enabled: boolean): void => {
+    if (enabled && deps.telemetryDisabledByEnv()) {
+      // Env kills own the "disabled means no settings writes" constraint
+      // (see index.ts); honoring the enable here would generate and persist
+      // an installationId while the env override keeps telemetry off — a
+      // silent no-op that also breaks that invariant. Refuse instead.
+      logger.warn(
+        "Telemetry re-enable ignored: disabled by environment (DO_NOT_TRACK or INTERCODE_TELEMETRY)",
+      );
+      return;
+    }
     if (!enabled) {
       // Opt-out must be immediate and absolute: swap the in-memory singleton
       // synchronously, before any await, so no capture in flight during the
