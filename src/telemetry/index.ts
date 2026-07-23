@@ -13,6 +13,12 @@ export const POSTHOG_API_KEY = process.env.INTERCODE_TELEMETRY_KEY ?? DEFAULT_PO
 // in flight past this is dropped.
 const FLUSH_DEADLINE_MS = 500;
 
+// Shown once per installation, in whichever surface a new user reaches
+// first: the onboarding panel on a fresh install (so disclosure accompanies
+// the very first event), and the TUI banner otherwise.
+export const TELEMETRY_NOTICE =
+  "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md";
+
 export type TelemetryEvent = "cli_start" | "session_end" | "message_send";
 
 // Per-event property allowlist. Anything not listed here is stripped before

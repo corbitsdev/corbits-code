@@ -10,8 +10,9 @@ type SubmitOpts = { skipValidation: boolean };
 function renderPanel(
   onSubmit: (v: Record<string, string>, setPhase: SetPhase, opts: SubmitOpts) => Promise<void> = () =>
     Promise.resolve(),
+  showTelemetryNotice = false,
 ) {
-  return render(<ProviderSetupPanel onSubmit={onSubmit} />);
+  return render(<ProviderSetupPanel onSubmit={onSubmit} showTelemetryNotice={showTelemetryNotice} />);
 }
 
 async function fillAllFields(stdin: { write: (s: string) => void }): Promise<void> {
@@ -32,6 +33,16 @@ async function fillAllFields(stdin: { write: (s: string) => void }): Promise<voi
   stdin.write("\r");
   await tick();
 }
+
+test("shows the telemetry notice when asked to", () => {
+  const { lastFrame } = renderPanel(undefined, true);
+  expect(lastFrame()).toContain("Anonymous usage telemetry is enabled");
+});
+
+test("omits the telemetry notice otherwise", () => {
+  const { lastFrame } = renderPanel();
+  expect(lastFrame()).not.toContain("Anonymous usage telemetry");
+});
 
 test("shows Provider name label on mount", () => {
   const { lastFrame } = renderPanel();

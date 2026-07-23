@@ -6,6 +6,8 @@ import { runTUI } from "./runner.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
 import { loadSettings, mergeProviderIntoSettings, saveGlobalSettings } from "../config/settings.js";
+import { TELEMETRY_NOTICE } from "../telemetry/index.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 import { validateProviderConnection } from "../provider/validate-connection.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -53,9 +55,12 @@ export type ProviderSetupPanelProps = {
   // promise rejects, the error is shown inline and the user can retry or
   // correct their input; nothing is saved.
   onSubmit: (values: FormValues, setPhase: (phase: SubmitPhase) => void, opts: SubmitOpts) => Promise<void>;
+  // One-time telemetry disclosure. Shown here so a brand-new install sees it
+  // on the same launch the first telemetry event fires, not on a later run.
+  showTelemetryNotice: boolean;
 };
 
-export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): ReactNode {
+export function ProviderSetupPanel({ onSubmit, showTelemetryNotice }: ProviderSetupPanelProps): ReactNode {
   const { rows } = useTerminalSize();
   const { exit } = useApp();
   const [fieldIndex, setFieldIndex] = useState(0);
@@ -232,6 +237,12 @@ export function ProviderSetupPanel({ onSubmit }: ProviderSetupPanelProps): React
             <Text color={color("muted")}>{SUBMIT_PHASE_LABEL[submitPhase]}</Text>
           </Box>
         )}
+
+        {showTelemetryNotice && (
+          <Box marginTop={2}>
+            <Text dimColor>{TELEMETRY_NOTICE}</Text>
+          </Box>
+        )}
       </Box>
 
       {/* Footer */}
@@ -255,12 +266,21 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   const settingsPath = config.globalSettingsPath;
   const existing = await loadSettings(settingsPath);
 
+  // Disclosure must accompany the first launch: cli_start has already fired
+  // by the time onboarding renders, so show the notice here rather than
+  // waiting for the TUI banner on a later run. noticeShown is not stamped —
+  // runTUI (reached right after a successful submit) shows the banner again
+  // and owns the stamp, keeping a single write path for the flag.
+  const showTelemetryNotice =
+    getTelemetry().enabled && existing?.telemetry?.noticeShown !== true;
+
   const exitAltScreen = enterAltScreen();
 
   let submitted = false;
 
   const { waitUntilExit } = render(
     <ProviderSetupPanel
+      showTelemetryNotice={showTelemetryNotice}
       onSubmit={async (values, setPhase, { skipValidation }) => {
         const { name, baseURL, apiKey, model } = values;
         const providerName = name.trim();

@@ -50,7 +50,7 @@ import {
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
-import { createTelemetry } from "../telemetry/index.js";
+import { createTelemetry, TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -1227,9 +1227,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const onChangeTelemetryEnabled = createTelemetryToggleHandler(trueGlobalSettingsPath);
   const showTelemetryNotice =
     telemetryInstance.enabled && globalSettingsForOnboarding?.telemetry?.noticeShown !== true;
-  const telemetryNotice = showTelemetryNotice
-    ? "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md"
-    : undefined;
+  const telemetryNotice = showTelemetryNotice ? TELEMETRY_NOTICE : undefined;
   if (showTelemetryNotice) {
     void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
       // Best-effort: worst case the notice shows again next launch.
