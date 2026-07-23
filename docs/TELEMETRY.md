@@ -24,6 +24,12 @@ request IP; no location data is collected by the client.
 Every event is capped to an explicit property allowlist before it leaves the
 process — no other field can ever be attached, even by accident.
 
+`provider_id` is the canonical provider kind resolved by the runtime (e.g.
+`openai-compatible`), never the free-text name you gave the provider in
+onboarding or settings. `model_id` is the model identifier exactly as
+configured — it is the one user-entered string that is sent, so do not put
+anything identifying in a model name.
+
 ## What's never collected
 
 - Prompts, model output, or any conversation content

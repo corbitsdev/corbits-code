@@ -946,8 +946,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     emitter,
     hookManager,
     onTurnComplete: (ctx) => {
+      // provider_id is the canonical provider kind, never ctx.source.sourceId:
+      // sourceId is the user-typed label from onboarding/settings, and free
+      // text must not leave the process under the no-PII contract.
       getTelemetry().capture("message_send", {
-        provider_id: ctx.source.sourceId,
+        provider_id: ctx.source.provider,
         model_id: ctx.source.model,
         input_tokens: ctx.usage.input,
         output_tokens: ctx.usage.output,
