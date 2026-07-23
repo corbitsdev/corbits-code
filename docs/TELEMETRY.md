@@ -41,7 +41,21 @@ Any of the following disables telemetry entirely:
 - `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
 
 Re-enable from the same Telemetry tab or by removing the env var / settings
-override.
+override. While an env kill is active the Telemetry tab cannot re-enable —
+the env override always wins, and the attempt is refused rather than
+silently ignored.
+
+## First-run disclosure
+
+A one-time notice is shown in whichever surface a new user reaches first:
+the onboarding panel on a fresh install, the TUI banner otherwise. On a
+fresh install both may appear in the same launch — the onboarding panel
+never marks the notice as shown, so the TUI banner (which does) still
+renders once; this double display is deliberate and fails toward showing
+the disclosure. The first `cli_start` fires at startup, moments before the
+notice renders; it carries only the random installation id, version, and
+OS/arch. To suppress it entirely, set `DO_NOT_TRACK=1` or
+`INTERCODE_TELEMETRY=0` before the first run.
 
 ## Identification
 
