@@ -41,9 +41,11 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
+// Trimmed so .env files and shell scripts that produce " 0" or "false\n"
+// still count as an opt-out — opt-out parsing must fail toward disabled.
 function truthyEnvFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
-  return !FALSY_ENV_FLAG_VALUES.has(value.toLowerCase());
+  return !FALSY_ENV_FLAG_VALUES.has(value.trim().toLowerCase());
 }
 
 // Env kills win over everything and require no settings at all — callers use

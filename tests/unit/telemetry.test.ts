@@ -46,7 +46,7 @@ test("telemetryDisabledByEnv reflects env kills only", () => {
 });
 
 test("telemetryDisabledByEnv treats any falsy INTERCODE_TELEMETRY value as disable", () => {
-  for (const value of ["0", "false", "FALSE", "off", "no", ""]) {
+  for (const value of ["0", "false", "FALSE", "off", "no", "", " 0", "false\n", " off "]) {
     expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: value })).toBe(true);
   }
   expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "1" })).toBe(false);
