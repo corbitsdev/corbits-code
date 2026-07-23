@@ -22,8 +22,9 @@ export const TELEMETRY_NOTICE =
 export type TelemetryEvent = "cli_start" | "session_end" | "inference_turn";
 
 // Per-event property allowlist. Anything not listed here is stripped before
-// the payload leaves the process — this is the single choke point for what
-// telemetry can ever contain.
+// the payload leaves the process. Together with the fixed common properties
+// capture() appends (service_version, os_type, os_arch, schema_version),
+// this bounds everything telemetry can ever contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
   session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
