@@ -1470,7 +1470,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     exit_reason: exitReason,
   });
   // Bound against process.exit dropping the session_end capture for short
-  // sessions; each request is already capped at 3s via AbortSignal.
+  // sessions; flush itself is deadline-capped so exit stays snappy.
   await getTelemetry().flush();
 
   await sessionOps.awaitTail();

@@ -218,6 +218,16 @@ test("flush resolves after pending captures settle", async () => {
   expect(flushed).toBe(true);
 });
 
+test("flush gives up after its deadline when a request never settles", async () => {
+  const impl = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+  const telemetry = createTelemetry({ settings: settingsWith("id"), env: {}, fetchFn: impl, apiKey: "test-key" });
+  telemetry.capture("cli_start");
+  const start = Date.now();
+  await telemetry.flush();
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeLessThan(2000);
+});
+
 test("flush resolves even when the underlying fetch rejects", async () => {
   const impl = (() => Promise.reject(new Error("network down"))) as unknown as typeof fetch;
   const telemetry = createTelemetry({ settings: settingsWith("id"), env: {}, fetchFn: impl, apiKey: "test-key" });

@@ -34,7 +34,7 @@ export async function mainWithRunners(
     ? await runners.runTUI(config)
     : await runners.runOnboarding(config);
   // Bound against process.exit dropping in-flight captures for short
-  // sessions; each request is already capped at 3s via AbortSignal.
+  // sessions; flush itself is deadline-capped so exit stays snappy.
   await getTelemetry().flush();
   return exitCode;
 }

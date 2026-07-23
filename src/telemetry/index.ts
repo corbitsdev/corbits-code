@@ -9,6 +9,10 @@ const DEFAULT_POSTHOG_API_KEY = "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbL
 export const POSTHOG_HOST = process.env.INTERCODE_TELEMETRY_HOST ?? DEFAULT_POSTHOG_HOST;
 export const POSTHOG_API_KEY = process.env.INTERCODE_TELEMETRY_KEY ?? DEFAULT_POSTHOG_API_KEY;
 
+// Upper bound on how long flush() may hold up process exit; anything still
+// in flight past this is dropped.
+const FLUSH_DEADLINE_MS = 500;
+
 export type TelemetryEvent = "cli_start" | "session_end" | "message_send";
 
 // Per-event property allowlist. Anything not listed here is stripped before
@@ -86,9 +90,10 @@ export type CreateTelemetryOptions = {
 export type Telemetry = {
   enabled: boolean;
   capture(event: TelemetryEvent, properties?: Record<string, unknown>): void;
-  // Waits for any captures currently in flight to settle (success or
-  // failure). Callers use this to bound process exit against dropped
-  // fire-and-forget requests without ever making capture() itself blocking.
+  // Waits briefly for captures currently in flight to settle, giving up
+  // after a short deadline so a slow endpoint can never hold up process
+  // exit. Callers use this to bound exit against dropped fire-and-forget
+  // requests without ever making capture() itself blocking.
   flush(): Promise<void>;
 };
 
@@ -104,8 +109,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const installationId = options.settings?.telemetry?.installationId ?? "";
 
   // Tracked so flush() can wait for in-flight requests without making
-  // capture() itself awaitable — each request is bounded by its own 3s
-  // AbortSignal, so flush() can never hang longer than that.
+  // capture() itself awaitable.
   const pending = new Set<Promise<void>>();
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
@@ -141,7 +145,15 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
 
   async function flush(): Promise<void> {
     if (pending.size === 0) return;
-    await Promise.allSettled(pending);
+    // Race against a short deadline: stragglers are dropped rather than
+    // allowed to delay exit for the full 3s per-request AbortSignal window.
+    await Promise.race([
+      Promise.allSettled(pending),
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, FLUSH_DEADLINE_MS);
+        timer.unref?.();
+      }),
+    ]);
   }
 
   return { enabled, capture, flush };
