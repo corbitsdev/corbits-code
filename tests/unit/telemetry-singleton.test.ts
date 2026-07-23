@@ -14,9 +14,10 @@ test("setTelemetry replaces the process-wide instance", () => {
     capture: (event) => {
       captured = event;
     },
+    flush: async () => {},
   });
   getTelemetry().capture("session_end");
   expect(captured).toBe("session_end");
   // Reset so other tests in this process see the default again.
-  setTelemetry({ enabled: false, capture: () => {} });
+  setTelemetry({ enabled: false, capture: () => {}, flush: async () => {} });
 });
