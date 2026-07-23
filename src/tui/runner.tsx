@@ -946,8 +946,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     hookManager,
     onTurnComplete: (ctx) => {
       getTelemetry().capture("message_send", {
-        provider_id: liveSource.id,
-        model_id: liveSource.model,
+        provider_id: ctx.source.sourceId,
+        model_id: ctx.source.model,
         input_tokens: ctx.usage.input,
         output_tokens: ctx.usage.output,
         cache_read_tokens: ctx.usage.cacheRead,

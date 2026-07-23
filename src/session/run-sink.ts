@@ -12,9 +12,10 @@ export type RunSinkArgs = {
   emitter: EventEmitter;
   hookManager: Pick<LifecycleHookManager, "dispatchPostTurn">;
   // Fired alongside dispatchPostTurn for each completed turn. Separate from
-  // hookManager so telemetry (which needs the live provider/model at emit
-  // time, not something this module tracks) can observe turn completion
-  // without run-sink knowing anything about telemetry.
+  // hookManager so telemetry can observe turn completion without run-sink
+  // knowing anything about telemetry. The TurnContext carries the source the
+  // turn actually ran against, so consumers report per-turn provider/model
+  // even if the live selection changed mid-run.
   onTurnComplete?: (ctx: import("./hooks.js").TurnContext) => void;
 };
 
