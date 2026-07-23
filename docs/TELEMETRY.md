@@ -37,7 +37,7 @@ Any of the following disables telemetry entirely:
 
 - Turn it off in the TUI: `/settings` → Telemetry tab → Off
 - Set `"telemetry": { "enabled": false }` in `~/.intercode/settings.json`
-- `INTERCODE_TELEMETRY=0`
+- `INTERCODE_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
 - `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
 
 Re-enable from the same Telemetry tab or by removing the env var / settings

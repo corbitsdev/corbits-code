@@ -29,15 +29,21 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   ],
 };
 
+const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
+
 function truthyEnvFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
-  return value !== "" && value !== "0" && value.toLowerCase() !== "false";
+  return !FALSY_ENV_FLAG_VALUES.has(value.toLowerCase());
 }
 
 // Env kills win over everything and require no settings at all — callers use
 // this to skip settings writes (installationId generation) entirely.
+// INTERCODE_TELEMETRY set to any falsy value ("0", "false", "off", "")
+// disables, through the same flag parsing as DO_NOT_TRACK, so the two kill
+// switches agree on what counts as "off".
 export function telemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.INTERCODE_TELEMETRY === "0" || truthyEnvFlag(env.DO_NOT_TRACK);
+  if (env.INTERCODE_TELEMETRY !== undefined && !truthyEnvFlag(env.INTERCODE_TELEMETRY)) return true;
+  return truthyEnvFlag(env.DO_NOT_TRACK);
 }
 
 // Fail closed: telemetry only runs when explicitly not disabled, the DNT

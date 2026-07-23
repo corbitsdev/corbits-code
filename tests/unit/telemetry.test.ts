@@ -45,6 +45,14 @@ test("telemetryDisabledByEnv reflects env kills only", () => {
   expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "0" })).toBe(false);
 });
 
+test("telemetryDisabledByEnv treats any falsy INTERCODE_TELEMETRY value as disable", () => {
+  for (const value of ["0", "false", "FALSE", "off", "no", ""]) {
+    expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: value })).toBe(true);
+  }
+  expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "1" })).toBe(false);
+  expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "true" })).toBe(false);
+});
+
 test("resolveTelemetryEnabled is false when installationId is missing", () => {
   expect(resolveTelemetryEnabled(settingsWith(undefined), {})).toBe(false);
 });
