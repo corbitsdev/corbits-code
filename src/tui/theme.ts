@@ -117,7 +117,7 @@ export const palette: Record<SemanticRole, ColorValue> = {
 };
 
 export function color(role: SemanticRole): string {
-  return palette[role].hex;
+  return supportsTrueColor() ? palette[role].hex : `ansi256(${color256(role)})`;
 }
 
 export function color256(role: SemanticRole): number {
