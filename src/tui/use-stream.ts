@@ -1347,6 +1347,20 @@ export function useAgentStream(
     return () => clearInterval(interval);
   }, [state, state.status]);
 
+  // requestStop()/clear() can transition status out of running/blocked with a
+  // token delta still buffered in pendingRenderRef/pendingLineRevisionRef —
+  // the two drain intervals above are gated off before their next tick would
+  // have flushed it. Perform that flush once on the transition so nothing is
+  // stranded, without reviving a periodic timer while idle.
+  useEffect(() => {
+    if (state.status === "running" || state.status === "blocked") return;
+    if (pendingRenderRef.current || pendingLineRevisionRef.current) {
+      pendingRenderRef.current = false;
+      setTick((t) => t + 1);
+      bumpDisplayRevision();
+    }
+  }, [state, state.status]);
+
   useEffect(() => {
     const handler = (event: ReactorEmittedEvent) => {
       state.addEvent(event);
