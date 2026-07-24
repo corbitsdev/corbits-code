@@ -73,7 +73,7 @@ export function buildHarnessFacts(
           "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
           ...(sessionMode === "orchestrator"
             ? [
-                "- Use search_agents before dispatching named specialists or teams.",
+                "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
                 "- The user may send follow-up messages while workers run; treat them as additional queue items — update your plan, spawn or adjust workers, and keep the operator informed.",
               ]
             : ["- This session runs in single-agent mode: sub-agents are disabled; do all work yourself with the tools below."]),
@@ -155,7 +155,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   web_fetch: "fetch the content of a URL",
   task:
     "spawn a sub-agent for a self-contained job (not a checklist item); optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens in description and prompt so they do not duplicate work",
-  search_agents: "find agent profiles by role or team before spawning with task(agent=...)",
+  search_agents:
+    "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks:
     "maintain Work checklist — create/replace, update status, append, cancel; under /goal this is Work (steps), not Acceptance; primary surface during implementing",
   manage_goal:

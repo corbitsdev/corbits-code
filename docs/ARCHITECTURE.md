@@ -125,7 +125,7 @@ Three distinct concepts (do not conflate them):
 
 The **`task`** tool **spawns a sub-agent** on a separate inference source (tier/profile resolved from settings). The dispatch brief separates durable `context`, actionable `prompt`, and optional `goals` (checklist seeds for the *child's* own `manage_tasks` list). The child returns a structured report (`Summary` / `Findings` / `Blockers` / `Paths`) plus a tools-used footer. Parent and child never share a `manage_tasks` list.
 
-When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `task(agent=...)`. `task` and `search_agents` are core tools on the primary session.
+When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `task(agent=...)`. Results include each match's full loaded system prompt / body so the parent can inspect plugin or Claude marketplace agents without `read_file` on paths outside the session cwd (path-escape blocks those roots by design; writes remain blocked). `task` and `search_agents` are core tools on the primary session.
 
 Profiles with `orchestrator: true` may themselves call `task` (one hop only): nested dispatch installs `task` + `search_agents` with `allowOrchestrator: false` so the tree bottoms out. Unknown `agent` ids fail closed.
 

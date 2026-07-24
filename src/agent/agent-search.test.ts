@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createAgentIndex, formatAgentSearchResults } from "./agent-search.js";
+import {
+  createAgentIndex,
+  createSearchAgentsTool,
+  formatAgentSearchResults,
+} from "./agent-search.js";
 import type { AgentProfile } from "./profiles.js";
 
 const fixtures: AgentProfile[] = [
@@ -54,5 +58,63 @@ describe("formatAgentSearchResults", () => {
     ]);
     expect(text).toContain("[source: claude]");
     expect(text).toContain("marketplace-scout");
+  });
+
+  test("injects full system prompt body so parent need not read_file plugin roots", () => {
+    const body =
+      "You are draper. Review pull requests for design clarity and maintainability.\n" +
+      "Prefer concrete file/line citations.";
+    const text = formatAgentSearchResults([
+      {
+        id: "draper",
+        description: "PR design reviewer from marketplace",
+        source: "claude",
+        tier: "standard",
+        systemPromptRole: body,
+      },
+    ]);
+    expect(text).toContain("### draper");
+    expect(text).toContain("[source: claude]");
+    expect(text).toContain("[tier: standard]");
+    expect(text).toContain("System prompt / body:");
+    expect(text).toContain(body);
+    expect(text).toContain("do not need read_file on plugin roots");
+  });
+
+  test("omits body section when systemPromptRole is absent", () => {
+    const text = formatAgentSearchResults([
+      { id: "no-body", description: "Metadata only" },
+    ]);
+    expect(text).toContain("### no-body");
+    expect(text).toContain("Metadata only");
+    expect(text).not.toContain("System prompt / body:");
+  });
+});
+
+describe("createSearchAgentsTool", () => {
+  test("handler surfaces loaded systemPromptRole for plugin-style profiles", async () => {
+    const body = "You are emil. Focus on product sense and user impact.";
+    const tool = createSearchAgentsTool(() => [
+      {
+        id: "emil",
+        description: "Product-minded reviewer",
+        source: "claude",
+        systemPromptRole: body,
+      },
+      {
+        id: "greybeard",
+        description: "Architect",
+        systemPromptRole: "You are greybeard.",
+      },
+    ]);
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const text = await tool.handler(
+      { query: "emil product" },
+      new AbortController().signal,
+    );
+    expect(text).toContain("emil");
+    expect(text).toContain("System prompt / body:");
+    expect(text).toContain(body);
+    expect(text).toContain("[source: claude]");
   });
 });

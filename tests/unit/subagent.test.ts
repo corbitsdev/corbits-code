@@ -161,6 +161,8 @@ test("unknown agent id fails closed instead of silent generic fall-through", asy
   expect(result).toContain("Error:");
   expect(result).toContain("unknown agent profile");
   expect(result).toContain("greybeard");
+  expect(result).toContain("search_agents");
+  expect(result).toContain("full system prompt / body");
   expect(ran).toBe(false);
 });
 

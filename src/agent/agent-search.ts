@@ -51,22 +51,33 @@ export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): Ag
   };
 }
 
+// Format one profile for search_agents output. Injects the full loaded
+// systemPromptRole (markdown body / role text) so the parent can inspect plugin
+// and marketplace agents without read_file on paths outside the session cwd
+// (path-escape blocks those roots by design).
+function formatAgentProfileEntry(p: AgentProfile): string {
+  const desc = (p.description ?? "").trim();
+  const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
+  const orch = p.orchestrator === true ? " [orchestrator]" : "";
+  const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
+  const header =
+    desc.length > 0
+      ? `### ${p.id}${tier}${orch}${source}\n${desc}`
+      : `### ${p.id}${tier}${orch}${source}`;
+  const body = (p.systemPromptRole ?? "").trim();
+  if (body.length === 0) return header;
+  return `${header}\n\nSystem prompt / body:\n${body}`;
+}
+
 export function formatAgentSearchResults(profiles: readonly AgentProfile[]): string {
   if (profiles.length === 0) {
     return "No agent profiles matched. Try broader terms (e.g. review, explore, implement) or list_dir on .agents/agents/.";
   }
-  const lines = profiles.map((p) => {
-    const desc = (p.description ?? "").trim();
-    const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
-    const orch = p.orchestrator === true ? " [orchestrator]" : "";
-    const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
-    return desc.length > 0
-      ? `- ${p.id}${tier}${orch}${source}: ${desc}`
-      : `- ${p.id}${tier}${orch}${source}`;
-  });
+  const entries = profiles.map(formatAgentProfileEntry);
   return [
-    "Matching agent profiles (pass id to task(agent=...)):",
-    ...lines,
+    "Matching agent profiles (pass id to task(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
+    "",
+    ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
     "",
     "Spawn with task(description, prompt, agent=<id>). For a team, call task once per member (parallel in one turn when independent).",
   ].join("\n");
@@ -75,7 +86,7 @@ export function formatAgentSearchResults(profiles: readonly AgentProfile[]): str
 export const searchAgentsDefinition: ToolDefinition = {
   name: "search_agents",
   description:
-    "Find task-dispatchable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids and descriptions to use in task(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
+    "Find task-dispatchable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids, descriptions, and the full loaded system prompt / body for each match so you can inspect plugin or Claude marketplace agents without reading files outside the workspace. Use the id in task(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
   inputSchema: {
     type: "object",
     properties: {
