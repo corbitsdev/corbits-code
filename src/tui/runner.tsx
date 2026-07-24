@@ -63,7 +63,7 @@ import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/type
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
-import { createGoalGovernor } from "../agent/goal.js";
+import { createGoalGovernor, DEFAULT_GOAL_TURN_BUDGET } from "../agent/goal.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
@@ -817,6 +817,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Evaluator prefers the fast tier when configured, else the live session model.
   // Fail-open if inference fails.
   const goalGovernor = createGoalGovernor({
+    // Explicit so an active goal never auto-continues forever by default —
+    // unlimited turns are an operator opt-in via `/goal --unlimited`.
+    defaultTurnBudget: DEFAULT_GOAL_TURN_BUDGET,
     evaluate: createGoalEvaluator({
       getSource: () => {
         const settings = config.settings;
