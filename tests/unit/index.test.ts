@@ -2,6 +2,9 @@ import { test, expect, mock } from "bun:test";
 import { mainWithRunners } from "../../src/index.js";
 
 const envVars = {
+  // Unit tests must never export telemetry or write an installationId into
+  // the developer's real global settings file.
+  INTERCODE_TELEMETRY: "0",
   OPENAI_COMPATIBLE_API_KEY: "test-key",
   OPENAI_COMPATIBLE_BASE_URL: "http://localhost:1234",
   OPENAI_COMPATIBLE_MODEL: "test-model",

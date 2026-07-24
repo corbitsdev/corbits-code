@@ -81,4 +81,24 @@ test("loadConfig uses the injected pricing fetchImpl instead of the network", as
   });
 });
 
+test("global settings round-trip the telemetry block", async () => {
+  const { loadSettings, saveGlobalSettings } = await import("../../src/config/settings.js");
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-telemetry-"));
+  const path = join(cwd, "global.json");
+  try {
+    await saveGlobalSettings(path, {
+      providers: {},
+      telemetry: { enabled: false, installationId: "test-id", noticeShown: true },
+    });
+    const loaded = await loadSettings(path);
+    expect(loaded?.telemetry).toEqual({
+      enabled: false,
+      installationId: "test-id",
+      noticeShown: true,
+    });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 

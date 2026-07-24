@@ -20,11 +20,13 @@ export type SettingsOverlayProps = {
   savedGlobalSessionMode?: SessionMode;
   savedLocalSessionMode?: SessionMode;
   onChangeSessionMode: (mode: SessionMode, scope: "global" | "local") => void;
+  telemetryEnabled: boolean;
+  onChangeTelemetryEnabled: (enabled: boolean) => void;
   onClose: () => void;
   maxHeight?: number;
 };
 
-const TABS = ["Permissions", "Compaction", "Session", "Sub-agents"] as const;
+const TABS = ["Permissions", "Compaction", "Session", "Sub-agents", "Telemetry"] as const;
 type Tab = (typeof TABS)[number];
 
 const COMPACTION_OPTIONS: { value: CompactionMode; label: string; description: string }[] = [
@@ -329,6 +331,73 @@ function SubAgentsTab({
   );
 }
 
+const TELEMETRY_OPTIONS: { value: boolean; label: string; description: string }[] = [
+  {
+    value: true,
+    label: "On",
+    description:
+      "Sends a small amount of anonymous usage telemetry to PostHog (session outcomes, model/provider " +
+      "identifiers, token counts). Never includes prompts, code, file contents, or paths. See docs/TELEMETRY.md.",
+  },
+  {
+    value: false,
+    label: "Off",
+    description: "No telemetry is sent.",
+  },
+];
+
+function TelemetryTab({
+  current,
+  onChange,
+}: {
+  current: boolean;
+  onChange: (enabled: boolean) => void;
+}): ReactNode {
+  const currentIndex = TELEMETRY_OPTIONS.findIndex((o) => o.value === current);
+  const [selected, setSelected] = useState(currentIndex >= 0 ? currentIndex : 0);
+
+  useInput((_input, key) => {
+    if (key.upArrow) {
+      setSelected((s) => (s > 0 ? s - 1 : TELEMETRY_OPTIONS.length - 1));
+    } else if (key.downArrow) {
+      setSelected((s) => (s < TELEMETRY_OPTIONS.length - 1 ? s + 1 : 0));
+    } else if (key.return || _input === " ") {
+      const opt = TELEMETRY_OPTIONS[selected];
+      if (opt !== undefined) onChange(opt.value);
+    }
+  });
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={color("muted")} bold>Anonymous usage telemetry</Text>
+      <Text color={color("muted")}>Takes effect immediately, for the rest of this session and future ones.</Text>
+      <Box flexDirection="column" marginTop={1}>
+        {TELEMETRY_OPTIONS.map((opt, index) => {
+          const isSelected = index === selected;
+          const isActive = opt.value === current;
+          return (
+            <Box key={opt.label} flexDirection="column" marginBottom={1}>
+              <Box>
+                <Text color={isSelected ? color("brand") : color("muted")} bold={isSelected}>
+                  {isSelected ? "› " : "  "}
+                </Text>
+                <Text bold={isSelected || isActive} {...(isActive ? { color: color("success") } : {})}>
+                  {opt.label}
+                </Text>
+                {isActive && <Text color={color("success")}>{" "}(active)</Text>}
+              </Box>
+              <Box marginLeft={4}>
+                <Text color={color("muted")}>{opt.description}</Text>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+      <Text color={color("muted")}>↑↓ navigate · Enter or Space to select</Text>
+    </Box>
+  );
+}
+
 const FIXED_CHROME = 8;
 
 export function SettingsOverlay({
@@ -342,6 +411,8 @@ export function SettingsOverlay({
   savedGlobalSessionMode,
   savedLocalSessionMode,
   onChangeSessionMode,
+  telemetryEnabled,
+  onChangeTelemetryEnabled,
   onClose,
   maxHeight,
 }: SettingsOverlayProps): ReactNode {
@@ -396,6 +467,9 @@ export function SettingsOverlay({
           onChange={onChangeMaxConcurrentSubAgents}
           sessionMode={sessionMode}
         />
+      )}
+      {activeTab === "Telemetry" && (
+        <TelemetryTab current={telemetryEnabled} onChange={onChangeTelemetryEnabled} />
       )}
       <Box marginTop={1}>
         <Text color={color("muted")}>Esc to close</Text>

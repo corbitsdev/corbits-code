@@ -1,4 +1,8 @@
+import { getLogger } from "@intx/log";
 import { loadConfig } from "./config/index.js";
+import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
+import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
+import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import { runTUI } from "./tui/runner.js";
 
@@ -12,10 +16,41 @@ export async function mainWithRunners(
   runners: Runners,
 ): Promise<number> {
   const config = await loadConfig(argv, { allowUnconfigured: true });
-  if (!config.configured) {
-    return runners.runOnboarding(config);
+  // Always the TRUE global settings file, never config.globalSettingsPath —
+  // that's the --config override file when one was given, and splitting
+  // telemetry across two files means the installationId lands somewhere the
+  // toggle (which also uses the true global path) never looks, silently
+  // breaking re-enable. Never let telemetry setup delay or crash startup:
+  // settings persistence is awaited (it's local disk I/O), but the capture
+  // call itself is fire-and-forget per createTelemetry's contract.
+  // Env kills short-circuit before ensureTelemetrySettings so a disabled run
+  // never touches the settings file (no installationId generation).
+  if (!telemetryDisabledByEnv()) {
+    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch((err: unknown) => {
+      getLogger(["intercode", "telemetry"]).warn(
+        "Failed to ensure telemetry settings at startup: {error}",
+        { error: err },
+      );
+      return null;
+    });
+    // Consent by proceeding: until the disclosure has been shown, the
+    // default disabled no-op singleton stays in place so no event of any
+    // kind can leave the process. The disclosure surfaces activate telemetry
+    // (and fire the held cli_start) on the first affirmative user action —
+    // see telemetry/first-run.ts.
+    if (settings?.telemetry?.noticeShown === true) {
+      const telemetry = createTelemetry({ settings });
+      setTelemetry(telemetry);
+      telemetry.capture("cli_start");
+    }
   }
-  return runners.runTUI(config);
+  const exitCode = config.configured
+    ? await runners.runTUI(config)
+    : await runners.runOnboarding(config);
+  // Bound against process.exit dropping in-flight captures for short
+  // sessions; flush itself is deadline-capped so exit stays snappy.
+  await getTelemetry().flush();
+  return exitCode;
 }
 
 export async function main(argv: readonly string[]): Promise<number> {

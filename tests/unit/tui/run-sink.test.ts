@@ -96,3 +96,36 @@ test("reset clears status, error, and turn collector between sessions", () => {
   runSink.sink({ type: "reactor.done", data: {} } as never);
   expect(runSink.getStatus()).toBe("done");
 });
+
+// onTurnComplete is telemetry's hook into turn completion, wired alongside
+// (not instead of) the post-turn lifecycle hook — both must fire per turn.
+test("onTurnComplete fires alongside dispatchPostTurn for each completed turn", () => {
+  const emitter = new EventEmitter();
+  const dispatched: unknown[] = [];
+  const completed: unknown[] = [];
+  const hookManager = {
+    dispatchPostTurn: (ctx: unknown) => {
+      dispatched.push(ctx);
+    },
+  };
+  const runSink = createRunSink({
+    emitter,
+    hookManager,
+    onTurnComplete: (ctx) => {
+      completed.push(ctx);
+    },
+  });
+
+  runSink.sink({
+    type: "inference.done",
+    data: {
+      turn: { content: [] },
+      usage: {},
+      source: "primary",
+    },
+  } as never);
+
+  expect(dispatched.length).toBe(1);
+  expect(completed.length).toBe(1);
+  expect(dispatched[0]).toBe(completed[0]);
+});
