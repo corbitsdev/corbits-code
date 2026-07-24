@@ -1,5 +1,5 @@
 import type {
-  AssistantTurn,
+  ConversationTurn,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
@@ -13,10 +13,15 @@ const CHARS_PER_TOKEN = 4;
 
 // Providers that omit usage reporting leave `usage.input` at 0, which would
 // otherwise mask real context growth and starve the proactive path forever.
-// A chars/4 estimate off the turn itself is coarse but keeps the governor
-// arming instead of relying solely on the reactive overflow recovery.
-function estimateContextTokens(turn: AssistantTurn): number {
-  return Math.ceil(JSON.stringify(turn.content).length / CHARS_PER_TOKEN);
+// `usage.input` stands for the accumulated input context, so the fallback
+// estimate must approximate the same thing: a chars/4 measure over every
+// turn the governor can see, not just the turn that was just generated.
+function estimateContextTokens(turns: readonly ConversationTurn[]): number {
+  const totalChars = turns.reduce(
+    (sum, turn) => sum + JSON.stringify(turn.content).length,
+    0,
+  );
+  return Math.ceil(totalChars / CHARS_PER_TOKEN);
 }
 
 // A compact action runs in its own reactor cycle, after which the reactor
@@ -36,16 +41,16 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
 
   function noteInferenceDone(
     event: Extract<ReactorInboundEvent, { type: "inference.done" }>,
-    turnCount: number,
+    turns: readonly ConversationTurn[],
   ): void {
     overflowRecoveries = 0;
     if (requestContinuation === undefined) return;
     const reportedTokens = event.usage?.input ?? 0;
     const contextTokens =
-      reportedTokens > 0 ? reportedTokens : estimateContextTokens(event.turn);
+      reportedTokens > 0 ? reportedTokens : estimateContextTokens(turns);
     if (
       contextTokens > compactionThresholdFor(event.source?.model) &&
-      turnCount > MIN_TURNS_TO_COMPACT
+      turns.length > MIN_TURNS_TO_COMPACT
     ) {
       pending = true;
     }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  ConversationTurn,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
@@ -15,6 +16,14 @@ const capabilities = {
 
 function usage(input: number): TokenUsage {
   return { input, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 };
+}
+
+function turnsOfLength(count: number, textLength: number): ConversationTurn[] {
+  return Array.from({ length: count }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    content: [{ type: "text", text: "x".repeat(textLength) }],
+    timestamp: i,
+  })) as unknown as ConversationTurn[];
 }
 
 function inferenceDone(input: number): Extract<ReactorInboundEvent, { type: "inference.done" }> {
@@ -61,12 +70,14 @@ function overflowError(): ReactorInboundEvent {
 
 const overThreshold = compactionThresholdFor("m") + 1;
 const inferAction: ReactorAction[] = [{ type: "infer" }];
+const tenTurns = turnsOfLength(10, 1);
+const threeTurns = turnsOfLength(3, 1);
 
 describe("compaction governor", () => {
   test("swaps the post-tool infer for a compact action once the threshold is crossed", () => {
     let continuations = 0;
     const governor = createCompactionGovernor(() => continuations++);
-    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
 
     const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
     expect(actions).not.toBeNull();
@@ -80,16 +91,16 @@ describe("compaction governor", () => {
 
   test("stays inert below the threshold or with few turns", () => {
     const governor = createCompactionGovernor(() => {});
-    governor.noteInferenceDone(inferenceDone(1000), 10);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
 
-    governor.noteInferenceDone(inferenceDone(overThreshold), 3);
+    governor.noteInferenceDone(inferenceDone(overThreshold), threeTurns);
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
   });
 
   test("stays inert without a continuation channel", () => {
     const governor = createCompactionGovernor(undefined);
-    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
     expect(governor.interceptOverflow(overflowError(), capabilities)).toBeNull();
   });
@@ -101,14 +112,14 @@ describe("compaction governor", () => {
     expect(governor.interceptOverflow(overflowError(), capabilities)).not.toBeNull();
     expect(governor.interceptOverflow(overflowError(), capabilities)).toBeNull();
 
-    governor.noteInferenceDone(inferenceDone(1000), 10);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
     expect(governor.interceptOverflow(overflowError(), capabilities)).not.toBeNull();
   });
 
   test("an idle over-threshold turn requests a continuation and compacts on its arrival", () => {
     let continuations = 0;
     const governor = createCompactionGovernor(() => continuations++);
-    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
 
     const terminal: ReactorAction[] = [{ type: "reply", content: "done" }];
     governor.noteIdleTurn(inferenceDone(overThreshold), terminal);
@@ -128,7 +139,7 @@ describe("compaction governor", () => {
   test("an operator message that races the idle continuation still compacts, then re-infers", () => {
     let continuations = 0;
     const governor = createCompactionGovernor(() => continuations++);
-    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     governor.noteIdleTurn(inferenceDone(overThreshold), [{ type: "reply", content: "done" }]);
 
     const raced = {
@@ -150,7 +161,7 @@ describe("compaction governor", () => {
     governor.noteIdleTurn(inferenceDone(1000), [{ type: "reply", content: "x" }]);
     expect(continuations).toBe(0);
 
-    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     governor.noteIdleTurn(inferenceDone(overThreshold), [
       { type: "reply", content: "x" },
       { type: "infer" },
@@ -159,25 +170,41 @@ describe("compaction governor", () => {
     expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
   });
 
-  test("estimates context size from turn content when usage is missing and arms compaction", () => {
+  test("estimates context size from accumulated turn content when usage is missing and arms compaction", () => {
     const governor = createCompactionGovernor(() => {});
     const overThresholdChars = (compactionThresholdFor("m") + 1) * 4;
-    governor.noteInferenceDone(inferenceDoneWithoutUsage(overThresholdChars), 10);
+    const turns = turnsOfLength(10, Math.ceil(overThresholdChars / 10));
+    governor.noteInferenceDone(inferenceDoneWithoutUsage(1), turns);
 
     const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
     expect(actions).not.toBeNull();
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 
-  test("stays inert when usage is missing but the estimated content is small", () => {
+  test("stays inert when usage is missing but the accumulated content is small", () => {
     const governor = createCompactionGovernor(() => {});
-    governor.noteInferenceDone(inferenceDoneWithoutUsage(40), 10);
+    governor.noteInferenceDone(inferenceDoneWithoutUsage(4), turnsOfLength(10, 4));
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+  });
+
+  test("arms compaction from accumulated growth across many turns when usage is absent", () => {
+    // A single turn's content (a realistic reply or tool result) stays well
+    // under the threshold; only the sum across a long conversation crosses
+    // it. Measuring `event.turn` alone (the bug this governor must avoid)
+    // would never arm here.
+    const governor = createCompactionGovernor(() => {});
+    const perTurnChars = 2000;
+    const turns = turnsOfLength(200, perTurnChars);
+    governor.noteInferenceDone(inferenceDoneWithoutUsage(perTurnChars), turns);
+
+    const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 
   test("only intercepts on tool.done with a pending infer", () => {
     const governor = createCompactionGovernor(() => {});
-    governor.noteInferenceDone(inferenceDone(overThreshold), 10);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(governor.interceptActions(inferenceDone(overThreshold), inferAction, capabilities)).toBeNull();
     expect(governor.interceptActions(toolDone(), [{ type: "reply", content: "x" }], capabilities)).toBeNull();
   });
