@@ -17,13 +17,15 @@ function frameFrom(
   liveRows: number,
   generation: number,
 ): TranscriptFrame {
-  const blockLines = [];
+  const blockLines: { text: string }[][] = [];
   const blockLineStarts: number[] = [];
   const blockIds: string[] = [];
+  const blockRenderLineCounts: number[] = [];
   const blockSettled: boolean[] = [];
   for (const block of blocks) {
     blockLineStarts.push(blockLines.length);
     blockIds.push(block.id);
+    blockRenderLineCounts.push(block.lines.length);
     blockSettled.push(block.settled ?? true);
     for (const text of block.lines) blockLines.push([{ text }]);
   }
@@ -32,6 +34,7 @@ function frameFrom(
     blockLines,
     blockLineStarts,
     blockIds,
+    blockRenderLineCounts,
     blockSettled,
     liveRows,
     generation,

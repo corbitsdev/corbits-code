@@ -1136,6 +1136,7 @@ export function App({
         bannerLines: resourceBanner,
         blockLines: eventLogState.lines,
         blockLineStarts: eventLogState.blockLineStarts,
+        blockRenderLineCounts: eventLogState.blockRenderLineCounts,
         blockIds: blocks.map((b) => b.id),
         blockSettled: blocks.map(
           (b) => b.type !== "tool_call" || resolvedCallIds.has(b.callId ?? b.id),

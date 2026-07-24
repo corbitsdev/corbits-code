@@ -21,10 +21,12 @@ function buildFrame(
   const blockLines: StyledLine[] = [];
   const blockLineStarts: number[] = [];
   const blockIds: string[] = [];
+  const blockRenderLineCounts: number[] = [];
   const blockSettled: boolean[] = [];
   for (const block of blocks) {
     blockLineStarts.push(blockLines.length);
     blockIds.push(block.id);
+    blockRenderLineCounts.push(block.lines.length);
     blockSettled.push(block.settled ?? true);
     for (const text of block.lines) blockLines.push(line(text));
   }
@@ -33,6 +35,7 @@ function buildFrame(
     blockLines,
     blockLineStarts,
     blockIds,
+    blockRenderLineCounts,
     blockSettled,
     liveRows,
     generation,
@@ -256,6 +259,35 @@ describe("advanceTranscriptCommit", () => {
     expect(after.state.committedBlockIds).toEqual(["a", "b"]);
     expect(texts(after.committed)).toEqual(["a1", "b1"]);
     expect(texts(after.live)).toEqual(["c1"]);
+  });
+
+  test("committedLines grows in place across commits without re-copying the backbuffer", () => {
+    let state = emptyTranscriptCommitState();
+    ({ state } = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "a", lines: ["a1"] },
+        { id: "b", lines: ["b1"] },
+        { id: "c", lines: ["c1"] },
+      ], 1),
+    ));
+    expect(state.committedBlockIds).toEqual(["a", "b"]);
+    const backbuffer = state.committedLines;
+
+    const after = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "a", lines: ["a1"] },
+        { id: "b", lines: ["b1"] },
+        { id: "c", lines: ["c1"] },
+        { id: "d", lines: ["d1"] },
+      ], 1),
+    );
+    // The same backing array is extended, not rebuilt, so a commit costs the new
+    // block's height rather than the whole committed history.
+    expect(after.state.committedLines).toBe(backbuffer);
+    expect(after.state.committedBlockIds).toEqual(["a", "b", "c"]);
+    expect(texts(after.committed)).toEqual(["a1", "b1", "c1"]);
   });
 
   test("committed history is exactly the banner followed by committed blocks in order", () => {
