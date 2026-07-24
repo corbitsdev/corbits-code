@@ -4,8 +4,10 @@ import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
 import {
   createTaskTool,
+  createSubAgentRunController,
   createSubAgentSessionStore,
   createSubAgentSpawnRegistryPlugin,
+  DEFAULT_SUBAGENT_DEADLINE_MS,
   DEFAULT_SUBAGENT_MAX_TURNS,
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   disposeSubAgentSession,
@@ -15,6 +17,7 @@ import {
   formatSubAgentReport,
   nextToolCallStreak,
   parseSubAgentReport,
+  appendDeadlineParentHint,
   appendNeverActedParentHint,
   partialTextFromEvent,
   subAgentToolName,
@@ -331,6 +334,41 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledReparsed.summary).toContain("cancelled");
     expect(cancelledReparsed.findings).toContain("Halfway done");
     expect(cancelledReparsed.findings).toContain("### Summary");
+
+    const deadline = forcedStopReport("deadline", "Refactored half of gate.ts");
+    const deadlineParsed = parseSubAgentReport(deadline);
+    expect(deadlineParsed.summary).toContain("deadline reached");
+    expect(deadlineParsed.findings).toContain("Refactored half of gate.ts");
+    expect(deadlineParsed.blockers).toContain("re-dispatch");
+
+    const deadlineWithHint = appendDeadlineParentHint(deadline);
+    expect(deadlineWithHint).toContain("wall-clock deadline");
+    expect(deadlineWithHint).toContain("deadline reached");
+    // Only fires for a deadline report, not for other forced-stop reasons.
+    expect(appendDeadlineParentHint(forcedStopReport("cancelled", "x"))).not.toContain(
+      "wall-clock deadline",
+    );
+  });
+
+  test("createSubAgentRunController aborts on its own deadline and reports deadlineHit", async () => {
+    const ctl = createSubAgentRunController(undefined, 20);
+    expect(ctl.signal.aborted).toBe(false);
+    expect(ctl.deadlineHit()).toBe(false);
+    await new Promise<void>((resolve) => {
+      ctl.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    expect(ctl.signal.aborted).toBe(true);
+    expect(ctl.deadlineHit()).toBe(true);
+    ctl.dispose();
+  });
+
+  test("createSubAgentRunController prefers an explicit parent cancel over the deadline", async () => {
+    const parent = new AbortController();
+    const ctl = createSubAgentRunController(parent.signal, 60_000);
+    parent.abort(new Error("operator cancel"));
+    expect(ctl.signal.aborted).toBe(true);
+    expect(ctl.deadlineHit()).toBe(false);
+    ctl.dispose();
   });
 
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {
@@ -445,6 +483,70 @@ describe("createTaskTool", () => {
     });
 
     expect(captured?.maxTurns).toBe(50);
+  });
+
+  test("forwards a host deadlineMs override to runSubAgent, defaulting when omitted", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      deadlineMs: 45_000,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, { description: "Deadline override", prompt: "Work" });
+
+    expect(captured?.deadlineMs).toBe(45_000);
+
+    let capturedDefault: RunSubAgentParams | undefined;
+    const toolWithoutOverride = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async (params) => {
+        capturedDefault = params;
+        return "done";
+      },
+    });
+    await callTask(toolWithoutOverride, { description: "No override", prompt: "Work" });
+    expect(capturedDefault?.deadlineMs).toBeUndefined();
+  });
+
+  test("a timed-out sub-agent's salvage report reaches the parent with the deadline hint", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      deadlineMs: 20,
+      run: async (params) => {
+        // Mirrors runSubAgentInner's real deadline wiring: race the "inference"
+        // against the run controller's own deadline, then salvage on expiry.
+        const runController = createSubAgentRunController(
+          params.signal,
+          params.deadlineMs ?? DEFAULT_SUBAGENT_DEADLINE_MS,
+        );
+        await new Promise<void>((resolve) => {
+          runController.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        expect(runController.deadlineHit()).toBe(true);
+        runController.dispose();
+        return forcedStopReport("deadline", "Refactored gate.ts halfway through");
+      },
+    });
+
+    const out = await callTask(tool, { description: "long job", prompt: "x" });
+    expect(out).toContain("## Summary");
+    expect(out).toContain("## Findings");
+    expect(out).toContain("Refactored gate.ts halfway through");
+    expect(out).toContain("deadline reached");
+    expect(out).toContain("wall-clock deadline");
   });
 
   test("task tier rebuilds provider from settings and wins over profile inference", async () => {
