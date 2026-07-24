@@ -34,6 +34,9 @@ export type TranscriptCommitState = {
   // reset the write cursor — otherwise a cleared session's new scrollback would
   // not appear until it grew past the old length.
   epoch: number;
+  // The session generation this state was last advanced against. A change means
+  // clear() replaced the transcript, which triggers the epoch bump and reset.
+  generation: number;
 };
 
 export function emptyTranscriptCommitState(): TranscriptCommitState {
@@ -43,6 +46,7 @@ export function emptyTranscriptCommitState(): TranscriptCommitState {
     committedBlockIdSet: new Set(),
     bannerCommitted: false,
     epoch: 0,
+    generation: 0,
   };
 }
 
@@ -56,9 +60,16 @@ export type TranscriptFrame = {
   blockLineStarts: number[];
   // Stable id per retained block, aligned with blockLineStarts.
   blockIds: string[];
+  // Whether each block is settled enough to freeze, aligned with blockIds. A
+  // block with a pending or running tool call still mutates (duration, spinner,
+  // merge with its result), so it must stay live even after it scrolls above the
+  // window. Commits stop at the first unsettled block.
+  blockSettled: boolean[];
   // Height of the live window in rows — the tail kept dynamic. Everything above
   // it (at whole-block boundaries) may commit.
   liveRows: number;
+  // Monotonic session epoch. A change means clear() replaced the transcript.
+  generation: number;
 };
 
 export type TranscriptSplit = {
@@ -73,24 +84,18 @@ function blockEnd(frame: TranscriptFrame, index: number): number {
   return frame.blockLineStarts[index + 1] ?? frame.blockLines.length;
 }
 
-// The transcript was replaced (a /clear or /new started a fresh session) when
-// none of the previously committed blocks survive in the current block set. On a
-// front-trim of the oldest blocks the most recent committed block is still
-// retained, so that case is not treated as a reset.
-function wasReplaced(prev: TranscriptCommitState, blockIds: string[]): boolean {
-  if (prev.committedBlockIds.length === 0) return false;
-  if (blockIds.length === 0) return true;
-  return !blockIds.some((id) => prev.committedBlockIdSet.has(id));
-}
-
 export function advanceTranscriptCommit(
   prev: TranscriptCommitState,
   frame: TranscriptFrame,
 ): TranscriptSplit {
-  const { bannerLines, blockLines, blockLineStarts, blockIds, liveRows } = frame;
+  const { bannerLines, blockLines, blockLineStarts, blockIds, blockSettled, liveRows, generation } = frame;
 
-  const base = wasReplaced(prev, blockIds)
-    ? { ...emptyTranscriptCommitState(), epoch: prev.epoch + 1 }
+  // A fresh session (clear/new) is signalled explicitly by a generation bump.
+  // Reset the committed set and backbuffer and remount <Static> via a new epoch.
+  // A front-trim keeps the same generation, so dropping already-committed blocks
+  // off the top is never mistaken for a reset.
+  const base = generation !== prev.generation
+    ? { ...emptyTranscriptCommitState(), epoch: prev.epoch + 1, generation }
     : prev;
 
   // Retained blocks that are already committed form a front prefix (commits
@@ -115,6 +120,9 @@ export function advanceTranscriptCommit(
   let consumed = bannerLead;
   let newCommitted = firstUncommitted;
   for (let i = firstUncommitted; i < lastIndex; i++) {
+    // A block with a pending/running tool call still mutates, so it (and every
+    // block after it, to keep scrollback append-only in order) stays live.
+    if (!blockSettled[i]) break;
     const height = blockEnd(frame, i) - (blockLineStarts[i] ?? 0);
     if (consumed + height > commitBudget) break;
     consumed += height;
@@ -136,7 +144,14 @@ export function advanceTranscriptCommit(
       committedBlockIds.push(blockIds[i]!);
       committedBlockIdSet.add(blockIds[i]!);
     }
-    state = { committedLines, committedBlockIds, committedBlockIdSet, bannerCommitted, epoch: base.epoch };
+    state = {
+      committedLines,
+      committedBlockIds,
+      committedBlockIdSet,
+      bannerCommitted,
+      epoch: base.epoch,
+      generation: base.generation,
+    };
   } else if (base !== prev) {
     state = base;
   }

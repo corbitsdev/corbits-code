@@ -1121,7 +1121,7 @@ export function App({
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.displayRevision, baseLayoutKey, contentWidth, thinkingExpanded, isExplicitlyExpanded, state.currentPlanStep, state.planDeviated],
+    [state.displayRevision, state.generation, baseLayoutKey, contentWidth, thinkingExpanded, isExplicitlyExpanded, state.currentPlanStep, state.planDeviated],
   );
 
   const resourceBanner = useMemo(
@@ -1178,7 +1178,7 @@ export function App({
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.displayRevision, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated],
+    [state.displayRevision, state.generation, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated],
   );
 
   // Split the assembled transcript into frozen scrollback (committed) and the
@@ -1188,17 +1188,30 @@ export function App({
   const transcriptCommitRef = useRef<TranscriptCommitState>(emptyTranscriptCommitState());
   const transcript = useMemo(
     () => {
+      const blocks = eventLogState.blocks;
+      // A tool_call is settled once its result lands; until then it (and the
+      // blocks after it) must stay live so a pending row is never frozen into
+      // scrollback. Parallel pending calls mean the result may belong to any
+      // earlier call, so match on callId rather than adjacency.
+      const resolvedCallIds = new Set<string>();
+      for (const block of blocks) {
+        if (block.type === "tool_result") resolvedCallIds.add(block.callId ?? block.id);
+      }
       const split = advanceTranscriptCommit(transcriptCommitRef.current, {
         bannerLines: resourceBanner,
         blockLines: eventLogState.lines,
         blockLineStarts: eventLogState.blockLineStarts,
-        blockIds: eventLogState.blocks.map((b) => b.id),
+        blockIds: blocks.map((b) => b.id),
+        blockSettled: blocks.map(
+          (b) => b.type !== "tool_call" || resolvedCallIds.has(b.callId ?? b.id),
+        ),
         liveRows: visibleRows,
+        generation: state.generation,
       });
       transcriptCommitRef.current = split.state;
       return split;
     },
-    [eventLogState, resourceBanner, visibleRows],
+    [eventLogState, resourceBanner, visibleRows, state.generation],
   );
 
   const lastToolId = useMemo(() => {

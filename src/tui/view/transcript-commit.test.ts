@@ -6,7 +6,7 @@ import {
   type TranscriptFrame,
 } from "./transcript-commit.js";
 
-type BlockSpec = { id: string; lines: string[] };
+type BlockSpec = { id: string; lines: string[]; settled?: boolean };
 
 function line(text: string): StyledLine {
   return [{ text }];
@@ -16,13 +16,16 @@ function buildFrame(
   banner: string[],
   blocks: BlockSpec[],
   liveRows: number,
+  generation = 0,
 ): TranscriptFrame {
   const blockLines: StyledLine[] = [];
   const blockLineStarts: number[] = [];
   const blockIds: string[] = [];
+  const blockSettled: boolean[] = [];
   for (const block of blocks) {
     blockLineStarts.push(blockLines.length);
     blockIds.push(block.id);
+    blockSettled.push(block.settled ?? true);
     for (const text of block.lines) blockLines.push(line(text));
   }
   return {
@@ -30,7 +33,9 @@ function buildFrame(
     blockLines,
     blockLineStarts,
     blockIds,
+    blockSettled,
     liveRows,
+    generation,
   };
 }
 
@@ -153,7 +158,7 @@ describe("advanceTranscriptCommit", () => {
     expect(texts(after.live)).toEqual(["e1"]);
   });
 
-  test("a fresh transcript resets committed history", () => {
+  test("a generation bump resets committed history and remounts via a new epoch", () => {
     let state = emptyTranscriptCommitState();
     ({ state } = advanceTranscriptCommit(
       state,
@@ -165,15 +170,92 @@ describe("advanceTranscriptCommit", () => {
     ));
     expect(state.committedBlockIds.length).toBeGreaterThan(0);
 
-    // All-new ids: a /clear replaced the transcript.
+    // clear() reset blockSeq, so the fresh session reuses the prior ids (b1...).
+    // Only the explicit generation bump marks the transcript as replaced.
     const cleared = advanceTranscriptCommit(
       state,
-      buildFrame(["banner"], [{ id: "x", lines: ["x1"] }], 10),
+      buildFrame(["banner"], [{ id: "a", lines: ["fresh"] }], 10, 1),
     );
     expect(cleared.committed).toEqual([]);
     expect(cleared.state.committedBlockIds).toEqual([]);
     expect(cleared.state.epoch).toBe(state.epoch + 1);
-    expect(texts(cleared.live)).toEqual(["banner", "x1"]);
+    expect(cleared.state.generation).toBe(1);
+    expect(texts(cleared.live)).toEqual(["banner", "fresh"]);
+  });
+
+  test("reused block ids without a generation bump are not treated as a reset", () => {
+    let state = emptyTranscriptCommitState();
+    ({ state } = advanceTranscriptCommit(
+      state,
+      buildFrame(["banner"], [
+        { id: "a", lines: ["a1"] },
+        { id: "b", lines: ["b1"] },
+        { id: "c", lines: ["c1"] },
+      ], 1),
+    ));
+    const epochBefore = state.epoch;
+
+    // A front-trim recycles no ids here; the point is that even a fully disjoint
+    // id set at the same generation must not bump the epoch or drop scrollback.
+    const after = advanceTranscriptCommit(
+      state,
+      buildFrame(["banner"], [
+        { id: "a", lines: ["a1"] },
+        { id: "b", lines: ["b1"] },
+        { id: "c", lines: ["c1"] },
+        { id: "d", lines: ["d1"] },
+      ], 1),
+    );
+    expect(after.state.epoch).toBe(epochBefore);
+    expect(after.state.committedBlockIds).toEqual(["a", "b", "c"]);
+  });
+
+  test("a block with a pending tool call is never committed", () => {
+    const frame = buildFrame(
+      [],
+      [
+        { id: "a", lines: ["a1"] },
+        { id: "pending", lines: ["p1"], settled: false },
+        { id: "c", lines: ["c1"] },
+        { id: "d", lines: ["d1"] },
+      ],
+      1,
+    );
+    const { state, committed, live } = advanceTranscriptCommit(emptyTranscriptCommitState(), frame);
+    // "a" settles and fits under budget, but the pending block halts the commit
+    // walk, so it and everything after it stay live.
+    expect(state.committedBlockIds).toEqual(["a"]);
+    expect(texts(committed)).toEqual(["a1"]);
+    expect(texts(live)).toEqual(["p1", "c1", "d1"]);
+  });
+
+  test("a pending block commits once its tool call settles", () => {
+    let state = emptyTranscriptCommitState();
+    const pendingFrame = buildFrame(
+      [],
+      [
+        { id: "a", lines: ["a1"] },
+        { id: "b", lines: ["b1"], settled: false },
+        { id: "c", lines: ["c1"] },
+      ],
+      1,
+    );
+    ({ state } = advanceTranscriptCommit(state, pendingFrame));
+    expect(state.committedBlockIds).toEqual(["a"]);
+
+    const settledFrame = buildFrame(
+      [],
+      [
+        { id: "a", lines: ["a1"] },
+        { id: "b", lines: ["b1"] },
+        { id: "c", lines: ["c1"] },
+      ],
+      1,
+    );
+    const after = advanceTranscriptCommit(state, settledFrame);
+    expect(after.state.committedBlockIds).toEqual(["a", "b"]);
+    expect(texts(after.committed)).toEqual(["a1", "b1"]);
+    expect(texts(after.live)).toEqual(["c1"]);
   });
 
   test("committed history is exactly the banner followed by committed blocks in order", () => {
