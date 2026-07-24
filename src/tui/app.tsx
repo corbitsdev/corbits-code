@@ -444,10 +444,11 @@ export type AppProps = {
   // The TRUE global settings file path (never a --config/project file). The
   // `onboarded` flag is always written here. Defaults to globalSettingsPath.
   globalOnboardingPath?: string;
-  // TEMPORARY (see ../config/migrate-legacy-dir.ts): true when a legacy
-  // `~/.intercode` directory exists and the user has not yet been asked
-  // whether to delete it. Drives a one-time confirm prompt.
+  // TEMPORARY (see ../config/migrate-legacy-dir.ts): true when a successful
+  // legacy-dir copy stamped migrationLegacyDirCopied, the legacy path still
+  // exists, and the user has not yet answered the cleanup prompt.
   showLegacyDirCleanupPrompt?: boolean;
+
   // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
   // from stdin before they reach useInput (see createFilteredStdin).
   mouseEvents?: EventEmitter;
