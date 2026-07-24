@@ -312,7 +312,7 @@ class SubAgentDirector extends DefaultDirector {
     if (recovery !== null) return recovery;
 
     if (event.type === "inference.done") {
-      this.compaction.noteInferenceDone(event, state.turns.length);
+      this.compaction.noteInferenceDone(event, state.turns);
       this.turnsCompleted++;
       const content = event.turn.content as ReadonlyArray<{
         type: string;

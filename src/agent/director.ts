@@ -590,7 +590,7 @@ class ChatDirectorImpl extends DefaultDirector {
     }
 
     if (event.type === "inference.done") {
-      this.compaction.noteInferenceDone(event, state?.turns?.length ?? 0);
+      this.compaction.noteInferenceDone(event, state.turns);
     }
 
     const base = await super.decide(event, state, capabilities);
