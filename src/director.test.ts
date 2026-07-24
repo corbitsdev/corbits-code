@@ -820,5 +820,48 @@ describe("session turn and token caps", () => {
       expect(isHalt(actions)).toBe(false);
     }
   });
+
+  const manageTasksEvent = (status: "todo" | "doing" | "done") =>
+    makeInferenceDoneEvent([
+      { id: "m", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "work", status }] } },
+    ]);
+
+  test("the turn cap still halts an interactive session when a task is left open on the capping turn", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTurns: 2, interactive: true },
+    );
+    // Turn 1: leaves a task open, well under the cap.
+    await director.decide(manageTasksEvent("doing"), stateWithTokens(0), mockCapabilities);
+    // Turn 2: reaches the cap while the task is still open. Without the fix,
+    // the open-task nudge rewrites the halt's wait into a fresh infer(),
+    // swallowing the cap and continuing the loop.
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(isHalt(actions)).toBe(true);
+    expect(actions.some((a) => a.type === "infer")).toBe(false);
+  });
+
+  test("the turn cap still aborts a headless run when a task is left open on the capping turn", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTurns: 2, interactive: false },
+    );
+    await director.decide(manageTasksEvent("doing"), stateWithTokens(0), mockCapabilities);
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(isAbort(actions)).toBe(true);
+    expect(actions.some((a) => a.type === "infer")).toBe(false);
+  });
+
+  test("the open-task nudge still fires normally when no cap is breached", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTurns: 100, interactive: true },
+    );
+    await director.decide(manageTasksEvent("doing"), stateWithTokens(0), mockCapabilities);
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+    expect(isHalt(actions)).toBe(false);
+    expect(isAbort(actions)).toBe(false);
+  });
 });
 
