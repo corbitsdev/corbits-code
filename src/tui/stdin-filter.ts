@@ -32,32 +32,6 @@ const TRAILING_PARTIAL = /(?:\x1b)?\[<[\d;]*$/;
 const SCROLL_UP_BUTTON = 64;
 const SCROLL_DOWN_BUTTON = 65;
 
-// SGR mouse mode escape sequences. Mode 1000 enables basic button-event
-// reporting; mode 1006 switches to the SGR extended format that supports
-// coordinates beyond 223 and encodes the button value as a decimal number in
-// the sequence body rather than as a single 8-bit byte. Enabling reporting is
-// what makes the terminal emit the sequences this module then filters, so the
-// two halves live together. These are terminal-level side effects, owned by the
-// runner's lifecycle rather than a React component.
-const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1006h";
-const MOUSE_DISABLE = "\x1b[?1000l\x1b[?1006l";
-
-// Enable SGR mouse reporting and return a function that disables it. Mirrors
-// enterAltScreen: an `exit` handler restores the terminal on abrupt exit so a
-// crash never leaves it stuck emitting mouse sequences.
-export function enableMouseReporting(): () => void {
-  if (!process.stdin.isTTY) return () => {};
-  const disable = (): void => {
-    process.stdout.write(MOUSE_DISABLE);
-  };
-  process.stdout.write(MOUSE_ENABLE);
-  process.once("exit", disable);
-  return (): void => {
-    process.removeListener("exit", disable);
-    disable();
-  };
-}
-
 export type FilteredStdin = {
   stdin: NodeJS.ReadStream;
   mouse: EventEmitter;
