@@ -54,6 +54,30 @@ describe("migrateLegacyGlobalDir", () => {
     }
   });
 
+  test("copies when new dir only has a pricing cache", async () => {
+    const home = await makeTempHome();
+    try {
+      const legacy = legacyGlobalDirPath(home);
+      await mkdir(legacy, { recursive: true });
+      await writeFile(join(legacy, "settings.json"), '{"providers":{"legacy":{}}}');
+
+      const newDir = newGlobalDirPath(home);
+      await mkdir(join(newDir, "cache"), { recursive: true });
+      await writeFile(join(newDir, "cache", "pricing.json"), "{}");
+
+      const result = await migrateLegacyGlobalDir(home);
+
+      expect(result.copied).toBe(true);
+      expect(await readFile(join(newDir, "settings.json"), "utf8")).toBe(
+        '{"providers":{"legacy":{}}}',
+      );
+      // Existing cache left in place.
+      expect(await readFile(join(newDir, "cache", "pricing.json"), "utf8")).toBe("{}");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("never overwrites when new dir already has content", async () => {
     const home = await makeTempHome();
     try {

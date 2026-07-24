@@ -51,6 +51,22 @@ async function isMissingOrEmptyDir(dir: string): Promise<boolean> {
   return entries.length === 0;
 }
 
+// True when `dir` has no user settings yet. A pricing-cache-only tree is not a
+// completed migration — bootstrap can create `~/.corbits/cache` independently
+// of credentials and other state that still lives under the legacy name.
+async function isUnclaimedSettingsDir(dir: string): Promise<boolean> {
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch (err) {
+    if (isENOENT(err)) return true;
+    throw err;
+  }
+  if (entries.length === 0) return true;
+  if (entries.length === 1 && entries[0] === "cache") return true;
+  return false;
+}
+
 function isENOENT(err: unknown): boolean {
   return (
     typeof err === "object" &&
@@ -62,14 +78,13 @@ function isENOENT(err: unknown): boolean {
 
 export type MigrateResult = { copied: boolean };
 
-// Copies `legacyDir` into `newDir` recursively, only when `newDir` is missing
-// or empty and `legacyDir` exists. Never overwrites, never deletes. Any
-// failure is caught, logged as a warning, and reported as `{ copied: false }`
-// so startup always continues normally.
+// Copies `legacyDir` into `newDir` recursively when `newDir` is unclaimed
+// (missing, empty, or only a pricing cache) and `legacyDir` exists. Never
+// overwrites existing files, never deletes. Any failure is caught, logged as
+// a warning, and reported as `{ copied: false }` so startup always continues.
 async function migrateDir(legacyDir: string, newDir: string, label: string): Promise<MigrateResult> {
   try {
-    const newIsMissingOrEmpty = await isMissingOrEmptyDir(newDir);
-    if (!newIsMissingOrEmpty) return { copied: false };
+    if (!(await isUnclaimedSettingsDir(newDir))) return { copied: false };
 
     const legacyExists = !(await isMissingOrEmptyDir(legacyDir).catch((err) => {
       if (isENOENT(err)) return true;
@@ -91,7 +106,7 @@ async function migrateDir(legacyDir: string, newDir: string, label: string): Pro
 }
 
 // Global `~/.intercode` -> `~/.corbits` migration. Safe to call on every
-// startup; it is a no-op once the new directory has any content.
+// startup; it is a no-op once the new directory holds user settings.
 export async function migrateLegacyGlobalDir(home: string = homedir()): Promise<MigrateResult> {
   return migrateDir(legacyGlobalDirPath(home), newGlobalDirPath(home), "global settings");
 }
