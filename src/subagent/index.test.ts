@@ -379,6 +379,94 @@ describe("createTaskTool", () => {
     expect(captured?.maxTurns).toBe(50);
   });
 
+  test("task tier rebuilds provider from settings and wins over profile inference", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const settings = {
+      providers: {
+        "clever-p": { baseURL: "http://clever", apiKey: "k" },
+        "profile-p": { baseURL: "http://profile", apiKey: "k" },
+      },
+      tiers: {
+        clever: { provider: "clever-p", model: "clever-model" },
+        standard: { provider: "profile-p", model: "profile-model" },
+      },
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings,
+      profiles: [
+        {
+          id: "deep",
+          tier: "standard",
+          inference: { provider: "profile-p", model: "pinned-model" },
+        },
+      ],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, {
+      description: "tier-override",
+      prompt: "x",
+      agent: "deep",
+      tier: "clever",
+    });
+    expect(captured?.provider.providerName).toBe("clever-p");
+    expect(captured?.provider.model).toBe("clever-model");
+    expect(captured?.tier).toBe("clever");
+  });
+
+  test("profile tier still applies when task omits tier", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const settings = {
+      providers: {
+        "profile-p": { baseURL: "http://profile", apiKey: "k" },
+      },
+      tiers: {
+        standard: { provider: "profile-p", model: "profile-model" },
+      },
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings,
+      profiles: [{ id: "deep", tier: "standard" }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, { description: "profile-tier", prompt: "x", agent: "deep" });
+    expect(captured?.provider.providerName).toBe("profile-p");
+    expect(captured?.provider.model).toBe("profile-model");
+    expect(captured?.tier).toBe("standard");
+  });
+
+  test("unconfigured task tier fails closed", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings: { providers: {} },
+      run: async () => "done",
+    });
+    const out = await callTask(tool, {
+      description: "bad-tier",
+      prompt: "x",
+      tier: "clever",
+    });
+    expect(out).toContain("Error:");
+    expect(out).toContain("clever");
+    expect(out).toContain("not configured");
+  });
+
   test("rejects task maxTurns above the cap", async () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
