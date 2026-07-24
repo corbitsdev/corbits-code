@@ -26,6 +26,17 @@ function inferenceDone(input: number): Extract<ReactorInboundEvent, { type: "inf
   } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
 }
 
+function inferenceDoneWithoutUsage(
+  textLength: number,
+): Extract<ReactorInboundEvent, { type: "inference.done" }> {
+  return {
+    type: "inference.done",
+    turn: { role: "assistant", content: [{ type: "text", text: "x".repeat(textLength) }] },
+    usage: usage(0),
+    source: { sourceId: "s", provider: "p", model: "m" },
+  } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
+}
+
 function toolDone(): ReactorInboundEvent {
   return {
     type: "tool.done",
@@ -146,6 +157,22 @@ describe("compaction governor", () => {
     ]);
     expect(continuations).toBe(0);
     expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
+  });
+
+  test("estimates context size from turn content when usage is missing and arms compaction", () => {
+    const governor = createCompactionGovernor(() => {});
+    const overThresholdChars = (compactionThresholdFor("m") + 1) * 4;
+    governor.noteInferenceDone(inferenceDoneWithoutUsage(overThresholdChars), 10);
+
+    const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("stays inert when usage is missing but the estimated content is small", () => {
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDoneWithoutUsage(40), 10);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
   });
 
   test("only intercepts on tool.done with a pending infer", () => {
