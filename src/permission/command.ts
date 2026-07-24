@@ -145,7 +145,31 @@ export function splitChainedCommand(command: string): string[] {
     current += ch;
   }
   push();
-  return segments;
+  return coalesceRedirectRemnants(segments);
+}
+
+// A chain operator can strand a redirect fd-duplication target as its own
+// segment (e.g. a model emitting "cmd ; 1" or "cmd && &1" where the intended
+// redirect got split across the operator). Such a fragment tokenizes to
+// something that is never a real program: bare digits, a bare "-", or "&"
+// paired with digits/"-". Surfacing it as its own "Run shell command" approval
+// is spurious, so fold it back into the command it belongs to.
+const REDIRECT_REMNANT = /^(-?\d+|&-?\d*)$/;
+
+function isRedirectRemnant(segment: string): boolean {
+  return REDIRECT_REMNANT.test(segment.trim());
+}
+
+function coalesceRedirectRemnants(segments: string[]): string[] {
+  const coalesced: string[] = [];
+  for (const segment of segments) {
+    if (coalesced.length > 0 && isRedirectRemnant(segment)) {
+      coalesced[coalesced.length - 1] = `${coalesced[coalesced.length - 1]} ${segment}`;
+      continue;
+    }
+    coalesced.push(segment);
+  }
+  return coalesced;
 }
 
 // The inner chain of a segment that is exactly one parenthesised group, or null
