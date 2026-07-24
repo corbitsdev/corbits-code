@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
 import {
   createAgentIndex,
   createSearchAgentsTool,
@@ -108,6 +109,24 @@ describe("formatAgentSearchResults", () => {
     expect(injected.length).toBeLessThan(body.length);
     expect(injected.startsWith("x".repeat(MAX_AGENT_SEARCH_BODY_CHARS))).toBe(true);
   });
+
+  test("redacts secret-shaped content in profile body at format layer", () => {
+    // search_agents is not on the posix middleware path; scrub must happen here.
+    const secret = "sk-live-abc123xyz789012345678";
+    const text = formatAgentSearchResults([
+      {
+        id: "leaky",
+        description: "Profile with credential-shaped body text",
+        source: "claude",
+        systemPromptRole: `Use API_KEY=${secret} when calling the provider.`,
+      },
+    ]);
+    expect(text).toContain("### leaky");
+    expect(text).toContain("System prompt / body:");
+    expect(text).toContain(CREDENTIAL_REDACTION);
+    expect(text).not.toContain(secret);
+    expect(text).not.toContain("sk-live-abc123");
+  });
 });
 
 describe("createSearchAgentsTool", () => {
@@ -158,5 +177,26 @@ describe("createSearchAgentsTool", () => {
     if (tool.kind !== "string") throw new Error("expected string tool");
     const text = await tool.handler({ query: "   " }, new AbortController().signal);
     expect(text).toBe("No agent profiles are loaded.");
+  });
+
+  test("handler redacts secret-shaped content in returned profile body", async () => {
+    // End-to-end through the tool handler (not only the posix middleware unit test).
+    const secret = "sk-live-abc123xyz789012345678";
+    const tool = createSearchAgentsTool(() => [
+      {
+        id: "leaky",
+        description: "Leaks credentials in body",
+        source: "claude",
+        // Line-start env assignment + high-confidence sk- token both match the scrubber.
+        systemPromptRole: `TOKEN=supersecretvalue\nUse key ${secret} for the API.`,
+      },
+    ]);
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const text = await tool.handler({ query: "leaky" }, new AbortController().signal);
+    expect(text).toContain("### leaky");
+    expect(text).toContain(CREDENTIAL_REDACTION);
+    expect(text).not.toContain(secret);
+    expect(text).not.toContain("supersecretvalue");
+    expect(text).not.toContain("sk-live-abc123");
   });
 });

@@ -2,6 +2,7 @@ import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
+import { scrubSecretShapedToolResultContent } from "../plugins/tool-result-secret-scrub.js";
 import type { AgentProfile } from "./profiles.js";
 
 function tokenize(text: string): string[] {
@@ -84,13 +85,19 @@ export function formatAgentSearchResults(profiles: readonly AgentProfile[]): str
     return "No agent profiles matched. Try broader terms (e.g. review, explore, implement) or list_dir on .agents/agents/.";
   }
   const entries = profiles.map(formatAgentProfileEntry);
-  return [
-    "Matching agent profiles (pass id to task(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
-    "",
-    ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
-    "",
-    "Spawn with task(description, prompt, agent=<id>). For a team, call task once per member (parallel in one turn when independent).",
-  ].join("\n");
+  // Live scrub for search_agents: this tool is not on the posix middleware path, so
+  // SCRUBBABLE_TOOLS in tool-result-secret-scrub-plugin cannot reach it. Scrub here
+  // before the formatted string becomes a tool result (marketplace/plugin bodies may
+  // contain secret-shaped substrings).
+  return scrubSecretShapedToolResultContent(
+    [
+      "Matching agent profiles (pass id to task(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
+      "",
+      ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
+      "",
+      "Spawn with task(description, prompt, agent=<id>). For a team, call task once per member (parallel in one turn when independent).",
+    ].join("\n"),
+  );
 }
 
 export const searchAgentsDefinition: ToolDefinition = {
