@@ -306,6 +306,12 @@ describe("sub-agent stop helpers", () => {
     const withHint = appendNeverActedParentHint(reparsed);
     expect(withHint).toContain("planning/prose only");
     expect(withHint).toContain("without using any tools");
+
+    const cancelled = forcedStopReport("cancelled", "Partial findings from tools");
+    const cancelledParsed = parseSubAgentReport(cancelled);
+    expect(cancelledParsed.summary).toContain("cancelled");
+    expect(cancelledParsed.findings).toContain("Partial findings");
+    expect(cancelledParsed.blockers).toContain("re-dispatch");
   });
 });
 
@@ -505,14 +511,70 @@ describe("createTaskTool", () => {
           );
           parent.abort();
         });
-        return "done";
+        // Injected run returns salvage after cancel-with-progress; task must keep it.
+        return forcedStopReport("cancelled", "partial from tools");
       },
     });
     const out = await callTask(tool, { description: "signal", prompt: "x" }, parent.signal);
     expect(linkedAbort).toBe(true);
     expect(captured?.signal?.aborted).toBe(true);
-    // Abort during run is reported as cancel, not a completed report.
+    expect(out).toContain("cancelled");
+    expect(out).toContain("partial from tools");
+    expect(out).toContain("## Summary");
+  });
+
+  test("keeps a returned result when strip cancel races after run resolves", async () => {
+    const sessions = createSubAgentSessionStore();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      sessions,
+      run: async () => {
+        const row = sessions.list().find((s) => s.description === "race");
+        if (row !== undefined) sessions.cancel(row.id, "Cancelled by operator");
+        return forcedStopReport("cancelled", "salvaged work");
+      },
+    });
+    const out = await callTask(tool, { description: "race", prompt: "x" });
+    expect(out).toContain("salvaged work");
+    expect(out).toContain("## Summary");
+    expect(out).not.toBe('Sub-agent "race" cancelled by operator.');
+    const row = sessions.list().find((s) => s.description === "race");
+    expect(row?.status).toBe("cancelled");
+  });
+
+  test("pre-progress AbortError still surfaces as bare cancel", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      },
+    });
+    const out = await callTask(tool, { description: "pre-progress", prompt: "x" });
     expect(out).toContain("cancelled by operator");
+    expect(out).not.toContain("## Summary");
+  });
+
+  test("injected cancel salvage is reported to the parent with Summary/Findings", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async () => forcedStopReport("cancelled", "Found path in gate.ts"),
+    });
+    const out = await callTask(tool, { description: "salvage", prompt: "x" });
+    expect(out).toContain("## Summary");
+    expect(out).toContain("## Findings");
+    expect(out).toContain("gate.ts");
+    expect(out).toContain("cancelled");
   });
 
   test("inference auth failure marks tool error and fails the sub-agent session", async () => {

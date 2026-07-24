@@ -187,13 +187,23 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
   return "";
 }
 
+/** Best-effort partial assistant text from a stream event (inference.done). */
+export function partialTextFromEvent(event: ReactorEmittedEvent): string | null {
+  if (event.type !== "inference.done") return null;
+  const content = (event as { turn?: { content?: ReadonlyArray<{ type: string }> } }).turn
+    ?.content;
+  if (content === undefined) return null;
+  const text = lastText(content);
+  return text.length > 0 ? text : null;
+}
+
 /**
  * Build the parent-facing report when a leaf is force-stopped. There is no
  * further inference, so this must already be a full envelope — not an
  * instruction asking the finished worker to summarize.
  */
 export function forcedStopReport(
-  reason: "no-progress" | "turn-budget" | "never-acted",
+  reason: "no-progress" | "turn-budget" | "never-acted" | "cancelled",
   partialText: string,
 ): string {
   const summary =
@@ -201,13 +211,17 @@ export function forcedStopReport(
       ? "Stopped: repeated the same tool calls with no progress."
       : reason === "never-acted"
         ? "Stopped: completed without using any tools."
-        : "Turn budget reached before finishing.";
+        : reason === "cancelled"
+          ? "Stopped: cancelled by operator before finishing."
+          : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
       : reason === "never-acted"
         ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
-        : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+        : reason === "cancelled"
+          ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
+          : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (the common never-acted case: model returns the
@@ -817,12 +831,15 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // progress without dumping the full sub-agent event stream into the chat
   // transcript (which would interleave sub-agent text with the parent turn).
   const toolNamesUsed: string[] = [];
+  let lastPartialText = "";
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);
     if (name !== null) {
       toolNamesUsed.push(name);
       params.onProgress?.({ description: params.description, toolName: name });
     }
+    const partial = partialTextFromEvent(event);
+    if (partial !== null) lastPartialText = partial;
     params.onEvent?.(event);
   };
   streamPromise = consumeStream(agent.stream(), streamSink);
@@ -863,24 +880,41 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       // treat a pre-send check as permanent.
       if (signal !== undefined && signal.aborted) throw abortError(signal);
     };
-    ensureNotAborted();
-    const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
-    const fresh = await refreshInferenceSourceBundle(
-      bundle.sources,
-      bundle.defaultSource,
-      params.catalog,
-    );
-    agent.setSources(fresh.sources, fresh.defaultSource);
-    const result = await agent.send(fullPrompt, sendOpts);
-    ensureNotAborted();
-    const reply =
-      result.reply.trim().length > 0
-        ? result.reply.trim()
-        : "Sub-agent finished without a textual result.";
-    // Normalize into the structured envelope so the parent always gets a
-    // consistent shape even when the model rambling-returns free-form prose.
-    const report = formatSubAgentReport(parseSubAgentReport(reply));
-    return appendActivitySummary(report, toolNamesUsed);
+    try {
+      ensureNotAborted();
+      const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
+      const fresh = await refreshInferenceSourceBundle(
+        bundle.sources,
+        bundle.defaultSource,
+        params.catalog,
+      );
+      agent.setSources(fresh.sources, fresh.defaultSource);
+      const result = await agent.send(fullPrompt, sendOpts);
+      ensureNotAborted();
+      const reply =
+        result.reply.trim().length > 0
+          ? result.reply.trim()
+          : "Sub-agent finished without a textual result.";
+      // Normalize into the structured envelope so the parent always gets a
+      // consistent shape even when the model rambling-returns free-form prose.
+      const report = formatSubAgentReport(parseSubAgentReport(reply));
+      return appendActivitySummary(report, toolNamesUsed);
+    } catch (err) {
+      if (isSubAgentCancelError(err, params.signal)) {
+        // Cancel after any tools or assistant prose returns a structured salvage
+        // report so the parent keeps partial work; pre-progress cancel still
+        // surfaces as a bare AbortError for the task tool's cancel path.
+        const hadProgress =
+          toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
+        if (hadProgress) {
+          return appendActivitySummary(
+            forcedStopReport("cancelled", lastPartialText),
+            toolNamesUsed,
+          );
+        }
+      }
+      throw err;
+    }
   } finally {
     await disposeSubAgentSession({
       ...(params.signal !== undefined ? { signal: params.signal } : {}),
@@ -891,6 +925,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     });
   }
 }
+
 
 function abortError(signal: AbortSignal): Error {
   const reason = signal.reason;
@@ -1347,22 +1382,29 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           maxTurns: resolvedMaxTurns,
         };
         const result = await run(params);
-        // Race: strip/parent may cancel after run resolves but before complete.
-        if (
-          session !== undefined &&
-          deps.sessions?.get(session.id)?.status === "cancelled"
-        ) {
-          return taskToolResult(call.id, cancelledSubAgentMessage(description));
-        }
-        if (childCtl.signal.aborted) {
-          if (session !== undefined) {
-            deps.sessions?.cancel(session.id, cancelReason(childCtl.signal));
+        // Operator cancel may race after run resolves. Keep strip status cancelled
+        // when requested, but never discard a returned body (including salvage).
+        const wasCancelled =
+          childCtl.signal.aborted ||
+          (session !== undefined &&
+            deps.sessions?.get(session.id)?.status === "cancelled");
+        if (wasCancelled) {
+          if (
+            session !== undefined &&
+            deps.sessions?.get(session.id)?.status === "running"
+          ) {
+            deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          return taskToolResult(call.id, cancelledSubAgentMessage(description));
+          const reported = appendTurnBudgetParentHint(result);
+          return taskToolResult(
+            call.id,
+            `Sub-agent "${description}" reported:\n\n${reported}`,
+          );
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
         const reported = appendNeverActedParentHint(appendTurnBudgetParentHint(result));
         return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
+
       } catch (err) {
         if (
           isSubAgentCancelError(err, childCtl.signal) ||
