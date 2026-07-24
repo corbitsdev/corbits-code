@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { EventEmitter } from "node:events";
+import { createElement } from "react";
+import { render } from "ink-testing-library";
+import { Text } from "ink";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../inference-abort.js";
@@ -11,6 +15,7 @@ import {
   capStoredToolResultContent,
   createAgentStreamState,
   settleSubAgentOnToolResult,
+  useAgentStream,
   type ContentBlockData,
 } from "./use-stream.js";
 import { resolveSessionSpinnerLabel } from "./session-chrome.js";
@@ -1010,5 +1015,24 @@ describe("turnsToContentBlocks", () => {
     expect(call?.type === "tool_call" && call.arguments.length).toBeLessThanOrEqual(MAX_STORED_TOOL_ARGUMENT_CHARS);
     const result = blocks.find((b) => b.type === "tool_result");
     expect(result?.type === "tool_result" && result.content).toContain("characters omitted from stored tool output");
+  });
+});
+
+function StreamHarness({ emitter }: { emitter: EventEmitter }) {
+  const view = useAgentStream(emitter);
+  return createElement(Text, null, view.status);
+}
+
+describe("useAgentStream drain timers", () => {
+  test("an idle session schedules no periodic drain timers", () => {
+    const setIntervalSpy = spyOn(global, "setInterval");
+    const emitter = new EventEmitter();
+
+    const { unmount } = render(createElement(StreamHarness, { emitter }));
+
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+
+    unmount();
+    setIntervalSpy.mockRestore();
   });
 });
