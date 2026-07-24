@@ -57,6 +57,16 @@ function rowColor(kind: DiffRowKind): string {
   return color("diffContext");
 }
 
+// Context rows carry no wash — only the changed content gets one, so an
+// unchanged line in the middle of a hunk still reads as unchanged. Returned as
+// a spreadable prop object rather than `string | undefined` so callers never
+// assign `backgroundColor: undefined`, which exactOptionalPropertyTypes rejects.
+function rowBgProp(kind: DiffRowKind): { backgroundColor: string } | Record<string, never> {
+  if (kind === "add") return { backgroundColor: color("diffAddedBg") };
+  if (kind === "del") return { backgroundColor: color("diffRemovedBg") };
+  return {};
+}
+
 // Attach each row's position in the old/new file before any collapsing, so a
 // hidden stretch still leaves the surviving rows numbered correctly.
 function numberRows(rows: DiffRow[]): NumberedRow[] {
@@ -130,7 +140,7 @@ function lcsTable(a: string[], b: string[]): number[][] {
 export function wordDiffSegments(line: string, kind: "add" | "del", paired: string): StyledSegment[] {
   const self = tokenizeWords(line);
   const other = tokenizeWords(paired);
-  if (self.length === 0) return [{ text: line, color: rowColor(kind) }];
+  if (self.length === 0) return [{ text: line, color: rowColor(kind), ...rowBgProp(kind) }];
 
   const lcs = lcsTable(self, other);
   const out: StyledSegment[] = [];
@@ -144,14 +154,14 @@ export function wordDiffSegments(line: string, kind: "add" | "del", paired: stri
       i++;
       j++;
     } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
-      out.push({ text: self[i]!, color: rowColor(kind) });
+      out.push({ text: self[i]!, color: rowColor(kind), ...rowBgProp(kind) });
       i++;
     } else {
       j++;
     }
   }
-  while (i < n) out.push({ text: self[i++]!, color: rowColor(kind) });
-  return out.length > 0 ? out : [{ text: line, color: rowColor(kind) }];
+  while (i < n) out.push({ text: self[i++]!, color: rowColor(kind), ...rowBgProp(kind) });
+  return out.length > 0 ? out : [{ text: line, color: rowColor(kind), ...rowBgProp(kind) }];
 }
 
 function sliceSegments(segments: StyledSegment[], start: number, end: number): StyledSegment[] {
@@ -197,11 +207,12 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
       : row.kind === "add" && rows[r - 1]?.kind === "del" ? rows[r - 1]!.text
       : undefined;
     const segColor = rowColor(row.kind);
+    const segBgProp = rowBgProp(row.kind);
     let bodySegs: StyledSegment[];
     if ((row.kind === "add" || row.kind === "del") && paired !== undefined && paired !== row.text) {
       bodySegs = wordDiffSegments(row.text, row.kind, paired);
     } else {
-      bodySegs = [{ text: row.text, color: segColor }];
+      bodySegs = [{ text: row.text, color: segColor, ...segBgProp }];
     }
     const ranges = row.text.length === 0 ? [{ start: 0, end: 0 }] : wrapRanges(row.text, bodyWidth);
     for (let idx = 0; idx < ranges.length; idx++) {
@@ -209,8 +220,8 @@ export function renderDiff(oldText: string, newText: string, width: number, opts
       const piece = sliceSegments(bodySegs, range.start, range.end);
       lines.push([
         ...(showNumbers ? [{ text: idx === 0 ? numCol : " ".repeat(numColWidth), color: numColor }] : []),
-        { text: idx === 0 ? sign : "  ", color: segColor },
-        ...(piece.length > 0 ? piece : [{ text: "", color: segColor }]),
+        { text: idx === 0 ? sign : "  ", color: segColor, ...segBgProp },
+        ...(piece.length > 0 ? piece : [{ text: "", color: segColor, ...segBgProp }]),
       ]);
     }
   }
