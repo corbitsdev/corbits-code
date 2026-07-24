@@ -9,6 +9,7 @@ import {
   migrateLegacyLocalDir,
   newGlobalDirPath,
 } from "./migrate-legacy-dir.js";
+import { loadSettings, markLegacyDirMigrated } from "./settings.js";
 
 async function makeTempHome(): Promise<string> {
   return mkdtemp(join(tmpdir(), "migrate-legacy-dir-test-"));
@@ -135,6 +136,28 @@ describe("migrateLegacyGlobalDir", () => {
       await rm(home, { recursive: true, force: true });
     }
   });
+
+  test("does not treat non-cache junk as unclaimed", async () => {
+    const home = await makeTempHome();
+    try {
+      const legacy = legacyGlobalDirPath(home);
+      await mkdir(legacy, { recursive: true });
+      await writeFile(join(legacy, "settings.json"), '{"providers":{"legacy":{}}}');
+
+      const newDir = newGlobalDirPath(home);
+      await mkdir(newDir, { recursive: true });
+      await writeFile(join(newDir, ".DS_Store"), "");
+
+      const result = await migrateLegacyGlobalDir(home);
+
+      expect(result.copied).toBe(false);
+      expect(await readFile(join(legacy, "settings.json"), "utf8")).toBe(
+        '{"providers":{"legacy":{}}}',
+      );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("migrateLegacyLocalDir", () => {
@@ -152,6 +175,53 @@ describe("migrateLegacyLocalDir", () => {
       expect(await readFile(join(cwd, ".intercode", "settings.json"), "utf8")).toBe('{"provider":"x"}');
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("markLegacyDirMigrated", () => {
+  const validSettings = JSON.stringify({
+    providers: { legacy: { baseURL: "https://example.com", models: ["m"] } },
+  });
+
+  test("stamps migrationLegacyDirCopied after a successful copy", async () => {
+    const home = await makeTempHome();
+    try {
+      const legacy = legacyGlobalDirPath(home);
+      await mkdir(legacy, { recursive: true });
+      await writeFile(join(legacy, "settings.json"), validSettings);
+
+      expect((await migrateLegacyGlobalDir(home)).copied).toBe(true);
+
+      const settingsPath = join(newGlobalDirPath(home), "settings.json");
+      await markLegacyDirMigrated(settingsPath);
+
+      const stamped = await loadSettings(settingsPath);
+      expect(stamped?.migrationLegacyDirCopied).toBe(true);
+      expect(stamped?.providers.legacy?.baseURL).toBe("https://example.com");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("is a no-op when the flag is already true", async () => {
+    const home = await makeTempHome();
+    try {
+      const settingsPath = join(newGlobalDirPath(home), "settings.json");
+      await mkdir(newGlobalDirPath(home), { recursive: true });
+      await writeFile(
+        settingsPath,
+        JSON.stringify({
+          providers: { legacy: { baseURL: "https://example.com", models: ["m"] } },
+          migrationLegacyDirCopied: true,
+        }),
+      );
+
+      await markLegacyDirMigrated(settingsPath);
+      const stamped = await loadSettings(settingsPath);
+      expect(stamped?.migrationLegacyDirCopied).toBe(true);
+    } finally {
+      await rm(home, { recursive: true, force: true });
     }
   });
 });
