@@ -131,6 +131,7 @@ import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
 import { goalKickoffUserMessage } from "../agent/goal.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { createPathRestriction, type PathRestriction } from "../permission/path-restriction.js";
+import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 import {
   extractPastedImagePaths,
   findImagePathMentions,
@@ -209,7 +210,11 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
   }
   if (mentions.length === 0) return message;
 
-  const pathRestriction = createPathRestriction(cwd);
+  // Mirrors the permission gate's own containment check (see gate.ts): the
+  // gate resolves paths against cwd plus every registered git worktree of
+  // this session, so an @mention into a sibling worktree must resolve the
+  // same way rather than being wrongly rejected as an escape.
+  const pathRestriction = createPathRestriction(cwd, createWorktreeRootsProvider(cwd));
   const replacements: Array<{ full: string; replacement: string }> = [];
   let totalBytes = 0;
 
