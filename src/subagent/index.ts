@@ -40,7 +40,7 @@ import {
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
-import { createLazyBlobReader } from "../agent/lazy-blob-reader.js";
+import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -622,19 +622,23 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   const permissionGate = params.permissionGate;
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
-  const sessionBlobReader =
-    params.getBlobReader !== undefined ? createLazyBlobReader(params.getBlobReader) : undefined;
+  // Child tools resolve spills against the child's own store first, then the
+  // parent's (CL-4323): parent tool-output:// URIs handed in the brief must
+  // remain readable after spawn, and the child's own spills stay local.
+  let childBlobReader: BlobReader | undefined;
+  const sessionBlobReader = createCompositeBlobReader(
+    () => childBlobReader,
+    params.getBlobReader,
+  );
   const posixTools = createPosixTools({
     cwd: params.cwd,
-    ...(sessionBlobReader !== undefined ? { blobReader: sessionBlobReader } : {}),
+    blobReader: sessionBlobReader,
     plugins: buildCorePosixToolPlugins({
       cwd: params.cwd,
       permissionGate,
       ...(params.webProvider !== undefined ? { webProvider: params.webProvider } : {}),
       ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
-      ...(sessionBlobReader !== undefined
-        ? { readFileGuard: { blobReader: sessionBlobReader } }
-        : {}),
+      readFileGuard: { blobReader: sessionBlobReader },
       extraToolPlugins: [
         ...(params.extraToolPlugins ?? []),
         spawnRegistry.plugin,
@@ -701,6 +705,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         getWorkdirBase: nd.getWorkdirBase,
         provider: nd.provider,
         allowOrchestrator: false,
+        // Nested workers inherit this composite so they can re-read both the
+        // orchestrator's spills and the original parent's.
+        getBlobReader: () => sessionBlobReader,
         ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
         ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),
@@ -826,6 +833,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       }),
     },
   });
+  // Tools were built before the agent; bind the child's store now so own spills
+  // resolve without dropping the parent fallback.
+  childBlobReader = agent.blobReader;
   agentHandle = agent;
 
   // Collect tool activity for the parent-facing report, and optionally forward
