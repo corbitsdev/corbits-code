@@ -225,8 +225,8 @@ export function forcedStopReport(
           : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
-  // stuffed into Findings (the common never-acted case: model returns the
-  // instructed ## Summary / ## Findings report without tools).
+  // stuffed into Findings (never-acted planning envelopes; cancel after a
+  // structured partial).
   const findings =
     partialText.trim().length > 0
       ? demoteNestedReportHeadings(partialText.trim())
