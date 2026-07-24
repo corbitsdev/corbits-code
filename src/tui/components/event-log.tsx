@@ -1,6 +1,6 @@
 import { Box, Static, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo, useRef, type ReactNode } from "react";
 import { formatElapsed } from "./in-flight-indicator.js";
 import { elapsedMsFromAnchor } from "../hooks/use-spinner.js";
 import { createMemoizedParseMarkdown } from "../markdown-parser.js";
@@ -1319,10 +1319,25 @@ export const EventLog = memo(function EventLog({
   width,
 }: EventLogProps): ReactNode {
   const contentWidth = Math.max(1, width);
-  const committed = useMemo<CommittedLine[]>(
-    () => committedLines.map((line, i) => ({ key: `c-${i}`, line })),
-    [committedLines],
-  );
+  // committedLines is append-only within a mount (a session reset remounts this
+  // component via its epoch key) and grows in place, so its reference is stable
+  // across commits. Extend the keyed item list by the newly settled tail instead
+  // of re-wrapping the whole frozen history each commit. <Static> keys off the
+  // array reference to emit new items, so hand it a fresh reference only when the
+  // length grew — the existing wrapper objects are reused, which is the O(n)
+  // re-map this incremental path exists to avoid.
+  const committedItemsRef = useRef<CommittedLine[]>([]);
+  const prevItems = committedItemsRef.current;
+  let committed = prevItems;
+  if (committedLines.length !== prevItems.length) {
+    committed = committedLines.length < prevItems.length
+      ? committedLines.map((line, i) => ({ key: `c-${i}`, line }))
+      : prevItems.slice();
+    for (let i = committed.length; i < committedLines.length; i++) {
+      committed.push({ key: `c-${i}`, line: committedLines[i]! });
+    }
+    committedItemsRef.current = committed;
+  }
   const missingRows = Math.max(0, visibleRows - liveLines.length);
 
   // Pad above the live region so a short tail sits on the last rows of the

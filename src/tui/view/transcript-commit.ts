@@ -60,6 +60,9 @@ export type TranscriptFrame = {
   blockLineStarts: number[];
   // Stable id per retained block, aligned with blockLineStarts.
   blockIds: string[];
+  // Visual line height per block, aligned with blockIds. Reused from
+  // buildLinesIncremental so a commit never re-derives block heights.
+  blockRenderLineCounts: number[];
   // Whether each block is settled enough to freeze, aligned with blockIds. A
   // block with a pending or running tool call still mutates (duration, spinner,
   // merge with its result), so it must stay live even after it scrolls above the
@@ -80,15 +83,11 @@ export type TranscriptSplit = {
   live: StyledLine[];
 };
 
-function blockEnd(frame: TranscriptFrame, index: number): number {
-  return frame.blockLineStarts[index + 1] ?? frame.blockLines.length;
-}
-
 export function advanceTranscriptCommit(
   prev: TranscriptCommitState,
   frame: TranscriptFrame,
 ): TranscriptSplit {
-  const { bannerLines, blockLines, blockLineStarts, blockIds, blockSettled, liveRows, generation } = frame;
+  const { bannerLines, blockLines, blockLineStarts, blockIds, blockRenderLineCounts, blockSettled, liveRows, generation } = frame;
 
   // A fresh session (clear/new) is signalled explicitly by a generation bump.
   // Reset the committed set and backbuffer and remount <Static> via a new epoch.
@@ -123,7 +122,7 @@ export function advanceTranscriptCommit(
     // A block with a pending/running tool call still mutates, so it (and every
     // block after it, to keep scrollback append-only in order) stays live.
     if (!blockSettled[i]) break;
-    const height = blockEnd(frame, i) - (blockLineStarts[i] ?? 0);
+    const height = blockRenderLineCounts[i] ?? 0;
     if (consumed + height > commitBudget) break;
     consumed += height;
     newCommitted = i + 1;
@@ -131,15 +130,19 @@ export function advanceTranscriptCommit(
 
   let state = base;
   if (newCommitted > firstUncommitted) {
-    const committedLines = [...base.committedLines];
+    // Append only the newly settled lines. committedLines is never re-copied, so
+    // freezing a block into scrollback stays O(block height) rather than O(total
+    // committed) — the axis this renderer exists to keep flat over a long session.
+    const committedLines = base.committedLines;
     let bannerCommitted = base.bannerCommitted;
     if (!bannerCommitted) {
-      committedLines.push(...bannerLines);
+      for (const line of bannerLines) committedLines.push(line);
       bannerCommitted = true;
     }
-    committedLines.push(...blockLines.slice(uStart, blockLineStarts[newCommitted] ?? blockLines.length));
-    const committedBlockIds = [...base.committedBlockIds];
-    const committedBlockIdSet = new Set(base.committedBlockIdSet);
+    const uEnd = blockLineStarts[newCommitted] ?? blockLines.length;
+    for (let li = uStart; li < uEnd; li++) committedLines.push(blockLines[li]!);
+    const committedBlockIds = base.committedBlockIds;
+    const committedBlockIdSet = base.committedBlockIdSet;
     for (let i = firstUncommitted; i < newCommitted; i++) {
       committedBlockIds.push(blockIds[i]!);
       committedBlockIdSet.add(blockIds[i]!);
