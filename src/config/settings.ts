@@ -68,10 +68,16 @@ export type Settings = {
   // plugin can be registered from anywhere on disk, not just by dropping it
   // into .intercode/plugins/.
   pluginPaths?: string[];
+  // When true, also discover plugins listed in ~/.claude/plugins/installed_plugins.json
+  // (Claude Code marketplace installs under the cache). Default false — opt-in so
+  // Intercode never silently imports a large third-party plugin set. Discovered
+  // modules still require settings.plugins[id].enabled before agents/tools wire.
+  discoverClaudePlugins?: boolean;
   // Id of the plugin (kind "web") to use as the web_search/web_fetch backend.
   // When unset, the single enabled web plugin is used; when no web plugin is
   // enabled, the built-in local provider is used.
   web?: string;
+
   // Slash commands to suppress from the command palette and completions.
   // The commands still work if typed in full; they are just not listed.
   hiddenCommands?: string[];
@@ -324,6 +330,7 @@ const SettingsSchema = type({
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "plugins?": type({ "[string]": type({ "enabled?": "boolean", "consented?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
   "pluginPaths?": "string[]",
+  "discoverClaudePlugins?": "boolean",
   "web?": "string",
   "hiddenCommands?": "string[]",
   "onboarded?": "boolean",
@@ -480,6 +487,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
     ...(s.plugins !== undefined ? { plugins: s.plugins as Settings["plugins"] } : {}),
     ...(s.pluginPaths !== undefined ? { pluginPaths: s.pluginPaths as string[] } : {}),
+    ...(s.discoverClaudePlugins === true ? { discoverClaudePlugins: true } : {}),
     ...(s.web !== undefined ? { web: s.web as string } : {}),
     ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
     ...(s.onboarded !== undefined ? { onboarded: Boolean(s.onboarded) } : {}),

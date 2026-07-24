@@ -43,4 +43,16 @@ describe("formatAgentSearchResults", () => {
     expect(text).toContain("critique");
     expect(text).toContain("task(agent=");
   });
+
+  test("includes source label when present", () => {
+    const text = formatAgentSearchResults([
+      {
+        id: "marketplace-scout",
+        description: "From Claude install",
+        source: "claude",
+      },
+    ]);
+    expect(text).toContain("[source: claude]");
+    expect(text).toContain("marketplace-scout");
+  });
 });

@@ -39,7 +39,7 @@ import { createInferenceDependencies } from "../provider/inference-dependencies.
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { discoverRepoPlugins, discoverUserPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
 import {
   isPluginTrusted,
   loadProjectTrust,
@@ -160,11 +160,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
   // Project/path origins without a trust entry load metadata-only (no import).
+  // Claude Code marketplace installs are opt-in via settings.discoverClaudePlugins.
   let projectTrust: ProjectTrustStore = await loadProjectTrust(config.cwd);
   const isTrustedPath = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+  const claudePlugins =
+    config.settings?.discoverClaudePlugins === true
+      ? await discoverClaudeInstalledPlugins(config.cwd)
+      : [];
   const pluginModules = dedupePluginModules([
     ...(await discoverRepoPlugins(config.cwd)),
     ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isTrustedPath })),
+    ...claudePlugins,
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd, {
       isPluginTrusted: isTrustedPath,
     })),

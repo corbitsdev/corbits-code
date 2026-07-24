@@ -27,26 +27,44 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 }
 
 // Claude Code marketplace plugins self-describe via `.claude-plugin/plugin.json`
-// with `{ name, description?, version?, author? }` — no `id`/`kind`. We adapt it
+// (or occasionally `.claude-plugin/manifest.json`) with
+// `{ name, description?, version?, author? }` — no `id`/`kind`. We adapt it
 // to the intercode manifest: `name` becomes `id`+`name`; `kind` is inferred from
 // the plugin's contents (agents present -> "agent", else "command") since a
-// native `manifest.json`, when present, is always preferred and authoritative.
+// native root `manifest.json`, when present, is always preferred and authoritative.
 type ClaudePluginManifest = { id: string; name: string; description?: string };
 
-async function readClaudePluginManifest(dir: string): Promise<ClaudePluginManifest | null> {
+async function readClaudePluginManifestFile(
+  path: string,
+): Promise<ClaudePluginManifest | null> {
   try {
-    const raw = await readFile(join(dir, ".claude-plugin", "plugin.json"), "utf8");
+    const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
     const obj = parsed as Record<string, unknown>;
-    if (typeof obj.name !== "string" || obj.name.trim().length === 0) return null;
-    const id = obj.name.trim();
-    const out: ClaudePluginManifest = { id, name: id };
+    // Prefer name; some layouts put the marketplace id in `id` instead.
+    const nameRaw =
+      typeof obj.name === "string" && obj.name.trim().length > 0
+        ? obj.name.trim()
+        : typeof obj.id === "string" && obj.id.trim().length > 0
+          ? obj.id.trim()
+          : null;
+    if (nameRaw === null) return null;
+    const out: ClaudePluginManifest = { id: nameRaw, name: nameRaw };
     if (typeof obj.description === "string") out.description = obj.description;
     return out;
   } catch {
     return null;
   }
+}
+
+async function readClaudePluginManifest(dir: string): Promise<ClaudePluginManifest | null> {
+  // plugin.json is the Claude Code convention; manifest.json is an observed
+  // marketplace variant that still carries name/description.
+  return (
+    (await readClaudePluginManifestFile(join(dir, ".claude-plugin", "plugin.json"))) ??
+    (await readClaudePluginManifestFile(join(dir, ".claude-plugin", "manifest.json")))
+  );
 }
 
 export async function loadDataOnlyPlugin(
