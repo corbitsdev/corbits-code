@@ -20,7 +20,10 @@ import {
   appendDeadlineParentHint,
   appendNeverActedParentHint,
   partialTextFromEvent,
+  resolveSubAgentCatchOutcome,
+  resolveSubAgentDeadlineMs,
   subAgentToolName,
+  SUBAGENT_DEADLINE_MARGIN_MS,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
@@ -371,6 +374,50 @@ describe("sub-agent stop helpers", () => {
     ctl.dispose();
   });
 
+  test("resolveSubAgentDeadlineMs keeps the default when the outer watchdog is comfortably above it", () => {
+    expect(resolveSubAgentDeadlineMs(undefined, 660_000)).toBe(DEFAULT_SUBAGENT_DEADLINE_MS);
+  });
+
+  test("resolveSubAgentDeadlineMs clamps below a lowered outer watchdog instead of assuming 660s", () => {
+    // A user-configured outer tool-execution timeout well under the default
+    // 600s internal deadline must still leave the internal deadline firing
+    // first, with margin to spare for the salvage report to unwind.
+    const loweredOuterWatchdogMs = 120_000;
+    const clamped = resolveSubAgentDeadlineMs(undefined, loweredOuterWatchdogMs);
+    expect(clamped).toBeLessThan(loweredOuterWatchdogMs);
+    expect(clamped).toBe(loweredOuterWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  });
+
+  test("resolveSubAgentDeadlineMs also clamps an explicit deadlineMs override", () => {
+    const loweredOuterWatchdogMs = 60_000;
+    const clamped = resolveSubAgentDeadlineMs(600_000, loweredOuterWatchdogMs);
+    expect(clamped).toBe(loweredOuterWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  });
+
+  test("resolveSubAgentDeadlineMs never returns a non-positive ceiling for a tiny outer watchdog", () => {
+    expect(resolveSubAgentDeadlineMs(undefined, 5_000)).toBeGreaterThan(0);
+  });
+
+  test("resolveSubAgentCatchOutcome always salvages a deadline hit, even with zero output", () => {
+    // This is the zero-output edge case: no tool calls, no partial text, but
+    // the internal deadline fired. It must not fall through to a bare rethrow.
+    expect(
+      resolveSubAgentCatchOutcome({ deadlineHit: true, hadProgress: false }),
+    ).toBe("salvage-deadline");
+  });
+
+  test("resolveSubAgentCatchOutcome salvages a mid-run operator cancel that made progress", () => {
+    expect(
+      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: true }),
+    ).toBe("salvage-cancelled");
+  });
+
+  test("resolveSubAgentCatchOutcome rethrows a pre-progress operator cancel", () => {
+    expect(
+      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: false }),
+    ).toBe("rethrow");
+  });
+
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {
     const text = partialTextFromEvent({
       type: "inference.done",
@@ -547,6 +594,54 @@ describe("createTaskTool", () => {
     expect(out).toContain("Refactored gate.ts halfway through");
     expect(out).toContain("deadline reached");
     expect(out).toContain("wall-clock deadline");
+  });
+
+  test("a deadline hit with zero output still produces a salvage report instead of throwing", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      deadlineMs: 20,
+      run: async (params) => {
+        // Mirrors runSubAgentInner's real catch block: the leaf never issued
+        // a tool call and never produced partial text before the deadline
+        // fired. Before the fix, hadProgress was false so the code fell
+        // through to a bare `throw err`, which surfaced as an unrecognized
+        // error instead of a graceful salvage report.
+        const runController = createSubAgentRunController(
+          params.signal,
+          params.deadlineMs ?? DEFAULT_SUBAGENT_DEADLINE_MS,
+        );
+        try {
+          await new Promise<never>((_resolve, reject) => {
+            runController.signal.addEventListener(
+              "abort",
+              () => reject(new Error("aborted")),
+              { once: true },
+            );
+          });
+          throw new Error("unreachable");
+        } catch (err) {
+          const outcome = resolveSubAgentCatchOutcome({
+            deadlineHit: runController.deadlineHit(),
+            hadProgress: false,
+          });
+          if (outcome === "rethrow") throw err;
+          return forcedStopReport(
+            outcome === "salvage-deadline" ? "deadline" : "cancelled",
+            "",
+          );
+        } finally {
+          runController.dispose();
+        }
+      },
+    });
+
+    const out = await callTask(tool, { description: "silent job", prompt: "x" });
+    expect(out).toContain("## Summary");
+    expect(out).toContain("deadline reached");
+    expect(out).toContain("(no partial findings on the final turn)");
   });
 
   test("task tier rebuilds provider from settings and wins over profile inference", async () => {
