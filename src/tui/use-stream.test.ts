@@ -16,6 +16,7 @@ import {
   createAgentStreamState,
   settleSubAgentOnToolResult,
   useAgentStream,
+  type AgentStreamView,
   type ContentBlockData,
 } from "./use-stream.js";
 import { resolveSessionSpinnerLabel } from "./session-chrome.js";
@@ -1035,4 +1036,41 @@ describe("useAgentStream drain timers", () => {
     unmount();
     setIntervalSpy.mockRestore();
   });
+
+  test("a token delta buffered right before stop is still flushed after the stopping transition", async () => {
+    const emitter = new EventEmitter();
+    const viewRef: { current: AgentStreamView | null } = { current: null };
+    const element = () => createElement(StreamRevisionHarness, { emitter, viewRef });
+
+    const { rerender, unmount } = render(element());
+
+    viewRef.current!.markRunning();
+    rerender(element());
+
+    emitter.emit("event", event("inference.text.delta", { token: "hi" }));
+
+    const revisionBeforeStop = viewRef.current!.displayRevision;
+
+    viewRef.current!.requestStop();
+    rerender(element());
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    rerender(element());
+
+    expect(viewRef.current!.displayRevision).toBeGreaterThan(revisionBeforeStop);
+
+    unmount();
+  });
 });
+
+function StreamRevisionHarness({
+  emitter,
+  viewRef,
+}: {
+  emitter: EventEmitter;
+  viewRef: { current: AgentStreamView | null };
+}) {
+  const view = useAgentStream(emitter);
+  viewRef.current = view;
+  return createElement(Text, null, String(view.displayRevision));
+}
