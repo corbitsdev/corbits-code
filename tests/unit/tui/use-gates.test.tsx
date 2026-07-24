@@ -4,22 +4,45 @@ import { Text } from "ink";
 import { useInput } from "ink";
 import { EventEmitter } from "node:events";
 import type { ReactNode } from "react";
-import { useGates, type PlanGateEvent, type OperatorGateEvent } from "../../../src/tui/hooks/use-gates.js";
+import {
+  useGates,
+  type GateController,
+  type OperatorGateEvent,
+  type PlanGateEvent,
+} from "../../../src/tui/hooks/use-gates.js";
 
-function Harness({ emitter, onGate, onReset }: { emitter: EventEmitter; onGate: (pending: boolean) => void; onReset?: (resetFn: () => void) => void }): ReactNode {
-  const gates = useGates({ eventEmitter: emitter, setGatePending: onGate });
+type HarnessProps = {
+  emitter: EventEmitter;
+  onGate: (pending: boolean) => void;
+  onReset?: (resetFn: () => void) => void;
+  onController?: (controller: GateController) => void;
+  activationBlocked?: boolean;
+};
+
+function Harness({ emitter, onGate, onReset, onController, activationBlocked }: HarnessProps): ReactNode {
+  const gates = useGates({
+    eventEmitter: emitter,
+    setGatePending: onGate,
+    ...(activationBlocked !== undefined ? { activationBlocked } : {}),
+  });
+  onController?.(gates);
   useInput((input) => {
-    if (input === "a") gates.approve();
-    if (input === "r") gates.reject();
-    if (input === "0") gates.selectOperator({ kind: "option", index: 0 });
-    if (input === "p") gates.resolvePermission({ allow: true });
+    const active = gates.activeApproval;
+    if (input === "a" && active?.kind === "plan") gates.approve(active.id);
+    if (input === "r" && active?.kind === "plan") gates.reject(active.id);
+    if (input === "0" && active?.kind === "operator") {
+      gates.selectOperator(active.id, { kind: "option", index: 0 });
+    }
+    if (input === "p" && active?.kind === "permission") {
+      gates.resolvePermission(active.id, { allow: true });
+    }
     if (input === "x") gates.resetGates();
   });
-  // Expose resetGates to the test once on first render.
   onReset?.(gates.resetGates);
-  const plan = gates.pendingPlan === null ? "none" : `plan:${gates.pendingPlan.length}`;
-  const op = gates.pendingOperator === null ? "none" : `op:${gates.pendingOperator.question}`;
-  const perm = gates.pendingPermission === null ? "none" : `perm:${gates.pendingPermission.subject}`;
+  const active = gates.activeApproval;
+  const plan = active?.kind === "plan" ? `plan:${active.plan.length}` : "none";
+  const op = active?.kind === "operator" ? `op:${active.question}` : "none";
+  const perm = active?.kind === "permission" ? `perm:${active.request.subject}` : "none";
   return <Text>{`${plan} ${op} ${perm} open=${gates.gateOpen ? "1" : "0"}`}</Text>;
 }
 
@@ -82,38 +105,91 @@ test("operator gate surfaces and resolves the selected index", async () => {
   expect(lastFrame()).toContain("none none none open=0");
 });
 
-// E1: two gates open concurrently — each gate independently calls setGatePending
-// on open (true) and close (false). The caller (use-stream.ts) owns the refcount;
-// use-gates.ts is responsible only for signalling its own gate transitions.
-test("E1: each gate independently signals open and close to setGatePending", async () => {
+test("queued approvals wait for an existing modal before activation", async () => {
   const emitter = new EventEmitter();
   const gateCalls: boolean[] = [];
-  const { stdin } = render(<Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />);
+  let resolved = false;
+  const props = { emitter, onGate: (pending: boolean) => gateCalls.push(pending) };
+  const { lastFrame, rerender, stdin } = render(
+    <Harness {...props} activationBlocked />,
+  );
   await tick();
 
-  // Open the plan gate first.
-  const planEvent: PlanGateEvent = {
-    plan: [{ file: "a.ts", action: "x" }],
-    resolve: () => {},
-  };
-  emitter.emit("plan.gate", planEvent);
+  emitter.emit("operator.gate", {
+    question: "continue?",
+    options: ["yes"],
+    resolve: () => { resolved = true; },
+  } satisfies OperatorGateEvent);
   await tick();
+
   expect(gateCalls).toEqual([true]);
+  expect(lastFrame()).toContain("none none none open=0");
 
-  // Open the operator gate while plan gate is still open.
-  const opEvent: OperatorGateEvent = {
+  rerender(<Harness {...props} activationBlocked={false} />);
+  await tick();
+  expect(lastFrame()).toContain("none op:continue? none open=1");
+
+  stdin.write("0");
+  await tick();
+  expect(resolved).toBe(true);
+  expect(gateCalls).toEqual([true, false]);
+});
+
+test("blocked permission timeout starts only after activation", async () => {
+  const emitter = new EventEmitter();
+  let outcome: { allow: boolean; message?: string } | null = null;
+  const { lastFrame, rerender } = render(
+    <Harness emitter={emitter} onGate={() => {}} activationBlocked />,
+  );
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "queued", scopes: [] },
+    resolve: (next: { allow: boolean; message?: string }) => { outcome = next; },
+    timeoutMs: 40,
+    timeoutMessage: "timed out",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  expect(outcome).toBeNull();
+  expect(lastFrame()).toContain("none none none open=0");
+
+  rerender(<Harness emitter={emitter} onGate={() => {}} activationBlocked={false} />);
+  await tick();
+  expect(lastFrame()).toContain("perm:queued");
+  expect(outcome).toBeNull();
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(outcome).toEqual({ allow: false, message: "timed out" });
+});
+
+test("mixed gate types are exposed one at a time in global FIFO order", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  let planResolved = false;
+  let operatorResolved = false;
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />);
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [{ file: "a.ts", action: "x" }],
+    resolve: () => { planResolved = true; },
+  } satisfies PlanGateEvent);
+  emitter.emit("operator.gate", {
     question: "pick",
     options: ["yes"],
-    resolve: () => {},
-  };
-  emitter.emit("operator.gate", opEvent);
+    resolve: () => { operatorResolved = true; },
+  } satisfies OperatorGateEvent);
   await tick();
-  expect(gateCalls).toEqual([true, true]);
 
-  // Resolve the plan gate — use-gates signals false for it; refcount in
-  // use-stream.ts ensures status stays blocked until all gates close.
+  expect(gateCalls).toEqual([true, true]);
+  expect(lastFrame()).toContain("plan:1 none none open=1");
+
   stdin.write("a");
   await tick();
+  expect(planResolved).toBe(true);
+  expect(operatorResolved).toBe(false);
+  expect(lastFrame()).toContain("none op:pick none open=1");
   expect(gateCalls).toEqual([true, true, false]);
 });
 
@@ -385,4 +461,113 @@ test("queued permission timeout starts only when the request becomes visible hea
   await new Promise((r) => setTimeout(r, 80));
   expect(second).toEqual({ allow: false, message: "second timed out" });
   expect(lastFrame()).toContain("none none none open=0");
+});
+
+test("a stale or mismatched resolver cannot consume the active gate", async () => {
+  const emitter = new EventEmitter();
+  let controller: GateController | null = null;
+  let planResolved = false;
+  let operatorResolved = false;
+  const { lastFrame } = render(
+    <Harness
+      emitter={emitter}
+      onGate={() => {}}
+      onController={(next) => { controller = next; }}
+    />,
+  );
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [{ file: "a.ts", action: "write" }],
+    resolve: () => { planResolved = true; },
+  } satisfies PlanGateEvent);
+  emitter.emit("operator.gate", {
+    question: "continue?",
+    options: ["yes"],
+    resolve: () => { operatorResolved = true; },
+  } satisfies OperatorGateEvent);
+  await tick();
+
+  if (controller === null || controller.activeApproval?.kind !== "plan") {
+    throw new Error("Expected an active plan approval");
+  }
+  controller.selectOperator(controller.activeApproval.id, { kind: "option", index: 0 });
+  await tick();
+
+  expect(planResolved).toBe(false);
+  expect(operatorResolved).toBe(false);
+  expect(lastFrame()).toContain("plan:1 none none open=1");
+});
+
+test("unmount safely settles mixed gates and clears queued timeouts", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  let planResult: boolean | null = null;
+  let operatorResult: string | null = null;
+  let permissionResult: { allow: boolean; message?: string } | null = null;
+  const { unmount } = render(
+    <Harness emitter={emitter} onGate={(pending) => gateCalls.push(pending)} />,
+  );
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [],
+    resolve: (approved: boolean) => { planResult = approved; },
+  } satisfies PlanGateEvent);
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "queued", scopes: [] },
+    resolve: (outcome: { allow: boolean; message?: string }) => { permissionResult = outcome; },
+    timeoutMs: 40,
+    timeoutMessage: "must not fire",
+  });
+  emitter.emit("operator.gate", {
+    question: "continue?",
+    options: ["yes"],
+    resolve: (result) => { operatorResult = result.kind; },
+  } satisfies OperatorGateEvent);
+  await tick();
+
+  unmount();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  expect(planResult).toBe(false);
+  expect(operatorResult).toBe("cancel");
+  expect(permissionResult).toEqual({ allow: false });
+  expect(gateCalls).toEqual([true, true, true, false, false, false]);
+  expect(emitter.listenerCount("plan.gate")).toBe(0);
+  expect(emitter.listenerCount("operator.gate")).toBe(0);
+  expect(emitter.listenerCount("permission.gate")).toBe(0);
+});
+
+test("reset clears the old queue before a resolver enqueues another gate", async () => {
+  const emitter = new EventEmitter();
+  const gateCalls: boolean[] = [];
+  let operatorResolved = false;
+  const { lastFrame, stdin } = render(
+    <Harness emitter={emitter} onGate={(pending) => gateCalls.push(pending)} />,
+  );
+  await tick();
+
+  emitter.emit("plan.gate", {
+    plan: [],
+    resolve: () => {
+      emitter.emit("operator.gate", {
+        question: "new gate",
+        options: ["continue"],
+        resolve: () => { operatorResolved = true; },
+      } satisfies OperatorGateEvent);
+    },
+  } satisfies PlanGateEvent);
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run", subject: "old gate", scopes: [] },
+    resolve: () => {},
+  });
+  await tick();
+
+  stdin.write("x");
+  await tick();
+
+  expect(operatorResolved).toBe(false);
+  expect(lastFrame()).toContain("none op:new gate none open=1");
+  expect(gateCalls).toEqual([true, true, false, true, false]);
 });

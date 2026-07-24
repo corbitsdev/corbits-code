@@ -1,8 +1,9 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import type { LifecycleHookStatus } from "../../session/hooks.js";
-import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
+import type { ApprovalOutcome } from "../../permission/types.js";
 import type { PlanStep } from "../use-stream.js";
+import type { ActiveApproval } from "../hooks/use-gates.js";
 import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
@@ -71,18 +72,12 @@ export type ModalStackProps = {
   unauthedProviders?: ReadonlySet<string>;
   onRequestAgentLogin?: (kind: "codex" | "xai", profile: string) => void;
 
-  pendingPlan: PlanStep[] | null;
-  onApprove: () => void;
-  onReject: () => void;
-
-  pendingOperator: { question: string; options: string[] } | null;
-  onSelectOperator: (result: OperatorResult) => void;
-
-  pendingPermission: PermissionRequest | null;
+  activeApproval: ActiveApproval | null;
+  onApprove: (id: number) => void;
+  onReject: (id: number) => void;
+  onSelectOperator: (id: number, result: OperatorResult) => void;
   permissionQueueDepth?: number;
-  /** Goal-mode auto-skip budget for the visible permission modal. */
-  permissionTimeoutMs?: number | null;
-  onResolvePermission: (outcome: ApprovalOutcome) => void;
+  onResolvePermission: (id: number, outcome: ApprovalOutcome) => void;
 
 
   width?: number;
@@ -116,14 +111,11 @@ export function ModalStack({
   onRequestAgentUsage,
   unauthedProviders,
   onRequestAgentLogin,
-  pendingPlan,
+  activeApproval,
   onApprove,
   onReject,
-  pendingOperator,
   onSelectOperator,
-  pendingPermission,
   permissionQueueDepth,
-  permissionTimeoutMs,
   onResolvePermission,
   width,
 }: ModalStackProps): ReactNode {
@@ -158,25 +150,30 @@ export function ModalStack({
           {...(onRequestAgentLogin !== undefined ? { onRequestLogin: onRequestAgentLogin } : {})}
         />
       )}
-      {pendingPlan !== null && (
-        <ApprovalModal plan={pendingPlan} onApprove={onApprove} onReject={onReject} />
+      {activeApproval?.kind === "plan" && (
+        <ApprovalModal
+          key={activeApproval.id}
+          plan={activeApproval.plan}
+          onApprove={() => onApprove(activeApproval.id)}
+          onReject={() => onReject(activeApproval.id)}
+        />
       )}
-      {pendingOperator !== null && (
+      {activeApproval?.kind === "operator" && (
         <OperatorModal
-          question={pendingOperator.question}
-          options={pendingOperator.options}
-          onSelect={onSelectOperator}
+          key={activeApproval.id}
+          question={activeApproval.question}
+          options={activeApproval.options}
+          onSelect={(result) => onSelectOperator(activeApproval.id, result)}
           {...(width !== undefined ? { width } : {})}
         />
       )}
-      {pendingPermission !== null && (
+      {activeApproval?.kind === "permission" && (
         <PermissionModal
-          request={pendingPermission}
+          key={activeApproval.id}
+          request={activeApproval.request}
           {...(permissionQueueDepth !== undefined ? { permissionQueueDepth } : {})}
-          {...(permissionTimeoutMs !== undefined && permissionTimeoutMs !== null
-            ? { goalTimeoutMs: permissionTimeoutMs }
-            : {})}
-          onResolve={onResolvePermission}
+          {...(activeApproval.timeoutMs !== null ? { goalTimeoutMs: activeApproval.timeoutMs } : {})}
+          onResolve={(outcome) => onResolvePermission(activeApproval.id, outcome)}
           {...(width !== undefined ? { width } : {})}
         />
       )}
