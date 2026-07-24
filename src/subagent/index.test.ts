@@ -16,6 +16,8 @@ import {
   nextToolCallStreak,
   parseSubAgentReport,
   appendNeverActedParentHint,
+  partialTextFromEvent,
+  subAgentToolName,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
@@ -312,6 +314,55 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledParsed.summary).toContain("cancelled");
     expect(cancelledParsed.findings).toContain("Partial findings");
     expect(cancelledParsed.blockers).toContain("re-dispatch");
+  });
+
+  test("partialTextFromEvent reads stream inference.done data.turn content", () => {
+    const text = partialTextFromEvent({
+      type: "inference.done",
+      seq: 1,
+      data: {
+        turn: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Mapped src/gate.ts" },
+            { type: "tool_call", id: "1", name: "read_file", arguments: {} },
+          ],
+          model: "m",
+          timestamp: 0,
+        },
+        usage: {},
+        source: {},
+      },
+    } as Parameters<typeof partialTextFromEvent>[0]);
+    expect(text).toBe("Mapped src/gate.ts");
+
+    // Wrong shape (director inbound turn at top level) must not silently match.
+    const wrong = partialTextFromEvent({
+      type: "inference.done",
+      turn: {
+        content: [{ type: "text", text: "should not appear" }],
+      },
+    } as unknown as Parameters<typeof partialTextFromEvent>[0]);
+    expect(wrong).toBeNull();
+
+    expect(partialTextFromEvent({ type: "tool.start", seq: 1, data: {} } as Parameters<typeof partialTextFromEvent>[0])).toBeNull();
+  });
+
+  test("subAgentToolName reads tool.start data.call.name", () => {
+    expect(
+      subAgentToolName({
+        type: "tool.start",
+        seq: 1,
+        data: { call: { name: "read_file" } },
+      } as Parameters<typeof subAgentToolName>[0]),
+    ).toBe("read_file");
+    expect(
+      subAgentToolName({
+        type: "inference.done",
+        seq: 1,
+        data: {},
+      } as Parameters<typeof subAgentToolName>[0]),
+    ).toBeNull();
   });
 });
 

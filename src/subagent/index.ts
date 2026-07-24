@@ -190,10 +190,11 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
 /** Best-effort partial assistant text from a stream event (inference.done). */
 export function partialTextFromEvent(event: ReactorEmittedEvent): string | null {
   if (event.type !== "inference.done") return null;
-  const content = (event as { turn?: { content?: ReadonlyArray<{ type: string }> } }).turn
-    ?.content;
-  if (content === undefined) return null;
-  const text = lastText(content);
+  // Stream events nest the turn under data (same shape as hooks/renderer).
+  // Guard data.turn so a malformed event cannot throw in the stream sink.
+  const turn = event.data?.turn;
+  if (turn === undefined || !Array.isArray(turn.content)) return null;
+  const text = lastText(turn.content);
   return text.length > 0 ? text : null;
 }
 
@@ -901,6 +902,11 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       return appendActivitySummary(report, toolNamesUsed);
     } catch (err) {
       if (isSubAgentCancelError(err, params.signal)) {
+        // Drain stream events so tool.start / inference.done that already
+        // left the reactor are reflected before we decide bare vs salvage.
+        if (streamPromise !== undefined) {
+          await streamPromise.catch(() => {});
+        }
         // Cancel after any tools or assistant prose returns a structured salvage
         // report so the parent keeps partial work; pre-progress cancel still
         // surfaces as a bare AbortError for the task tool's cancel path.
