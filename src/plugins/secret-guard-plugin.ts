@@ -24,11 +24,24 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /(^|\/)\.htpasswd$/,
   /(^|\/)\.ssh\//,
   /(^|\/)\.aws\/credentials$/,
+  /(^|\/)\.aws\/config$/,
+  /(^|\/)gcloud\/application_default_credentials\.json$/,
+  /(^|\/)\.kube\/config$/,
+  /(^|\/)\.docker\/config\.json$/,
+  /(^|\/)gh\/hosts\.ya?ml$/,
   /(^|\/)\.gnupg\//,
   /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/,
   /\.pem$/,
   /\.p12$/,
   /\.pfx$/,
+  /\.key$/,
+  /\.p8$/,
+  /\.jks$/,
+  /\.keystore$/,
+  /\.ppk$/,
+  /\.tfstate(\.backup)?$/,
+  // GCP service-account key files, e.g. service-account.json, my-service_account-key.json.
+  /service[-_]account[^/]*\.json$/,
 ];
 
 export function isSensitivePath(value: string): boolean {
