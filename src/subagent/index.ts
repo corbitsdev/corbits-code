@@ -1247,10 +1247,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         const profile = profiles.find((p) => p.id === agentId);
         if (profile === undefined) {
           const known = profiles.map((p) => p.id).sort();
+          // Point at search_agents (which injects full system prompt bodies) rather
+          // than read_file on plugin roots — path-escape blocks those paths by design.
           const hint =
             known.length > 0
-              ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more.`
-              : " No profiles are currently loaded. Call search_agents to discover available agents.";
+              ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
+              : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
           return taskToolResult(call.id, `Error: unknown agent profile "${agentId}".${hint}`);
         }
         if (profile.capabilities !== undefined) {

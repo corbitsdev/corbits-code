@@ -2,6 +2,7 @@ import { stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
+import { scrubSecretShapedToolResultContent } from "../plugins/tool-result-secret-scrub.js";
 import type { AgentProfile } from "./profiles.js";
 
 function tokenize(text: string): string[] {
@@ -51,31 +52,58 @@ export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): Ag
   };
 }
 
+// Hard cap per injected body so a single oversized marketplace profile cannot
+// blow the tool-result budget even when result count is already limited.
+export const MAX_AGENT_SEARCH_BODY_CHARS = 8_000;
+
+function truncateAgentBody(body: string): string {
+  if (body.length <= MAX_AGENT_SEARCH_BODY_CHARS) return body;
+  return `${body.slice(0, MAX_AGENT_SEARCH_BODY_CHARS)}\n…[truncated]`;
+}
+
+// Format one profile for search_agents output. Injects the full loaded
+// systemPromptRole (markdown body / role text) so the parent can inspect plugin
+// and marketplace agents without read_file on paths outside the session cwd
+// (path-escape blocks those roots by design). Bodies longer than
+// MAX_AGENT_SEARCH_BODY_CHARS are truncated with an ellipsis marker.
+function formatAgentProfileEntry(p: AgentProfile): string {
+  const desc = (p.description ?? "").trim();
+  const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
+  const orch = p.orchestrator === true ? " [orchestrator]" : "";
+  const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
+  const header =
+    desc.length > 0
+      ? `### ${p.id}${tier}${orch}${source}\n${desc}`
+      : `### ${p.id}${tier}${orch}${source}`;
+  const body = (p.systemPromptRole ?? "").trim();
+  if (body.length === 0) return header;
+  return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;
+}
+
 export function formatAgentSearchResults(profiles: readonly AgentProfile[]): string {
   if (profiles.length === 0) {
     return "No agent profiles matched. Try broader terms (e.g. review, explore, implement) or list_dir on .agents/agents/.";
   }
-  const lines = profiles.map((p) => {
-    const desc = (p.description ?? "").trim();
-    const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
-    const orch = p.orchestrator === true ? " [orchestrator]" : "";
-    const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
-    return desc.length > 0
-      ? `- ${p.id}${tier}${orch}${source}: ${desc}`
-      : `- ${p.id}${tier}${orch}${source}`;
-  });
-  return [
-    "Matching agent profiles (pass id to task(agent=...)):",
-    ...lines,
-    "",
-    "Spawn with task(description, prompt, agent=<id>). For a team, call task once per member (parallel in one turn when independent).",
-  ].join("\n");
+  const entries = profiles.map(formatAgentProfileEntry);
+  // Live scrub for search_agents: this tool is not on the posix middleware path, so
+  // SCRUBBABLE_TOOLS in tool-result-secret-scrub-plugin cannot reach it. Scrub here
+  // before the formatted string becomes a tool result (marketplace/plugin bodies may
+  // contain secret-shaped substrings).
+  return scrubSecretShapedToolResultContent(
+    [
+      "Matching agent profiles (pass id to task(agent=...)). Full system prompt / body is included so you do not need read_file on plugin roots outside the workspace:",
+      "",
+      ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
+      "",
+      "Spawn with task(description, prompt, agent=<id>). For a team, call task once per member (parallel in one turn when independent).",
+    ].join("\n"),
+  );
 }
 
 export const searchAgentsDefinition: ToolDefinition = {
   name: "search_agents",
   description:
-    "Find task-dispatchable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids and descriptions to use in task(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
+    "Find task-dispatchable agent profiles by capability, role, or team name (e.g. 'review', 'review team', 'architect', 'security'). Returns profile ids, descriptions, and the full loaded system prompt / body for each match so you can inspect plugin or Claude marketplace agents without reading files outside the workspace. Use the id in task(agent=...). Call this when the user asks to spin up specialists or a team without naming exact ids.",
   inputSchema: {
     type: "object",
     properties: {
@@ -101,10 +129,10 @@ export function createSearchAgentsTool(getProfiles: () => readonly AgentProfile[
         return "Error: search_agents requires query (string).";
       }
       const query = parsed.query.trim();
-      if (query.length === 0) {
-        const all = getProfiles();
-        if (all.length === 0) return "No agent profiles are loaded.";
-        return formatAgentSearchResults(all);
+      // Empty and non-empty queries share createAgentIndex.search's default limit
+      // (12) so a large marketplace catalog cannot dump every body into one result.
+      if (query.length === 0 && getProfiles().length === 0) {
+        return "No agent profiles are loaded.";
       }
       return formatAgentSearchResults(index.search(query));
     },
