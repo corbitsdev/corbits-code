@@ -1,4 +1,5 @@
 import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import {
   ensureTelemetrySettings,
   loadSettings,
@@ -7,13 +8,14 @@ import {
 } from "../config/settings.js";
 import {
   createTelemetry,
+  TELEMETRY_ENV,
   telemetryDisabledByEnv,
   type CreateTelemetryOptions,
   type Telemetry,
 } from "./index.js";
 import { getTelemetry, setTelemetry } from "./singleton.js";
 
-const logger = getLogger(["intercode", "telemetry", "toggle"]);
+const logger = getLogger([LOG_NAMESPACE_ROOT, "telemetry", "toggle"]);
 
 export type TelemetryToggleDeps = {
   getTelemetry: () => Telemetry;
@@ -50,7 +52,7 @@ export function createTelemetryToggleHandler(
       // an installationId while the env override keeps telemetry off — a
       // silent no-op that also breaks that invariant. Refuse instead.
       logger.warn(
-        "Telemetry re-enable ignored: disabled by environment (DO_NOT_TRACK or INTERCODE_TELEMETRY)",
+        `Telemetry re-enable ignored: disabled by environment (DO_NOT_TRACK or ${TELEMETRY_ENV})`,
       );
       return;
     }

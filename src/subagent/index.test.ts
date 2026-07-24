@@ -451,8 +451,8 @@ describe("createTaskTool", () => {
     let captured: RunSubAgentParams | undefined;
     const settings = {
       providers: {
-        "clever-p": { baseURL: "http://clever", apiKey: "k" },
-        "profile-p": { baseURL: "http://profile", apiKey: "k" },
+        "clever-p": { baseURL: "http://clever", apiKey: "k", models: ["clever-model"] },
+        "profile-p": { baseURL: "http://profile", apiKey: "k", models: ["profile-model", "pinned-model"] },
       },
       tiers: {
         clever: { provider: "clever-p", model: "clever-model" },
@@ -462,14 +462,14 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       settings,
       profiles: [
         {
           id: "deep",
           tier: "standard",
-          inference: { provider: "profile-p", model: "pinned-model" },
+          inference: { order: [{ provider: "profile-p", model: "pinned-model" }] },
         },
       ],
       run: async (params) => {
@@ -492,7 +492,7 @@ describe("createTaskTool", () => {
     let captured: RunSubAgentParams | undefined;
     const settings = {
       providers: {
-        "profile-p": { baseURL: "http://profile", apiKey: "k" },
+        "profile-p": { baseURL: "http://profile", apiKey: "k", models: ["profile-model"] },
       },
       tiers: {
         standard: { provider: "profile-p", model: "profile-model" },
@@ -501,7 +501,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       settings,
       profiles: [{ id: "deep", tier: "standard" }],
@@ -520,7 +520,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       settings: { providers: {} },
       run: async () => "done",
@@ -684,7 +684,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       sessions,
       run: async () => {
@@ -705,7 +705,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       run: async () => {
         const err = new Error("aborted");
@@ -722,7 +722,7 @@ describe("createTaskTool", () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
-      getWorkdirBase: () => "/repo/.intercode",
+      getWorkdirBase: () => "/repo/.corbits",
       provider,
       run: async () => forcedStopReport("cancelled", "Found path in gate.ts"),
     });

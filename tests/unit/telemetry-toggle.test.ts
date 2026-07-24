@@ -33,7 +33,7 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
     }),
     saveGlobalSettings: async () => {},
     // env is pinned to {} (matching telemetry.test.ts) so a developer's real
-    // DO_NOT_TRACK / INTERCODE_TELEMETRY never bleeds into these tests.
+    // DO_NOT_TRACK / CORBITS_TELEMETRY never bleeds into these tests.
     createTelemetry: (opts) => createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
     ...overrides,
   };

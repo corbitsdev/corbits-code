@@ -1,4 +1,5 @@
 import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "./branding.js";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
@@ -27,7 +28,7 @@ export async function mainWithRunners(
   // never touches the settings file (no installationId generation).
   if (!telemetryDisabledByEnv()) {
     const settings = await ensureTelemetrySettings(globalSettingsPath()).catch((err: unknown) => {
-      getLogger(["intercode", "telemetry"]).warn(
+      getLogger([LOG_NAMESPACE_ROOT, "telemetry"]).warn(
         "Failed to ensure telemetry settings at startup: {error}",
         { error: err },
       );
