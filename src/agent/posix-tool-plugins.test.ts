@@ -6,7 +6,7 @@ import { createBlobReader } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
-import { createLazyBlobReader } from "./lazy-blob-reader.js";
+import { createCompositeBlobReader, createLazyBlobReader } from "./lazy-blob-reader.js";
 
 describe("buildCorePosixToolPlugins", () => {
   test("applies permission gate and result truncation like the main agent stack", async () => {
@@ -94,6 +94,85 @@ describe("buildCorePosixToolPlugins", () => {
       );
       expect(result.isError).toBeFalsy();
       expect(String(result.content)).toContain("hello-spill");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("child composite blob reader re-reads parent tool-output URIs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-composite-blob-"));
+    try {
+      const encoder = new TextEncoder();
+      // Mirrors runSubAgent wiring: child store bound after agent create, parent
+      // always available so brief-handed tool-output:// URIs resolve (CL-4323).
+      let childReader: ReturnType<typeof createBlobReader> | undefined;
+      const parentReader = createBlobReader({
+        async readBlob(key: string) {
+          if (key === "parent-mcp-skill") return encoder.encode("parent-skill-body-tail");
+          throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);
+        },
+      });
+      const blobReader = createCompositeBlobReader(
+        () => childReader,
+        () => parentReader,
+      );
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        blobReader,
+        plugins: buildCorePosixToolPlugins({
+          cwd,
+          permissionGate: gate,
+          readFileGuard: { blobReader },
+        }),
+      });
+
+      // Parent spill before child store is bound.
+      const fromParent = await runner.run(
+        {
+          id: "p1",
+          name: "read_file",
+          arguments: { path: "tool-output:///parent-mcp-skill" },
+        },
+        new AbortController().signal,
+      );
+      expect(fromParent.isError).toBeFalsy();
+      expect(String(fromParent.content)).toContain("parent-skill-body-tail");
+
+      childReader = createBlobReader({
+        async readBlob(key: string) {
+          if (key === "child-local") return encoder.encode("child-own-spill");
+          throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);
+        },
+      });
+
+      // Still falls through to parent after child is bound.
+      const stillParent = await runner.run(
+        {
+          id: "p2",
+          name: "read_file",
+          arguments: { path: "tool-output:///parent-mcp-skill" },
+        },
+        new AbortController().signal,
+      );
+      expect(stillParent.isError).toBeFalsy();
+      expect(String(stillParent.content)).toContain("parent-skill-body-tail");
+
+      const fromChild = await runner.run(
+        {
+          id: "c1",
+          name: "read_file",
+          arguments: { path: "tool-output:///child-local" },
+        },
+        new AbortController().signal,
+      );
+      expect(fromChild.isError).toBeFalsy();
+      expect(String(fromChild.content)).toContain("child-own-spill");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
