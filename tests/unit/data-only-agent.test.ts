@@ -215,6 +215,20 @@ describe("loadDataOnlyAgentPlugin", () => {
     expect(agent.capabilities).toBeUndefined();
   });
 
+  test("native capabilities block with a non-string tools entry restricts rather than granting unrestricted access", async () => {
+    const dir = await makePlugin({
+      "agents/a.md":
+        "---\ncapabilities:\n  mode: allow\n  tools: [read_file, 42, grep]\n---\nbody\n",
+    });
+    const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
+    const agent = plugin!.agentPlugin.agents[0] as {
+      capabilities?: { mode: string; tools: string[] };
+    };
+    expect(agent.capabilities).toBeDefined();
+    expect(agent.capabilities!.mode).toBe("allow");
+    expect(agent.capabilities!.tools.sort()).toEqual(["grep", "read_file"]);
+  });
+
   test("model: array becomes a prefer chain", async () => {
     const dir = await makePlugin({
       "agents/a.md":
