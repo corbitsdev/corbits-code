@@ -85,6 +85,17 @@ test("Enter defaults to reject (the first, safe option)", async () => {
   expect(outcome).toEqual({ allow: false });
 });
 
+test("Ctrl+Up leaves the safe rejection selected for transcript scrolling", async () => {
+  let outcome: ApprovalOutcome | null = null;
+  const { stdin } = render(<PermissionModal request={request} onResolve={(next) => { outcome = next; }} />);
+  await tick();
+  stdin.write("\x1B[1;5A");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  expect(outcome).toEqual({ allow: false });
+});
+
 test("'2' accepts once without persisting", async () => {
   let outcome: ApprovalOutcome | null = null;
   const { stdin } = render(<PermissionModal request={request} onResolve={(o) => { outcome = o; }} />);

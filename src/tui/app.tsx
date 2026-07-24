@@ -814,7 +814,23 @@ export function App({
     void deleteProfileFile(profilesDir, id);
   };
 
-  const gates = useGates({ eventEmitter, setGatePending: state.setGatePending });
+  const approvalActivationBlocked =
+    exitConfirmOpen ||
+    helpOpen ||
+    hookPanelOpen ||
+    agentModalOpen ||
+    loginModal !== null ||
+    permissionsOpen ||
+    settingsOpen ||
+    pluginsOpen ||
+    copyModeIndex !== null ||
+    agentsNavOpen ||
+    enteredSessionId !== null;
+  const gates = useGates({
+    eventEmitter,
+    setGatePending: state.setGatePending,
+    activationBlocked: approvalActivationBlocked,
+  });
 
   useEffect(() => {
     const onWorkflow = (state: WorkflowControllerState) => {
@@ -968,15 +984,28 @@ export function App({
     subAgentChromeRows +
     extraPromptChromeRows(inputValue, columns ?? 80, rows ?? 24);
 
+  const activePermission = gates.activeApproval?.kind === "permission"
+    ? gates.activeApproval.request
+    : null;
+  const activeOperator = gates.activeApproval?.kind === "operator"
+    ? { question: gates.activeApproval.question, options: gates.activeApproval.options }
+    : null;
   const layout = useLayoutGeometry({
     columns,
     rows,
     sidebarOpen: false,
     gateContext: {
-      pendingPermission: gates.pendingPermission,
-      pendingOperator: gates.pendingOperator,
+      pendingPermission: activePermission,
+      pendingOperator: activeOperator,
     },
-    modalContext: { helpOpen, hookPanelOpen, exitConfirmOpen, agentModalOpen, permissionsOpen: permissionsOpen || settingsOpen, permissionEntryCount: permissionEntries.length },
+    modalContext: {
+      helpOpen,
+      hookPanelOpen,
+      exitConfirmOpen,
+      agentModalOpen,
+      permissionsOpen: permissionsOpen || settingsOpen,
+      permissionEntryCount: permissionEntries.length,
+    },
     hookCount: state.hookCount,
     providerCatalog,
     extraChromeRows,
@@ -2068,14 +2097,11 @@ export function App({
             setAutoLoginProfile(profile);
             setLoginModal(kind);
           }}
-          pendingPlan={gates.pendingPlan}
+          activeApproval={gates.activeApproval}
           onApprove={gates.approve}
           onReject={gates.reject}
-          pendingOperator={gates.pendingOperator}
           onSelectOperator={gates.selectOperator}
-          pendingPermission={gates.pendingPermission}
           permissionQueueDepth={gates.permissionQueueDepth}
-          permissionTimeoutMs={gates.permissionTimeoutMs}
           onResolvePermission={gates.resolvePermission}
 
           width={columns}

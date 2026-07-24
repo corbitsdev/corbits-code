@@ -84,6 +84,8 @@ export function handleKey(
     return lastEscMs;
   }
 
+  if (context.gateOpen) return lastEscMs;
+
   // Copy mode owns all input while picking a chunk to lift to the clipboard.
   if (context.copyModeOpen) {
     if (key.escape) actions.copyModeCancel();
@@ -139,7 +141,6 @@ export function handleKey(
   // Exit-confirm, help, and any open gate/modal own all remaining input.
   if (context.exitConfirmOpen) return lastEscMs;
   if (context.helpOpen) return lastEscMs;
-  if (context.gateOpen) return lastEscMs;
   if (context.agentModalOpen) return lastEscMs;
   if (key.ctrl && input === "c") {
     if (context.hasInput) {

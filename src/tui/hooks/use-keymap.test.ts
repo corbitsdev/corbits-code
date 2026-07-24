@@ -68,6 +68,33 @@ describe("handleKey quota cancel", () => {
   });
 });
 
+describe("approval gates", () => {
+  test("gate input preempts copy and agent navigation modes", () => {
+    const calls: string[] = [];
+    const actions: KeymapActions = {
+      ...noopActions,
+      copyModeNext: () => calls.push("copy-next"),
+      copyModeConfirm: () => calls.push("copy-confirm"),
+      agentsNavNext: () => calls.push("agent-next"),
+      agentsNavConfirm: () => calls.push("agent-confirm"),
+      exitEnteredSession: () => calls.push("exit-session"),
+    };
+    const context: KeymapContext = {
+      ...baseContext,
+      gateOpen: true,
+      copyModeOpen: true,
+      agentsNavOpen: true,
+      enteredSession: true,
+    };
+
+    handleKey("", key({ downArrow: true }), context, actions, 0, 0);
+    handleKey("", key({ return: true }), context, actions, 0, 0);
+    handleKey("", key({ escape: true }), context, actions, 0, 0);
+
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("copy mode", () => {
   test("Alt+C enters copy mode", () => {
     let entered = false;
