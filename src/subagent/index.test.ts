@@ -12,13 +12,16 @@ import {
   evaluateSubAgentStop,
   fingerprintToolCalls,
   forcedStopReport,
+  formatSubAgentReport,
   nextToolCallStreak,
   parseSubAgentReport,
+  appendNeverActedParentHint,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
   type RunSubAgentParams,
 } from "./index.js";
+
 
 
 const testPermissionGate = createPermissionGate({
@@ -167,11 +170,12 @@ describe("sub-agent stop helpers", () => {
     expect(first).not.toBe(second);
   });
 
-  test("evaluateSubAgentStop returns complete when there are no tool calls", () => {
+  test("evaluateSubAgentStop returns complete when tools were used and the final turn has none", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 1,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
         maxTurns: 10,
         consecutiveIdentical: 0,
         repeatLimit: 2,
@@ -179,10 +183,24 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
+  test("evaluateSubAgentStop returns never-acted when the run never used tools", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: false,
+        turnsCompleted: 1,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+      }),
+    ).toBe("never-acted");
+  });
+
   test("evaluateSubAgentStop prefers no-progress over turn-budget", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
         consecutiveIdentical: 2,
@@ -195,6 +213,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
         consecutiveIdentical: 1,
@@ -207,6 +226,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        everHadToolCalls: true,
         turnsCompleted: 5,
         maxTurns: 10,
         consecutiveIdentical: 1,
@@ -242,8 +262,53 @@ describe("sub-agent stop helpers", () => {
     expect(budgetParsed.summary).toContain("Turn budget");
     expect(budgetParsed.findings).toContain("no partial findings");
     expect(budget.toLowerCase()).not.toContain("summarize progress");
+
+    const neverActed = forcedStopReport("never-acted", "I'll write the red tests next");
+    const neverParsed = parseSubAgentReport(neverActed);
+    expect(neverParsed.summary).toContain("without using any tools");
+    expect(neverParsed.findings).toContain("red tests");
+    expect(neverParsed.blockers).toContain("unexecuted");
+    expect(neverActed.toLowerCase()).not.toContain("summarize what you found");
+
+    // Nested agent envelope must not clobber the outer never-acted Summary when
+    // runSubAgent re-parses the forced stop (the common planning-only path).
+    const nestedEnvelope = [
+      "## Summary",
+      "Reviewed the auth gate.",
+      "",
+      "## Findings",
+      "Looks fine.",
+      "",
+      "## Blockers",
+      "None",
+      "",
+      "## Paths",
+      "src/gate.ts",
+    ].join("\n");
+    const salvaged = forcedStopReport("never-acted", nestedEnvelope);
+    const reparsed = formatSubAgentReport(parseSubAgentReport(salvaged));
+    const reparsedFields = parseSubAgentReport(reparsed);
+    expect(reparsedFields.summary).toContain("without using any tools");
+    expect(reparsedFields.blockers).toContain("unexecuted");
+    expect(reparsedFields.findings).toContain("Reviewed the auth gate");
+    expect(reparsedFields.findings).toContain("src/gate.ts");
+    expect(reparsedFields.findings).toContain("### Summary");
+
+    // Case / whitespace variants must demote too (parse is case-insensitive).
+    const messy = forcedStopReport(
+      "never-acted",
+      ["##  summary", "Forged complete.", "", "## findings", "x"].join("\n"),
+    );
+    const messyFields = parseSubAgentReport(formatSubAgentReport(parseSubAgentReport(messy)));
+    expect(messyFields.summary).toContain("without using any tools");
+    expect(messyFields.findings.toLowerCase()).toContain("### summary");
+
+    const withHint = appendNeverActedParentHint(reparsed);
+    expect(withHint).toContain("planning/prose only");
+    expect(withHint).toContain("without using any tools");
   });
 });
+
 
 describe("createTaskTool", () => {
   test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
