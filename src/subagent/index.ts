@@ -123,17 +123,23 @@ export function fingerprintToolCalls(
   return parts.join("|");
 }
 
-export type SubAgentStopReason = "complete" | "turn-budget" | "no-progress";
+export type SubAgentStopReason = "complete" | "turn-budget" | "no-progress" | "never-acted";
 
 /** Pure stop decision for leaf workers. Null means keep running tools. */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
+  /** True when any turn in this run (including the current one) issued tools. */
+  everHadToolCalls: boolean;
   turnsCompleted: number;
   maxTurns: number;
   consecutiveIdentical: number;
   repeatLimit: number;
 }): SubAgentStopReason | null {
-  if (!input.hasToolCalls) return "complete";
+  // A tool-less turn always ends the leaf; classify success vs never-acted by
+  // whether the run used tools at all (planning-only prose is not a successful implement).
+  if (!input.hasToolCalls) {
+    return input.everHadToolCalls ? "complete" : "never-acted";
+  }
   // No-progress is more specific than the turn budget when both could apply.
   if (subAgentNoProgress(input.consecutiveIdentical, input.repeatLimit)) return "no-progress";
   if (subAgentTurnLimitExceeded(input.turnsCompleted, input.maxTurns)) return "turn-budget";
@@ -164,10 +170,12 @@ export function nextToolCallStreak(
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
-// the dispatcher. It has no submit_output or ask_operator; consequential tools
-// still go through the parent's permission gate (grants, auto mode, or prompts).
-// Hard stops also fire on the turn budget and on consecutive identical tool
-// fingerprints so a thrashing leaf cannot burn the full budget with no progress.
+// the dispatcher — unless it never called tools at all, in which case the
+// result is a never-acted salvage report rather than a successful implement.
+// It has no submit_output or ask_operator; consequential tools still go through
+// the parent's permission gate (grants, auto mode, or prompts). Hard stops also
+// fire on the turn budget and on consecutive identical tool fingerprints so a
+// thrashing leaf cannot burn the full budget with no progress.
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -185,17 +193,21 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
  * instruction asking the finished worker to summarize.
  */
 export function forcedStopReport(
-  reason: "no-progress" | "turn-budget",
+  reason: "no-progress" | "turn-budget" | "never-acted",
   partialText: string,
 ): string {
   const summary =
     reason === "no-progress"
       ? "Stopped: repeated the same tool calls with no progress."
-      : "Turn budget reached before finishing.";
+      : reason === "never-acted"
+        ? "Stopped: completed without using any tools."
+        : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
-      : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+      : reason === "never-acted"
+        ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
+        : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   const findings =
     partialText.trim().length > 0
       ? partialText.trim()
@@ -227,6 +239,7 @@ class SubAgentDirector extends DefaultDirector {
   private readonly maxTurns: number;
   private readonly repeatLimit: number;
   private turnsCompleted = 0;
+  private everHadToolCalls = false;
   private streak: ToolCallStreak = {
     lastFingerprint: undefined,
     consecutiveIdentical: 0,
@@ -270,9 +283,11 @@ class SubAgentDirector extends DefaultDirector {
       const fingerprint = fingerprintToolCalls(content);
       this.streak = nextToolCallStreak(this.streak, fingerprint);
       const hasToolCalls = fingerprint !== null;
+      if (hasToolCalls) this.everHadToolCalls = true;
 
       const stop = evaluateSubAgentStop({
         hasToolCalls,
+        everHadToolCalls: this.everHadToolCalls,
         turnsCompleted: this.turnsCompleted,
         maxTurns: this.maxTurns,
         consecutiveIdentical: this.streak.consecutiveIdentical,
@@ -289,9 +304,13 @@ class SubAgentDirector extends DefaultDirector {
         if (compacted !== null) return compacted;
         return terminal;
       }
-      if (stop === "no-progress" || stop === "turn-budget") {
+      if (stop === "no-progress" || stop === "turn-budget" || stop === "never-acted") {
         const checkpoint =
-          stop === "no-progress" ? "subagent-no-progress" : "subagent-turn-budget";
+          stop === "no-progress"
+            ? "subagent-no-progress"
+            : stop === "never-acted"
+              ? "subagent-never-acted"
+              : "subagent-turn-budget";
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
           capabilities.reply(forcedStopReport(stop, lastText(content))),

@@ -167,11 +167,12 @@ describe("sub-agent stop helpers", () => {
     expect(first).not.toBe(second);
   });
 
-  test("evaluateSubAgentStop returns complete when there are no tool calls", () => {
+  test("evaluateSubAgentStop returns complete when tools were used and the final turn has none", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 1,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
         maxTurns: 10,
         consecutiveIdentical: 0,
         repeatLimit: 2,
@@ -179,10 +180,24 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
+  test("evaluateSubAgentStop returns never-acted when the run never used tools", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: false,
+        turnsCompleted: 1,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+      }),
+    ).toBe("never-acted");
+  });
+
   test("evaluateSubAgentStop prefers no-progress over turn-budget", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
         consecutiveIdentical: 2,
@@ -195,6 +210,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
         consecutiveIdentical: 1,
@@ -207,6 +223,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        everHadToolCalls: true,
         turnsCompleted: 5,
         maxTurns: 10,
         consecutiveIdentical: 1,
@@ -242,6 +259,13 @@ describe("sub-agent stop helpers", () => {
     expect(budgetParsed.summary).toContain("Turn budget");
     expect(budgetParsed.findings).toContain("no partial findings");
     expect(budget.toLowerCase()).not.toContain("summarize progress");
+
+    const neverActed = forcedStopReport("never-acted", "I'll write the red tests next");
+    const neverParsed = parseSubAgentReport(neverActed);
+    expect(neverParsed.summary).toContain("without using any tools");
+    expect(neverParsed.findings).toContain("red tests");
+    expect(neverParsed.blockers).toContain("zero tool calls");
+    expect(neverActed.toLowerCase()).not.toContain("summarize what you found");
   });
 });
 
