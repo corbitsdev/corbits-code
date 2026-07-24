@@ -1207,7 +1207,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
   const globallyOnboarded = globalSettingsForOnboarding?.onboarded === true;
 
-  const exitAltScreen = enterAltScreen();
+  // CL-4358 spike flag: <Static>'d transcript conflicts with the alternate
+  // screen buffer (Static writes real, permanent lines to the terminal, which
+  // an alt-screen buffer discards on exit), so the prototype path skips it
+  // entirely rather than trying to reconcile the two. Off by default; see
+  // ink-static-spike.md.
+  const staticHistoryEnabled = process.env.INTERCODE_TUI_STATIC_HISTORY === "1";
+  const exitAltScreen = staticHistoryEnabled ? (): void => {} : enterAltScreen();
 
   // Strip SGR mouse sequences before Ink's parser broadcasts input to every
   // useInput handler, so they can never leak into a text field as literal text.
@@ -1227,6 +1233,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       eventEmitter={emitter}
       agent={agentProxy}
       sessionTitle={runTaskTitle.length > 0 ? runTaskTitle : "Untitled session"}
+      staticHistoryEnabled={staticHistoryEnabled}
       initialModel={config.model}
       initialProvider={config.providerName}
       {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}

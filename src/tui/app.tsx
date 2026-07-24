@@ -23,6 +23,7 @@ import {
   type IncrementalLinesState,
   type RenderableBlock,
 } from "./components/event-log.js";
+import { partitionSettledTurns, StaticTranscript } from "./components/static-transcript.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { useGitBranch } from "./git-branch.js";
@@ -461,6 +462,10 @@ export type AppProps = {
     ) => import("../agent/goal.js").GoalSnapshot | null;
     clear: () => void;
   };
+  // CL-4358 spike flag: renders settled turns through Ink's <Static> (native
+  // scrollback) instead of the app-managed viewport in event-log.tsx. Off by
+  // default; see ink-static-spike.md for the adopt/keep recommendation.
+  staticHistoryEnabled?: boolean;
 };
 
 export function App({
@@ -512,6 +517,7 @@ export function App({
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
+  staticHistoryEnabled = false,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -1121,6 +1127,15 @@ export function App({
     [state.displayRevision, state.trimmedBlockCount, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated, resourceBanner],
   );
   const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
+
+  // CL-4358 spike: only meaningful when staticHistoryEnabled — computed
+  // unconditionally (React hooks can't be gated) but unused on the default
+  // path, so this costs nothing when the flag is off.
+  const staticTranscriptTurnInFlight = state.status === "running" || state.status === "blocked";
+  const staticTranscriptPartition = useMemo(
+    () => partitionSettledTurns(state.contentBlocks, staticTranscriptTurnInFlight),
+    [state.contentBlocks, staticTranscriptTurnInFlight],
+  );
 
   const lastToolId = useMemo(() => {
     const blocks = state.contentBlocks;
@@ -2004,6 +2019,20 @@ export function App({
               visibleRows={visibleRows}
               width={contentWidth}
               scrollOffset={enteredScroll.scrollOffset}
+            />
+          </Box>
+        ) : staticHistoryEnabled ? (
+          <Box
+            width={leftWidth}
+            flexDirection="column"
+            paddingX={TEXT_GUTTER}
+          >
+            <StaticTranscript
+              settledGroups={staticTranscriptPartition.settled}
+              tailBlocks={staticTranscriptPartition.tail}
+              width={contentWidth}
+              thinkingExpanded={thinkingExpanded}
+              planCtx={{ currentStep: state.currentPlanStep, deviated: state.planDeviated }}
             />
           </Box>
         ) : (
