@@ -295,6 +295,37 @@ function resultContentSize(block: Extract<ConversationTurn["content"][number], {
   return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
 }
 
+// Text content of an error tool_result, truncated for summary use.
+function resultErrorText(
+  block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+): string {
+  const text = block.content
+    .filter((c) => c.type === "text")
+    .map((c) => c.text)
+    .join(" ")
+    .trim();
+  if (text.length === 0) return "failed (no error message)";
+  return text.length > 200 ? `${text.slice(0, 200)}...` : text;
+}
+
+// Failed tool attempts within `turns`, described as "<tool> <target>: <error>"
+// lines. Carries forward what was already tried and did not work, so a
+// compacted summary doesn't send the model back down a dead end.
+export function extractFailedAttempts(turns: ConversationTurn[]): string[] {
+  const callIndex = buildCallIndex(turns);
+  const attempts: string[] = [];
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type !== "tool_result" || block.isError !== true) continue;
+      const info = callIndex.get(block.callId);
+      const name = info?.name ?? "tool_result";
+      const target = info?.pathArg ?? info?.commandArg;
+      attempts.push(`- ${name}${target !== undefined ? ` ${target}` : ""}: ${resultErrorText(block)}`);
+    }
+  }
+  return attempts;
+}
+
 function buildResultStub(
   block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
   callIndex: Map<string, ToolCallInfo>,
@@ -548,6 +579,11 @@ export function buildTurnSummary(
 
   if (lastUserMessage.length > 0) {
     lines.push(`Last user message: "${lastUserMessage}"`);
+  }
+
+  const failedAttempts = extractFailedAttempts(turns);
+  if (failedAttempts.length > 0) {
+    lines.push(`Failed attempts — do not retry:\n${failedAttempts.join("\n")}`);
   }
 
   const summary = lines.join("\n");

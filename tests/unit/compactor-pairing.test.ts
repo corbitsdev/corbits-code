@@ -54,4 +54,33 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
     // A 100KB text result is ~25000 tokens; the old String(content) bug yielded ~4.
     expect(tokens).toBeGreaterThan(20000);
   });
+
+  test("a failed attempt buried in the summarized region survives compaction", async () => {
+    // Two error pairs compete for the single anchor slot (maxAnchorTurns: 1):
+    // the older (c1/run_shell) loses and falls into the summarized region,
+    // the newer (c2) is anchored. The older failure only survives if the
+    // fallback summary itself records it.
+    function errorResult(callId: string, text: string): ConversationTurn {
+      return {
+        role: "user",
+        content: [{ type: "tool_result", callId, content: [{ type: "text", text }], isError: true }],
+        timestamp: 1,
+      };
+    }
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      assistantCall("c1", "run_shell"),
+      errorResult("c1", "permission denied: cannot write /etc/hosts"),
+      assistantCall("c2", "edit_file"),
+      errorResult("c2", "syntax error in patch"),
+      userText("a"), userText("b"), userText("c"), userText("d"),
+      userText("e"), userText("f"), userText("g"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 1, stripResultContent: true });
+    const { output } = await compactor.apply(turns, {} as never);
+    const summaryText = output[0]?.content.find((b) => b.type === "text")?.text ?? "";
+    expect(summaryText).toContain("Failed attempts");
+    expect(summaryText).toContain("run_shell");
+    expect(summaryText).toContain("permission denied");
+  });
 });
