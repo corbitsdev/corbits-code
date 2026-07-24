@@ -3,6 +3,7 @@ import {
   createAgentIndex,
   createSearchAgentsTool,
   formatAgentSearchResults,
+  MAX_AGENT_SEARCH_BODY_CHARS,
 } from "./agent-search.js";
 import type { AgentProfile } from "./profiles.js";
 
@@ -89,6 +90,24 @@ describe("formatAgentSearchResults", () => {
     expect(text).toContain("Metadata only");
     expect(text).not.toContain("System prompt / body:");
   });
+
+  test("truncates oversized systemPromptRole bodies with ellipsis marker", () => {
+    const body = "x".repeat(MAX_AGENT_SEARCH_BODY_CHARS + 500);
+    const text = formatAgentSearchResults([
+      {
+        id: "huge",
+        description: "Oversized marketplace body",
+        systemPromptRole: body,
+      },
+    ]);
+    expect(text).toContain("System prompt / body:");
+    expect(text).toContain("…[truncated]");
+    expect(text).not.toContain(body);
+    const bodySection = text.split("System prompt / body:\n")[1] ?? "";
+    const injected = bodySection.split("\n\nSpawn with")[0] ?? bodySection;
+    expect(injected.length).toBeLessThan(body.length);
+    expect(injected.startsWith("x".repeat(MAX_AGENT_SEARCH_BODY_CHARS))).toBe(true);
+  });
 });
 
 describe("createSearchAgentsTool", () => {
@@ -116,5 +135,28 @@ describe("createSearchAgentsTool", () => {
     expect(text).toContain("System prompt / body:");
     expect(text).toContain(body);
     expect(text).toContain("[source: claude]");
+  });
+
+  test("empty query respects the same default result limit as non-empty search", async () => {
+    const many: AgentProfile[] = Array.from({ length: 20 }, (_, i) => ({
+      id: `agent-${String(i).padStart(2, "0")}`,
+      description: `Profile ${i}`,
+      systemPromptRole: `You are agent ${i}.`,
+    }));
+    const tool = createSearchAgentsTool(() => many);
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const text = await tool.handler({ query: "" }, new AbortController().signal);
+    const headers = [...text.matchAll(/^### (agent-\d+)/gm)].map((m) => m[1]);
+    expect(headers).toHaveLength(12);
+    expect(headers[0]).toBe("agent-00");
+    expect(headers[11]).toBe("agent-11");
+    expect(text).not.toContain("### agent-12");
+  });
+
+  test("empty catalog + empty query returns loaded-none message", async () => {
+    const tool = createSearchAgentsTool(() => []);
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const text = await tool.handler({ query: "   " }, new AbortController().signal);
+    expect(text).toBe("No agent profiles are loaded.");
   });
 });

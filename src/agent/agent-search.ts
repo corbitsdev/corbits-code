@@ -51,10 +51,20 @@ export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): Ag
   };
 }
 
+// Hard cap per injected body so a single oversized marketplace profile cannot
+// blow the tool-result budget even when result count is already limited.
+export const MAX_AGENT_SEARCH_BODY_CHARS = 8_000;
+
+function truncateAgentBody(body: string): string {
+  if (body.length <= MAX_AGENT_SEARCH_BODY_CHARS) return body;
+  return `${body.slice(0, MAX_AGENT_SEARCH_BODY_CHARS)}\n…[truncated]`;
+}
+
 // Format one profile for search_agents output. Injects the full loaded
 // systemPromptRole (markdown body / role text) so the parent can inspect plugin
 // and marketplace agents without read_file on paths outside the session cwd
-// (path-escape blocks those roots by design).
+// (path-escape blocks those roots by design). Bodies longer than
+// MAX_AGENT_SEARCH_BODY_CHARS are truncated with an ellipsis marker.
 function formatAgentProfileEntry(p: AgentProfile): string {
   const desc = (p.description ?? "").trim();
   const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
@@ -66,7 +76,7 @@ function formatAgentProfileEntry(p: AgentProfile): string {
       : `### ${p.id}${tier}${orch}${source}`;
   const body = (p.systemPromptRole ?? "").trim();
   if (body.length === 0) return header;
-  return `${header}\n\nSystem prompt / body:\n${body}`;
+  return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;
 }
 
 export function formatAgentSearchResults(profiles: readonly AgentProfile[]): string {
@@ -112,10 +122,10 @@ export function createSearchAgentsTool(getProfiles: () => readonly AgentProfile[
         return "Error: search_agents requires query (string).";
       }
       const query = parsed.query.trim();
-      if (query.length === 0) {
-        const all = getProfiles();
-        if (all.length === 0) return "No agent profiles are loaded.";
-        return formatAgentSearchResults(all);
+      // Empty and non-empty queries share createAgentIndex.search's default limit
+      // (12) so a large marketplace catalog cannot dump every body into one result.
+      if (query.length === 0 && getProfiles().length === 0) {
+        return "No agent profiles are loaded.";
       }
       return formatAgentSearchResults(index.search(query));
     },

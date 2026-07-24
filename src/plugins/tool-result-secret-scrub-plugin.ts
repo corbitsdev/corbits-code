@@ -1,7 +1,15 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import { scrubSecretShapedToolResultContent } from "./tool-result-secret-scrub.js";
 
-const SCRUBBABLE_TOOLS = new Set(["grep", "run_shell", "read_file", "search_files"]);
+// search_agents injects full profile bodies (marketplace/plugin markdown); scrub
+// secret-shaped substrings the same way as file/shell reads.
+const SCRUBBABLE_TOOLS = new Set([
+  "grep",
+  "run_shell",
+  "read_file",
+  "search_files",
+  "search_agents",
+]);
 
 export function toolResultSecretScrubPlugin(): ToolPlugin {
   return {
