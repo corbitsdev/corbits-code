@@ -62,8 +62,10 @@ import {
   resolveSubAgentMaxTurns,
   resolveTier,
   resolveInferenceWithPolicy,
+  toolWatchdogFromSettings,
   validateTaskMaxTurns,
 } from "../config/settings.js";
+import { resolveToolExecutionTimeoutMs } from "../tui/tool-execution-watchdog.js";
 import { validateEffort } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
@@ -82,10 +84,51 @@ export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 2;
 // Wall-clock budget for one sub-agent leaf's whole run, independent of the
 // outer per-tool-call watchdog (DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, 660_000ms,
 // in ../tui/tool-execution-watchdog.ts) that wraps the `task` call itself.
-// Kept comfortably below that outer bound so this deadline fires first,
-// letting the leaf produce a salvage report and return normally instead of
-// racing the outer watchdog's bare timeout, which would discard it.
+// This is only the starting point handed to resolveSubAgentDeadlineMs, which
+// clamps it against the *effective* (settings-resolved) outer watchdog so the
+// leaf's own deadline always fires first even when that outer value is
+// lowered below this default.
 export const DEFAULT_SUBAGENT_DEADLINE_MS = 600_000;
+
+// Minimum gap kept between the internal deadline and the outer tool-execution
+// watchdog, so there is time left for the salvage report to unwind and return
+// before the outer watchdog would discard the run wholesale.
+export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
+
+/**
+ * Clamp the internal wall-clock deadline to stay a margin below the effective
+ * outer tool-execution watchdog. `outerWatchdogMs` must be the resolved value
+ * (settings-aware; see resolveToolExecutionTimeoutMs), not a hardcoded
+ * constant, so a user-lowered outer timeout still leaves the salvage path
+ * time to win the race.
+ */
+export function resolveSubAgentDeadlineMs(
+  requestedMs: number | undefined,
+  outerWatchdogMs: number,
+): number {
+  const requested = requestedMs ?? DEFAULT_SUBAGENT_DEADLINE_MS;
+  const ceiling = Math.max(1_000, outerWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  return Math.min(requested, ceiling);
+}
+
+export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "rethrow";
+
+/**
+ * Decide what a cancelled/aborted sub-agent run should return to the parent.
+ * A deadline firing must always produce a salvage report — even with zero
+ * tool calls and zero partial text — so the parent gets a graceful report
+ * instead of a bare AbortError racing the outer tool-execution watchdog. A
+ * genuine pre-progress operator cancel still rethrows so the task tool's
+ * cancel path stays a bare abort.
+ */
+export function resolveSubAgentCatchOutcome(input: {
+  deadlineHit: boolean;
+  hadProgress: boolean;
+}): SubAgentCatchOutcome {
+  if (input.deadlineHit) return "salvage-deadline";
+  if (input.hadProgress) return "salvage-cancelled";
+  return "rethrow";
+}
 
 export function subAgentTurnLimitExceeded(turnsCompleted: number, maxTurns: number): boolean {
   return turnsCompleted >= maxTurns;
@@ -725,9 +768,12 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // per-tool-call watchdog (which would discard the run wholesale on timeout).
   // Declared before the try so `finally` (a sibling scope, not nested inside
   // `try`) can still see it for cleanup.
+  const outerWatchdogMs = resolveToolExecutionTimeoutMs(
+    toolWatchdogFromSettings(params.settings),
+  );
   const runController = createSubAgentRunController(
     params.signal,
-    params.deadlineMs ?? DEFAULT_SUBAGENT_DEADLINE_MS,
+    resolveSubAgentDeadlineMs(params.deadlineMs, outerWatchdogMs),
   );
 
   try {
@@ -994,14 +1040,14 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         if (streamPromise !== undefined) {
           await streamPromise.catch(() => {});
         }
-        // Cancel or deadline after any tools or assistant prose returns a
-        // structured salvage report so the parent keeps partial work;
-        // pre-progress cancel still surfaces as a bare AbortError for the
-        // task tool's cancel path.
         const hadProgress =
           toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
-        if (hadProgress) {
-          const reason = runController.deadlineHit() ? "deadline" : "cancelled";
+        const outcome = resolveSubAgentCatchOutcome({
+          deadlineHit: runController.deadlineHit(),
+          hadProgress,
+        });
+        if (outcome !== "rethrow") {
+          const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
           return appendActivitySummary(
             forcedStopReport(reason, lastPartialText),
             toolNamesUsed,
