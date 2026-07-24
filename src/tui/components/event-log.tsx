@@ -104,7 +104,7 @@ function markRunningRow(lines: StyledLine[], startedAt: number): StyledLine[] {
   );
 }
 
-export function runningStartOfLine(line: StyledLine): number | undefined {
+function runningStartOfLine(line: StyledLine): number | undefined {
   return line[0]?.toolRunningSince ?? line[line.length - 1]?.toolRunningSince;
 }
 
@@ -221,7 +221,7 @@ type RenderedLineProps = {
   width: number;
 };
 
-export const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLineProps): ReactNode {
+const RenderedLine = memo(function RenderedLine({ line, width }: RenderedLineProps): ReactNode {
   const segments = useMemo(() => {
     const textWidth = line.reduce((n, s) => n + stringWidth(s.text), 0);
     const pad = Math.max(0, width - textWidth);
@@ -257,7 +257,7 @@ const PENDING_GLYPH = "○";
 // A pending tool row shows a static "still running" marker — glyph plus
 // elapsed-so-far clock — without a repaint interval of its own, since that
 // would draw a second animated spinner alongside the status row's.
-export const RunningToolRow = memo(function RunningToolRow({ line, width, startedAt }: RunningToolRowProps): ReactNode {
+const RunningToolRow = memo(function RunningToolRow({ line, width, startedAt }: RunningToolRowProps): ReactNode {
   const hasSpinner = line[0]?.toolRunningSince !== undefined;
   const hasElapsed = line[line.length - 1]?.toolRunningSince !== undefined;
   const segments = useMemo(() => {

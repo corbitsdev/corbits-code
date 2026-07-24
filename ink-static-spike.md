@@ -97,3 +97,15 @@ Should product direction later prioritize scrollback/copy-paste enough to accept
 - `src/tui/runner.tsx` — reads `INTERCODE_TUI_STATIC_HISTORY=1` from the environment, skips `enterAltScreen()` when set, and passes `staticHistoryEnabled` to `<App>`.
 
 To try it: `INTERCODE_TUI_STATIC_HISTORY=1 bun run start` (or the repo's equivalent dev entry point).
+
+## How other agents solve this
+
+Surveying other terminal coding agents shows the tradeoff above is not specific to this codebase — it's a structural split in the field, with two camps and one outlier worth watching closely.
+
+**Camp 1: inline, committed-once, native scrollback.** Claude Code's default mode, gemini-cli, and aider all render turns inline in the normal terminal buffer and commit each one as it settles, the same `<Static>`-style approach this spike prototyped. They get native scrollback, terminal-native search, and real copy/paste for free. The cost is the same one measured above: history is frozen at the width and collapse-state it had when committed — resize reflow and retroactive tool-call expand/collapse are gone for anything already scrolled past.
+
+**Camp 2: alt-screen, app-managed viewport.** opencode, crush, codex-today, and intercode as it stands today all run inside an alternate screen buffer with a hand-rolled viewport over an in-memory line buffer. This buys full resize reflow and dynamic collapse/expand of already-rendered content, at the cost of reimplementing scroll, search, and copy/paste inside the app instead of getting them from the terminal.
+
+**The strongest signal: differential-inline rendering.** pi (pi.dev) and omp (oh-my-pi, `can1357/oh-my-pi`) do not pick a side — they render inline (no alt-screen) but keep an in-memory backbuffer of the live region, diff it against the previous frame, and repaint only the lines that changed, while treating any block that scrolls off the bottom of that live region as committed and appended to scrollback exactly once. This recovers native scrollback *and* near-viewport dynamism (resize reflow, retroactive collapse/expand) for the still-live portion of the transcript, at the cost of only one thing: once a block has scrolled off and been committed, it can no longer be mutated — the same one-way commit boundary `<Static>` has, just pushed much further back (to "off the bottom of the visible region" instead of "as soon as the turn ends"). Notably, Claude Code itself ships both an inline committed-once mode and an alt-screen viewport mode, rather than treating this as a single binary choice.
+
+This changes the recommendation's shape. Keeping the alt-screen-managed viewport as intercode's default today is still correct — a plain port of Ink's `<Static>` would trade away the retroactive-collapse feature outright, as this spike found. But the real future direction worth spiking next is not "Static vs. viewport" as a binary; it's a pi/omp-style differential-inline renderer with a live backbuffer, which appears to be the only approach that recovers both scrollback and dynamism simultaneously.
