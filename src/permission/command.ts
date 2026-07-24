@@ -121,7 +121,20 @@ export function splitChainedCommand(command: string): string[] {
     }
 
     const next = command[i + 1];
+    // A chain operator immediately following a dangling redirect operator
+    // (`>`, `<`, `>&`, `<&` with no target yet) does not start a new command —
+    // the target got separated from its redirect, most often by a stray
+    // separator a model inserted mid-redirect (e.g. "cmd 2>& ; 1" meaning
+    // "cmd 2>&1"). Treat the operator as whitespace so the target rejoins the
+    // command it belongs to, instead of surfacing as its own "Run shell
+    // command" approval. A well-formed chain ("sleep 5 ; -1 ; echo end") has
+    // no dangling redirect before the separator, so it is never affected.
     if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
+      if (endsWithDanglingRedirect(current)) {
+        current = `${current.trimEnd()} `;
+        i++;
+        continue;
+      }
       push();
       i++;
       continue;
@@ -139,37 +152,26 @@ export function splitChainedCommand(command: string): string[] {
     // is a chain boundary. Without this, "ls & rm -rf foo" is treated as a
     // single segment and the approval scope is derived from the benign head.
     if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
+      if (endsWithDanglingRedirect(current)) {
+        current = `${current.trimEnd()} `;
+        continue;
+      }
       push();
       continue;
     }
     current += ch;
   }
   push();
-  return coalesceRedirectRemnants(segments);
+  return segments;
 }
 
-// A chain operator can strand a redirect fd-duplication target as its own
-// segment (e.g. a model emitting "cmd ; 1" or "cmd && &1" where the intended
-// redirect got split across the operator). Such a fragment tokenizes to
-// something that is never a real program: bare digits, a bare "-", or "&"
-// paired with digits/"-". Surfacing it as its own "Run shell command" approval
-// is spurious, so fold it back into the command it belongs to.
-const REDIRECT_REMNANT = /^(-?\d+|&-?\d*)$/;
+// Whether `text` ends (ignoring trailing whitespace) in a redirect operator
+// that has not yet received its target: a bare `>`/`<`, or a fd-duplication
+// opener `>&`/`<&` awaiting the fd number.
+const DANGLING_REDIRECT = /(?:>&|<&|>|<)$/;
 
-function isRedirectRemnant(segment: string): boolean {
-  return REDIRECT_REMNANT.test(segment.trim());
-}
-
-function coalesceRedirectRemnants(segments: string[]): string[] {
-  const coalesced: string[] = [];
-  for (const segment of segments) {
-    if (coalesced.length > 0 && isRedirectRemnant(segment)) {
-      coalesced[coalesced.length - 1] = `${coalesced[coalesced.length - 1]} ${segment}`;
-      continue;
-    }
-    coalesced.push(segment);
-  }
-  return coalesced;
+function endsWithDanglingRedirect(text: string): boolean {
+  return DANGLING_REDIRECT.test(text.trimEnd());
 }
 
 // The inner chain of a segment that is exactly one parenthesised group, or null
