@@ -316,7 +316,7 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledParsed.blockers).toContain("re-dispatch");
 
     // Nested agent envelope in partial text must not clobber cancel Summary.
-    const nested = [
+    const cancelledNested = [
       "## Summary",
       "Halfway done.",
       "",
@@ -326,11 +326,11 @@ describe("sub-agent stop helpers", () => {
       "## Blockers",
       "None",
     ].join("\n");
-    const salvaged = forcedStopReport("cancelled", nested);
-    const reparsed = parseSubAgentReport(salvaged);
-    expect(reparsed.summary).toContain("cancelled");
-    expect(reparsed.findings).toContain("Halfway done");
-    expect(reparsed.findings).toContain("### Summary");
+    const cancelledSalvaged = forcedStopReport("cancelled", cancelledNested);
+    const cancelledReparsed = parseSubAgentReport(cancelledSalvaged);
+    expect(cancelledReparsed.summary).toContain("cancelled");
+    expect(cancelledReparsed.findings).toContain("Halfway done");
+    expect(cancelledReparsed.findings).toContain("### Summary");
   });
 
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {
