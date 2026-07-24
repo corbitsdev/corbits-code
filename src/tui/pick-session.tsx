@@ -1,5 +1,6 @@
 import { render } from "ink";
 
+import { COMMAND_NAME } from "../branding.js";
 import { listSessions, type SessionSummary } from "../session/index.js";
 import { SessionResumePicker } from "./components/session-resume-picker.js";
 
@@ -20,8 +21,8 @@ export async function pickSession(
   if (sessions.length === 0) {
     process.stderr.write(
       options?.includeCompleted === true
-        ? "corbits: no previous sessions found in this directory.\n"
-        : "corbits: no in-progress sessions found (use --force to resume completed runs).\n",
+        ? `${COMMAND_NAME}: no previous sessions found in this directory.\n`
+        : `${COMMAND_NAME}: no in-progress sessions found (use --force to resume completed runs).\n`,
     );
     return null;
   }
