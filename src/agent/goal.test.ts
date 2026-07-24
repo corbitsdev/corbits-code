@@ -12,6 +12,7 @@ import {
   goalShowsWorkPrimary,
   isUnlimitedTurnBudget,
   DEFAULT_GOAL_TURN_BUDGET,
+  UNLIMITED_GOAL_TURN_BUDGET,
   type GoalCriterion,
   type GoalEvaluateFn,
   type GoalInterceptContext,
@@ -64,16 +65,17 @@ function seedCriteria(
 }
 
 describe("goal governor state machine", () => {
-  test("default turn budget is unlimited (0)", () => {
-    expect(DEFAULT_GOAL_TURN_BUDGET).toBe(0);
-    expect(isUnlimitedTurnBudget(0)).toBe(true);
+  test("default turn budget is a finite number, not unlimited", () => {
+    expect(DEFAULT_GOAL_TURN_BUDGET).toBe(50);
+    expect(isUnlimitedTurnBudget(DEFAULT_GOAL_TURN_BUDGET)).toBe(false);
+    expect(isUnlimitedTurnBudget(UNLIMITED_GOAL_TURN_BUDGET)).toBe(true);
     expect(isUnlimitedTurnBudget(25)).toBe(false);
-    expect(formatGoalTurns(3, 0)).toBe("3/∞");
+    expect(formatGoalTurns(3, UNLIMITED_GOAL_TURN_BUDGET)).toBe("3/∞");
     expect(formatGoalTurns(3, 25)).toBe("3/25");
 
     const g = createGoalGovernor({ evaluate: alwaysNotMet(), now: () => 1000 });
     const first = g.set("all tests green");
-    expect(first.turnBudget).toBe(0);
+    expect(first.turnBudget).toBe(DEFAULT_GOAL_TURN_BUDGET);
     expect(first.status).toBe("active");
     expect(first.brief).toBe("all tests green");
     expect(first.criteria).toEqual([]);
@@ -94,7 +96,7 @@ describe("goal governor state machine", () => {
     expect(second.brief).toBe("ship the feature");
     expect(second.turnsUsed).toBe(0);
     expect(second.status).toBe("active");
-    expect(second.turnBudget).toBe(0);
+    expect(second.turnBudget).toBe(DEFAULT_GOAL_TURN_BUDGET);
     expect(second.criteria).toEqual([]);
   });
 
@@ -234,7 +236,7 @@ describe("goal governor state machine", () => {
 
   test("resume keeps unlimited turn budget unlimited", () => {
     const g = createGoalGovernor({ evaluate: alwaysNotMet() });
-    g.set("ship it");
+    g.set("ship it", { turnBudget: UNLIMITED_GOAL_TURN_BUDGET });
     expect(g.get()?.turnBudget).toBe(0);
     g.pause();
     const resumed = g.resume();
@@ -490,9 +492,31 @@ describe("goal interceptTerminal", () => {
     expect(g.get()?.lastReason).toContain("Turn budget");
   });
 
+  test("default turn budget soft-stops with an operator-visible message when exhausted", async () => {
+    const g = createGoalGovernor({ evaluate: alwaysNotMet() });
+    g.set("ship the feature");
+    seedCriteria(g);
+    expect(g.get()?.turnBudget).toBe(DEFAULT_GOAL_TURN_BUDGET);
+
+    let last: ReactorAction[] | null = null;
+    for (let i = 0; i < DEFAULT_GOAL_TURN_BUDGET; i++) {
+      last = await g.interceptTerminal(waitTerminal, capabilities, ctx());
+      expect(last?.some((a) => a.type === "infer")).toBe(true);
+    }
+    expect(g.get()?.turnsUsed).toBe(DEFAULT_GOAL_TURN_BUDGET);
+    expect(g.get()?.status).toBe("active");
+
+    const exhausted = await g.interceptTerminal(waitTerminal, capabilities, ctx());
+    expect(exhausted).toBeNull();
+    expect(g.get()?.status).toBe("budget_limited");
+    expect(g.get()?.lastReason).toContain("Turn budget reached");
+    expect(g.get()?.lastReason).toContain("/goal resume");
+    expect(formatGoalStatus(g.get())).toContain("Turn budget reached");
+  });
+
   test("unlimited turn budget does not soft-stop on turns alone", async () => {
     const g = createGoalGovernor({ evaluate: alwaysNotMet() });
-    g.set("keep going");
+    g.set("keep going", { turnBudget: UNLIMITED_GOAL_TURN_BUDGET });
     seedCriteria(g);
     for (let i = 0; i < 30; i++) {
       const next = await g.interceptTerminal(waitTerminal, capabilities, ctx());

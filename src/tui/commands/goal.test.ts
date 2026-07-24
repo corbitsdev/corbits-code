@@ -77,6 +77,12 @@ describe("parseGoalArgs", () => {
     expect(p.replace).toBe(true);
     expect(p.opts).toEqual({ turnBudget: 5 });
   });
+
+  test("--unlimited is the explicit opt-in to disable the turn soft-stop", () => {
+    const p = parseGoalArgs("--unlimited all tests pass");
+    expect(p.condition).toBe("all tests pass");
+    expect(p.opts).toEqual({ turnBudget: 0 });
+  });
 });
 
 describe("/goal command", () => {

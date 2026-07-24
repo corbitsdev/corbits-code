@@ -125,10 +125,16 @@ export type CreateGoalGovernorOpts = {
 
 export type GoalGovernor = ReturnType<typeof createGoalGovernor>;
 
-export const DEFAULT_GOAL_TURN_BUDGET = 0;
+export const DEFAULT_GOAL_TURN_BUDGET = 50;
 export const DEFAULT_GOAL_RESUME_EXTEND = 25;
 export const DEFAULT_MAX_EVAL_FAILURES = 3;
 export const DEFAULT_MAX_EMPTY_YIELDS = 2;
+
+/**
+ * Sentinel turn budget an operator opts into explicitly (`/goal --unlimited`)
+ * to disable the turn soft-stop. Never the default.
+ */
+export const UNLIMITED_GOAL_TURN_BUDGET = 0;
 
 /** `0` (and negative) means no turn soft-stop — goal runs until met, paused, or cleared. */
 export function isUnlimitedTurnBudget(turnBudget: number): boolean {

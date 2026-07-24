@@ -1,6 +1,10 @@
 import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
-import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
+import {
+  formatGoalStatus,
+  UNLIMITED_GOAL_TURN_BUDGET,
+  type GoalSetOpts,
+} from "../../agent/goal.js";
 import { formatCostCommandOutput } from "../../cost/cost-summary.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
@@ -23,10 +27,12 @@ const GOAL_CLEAR_ALIASES = new Set(["clear", "stop", "off", "reset", "none", "ca
  * - bare → status
  * - pause | resume | clear(+aliases)
  * - optional leading turn budget as a bare integer: `/goal 25 all tests pass`
- * - optional `--tokens N` / `--replace` flags (anywhere before the condition)
+ * - optional `--tokens N` / `--replace` / `--unlimited` flags (anywhere before the condition)
  * - remaining text is the condition
  *
  * `--turns N` is still accepted as a quiet alias for the leading integer form.
+ * `--unlimited` is the explicit opt-in to disable the turn soft-stop; omitting
+ * both a turn count and `--unlimited` uses the finite default budget.
  */
 export function parseGoalArgs(raw: string): {
   sub?: "pause" | "resume" | "clear" | "status";
@@ -67,6 +73,12 @@ export function parseGoalArgs(raw: string): {
     if (replaceFlag !== null) {
       replace = true;
       rest = rest.slice(replaceFlag[0].length);
+      continue;
+    }
+    const unlimitedFlag = rest.match(/^--unlimited\s*/i);
+    if (unlimitedFlag !== null) {
+      opts.turnBudget = UNLIMITED_GOAL_TURN_BUDGET;
+      rest = rest.slice(unlimitedFlag[0].length);
       continue;
     }
     break;
@@ -214,7 +226,8 @@ registerCommand({
   name: "goal",
   description: "Set a session goal brief; agent expands into an acceptance checklist",
   // Claude-style free-form arg guidance. Leading turns are optional positional
-  // (`/goal 25 ship the feature`); omit for unlimited turns (default).
+  // (`/goal 25 ship the feature`); omit to use the default turn budget, or
+  // pass `--unlimited` to opt out of the turn soft-stop entirely.
   argumentHint: "[turns] <brief>",
   subcommands: [
     { name: "pause", description: "Stop auto-continue; keep the goal" },
