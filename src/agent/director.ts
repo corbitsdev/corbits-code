@@ -652,8 +652,17 @@ class ChatDirectorImpl extends DefaultDirector {
       this.compaction.noteInferenceDone(event, state?.turns?.length ?? 0);
     }
 
+    const capAlreadyWarned = this.sessionCapWarned;
     const base = await super.decide(event, state, capabilities);
     const baseActions = Array.isArray(base) ? base : [base];
+
+    // The session cap's halt/abort reuses the same wait/reply/done shapes as
+    // an ordinary end-of-turn (see afterInferenceDone above), so every
+    // continuation rewrite below — open-task nudge, workflow nudge, goal
+    // continue-rule — would otherwise mistake it for a plain yield and
+    // replace it with a fresh infer(), silently swallowing the cap. Detect
+    // the false-to-true transition and return the cap's own actions as-is.
+    if (!capAlreadyWarned && this.sessionCapWarned) return base;
 
     this.compaction.noteIdleTurn(event, baseActions);
     const compacted = this.compaction.interceptActions(event, baseActions, capabilities);
