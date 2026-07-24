@@ -13,7 +13,7 @@ import type {
   ToolResult,
 } from "@intx/types/runtime";
 
-import { SETTINGS_DIR_NAME } from "../branding.js";
+import { COMMAND_NAME, SETTINGS_DIR_NAME } from "../branding.js";
 
 export type HookKind = "postTurn" | "postRun";
 
@@ -373,12 +373,9 @@ async function createTypeScriptHookCommand(
   hook: LifecycleHook,
   kind: HookKind,
 ): Promise<string[]> {
-  const runnerPath = join(
-    tmpdir(),
-    "corbits-hook-runners",
-    `${hashHookRunner(hook.path, kind)}.ts`,
-  );
-  await mkdir(join(tmpdir(), "corbits-hook-runners"), { recursive: true });
+  const runnerDir = join(tmpdir(), `${COMMAND_NAME}-hook-runners`);
+  const runnerPath = join(runnerDir, `${hashHookRunner(hook.path, kind)}.ts`);
+  await mkdir(runnerDir, { recursive: true });
   await writeFile(runnerPath, typeScriptHookRunnerSource(hook.path, kind));
   return ["bun", runnerPath];
 }
