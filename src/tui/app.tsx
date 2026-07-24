@@ -130,6 +130,7 @@ import type { CapabilityName } from "../workflows/types.js";
 import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
 import { goalKickoffUserMessage } from "../agent/goal.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { createPathRestriction, type PathRestriction } from "../permission/path-restriction.js";
 import {
   extractPastedImagePaths,
   findImagePathMentions,
@@ -151,16 +152,27 @@ type OutboundUserMessage = {
   attachments: PendingImageAttachment[];
 };
 
-async function resolveMentionPath(cwd: string, path: string): Promise<{ ok: true; abs: string } | { ok: false; reason: string }> {
+async function resolveMentionPath(
+  cwd: string,
+  path: string,
+  pathRestriction: PathRestriction,
+): Promise<{ ok: true; abs: string } | { ok: false; reason: string }> {
   if (path === "~" || path.startsWith("~/")) {
     return { ok: false, reason: "home-relative paths are not supported" };
   }
 
+  let abs: string;
   try {
-    return { ok: true, abs: await realpath(isAbsolute(path) ? path : resolve(cwd, path)) };
+    abs = await realpath(isAbsolute(path) ? path : resolve(cwd, path));
   } catch {
     return { ok: false, reason: "not found" };
   }
+
+  if (pathRestriction.isRestricted(abs, false)) {
+    return { ok: false, reason: "outside workspace" };
+  }
+
+  return { ok: true, abs };
 }
 
 async function summarizeDir(abs: string): Promise<string> {
@@ -198,6 +210,7 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
   }
   if (mentions.length === 0) return message;
 
+  const pathRestriction = createPathRestriction(cwd);
   const replacements: Array<{ full: string; replacement: string }> = [];
   let totalBytes = 0;
 
@@ -210,7 +223,7 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
       replacements.push({ full, replacement: `${full} (blocked: sensitive path)` });
       continue;
     }
-    const resolved = await resolveMentionPath(cwd, path);
+    const resolved = await resolveMentionPath(cwd, path, pathRestriction);
     if (!resolved.ok) {
       replacements.push({ full, replacement: `${full} (blocked: ${resolved.reason})` });
       continue;
