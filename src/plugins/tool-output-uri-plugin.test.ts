@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createBlobReader } from "@intx/types/runtime";
 import { createPosixTools } from "@intx/tools-posix";
 import { readFileGuardPlugin } from "./read-file-guard-plugin.js";
+import { ripgrepPlugin } from "./ripgrep-plugin.js";
 import { toolOutputUriPlugin } from "./tool-output-uri-plugin.js";
 
 describe("toolOutputUriPlugin", () => {
@@ -58,5 +59,40 @@ describe("toolOutputUriPlugin", () => {
     expect(result.content).toContain("blob-line-100");
     expect(result.content).toContain("blob-line-101");
     expect(result.content).not.toContain("blob-line-99");
+  });
+
+  test("rejects grep on a tool-output:// URI before it reaches ripgrep", async () => {
+    const tools = createPosixTools({
+      cwd: "/tmp",
+      plugins: [toolOutputUriPlugin(), ripgrepPlugin("/tmp")],
+    });
+    const result = await tools.run(
+      {
+        id: "g1",
+        name: "grep",
+        arguments: { pattern: "foo", path: "tool-output:///abc123" },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("read_file");
+    expect(result.content).not.toContain("ripgrep");
+  });
+
+  test("rejects search_files on a tool-output:// URI before it reaches ripgrep", async () => {
+    const tools = createPosixTools({
+      cwd: "/tmp",
+      plugins: [toolOutputUriPlugin(), ripgrepPlugin("/tmp")],
+    });
+    const result = await tools.run(
+      {
+        id: "s1",
+        name: "search_files",
+        arguments: { pattern: "*.ts", path: "tool-output:///abc123" },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("read_file");
   });
 });
