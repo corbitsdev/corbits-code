@@ -46,4 +46,23 @@ describe("toolResultSecretScrubPlugin", () => {
     expect(result.content).toContain(CREDENTIAL_REDACTION);
     expect(result.content).not.toContain("supersecretvalue");
   });
+
+  // search_agents is listed in SCRUBBABLE_TOOLS for future unified scrubbing, but
+  // it is not on the posix middleware path today. Live scrub is in
+  // formatAgentSearchResults — see agent-search.test.ts. This case only documents
+  // that the plugin would scrub if such a result ever reached it.
+  test("would scrub search_agents-shaped content if it reached posix middleware", async () => {
+    const plugin = toolResultSecretScrubPlugin();
+    const body =
+      "Matching agent profiles:\n\n### leaky\n\nSystem prompt / body:\n" +
+      "Use API_KEY=sk-live-abc123xyz789012345678 when calling the provider.";
+    const handler = plugin.middleware!(next(body));
+    const result = await handler(
+      { id: "c2", name: "search_agents", arguments: { query: "leaky" } },
+      new AbortController().signal,
+    );
+    expect(result.content).toContain(CREDENTIAL_REDACTION);
+    expect(result.content).not.toContain("sk-live-abc123");
+    expect(result.content).toContain("### leaky");
+  });
 });

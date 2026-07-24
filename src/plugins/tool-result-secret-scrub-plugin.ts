@@ -1,7 +1,17 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import { scrubSecretShapedToolResultContent } from "./tool-result-secret-scrub.js";
 
-const SCRUBBABLE_TOOLS = new Set(["grep", "run_shell", "read_file", "search_files"]);
+// Posix-middleware scrub path only. search_agents is listed for future unified
+// scrubbing if it ever rides this middleware; live scrub for profile bodies is in
+// formatAgentSearchResults (agent-search.ts) because search_agents is a core agent
+// tool and never hits the posix ToolPlugin chain.
+const SCRUBBABLE_TOOLS = new Set([
+  "grep",
+  "run_shell",
+  "read_file",
+  "search_files",
+  "search_agents",
+]);
 
 export function toolResultSecretScrubPlugin(): ToolPlugin {
   return {
