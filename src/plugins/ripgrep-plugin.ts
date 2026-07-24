@@ -28,9 +28,22 @@ type RgResult =
   | { kind: "output"; stdout: string }
   | { kind: "no-match" }
   | { kind: "unavailable" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  | { kind: "partial"; stdout: string; notice: string };
 
-function runRg(rgArgs: string[], cwd: string, signal: AbortSignal): Promise<RgResult> {
+type RgLimits = {
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+};
+
+function runRg(
+  rgArgs: string[],
+  cwd: string,
+  signal: AbortSignal,
+  limits: RgLimits = {},
+): Promise<RgResult> {
+  const timeoutMs = limits.timeoutMs ?? RG_TIMEOUT_MS;
+  const maxOutputBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   return new Promise((resolve) => {
     const child = spawn("rg", rgArgs, {
       cwd,
@@ -63,18 +76,23 @@ function runRg(rgArgs: string[], cwd: string, signal: AbortSignal): Promise<RgRe
 
     const timer = setTimeout(() => {
       killTree();
-      finish({ kind: "error", message: `ripgrep timed out after ${RG_TIMEOUT_MS}ms — narrow path/glob` });
-    }, RG_TIMEOUT_MS);
+      finish({
+        kind: "partial",
+        stdout,
+        notice: `ripgrep timed out after ${timeoutMs}ms — showing partial results; narrow path/glob`,
+      });
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
       if (settled) return;
       stdout += String(chunk);
-      if (stdout.length > MAX_OUTPUT_BYTES) {
+      if (stdout.length > maxOutputBytes) {
         killTree();
         clearTimeout(timer);
         finish({
-          kind: "error",
-          message: `ripgrep output exceeded ${MAX_OUTPUT_BYTES} bytes — narrow path/glob or pattern`,
+          kind: "partial",
+          stdout,
+          notice: `ripgrep output exceeded ${maxOutputBytes} bytes — showing partial results; narrow path/glob or pattern`,
         });
       }
     });
@@ -103,6 +121,15 @@ function capLines(text: string, max: number): string {
   return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length}+ lines; narrow path/glob)`;
 }
 
+// Mirrors read_file's truncate-and-offer behavior: a cap or timeout still
+// surfaces whatever matches were collected before it fired, instead of
+// discarding them behind a bare error.
+function partialContent(stdout: string, maxResults: number, notice: string): string {
+  const capped = capLines(stdout, maxResults);
+  if (capped.length === 0) return `no matches collected before ${notice}`;
+  return `${capped}\n... ${notice}`;
+}
+
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -124,7 +151,7 @@ function searchLocation(path: string, fallbackCwd: string): { cwd: string; targe
   }
 }
 
-export function ripgrepPlugin(cwd: string): ToolPlugin {
+export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "grep") {
@@ -143,7 +170,7 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         if (glob !== undefined) rgArgs.push("-g", glob);
         rgArgs.push("--regexp", pattern, target);
 
-        const result = await runRg(rgArgs, rgCwd, signal);
+        const result = await runRg(rgArgs, rgCwd, signal, limits);
         if (result.kind === "unavailable") {
           try {
             const boundedArgs: BoundedGrepArgs = {
@@ -169,6 +196,9 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         if (result.kind === "error") {
           return { callId: call.id, content: result.message, isError: true };
         }
+        if (result.kind === "partial") {
+          return { callId: call.id, content: partialContent(result.stdout, maxResults, result.notice) };
+        }
         return { callId: call.id, content: capLines(result.stdout, maxResults) };
       }
 
@@ -179,7 +209,7 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         const maxResults = num(call.arguments.max_results) ?? DEFAULT_SEARCH_MAX;
         const { cwd: rgCwd, target } = searchLocation(path, cwd);
 
-        const result = await runRg(["--files", "-g", pattern, target], rgCwd, signal);
+        const result = await runRg(["--files", "-g", pattern, target], rgCwd, signal, limits);
         if (result.kind === "unavailable") {
           try {
             const content = await runBoundedSearchFiles(
@@ -201,6 +231,9 @@ export function ripgrepPlugin(cwd: string): ToolPlugin {
         }
         if (result.kind === "error") {
           return { callId: call.id, content: result.message, isError: true };
+        }
+        if (result.kind === "partial") {
+          return { callId: call.id, content: partialContent(result.stdout, maxResults, result.notice) };
         }
         return { callId: call.id, content: capLines(result.stdout, maxResults) };
       }
