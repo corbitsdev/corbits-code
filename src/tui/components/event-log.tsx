@@ -6,7 +6,13 @@ import { elapsedMsFromAnchor } from "../hooks/use-spinner.js";
 import { createMemoizedParseMarkdown } from "../markdown-parser.js";
 import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
-import { describeToolCall, mergedToolCollapsedPreview, summarizeToolResult, toolGlyph } from "../tool-formatter.js";
+import {
+  describeToolCall,
+  mergedToolCollapsedPreview,
+  shellOutcomeGlyph,
+  summarizeToolResult,
+  toolGlyph,
+} from "../tool-formatter.js";
 import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
 import { mcpRecordsToView, mcpRecordToView } from "../mcp-view.js";
@@ -568,14 +574,26 @@ function mergedToolLines(
 
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {
   if (block.isError) {
-    return plainLines(
-      block.content
-        .split("\n")
-        .map((line, i) => (i === 0 ? "error: " : "") + line)
-        .join("\n"),
-      { color: color("danger") },
-      width,
-    );
+    // run_shell prefixes a failed result with "exit code N\n<output>" (see
+    // summarizeToolResult); other tools' errors carry no such envelope.
+    const shellFail = block.name === "run_shell" ? block.content.match(/^exit code (\d+)\n([\s\S]*)$/) : null;
+
+    if (!expanded) {
+      if (shellFail !== null) {
+        const output = shellFail[2] ?? "";
+        const firstLine = output.split("\n").find((line) => line.trim().length > 0) ?? "";
+        const summary = firstLine.length > 0 ? `exit ${shellFail[1]}: ${firstLine}` : `exit ${shellFail[1]}`;
+        return plainLines(`${shellOutcomeGlyph(true)} ${summary}`, { color: color("danger") }, width);
+      }
+      const firstLine = block.content.split("\n")[0] ?? "";
+      return plainLines(`error: ${firstLine}`, { color: color("danger") }, width);
+    }
+
+    const labeled = block.content
+      .split("\n")
+      .map((line, i) => (i === 0 ? "error: " : "") + line)
+      .join("\n");
+    return plainLines(limitLines(labeled, EXPANDED_TOOL_RESULT_LINE_LIMIT), { color: color("danger") }, width);
   }
 
   if (isMcpToolName(block.name)) {
