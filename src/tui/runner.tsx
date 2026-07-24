@@ -19,6 +19,7 @@ import {
   loadLocalSettings,
   loadSettings,
   localSettingsPath,
+  markTelemetryNoticeShown,
   resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
@@ -49,6 +50,10 @@ import {
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
+import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
+import { TELEMETRY_NOTICE } from "../telemetry/index.js";
+import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
+import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
@@ -943,7 +948,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   };
 
-  const runSink = createRunSink({ emitter, hookManager });
+  const runSink = createRunSink({
+    emitter,
+    hookManager,
+    onTurnComplete: (ctx) => {
+      // provider_id is the canonical provider kind, never ctx.source.sourceId:
+      // sourceId is the user-typed label from onboarding/settings, and free
+      // text must not leave the process under the no-PII contract.
+      getTelemetry().capture("inference_turn", {
+        provider_id: ctx.source.provider,
+        model_id: ctx.source.model,
+        input_tokens: ctx.usage.input,
+        output_tokens: ctx.usage.output,
+        cache_read_tokens: ctx.usage.cacheRead,
+        cache_write_tokens: ctx.usage.cacheWrite,
+        thinking_tokens: ctx.usage.thinking,
+        duration_ms: ctx.durationMs,
+      });
+    },
+  });
 
   // MCP servers connected so far, keyed by name so a reconnect after a failure
   // replaces rather than duplicates the entry.
@@ -1207,6 +1230,27 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
   const globallyOnboarded = globalSettingsForOnboarding?.onboarded === true;
 
+  // Consent by proceeding (see telemetry/first-run.ts): on a first run the
+  // singleton is a held no-op and the passive banner below is the
+  // disclosure. The first interactively submitted prompt activates telemetry
+  // and fires the held cli_start; a user who never acts keeps the hold for
+  // this whole launch, and the render stamp means events start normally on
+  // the next one. Keyed off the same TRUE global settings file as
+  // `onboarded` above.
+  const onChangeTelemetryEnabled = createTelemetryToggleHandler(trueGlobalSettingsPath);
+  const telemetryFirstRun = telemetryFirstRunPending(globalSettingsForOnboarding);
+  const telemetryNotice = telemetryFirstRun ? TELEMETRY_NOTICE : undefined;
+  // Tracks the user's intent (persisted opt-in, updated live by the settings
+  // toggle) rather than the held instance's state, so the settings tab shows
+  // On during the hold and an opt-out before the first action suppresses
+  // activation entirely.
+  let liveTelemetryIntent = telemetryFirstRun || getTelemetry().enabled;
+  if (telemetryFirstRun) {
+    void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
+      // Best-effort: worst case the notice shows again next launch.
+    });
+  }
+
   const exitAltScreen = enterAltScreen();
 
   // Strip SGR mouse sequences before Ink's parser broadcasts input to every
@@ -1234,6 +1278,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       globalSettingsPath={config.globalSettingsPath}
       globalOnboardingPath={trueGlobalSettingsPath}
       globallyOnboarded={globallyOnboarded}
+      {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
+      telemetryEnabled={liveTelemetryIntent}
+      onChangeTelemetryEnabled={(enabled) => {
+        liveTelemetryIntent = enabled;
+        onChangeTelemetryEnabled(enabled);
+      }}
+      {...(telemetryFirstRun
+        ? {
+            onFirstUserMessage: () => {
+              if (!liveTelemetryIntent) return;
+              void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
+            },
+          }
+        : {})}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
@@ -1404,7 +1462,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   });
-  await hookManager.dispatchPostRun(createRunSummary({
+  const runSummary = createRunSummary({
     task: runTaskTitle.length > 0 ? runTaskTitle : config.task,
     status: summaryStatus,
     startedAt,
@@ -1414,7 +1472,26 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     turns: turnCollector.getTurns(),
     toolCallCount: turnCollector.getToolCallCount(),
     ...(sinkError !== undefined ? { error: sinkError } : {}),
-  }));
+  });
+  await hookManager.dispatchPostRun(runSummary);
+  // exit_reason mirrors status at present — "cancelled" covers both an
+  // operator interrupt and Ctrl+C, since the emit site here cannot tell them
+  // apart (runSink only distinguishes done/failed/cancelled).
+  const exitReason = runSummary.status === "done"
+    ? "done"
+    : runSummary.status === "failed"
+      ? "error"
+      : "cancelled";
+  getTelemetry().capture("session_end", {
+    status: runSummary.status,
+    turn_count: runSummary.turnsUsed,
+    duration_ms: runSummary.durationMs,
+    session_mode: liveSessionMode,
+    exit_reason: exitReason,
+  });
+  // Bound against process.exit dropping the session_end capture for short
+  // sessions; flush itself is deadline-capped so exit stays snappy.
+  await getTelemetry().flush();
 
   await sessionOps.awaitTail();
   try {

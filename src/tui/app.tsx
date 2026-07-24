@@ -461,6 +461,17 @@ export type AppProps = {
     ) => import("../agent/goal.js").GoalSnapshot | null;
     clear: () => void;
   };
+  /** One-line passive notice shown once in the top-of-scrollback banner on
+   * the first run telemetry is active. Undefined/empty renders nothing. */
+  telemetryNotice?: string;
+  /** Whether anonymous telemetry is currently enabled, for the settings toggle. */
+  telemetryEnabled?: boolean;
+  /** Persists the settings Telemetry on|off toggle to global settings. */
+  onChangeTelemetryEnabled?: (enabled: boolean) => void;
+  /** Fired once, on the first interactively submitted prompt of the session.
+   * The runner uses this as the affirmative action that activates telemetry
+   * held for first-run disclosure; auto-sent initial tasks never count. */
+  onFirstUserMessage?: () => void;
 };
 
 export function App({
@@ -512,6 +523,10 @@ export function App({
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
+  telemetryNotice,
+  telemetryEnabled = false,
+  onChangeTelemetryEnabled,
+  onFirstUserMessage,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
   // active model's rate even after a mid-session switch. Updated once model is
@@ -591,6 +606,7 @@ export function App({
   };
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [liveTelemetryEnabled, setLiveTelemetryEnabled] = useState(telemetryEnabled);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
     initialSettings?.compactionMode ?? "llm",
   );
@@ -1052,8 +1068,8 @@ export function App({
   );
 
   const resourceBanner = useMemo(
-    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd),
-    [loadedSkills, activePlugins, contentWidth, cwd],
+    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd, telemetryNotice),
+    [loadedSkills, activePlugins, contentWidth, cwd, telemetryNotice],
   );
 
   const prefixLineCount =
@@ -1229,6 +1245,7 @@ export function App({
   const sendAbortRef = useRef<AbortController | null>(null);
   const [, forceRender] = useState(0);
   const didSendInitial = useRef(false);
+  const firstUserMessageFired = useRef(false);
   // Incremented on every send so useSpinner can reset its elapsed clock per turn.
   const sendCounterRef = useRef(0);
   const lastSentMessageRef = useRef<string>("");
@@ -1558,6 +1575,10 @@ export function App({
     if (isExitCommand(message)) {
       exit();
       return;
+    }
+    if (!firstUserMessageFired.current) {
+      firstUserMessageFired.current = true;
+      onFirstUserMessage?.();
     }
     setCommandMessage(null);
     const attachments = pendingImages;
@@ -2114,6 +2135,11 @@ export function App({
             if (scope === "global") setSavedGlobalSessionMode(mode);
             else setSavedLocalSessionMode(mode);
             void onChangeSessionMode?.(mode, scope);
+          }}
+          telemetryEnabled={liveTelemetryEnabled}
+          onChangeTelemetryEnabled={(enabled) => {
+            setLiveTelemetryEnabled(enabled);
+            onChangeTelemetryEnabled?.(enabled);
           }}
           onClose={() => setSettingsOpen(false)}
           maxHeight={permissionsOverlayRows}

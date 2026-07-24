@@ -11,6 +11,12 @@ type TurnCollector = ReturnType<typeof createTurnContextCollector>;
 export type RunSinkArgs = {
   emitter: EventEmitter;
   hookManager: Pick<LifecycleHookManager, "dispatchPostTurn">;
+  // Fired alongside dispatchPostTurn for each completed turn. Separate from
+  // hookManager so telemetry can observe turn completion without run-sink
+  // knowing anything about telemetry. The TurnContext carries the source the
+  // turn actually ran against, so consumers report per-turn provider/model
+  // even if the live selection changed mid-run.
+  onTurnComplete?: (ctx: import("./hooks.js").TurnContext) => void;
 };
 
 export type RunSink = {
@@ -33,13 +39,15 @@ export function getTUIRunSummaryStatus(
 }
 
 export function createRunSink(args: RunSinkArgs): RunSink {
-  const { emitter, hookManager } = args;
+  const { emitter, hookManager, onTurnComplete } = args;
 
   let runCompleted = false;
   let runError: string | undefined;
-  let turnCollector = createTurnContextCollector((ctx) => {
+  const handleTurn = (ctx: Parameters<NonNullable<typeof onTurnComplete>>[0]): void => {
     hookManager.dispatchPostTurn(ctx);
-  });
+    onTurnComplete?.(ctx);
+  };
+  let turnCollector = createTurnContextCollector(handleTurn);
 
   const sink = (event: ReactorEmittedEvent): void => {
     turnCollector.observe(event);
@@ -65,9 +73,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     reset: () => {
       runCompleted = false;
       runError = undefined;
-      turnCollector = createTurnContextCollector((ctx) => {
-        hookManager.dispatchPostTurn(ctx);
-      });
+      turnCollector = createTurnContextCollector(handleTurn);
     },
   };
 }
