@@ -37,30 +37,9 @@ function hasLineRangeArgs(args: Record<string, unknown>): boolean {
   return optionalInt(args.start_line) !== undefined || optionalInt(args.end_line) !== undefined;
 }
 
-export function editFileArgsUseBothModes(args: Record<string, unknown>): boolean {
-  return hasOldStringArg(args) && hasLineRangeArgs(args);
-}
-
-export type ParseEditFileModeOptions = {
-  /** When both substring and line-range args are present, use file bytes to disambiguate. */
-  fileContent?: string;
-};
-
-const MIXED_MODE_RECOVERY =
-  "To retry line-range mode with your current start_line and end_line, omit old_string. " +
-  "To retry substring mode with your current old_string, omit start_line and end_line.";
-
-/** Compare model-supplied old_string to on-disk range text; tolerate CRLF vs LF in old_string. */
-function oldStringMatchesLineRangeText(old_string: string, rangeText: string): boolean {
-  if (old_string === rangeText) return true;
-  const norm = (s: string) => s.replace(/\r\n/g, "\n");
-  return norm(old_string) === norm(rangeText);
-}
-
-function mixedModeRecoverableMessage(detail?: string): string {
-  const prefix = detail ?? "edit_file: received both old_string and start_line/end_line.";
-  return `${prefix} ${MIXED_MODE_RECOVERY}`;
-}
+const MIXED_MODE_MESSAGE =
+  "edit_file: received both old_string and start_line/end_line; only one edit mode is allowed. " +
+  "Omit old_string to use line-range mode, or omit start_line/end_line to use substring mode.";
 
 export function parseLineRangeFields(
   path: string,
@@ -85,29 +64,10 @@ export function parseLineRangeFields(
 }
 
 /**
- * Text at inclusive 1-based lines as it appears in the file (joined with the file newline).
- */
-export function lineRangeSourceText(content: string, startLine: number, endLine: number): string {
-  const { lines, newline } = splitFileLines(content);
-  if (lines.length === 0) {
-    return "";
-  }
-  if (startLine > lines.length || endLine > lines.length) {
-    throw new Error(
-      `line range ${startLine}-${endLine} is out of range (file has ${lines.length} line(s))`,
-    );
-  }
-  return lines.slice(startLine - 1, endLine).join(newline);
-}
-
-/**
  * Decide which exclusive edit_file mode the call uses. Stock substring mode is the
  * default when no line-range fields are present.
  */
-export function parseEditFileMode(
-  args: Record<string, unknown>,
-  options?: ParseEditFileModeOptions,
-): EditFileModeParse {
+export function parseEditFileMode(args: Record<string, unknown>): EditFileModeParse {
   const path = args.path;
   if (typeof path !== "string" || path.length === 0) {
     return { kind: "invalid", message: 'argument "path" is required' };
@@ -121,42 +81,12 @@ export function parseEditFileMode(
   const substring = hasOldStringArg(args);
   const lineRange = hasLineRangeArgs(args);
 
+  // Reject rather than guess: silently picking a mode when both are supplied previously
+  // meant line-range mode won and old_string was asserted against the exact line-range
+  // slice, producing a confusing "old_string does not match" error even when the caller
+  // meant plain substring mode (CL-4399). One explicit error beats a wrong guess.
   if (substring && lineRange) {
-    const rangeParsed = parseLineRangeFields(path, new_string, args);
-    if (rangeParsed.kind === "invalid") {
-      return {
-        kind: "invalid",
-        message: mixedModeRecoverableMessage(`edit_file: ${rangeParsed.message}`),
-      };
-    }
-
-    const fileContent = options?.fileContent;
-    if (fileContent === undefined) {
-      return { kind: "invalid", message: mixedModeRecoverableMessage() };
-    }
-
-    const old_string = String(args.old_string);
-    let rangeText: string;
-    try {
-      rangeText = lineRangeSourceText(fileContent, rangeParsed.start_line, rangeParsed.end_line);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      return {
-        kind: "invalid",
-        message: mixedModeRecoverableMessage(`edit_file: ${detail}`),
-      };
-    }
-
-    if (oldStringMatchesLineRangeText(old_string, rangeText)) {
-      return rangeParsed;
-    }
-
-    return {
-      kind: "invalid",
-      message: mixedModeRecoverableMessage(
-        `edit_file: old_string does not match the content at lines ${rangeParsed.start_line}-${rangeParsed.end_line}.`,
-      ),
-    };
+    return { kind: "invalid", message: MIXED_MODE_MESSAGE };
   }
 
   if (lineRange) {
@@ -268,42 +198,32 @@ export function formatLineRangeSuccess(path: string, startLine: number, endLine:
   return `replaced lines ${startLine}-${endLine} in ${path}`;
 }
 
-export type RunEditFileLineRangeOptions = {
-  /** Skip re-read when the caller already loaded UTF-8 content (e.g. mixed-mode disambiguation). */
-  fileContentUtf8?: string;
-};
-
 export async function runEditFileLineRange(
   args: EditFileLineRangeMode,
   signal: AbortSignal,
-  options?: RunEditFileLineRangeOptions,
 ): Promise<string> {
   signal.throwIfAborted();
 
   let content: string;
-  if (options?.fileContentUtf8 !== undefined) {
-    content = options.fileContentUtf8;
-  } else {
-    try {
-      const buf = await readFile(args.path, { signal });
-      if (buf.includes(0)) {
-        throw new Error(`refusing to edit binary file: ${args.path}`);
-      }
-      content = buf.toString("utf8");
-    } catch (err) {
-      if (hasCode(err)) {
-        if (err.code === "ENOENT") {
-          throw new Error(`file not found: ${args.path}`, { cause: err });
-        }
-        if (err.code === "EACCES") {
-          throw new Error(`permission denied: ${args.path}`, { cause: err });
-        }
-        if (err.code === "EISDIR") {
-          throw new Error(`path is a directory: ${args.path}`, { cause: err });
-        }
-      }
-      throw err;
+  try {
+    const buf = await readFile(args.path, { signal });
+    if (buf.includes(0)) {
+      throw new Error(`refusing to edit binary file: ${args.path}`);
     }
+    content = buf.toString("utf8");
+  } catch (err) {
+    if (hasCode(err)) {
+      if (err.code === "ENOENT") {
+        throw new Error(`file not found: ${args.path}`, { cause: err });
+      }
+      if (err.code === "EACCES") {
+        throw new Error(`permission denied: ${args.path}`, { cause: err });
+      }
+      if (err.code === "EISDIR") {
+        throw new Error(`path is a directory: ${args.path}`, { cause: err });
+      }
+    }
+    throw err;
   }
 
   const newContent = applyLineRangeEdit(content, args.start_line, args.end_line, args.new_string);
@@ -342,9 +262,9 @@ export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefi
     description:
       "Make a surgical edit to an existing file. Mode A (substring): path + old_string + new_string " +
       "(exact match; must be unique unless replace_all). Mode B (line range): path + start_line + end_line " +
-      "(1-based inclusive) + new_string. If you send both old_string and line-range fields, the call is treated as " +
-      "line-range when old_string matches the file text at those lines (LF/CRLF tolerant); otherwise omit old_string " +
-      "or omit start_line/end_line. " +
+      "(1-based inclusive) + new_string. The two modes are mutually exclusive: sending both old_string and " +
+      "start_line/end_line is rejected with an error; omit old_string for line-range mode, or omit " +
+      "start_line/end_line for substring mode. " +
       "On substring mismatch, errors include nearby file context.",
     inputSchema: {
       ...schema,
@@ -353,14 +273,14 @@ export function advertiseEditFileLineRange(definition: ToolDefinition): ToolDefi
         start_line: {
           type: "number",
           description:
-            "Line-range mode: first line to replace (1-based, inclusive). Requires end_line. With old_string present, " +
-            "must match the file text at start_line-end_line or omit old_string.",
+            "Line-range mode: first line to replace (1-based, inclusive). Requires end_line. Mutually exclusive " +
+            "with old_string; a call sending both is rejected.",
         },
         end_line: {
           type: "number",
           description:
-            "Line-range mode: last line to replace (1-based, inclusive). Requires start_line. With old_string present, " +
-            "must match the file text at start_line-end_line or omit old_string.",
+            "Line-range mode: last line to replace (1-based, inclusive). Requires start_line. Mutually exclusive " +
+            "with old_string; a call sending both is rejected.",
         },
       },
       required: ["path", "new_string"],
