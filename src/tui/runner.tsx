@@ -955,7 +955,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   ): Promise<void> => {
     await saveState(config.cwd, sessionId, {
       status,
-      turnsUsed: runSink.getTurnCollector().getTurnCount(),
+      turnsUsed: runSink.getTurnCount(),
       task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
       startedAt,
       model: `${liveSource.id}:${liveSource.model}`,
@@ -1409,10 +1409,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     status: summaryStatus,
     startedAt,
     finishedAt,
-    turnsUsed: turnCollector.getTurnCount(),
-    tokenUsage: turnCollector.getTokenUsage(),
-    turns: turnCollector.getTurns(),
-    toolCallCount: turnCollector.getToolCallCount(),
+    turnsUsed: runSink.getTurnCount(),
+    tokenUsage: runSink.getTokenUsage(),
+    turns: turnCollector?.getTurns() ?? [],
+    toolCallCount: runSink.getToolCallCount(),
     ...(sinkError !== undefined ? { error: sinkError } : {}),
   }));
 
