@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isLocalSettings, normalizeMcpServers } from "../../src/config/settings.js";
-import { createMCPPlugin, mcpClientToAgentTools } from "../../src/mcp/plugin.js";
+import { mcpClientToAgentTools } from "../../src/mcp/plugin.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
 import { loadAuthState, saveAuthState } from "../../src/mcp/auth-store.js";
 import { createOAuthProvider } from "../../src/mcp/oauth-provider.js";
@@ -209,20 +209,6 @@ describe("mcpClientToAgentTools (production gated path)", () => {
     expect(asked).toBe(1);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Blocked by permission policy");
-  });
-});
-
-describe("createMCPPlugin (posix runner legacy)", () => {
-  test("returns connectedServers for all clients", () => {
-    const clients = [makeFakeClient("a", ["t1"]), makeFakeClient("b", ["t2"])];
-    const { connectedServers } = createMCPPlugin(clients);
-    expect(connectedServers).toEqual(["a", "b"]);
-  });
-
-  test("returns empty tools and servers for empty client list", () => {
-    const { plugin, connectedServers } = createMCPPlugin([]);
-    expect(plugin.tools).toEqual([]);
-    expect(connectedServers).toEqual([]);
   });
 });
 
