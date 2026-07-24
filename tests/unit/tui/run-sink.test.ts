@@ -6,6 +6,9 @@ function makeArgs() {
   const emitter = new EventEmitter();
   const hookManager = {
     dispatchPostTurn: (_ctx: unknown) => {},
+    getStatuses: () => [
+      { id: "h1", name: "log.ts", type: "typescript" as const, path: "/hooks/log.ts", enabled: true },
+    ],
   };
   return { emitter, hookManager };
 }
@@ -107,6 +110,7 @@ test("onTurnComplete fires alongside dispatchPostTurn for each completed turn", 
     dispatchPostTurn: (ctx: unknown) => {
       dispatched.push(ctx);
     },
+    getStatuses: () => [],
   };
   const runSink = createRunSink({
     emitter,

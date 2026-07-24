@@ -93,6 +93,12 @@ const emptyUsage: TokenUsage = {
 
 export const RETAINED_TURN_CONTEXT_LIMIT = 200;
 
+// Retained turns are only built when a hook consumes them (over stdin, not
+// the model), so a tail-anchored budget well below any model context limit
+// keeps up to 200 turns of tool output from becoming a second full copy of
+// recent history in memory.
+export const HOOK_PAYLOAD_TOOL_RESULT_CHARS = 4_000;
+
 export function hooksDirectory(): string {
   return globalHooksDirectory();
 }
@@ -162,9 +168,18 @@ async function discoverHooksInDirectory(directory: string): Promise<LifecycleHoo
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
+export type TurnContextCollectorOptions = {
+  // Turn/token/tool-call counts are cheap scalars needed regardless of
+  // consumers. The turns array (with truncated tool results) is the actual
+  // standing copy of recent history, so callers with nothing to hand it to
+  // (no lifecycle hook) can opt out of retaining it.
+  retainHistory?: boolean;
+};
+
 export function createTurnContextCollector(
   onTurn: (ctx: TurnContext) => void,
   now: () => number = Date.now,
+  options: TurnContextCollectorOptions = {},
 ): {
   observe(event: ReactorEmittedEvent): void;
   getTurns(): TurnContext[];
@@ -172,6 +187,7 @@ export function createTurnContextCollector(
   getTokenUsage(): TokenUsage;
   getToolCallCount(): number;
 } {
+  const retainHistory = options.retainHistory ?? true;
   const turns: TurnContext[] = [];
   let turnCount = 0;
   let pending: PendingTurn | null = null;
@@ -186,15 +202,19 @@ export function createTurnContextCollector(
       turnIndex: pending.turnIndex,
       assistantTurn: pending.assistantTurn,
       toolCalls: pending.toolCalls,
-      toolResults: pending.toolResults,
+      toolResults: retainHistory
+        ? pending.toolResults.map(truncateToolResultForHookPayload)
+        : pending.toolResults,
       usage: pending.usage,
       source: pending.source,
       durationMs: Math.max(0, now() - pending.startedAt),
     };
-    turns.push(ctx);
     turnCount++;
-    if (turns.length > RETAINED_TURN_CONTEXT_LIMIT) {
-      turns.splice(0, turns.length - RETAINED_TURN_CONTEXT_LIMIT);
+    if (retainHistory) {
+      turns.push(ctx);
+      if (turns.length > RETAINED_TURN_CONTEXT_LIMIT) {
+        turns.splice(0, turns.length - RETAINED_TURN_CONTEXT_LIMIT);
+      }
     }
     pending = null;
     cycleStartedAt = now();
@@ -396,6 +416,19 @@ function typeScriptHookRunnerSource(path: string, kind: HookKind): string {
 
 function hashHookRunner(path: string, kind: HookKind): string {
   return createHash("sha256").update(`${path}:${kind}`).digest("hex").slice(0, 24);
+}
+
+function truncateToolResultForHookPayload(result: ToolResult): ToolResult {
+  const raw = typeof result.content === "string" ? result.content : JSON.stringify(result.content);
+  const content = raw.length <= HOOK_PAYLOAD_TOOL_RESULT_CHARS
+    ? raw
+    : `…[${raw.length - HOOK_PAYLOAD_TOOL_RESULT_CHARS} chars omitted]${raw.slice(raw.length - HOOK_PAYLOAD_TOOL_RESULT_CHARS)}`;
+  return {
+    callId: result.callId,
+    content,
+    ...(result.isError !== undefined ? { isError: result.isError } : {}),
+    ...(result.pendingMarker !== undefined ? { pendingMarker: result.pendingMarker } : {}),
+  };
 }
 
 function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {

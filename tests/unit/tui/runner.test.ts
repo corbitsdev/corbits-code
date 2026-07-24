@@ -29,7 +29,12 @@ test("getTUIRunSummaryStatus distinguishes done, failed, and cancelled runs", ()
 // closed agent. This test models that invariant via the run-sink state machine.
 test("rotation resets run-sink so a new session starts from a clean state", () => {
   const emitter = new EventEmitter();
-  const hookManager = { dispatchPostTurn: () => {} };
+  const hookManager = {
+    dispatchPostTurn: () => {},
+    getStatuses: () => [
+      { id: "h1", name: "log.ts", type: "typescript" as const, path: "/hooks/log.ts", enabled: true },
+    ],
+  };
   const runSink = createRunSink({ emitter, hookManager });
 
   // Session 1 completes.
