@@ -12,13 +12,16 @@ import {
   evaluateSubAgentStop,
   fingerprintToolCalls,
   forcedStopReport,
+  formatSubAgentReport,
   nextToolCallStreak,
   parseSubAgentReport,
+  appendNeverActedParentHint,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
   type RunSubAgentParams,
 } from "./index.js";
+
 
 
 const testPermissionGate = createPermissionGate({
@@ -264,8 +267,36 @@ describe("sub-agent stop helpers", () => {
     const neverParsed = parseSubAgentReport(neverActed);
     expect(neverParsed.summary).toContain("without using any tools");
     expect(neverParsed.findings).toContain("red tests");
-    expect(neverParsed.blockers).toContain("zero tool calls");
+    expect(neverParsed.blockers).toContain("unexecuted");
     expect(neverActed.toLowerCase()).not.toContain("summarize what you found");
+
+    // Nested agent envelope must not clobber the outer never-acted Summary when
+    // runSubAgent re-parses the forced stop (the common planning-only path).
+    const nestedEnvelope = [
+      "## Summary",
+      "Reviewed the auth gate.",
+      "",
+      "## Findings",
+      "Looks fine.",
+      "",
+      "## Blockers",
+      "None",
+      "",
+      "## Paths",
+      "src/gate.ts",
+    ].join("\n");
+    const salvaged = forcedStopReport("never-acted", nestedEnvelope);
+    const reparsed = formatSubAgentReport(parseSubAgentReport(salvaged));
+    const reparsedFields = parseSubAgentReport(reparsed);
+    expect(reparsedFields.summary).toContain("without using any tools");
+    expect(reparsedFields.blockers).toContain("unexecuted");
+    expect(reparsedFields.findings).toContain("Reviewed the auth gate");
+    expect(reparsedFields.findings).toContain("src/gate.ts");
+    expect(reparsedFields.findings).toContain("### Summary");
+
+    const withHint = appendNeverActedParentHint(reparsed);
+    expect(withHint).toContain("planning/prose only");
+    expect(withHint).toContain("without using any tools");
   });
 });
 

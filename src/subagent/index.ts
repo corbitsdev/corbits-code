@@ -208,9 +208,13 @@ export function forcedStopReport(
       : reason === "never-acted"
         ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
         : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+  // Demote nested report-section headings so runSubAgent's parse/format pass
+  // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
+  // stuffed into Findings (the common never-acted case: model returns the
+  // instructed ## Summary / ## Findings report without tools).
   const findings =
     partialText.trim().length > 0
-      ? partialText.trim()
+      ? demoteNestedReportHeadings(partialText.trim())
       : "(no partial findings on the final turn)";
   return formatSubAgentReport({
     summary,
@@ -220,18 +224,37 @@ export function forcedStopReport(
   });
 }
 
+/** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
+export function demoteNestedReportHeadings(text: string): string {
+  return text.replace(/^## (Summary|Findings|Blockers|Paths)\b/gm, "### $1");
+}
+
 /** True when the worker returned a turn-budget salvage report for the parent. */
 export function isTurnBudgetSubAgentReport(report: string): boolean {
   const parsed = parseSubAgentReport(report);
   return parsed.summary.includes("Turn budget reached");
 }
 
+/** True when the worker returned a never-acted salvage report for the parent. */
+export function isNeverActedSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.includes("without using any tools");
+}
+
 const TURN_BUDGET_PARENT_HINT =
   "[Sub-agent hit its turn budget before finishing. Summarize what was learned, then re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
+
+const NEVER_ACTED_PARENT_HINT =
+  "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing.]";
 
 export function appendTurnBudgetParentHint(report: string): string {
   if (!isTurnBudgetSubAgentReport(report)) return report;
   return `${TURN_BUDGET_PARENT_HINT}\n\n${report}`;
+}
+
+export function appendNeverActedParentHint(report: string): string {
+  if (!isNeverActedSubAgentReport(report)) return report;
+  return `${NEVER_ACTED_PARENT_HINT}\n\n${report}`;
 }
 
 class SubAgentDirector extends DefaultDirector {
@@ -1337,7 +1360,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
-        const reported = appendTurnBudgetParentHint(result);
+        const reported = appendNeverActedParentHint(appendTurnBudgetParentHint(result));
         return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
       } catch (err) {
         if (
