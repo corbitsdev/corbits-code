@@ -1,4 +1,5 @@
 import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { loadSettings, markTelemetryNoticeShown, type Settings } from "../config/settings.js";
 import {
   createTelemetry,
@@ -8,7 +9,7 @@ import {
 } from "./index.js";
 import { setTelemetry } from "./singleton.js";
 
-const logger = getLogger(["intercode", "telemetry", "first-run"]);
+const logger = getLogger([LOG_NAMESPACE_ROOT, "telemetry", "first-run"]);
 
 // True while telemetry would run but the disclosure has never been shown.
 // Startup holds the disabled no-op singleton for the whole launch in this

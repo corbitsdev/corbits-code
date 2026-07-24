@@ -72,7 +72,7 @@ export type Settings = {
   pluginPaths?: string[];
   // When true, also discover plugins listed in ~/.claude/plugins/installed_plugins.json
   // (Claude Code marketplace installs under the cache). Default false — opt-in so
-  // Intercode never silently imports a large third-party plugin set. Discovered
+  // Corbits Code never silently imports a large third-party plugin set. Discovered
   // modules still require settings.plugins[id].enabled before agents/tools wire.
   discoverClaudePlugins?: boolean;
   // Id of the plugin (kind "web") to use as the web_search/web_fetch backend.

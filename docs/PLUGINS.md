@@ -120,7 +120,7 @@ discoverPlugins(cwd) =
 ```
 
 Claude Code marketplace installs are **opt-in**. When `discoverClaudePlugins` is
-true, Intercode reads the Claude install registry (not a full cache walk) and
+true, Corbits Code reads the Claude install registry (not a full cache walk) and
 loads each **absolute** `installPath` that resolves under `~/.claude/plugins/`
 as **data-only** (markdown agents/commands — no JS `import()` at discovery).
 Relative install paths and paths outside that root are ignored so a poisoned
