@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -46,6 +46,22 @@ describe("project store", () => {
     await saveProjectApproval(dir, { tool: "write_file", pattern: "src/*" });
     await removeProjectApproval(dir, { tool: "run_shell", pattern: "npm *" });
     expect(await loadProjectApprovals(dir)).toEqual([{ tool: "write_file", pattern: "src/*" }]);
+  });
+
+  test("drops a hand-edited entry missing a required field, keeping valid entries", async () => {
+    const intercodeDir = join(dir, ".intercode");
+    await mkdir(intercodeDir, { recursive: true });
+    await writeFile(
+      join(intercodeDir, "permissions.json"),
+      JSON.stringify({
+        approvals: [
+          { tool: "run_shell", pattern: "npm *" },
+          { tool: "write_file" }, // missing pattern
+          { pattern: "src/*" }, // missing tool
+        ],
+      }),
+    );
+    expect(await loadProjectApprovals(dir)).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
   });
 });
 

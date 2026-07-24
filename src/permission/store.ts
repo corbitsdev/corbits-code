@@ -2,6 +2,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+
+import { type } from "arktype";
+
 import type { Approval } from "./types.js";
 import { sessionDir } from "../session/index.js";
 
@@ -37,19 +40,24 @@ function hasLiteralFloor(pattern: string): boolean {
   return pattern.replace(/[*?\s]/g, "").length > 0;
 }
 
-function isApproval(value: unknown): value is Approval {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.tool === "string" &&
-    typeof record.pattern === "string" &&
-    hasLiteralFloor(record.pattern) &&
-    (record.providerModel === undefined || typeof record.providerModel === "string")
-  );
-}
+const ApprovalSchema = type({
+  tool: "string",
+  pattern: "string",
+  "providerModel?": "string",
+}).narrow(
+  (approval, ctx) =>
+    hasLiteralFloor(approval.pattern) ||
+    ctx.mustBe("a pattern with a literal floor (not only wildcards)"),
+);
 
 function parseApprovalList(raw: unknown): Approval[] {
-  return Array.isArray(raw) ? raw.filter(isApproval) : [];
+  if (!Array.isArray(raw)) return [];
+  const out: Approval[] = [];
+  for (const entry of raw) {
+    const result = ApprovalSchema(entry);
+    if (!(result instanceof type.errors)) out.push(result);
+  }
+  return out;
 }
 
 function sameApproval(a: Approval, b: Approval): boolean {
