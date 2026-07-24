@@ -3,10 +3,20 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import type { PermissionGate } from "../permission/gate.js";
 import { gateToolCall } from "../plugins/permission-plugin.js";
+import { scrubSecretShapedToolResultContent } from "../plugins/tool-result-secret-scrub.js";
+import { truncateToolResultContent } from "../plugins/result-truncation-plugin.js";
 import type { MCPClient } from "./client.js";
 
 function mcpToolName(serverName: string, toolName: string): string {
   return `mcp__${serverName}__${toolName}`;
+}
+
+// MCP results never reach the posix runner, so the secret-scrub and truncation
+// middleware in src/plugins never see them. Apply the same scrub-then-truncate
+// order here directly (see buildCorePosixToolPlugins) so a compromised MCP
+// server cannot leak credential-shaped strings or flood the transcript.
+function sanitizeMcpResultContent(content: string): string {
+  return truncateToolResultContent(scrubSecretShapedToolResultContent(content));
 }
 
 // Convert a connected client's tools into AgentTools for the dynamic runner used
@@ -25,7 +35,7 @@ export function mcpClientToAgentTools(client: MCPClient, gate: PermissionGate): 
       gateToolCall(gate, call, signal, async () => {
         try {
           const content = await client.call(tool.name, call.arguments, signal);
-          return { callId: call.id, content };
+          return { callId: call.id, content: sanitizeMcpResultContent(content) };
         } catch (err) {
           return { callId: call.id, content: err instanceof Error ? err.message : String(err), isError: true };
         }
@@ -44,7 +54,7 @@ function makeExtraTool(client: MCPClient, tool: MCPClient["tools"][number]): Ext
     handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
       try {
         const content = await client.call(tool.name, call.arguments, signal);
-        return { callId: call.id, content };
+        return { callId: call.id, content: sanitizeMcpResultContent(content) };
       } catch (err) {
         return {
           callId: call.id,

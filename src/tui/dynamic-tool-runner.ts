@@ -5,6 +5,7 @@ import {
   runWithToolExecutionWatchdog,
   type ToolWatchdogConfig,
 } from "./tool-execution-watchdog.js";
+import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 
 // A tool runner whose set of tools can grow after construction. The static
 // createToolRunner freezes its name map at build time, which cannot accommodate
@@ -48,7 +49,7 @@ export function createDynamicToolRunner(
       if (found === undefined) {
         return { callId: call.id, content: `unknown tool: ${call.name}`, isError: true };
       }
-      return runWithToolExecutionWatchdog(call, signal, executionTimeoutMs, async (budgetSignal) => {
+      const result = await runWithToolExecutionWatchdog(call, signal, executionTimeoutMs, async (budgetSignal) => {
         try {
           if (found.kind === "full") return await found.handler(call, budgetSignal);
           const text = await found.handler(call.arguments, budgetSignal);
@@ -61,6 +62,12 @@ export function createDynamicToolRunner(
           };
         }
       });
+      // Every tool result — posix, MCP, or built-in — passes through this single
+      // dispatch point before reaching the reactor/renderer, so it is the one
+      // place a terminal-control sanitizer needs to run.
+      if (typeof result.content !== "string") return result;
+      const sanitized = stripTerminalControlSequences(result.content);
+      return sanitized === result.content ? result : { ...result, content: sanitized };
     },
   };
 }
