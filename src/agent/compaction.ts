@@ -1,4 +1,5 @@
 import type {
+  AssistantTurn,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
@@ -8,6 +9,15 @@ import { compactionThresholdFor } from "../provider/context-window.js";
 const COMPACTOR_NAME = "pruning-compactor";
 const MIN_TURNS_TO_COMPACT = 6;
 const MAX_OVERFLOW_RECOVERIES = 2;
+const CHARS_PER_TOKEN = 4;
+
+// Providers that omit usage reporting leave `usage.input` at 0, which would
+// otherwise mask real context growth and starve the proactive path forever.
+// A chars/4 estimate off the turn itself is coarse but keeps the governor
+// arming instead of relying solely on the reactive overflow recovery.
+function estimateContextTokens(turn: AssistantTurn): number {
+  return Math.ceil(JSON.stringify(turn.content).length / CHARS_PER_TOKEN);
+}
 
 // A compact action runs in its own reactor cycle, after which the reactor
 // idles until the next inbound event. Worker loops (sub-agents, the coding
@@ -30,7 +40,9 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
   ): void {
     overflowRecoveries = 0;
     if (requestContinuation === undefined) return;
-    const contextTokens = event.usage?.input ?? 0;
+    const reportedTokens = event.usage?.input ?? 0;
+    const contextTokens =
+      reportedTokens > 0 ? reportedTokens : estimateContextTokens(event.turn);
     if (
       contextTokens > compactionThresholdFor(event.source?.model) &&
       turnCount > MIN_TURNS_TO_COMPACT
