@@ -31,6 +31,8 @@ describe("isSensitivePath", () => {
     ".aws/credentials",
     ".corbits/settings.json",
     "/Users/me/.corbits/settings.json",
+    ".intercode/settings.json",
+    "/Users/me/.intercode/settings.json",
   ];
   for (const p of sensitive) {
     test(`flags ${p}`, () => expect(isSensitivePath(p)).toBe(true));
@@ -66,6 +68,7 @@ describe("commandReferencesSensitivePath", () => {
     "cat .env",
     "cat ~/.corbits/settings.json",
     "less /Users/me/.corbits/settings.json",
+    "cat ~/.intercode/settings.json",
     "xxd .ssh/id_rsa",
     "base64 secrets/server.pem",
     "grep KEY .env.production",

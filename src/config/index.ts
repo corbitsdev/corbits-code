@@ -354,16 +354,18 @@ export async function loadConfig(
   }
 
   const pricingCachePath = defaultPricingCachePath();
-  await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
   // TEMPORARY: migrate a legacy `.intercode` directory into the new `.corbits`
-  // one before anything reads either. Only run against the real home/cwd
-  // (never a --config file or a test-injected globalSettingsPath), and only
-  // copies when the new directory is missing/empty — see migrate-legacy-dir.ts.
+  // one before anything reads either — including pricing bootstrap, which may
+  // create `~/.corbits/cache` and would otherwise make the new dir look
+  // occupied. Only run against the real home/cwd (never a --config file or a
+  // test-injected globalSettingsPath). See migrate-legacy-dir.ts.
   if (configPath === undefined && options.globalSettingsPath === undefined) {
     await migrateLegacyGlobalDir();
   }
   await migrateLegacyLocalDir(cwd);
+
+  await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
   const settings =
     configPath !== undefined
