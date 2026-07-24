@@ -1,6 +1,6 @@
 {
   "name": "@corbits/intercode",
-  "version": "0.2.79",
+  "version": "0.2.80",
   "description": "Single-process coding agent CLI built on the Interchange runtime (Bun + TypeScript)",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
