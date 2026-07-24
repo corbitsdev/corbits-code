@@ -109,4 +109,55 @@ describe("discoverClaudeInstalledPlugins", () => {
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules.length).toBe(1);
   });
+
+  test("reads .claude-plugin/manifest.json when plugin.json is absent", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-home-manifest-json-"));
+    const installPath = join(home, ".claude", "plugins", "cache", "mkt", "cmo", "1.0.0");
+    await mkdir(join(installPath, ".claude-plugin"), { recursive: true });
+    await mkdir(join(installPath, "agents"), { recursive: true });
+    await writeFile(
+      join(installPath, ".claude-plugin", "manifest.json"),
+      JSON.stringify({ name: "cmo", description: "Marketing ops", version: "1.0.0" }),
+    );
+    await writeFile(
+      join(installPath, "agents", "angle.md"),
+      ["---", "description: Angle specialist", "---", "", "You generate angles.", ""].join("\n"),
+    );
+    await mkdir(join(home, ".claude", "plugins"), { recursive: true });
+    await writeFile(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: { "cmo@mkt": [{ installPath, version: "1.0.0" }] },
+      }),
+    );
+
+    const modules = await discoverClaudeInstalledPlugins("/repo", { home });
+    expect(modules.length).toBe(1);
+    expect(modules[0]!.manifest?.id).toBe("cmo");
+    expect(modules[0]!.source).toBe("claude");
+  });
+
+  test("rewrites version-dir basename ids using the registry key", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-home-version-id-"));
+    // No manifest at all — data-only falls back to basename(installPath) = "1.0.0".
+    const installPath = join(home, ".claude", "plugins", "cache", "mkt", "orphan", "1.0.0");
+    await mkdir(join(installPath, "agents"), { recursive: true });
+    await writeFile(
+      join(installPath, "agents", "scout.md"),
+      ["---", "description: Scout", "---", "", "Map things.", ""].join("\n"),
+    );
+    await mkdir(join(home, ".claude", "plugins"), { recursive: true });
+    await writeFile(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: { "orphan@mkt": [{ installPath, version: "1.0.0" }] },
+      }),
+    );
+
+    const modules = await discoverClaudeInstalledPlugins("/repo", { home });
+    expect(modules.length).toBe(1);
+    expect(modules[0]!.manifest?.id).toBe("orphan");
+  });
 });

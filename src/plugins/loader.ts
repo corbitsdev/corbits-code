@@ -412,9 +412,11 @@ export async function discoverClaudeInstalledPlugins(
     return [];
   }
 
-  const installPaths: string[] = [];
+  const installPaths: Array<{ abs: string; registryKey: string }> = [];
   const seen = new Set<string>();
-  for (const entries of Object.values(pluginsField as Record<string, unknown>)) {
+  for (const [registryKey, entries] of Object.entries(
+    pluginsField as Record<string, unknown>,
+  )) {
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -423,12 +425,12 @@ export async function discoverClaudeInstalledPlugins(
       const abs = resolve(installPath);
       if (seen.has(abs)) continue;
       seen.add(abs);
-      installPaths.push(abs);
+      installPaths.push({ abs, registryKey });
     }
   }
 
   const results: PluginModule[] = [];
-  for (const installPath of installPaths) {
+  for (const { abs: installPath, registryKey } of installPaths) {
     if (!(await pathExists(installPath))) continue;
     // Expand marketplace roots the same way explicit pluginPaths do.
     const dirs = await expandPluginPath(installPath);
@@ -436,10 +438,37 @@ export async function discoverClaudeInstalledPlugins(
       const plugin = await loadPluginEntry(d, { cwd, origin: "user" });
       if (plugin === null) continue;
       plugin.source = "claude";
+      // Version-dir basenames (e.g. .../cmo/1.0.0 → "1.0.0") collide across
+      // installs and break settings.plugins enable keys. Prefer a stable id
+      // from the registry key (name before @) when the resolved id looks like
+      // a version and the registry key is usable.
+      const idFromKey = registryKey.includes("@")
+        ? registryKey.slice(0, registryKey.indexOf("@"))
+        : registryKey;
+      if (
+        plugin.manifest !== undefined &&
+        idFromKey.length > 0 &&
+        looksLikeVersionDirId(plugin.manifest.id)
+      ) {
+        plugin.manifest = {
+          ...plugin.manifest,
+          id: idFromKey,
+          name:
+            plugin.manifest.name === plugin.manifest.id
+              ? idFromKey
+              : plugin.manifest.name,
+        };
+      }
       results.push(plugin);
     }
   }
   return results;
+}
+
+/** True when a plugin id is probably a cache version dirname, not a product name. */
+function looksLikeVersionDirId(id: string): boolean {
+  // Semver-ish: 1.0.0, 1.8.0-beta, v1.2.3
+  return /^(?:v)?\d+\.\d+(\.\d+)?(?:[-+].*)?$/i.test(id);
 }
 
 /** Re-export for callers that need the type without importing trust directly. */
