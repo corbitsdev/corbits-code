@@ -41,7 +41,7 @@ export async function resolveAgentPluginProfiles(
         );
         continue;
       }
-      const profile = result as AgentProfile;
+      const profile = { ...(result as AgentProfile) };
       // Resolve systemPromptPath relative to the plugin directory. The file
       // content becomes systemPromptRole; an explicit systemPromptRole wins.
       if (profile.systemPromptPath !== undefined && profile.systemPromptRole === undefined && mod.dir !== undefined) {
@@ -50,6 +50,16 @@ export async function resolveAgentPluginProfiles(
           profile.systemPromptRole = promptRaw.trim();
         } catch {
           // Missing prompt file is non-fatal — the profile loads without a role.
+        }
+      }
+      // Provenance for search_agents: Claude marketplace installs stamp
+      // mod.source = "claude"; other plugins use plugin:<id>. Explicit profile
+      // source (if ever set by the author) is left alone.
+      if (profile.source === undefined) {
+        if (mod.source !== undefined) {
+          profile.source = mod.source;
+        } else if (mod.manifest?.id !== undefined) {
+          profile.source = `plugin:${mod.manifest.id}`;
         }
       }
       out.push(profile);

@@ -18,8 +18,10 @@ that absolute path.
 |---|---|---|
 | `repo` | Product-shipped `plugins/` next to the Intercode binary | Yes |
 | `user` | `~/.intercode/plugins/` | Yes (user home) |
+| `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) |
 | `project` | `<cwd>/.intercode/plugins/` | **No** — path-bound trust |
 | `path` | `settings.pluginPaths` entries | **No** — path-bound trust |
+
 
 Untrusted `project` / `path` plugins are discovered as **metadata-only**: the
 loader reads `manifest.json` (or equivalent) but does **not** `import()` the
@@ -113,7 +115,19 @@ discoverPlugins(cwd) =
   + <cwd>/.intercode/plugins/
   + ~/.intercode/plugins/
   + settings.pluginPaths  (explicit file/dir paths, added via /plugins)
+  + [opt-in] ~/.claude/plugins/installed_plugins.json
+      when settings.discoverClaudePlugins is true
 ```
+
+Claude Code marketplace installs are **opt-in**. When `discoverClaudePlugins` is
+true, Intercode reads the Claude install registry (not a full cache walk) and
+loads each **absolute** `installPath` that resolves under `~/.claude/plugins/`
+as **data-only** (markdown agents/commands — no JS `import()` at discovery).
+Relative install paths and paths outside that root are ignored so a poisoned
+registry cannot load project trees as origin `user`. Profile `source: "claude"`.
+Discovered modules still require `settings.plugins[id].enabled` before agents or
+tools wire into the session. `search_agents` labels those profiles with
+`[source: claude]`. JS Claude plugins (if any) stay on explicit `pluginPaths`.
 
 `settings.workflowPlugins` / `settings.agentPlugins` (specifier arrays) become
 thin aliases: at load they are appended to `pluginPaths` and flow through the

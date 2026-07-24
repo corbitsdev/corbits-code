@@ -59,9 +59,10 @@ export function formatAgentSearchResults(profiles: readonly AgentProfile[]): str
     const desc = (p.description ?? "").trim();
     const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
     const orch = p.orchestrator === true ? " [orchestrator]" : "";
+    const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
     return desc.length > 0
-      ? `- ${p.id}${tier}${orch}: ${desc}`
-      : `- ${p.id}${tier}${orch}`;
+      ? `- ${p.id}${tier}${orch}${source}: ${desc}`
+      : `- ${p.id}${tier}${orch}${source}`;
   });
   return [
     "Matching agent profiles (pass id to task(agent=...)):",

@@ -75,6 +75,9 @@ export type AgentProfile = {
   // Optional inference-turn budget when this profile is dispatched via task(agent=...).
   // Clamped to the global cap at dispatch time; task(maxTurns) overrides when set.
   maxTurns?: number;
+  // Where the profile came from, for search_agents labeling (e.g. "claude",
+  // "plugin:<id>", "local"). Omitted for built-in defaults.
+  source?: string;
 };
 
 // The shape an agent-kind plugin contributes: a list of profiles.
