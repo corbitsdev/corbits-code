@@ -35,6 +35,24 @@ function turns(): ConversationTurn[] {
   ];
 }
 
+function turnsWithFailedAttempt(): ConversationTurn[] {
+  return [
+    ...turns(),
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          callId: "c2",
+          content: [{ type: "text", text: "TypeError: cannot patch session.ts, unmatched hunk" }],
+          isError: true,
+        },
+      ],
+      timestamp: 4,
+    },
+  ];
+}
+
 test("condenseTurns extracts files, tools, and links", () => {
   const out = condenseTurns(turns());
   expect(out).toContain("src/auth.ts");
@@ -42,6 +60,13 @@ test("condenseTurns extracts files, tools, and links", () => {
   expect(out).toContain("read_file");
   expect(out).toContain("edit_file");
   expect(out).toContain("https://example.com/ticket/42");
+});
+
+test("condenseTurns surfaces failed tool attempts with their error", () => {
+  const out = condenseTurns(turnsWithFailedAttempt());
+  expect(out).toContain("Failed attempts (do not retry)");
+  expect(out).toContain("edit_file");
+  expect(out).toContain("unmatched hunk");
 });
 
 test("buildSummaryPrompt injects active workflow context", () => {

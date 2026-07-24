@@ -10,7 +10,7 @@
 import { runInference, type Dependencies } from "@intx/inference";
 import { createDefaultDependencies } from "@intx/inference/providers";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
-import { buildTurnSummary } from "./compactor.js";
+import { buildTurnSummary, extractFailedAttempts } from "./compactor.js";
 
 // What the agent was doing when compaction fired. Lets the summary preserve
 // the workflow contract ("we are at step 3/7 of /build") rather than dropping
@@ -40,6 +40,11 @@ const SYSTEM_INSTRUCTION = [
   "## What Happened",
   "Bullet the concrete work already done (files changed, decisions made, things",
   "discovered, things that failed and why).",
+  "",
+  "## Failed Attempts — Do Not Retry",
+  "Bullet every approach, command, or edit that was already tried and failed,",
+  "each with its error, so the agent does not repeat it. Required whenever the",
+  "excerpt below lists any failed tool results; omit only if there are none.",
   "",
   "## What We're Doing",
   "One or two sentences on the current objective and, if a workflow is active,",
@@ -91,11 +96,16 @@ export function condenseTurns(turns: ConversationTurn[]): string {
     }
   }
 
+  const failedAttempts = extractFailedAttempts(turns);
+
   const sections: Array<string | null> = [
     `Turns dropped: ${turns.length}`,
     toolNames.size > 0 ? `Tools used: ${[...toolNames].sort().join(", ")}` : null,
     files.size > 0 ? `Files touched:\n${[...files].slice(0, 40).map((f) => `- ${f}`).join("\n")}` : null,
     links.size > 0 ? `Links/identifiers:\n${[...links].slice(0, 30).map((l) => `- ${l}`).join("\n")}` : null,
+    failedAttempts.length > 0
+      ? `Failed attempts (do not retry):\n${failedAttempts.join("\n")}`
+      : null,
     userMessages.length > 0
       ? `User messages (most recent last):\n${userMessages.slice(-6).join("\n---\n")}`
       : null,
