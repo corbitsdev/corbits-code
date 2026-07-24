@@ -1,10 +1,17 @@
 import type { Approval } from "./types.js";
 
 // Translate a shell-style glob (opencode semantics: `*` = zero or more chars,
-// `?` = exactly one char, everything else literal) into an anchored RegExp.
+// `?` = exactly one char, `\x` = literal `x` even when `x` is `*`, `?`, or `\`,
+// everything else literal) into an anchored RegExp.
 export function globToRegExp(pattern: string): RegExp {
   let out = "^";
-  for (const ch of pattern) {
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i] as string;
+    if (ch === "\\" && i + 1 < pattern.length) {
+      const escaped = pattern[++i] as string;
+      out += escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      continue;
+    }
     if (ch === "*") {
       out += ".*";
     } else if (ch === "?") {
@@ -15,6 +22,13 @@ export function globToRegExp(pattern: string): RegExp {
   }
   out += "$";
   return new RegExp(out);
+}
+
+// Escape a literal string so it matches only itself when interpreted by
+// globToRegExp, even when it contains `*`, `?`, or `\`. Used when a grant must
+// cover an exact command rather than a pattern.
+export function escapeGlobLiteral(text: string): string {
+  return text.replace(/[\\*?]/g, "\\$&");
 }
 
 export function matchesPattern(subject: string, pattern: string): boolean {
