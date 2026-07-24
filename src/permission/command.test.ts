@@ -28,15 +28,28 @@ describe("splitChainedCommand heredocs", () => {
 });
 
 describe("splitChainedCommand redirect and background fragments", () => {
-  // A chain operator can strand a redirect fd-duplication target as its own
-  // segment. Each of these must stay attached to the command that owns it
-  // rather than surfacing as a spurious "Run shell command: 1" approval.
-  test("coalesces a stray fd target after a semicolon", () => {
-    expect(splitChainedCommand("bun run build ; 1")).toEqual(["bun run build 1"]);
+  // A bare digit (or "-") after a chain separator is not, by itself, evidence
+  // of a stray redirect remnant — it may be a genuine, distinct command. Only
+  // fold the following token back in when the segment before the separator
+  // actually ends in a dangling redirect operator.
+  test("does not fold a bare digit segment across a semicolon", () => {
+    expect(splitChainedCommand("sleep 5 ; -1 ; echo end")).toEqual(["sleep 5", "-1", "echo end"]);
   });
 
-  test("coalesces a stray ampersand-fd target after &&", () => {
-    expect(splitChainedCommand("bun run build && &1")).toEqual(["bun run build &1"]);
+  test("does not fold across a subshell boundary", () => {
+    expect(splitChainedCommand("echo x && (1 ; echo y)")).toEqual(["echo x", "1", "echo y"]);
+  });
+
+  test("does not swallow a pipe operator", () => {
+    expect(splitChainedCommand("echo x | 1")).toEqual(["echo x", "1"]);
+  });
+
+  test("coalesces a genuine dangling fd-duplication target after a semicolon", () => {
+    expect(splitChainedCommand("bun run build 2>&;1")).toEqual(["bun run build 2>& 1"]);
+  });
+
+  test("coalesces a genuine dangling redirect target after &&", () => {
+    expect(splitChainedCommand("bun run build > && out.txt")).toEqual(["bun run build >  out.txt"]);
   });
 
   test("keeps 2>&1 attached to its command, not split into a stray 1", () => {
