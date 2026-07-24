@@ -968,6 +968,7 @@ export function App({
 
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
+    (state.trimmedBlockCount > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
     goalChromeRows +
     taskChromeRows +
@@ -2175,6 +2176,13 @@ export function App({
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
+      {state.trimmedBlockCount > 0 && (
+        <Box paddingX={1}>
+          <Text color={color("dim")} dimColor>
+            {`↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed from the tracked transcript to keep the session responsive`}
+          </Text>
+        </Box>
+      )}
       {commandMessage !== null && (
         <Box paddingX={1}>
           <Text color="cyan">{commandMessage}</Text>
