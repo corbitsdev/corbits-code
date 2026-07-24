@@ -226,7 +226,8 @@ export function forcedStopReport(
 
 /** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
 export function demoteNestedReportHeadings(text: string): string {
-  return text.replace(/^## (Summary|Findings|Blockers|Paths)\b/gm, "### $1");
+  // Match parseSubAgentReport: flexible whitespace + case-insensitive section names.
+  return text.replace(/^##\s+(Summary|Findings|Blockers|Paths)\b/gim, "### $1");
 }
 
 /** True when the worker returned a turn-budget salvage report for the parent. */
