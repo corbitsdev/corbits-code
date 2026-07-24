@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { fingerprintToolCalls, nextToolCallStreak } from "../agent/tool-fingerprint.js";
 import {
   createTaskTool,
   createSubAgentSessionStore,
@@ -10,10 +11,8 @@ import {
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   disposeSubAgentSession,
   evaluateSubAgentStop,
-  fingerprintToolCalls,
   forcedStopReport,
   formatSubAgentReport,
-  nextToolCallStreak,
   parseSubAgentReport,
   appendNeverActedParentHint,
   partialTextFromEvent,
