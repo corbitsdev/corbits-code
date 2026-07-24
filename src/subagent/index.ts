@@ -187,13 +187,24 @@ function lastText(content: ReadonlyArray<{ type: string }>): string {
   return "";
 }
 
+/** Best-effort partial assistant text from a stream event (inference.done). */
+export function partialTextFromEvent(event: ReactorEmittedEvent): string | null {
+  if (event.type !== "inference.done") return null;
+  // Stream events nest the turn under data (same shape as hooks/renderer).
+  // Guard data.turn so a malformed event cannot throw in the stream sink.
+  const turn = event.data?.turn;
+  if (turn === undefined || !Array.isArray(turn.content)) return null;
+  const text = lastText(turn.content);
+  return text.length > 0 ? text : null;
+}
+
 /**
  * Build the parent-facing report when a leaf is force-stopped. There is no
  * further inference, so this must already be a full envelope — not an
  * instruction asking the finished worker to summarize.
  */
 export function forcedStopReport(
-  reason: "no-progress" | "turn-budget" | "never-acted",
+  reason: "no-progress" | "turn-budget" | "never-acted" | "cancelled",
   partialText: string,
 ): string {
   const summary =
@@ -201,17 +212,21 @@ export function forcedStopReport(
       ? "Stopped: repeated the same tool calls with no progress."
       : reason === "never-acted"
         ? "Stopped: completed without using any tools."
-        : "Turn budget reached before finishing.";
+        : reason === "cancelled"
+          ? "Stopped: cancelled by operator before finishing."
+          : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
       : reason === "never-acted"
         ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
-        : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+        : reason === "cancelled"
+          ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
+          : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
-  // stuffed into Findings (the common never-acted case: model returns the
-  // instructed ## Summary / ## Findings report without tools).
+  // stuffed into Findings (never-acted planning envelopes; cancel after a
+  // structured partial).
   const findings =
     partialText.trim().length > 0
       ? demoteNestedReportHeadings(partialText.trim())
@@ -817,12 +832,15 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // progress without dumping the full sub-agent event stream into the chat
   // transcript (which would interleave sub-agent text with the parent turn).
   const toolNamesUsed: string[] = [];
+  let lastPartialText = "";
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);
     if (name !== null) {
       toolNamesUsed.push(name);
       params.onProgress?.({ description: params.description, toolName: name });
     }
+    const partial = partialTextFromEvent(event);
+    if (partial !== null) lastPartialText = partial;
     params.onEvent?.(event);
   };
   streamPromise = consumeStream(agent.stream(), streamSink);
@@ -863,24 +881,46 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       // treat a pre-send check as permanent.
       if (signal !== undefined && signal.aborted) throw abortError(signal);
     };
-    ensureNotAborted();
-    const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
-    const fresh = await refreshInferenceSourceBundle(
-      bundle.sources,
-      bundle.defaultSource,
-      params.catalog,
-    );
-    agent.setSources(fresh.sources, fresh.defaultSource);
-    const result = await agent.send(fullPrompt, sendOpts);
-    ensureNotAborted();
-    const reply =
-      result.reply.trim().length > 0
-        ? result.reply.trim()
-        : "Sub-agent finished without a textual result.";
-    // Normalize into the structured envelope so the parent always gets a
-    // consistent shape even when the model rambling-returns free-form prose.
-    const report = formatSubAgentReport(parseSubAgentReport(reply));
-    return appendActivitySummary(report, toolNamesUsed);
+    try {
+      ensureNotAborted();
+      const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
+      const fresh = await refreshInferenceSourceBundle(
+        bundle.sources,
+        bundle.defaultSource,
+        params.catalog,
+      );
+      agent.setSources(fresh.sources, fresh.defaultSource);
+      const result = await agent.send(fullPrompt, sendOpts);
+      ensureNotAborted();
+      const reply =
+        result.reply.trim().length > 0
+          ? result.reply.trim()
+          : "Sub-agent finished without a textual result.";
+      // Normalize into the structured envelope so the parent always gets a
+      // consistent shape even when the model rambling-returns free-form prose.
+      const report = formatSubAgentReport(parseSubAgentReport(reply));
+      return appendActivitySummary(report, toolNamesUsed);
+    } catch (err) {
+      if (isSubAgentCancelError(err, params.signal)) {
+        // Drain stream events so tool.start / inference.done that already
+        // left the reactor are reflected before we decide bare vs salvage.
+        if (streamPromise !== undefined) {
+          await streamPromise.catch(() => {});
+        }
+        // Cancel after any tools or assistant prose returns a structured salvage
+        // report so the parent keeps partial work; pre-progress cancel still
+        // surfaces as a bare AbortError for the task tool's cancel path.
+        const hadProgress =
+          toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
+        if (hadProgress) {
+          return appendActivitySummary(
+            forcedStopReport("cancelled", lastPartialText),
+            toolNamesUsed,
+          );
+        }
+      }
+      throw err;
+    }
   } finally {
     await disposeSubAgentSession({
       ...(params.signal !== undefined ? { signal: params.signal } : {}),
@@ -891,6 +931,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     });
   }
 }
+
 
 function abortError(signal: AbortSignal): Error {
   const reason = signal.reason;
@@ -1009,7 +1050,9 @@ const TaskToolArgs = type({
   "agent?": "string",
   "goals?": "string[]",
   "maxTurns?": "number",
+  "tier?": "'fast' | 'standard' | 'clever'",
 });
+
 
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
@@ -1047,6 +1090,12 @@ export const taskToolDefinition: ToolDefinition = {
         type: "number",
         description:
           "Optional inference-turn budget for this worker only (not the parent session limit). Defaults to settings or 30; hard cap 100.",
+      },
+      tier: {
+        type: "string",
+        enum: ["fast", "standard", "clever"],
+        description:
+          "Optional provider tier override for this spawn only (fast | standard | clever). Wins over profile inference and profile tier; fails closed when the tier is unconfigured.",
       },
     },
     required: ["description", "prompt"],
@@ -1106,6 +1155,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         agent: agentId,
         goals: rawGoals,
         maxTurns: rawMaxTurns,
+        tier: rawTaskTier,
       } = parsed;
       const description = rawDesc.trim();
       const context = rawCtx?.trim();
@@ -1128,6 +1178,51 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
+
+      // Rebuild provider from a resolved provider/model assignment. Shared by
+      // task(tier=), profile.inference, and profile.tier so fail-closed effort
+      // validation and settings lookup stay consistent.
+      const applyResolvedProvider = (
+        resolved: {
+          provider: string;
+          model: string;
+          reasoningEffort?: import("../provider/reasoning-effort.js").ReasoningEffort;
+        },
+        label: string,
+      ): string | null => {
+        if (settings === undefined) {
+          return `Error: ${label} requires settings with configured providers.`;
+        }
+        if (resolved.reasoningEffort !== undefined) {
+          const verdict = validateEffort(
+            resolved.model,
+            resolved.reasoningEffort,
+            isCodexProviderName(resolved.provider),
+          );
+          if (!verdict.ok) {
+            return `Error: ${label} has incompatible inference: ${verdict.error}`;
+          }
+        }
+        const providerSettings = settings.providers[resolved.provider];
+        if (providerSettings === undefined) {
+          return `Error: ${label} resolved to provider "${resolved.provider}" which is not configured.`;
+        }
+        const effort = resolved.reasoningEffort ?? provider.reasoningEffort;
+        provider = {
+          providerName: resolved.provider,
+          baseURL: providerSettings.baseURL,
+          ...(providerSettings.keyless === true ? { keyless: true } : {}),
+          ...(providerSettings.bifrostVirtualKey === true
+            ? { bifrostVirtualKey: true }
+            : {}),
+          ...(providerSettings.apiKey !== undefined
+            ? { apiKey: providerSettings.apiKey }
+            : {}),
+          model: resolved.model,
+          ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+        };
+        return null;
+      };
 
       if (agentId !== undefined && agentId.length > 0) {
         // Fail closed: an explicit agent= that cannot be resolved is an error,
@@ -1162,7 +1257,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
           orchestrator = true;
         }
-        if (settings !== undefined) {
+        // Profile inference/tier apply only when task(tier=) is omitted — the
+        // caller override wins so a cheap/fast dispatch can still use a clever
+        // profile's tools without paying for the profile's pinned model.
+        if (rawTaskTier === undefined && settings !== undefined) {
           // Per-agent pinned inference (provider/model/effort) wins over the
           // tier alias when both are declared. Resolution uses policy
           // (mode: pin / agentModelFallback: none) so a forbidden fallback
@@ -1188,50 +1286,35 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             }
           }
           if (resolved !== null) {
-            // Validate model/effort compatibility before dispatch so the
-            // agent fails fast with a clear message instead of sending a
-            // request the provider will reject mid-task. Mirrors the main
-            // session bootstrap in src/config/index.ts.
-            if (resolved.reasoningEffort !== undefined) {
-              const verdict = validateEffort(
-                resolved.model,
-                resolved.reasoningEffort,
-                isCodexProviderName(resolved.provider),
-              );
-              if (!verdict.ok) {
-                return taskToolResult(
-                  call.id,
-                  `Error: agent "${agentId}" has incompatible inference: ${verdict.error}`,
-                );
-              }
-            }
-            const providerSettings = settings.providers[resolved.provider];
-            if (providerSettings !== undefined) {
-              // An inference leg or tier assignment that doesn't carry its
-              // own reasoningEffort still inherits the parent session's
-              // effort — keeps "/agent" effort propagation uniform across
-              // pinned-resolution and fall-through-to-active paths.
-              const effort =
-                resolved.reasoningEffort ?? provider.reasoningEffort;
-              provider = {
-                providerName: resolved.provider,
-                baseURL: providerSettings.baseURL,
-                ...(providerSettings.keyless === true ? { keyless: true } : {}),
-                ...(providerSettings.bifrostVirtualKey === true
-                  ? { bifrostVirtualKey: true }
-                  : {}),
-                ...(providerSettings.apiKey !== undefined
-                  ? { apiKey: providerSettings.apiKey }
-                  : {}),
-                model: resolved.model,
-                ...(effort !== undefined ? { reasoningEffort: effort } : {}),
-              };
-            }
+            const err = applyResolvedProvider(resolved, `agent "${agentId}"`);
+            if (err !== null) return taskToolResult(call.id, err);
           }
           if (profile.tier !== undefined) {
             tier = profile.tier as ProviderTier;
           }
         }
+      }
+
+      // task(tier=) is highest precedence: overrides profile inference/tier and
+      // the parent provider. Fail closed when settings or the tier chain is missing.
+      if (rawTaskTier !== undefined) {
+        const taskTier = rawTaskTier as ProviderTier;
+        if (settings === undefined) {
+          return taskToolResult(
+            call.id,
+            `Error: task tier "${taskTier}" requires configured settings.providers.`,
+          );
+        }
+        const assignment = resolveTier(taskTier, settings);
+        if (assignment === null) {
+          return taskToolResult(
+            call.id,
+            `Error: task tier "${taskTier}" is not configured. Set settings.tiers.${taskTier} (or the legacy tier assignment) before dispatching.`,
+          );
+        }
+        const err = applyResolvedProvider(assignment, `task tier "${taskTier}"`);
+        if (err !== null) return taskToolResult(call.id, err);
+        tier = taskTier;
       }
 
       let taskMaxTurns: number | undefined;
@@ -1347,22 +1430,29 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           maxTurns: resolvedMaxTurns,
         };
         const result = await run(params);
-        // Race: strip/parent may cancel after run resolves but before complete.
-        if (
-          session !== undefined &&
-          deps.sessions?.get(session.id)?.status === "cancelled"
-        ) {
-          return taskToolResult(call.id, cancelledSubAgentMessage(description));
-        }
-        if (childCtl.signal.aborted) {
-          if (session !== undefined) {
-            deps.sessions?.cancel(session.id, cancelReason(childCtl.signal));
+        // Operator cancel may race after run resolves. Keep strip status cancelled
+        // when requested, but never discard a returned body (including salvage).
+        const wasCancelled =
+          childCtl.signal.aborted ||
+          (session !== undefined &&
+            deps.sessions?.get(session.id)?.status === "cancelled");
+        if (wasCancelled) {
+          if (
+            session !== undefined &&
+            deps.sessions?.get(session.id)?.status === "running"
+          ) {
+            deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          return taskToolResult(call.id, cancelledSubAgentMessage(description));
+          const reported = appendTurnBudgetParentHint(result);
+          return taskToolResult(
+            call.id,
+            `Sub-agent "${description}" reported:\n\n${reported}`,
+          );
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
         const reported = appendNeverActedParentHint(appendTurnBudgetParentHint(result));
         return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
+
       } catch (err) {
         if (
           isSubAgentCancelError(err, childCtl.signal) ||

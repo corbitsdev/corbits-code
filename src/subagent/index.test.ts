@@ -16,6 +16,8 @@ import {
   nextToolCallStreak,
   parseSubAgentReport,
   appendNeverActedParentHint,
+  partialTextFromEvent,
+  subAgentToolName,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
@@ -306,6 +308,78 @@ describe("sub-agent stop helpers", () => {
     const withHint = appendNeverActedParentHint(reparsed);
     expect(withHint).toContain("planning/prose only");
     expect(withHint).toContain("without using any tools");
+
+    const cancelled = forcedStopReport("cancelled", "Partial findings from tools");
+    const cancelledParsed = parseSubAgentReport(cancelled);
+    expect(cancelledParsed.summary).toContain("cancelled");
+    expect(cancelledParsed.findings).toContain("Partial findings");
+    expect(cancelledParsed.blockers).toContain("re-dispatch");
+
+    // Nested agent envelope in partial text must not clobber cancel Summary.
+    const cancelledNested = [
+      "## Summary",
+      "Halfway done.",
+      "",
+      "## Findings",
+      "src/gate.ts open",
+      "",
+      "## Blockers",
+      "None",
+    ].join("\n");
+    const cancelledSalvaged = forcedStopReport("cancelled", cancelledNested);
+    const cancelledReparsed = parseSubAgentReport(cancelledSalvaged);
+    expect(cancelledReparsed.summary).toContain("cancelled");
+    expect(cancelledReparsed.findings).toContain("Halfway done");
+    expect(cancelledReparsed.findings).toContain("### Summary");
+  });
+
+  test("partialTextFromEvent reads stream inference.done data.turn content", () => {
+    const text = partialTextFromEvent({
+      type: "inference.done",
+      seq: 1,
+      data: {
+        turn: {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Mapped src/gate.ts" },
+            { type: "tool_call", id: "1", name: "read_file", arguments: {} },
+          ],
+          model: "m",
+          timestamp: 0,
+        },
+        usage: {},
+        source: {},
+      },
+    } as Parameters<typeof partialTextFromEvent>[0]);
+    expect(text).toBe("Mapped src/gate.ts");
+
+    // Wrong shape (director inbound turn at top level) must not silently match.
+    const wrong = partialTextFromEvent({
+      type: "inference.done",
+      turn: {
+        content: [{ type: "text", text: "should not appear" }],
+      },
+    } as unknown as Parameters<typeof partialTextFromEvent>[0]);
+    expect(wrong).toBeNull();
+
+    expect(partialTextFromEvent({ type: "tool.start", seq: 1, data: {} } as Parameters<typeof partialTextFromEvent>[0])).toBeNull();
+  });
+
+  test("subAgentToolName reads tool.start data.call.name", () => {
+    expect(
+      subAgentToolName({
+        type: "tool.start",
+        seq: 1,
+        data: { call: { name: "read_file" } },
+      } as Parameters<typeof subAgentToolName>[0]),
+    ).toBe("read_file");
+    expect(
+      subAgentToolName({
+        type: "inference.done",
+        seq: 1,
+        data: {},
+      } as Parameters<typeof subAgentToolName>[0]),
+    ).toBeNull();
   });
 });
 
@@ -371,6 +445,94 @@ describe("createTaskTool", () => {
     });
 
     expect(captured?.maxTurns).toBe(50);
+  });
+
+  test("task tier rebuilds provider from settings and wins over profile inference", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const settings = {
+      providers: {
+        "clever-p": { baseURL: "http://clever", apiKey: "k" },
+        "profile-p": { baseURL: "http://profile", apiKey: "k" },
+      },
+      tiers: {
+        clever: { provider: "clever-p", model: "clever-model" },
+        standard: { provider: "profile-p", model: "profile-model" },
+      },
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings,
+      profiles: [
+        {
+          id: "deep",
+          tier: "standard",
+          inference: { provider: "profile-p", model: "pinned-model" },
+        },
+      ],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, {
+      description: "tier-override",
+      prompt: "x",
+      agent: "deep",
+      tier: "clever",
+    });
+    expect(captured?.provider.providerName).toBe("clever-p");
+    expect(captured?.provider.model).toBe("clever-model");
+    expect(captured?.tier).toBe("clever");
+  });
+
+  test("profile tier still applies when task omits tier", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const settings = {
+      providers: {
+        "profile-p": { baseURL: "http://profile", apiKey: "k" },
+      },
+      tiers: {
+        standard: { provider: "profile-p", model: "profile-model" },
+      },
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings,
+      profiles: [{ id: "deep", tier: "standard" }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, { description: "profile-tier", prompt: "x", agent: "deep" });
+    expect(captured?.provider.providerName).toBe("profile-p");
+    expect(captured?.provider.model).toBe("profile-model");
+    expect(captured?.tier).toBe("standard");
+  });
+
+  test("unconfigured task tier fails closed", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      settings: { providers: {} },
+      run: async () => "done",
+    });
+    const out = await callTask(tool, {
+      description: "bad-tier",
+      prompt: "x",
+      tier: "clever",
+    });
+    expect(out).toContain("Error:");
+    expect(out).toContain("clever");
+    expect(out).toContain("not configured");
   });
 
   test("rejects task maxTurns above the cap", async () => {
@@ -505,14 +667,70 @@ describe("createTaskTool", () => {
           );
           parent.abort();
         });
-        return "done";
+        // Injected run returns salvage after cancel-with-progress; task must keep it.
+        return forcedStopReport("cancelled", "partial from tools");
       },
     });
     const out = await callTask(tool, { description: "signal", prompt: "x" }, parent.signal);
     expect(linkedAbort).toBe(true);
     expect(captured?.signal?.aborted).toBe(true);
-    // Abort during run is reported as cancel, not a completed report.
+    expect(out).toContain("cancelled");
+    expect(out).toContain("partial from tools");
+    expect(out).toContain("## Summary");
+  });
+
+  test("keeps a returned result when strip cancel races after run resolves", async () => {
+    const sessions = createSubAgentSessionStore();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      sessions,
+      run: async () => {
+        const row = sessions.list().find((s) => s.description === "race");
+        if (row !== undefined) sessions.cancel(row.id, "Cancelled by operator");
+        return forcedStopReport("cancelled", "salvaged work");
+      },
+    });
+    const out = await callTask(tool, { description: "race", prompt: "x" });
+    expect(out).toContain("salvaged work");
+    expect(out).toContain("## Summary");
+    expect(out).not.toBe('Sub-agent "race" cancelled by operator.');
+    const row = sessions.list().find((s) => s.description === "race");
+    expect(row?.status).toBe("cancelled");
+  });
+
+  test("pre-progress AbortError still surfaces as bare cancel", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      },
+    });
+    const out = await callTask(tool, { description: "pre-progress", prompt: "x" });
     expect(out).toContain("cancelled by operator");
+    expect(out).not.toContain("## Summary");
+  });
+
+  test("injected cancel salvage is reported to the parent with Summary/Findings", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.intercode",
+      provider,
+      run: async () => forcedStopReport("cancelled", "Found path in gate.ts"),
+    });
+    const out = await callTask(tool, { description: "salvage", prompt: "x" });
+    expect(out).toContain("## Summary");
+    expect(out).toContain("## Findings");
+    expect(out).toContain("gate.ts");
+    expect(out).toContain("cancelled");
   });
 
   test("inference auth failure marks tool error and fails the sub-agent session", async () => {
