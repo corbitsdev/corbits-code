@@ -335,6 +335,41 @@ describe("authzPlugin", () => {
     expect(result.isError).not.toBe(true);
   });
 
+  // CL-4400: navigation/inspection commands, and rg/grep downstream of a pipe
+  // (reading already-bounded piped data, not walking the filesystem), must not
+  // trip the open-ended-search block.
+  const benignNavigation = [
+    "cd src && ls",
+    "ls -la",
+    "git show HEAD:src/index.ts | rg -n \"foo\"",
+    "git log -p -- src/index.ts | grep -n bar",
+    "gh pr list",
+    "gh issue view 123",
+    "wc -l src/index.ts",
+    "cat src/index.ts",
+    "head -50 src/index.ts",
+    "cd /tmp && gh pr view 1 | cat",
+  ];
+
+  for (const command of benignNavigation) {
+    test(`allows benign navigation/inspection command: ${command}`, async () => {
+      const plugin = authzPlugin();
+      const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+      const result = await handler(makeShellCall(command), new AbortController().signal);
+      expect(result.isError).not.toBe(true);
+    });
+  }
+
+  // A genuinely unbounded recursive search stays blocked even after the
+  // pipe-anchor fix above.
+  test("still blocks a genuinely unbounded recursive search", async () => {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const result = await handler(makeShellCall("rg -n foo"), new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/Open-ended shell search blocked/);
+  });
+
   async function evaluate(command: string): Promise<ToolResult> {
     const plugin = authzPlugin();
     const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
