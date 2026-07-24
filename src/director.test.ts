@@ -753,3 +753,72 @@ describe("goal continue-rule", () => {
   });
 });
 
+describe("session turn and token caps", () => {
+  const textTurn = (): ReactorInboundEvent =>
+    ({
+      type: "inference.done",
+      turn: { role: "assistant", model: "test", timestamp: 0, content: [{ type: "text", text: "done" }] },
+      usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { model: "test-model" },
+    }) as unknown as ReactorInboundEvent;
+
+  const stateWithTokens = (totalInput: number): ReactorState =>
+    ({
+      tokenUsage: { input: totalInput, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    }) as unknown as ReactorState;
+
+  const isHalt = (a: ReactorAction[]): boolean =>
+    a.some((x) => x.type === "wait") && a.some((x) => x.type === "reply") && !a.some((x) => x.type === "done");
+  const isAbort = (a: ReactorAction[]): boolean =>
+    a.some((x) => x.type === "done") && a.some((x) => x.type === "reply");
+
+  test("interactive session surfaces a continueable warning once the turn cap is reached", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTurns: 1, interactive: true },
+    );
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(isHalt(actions)).toBe(true);
+  });
+
+  test("a warned interactive session keeps going instead of warning on every turn", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTurns: 1, interactive: true },
+    );
+    const first = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(isHalt(first)).toBe(true);
+
+    const second = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(isHalt(second)).toBe(false);
+    expect(isAbort(second)).toBe(false);
+  });
+
+  test("headless (non-interactive) run hard-stops when the turn cap is reached", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTurns: 1, interactive: false },
+    );
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(0), mockCapabilities));
+    expect(isAbort(actions)).toBe(true);
+  });
+
+  test("token budget hard-stops a headless run the same way as the turn cap", async () => {
+    const director = createChatDirector(
+      "base", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { maxTokens: 100, interactive: false },
+    );
+    const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(500), mockCapabilities));
+    expect(isAbort(actions)).toBe(true);
+  });
+
+  test("default caps do not fire during ordinary short sessions", async () => {
+    const director = createChatDirector("base", []);
+    for (let i = 0; i < 5; i++) {
+      const actions = actionsArray(await director.decide(textTurn(), stateWithTokens(1000), mockCapabilities));
+      expect(isAbort(actions)).toBe(false);
+      expect(isHalt(actions)).toBe(false);
+    }
+  });
+});
+
