@@ -24,6 +24,7 @@ import {
 import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
+import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 
 export type CorePosixToolPluginsArgs = {
   cwd: string;
@@ -47,7 +48,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     readFileGuard = {},
   } = args;
   return [
-    pathEscapePlugin(cwd),
+    pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd)),
     deleteFilePlugin(cwd),
     toolOutputUriPlugin(),
     secretGuardPlugin(),
