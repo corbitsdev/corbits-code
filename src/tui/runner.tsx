@@ -63,6 +63,7 @@ import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/type
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
+import { COMPACTION_KEEP_RECENT_TURNS } from "../agent/compaction.js";
 import { createGoalGovernor } from "../agent/goal.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
@@ -117,12 +118,6 @@ import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor, createImageAgingCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
-
-// Shared with the "pruning-compactor" registration below and with the
-// director's compaction governor, so "the recent window" means the same
-// thing whether a turn is aged as a pruning anchor or by the standalone
-// image-aging compactor.
-const COMPACTION_KEEP_RECENT_TURNS = 6;
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();

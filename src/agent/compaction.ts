@@ -11,7 +11,12 @@ const PRUNING_COMPACTOR_NAME = "pruning-compactor";
 const IMAGE_AGING_COMPACTOR_NAME = "image-aging-compactor";
 const MIN_TURNS_TO_COMPACT = 6;
 const MAX_OVERFLOW_RECOVERIES = 2;
-const DEFAULT_KEEP_RECENT_TURNS = 5;
+
+// Shared with the pruning-compactor and image-aging-compactor registrations
+// (in the TUI runner and the sub-agent host), so "the recent window" means the
+// same thing whether a turn is aged as a pruning anchor, by the standalone
+// image-aging compactor, or by this governor's own default.
+export const COMPACTION_KEEP_RECENT_TURNS = 6;
 
 // A compact action runs in its own reactor cycle, after which the reactor
 // idles until the next inbound event. Worker loops (sub-agents, the coding
@@ -24,7 +29,7 @@ export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 
 export function createCompactionGovernor(
   requestContinuation?: () => void,
-  keepRecentTurns: number = DEFAULT_KEEP_RECENT_TURNS,
+  keepRecentTurns: number = COMPACTION_KEEP_RECENT_TURNS,
 ) {
   let pendingCompactor: string | null = null;
   let pendingReason = "";
