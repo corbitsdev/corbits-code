@@ -39,6 +39,12 @@ export type PluginModule = {
    * the user records trust for that path.
    */
   metadataOnly?: boolean;
+  /**
+   * Optional provenance label stamped onto contributed agent profiles
+   * (e.g. "claude" for Claude Code marketplace installs). Distinct from
+   * `origin`, which drives trust gating.
+   */
+  source?: string;
 };
 
 // Read and validate a manifest.json beside the module. Plugins may declare
@@ -371,5 +377,71 @@ export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> 
   return scanPluginsDir(pluginsDir, cwd, "repo");
 }
 
+// Claude Code records marketplace installs in
+// `~/.claude/plugins/installed_plugins.json` (versioned object keyed by
+// install id → array of { installPath, version, ... }). Only those paths are
+// loaded — never a full walk of the cache — so removed installs stay out.
+// Origin is `user` (home install, auto-trusted for import); modules still
+// need settings.plugins[id].enabled. Stamp source "claude" for search_agents.
+//
+// `home` is injectable for tests; defaults to the process home directory.
+export async function discoverClaudeInstalledPlugins(
+  cwd: string,
+  opts: { home?: string } = {},
+): Promise<PluginModule[]> {
+  const home = opts.home ?? homedir();
+  const registryPath = join(home, ".claude", "plugins", "installed_plugins.json");
+  let raw: string;
+  try {
+    raw = await readFile(registryPath, "utf8");
+  } catch {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    process.stderr.write(`plugins: failed to parse ${registryPath}\n`);
+    return [];
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return [];
+  }
+  const pluginsField = (parsed as { plugins?: unknown }).plugins;
+  if (typeof pluginsField !== "object" || pluginsField === null || Array.isArray(pluginsField)) {
+    return [];
+  }
+
+  const installPaths: string[] = [];
+  const seen = new Set<string>();
+  for (const entries of Object.values(pluginsField as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const installPath = (entry as { installPath?: unknown }).installPath;
+      if (typeof installPath !== "string" || installPath.length === 0) continue;
+      const abs = resolve(installPath);
+      if (seen.has(abs)) continue;
+      seen.add(abs);
+      installPaths.push(abs);
+    }
+  }
+
+  const results: PluginModule[] = [];
+  for (const installPath of installPaths) {
+    if (!(await pathExists(installPath))) continue;
+    // Expand marketplace roots the same way explicit pluginPaths do.
+    const dirs = await expandPluginPath(installPath);
+    for (const d of dirs) {
+      const plugin = await loadPluginEntry(d, { cwd, origin: "user" });
+      if (plugin === null) continue;
+      plugin.source = "claude";
+      results.push(plugin);
+    }
+  }
+  return results;
+}
+
 /** Re-export for callers that need the type without importing trust directly. */
 export type { PluginOrigin, ProjectTrustStore };
+

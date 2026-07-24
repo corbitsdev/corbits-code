@@ -84,4 +84,17 @@ describe("resolveAgentPluginProfiles", () => {
     };
     expect(await resolveAgentPluginProfiles([mod], { bad: { enabled: true } })).toEqual([]);
   });
+
+  test("stamps plugin:<id> source for ordinary plugins", async () => {
+    const { mod, config } = agentModule("p1", [validProfile]);
+    const profiles = await resolveAgentPluginProfiles([mod], config);
+    expect(profiles[0]!.source).toBe("plugin:p1");
+  });
+
+  test("preserves mod.source when set (claude marketplace)", async () => {
+    const { mod, config } = agentModule("p1", [validProfile]);
+    mod.source = "claude";
+    const profiles = await resolveAgentPluginProfiles([mod], config);
+    expect(profiles[0]!.source).toBe("claude");
+  });
 });

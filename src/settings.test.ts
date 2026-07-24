@@ -309,6 +309,7 @@ describe("loaders", () => {
           web: "exa",
           plugins: { exa: { enabled: true, credentials: { apiKey: "exa-key" } } },
           pluginPaths: ["/abs/plugins/exa", "./local-plugin"],
+          discoverClaudePlugins: true,
         }),
       );
       const loaded = await loadSettings(path);
@@ -316,6 +317,7 @@ describe("loaders", () => {
       expect(loaded?.web).toBe("exa");
       expect(loaded?.plugins).toEqual({ exa: { enabled: true, credentials: { apiKey: "exa-key" } } });
       expect(loaded?.pluginPaths).toEqual(["/abs/plugins/exa", "./local-plugin"]);
+      expect(loaded?.discoverClaudePlugins).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
