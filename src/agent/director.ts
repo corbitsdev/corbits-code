@@ -1,4 +1,4 @@
-import { DefaultDirector } from "@intx/inference";
+import { DefaultDirector, type DefaultDirectorPolicy } from "@intx/inference";
 import { getLogger } from "@intx/log";
 import type {
   ReactorDirector,
@@ -9,6 +9,7 @@ import type {
   ToolDefinition,
   InferenceOptions,
   ConversationTurn,
+  TokenUsage,
 } from "@intx/types/runtime";
 import {
   type SessionMetadata,
@@ -27,6 +28,31 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 const RETRY_POLICY = createCorbitsRetryPolicy();
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
+
+// Stability backstop, not a UX-facing turn limit: without these, a runaway
+// loop or a stuck goal run has no ceiling on inference calls or spend. 500
+// turns and 10M tokens sit well above any normal session so the cap only
+// fires on genuinely runaway behavior.
+const DEFAULT_SESSION_TURN_CAP = 500;
+const DEFAULT_SESSION_TOKEN_BUDGET = 10_000_000;
+
+export type SessionCapsOptions = {
+  /** Overrides DEFAULT_SESSION_TURN_CAP; fed by the resolved profile's maxTurns. */
+  maxTurns?: number;
+  /** Overrides DEFAULT_SESSION_TOKEN_BUDGET. */
+  maxTokens?: number;
+  /**
+   * Interactive sessions (TUI) stay alive and warn once, so the operator can
+   * keep going with a plain message. Non-interactive runs (headless, an
+   * unattended goal) hard-stop instead, since there is no operator to hand
+   * the warning to.
+   */
+  interactive?: boolean;
+};
+
+function sessionTokenTotal(usage: TokenUsage): number {
+  return usage.input + usage.output + usage.cacheRead + usage.cacheWrite + usage.thinking;
+}
 
 function isInternalRecoveryAbort(event: Extract<ReactorInboundEvent, { type: "inference.error" }>): boolean {
   return isInternalRecoveryAbortRaw(event.error.raw);
@@ -326,6 +352,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private tasks: Task[] = [];
   private readonly onTasksChange: ((tasks: Task[]) => void) | undefined;
   private turnCount = 0;
+  private sessionCapWarned = false;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
   private startedAt = Date.now();
@@ -342,8 +369,41 @@ class ChatDirectorImpl extends DefaultDirector {
     workflowCoordinator?: WorkflowCoordinator,
     onTasksChange?: (tasks: Task[]) => void,
     requestContinuation?: () => void,
+    sessionCaps?: SessionCapsOptions,
   ) {
-    super(systemPrompt, toolDefinitions, {});
+    const maxTurns = sessionCaps?.maxTurns ?? DEFAULT_SESSION_TURN_CAP;
+    const maxTokens = sessionCaps?.maxTokens ?? DEFAULT_SESSION_TOKEN_BUDGET;
+    const interactive = sessionCaps?.interactive ?? true;
+    // Reads `this.turnCount`/`this.sessionCapWarned`, which do not exist until
+    // super() returns, but the hook itself only runs on a later decide() call
+    // (after construction has fully completed) — defining it here just wires
+    // it into the policy super() needs up front.
+    const policy: DefaultDirectorPolicy = {
+      afterInferenceDone: (state: ReactorState) => {
+        if (this.sessionCapWarned) return { type: "continue" };
+        const tokensUsed = sessionTokenTotal(
+          state.tokenUsage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        );
+        const overTurns = this.turnCount >= maxTurns;
+        const overTokens = tokensUsed >= maxTokens;
+        if (!overTurns && !overTokens) return { type: "continue" };
+        this.sessionCapWarned = true;
+        const reason = overTurns
+          ? `Session turn cap reached (${this.turnCount}/${maxTurns} inference turns).`
+          : `Session token budget reached (${tokensUsed}/${maxTokens} tokens).`;
+        if (interactive) {
+          return {
+            type: "halt",
+            reason: `${reason} Send another message to keep going.`,
+          };
+        }
+        return {
+          type: "abort",
+          reason: `${reason} Stopping this run to avoid runaway cost.`,
+        };
+      },
+    };
+    super(systemPrompt, toolDefinitions, policy);
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
     this.inactivityTimeoutMs = inactivityTimeoutMs;
@@ -679,6 +739,7 @@ export function createChatDirector(
   workflowCoordinator?: WorkflowCoordinator,
   onTasksChange?: (tasks: Task[]) => void,
   requestContinuation?: () => void,
+  sessionCaps?: SessionCapsOptions,
 ): ChatDirector {
   return new ChatDirectorImpl(
     systemPrompt,
@@ -690,6 +751,7 @@ export function createChatDirector(
     workflowCoordinator,
     onTasksChange,
     requestContinuation,
+    sessionCaps,
   );
 }
 
