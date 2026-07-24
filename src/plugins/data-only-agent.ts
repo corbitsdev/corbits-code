@@ -27,13 +27,12 @@ const InferenceLegBaseSchema = type({
   model: "string>0",
 });
 
-// Native `capabilities: { mode, tools[] }` block. Malformed input falls
-// through to the other dialects rather than being rejected outright, so this
-// stays a schema probe (validate-or-undefined) instead of a boundary reject.
-const NativeCapabilitiesSchema = type({
-  mode: "'allow' | 'exclude'",
-  tools: "string[]",
-});
+// Native `capabilities: { mode, tools[] }` block. Only `mode` is
+// schema-validated here; `tools` elements are filtered rather than
+// whole-array-validated, so one malformed entry narrows the tool set instead
+// of invalidating the entire capabilities block and falling through to
+// undefined (unrestricted) access — a rejected block must never widen access.
+const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
 
 // A data-only agent plugin is a directory containing either:
 //   • an `agents/` subfolder holding `*.md` files (standard layout), or
@@ -109,12 +108,21 @@ function normalizeCapabilities(
 ): CapabilityFilter | undefined {
   if (fm === null) return undefined;
 
-  // Native: capabilities: { mode, tools[] } — accept verbatim if it survives
-  // schema validation later.
-  if (fm.capabilities !== undefined) {
-    const cap = NativeCapabilitiesSchema(fm.capabilities);
-    if (!(cap instanceof type.errors)) {
-      return { mode: cap.mode, tools: cap.tools.map(aliasTool) };
+  // Native: capabilities: { mode, tools[] } — mode must validate, but tools
+  // elements are filtered individually so a stray non-string entry restricts
+  // rather than rejecting the whole block (see NativeCapabilitiesModeSchema).
+  if (
+    fm.capabilities !== undefined &&
+    typeof fm.capabilities === "object" &&
+    fm.capabilities !== null
+  ) {
+    const cap = fm.capabilities as { mode?: unknown; tools?: unknown };
+    const mode = NativeCapabilitiesModeSchema(cap.mode);
+    if (!(mode instanceof type.errors) && Array.isArray(cap.tools)) {
+      return {
+        mode,
+        tools: cap.tools.filter((t): t is string => typeof t === "string").map(aliasTool),
+      };
     }
   }
 
