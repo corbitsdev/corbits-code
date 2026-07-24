@@ -8,6 +8,7 @@ import { createIncrementalMarkdown } from "../streaming-markdown.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import {
   describeToolCall,
+  isShellExitEnvelope,
   mergedToolCollapsedPreview,
   shellOutcomeGlyph,
   summarizeToolResult,
@@ -435,13 +436,13 @@ function markdownLines(content: string, width: number): StyledLine[] {
   );
 }
 
-function shellLines(command: string, role: string, width: number): StyledLine[] {
+function shellLines(command: string, role: string, width: number, prefix = SHELL_PREFIX): StyledLine[] {
   const lines: StyledLine[] = [];
   command.split("\n").forEach((logical, li) => {
-    const rowWidth = li === 0 ? Math.max(1, width - SHELL_PREFIX.length) : width;
+    const rowWidth = li === 0 ? Math.max(1, width - prefix.length) : width;
     wrapLines(logical, rowWidth).forEach((row, ri) => {
       if (li === 0 && ri === 0) {
-        lines.push([{ text: SHELL_PREFIX, color: color("muted"), dim: true }, { text: row, color: role }]);
+        lines.push([{ text: prefix, color: color("muted"), dim: true }, { text: row, color: role }]);
       } else {
         lines.push([{ text: row, color: role }]);
       }
@@ -456,8 +457,8 @@ function shellLines(command: string, role: string, width: number): StyledLine[] 
 // mark the rest; Ctrl+O reveals the full command.
 const COLLAPSED_SHELL_ROW_LIMIT = 4;
 
-function clampedShellLines(command: string, role: string, width: number): StyledLine[] {
-  const all = shellLines(command, role, width);
+function clampedShellLines(command: string, role: string, width: number, prefix = SHELL_PREFIX): StyledLine[] {
+  const all = shellLines(command, role, width, prefix);
   if (all.length <= COLLAPSED_SHELL_ROW_LIMIT) return all;
   const shown = all.slice(0, COLLAPSED_SHELL_ROW_LIMIT);
   const last = shown[shown.length - 1]!;
@@ -545,23 +546,32 @@ function mergedToolLines(
   width: number,
 ): StyledLine[] {
   const { role, isShell, summary, glyph } = describeToolCall(call.name, call.arguments);
-  const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const roleColor = color(role);
 
   const durationSuffix = formatToolDurationMs((result.finishedAt ?? call.startedAt ?? 0) - (call.startedAt ?? 0));
 
-  if (isShell && !result.isError) {
+  if (isShell) {
     // Command and outcome are recomputed from source rather than re-split out of
-    // the merged string — a " → " inside the command or output would corrupt it.
+    // a merged string — a " → " inside the command or output would corrupt it.
     const outcome = summarizeToolResult(call.name, result.content).preview;
-    const suffix = outcome === "(no output)" ? undefined : outcome;
-    let rows = clampedShellLines(summary, roleColor, width);
-    if (suffix !== undefined && suffix.length > 0) {
-      rows = appendTextToLastLine(rows, ` → ${suffix}`, { color: color("dim"), dim: true });
+
+    if (!result.isError) {
+      const suffix = outcome === "(no output)" ? undefined : outcome;
+      let rows = clampedShellLines(summary, roleColor, width);
+      if (suffix !== undefined && suffix.length > 0) {
+        rows = appendTextToLastLine(rows, ` → ${suffix}`, { color: color("dim"), dim: true });
+      }
+      return appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
     }
-    return appendTextToLastLine(rows, durationSuffix, { color: color("dim"), dim: true });
+
+    if (isShellExitEnvelope(call.name, result.content)) {
+      const rows = clampedShellLines(summary, roleColor, width, `${shellOutcomeGlyph(true)} `);
+      const withOutcome = appendTextToLastLine(rows, ` → ${outcome}`, { color: color("danger"), dim: false });
+      return appendTextToLastLine(withOutcome, durationSuffix, { color: color("dim"), dim: true });
+    }
   }
 
+  const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
@@ -574,16 +584,12 @@ function mergedToolLines(
 
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {
   if (block.isError) {
-    // run_shell prefixes a failed result with "exit code N\n<output>" (see
-    // summarizeToolResult); other tools' errors carry no such envelope.
-    const shellFail = block.name === "run_shell" ? block.content.match(/^exit code (\d+)\n([\s\S]*)$/) : null;
-
     if (!expanded) {
-      if (shellFail !== null) {
-        const output = shellFail[2] ?? "";
-        const firstLine = output.split("\n").find((line) => line.trim().length > 0) ?? "";
-        const summary = firstLine.length > 0 ? `exit ${shellFail[1]}: ${firstLine}` : `exit ${shellFail[1]}`;
-        return plainLines(`${shellOutcomeGlyph(true)} ${summary}`, { color: color("danger") }, width);
+      if (isShellExitEnvelope(block.name, block.content)) {
+        // summarizeToolResult's run_shell case already parses the "exit code N\n<output>"
+        // envelope into a one-line preview; reuse it instead of re-deriving it here.
+        const { preview } = summarizeToolResult(block.name, block.content);
+        return plainLines(`${shellOutcomeGlyph(true)} ${preview}`, { color: color("danger") }, width);
       }
       const firstLine = block.content.split("\n")[0] ?? "";
       return plainLines(`error: ${firstLine}`, { color: color("danger") }, width);

@@ -313,6 +313,31 @@ describe("error tool result output", () => {
   });
 });
 
+describe("merged collapsed shell failure", () => {
+  function shellCallAndFailure(command: string, exitCode: number, output: string): ContentBlock[] {
+    const callId = "shell-err-1";
+    return [
+      toolCallBlock(callId, "run_shell", JSON.stringify({ command }), callId),
+      toolResultBlock(`${callId}-result`, callId, "run_shell", `exit code ${exitCode}\n${output}`, true),
+    ];
+  }
+
+  test("shows a fail glyph and the parsed exit summary, not the raw envelope", () => {
+    const text = lineText(buildLines(shellCallAndFailure("false", 1, "boom"), COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("✗");
+    expect(text).toContain("exit 1: boom");
+    expect(text).not.toContain("exit code 1");
+  });
+
+  test("caps a long error trace to a short summary instead of dumping it", () => {
+    const trace = Array.from({ length: 300 }, (_, i) => `at frame ${i} (file.ts:${i}:1)`).join("\n");
+    const lines = lineText(buildLines(shellCallAndFailure("run-trace", 1, trace), COLUMNS, false, isExpanded));
+    const text = lines.join("\n");
+    expect(text).toContain("frame 0");
+    expect(text).not.toContain("frame 299");
+  });
+});
+
 describe("flat line buffer", () => {
   test("a layoutKey change recomputes renderable blocks even when contentBlocks is unchanged", () => {
     const blocks: ContentBlock[] = [
