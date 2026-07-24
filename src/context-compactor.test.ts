@@ -1,6 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import {
   createPruningCompactor,
+  createImageAgingCompactor,
+  hasAgeableImageOutsideWindow,
   buildContextEnvelope,
   formatPlan,
   classifyTaskBoundary,
@@ -227,6 +229,74 @@ describe("createPruningCompactor — image aging", () => {
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(result.record.decisions["agedImageCount"]).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("createImageAgingCompactor", () => {
+  const imageBlock = { type: "image" as const, source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" } };
+
+  test("ages an image once its turn leaves the recent window, without pruning or summarizing", async () => {
+    const compactor = createImageAgingCompactor({ keepRecentTurns: 2 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "here's a screenshot" }, imageBlock] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "looking at it" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "recent reply" }] }),
+    ];
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+
+    // Turn count and order are untouched -- this compactor only swaps content.
+    expect(result.output.length).toBe(turns.length);
+    expect(JSON.stringify(result.output)).not.toContain("iVBORw0KGgo=");
+    expect(result.output[0]!.content.some((b) => b.type === "image")).toBe(false);
+    expect(result.output[0]!.content.some((b) => b.type === "text" && b.text === "here's a screenshot")).toBe(true);
+    expect(result.record.decisions["agedImageCount"]).toBe(1);
+  });
+
+  test("leaves an image intact while its turn is still within the recent window", async () => {
+    const compactor = createImageAgingCompactor({ keepRecentTurns: 3 });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "old" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "here's a screenshot" }, imageBlock] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "looking at it" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
+    ];
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+
+    expect(JSON.stringify(result.output)).toContain("iVBORw0KGgo=");
+    expect(result.record.decisions["agedImageCount"]).toBe(0);
+  });
+});
+
+describe("hasAgeableImageOutsideWindow", () => {
+  const imageBlock = { type: "image" as const, source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" } };
+
+  test("true when an image-bearing turn has left the recent window", () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "screenshot" }, imageBlock] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "b" }] }),
+    ];
+    expect(hasAgeableImageOutsideWindow(turns, 2)).toBe(true);
+  });
+
+  test("false when the only image is still within the recent window", () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "screenshot" }, imageBlock] }),
+    ];
+    expect(hasAgeableImageOutsideWindow(turns, 2)).toBe(false);
+  });
+
+  test("false when there is no image at all", () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "b" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "c" }] }),
+    ];
+    expect(hasAgeableImageOutsideWindow(turns, 1)).toBe(false);
   });
 });
 

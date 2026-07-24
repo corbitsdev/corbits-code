@@ -120,9 +120,15 @@ import { loadState, saveState, type ConnectedMcpServer, type RunState } from "..
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";
-import { createPruningCompactor } from "../session/compactor.js";
+import { createPruningCompactor, createImageAgingCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+
+// Shared with the "pruning-compactor" registration below and with the
+// director's compaction governor, so "the recent window" means the same
+// thing whether a turn is aged as a pruning anchor or by the standalone
+// image-aging compactor.
+const COMPACTION_KEEP_RECENT_TURNS = 6;
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -738,6 +744,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         () => {
           enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
+        COMPACTION_KEEP_RECENT_TURNS,
       );
       d.setGoalGovernor(goalGovernor);
       directorHolder.instance = d;
@@ -941,9 +948,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: `${ID_PREFIX}/chat` }),
       compactors: {
         "pruning-compactor": createPruningCompactor({
-          keepRecentTurns: 6,
+          keepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
           summaryMaxChars: 2500,
           ...(liveCompactionMode !== "pruning" ? { summarize: summarizeForCompaction } : { stripResultContent: true }),
+        }),
+        "image-aging-compactor": createImageAgingCompactor({
+          keepRecentTurns: COMPACTION_KEEP_RECENT_TURNS,
         }),
       },
     });

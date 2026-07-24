@@ -342,6 +342,7 @@ class ChatDirectorImpl extends DefaultDirector {
     workflowCoordinator?: WorkflowCoordinator,
     onTasksChange?: (tasks: Task[]) => void,
     requestContinuation?: () => void,
+    compactionKeepRecentTurns?: number,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
@@ -352,7 +353,7 @@ class ChatDirectorImpl extends DefaultDirector {
     this.onActivateTools = onActivateTools;
     this.workflowCoordinator = workflowCoordinator;
     this.onTasksChange = onTasksChange;
-    this.compaction = createCompactionGovernor(requestContinuation);
+    this.compaction = createCompactionGovernor(requestContinuation, compactionKeepRecentTurns);
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
@@ -590,7 +591,7 @@ class ChatDirectorImpl extends DefaultDirector {
     }
 
     if (event.type === "inference.done") {
-      this.compaction.noteInferenceDone(event, state?.turns?.length ?? 0);
+      this.compaction.noteInferenceDone(event, state?.turns ?? []);
     }
 
     const base = await super.decide(event, state, capabilities);
@@ -679,6 +680,7 @@ export function createChatDirector(
   workflowCoordinator?: WorkflowCoordinator,
   onTasksChange?: (tasks: Task[]) => void,
   requestContinuation?: () => void,
+  compactionKeepRecentTurns?: number,
 ): ChatDirector {
   return new ChatDirectorImpl(
     systemPrompt,
@@ -690,6 +692,7 @@ export function createChatDirector(
     workflowCoordinator,
     onTasksChange,
     requestContinuation,
+    compactionKeepRecentTurns,
   );
 }
 

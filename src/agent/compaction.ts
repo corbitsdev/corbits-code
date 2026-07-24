@@ -1,13 +1,17 @@
 import type {
+  ConversationTurn,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
 } from "@intx/types/runtime";
 import { compactionThresholdFor } from "../provider/context-window.js";
+import { hasAgeableImageOutsideWindow } from "../session/compactor.js";
 
-const COMPACTOR_NAME = "pruning-compactor";
+const PRUNING_COMPACTOR_NAME = "pruning-compactor";
+const IMAGE_AGING_COMPACTOR_NAME = "image-aging-compactor";
 const MIN_TURNS_TO_COMPACT = 6;
 const MAX_OVERFLOW_RECOVERIES = 2;
+const DEFAULT_KEEP_RECENT_TURNS = 5;
 
 // A compact action runs in its own reactor cycle, after which the reactor
 // idles until the next inbound event. Worker loops (sub-agents, the coding
@@ -18,24 +22,41 @@ const MAX_OVERFLOW_RECOVERIES = 2;
 // would be worse than growing the context.
 export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 
-export function createCompactionGovernor(requestContinuation?: () => void) {
-  let pending = false;
+export function createCompactionGovernor(
+  requestContinuation?: () => void,
+  keepRecentTurns: number = DEFAULT_KEEP_RECENT_TURNS,
+) {
+  let pendingCompactor: string | null = null;
+  let pendingReason = "";
   let idlePending = false;
   let postCompactInfer = false;
   let overflowRecoveries = 0;
 
   function noteInferenceDone(
     event: Extract<ReactorInboundEvent, { type: "inference.done" }>,
-    turnCount: number,
+    turns: readonly ConversationTurn[],
   ): void {
     overflowRecoveries = 0;
     if (requestContinuation === undefined) return;
+    const turnCount = turns.length;
     const contextTokens = event.usage?.input ?? 0;
     if (
       contextTokens > compactionThresholdFor(event.source?.model) &&
       turnCount > MIN_TURNS_TO_COMPACT
     ) {
-      pending = true;
+      pendingCompactor = PRUNING_COMPACTOR_NAME;
+      pendingReason = "context-threshold";
+      return;
+    }
+    // The pruning compactor also ages images, but only among the anchors it
+    // pulls forward once the size threshold above fires. A pasted image in a
+    // turn that never becomes an anchor -- because compaction never fires --
+    // would otherwise be resent in full for the rest of the session. Arm a
+    // dedicated, non-destructive compaction pass for that case so aging does
+    // not depend on the conversation ever crossing the size threshold.
+    if (pendingCompactor === null && hasAgeableImageOutsideWindow(turns, keepRecentTurns)) {
+      pendingCompactor = IMAGE_AGING_COMPACTOR_NAME;
+      pendingReason = "image-aging";
     }
   }
 
@@ -47,14 +68,16 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
     actions: ReactorAction[],
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
-    if (!pending || event.type !== "tool.done") return null;
+    if (pendingCompactor === null || event.type !== "tool.done") return null;
     if (!actions.some((a) => a.type === "infer")) return null;
-    pending = false;
+    const compactor = pendingCompactor;
+    const reason = pendingReason;
+    pendingCompactor = null;
     postCompactInfer = true;
     requestContinuation?.();
     return [
       ...actions.filter((a) => a.type !== "infer"),
-      capabilities.compact(COMPACTOR_NAME, "context-threshold"),
+      capabilities.compact(compactor, reason),
     ];
   }
 
@@ -63,7 +86,7 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
   // the turn ends without follow-up work, ask the host for a continuation and
   // compact when it (or the operator's next message) arrives.
   function noteIdleTurn(event: ReactorInboundEvent, actions: ReactorAction[]): void {
-    if (!pending || idlePending || requestContinuation === undefined) return;
+    if (pendingCompactor === null || idlePending || requestContinuation === undefined) return;
     if (event.type !== "inference.done") return;
     const terminal =
       actions.some((a) => a.type === "reply" || a.type === "wait") &&
@@ -79,7 +102,10 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
   ): ReactorAction[] | null {
     if (!idlePending || event.type !== "message.received") return null;
     idlePending = false;
-    pending = false;
+    const compactor = pendingCompactor;
+    const reason = pendingReason;
+    pendingCompactor = null;
+    if (compactor === null) return null;
     const content =
       typeof event.message.content === "string" ? event.message.content : "";
     // An operator message that raced the continuation is already in history;
@@ -88,7 +114,7 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
       postCompactInfer = true;
       requestContinuation?.();
     }
-    return [capabilities.compact(COMPACTOR_NAME, "context-threshold")];
+    return [capabilities.compact(compactor, reason)];
   }
 
   // A context-overflow inference error would otherwise terminate the loop
@@ -104,10 +130,10 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
     }
     if (overflowRecoveries >= MAX_OVERFLOW_RECOVERIES) return null;
     overflowRecoveries++;
-    pending = false;
+    pendingCompactor = null;
     postCompactInfer = true;
     requestContinuation();
-    return [capabilities.compact(COMPACTOR_NAME, "context-overflow")];
+    return [capabilities.compact(PRUNING_COMPACTOR_NAME, "context-overflow")];
   }
 
   function resumeAfterCompact(event: ReactorInboundEvent): boolean {

@@ -381,6 +381,56 @@ function coalesceAdjacentTextTurns(turns: ConversationTurn[]): ConversationTurn[
   return out;
 }
 
+// True when some turn old enough to have left the recent window still carries
+// a raw image block that `ageImageBlocks` has not yet replaced. Used to decide
+// whether image aging is needed independent of whether the size-based pruning
+// threshold has been crossed -- a pasted image should not have to wait for a
+// full compaction pass just to stop being resent every inference call.
+export function hasAgeableImageOutsideWindow(
+  turns: readonly ConversationTurn[],
+  keepRecentTurns: number,
+): boolean {
+  const keepFrom = Math.max(0, turns.length - keepRecentTurns);
+  return turns
+    .slice(0, keepFrom)
+    .some((t) => t.content.some((b) => b.type === "image"));
+}
+
+// A minimal compactor whose only job is aging out images that have left the
+// recent window. Unlike the pruning compactor it never drops, anchors, or
+// summarizes turns -- turn count and order are preserved exactly, so it needs
+// no coalescing pass. This lets image aging run on its own, cheap schedule
+// instead of piggybacking on the size-triggered pruning compactor.
+export function createImageAgingCompactor(config: { keepRecentTurns: number }): Compactor {
+  return {
+    name: "image-aging-compactor",
+    version: "1.0.0",
+    async apply(
+      turns: ConversationTurn[],
+      _ctx: StrategyContext,
+    ): Promise<StrategyResult<ConversationTurn[]>> {
+      const keepFrom = Math.max(0, turns.length - config.keepRecentTurns);
+      let agedCount = 0;
+      const output = turns.map((turn, i) => {
+        if (i >= keepFrom || !turn.content.some((b) => b.type === "image")) return turn;
+        agedCount++;
+        return ageImageBlocks(turn);
+      });
+
+      return {
+        output,
+        record: {
+          strategy: this.name,
+          version: this.version,
+          parameters: { keepRecentTurns: config.keepRecentTurns },
+          reason: `aged ${agedCount} turn(s) with images outside the recent window`,
+          decisions: { agedImageCount: agedCount },
+        },
+      };
+    },
+  };
+}
+
 export function createPruningCompactor(
   config: Partial<CompactorConfig> = {},
 ): Compactor {
