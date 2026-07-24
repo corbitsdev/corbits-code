@@ -1,6 +1,7 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { commandHasRecursiveRm, expandShellSubjects } from "../shell/run-shell-authz.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { commandTargetsRestricted } from "./classify.js";
 import { tokenize } from "./command.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
@@ -126,6 +127,14 @@ const OPAQUE_WRAPPER_ASK_RULE: AutoShellRule = {
   patterns: [],
 };
 
+const OUTSIDE_WORKSPACE_ASK_RULE: AutoShellRule = {
+  name: "outside-workspace",
+  effect: "ask",
+  reason:
+    "This command references a path outside the workspace. It needs explicit operator approval and never runs unattended in auto mode.",
+  patterns: [],
+};
+
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
 
 function safeWorktreeCommand(command: string): boolean | undefined {
@@ -153,7 +162,7 @@ function preferRule(a: AutoShellRule | undefined, b: AutoShellRule | undefined):
 
 export function autoShellRuleForCall(
   call: ToolCall,
-  _isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
+  isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
 ): AutoShellRule | undefined {
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
@@ -176,6 +185,14 @@ export function autoShellRuleForCall(
 
   for (const subject of subjects) {
     if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
+  }
+
+  // Containment: a command whose path arguments resolve outside the workspace
+  // (including through a symlink) must ask rather than auto-run, the same way
+  // path-arg tool calls already do. Checked per expanded subject so a wrapped
+  // payload (bash -c, xargs) is judged on its real target, not the wrapper.
+  for (const subject of subjects) {
+    if (commandTargetsRestricted(subject, isRestricted)) return OUTSIDE_WORKSPACE_ASK_RULE;
   }
 
   for (const subject of subjects) {
