@@ -106,7 +106,7 @@ describe("resolveAtMentions", () => {
     }
   });
 
-  test("follows symlinks outside the start directory", async () => {
+  test("blocks symlinks that resolve outside the workspace", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
@@ -114,7 +114,40 @@ describe("resolveAtMentions", () => {
       await symlink(outside, join(dir, "escape"));
 
       const resolved = await resolveAtMentions("read @escape/outside.txt", dir);
-      expect(resolved).toContain("outside content");
+      expect(resolved).toContain("@escape/outside.txt (blocked: outside workspace)");
+      expect(resolved).not.toContain("outside content");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks absolute paths outside the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      const outsideFile = join(outside, "outside.txt");
+      await writeFile(outsideFile, "outside content\n");
+
+      const resolved = await resolveAtMentions(`read @${outsideFile}`, dir);
+      expect(resolved).toContain(`@${outsideFile} (blocked: outside workspace)`);
+      expect(resolved).not.toContain("outside content");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks parent-traversal paths that escape the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      await writeFile(join(outside, "outside.txt"), "outside content\n");
+      const traversal = `../../${outside.split("/").pop() ?? ""}/outside.txt`;
+
+      const resolved = await resolveAtMentions(`read @${traversal}`, join(dir, "src"));
+      expect(resolved).toContain(`@${traversal} (blocked: outside workspace)`);
+      expect(resolved).not.toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
