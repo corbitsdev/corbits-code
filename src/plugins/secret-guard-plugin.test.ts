@@ -29,6 +29,20 @@ describe("isSensitivePath", () => {
     "secrets/server.pem",
     "id_ed25519",
     ".aws/credentials",
+    ".aws/config",
+    ".config/gcloud/application_default_credentials.json",
+    ".kube/config",
+    ".docker/config.json",
+    ".config/gh/hosts.yml",
+    "terraform.tfstate",
+    "terraform.tfstate.backup",
+    "server.key",
+    "cert.p8",
+    "app.jks",
+    "release.keystore",
+    "server.ppk",
+    "service-account.json",
+    "my-project_service_account-key.json",
     ".corbits/settings.json",
     "/Users/me/.corbits/settings.json",
   ];
@@ -36,7 +50,19 @@ describe("isSensitivePath", () => {
     test(`flags ${p}`, () => expect(isSensitivePath(p)).toBe(true));
   }
 
-  const ok = ["src/index.ts", "README.md", "env.ts", "environment.json", ".env.example.md", "docs/pem.md", ".corbits/hooks/post-turn.ts"];
+  const ok = [
+    "src/index.ts",
+    "README.md",
+    "env.ts",
+    "environment.json",
+    ".env.example.md",
+    "docs/pem.md",
+    ".corbits/hooks/post-turn.ts",
+    "docker-compose.yml",
+    "keystore.md",
+    "account.json",
+    "src/keyboard.ts",
+  ];
   for (const p of ok) {
     test(`allows ${p}`, () => expect(isSensitivePath(p)).toBe(false));
   }
@@ -84,6 +110,19 @@ describe("commandReferencesSensitivePath", () => {
     // Runtime env-file loaders — detected so the gate can ask, not hard-deny.
     "bun --env-file=../../.env.staging run bin/publish.ts",
     "bun --env-file=.env run -e 'console.log(1)'",
+    // Cloud, keychain, and infra credential stores.
+    "cat ~/.aws/config",
+    "cat ~/.config/gcloud/application_default_credentials.json",
+    "cat ~/.kube/config",
+    "cat ~/.docker/config.json",
+    "cat ~/.config/gh/hosts.yml",
+    "cat terraform.tfstate",
+    "cat server.key",
+    "cat cert.p8",
+    "cat app.jks",
+    "cat release.keystore",
+    "cat server.ppk",
+    "cat service-account.json",
   ];
   for (const c of blocked) {
     test(`flags: ${c}`, () => expect(commandReferencesSensitivePath(c)).toBeDefined());

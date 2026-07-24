@@ -87,6 +87,35 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
   });
 });
 
+describe("credential-print shell commands force ask in auto mode", () => {
+  test("macOS keychain find-*-password subcommands", () => {
+    expect(autoShellRuleForCall(shellCall("security find-generic-password -w -s myservice"))?.name).toBe(
+      "credential-print",
+    );
+    expect(autoShellRuleForCall(shellCall("security find-internet-password -w -s example.com"))?.name).toBe(
+      "credential-print",
+    );
+  });
+
+  test("gpg secret-key export", () => {
+    const rule = autoShellRuleForCall(shellCall("gpg --export-secret-keys -a me@example.com"));
+    expect(rule?.name).toBe("credential-print");
+    expect(rule?.effect).toBe("ask");
+  });
+
+  test("cloud CLI token printers", () => {
+    expect(autoShellRuleForCall(shellCall("aws configure get aws_secret_access_key"))?.name).toBe(
+      "credential-print",
+    );
+    expect(autoShellRuleForCall(shellCall("gcloud auth print-access-token"))?.name).toBe("credential-print");
+  });
+
+  test("does not flag ordinary security/gcloud/aws usage", () => {
+    expect(autoShellRuleForCall(shellCall("gcloud auth list"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("aws configure list"))).toBeUndefined();
+  });
+});
+
 describe("sensitive-path shell commands require approval, not a hard deny", () => {
   test("secret-guard no longer hard-denies shell references to secret files", async () => {
     const middleware = secretGuardPlugin().middleware;
