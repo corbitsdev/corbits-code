@@ -5,10 +5,7 @@ import {
   buildLinesIncremental,
   buildResourceBanner,
   capViewportToolIds,
-  DEFAULT_MAX_RENDERED_LOG_LINES,
   DEFAULT_MAX_VIEWPORT_EXPAND_TOOL_CALLS,
-  maxLineOffset,
-  lineWindow,
   resolveViewportExpandIds,
   RUNNING_ELAPSED_RESERVE,
   viewportToolIds,
@@ -336,12 +333,11 @@ describe("flat line buffer", () => {
     );
   });
 
-  test("incremental line build trims to the default rendered line budget", () => {
+  test("assembles the full transcript with no rendered-line cap", () => {
     const blocks: ContentBlock[] = Array.from({ length: 55 }, (_, i) => ({
       ...bigShellBlock(40),
       id: `shell-${i}`,
     }));
-    const maxLines = 100;
 
     const state = buildLinesIncremental(
       undefined,
@@ -352,12 +348,13 @@ describe("flat line buffer", () => {
       new Map(),
       undefined,
       "layout",
-      maxLines,
     );
 
-    expect(state.lines.length).toBeLessThanOrEqual(maxLines);
-    expect(state.hiddenRenderedLineCount).toBeGreaterThan(0);
-    expect(lineText(state.lines).join("\n")).toContain("earlier rendered lines hidden");
+    // Every block contributes its rows; nothing is elided to a hidden-lines
+    // marker, and the buffer runs well past the old 2000-line cap. Committed
+    // history lives in native scrollback instead.
+    expect(state.lines.length).toBeGreaterThan(2000);
+    expect(lineText(state.lines).join("\n")).not.toContain("hidden to keep the UI responsive");
   });
 
   test("a multi-line shell command decomposes into one line per visual row", () => {
@@ -368,29 +365,6 @@ describe("flat line buffer", () => {
     for (const line of lines) {
       expect(Array.isArray(line)).toBe(true);
     }
-  });
-
-  test("the scroll window never exceeds visibleRows for any offset", () => {
-    const lines = buildLines([bigShellBlock(50)], COLUMNS, false, isExpanded);
-    const visibleRows = 20;
-    const maxOffset = maxLineOffset(lines, visibleRows);
-    expect(maxOffset).toBe(Math.max(0, lines.length - visibleRows));
-
-    for (let offset = -5; offset <= maxOffset + 5; offset++) {
-      const { start, end } = lineWindow(lines, offset, visibleRows);
-      expect(end - start).toBeLessThanOrEqual(visibleRows);
-      expect(start).toBeGreaterThanOrEqual(0);
-      expect(end).toBeLessThanOrEqual(lines.length);
-    }
-  });
-
-  test("pinning to the bottom shows exactly the last visibleRows lines", () => {
-    const lines = buildLines([bigShellBlock(50)], COLUMNS, false, () => true);
-    const visibleRows = 20;
-    const maxOffset = maxLineOffset(lines, visibleRows);
-    const { start, end } = lineWindow(lines, maxOffset, visibleRows);
-    expect(end).toBe(lines.length);
-    expect(end - start).toBe(visibleRows);
   });
 
   test("paired tool call and result collapse to one merged line", () => {
@@ -729,12 +703,6 @@ describe("flat line buffer", () => {
 });
 
 describe("incremental layout fast paths", () => {
-  // MAX is intentionally tiny so trim and cold-path-skip both engage without
-  // needing hundreds of blocks. Each block contributes multiple rendered lines.
-  const MAX = 30;
-
-  // 80 multi-line text blocks — enough to trip the cold-path-skip (>60) and to
-  // overflow MAX so trim runs on the same frame.
   function manyTextBlocks(count: number): ContentBlock[] {
     return Array.from({ length: count }, (_, i) => ({
       type: "text" as const,
@@ -743,71 +711,48 @@ describe("incremental layout fast paths", () => {
     }));
   }
 
-  test("blockRenderLineCounts stays NaN-free after the cold path skips blocks", () => {
+  test("blockRenderLineCounts stays NaN-free across an appended rebuild", () => {
     const first = manyTextBlocks(80);
-    const state = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded);
+    const appended = [...first, { type: "text" as const, id: "t80", content: "block 80" }];
+    const state2 = buildLinesIncremental(state1, appended, COLUMNS, false, isExpanded);
 
-    // Cold path triggers when blocks.length > 60 and startBlockIndex lands past 0,
-    // leaving blockLineStarts sparse below startBlockIndex. The counts array
-    // must remain dense numeric (no NaN) for findTailStartFromLineCounts.
-    for (const count of state.blockRenderLineCounts) {
+    for (const count of state2.blockRenderLineCounts) {
       expect(Number.isFinite(count)).toBe(true);
       expect(count).toBeGreaterThanOrEqual(0);
     }
-    expect(state.firstRenderedBlockIndex).toBeGreaterThan(0);
   });
 
-  test("appendedOnly fast path preserves the rendered tail and stays bounded", () => {
+  test("appended fast path preserves the rendered tail and assembles the whole transcript", () => {
     const first = manyTextBlocks(70);
-    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded);
 
     const appended = [...first, { type: "text" as const, id: "t70", content: "block 70" }];
-    const state2 = buildLinesIncremental(state1, appended, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+    const state2 = buildLinesIncremental(state1, appended, COLUMNS, false, isExpanded);
 
-    expect(state2.lines.length).toBeLessThanOrEqual(MAX);
-    // The prior tail is reused verbatim (no re-trim of the existing lines).
+    // No cap: the full history is present, tail included.
+    expect(lineText(state2.lines).join("\n")).toContain("block 0");
     expect(lineText(state2.lines).join("\n")).toContain("block 69");
     expect(lineText(state2.lines).join("\n")).toContain("block 70");
-    // Counts array matches the new block count and stays NaN-free.
     expect(state2.blockRenderLineCounts.length).toBe(appended.length);
     for (const count of state2.blockRenderLineCounts) {
       expect(Number.isFinite(count)).toBe(true);
     }
   });
 
-  test("suffixMatches fast path keeps the tail after the head is dropped", () => {
-    // Seed past the retention cadence by building directly: 80 blocks, then
-    // simulate compaction dropping the oldest 10. The 70-block suffix must
-    // match prev[i + dropped], triggering the suffixMatches branch.
+  test("a front-trim keeps the retained tail after the oldest blocks are dropped", () => {
     const first = manyTextBlocks(80);
-    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded);
 
-    const compacted = first.slice(10);
-    const state2 = buildLinesIncremental(state1, compacted, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
+    const trimmed = first.slice(10);
+    const state2 = buildLinesIncremental(state1, trimmed, COLUMNS, false, isExpanded);
 
-    // The retained tail (last block) survives across the compaction seam.
     expect(lineText(state2.lines).join("\n")).toContain("block 79");
-    expect(state2.lines.length).toBeLessThanOrEqual(MAX);
+    expect(lineText(state2.lines).join("\n")).not.toContain("block 9\n");
+    expect(state2.blockRenderLineCounts.length).toBe(trimmed.length);
     for (const count of state2.blockRenderLineCounts) {
       expect(Number.isFinite(count)).toBe(true);
     }
-  });
-
-  test("at most one hidden-lines marker survives across appendedOnly rebuilds", () => {
-    const first = manyTextBlocks(80);
-    const state1 = buildLinesIncremental(undefined, first, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
-
-    // Append a block large enough to push past the budget on the next frame.
-    const appended = [...first, {
-      type: "text" as const,
-      id: "t80",
-      content: Array.from({ length: 80 }, () => "x".repeat(80)).join("\n"),
-    }];
-    const state2 = buildLinesIncremental(state1, appended, COLUMNS, false, isExpanded, undefined, undefined, undefined, MAX);
-
-    const text = lineText(state2.lines).join("\n");
-    const markerHits = text.match(/earlier rendered lines hidden/g) ?? [];
-    expect(markerHits.length).toBeLessThanOrEqual(1);
   });
 });
 
@@ -1233,8 +1178,9 @@ describe("viewport-local expand", () => {
       () => true,
     );
 
-    // Full expand hits the rendered-line budget; two tools stay well under it.
+    // Expanding two tools costs far fewer lines than expanding all twenty; the
+    // partial cost scales with the expanded set, not the total tool count.
     expect(two.lines.length).toBeLessThan(expandAll.lines.length);
-    expect(two.lines.length).toBeLessThan(Math.floor(DEFAULT_MAX_RENDERED_LOG_LINES / 2));
+    expect(two.lines.length).toBeLessThan(Math.floor(expandAll.lines.length / 4));
   });
 });

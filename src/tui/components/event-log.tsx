@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Static, Text } from "ink";
 import type { ContentBlock } from "../use-stream.js";
 import { memo, useMemo, type ReactNode } from "react";
 import { formatElapsed } from "./in-flight-indicator.js";
@@ -20,8 +20,10 @@ import { editDiffFromArgs, renderDiff } from "../diff.js";
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
 
 export type EventLogProps = {
-  lines: StyledLine[];
-  scrollOffset: number;
+  // Frozen history, emitted once into native scrollback via <Static>.
+  committedLines: StyledLine[];
+  // The dynamic tail re-rendered each frame.
+  liveLines: StyledLine[];
   visibleRows: number;
   width: number;
 };
@@ -861,17 +863,13 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
   return { lines, blockLineStarts };
 }
 
-export const DEFAULT_MAX_RENDERED_LOG_LINES = 2000;
-
 export type IncrementalLinesState = {
   blocks: RenderableBlock[];
   lines: StyledLine[];
   blockLineStarts: number[];
-  /** Visual line contribution per block index from the last raw assemble (pre-trim). */
+  /** Visual line contribution per block index from the last raw assemble. */
   blockRenderLineCounts: number[];
   layoutKey: string;
-  firstRenderedBlockIndex: number;
-  hiddenRenderedLineCount: number;
   // The exact ContentBlock[] reference `blocks` was filtered from. The stream
   // state getter reuses its snapshot array reference across content-only
   // mutations (streamed tokens mutate a block in place rather than replacing
@@ -895,113 +893,6 @@ function blockLineCountsFromStarts(blockLineStarts: number[], lineCount: number)
   return counts;
 }
 
-function findTailStartFromLineCounts(counts: number[], maxLines: number, markerReserve: number): number {
-  const budget = maxLines - markerReserve;
-  let accumulated = 0;
-  for (let i = counts.length - 1; i >= 0; i--) {
-    const count = counts[i] ?? 0;
-    if (accumulated + count > budget && i < counts.length - 1) return i + 1;
-    accumulated += count;
-  }
-  return 0;
-}
-
-function hiddenLinesMarker(hidden: number): StyledLine {
-  return [
-    { text: `↑ ${hidden} earlier rendered lines hidden to keep the UI responsive`, dim: true },
-  ];
-}
-
-function trimBuiltLinesToMax(
-  lines: StyledLine[],
-  blockLineStarts: number[],
-  blocks: RenderableBlock[],
-  maxLines: number,
-): Pick<IncrementalLinesState, "lines" | "blockLineStarts" | "firstRenderedBlockIndex" | "hiddenRenderedLineCount"> {
-  if (lines.length <= maxLines) {
-    return {
-      lines,
-      blockLineStarts,
-      firstRenderedBlockIndex: 0,
-      hiddenRenderedLineCount: 0,
-    };
-  }
-
-  const keptLineCount = maxLines - 2;
-  const cutAt = lines.length - keptLineCount;
-  let firstRenderedBlockIndex = 0;
-  for (let i = 0; i < blocks.length; i++) {
-    if ((blockLineStarts[i] ?? 0) >= cutAt) {
-      firstRenderedBlockIndex = i;
-      break;
-    }
-  }
-
-  const trimmed = [
-    hiddenLinesMarker(lines.length - keptLineCount),
-    [] satisfies StyledLine,
-    ...lines.slice(cutAt),
-  ];
-  const offset = cutAt - 2;
-  const nextStarts = blockLineStarts.map((start, i) =>
-    i < firstRenderedBlockIndex ? 0 : Math.max(0, start - offset),
-  );
-
-  return {
-    lines: trimmed,
-    blockLineStarts: nextStarts,
-    firstRenderedBlockIndex,
-    hiddenRenderedLineCount: lines.length - keptLineCount,
-  };
-}
-
-function estimateBlockLineCount(
-  block: RenderableBlock,
-  columns: number,
-  expanded: boolean,
-  cache?: Map<string, StyledLine[]>,
-  allBlocks?: RenderableBlock[],
-): number {
-  const cached = cache?.get(blockCacheKey(block, columns, expanded, allBlocks));
-  if (cached !== undefined) return cached.length;
-  if (block.type === "tool_call" || block.type === "tool_result") return 1;
-  if (block.type === "view") {
-    // Use real layout so tall grids / stacks from present get accurate virtual scroll estimates.
-    return viewToLines(block.node, columns).length;
-  }
-  let chars = 40;
-  if (block.type === "user" || block.type === "text" || block.type === "thinking") {
-    chars = block.content.length;
-  } else if (block.type === "error") {
-    chars = block.message.length;
-  }
-  return Math.max(1, Math.ceil(chars / Math.max(8, columns)));
-}
-
-function findColdPathStartIndex(
-  blocks: RenderableBlock[],
-  columns: number,
-  isExpanded: (block: RenderableBlock) => boolean,
-  cache: Map<string, StyledLine[]> | undefined,
-  maxLines: number,
-  knownCounts?: number[],
-): number {
-  if (knownCounts !== undefined && knownCounts.length === blocks.length) {
-    return findTailStartFromLineCounts(knownCounts, maxLines, 4);
-  }
-  const budget = maxLines - 4;
-  let accumulated = 0;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i]!;
-    const expanded = isExpanded(block);
-    const turnGap = block.type === "user" || block.type === "text" ? 1 : 0;
-    const count = estimateBlockLineCount(block, columns, expanded, cache, blocks) + turnGap;
-    if (accumulated + count > budget && i < blocks.length - 1) return i + 1;
-    accumulated += count;
-  }
-  return 0;
-}
-
 export function buildLinesIncremental(
   prev: IncrementalLinesState | undefined,
   contentBlocks: ContentBlock[],
@@ -1011,7 +902,6 @@ export function buildLinesIncremental(
   cache?: Map<string, StyledLine[]>,
   planCtx?: PlanContext,
   layoutKey?: string,
-  maxRenderedLines: number = DEFAULT_MAX_RENDERED_LOG_LINES,
 ): IncrementalLinesState {
   // Streamed tokens mutate the trailing block's content in place rather than
   // replacing contentBlocks, so the array reference is stable across a whole
@@ -1032,8 +922,6 @@ export function buildLinesIncremental(
 
   let startBlockIndex = 0;
   let prefixLines: StyledLine[] = [];
-
-  const prevTailStart = prev?.firstRenderedBlockIndex ?? 0;
 
   if (prev !== undefined && prev.layoutKey === key && blocks.length > 0) {
     const prevLength = prev.blocks.length;
@@ -1062,41 +950,10 @@ export function buildLinesIncremental(
         startBlockIndex === prevLength
           ? prev.lines
           : prev.lines.slice(0, prev.blockLineStarts[startBlockIndex] ?? 0);
-    } else if (blocks.length === prevLength && commonPrefix < prevTailStart) {
-      startBlockIndex = prevTailStart;
-      prefixLines = [];
-    } else if (blocks.length < prevLength) {
-      const dropped = prevLength - blocks.length;
-      const suffixMatches = blocks.every((b, i) => b === prev.blocks[i + dropped]);
-      if (suffixMatches) {
-        startBlockIndex = Math.max(0, prevTailStart - dropped);
-        prefixLines = [];
-      }
     }
-  }
-
-  if (startBlockIndex === 0 && blocks.length > 60) {
-    const knownCounts =
-      prev !== undefined
-      && prev.layoutKey === key
-      && prev.blockRenderLineCounts.length === blocks.length
-        ? prev.blockRenderLineCounts
-        : undefined;
-    const coldStart = findColdPathStartIndex(
-      blocks,
-      columns,
-      isExpanded,
-      cache,
-      maxRenderedLines,
-      knownCounts,
-    );
-    if (coldStart > 0) {
-      startBlockIndex = coldStart;
-      prefixLines = [
-        [{ text: `↑ ${coldStart} earlier blocks skipped during initial layout to keep the UI responsive`, dim: true }],
-        [],
-      ];
-    }
+    // A front-trim (blocks.length < prevLength) or a diverged prefix falls
+    // through to a full reassemble from block 0; committed scrollback already
+    // owns the dropped history, so nothing is lost by rebuilding the live tail.
   }
 
   const { lines: rawLines, blockLineStarts: rawStarts } = assembleRenderableBlocks({
@@ -1110,9 +967,9 @@ export function buildLinesIncremental(
     prefixLines,
   });
 
-  let blockLineStarts = rawStarts;
-  let lines = rawLines;
-  let blockRenderLineCounts = blockLineCountsFromStarts(rawStarts, rawLines.length);
+  const blockLineStarts = rawStarts;
+  const lines = rawLines;
+  const blockRenderLineCounts = blockLineCountsFromStarts(rawStarts, rawLines.length);
 
   if (prev !== undefined && startBlockIndex > 0) {
     for (let i = 0; i < startBlockIndex; i++) {
@@ -1124,18 +981,12 @@ export function buildLinesIncremental(
     }
   }
 
-  const trimmed = trimBuiltLinesToMax(lines, blockLineStarts, blocks, maxRenderedLines);
-  lines = trimmed.lines;
-  blockLineStarts = trimmed.blockLineStarts;
-
   return {
     blocks,
     lines,
     blockLineStarts,
     blockRenderLineCounts,
     layoutKey: key,
-    firstRenderedBlockIndex: trimmed.firstRenderedBlockIndex,
-    hiddenRenderedLineCount: trimmed.hiddenRenderedLineCount,
     sourceBlocks: contentBlocks,
   };
 }
@@ -1159,15 +1010,6 @@ export function buildLines(
   ).lines;
 }
 
-export function maxLineOffset(lines: StyledLine[], visibleRows: number): number {
-  return Math.max(0, lines.length - visibleRows);
-}
-
-export function lineWindow(lines: StyledLine[], scrollOffset: number, visibleRows: number): { start: number; end: number } {
-  const start = Math.max(0, Math.min(scrollOffset, maxLineOffset(lines, visibleRows)));
-  const end = Math.min(lines.length, start + Math.max(1, visibleRows));
-  return { start, end };
-}
 
 function isFileEditTool(name: string): boolean {
   return name === "edit_file" || name === "write_file";
@@ -1409,31 +1251,49 @@ export function resolveViewportExpandIds(args: ResolveViewportExpandIdsArgs): Se
   );
 }
 
-// Memoized so typing in the prompt — which re-renders the App shell on every
-// keystroke — does not re-walk the visible window unless the lines, scroll
-// position, or viewport actually change.
+// A committed line carries its own identity so Ink's <Static> writes it to
+// native scrollback exactly once. Frozen lines never animate, so a committed
+// running-tool anchor renders as a plain row.
+type CommittedLine = { key: string; line: StyledLine };
+
+const CommittedRow = memo(function CommittedRow({ line, width }: RenderedLineProps): ReactNode {
+  return <RenderedLine line={line} width={width} />;
+}, (prev, next) => prev.line === next.line && prev.width === next.width);
+
+// The transcript is rendered as two regions. Committed history is handed to Ink's
+// <Static>, which emits each line once into the terminal's native scrollback and
+// never repaints it — so native scroll, copy/paste, and find operate on it. The
+// live region (the streaming tail plus recent turns) renders in Ink's dynamic
+// tree, which diffs against the previous frame and rewrites only changed lines.
 export const EventLog = memo(function EventLog({
-  lines,
-  scrollOffset,
+  committedLines,
+  liveLines,
   visibleRows,
   width,
 }: EventLogProps): ReactNode {
   const contentWidth = Math.max(1, width);
-  const { start, end } = lineWindow(lines, scrollOffset, visibleRows);
-  const visible = lines.slice(start, end);
-  const missingRows = Math.max(0, visibleRows - visible.length);
+  const committed = useMemo<CommittedLine[]>(
+    () => committedLines.map((line, i) => ({ key: `c-${i}`, line })),
+    [committedLines],
+  );
+  const missingRows = Math.max(0, visibleRows - liveLines.length);
 
-  // Pad above the window so short transcripts sit on the last row of the viewport,
-  // flush with the prompt chrome instead of leaving a dead band at the bottom.
+  // Pad above the live region so a short tail sits on the last rows of the
+  // viewport, flush with the prompt chrome instead of leaving a dead band.
   return (
-    <Box flexDirection="column">
-      {Array.from({ length: missingRows }, (_, i) => <RenderedLine key={`blank-top-${i}`} line={[]} width={contentWidth} />)}
-      {visible.map((line, i) => {
-        const startedAt = runningStartOfLine(line);
-        return startedAt !== undefined
-          ? <RunningToolRow key={`line-${start + i}`} line={line} width={contentWidth} startedAt={startedAt} />
-          : <RenderedLine key={`line-${start + i}`} line={line} width={contentWidth} />;
-      })}
-    </Box>
+    <>
+      <Static items={committed}>
+        {(item) => <CommittedRow key={item.key} line={item.line} width={contentWidth} />}
+      </Static>
+      <Box flexDirection="column">
+        {Array.from({ length: missingRows }, (_, i) => <RenderedLine key={`blank-top-${i}`} line={[]} width={contentWidth} />)}
+        {liveLines.map((line, i) => {
+          const startedAt = runningStartOfLine(line);
+          return startedAt !== undefined
+            ? <RunningToolRow key={`line-${i}`} line={line} width={contentWidth} startedAt={startedAt} />
+            : <RenderedLine key={`line-${i}`} line={line} width={contentWidth} />;
+        })}
+      </Box>
+    </>
   );
 });

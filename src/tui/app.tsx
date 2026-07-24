@@ -16,13 +16,16 @@ import {
   buildLinesIncremental,
   buildResourceBanner,
   clearMarkdownLineCache,
-  DEFAULT_MAX_RENDERED_LOG_LINES,
-  maxLineOffset,
   TEXT_GUTTER,
   resolveViewportExpandIds,
   type IncrementalLinesState,
   type RenderableBlock,
 } from "./components/event-log.js";
+import {
+  advanceTranscriptCommit,
+  emptyTranscriptCommitState,
+  type TranscriptCommitState,
+} from "./view/transcript-commit.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { useGitBranch } from "./git-branch.js";
@@ -93,9 +96,8 @@ import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
-import { useScroll } from "./hooks/use-scroll.js";
+import { useScroll, type ScrollController } from "./hooks/use-scroll.js";
 import { useKeymap } from "./hooks/use-keymap.js";
-import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { isExitCommand } from "./exit-command.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { removeAgentProfile, upsertAgentProfile } from "./agent-profiles.js";
@@ -334,6 +336,17 @@ function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean 
   return sortedSetKey(a) === sortedSetKey(b);
 }
 
+// The parent transcript scrolls through native terminal scrollback, not an
+// app-managed offset, so scroll keys have nothing to drive there. This inert
+// controller stands in when no child-session inspector is focused.
+const NOOP_SCROLL: ScrollController = {
+  scrollOffset: 0,
+  atBottom: true,
+  scrollUp: () => undefined,
+  scrollDown: () => undefined,
+  scrollToBottom: () => undefined,
+};
+
 function formatCountdown(ms: number): string {
   if (ms <= 0) return "now";
   const totalSeconds = Math.ceil(ms / 1000);
@@ -440,9 +453,6 @@ export type AppProps = {
   // The TRUE global settings file path (never a --config/project file). The
   // `onboarded` flag is always written here. Defaults to globalSettingsPath.
   globalOnboardingPath?: string;
-  // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
-  // from stdin before they reach useInput (see createFilteredStdin).
-  mouseEvents?: EventEmitter;
   // Wall-clock ms timestamp the session started. Drives the whole-session timer
   // in the status bar; reset on /new.
   sessionStartedAt?: number;
@@ -508,7 +518,6 @@ export function App({
   onChangeSessionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
-  mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
@@ -1041,7 +1050,6 @@ export function App({
         lineCacheRef.current,
         { currentStep: state.currentPlanStep, deviated: state.planDeviated },
         baseLayoutKey,
-        DEFAULT_MAX_RENDERED_LOG_LINES,
       );
       baseLinesRef.current = next;
       return next;
@@ -1055,9 +1063,6 @@ export function App({
     () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd),
     [loadedSkills, activePlugins, contentWidth, cwd],
   );
-
-  const prefixLineCount =
-    resourceBanner.length + (state.trimmedBlockCount > 0 ? 2 : 0);
 
   const viewportExpandKey = useMemo(
     () => {
@@ -1085,7 +1090,7 @@ export function App({
     [verbose, viewportExpandedIds, expandedTools, isExplicitlyExpanded],
   );
 
-  const eventLogLines = useMemo(
+  const eventLogState = useMemo(
     () => {
       let next: IncrementalLinesState;
       if (!verbose) {
@@ -1101,26 +1106,35 @@ export function App({
           lineCacheRef.current,
           { currentStep: state.currentPlanStep, deviated: state.planDeviated },
           linesLayoutKey,
-          DEFAULT_MAX_RENDERED_LOG_LINES,
         );
         incrementalLinesRef.current = next;
       }
-      return state.trimmedBlockCount > 0
-        ? [
-            ...resourceBanner,
-            [
-              { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
-            ] satisfies StyledLine,
-            [],
-            ...next.lines,
-          ]
-        : [...resourceBanner, ...next.lines];
+      return next;
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.displayRevision, state.trimmedBlockCount, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated, resourceBanner],
+    [state.displayRevision, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated],
   );
-  const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
+
+  // Split the assembled transcript into frozen scrollback (committed) and the
+  // dynamic tail (live). advanceTranscriptCommit owns the backbuffer and the
+  // commit boundary; the committed accumulator persists across renders in the
+  // ref and only ever grows within a layout epoch.
+  const transcriptCommitRef = useRef<TranscriptCommitState>(emptyTranscriptCommitState());
+  const transcript = useMemo(
+    () => {
+      const split = advanceTranscriptCommit(transcriptCommitRef.current, {
+        bannerLines: resourceBanner,
+        blockLines: eventLogState.lines,
+        blockLineStarts: eventLogState.blockLineStarts,
+        blockIds: eventLogState.blocks.map((b) => b.id),
+        liveRows: visibleRows,
+      });
+      transcriptCommitRef.current = split.state;
+      return split;
+    },
+    [eventLogState, resourceBanner, visibleRows],
+  );
 
   const lastToolId = useMemo(() => {
     const blocks = state.contentBlocks;
@@ -1129,8 +1143,6 @@ export function App({
     }
     return null;
   }, [state.contentBlocks]);
-
-  const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
   // The entered child view owns its own scroll: the parent transcript and the
   // child transcript have unrelated line counts, so one shared offset would
@@ -1148,13 +1160,17 @@ export function App({
     0,
   ).maxOffset;
   const enteredScroll = useScroll({ maxOffset: enteredScrollMaxOffset });
-  const activeScroll = enteredSession !== undefined ? enteredScroll : scroll;
+  // The parent transcript no longer scrolls in-app — its history lives in native
+  // terminal scrollback. Only the entered child-session inspector keeps a
+  // managed scroll, so scroll keys are inert unless a child session is entered.
+  const activeScroll = enteredSession !== undefined ? enteredScroll : NOOP_SCROLL;
 
-  // Ctrl+O expands tools intersecting the visible window. Membership uses the
-  // *display* layout (same line space as scrollOffset) so mid-scroll tracking
-  // stays correct after tools grow. Sticky hold + tool-count cap keep the set
-  // from thrashing or exploding under dense tool rows. Toggle seeds the set
-  // synchronously so the first verbose paint is already expanded.
+  // Ctrl+O expands tools intersecting the live region. With the transcript pinned
+  // to the bottom (committed history is off-screen in scrollback), proximity is
+  // membership in the live tail, so the window is anchored at the bottom. Sticky
+  // hold + tool-count cap keep the set from thrashing or exploding under dense
+  // tool rows. Toggle seeds the set synchronously so the first verbose paint is
+  // already expanded.
   useLayoutEffect(() => {
     if (!verbose) {
       if (viewportExpandedIds.size > 0) setViewportExpandedIds(new Set());
@@ -1168,10 +1184,10 @@ export function App({
       blocks: layout.blocks,
       blockLineStarts: layout.blockLineStarts,
       lineCount: layout.lines.length,
-      prefixLineCount,
+      prefixLineCount: 0,
       visibleRows,
-      scrollOffset: scroll.scrollOffset,
-      atBottom: scroll.atBottom,
+      scrollOffset: 0,
+      atBottom: true,
       previousIds: viewportExpandedIds,
     });
 
@@ -1179,13 +1195,10 @@ export function App({
     setViewportExpandedIds(nextIds);
   }, [
     verbose,
-    scroll.scrollOffset,
-    scroll.atBottom,
     visibleRows,
-    // Recompute when either layout changes (content, expand set, prefix).
+    // Recompute when the layout changes (content, expand set).
     membershipBase,
-    eventLogLines,
-    prefixLineCount,
+    eventLogState,
     viewportExpandedIds,
   ]);
 
@@ -1247,7 +1260,6 @@ export function App({
     quotaAutoRetryFiredRef.current = false;
     sendCounterRef.current += 1;
     state.markRunning();
-    scroll.scrollToBottom();
 
     // Append the user message to the transcript immediately (optimistic echo).
     // This ensures the input is visible even when send() is delayed by pre-send
@@ -1369,7 +1381,6 @@ export function App({
     } else {
       setSentHistoryBrowse(createSentHistoryBrowse([]));
     }
-    scroll.scrollToBottom();
     forceRender((n) => n + 1);
   };
   const startNewSession = () => startNewSessionRef.current();
@@ -1677,10 +1688,10 @@ export function App({
             blocks: layout.blocks,
             blockLineStarts: layout.blockLineStarts,
             lineCount: layout.lines.length,
-            prefixLineCount,
+            prefixLineCount: 0,
             visibleRows,
-            scrollOffset: scroll.scrollOffset,
-            atBottom: scroll.atBottom,
+            scrollOffset: 0,
+            atBottom: true,
             previousIds: new Set(),
           }));
         }
@@ -1819,12 +1830,6 @@ export function App({
         setCommandMessage("Back to parent session");
       },
     },
-  );
-
-  useMouseScroll(
-    mouseEvents,
-    (ticks) => activeScroll.scrollUp(ticks * 3),
-    (ticks) => activeScroll.scrollDown(ticks * 3),
   );
 
   const handleCommand = (result: CommandResult) => {
@@ -2015,8 +2020,9 @@ export function App({
             paddingX={TEXT_GUTTER}
           >
             <EventLog
-              lines={eventLogLines}
-              scrollOffset={scroll.scrollOffset}
+              key={transcript.state.epoch}
+              committedLines={transcript.committed}
+              liveLines={transcript.live}
               visibleRows={visibleRows}
               width={contentWidth}
             />
