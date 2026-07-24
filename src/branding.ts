@@ -1,11 +1,11 @@
-// Canonical product-identity strings. Everything that names the product,
-// its CLI, its config directory, its logger/director/tool namespace, or its
-// wire identity (MCP client name, user-agent token, prompt-injection tag)
-// derives from here so a future rename touches one file instead of scattering
-// literals across src/.
+// Canonical product-identity strings for runtime TypeScript. Product name, CLI
+// command, config directory, logger/director/tool namespace, and wire identity
+// (MCP client name, user-agent token, prompt-injection tag) derive from here so
+// a future *runtime* rename does not scatter literals across src/.
 //
-// package.json's "name"/"bin" and any build/release scripts cannot import
-// TypeScript — keep them in sync with COMMAND_NAME by hand when this changes.
+// package.json "name"/"bin", build/release scripts, and docs cannot import
+// TypeScript — keep those in sync with COMMAND_NAME / PRODUCT_NAME by hand.
+// Temporary migration surfaces (.intercode) live outside this module by design.
 
 export const PRODUCT_NAME = "Corbits Code";
 

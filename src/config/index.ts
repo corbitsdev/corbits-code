@@ -36,6 +36,7 @@ import {
   loadLocalSettings,
   loadSettings,
   localSettingsPath,
+  markLegacyDirMigrated,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerConfig,
@@ -358,10 +359,17 @@ export async function loadConfig(
   // TEMPORARY: migrate a legacy `.intercode` directory into the new `.corbits`
   // one before anything reads either — including pricing bootstrap, which may
   // create `~/.corbits/cache` and would otherwise make the new dir look
-  // occupied. Only run against the real home/cwd (never a --config file or a
-  // test-injected globalSettingsPath). See migrate-legacy-dir.ts.
-  if (configPath === undefined && options.globalSettingsPath === undefined) {
-    await migrateLegacyGlobalDir();
+  // occupied. Always migrate the real home directory (even under --config) so
+  // a later telemetry write to ~/.corbits cannot claim the path before a normal
+  // run gets a chance to copy. Skip only when tests inject globalSettingsPath.
+  // See migrate-legacy-dir.ts.
+  if (options.globalSettingsPath === undefined) {
+    const migrated = await migrateLegacyGlobalDir();
+    if (migrated.copied) {
+      await markLegacyDirMigrated(globalSettingsPath()).catch(() => {
+        // Best-effort: without the flag the cleanup prompt simply will not show.
+      });
+    }
   }
   await migrateLegacyLocalDir(cwd);
 

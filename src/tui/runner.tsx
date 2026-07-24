@@ -1255,10 +1255,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   }
 
   // TEMPORARY (see ../config/migrate-legacy-dir.ts): offer to delete the old
-  // `~/.intercode` directory once, only when it still exists and the user has
-  // not already answered the prompt. loadConfig already migrated its contents
-  // into `~/.corbits` by this point (if it needed to).
+  // `~/.intercode` directory once, only when a successful migration stamped
+  // migrationLegacyDirCopied, the legacy path still exists, and the user has
+  // not already answered. Never offer deletion merely because a leftover
+  // legacy dir exists alongside a claimed ~/.corbits.
   const showLegacyDirCleanupPrompt =
+    globalSettingsForOnboarding?.migrationLegacyDirCopied === true &&
     globalSettingsForOnboarding?.migrationLegacyDirPromptAnswered !== true &&
     (await access(legacyGlobalDirPath()).then(
       () => true,

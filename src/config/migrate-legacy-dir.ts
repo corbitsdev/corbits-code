@@ -3,12 +3,18 @@
 // The settings directory moved from `.intercode` to `.corbits` (see
 // SETTINGS_DIR_NAME in ../branding.js). This module copies a pre-existing
 // legacy directory's contents into the new location the first time the new
-// location is missing or empty, so users upgrading in place do not lose
-// settings, permissions, MEMORY.md, plugins, etc.
+// location is unclaimed (missing, empty, or pricing-cache only), so users
+// upgrading in place do not lose settings, permissions, MEMORY.md, plugins, etc.
 //
-// Delete this whole module (and its call sites in config/index.ts and the TUI
-// onboarding/first-run path) once the migration window closes and legacy
-// `.intercode` directories are no longer expected to exist in the wild.
+// REMOVE WITH (deletion checklist when the migration window closes):
+// - this file and migrate-legacy-dir.test.ts
+// - call sites in config/index.ts (migrate + markLegacyDirMigrated)
+// - Settings fields migrationLegacyDirCopied / migrationLegacyDirPromptAnswered
+//   and markLegacyDirMigrated / markLegacyDirPromptAnswered in settings.ts
+// - TUI: legacy-dir-confirm.tsx, runner.tsx prompt gate, app.tsx resolve path
+// - secret-guard dual `.intercode/settings.json` pattern + tests
+// - .gitignore legacy `.intercode/*` entries
+// - docs/IMPLEMENTATION.md legacy migration note
 
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
