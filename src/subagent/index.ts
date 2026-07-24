@@ -47,7 +47,7 @@ import type { PermissionGate } from "../permission/gate.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
-import { createPruningCompactor } from "../session/compactor.js";
+import { createPruningCompactor, createImageAgingCompactor } from "../session/compactor.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
@@ -263,6 +263,10 @@ const TURN_BUDGET_PARENT_HINT =
 const NEVER_ACTED_PARENT_HINT =
   "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing.]";
 
+// Shared with the "pruning-compactor" and "image-aging-compactor" registrations
+// below, so "the recent window" means the same thing to both.
+const SUBAGENT_COMPACTION_KEEP_RECENT_TURNS = 6;
+
 export function appendTurnBudgetParentHint(report: string): string {
   if (!isTurnBudgetSubAgentReport(report)) return report;
   return `${TURN_BUDGET_PARENT_HINT}\n\n${report}`;
@@ -292,7 +296,7 @@ class SubAgentDirector extends DefaultDirector {
     repeatLimit: number = DEFAULT_SUBAGENT_REPEAT_LIMIT,
   ) {
     super(systemPrompt, toolDefinitions, {});
-    this.compaction = createCompactionGovernor(requestContinuation);
+    this.compaction = createCompactionGovernor(requestContinuation, SUBAGENT_COMPACTION_KEEP_RECENT_TURNS);
     this.maxTurns = maxTurns;
     this.repeatLimit = repeatLimit;
   }
@@ -311,7 +315,7 @@ class SubAgentDirector extends DefaultDirector {
     if (recovery !== null) return recovery;
 
     if (event.type === "inference.done") {
-      this.compaction.noteInferenceDone(event, state.turns.length);
+      this.compaction.noteInferenceDone(event, state.turns);
       this.turnsCompleted++;
       const content = event.turn.content as ReadonlyArray<{
         type: string;
@@ -822,7 +826,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }),
     compactors: {
       "pruning-compactor": createPruningCompactor({
-        keepRecentTurns: 6,
+        keepRecentTurns: SUBAGENT_COMPACTION_KEEP_RECENT_TURNS,
         summaryMaxChars: 2500,
         stripResultContent: true,
         // A structured model summary keeps sub-agent context useful across a
@@ -830,6 +834,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         ...(subagentSource !== undefined
           ? { summarize: createModelSummarizer({ getSource: () => subagentSource, deps: inferenceDeps }) }
           : {}),
+      }),
+      "image-aging-compactor": createImageAgingCompactor({
+        keepRecentTurns: SUBAGENT_COMPACTION_KEEP_RECENT_TURNS,
       }),
     },
   });
