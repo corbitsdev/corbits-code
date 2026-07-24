@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 // SGR mouse tracking sequences arrive as `ESC[<button;col;row` terminated by
 // `M` (press) or `m` (release). Ink's input parser turns whatever it reads into
 // string events and broadcasts them to every `useInput` handler, so any sequence
@@ -26,48 +24,17 @@ const MOUSE_FRAGMENT = /\[<(\d+);\d+;\d+[Mm]/g;
 // or arrow key (those start with a bare `ESC` / `ESC[`, never `[<`).
 const TRAILING_PARTIAL = /(?:\x1b)?\[<[\d;]*$/;
 
-// Wheel events encode button 64 (up) / 65 (down). They are the one class of
-// mouse input we still act on, re-routed through a dedicated channel since they
-// can no longer reach `useInput`.
-const SCROLL_UP_BUTTON = 64;
-const SCROLL_DOWN_BUTTON = 65;
-
-export type FilteredStdin = {
-  stdin: NodeJS.ReadStream;
-  mouse: EventEmitter;
-};
-
-// Wrap a TTY stream so Ink reads mouse-free input. Scroll-wheel events are
-// emitted on `mouse` as "scrollUp"/"scrollDown" before being stripped.
+// Wrap a TTY stream so Ink reads mouse-free input. SGR mouse sequences are
+// stripped at the read boundary; reporting is never enabled, so this is purely a
+// guard against stray sequences leaking into a text field as literal text.
 //
 // This depends on Ink 7's input pipeline driving off `stdin.read()` (see
 // ink/build/components/App.js). Bytes Ink consumes through its transient Kitty
 // keyboard probe are `unshift`ed back into the stream and re-enter through
 // read(), so they pass through this filter too.
-export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
-  const mouse = new EventEmitter();
-
-  const stripAndEmit = (text: string): string => {
-    let stripped = text.replace(MOUSE_SEQUENCE, "");
-    MOUSE_SEQUENCE.lastIndex = 0;
-    for (const match of text.matchAll(MOUSE_SEQUENCE)) {
-      emitScroll(Number(match[1]));
-    }
-    // Catch orphaned fragments whose leading ESC was consumed by Ink's parser in
-    // a prior read. Run only on the full-sequence-free remainder so a complete
-    // sequence is never counted twice.
-    MOUSE_FRAGMENT.lastIndex = 0;
-    for (const match of stripped.matchAll(MOUSE_FRAGMENT)) {
-      emitScroll(Number(match[1]));
-    }
-    stripped = stripped.replace(MOUSE_FRAGMENT, "");
-    return stripped;
-  };
-
-  function emitScroll(button: number): void {
-    if (button === SCROLL_UP_BUTTON) mouse.emit("scrollUp");
-    else if (button === SCROLL_DOWN_BUTTON) mouse.emit("scrollDown");
-  }
+export function createFilteredStdin(source: NodeJS.ReadStream): NodeJS.ReadStream {
+  const strip = (text: string): string =>
+    text.replace(MOUSE_SEQUENCE, "").replace(MOUSE_FRAGMENT, "");
 
   // Carries an incomplete trailing mouse sequence from one read/data chunk to the next.
   let pending = "";
@@ -94,7 +61,7 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
       }
     }
 
-    return stripAndEmit(text);
+    return strip(text);
   };
 
   const read = (size?: number): string | null => {
@@ -175,5 +142,5 @@ export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
     },
   }) as NodeJS.ReadStream;
 
-  return { stdin, mouse };
+  return stdin;
 }

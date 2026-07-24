@@ -1260,7 +1260,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Strip SGR mouse sequences before Ink's parser broadcasts input to every
   // useInput handler, so a stray sequence can never leak into a text field as
   // literal text. Reporting is left off, so this is a pass-through guard.
-  const { stdin: filteredStdin } = createFilteredStdin(process.stdin);
+  const filteredStdin = createFilteredStdin(process.stdin);
 
 
   // Render first so the App's gate listeners are registered before it sends the
