@@ -865,3 +865,60 @@ describe("session turn and token caps", () => {
   });
 });
 
+describe("repeated tool-call detection", () => {
+  const sameCall = (id: string) =>
+    makeInferenceDoneEvent([{ id, name: "run_shell", args: { command: "flaky-check" } }]);
+
+  const differentCall = (id: string) =>
+    makeInferenceDoneEvent([{ id, name: "run_shell", args: { command: "different-check" } }]);
+
+  test("keeps executing the tool while the same call has not yet repeated three times", async () => {
+    const director = createChatDirector("base", []);
+    const first = actionsArray(await director.decide(sameCall("c1"), mockState, mockCapabilities));
+    const second = actionsArray(await director.decide(sameCall("c2"), mockState, mockCapabilities));
+
+    expect(first.some((a) => a.type === "execute_tools")).toBe(true);
+    expect(second.some((a) => a.type === "execute_tools")).toBe(true);
+    expect(second.some((a) => a.type === "reply")).toBe(false);
+  });
+
+  test("stops instead of re-inferring on the third consecutive identical tool call", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(sameCall("c1"), mockState, mockCapabilities);
+    await director.decide(sameCall("c2"), mockState, mockCapabilities);
+    const actions = actionsArray(await director.decide(sameCall("c3"), mockState, mockCapabilities));
+
+    expect(actions.some((a) => a.type === "infer")).toBe(false);
+    expect(actions.some((a) => a.type === "checkpoint" && "message" in a && a.message === "repeated-tool-call-stop")).toBe(true);
+    const reply = actions.find((a): a is Extract<ReactorAction, { type: "reply" }> => a.type === "reply");
+    expect(reply).toBeDefined();
+    expect(reply?.content).toContain("run_shell");
+    expect(reply?.content).toContain("repeated");
+  });
+
+  test("a changed tool call in between resets the streak", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(sameCall("c1"), mockState, mockCapabilities);
+    await director.decide(differentCall("c2"), mockState, mockCapabilities);
+    const actions = actionsArray(await director.decide(sameCall("c3"), mockState, mockCapabilities));
+
+    expect(actions.some((a) => a.type === "execute_tools")).toBe(true);
+    expect(actions.some((a) => a.type === "reply")).toBe(false);
+  });
+
+  test("a fresh user message resets the streak", async () => {
+    const director = createChatDirector("base", []);
+    await director.decide(sameCall("c1"), mockState, mockCapabilities);
+    await director.decide(sameCall("c2"), mockState, mockCapabilities);
+    await director.decide(
+      { type: "message.received", message: { content: "try again" } } as unknown as ReactorInboundEvent,
+      mockState,
+      mockCapabilities,
+    );
+    const actions = actionsArray(await director.decide(sameCall("c3"), mockState, mockCapabilities));
+
+    expect(actions.some((a) => a.type === "execute_tools")).toBe(true);
+    expect(actions.some((a) => a.type === "reply")).toBe(false);
+  });
+});
+

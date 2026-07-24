@@ -24,6 +24,7 @@ import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import type { GoalGovernor } from "./goal.js";
 import { evidenceFromTurns } from "./goal-evaluator.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { fingerprintToolCalls, nextToolCallStreak, type ToolCallStreak } from "./tool-fingerprint.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
 
@@ -116,6 +117,11 @@ function ensureCycleSettlesWithReply(
 const MAX_OPEN_TASK_NUDGES = 3;
 const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
 const MAX_INFERENCE_RECOVERIES = 2;
+
+// More lenient than the sub-agent's limit of 2: the main loop has an operator
+// who can intervene, so it gets one extra identical attempt before the
+// director gives up and hands control back rather than re-inferring forever.
+const REPEATED_TOOL_CALL_LIMIT = 3;
 
 const IDLE_OPEN_TASK_NUDGE =
   "\n\nYou are ending your turn while tasks are still open (todo/doing). " +
@@ -330,6 +336,26 @@ function isCodeFile(path: string): boolean {
   return CODE_FILE_EXT.test(path);
 }
 
+function toolNamesIn(content: ReadonlyArray<{ type: string; name?: string }>): string[] {
+  const names = new Set<string>();
+  for (const block of content) {
+    if (block.type === "tool_call" && typeof block.name === "string") names.add(block.name);
+  }
+  return [...names];
+}
+
+function repeatedToolCallMessage(
+  content: ReadonlyArray<{ type: string; name?: string }>,
+  times: number,
+): string {
+  const names = toolNamesIn(content);
+  const called = names.length > 0 ? names.join(", ") : "a tool call";
+  return (
+    `Stopped: the same tool call (${called}) with identical arguments repeated ${times} times in a row ` +
+    "with no progress. Send a message with different guidance to continue."
+  );
+}
+
 class ChatDirectorImpl extends DefaultDirector {
   private readonly workflowCalls = new Map<string, { name: string; args: unknown }>();
   private readonly lspTriggerCalls = new Set<string>();
@@ -358,6 +384,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private startedAt = Date.now();
   private readonly compaction: CompactionGovernor;
   private goal: GoalGovernor | undefined;
+  private toolCallStreak: ToolCallStreak = { lastFingerprint: undefined, consecutiveIdentical: 0 };
 
   constructor(
     systemPrompt: string,
@@ -526,6 +553,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
       this.inferenceRecoveries = 0;
+      this.toolCallStreak = { lastFingerprint: undefined, consecutiveIdentical: 0 };
     }
     if (event.type === "inference.done") this.inferenceRecoveries = 0;
 
@@ -571,6 +599,22 @@ class ChatDirectorImpl extends DefaultDirector {
         (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
+
+      const fingerprint = fingerprintToolCalls(
+        event.turn.content as ReadonlyArray<{ type: string; name?: string; arguments?: unknown }>,
+      );
+      this.toolCallStreak = nextToolCallStreak(this.toolCallStreak, fingerprint);
+      if (this.toolCallStreak.consecutiveIdentical >= REPEATED_TOOL_CALL_LIMIT) {
+        const terminal: ReactorAction[] = [
+          capabilities.checkpoint("repeated-tool-call-stop"),
+          capabilities.reply(
+            repeatedToolCallMessage(event.turn.content, this.toolCallStreak.consecutiveIdentical),
+          ),
+        ];
+        this.compaction.noteIdleTurn(event, terminal);
+        return terminal;
+      }
+
       // Attribute main-loop tokens to an active goal for soft token budgets.
       if (this.goal !== undefined) {
         const u = event.usage;
