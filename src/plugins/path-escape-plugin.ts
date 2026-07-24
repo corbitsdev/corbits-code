@@ -1,9 +1,10 @@
-import { resolve, relative } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { isToolOutputLike } from "../util/tool-output-uri.js";
+import { resolveWorkspacePath } from "../permission/path-restriction.js";
+import type { RootsProvider } from "../permission/worktrees.js";
 
-export function pathEscapePlugin(cwd: string): ToolPlugin {
+export function pathEscapePlugin(cwd: string, rootsProvider: RootsProvider = () => []): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
       if ("_raw" in call.arguments) {
@@ -15,7 +16,7 @@ export function pathEscapePlugin(cwd: string): ToolPlugin {
       }
       let escaped: Record<string, unknown>;
       try {
-        escaped = escapeArgs(call.arguments, cwd);
+        escaped = escapeArgs(call.arguments, cwd, rootsProvider);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { callId: call.id, content: message, isError: true };
@@ -25,11 +26,15 @@ export function pathEscapePlugin(cwd: string): ToolPlugin {
   };
 }
 
-function escapeArgs(args: Record<string, unknown>, cwd: string): Record<string, unknown> {
+function escapeArgs(
+  args: Record<string, unknown>,
+  cwd: string,
+  rootsProvider: RootsProvider,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === "string" && looksLikePath(key)) {
-      out[key] = sanitizePath(value, cwd);
+      out[key] = sanitizePath(value, cwd, rootsProvider);
     } else {
       out[key] = value;
     }
@@ -54,13 +59,12 @@ export function looksLikePath(key: string): boolean {
   );
 }
 
-function sanitizePath(value: string, cwd: string): string {
+function sanitizePath(value: string, cwd: string, rootsProvider: RootsProvider): string {
   if (isToolOutputLike(value)) {
     return value;
   }
-  const resolved = resolve(cwd, value);
-  const rel = relative(cwd, resolved);
-  if (rel.startsWith("..")) {
+  const resolved = resolveWorkspacePath(cwd, value, rootsProvider);
+  if (resolved === undefined) {
     throw new Error(`Path escapes working directory: ${value}`);
   }
   return resolved;

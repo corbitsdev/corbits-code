@@ -47,8 +47,40 @@ function realpathNearestOr(path: string): string {
   } catch {
     const parent = dirname(path);
     if (parent === path) return path;
-    return join(realpathNearestOr(parent), path.slice(parent.length + 1));
+    // Root (e.g. "/") already ends in the separator, so slicing past
+    // parent.length alone lands on the tail; anywhere else the separator
+    // between parent and tail must be skipped too.
+    const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
+    return join(realpathNearestOr(parent), path.slice(tailStart));
   }
+}
+
+const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
+  roots.some((root) => real === root || real.startsWith(root + sep));
+
+// Resolves `path` (relative or absolute, possibly traversing `..`) against
+// `cwd` and checks it against the workspace boundary: `cwd` itself plus every
+// root `rootsProvider` reports (the session's registered git worktrees, or
+// any other allowlisted sibling). Returns the resolved absolute path when the
+// target is in bounds, `undefined` otherwise — callers that need a hard
+// allow/deny (rather than an allow/ask distinction) can key off that.
+//
+// A relative `../` is deliberately resolved and realpath-checked against the
+// allowlist rather than rejected outright: the raw path alone can't tell a
+// legitimate sibling worktree from a genuinely foreign directory, and both
+// resolve to `../something` from inside a worktree checkout.
+export function resolveWorkspacePath(
+  cwd: string,
+  path: string,
+  rootsProvider: RootsProvider = () => [],
+): string | undefined {
+  const abs = resolve(cwd, path);
+  const realCwd = realpathOr(resolve(cwd));
+  const real = realpathNearestOr(abs);
+  if (real === realCwd || real.startsWith(realCwd + sep)) return abs;
+  if (inKnownRoots(real, rootsProvider())) return abs;
+  if (inKnownRoots(real, rootsProvider(true))) return abs;
+  return undefined;
 }
 
 // `rootsProvider` supplies the additional workspace roots (the session's
@@ -59,20 +91,9 @@ function realpathNearestOr(path: string): string {
 // is genuinely outside the workspace.
 export function createPathRestriction(cwd: string, rootsProvider: RootsProvider = () => []): PathRestriction {
   const stateDir = resolve(cwd, STATE_DIR);
-  const realCwd = realpathOr(resolve(cwd));
   const cache = new Map<string, boolean>();
 
   const underStateDir = (abs: string): boolean => abs === stateDir || abs.startsWith(stateDir + sep);
-
-  const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
-    roots.some((root) => real === root || real.startsWith(root + sep));
-
-  const outsideWorkspace = (abs: string): boolean => {
-    const real = realpathNearestOr(abs);
-    if (real === realCwd || real.startsWith(realCwd + sep)) return false;
-    if (inKnownRoots(real, rootsProvider())) return false;
-    return !inKnownRoots(real, rootsProvider(true));
-  };
 
   return {
     isRestricted: (path: string, isWrite: boolean): boolean => {
@@ -80,7 +101,8 @@ export function createPathRestriction(cwd: string, rootsProvider: RootsProvider 
       const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
       const cached = cache.get(cacheKey);
       if (cached !== undefined) return cached;
-      const restricted = outsideWorkspace(abs) || (isWrite && underStateDir(abs));
+      const outsideWorkspace = resolveWorkspacePath(cwd, path, rootsProvider) === undefined;
+      const restricted = outsideWorkspace || (isWrite && underStateDir(abs));
       cache.set(cacheKey, restricted);
       return restricted;
     },
