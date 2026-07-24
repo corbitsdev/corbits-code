@@ -412,6 +412,7 @@ export async function discoverClaudeInstalledPlugins(
     return [];
   }
 
+  const pluginsRoot = resolve(home, ".claude", "plugins");
   const installPaths: Array<{ abs: string; registryKey: string }> = [];
   const seen = new Set<string>();
   for (const [registryKey, entries] of Object.entries(
@@ -422,7 +423,12 @@ export async function discoverClaudeInstalledPlugins(
       if (typeof entry !== "object" || entry === null) continue;
       const installPath = (entry as { installPath?: unknown }).installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
+      // Relative installPath resolves against process cwd and would let a
+      // poisoned registry load project trees as origin:"user" (no path trust).
+      if (!isAbsolute(installPath)) continue;
       const abs = resolve(installPath);
+      // Contain under ~/.claude/plugins only (registry is home-scoped).
+      if (!pathIsInsideOrEqual(abs, pluginsRoot)) continue;
       if (seen.has(abs)) continue;
       seen.add(abs);
       installPaths.push({ abs, registryKey });
@@ -432,12 +438,25 @@ export async function discoverClaudeInstalledPlugins(
   const results: PluginModule[] = [];
   for (const { abs: installPath, registryKey } of installPaths) {
     if (!(await pathExists(installPath))) continue;
-    // Expand marketplace roots the same way explicit pluginPaths do.
-    const dirs = await expandPluginPath(installPath);
+    // Expand marketplace roots the same way explicit pluginPaths do, but keep
+    // every expanded member under the install root (no absolute/.. source escape).
+    const dirs = await expandPluginPathContained(installPath);
     for (const d of dirs) {
-      const plugin = await loadPluginEntry(d, { cwd, origin: "user" });
-      if (plugin === null) continue;
-      plugin.source = "claude";
+      // Data-only only: never import() JS at discovery. Enable-gate does not
+      // re-run loaders; importing here would execute untrusted JS before enable.
+      // Claude marketplace layouts are markdown agents/commands; JS plugins
+      // stay on explicit pluginPaths (user-opted load path).
+      const dataOnly = await loadDataOnlyPlugin(d, { cwd });
+      if (dataOnly === null) continue;
+      const plugin: PluginModule = {
+        dir: d,
+        manifest: dataOnly.manifest,
+        origin: "user",
+        pluginPath: resolve(d),
+        source: "claude",
+      };
+      if (dataOnly.agentPlugin !== undefined) plugin.agentPlugin = dataOnly.agentPlugin;
+      if (dataOnly.commandPlugin !== undefined) plugin.commandPlugin = dataOnly.commandPlugin;
       // Version-dir basenames (e.g. .../cmo/1.0.0 → "1.0.0") collide across
       // installs and break settings.plugins enable keys. Prefer a stable id
       // from the registry key (name before @) when the resolved id looks like
@@ -463,6 +482,56 @@ export async function discoverClaudeInstalledPlugins(
     }
   }
   return results;
+}
+
+/** True when `abs` is the root or a path strictly under it (prefix + separator). */
+function pathIsInsideOrEqual(abs: string, root: string): boolean {
+  const a = resolve(abs);
+  const r = resolve(root);
+  if (a === r) return true;
+  const prefix = r.endsWith("/") ? r : `${r}/`;
+  return a.startsWith(prefix);
+}
+
+/**
+ * Like expandPluginPath, but drops marketplace `source` entries that resolve
+ * outside the marketplace root (absolute paths or `../` escapes).
+ */
+async function expandPluginPathContained(path: string): Promise<string[]> {
+  const root = resolve(path);
+  try {
+    const raw = await readFile(join(root, ".claude-plugin", "marketplace.json"), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { plugins?: unknown }).plugins)) {
+      const dirs = ((parsed as { plugins: unknown[] }).plugins)
+        .map((p): string | undefined => {
+          if (typeof p !== "object" || p === null) return undefined;
+          const src = (p as { source?: unknown }).source;
+          if (typeof src !== "string" || src.length === 0) return undefined;
+          // Relative sources only — absolute `source` would jump the contain check.
+          if (isAbsolute(src)) return undefined;
+          const resolved = resolve(root, src);
+          return pathIsInsideOrEqual(resolved, root) ? resolved : undefined;
+        })
+        .filter((d): d is string => d !== undefined);
+      if (dirs.length > 0) return dirs;
+    }
+  } catch {
+    // not a declared marketplace
+  }
+  // Heuristic: path/plugins/* children when present (same as expandPluginPath).
+  try {
+    const pluginsDir = join(root, "plugins");
+    const entries = await readdir(pluginsDir, { withFileTypes: true });
+    const children = entries
+      .filter((e) => e.isDirectory())
+      .map((e) => join(pluginsDir, e.name))
+      .filter((d) => pathIsInsideOrEqual(d, root));
+    if (children.length > 0) return children;
+  } catch {
+    // no plugins/ subtree
+  }
+  return [root];
 }
 
 /** True when a plugin id is probably a cache version dirname, not a product name. */

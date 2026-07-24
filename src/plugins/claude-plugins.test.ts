@@ -160,4 +160,53 @@ describe("discoverClaudeInstalledPlugins", () => {
     expect(modules.length).toBe(1);
     expect(modules[0]!.manifest?.id).toBe("orphan");
   });
+
+  test("rejects installPath outside ~/.claude/plugins and relative paths", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-home-escape-"));
+    const outside = join(home, "evil-plugin");
+    await writeAgentPlugin(outside, "evil-agent");
+    const relativeInstall = "relative-not-allowed";
+    await mkdir(join(home, ".claude", "plugins"), { recursive: true });
+    await writeFile(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          "evil@x": [{ installPath: outside }],
+          "rel@x": [{ installPath: relativeInstall }],
+        },
+      }),
+    );
+
+    const modules = await discoverClaudeInstalledPlugins("/repo", { home });
+    expect(modules).toEqual([]);
+  });
+
+  test("does not import JS entry points at discovery (data-only only)", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-home-no-import-"));
+    const installPath = join(home, ".claude", "plugins", "cache", "jsy", "1.0.0");
+    await mkdir(installPath, { recursive: true });
+    // A JS entry that would throw if imported.
+    await writeFile(
+      join(installPath, "index.ts"),
+      `throw new Error("should-not-import-at-discovery");\n`,
+    );
+    await writeFile(
+      join(installPath, "manifest.json"),
+      JSON.stringify({ id: "jsy", name: "jsy", kind: "agent" }),
+    );
+    // No agents/*.md — data-only returns null; JS must not be imported as fallback.
+    await mkdir(join(home, ".claude", "plugins"), { recursive: true });
+    await writeFile(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: { "jsy@x": [{ installPath, version: "1.0.0" }] },
+      }),
+    );
+
+    const modules = await discoverClaudeInstalledPlugins("/repo", { home });
+    // No data-only content → skipped; import path never runs (would throw).
+    expect(modules).toEqual([]);
+  });
 });
