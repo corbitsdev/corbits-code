@@ -56,9 +56,11 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     shellGuardPlugin(cwd, shellTimeout),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
-    // Line-range short-circuit sits inside verify (before stock edit_file).
-    editFileLineRangePlugin(),
+    // Verify wraps the line-range short-circuit (composeMiddleware runs plugins
+    // outer-to-inner in array order) so its before/after check still covers
+    // start_line/end_line edits instead of only substring-mode edit_file calls.
     verifyPlugin(),
+    editFileLineRangePlugin(),
     // Outside verify: enrich stock substring mismatch errors (composeMiddleware last→first).
     editFileDiagnosticsPlugin(),
     webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
