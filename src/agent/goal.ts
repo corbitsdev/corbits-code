@@ -1,3 +1,4 @@
+import { type } from "arktype";
 import type {
   ConversationTurn,
   InferenceOptions,
@@ -5,14 +6,13 @@ import type {
   ReactorCapabilities,
 } from "@intx/types/runtime";
 
-export type GoalStatus =
-  | "inactive"
-  | "active"
-  | "paused"
-  | "achieved"
-  | "cleared"
-  | "budget_limited"
-  | "blocked";
+// Canonical goal-status and criterion-status definitions. Every other module
+// that needs these literals (persistence validation, the manage_goal tool
+// schema) imports the schema or type from here rather than redeclaring it.
+export const GoalStatusSchema = type(
+  "'inactive' | 'active' | 'paused' | 'achieved' | 'cleared' | 'budget_limited' | 'blocked'",
+);
+export type GoalStatus = typeof GoalStatusSchema.infer;
 
 /**
  * Lifecycle phase for a live goal — orthogonal to autonomy status (paused /
@@ -33,17 +33,21 @@ export const GOAL_PHASES: readonly GoalPhase[] = [
   "completed",
 ] as const;
 
+export const GoalCriterionStatusSchema = type(
+  "'todo' | 'doing' | 'done' | 'blocked' | 'cancelled'",
+);
 /** One acceptance criterion in the expanded goal checklist. */
-export type GoalCriterionStatus = "todo" | "doing" | "done" | "blocked" | "cancelled";
+export type GoalCriterionStatus = typeof GoalCriterionStatusSchema.infer;
 
-export type GoalCriterion = {
-  id: string;
+export const GoalCriterionSchema = type({
+  id: "string>0",
   /** Concrete, checkable success item — not a work step title. */
-  title: string;
-  status: GoalCriterionStatus;
+  title: "string>0",
+  status: GoalCriterionStatusSchema,
   /** Optional evidence note when done/blocked. */
-  note?: string;
-};
+  "note?": "string",
+});
+export type GoalCriterion = typeof GoalCriterionSchema.infer;
 
 export type GoalSnapshot = {
   status: GoalStatus;
