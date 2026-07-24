@@ -245,7 +245,12 @@ function usageFromResponse(response: Record<string, unknown>): TokenUsage | unde
     input: num(u["input_tokens"]),
     output: num(u["output_tokens"]),
     cacheRead: num(inputDetails?.["cached_tokens"]),
-    cacheWrite: 0,
+    // OpenAI does not charge for writing to the prompt cache, so the public
+    // Responses API usually omits a write count; read it defensively under
+    // `cache_creation_tokens` in case a gateway/proxy in front of this
+    // OpenAI-shaped endpoint (Codex, Grok) reports one, rather than always
+    // hardcoding zero.
+    cacheWrite: num(inputDetails?.["cache_creation_tokens"]),
     thinking: num(outputDetails?.["reasoning_tokens"]),
   };
 }

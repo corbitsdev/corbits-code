@@ -60,6 +60,54 @@ describe("createCodexResponsesAdapter", () => {
   });
 });
 
+describe("createCodexResponsesAdapter usage parsing", () => {
+  test("maps a nonzero cache_creation_tokens count through to cacheWrite", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const sseData = JSON.stringify({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 20, cache_creation_tokens: 15 },
+          output_tokens: 50,
+          output_tokens_details: { reasoning_tokens: 5 },
+        },
+      },
+    });
+
+    const events = adapter.parseResponse(sseData);
+    const usageEvent = events.find((e) => e.type === "inference.usage");
+
+    expect(usageEvent?.data).toEqual({
+      usage: { input: 100, output: 50, cacheRead: 20, cacheWrite: 15, thinking: 5 },
+      source,
+    });
+  });
+
+  test("defaults cacheWrite to 0 when the provider does not report a cache-creation count", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const sseData = JSON.stringify({
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 20 },
+          output_tokens: 50,
+          output_tokens_details: { reasoning_tokens: 5 },
+        },
+      },
+    });
+
+    const events = adapter.parseResponse(sseData);
+    const usageEvent = events.find((e) => e.type === "inference.usage");
+
+    expect(usageEvent?.data).toEqual({
+      usage: { input: 100, output: 50, cacheRead: 20, cacheWrite: 0, thinking: 5 },
+      source,
+    });
+  });
+});
+
 describe("isResponsesStreamTerminal", () => {
   test("is true for the Responses end-of-turn events", () => {
     for (const type of [
