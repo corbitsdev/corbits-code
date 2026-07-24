@@ -126,6 +126,32 @@ export function createSubAgentSessionStore(
   const cancelHandles = new Map<string, () => void>();
   const listeners = new Set<() => void>();
 
+  // Per-session revision counters, bumped on every mutation. Notify fires on
+  // every streamed child token, so list()/get()/listForStrip() would otherwise
+  // deep-clone every session's full entry buffer on every token even though
+  // only one session changed. Caching a clone keyed by the revision it was
+  // taken at lets unrelated sessions reuse their last snapshot instead.
+  const revisions = new Map<string, number>();
+  const snapshotCache = new Map<string, { revision: number; snapshot: SubAgentSession }>();
+
+  const bumpRevision = (id: string): void => {
+    revisions.set(id, (revisions.get(id) ?? 0) + 1);
+  };
+
+  const forgetRevision = (id: string): void => {
+    revisions.delete(id);
+    snapshotCache.delete(id);
+  };
+
+  const snapshotOf = (session: SubAgentSession): SubAgentSession => {
+    const revision = revisions.get(session.id) ?? 0;
+    const cached = snapshotCache.get(session.id);
+    if (cached !== undefined && cached.revision === revision) return cached.snapshot;
+    const snapshot = cloneSession(session);
+    snapshotCache.set(session.id, { revision, snapshot });
+    return snapshot;
+  };
+
   const notify = (): void => {
     for (const listener of listeners) listener();
   };
@@ -140,6 +166,7 @@ export function createSubAgentSessionStore(
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
     });
     cancelHandles.delete(session.id);
+    bumpRevision(session.id);
     pruneCompleted();
   };
 
@@ -171,7 +198,10 @@ export function createSubAgentSessionStore(
   const pruneCompleted = (): void => {
     if (maxCompleted <= 0) {
       for (const [id, s] of sessions) {
-        if (s.status !== "running") sessions.delete(id);
+        if (s.status !== "running") {
+          sessions.delete(id);
+          forgetRevision(id);
+        }
       }
       return;
     }
@@ -182,7 +212,10 @@ export function createSubAgentSessionStore(
     if (excess <= 0) return;
     for (let i = 0; i < excess; i++) {
       const drop = finished[i];
-      if (drop !== undefined) sessions.delete(drop.id);
+      if (drop !== undefined) {
+        sessions.delete(drop.id);
+        forgetRevision(drop.id);
+      }
     }
   };
 
@@ -190,22 +223,23 @@ export function createSubAgentSessionStore(
     const session = sessions.get(id);
     if (session === undefined) return;
     fn(session);
+    bumpRevision(id);
     notify();
   };
 
   return {
     list(): readonly SubAgentSession[] {
-      return [...sessions.values()].map(cloneSession);
+      return [...sessions.values()].map(snapshotOf);
     },
 
     get(id: string): SubAgentSession | undefined {
       const session = sessions.get(id);
-      return session === undefined ? undefined : cloneSession(session);
+      return session === undefined ? undefined : snapshotOf(session);
     },
 
     listForStrip(): readonly SubAgentSession[] {
       return [...sessions.values()]
-        .map(cloneSession)
+        .map(snapshotOf)
         .sort((a, b) => {
           // Running first, then by startedAt descending.
           if (a.status === "running" && b.status !== "running") return -1;
@@ -219,6 +253,7 @@ export function createSubAgentSessionStore(
       // Replacing an existing id (e.g. parent reuses a callId) keeps the strip
       // from growing duplicates when a tool call is retried.
       cancelHandles.delete(id);
+      forgetRevision(id);
       const session: SubAgentSession = {
         id,
         description: input.description,
@@ -232,8 +267,9 @@ export function createSubAgentSessionStore(
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
+      bumpRevision(id);
       notify();
-      return cloneSession(session);
+      return snapshotOf(session);
     },
 
     appendEvent(id: string, event: ReactorEmittedEvent): void {
@@ -416,6 +452,8 @@ export function createSubAgentSessionStore(
       // cancelAll first (parent stop / /clear).
       cancelHandles.clear();
       sessions.clear();
+      revisions.clear();
+      snapshotCache.clear();
       notify();
     },
   };
