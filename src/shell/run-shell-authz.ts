@@ -79,9 +79,11 @@ const BLOCKED_PATTERNS: RegExp[] = [
 // (`git log | tail` and similar non-walk pipes are fine — the 512KB shell
 // output cap is the backstop for those.)
 const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
-  // `find` is almost always a full-tree walk.
-  cmdHead("find"),
+  // `find` is almost always a full-tree walk — keep full CMD so
+  // `… | find …` cannot bypass (find does not treat the pipe as search domain).
+  cmd("find"),
   // ripgrep via shell — the `grep` tool already routes through rg with caps.
+  // CMD_HEAD so `git show … | rg` (bounded stdin) is allowed.
   cmdHead("rg"),
   // Recursive grep/egrep/fgrep (flag form -r/-R/--recursive, alone or clustered).
   new RegExp(

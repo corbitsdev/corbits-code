@@ -312,6 +312,10 @@ describe("authzPlugin", () => {
     "/bin/rg pattern src",
     "ls && command find .",
     "command grep -r evaluate src",
+    // find does not consume a pipe as its search domain — keep blocked after CMD_HEAD
+    // was introduced for piped rg/grep (CL-4400 follow-up).
+    "true | find . -name '*.ts'",
+    "echo x | find /",
   ];
 
   for (const command of openEndedSearches) {
