@@ -36,7 +36,6 @@ import {
   loadLocalSettings,
   loadSettings,
   localSettingsPath,
-  markLegacyDirMigrated,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerConfig,
@@ -49,7 +48,6 @@ import {
   type ProviderSettings,
 } from "./settings.js";
 import { resolveProfile } from "./profiles.js";
-import { migrateLegacyGlobalDir, migrateLegacyLocalDir } from "./migrate-legacy-dir.js";
 
 // The per-call token ceiling for the inference source. Lives here so agent
 // creation (runner.tsx) and live provider switching (the /agent
@@ -355,23 +353,6 @@ export async function loadConfig(
   }
 
   const pricingCachePath = defaultPricingCachePath();
-
-  // TEMPORARY: migrate a legacy `.intercode` directory into the new `.corbits`
-  // one before anything reads either — including pricing bootstrap, which may
-  // create `~/.corbits/cache` and would otherwise make the new dir look
-  // occupied. Always migrate the real home directory (even under --config) so
-  // a later telemetry write to ~/.corbits cannot claim the path before a normal
-  // run gets a chance to copy. Skip only when tests inject globalSettingsPath.
-  // See migrate-legacy-dir.ts.
-  if (options.globalSettingsPath === undefined) {
-    const migrated = await migrateLegacyGlobalDir();
-    if (migrated.copied) {
-      await markLegacyDirMigrated(globalSettingsPath()).catch(() => {
-        // Best-effort: without the flag the cleanup prompt simply will not show.
-      });
-    }
-  }
-  await migrateLegacyLocalDir(cwd);
 
   await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 

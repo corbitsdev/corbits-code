@@ -6,12 +6,6 @@ dist/
 .corbits/permissions.json
 .corbits/trust.json
 .corbits/MEMORY.md
-# TEMPORARY: legacy settings dir kept during the .intercode -> .corbits
-# migration window so credentials are not accidentally committed.
-.intercode/settings.json
-.intercode/permissions.json
-.intercode/trust.json
-.intercode/MEMORY.md
 .interchange/
 .cache/
 .pi

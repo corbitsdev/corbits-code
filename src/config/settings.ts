@@ -118,15 +118,6 @@ export type Settings = {
     installationId?: string;
     noticeShown?: boolean;
   };
-  // One-time flag: the user has been asked (and answered) whether to delete
-  // the legacy `~/.intercode` directory after it was migrated to the new
-  // settings directory. See ../config/migrate-legacy-dir.ts (TEMPORARY).
-  migrationLegacyDirPromptAnswered?: boolean;
-  // Set only after a successful legacy-dir copy. The cleanup prompt must not
-  // offer deletion unless this is true — otherwise a claimed ~/.corbits with
-  // an unmigrated ~/.intercode could destroy the only remaining settings.
-  // TEMPORARY with migrate-legacy-dir.ts.
-  migrationLegacyDirCopied?: boolean;
 };
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
@@ -366,8 +357,6 @@ const SettingsSchema = type({
     "installationId?": "string",
     "noticeShown?": "boolean",
   }),
-  "migrationLegacyDirPromptAnswered?": "boolean",
-  "migrationLegacyDirCopied?": "boolean",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -536,12 +525,6 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...(s.shell !== undefined ? { shell: s.shell as Settings["shell"] } : {}),
     ...(s.tools !== undefined ? { tools: s.tools as Settings["tools"] } : {}),
     ...(s.telemetry !== undefined ? { telemetry: s.telemetry as Settings["telemetry"] } : {}),
-    ...(s.migrationLegacyDirPromptAnswered !== undefined
-      ? { migrationLegacyDirPromptAnswered: Boolean(s.migrationLegacyDirPromptAnswered) }
-      : {}),
-    ...(s.migrationLegacyDirCopied !== undefined
-      ? { migrationLegacyDirCopied: Boolean(s.migrationLegacyDirCopied) }
-      : {}),
   } as Settings;
 }
 
@@ -648,25 +631,6 @@ export async function markTelemetryNoticeShown(path: string): Promise<void> {
     ...base,
     telemetry: { ...base.telemetry, noticeShown: true },
   });
-}
-
-// Stamp that a legacy `.intercode` directory was successfully copied into the
-// new settings dir. The TUI cleanup prompt keys off this so it never offers to
-// delete an unmigrated legacy tree. See ./migrate-legacy-dir.ts (TEMPORARY).
-export async function markLegacyDirMigrated(path: string): Promise<void> {
-  const onDisk = await loadSettings(path);
-  const base: Settings = onDisk ?? { providers: {} };
-  if (base.migrationLegacyDirCopied === true) return;
-  await saveGlobalSettings(path, { ...base, migrationLegacyDirCopied: true });
-}
-
-// Stamp the one-time "legacy .intercode dir removal" prompt as answered, so
-// the TUI never asks again regardless of the user's yes/no. See
-// ./migrate-legacy-dir.ts (TEMPORARY).
-export async function markLegacyDirPromptAnswered(path: string): Promise<void> {
-  const onDisk = await loadSettings(path);
-  const base: Settings = onDisk ?? { providers: {} };
-  await saveGlobalSettings(path, { ...base, migrationLegacyDirPromptAnswered: true });
 }
 
 // Persist the per-repo provider/model selection. This is where the /agent modal
