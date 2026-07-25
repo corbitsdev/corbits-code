@@ -46,6 +46,8 @@ $ corbits run "Add JWT auth to the API"
 
 Same product agent stack as the TUI (directors, tools, permissions, MCP, plugins, hooks) without the Ink shell. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
 
+Local multi-model capability checks use this path (`bun run eval:capability`); see `evals/capability/README.md`.
+
 ### Resume
 
 ```bash

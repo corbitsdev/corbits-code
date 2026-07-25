@@ -66,6 +66,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - Streams assistant text deltas to stdout; lifecycle errors to stderr
 - Non-interactive permission gate (`interactive: false`); optional stdin line for `ask_operator`
 - Single primary `agent.send(task)` turn, then drains the stream and exits with 0/1
+- Used by `scripts/demo.ts` (mode `exec`) and the capability eval suite (`scripts/eval-capability.ts` / `evals/capability/`)
 
 ### Event Stream Consumer (`src/session/stream-consumer.ts`)
 

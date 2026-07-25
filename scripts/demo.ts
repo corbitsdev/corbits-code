@@ -2,6 +2,7 @@
 
 import { resolve } from "node:path";
 import { loadConfig } from "../src/config/index.js";
+import { runExec } from "../src/exec/runner.js";
 import { runTUI } from "../src/tui/runner.js";
 
 const DEMO_TASK =
@@ -14,26 +15,44 @@ async function runTUIMode(): Promise<void> {
     ["--cwd", DEMO_FIXTURE, "--force", DEMO_TASK],
     { allowUnconfigured: false },
   );
-  if (!config.configured) {
-    throw new Error(config.providerError);
-  }
   const code = await runTUI({ ...config, task: DEMO_TASK, maxTurns: 10 });
   process.exitCode = code;
 }
 
+async function runExecMode(): Promise<void> {
+  console.log("=== Exec demo (fixture repo, product non-TUI path) ===");
+  const config = await loadConfig(
+    [
+      "exec",
+      "--cwd",
+      DEMO_FIXTURE,
+      "--force",
+      "--dangerously-skip-permissions",
+      DEMO_TASK,
+    ],
+    { allowUnconfigured: false },
+  );
+  const result = await runExec({ ...config, task: DEMO_TASK, maxTurns: 10 });
+  process.exitCode = result.exitCode;
+}
+
 async function main(): Promise<void> {
   const mode = process.argv[2] ?? "tui";
-  if (mode === "cli") {
-    console.error(
-      "Headless CLI demo was removed with run-agent; use mode=tui or run corbits from the fixture with env vars set.",
-    );
-    process.exit(1);
+  if (mode === "exec" || mode === "cli" || mode === "run") {
+    await runExecMode();
+    return;
   }
-  if (mode === "tui" || mode === "both") {
+  if (mode === "tui") {
     await runTUIMode();
     return;
   }
-  console.error(`Unknown mode "${mode}". Use: tui`);
+  if (mode === "both") {
+    await runExecMode();
+    if ((process.exitCode ?? 0) !== 0) return;
+    await runTUIMode();
+    return;
+  }
+  console.error(`Unknown mode "${mode}". Use: tui | exec | both`);
   process.exit(1);
 }
 
