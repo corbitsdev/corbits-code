@@ -20,9 +20,6 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   // global (~/.corbits/settings.json) and per-repo (.corbits/settings.json)
   // locations.
   /(^|\/)\.corbits\/settings\.json$/,
-  // TEMPORARY: legacy Intercode settings path still holds credentials until
-  // migrate-legacy-dir.ts is removed after the migration window closes.
-  /(^|\/)\.intercode\/settings\.json$/,
   /(^|\/)\.pgpass$/,
   /(^|\/)\.htpasswd$/,
   /(^|\/)\.ssh\//,

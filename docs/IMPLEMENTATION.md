@@ -178,8 +178,6 @@ Token event batching in `use-stream.ts`: `TOKEN_EVENTS` (`inference.text.delta`,
 
 Provider and model configuration lives in JSON settings files. The global file holds provider definitions and API keys; the per-repo file selects among them and must not contain credentials.
 
-> **Legacy directory migration (temporary):** the settings directory used to be named `.intercode`. On first run, if `~/.corbits` is missing, empty, or only holds a pricing cache, and a legacy `~/.intercode` exists, its contents are copied over automatically (same for a per-repo `.intercode/`). A successful copy stamps `migrationLegacyDirCopied` in the new settings file; the TUI then offers a one-time prompt to delete the old `~/.intercode` only when that flag is set. Declining just keeps the legacy directory around untouched. See `src/config/migrate-legacy-dir.ts`, which is deleted once the migration window closes.
-
 - Global: `~/.corbits/settings.json`
 
   ```json

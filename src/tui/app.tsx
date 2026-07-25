@@ -67,7 +67,6 @@ import {
   renderTranscriptLines,
 } from "./components/subagent-session-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
-import { LegacyDirConfirm } from "./components/legacy-dir-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
 import { PermissionsManager } from "./components/permissions-manager.js";
@@ -76,10 +75,8 @@ import { PluginsManager, type PluginsAdmin } from "./components/plugins-manager.
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
-import { removeLegacyGlobalDir } from "../config/migrate-legacy-dir.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import {
-  markLegacyDirPromptAnswered,
   markOnboarded,
   resolveMaxConcurrentSubAgents,
   tierDefinitionAt,
@@ -444,10 +441,6 @@ export type AppProps = {
   // The TRUE global settings file path (never a --config/project file). The
   // `onboarded` flag is always written here. Defaults to globalSettingsPath.
   globalOnboardingPath?: string;
-  // TEMPORARY (see ../config/migrate-legacy-dir.ts): true when a successful
-  // legacy-dir copy stamped migrationLegacyDirCopied, the legacy path still
-  // exists, and the user has not yet answered the cleanup prompt.
-  showLegacyDirCleanupPrompt?: boolean;
 
   // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
   // from stdin before they reach useInput (see createFilteredStdin).
@@ -528,7 +521,6 @@ export function App({
   onChangeSessionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
-  showLegacyDirCleanupPrompt = false,
   mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
@@ -569,7 +561,6 @@ export function App({
   const [expandedTools, setExpandedTools] = useState<ReadonlySet<string>>(() => new Set());
   const [verbose, setVerbose] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
-  const [legacyDirPromptOpen, setLegacyDirPromptOpen] = useState(showLegacyDirCleanupPrompt);
   const [helpOpen, setHelpOpen] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
   const [taskFullScreenOpen, setTaskFullScreenOpen] = useState(false);
@@ -1955,23 +1946,6 @@ export function App({
     }
   };
 
-  // TEMPORARY (see ../config/migrate-legacy-dir.ts): resolve the one-time
-  // legacy-dir cleanup prompt. Persists the "answered" flag either way so the
-  // prompt never reappears, and only deletes the directory on explicit "yes".
-  const resolveLegacyDirPrompt = (remove: boolean): void => {
-    setLegacyDirPromptOpen(false);
-    const path = globalOnboardingPath ?? globalSettingsPath;
-    void (async () => {
-      if (remove) await removeLegacyGlobalDir();
-      await markLegacyDirPromptAnswered(path);
-    })().catch((err: unknown) => {
-      getLogger([LOG_NAMESPACE_ROOT, "tui", "migrate-legacy-dir"]).error(
-        "Failed to persist legacy-dir prompt answer: {error}",
-        { error: err instanceof Error ? err.message : String(err) },
-      );
-    });
-  };
-
   const refreshPermissions = () => {
     if (permissionsAdmin === undefined) return;
     void permissionsAdmin.list().then(setPermissionEntries);
@@ -2302,12 +2276,7 @@ export function App({
               })()}
             </Box>
           )}
-          {legacyDirPromptOpen ? (
-            <LegacyDirConfirm
-              onConfirm={() => resolveLegacyDirPrompt(true)}
-              onCancel={() => resolveLegacyDirPrompt(false)}
-            />
-          ) : exitConfirmOpen ? (
+          {exitConfirmOpen ? (
             <ExitConfirm inline onConfirm={() => exit()} onCancel={() => setExitConfirmOpen(false)} />
           ) : (
             <ChatInput

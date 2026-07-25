@@ -5,7 +5,6 @@
 //
 // package.json "name"/"bin", build/release scripts, and docs cannot import
 // TypeScript — keep those in sync with COMMAND_NAME / PRODUCT_NAME by hand.
-// Temporary migration surfaces (.intercode) live outside this module by design.
 
 export const PRODUCT_NAME = "Corbits Code";
 

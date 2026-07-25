@@ -1,4 +1,3 @@
-import { access } from "node:fs/promises";
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
@@ -34,7 +33,6 @@ import {
 } from "../config/settings.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
-import { legacyGlobalDirPath } from "../config/migrate-legacy-dir.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "./components/plugins-manager.js";
 import type { PluginManifest } from "../plugins/manifest.js";
@@ -1254,19 +1252,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
-  // TEMPORARY (see ../config/migrate-legacy-dir.ts): offer to delete the old
-  // `~/.intercode` directory once, only when a successful migration stamped
-  // migrationLegacyDirCopied, the legacy path still exists, and the user has
-  // not already answered. Never offer deletion merely because a leftover
-  // legacy dir exists alongside a claimed ~/.corbits.
-  const showLegacyDirCleanupPrompt =
-    globalSettingsForOnboarding?.migrationLegacyDirCopied === true &&
-    globalSettingsForOnboarding?.migrationLegacyDirPromptAnswered !== true &&
-    (await access(legacyGlobalDirPath()).then(
-      () => true,
-      () => false,
-    ));
-
   const exitAltScreen = enterAltScreen();
 
   // Strip SGR mouse sequences before Ink's parser broadcasts input to every
@@ -1308,7 +1293,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             },
           }
         : {})}
-      showLegacyDirCleanupPrompt={showLegacyDirCleanupPrompt}
       {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
       cwd={config.cwd}
       initialTask={config.task}
