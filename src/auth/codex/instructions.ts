@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { GPT_5_CODEX_PROMPT } from "./prompts/gpt-5-codex.js";
+import { SETTINGS_DIR_NAME } from "../../branding.js";
 
 // The Codex backend pins the Responses `instructions` field to the official
 // prompt and 400s on anything else, so a stale bundled copy breaks once the
@@ -10,7 +11,7 @@ import { GPT_5_CODEX_PROMPT } from "./prompts/gpt-5-codex.js";
 // copy. Every value — disk and network — is validated before use so a CDN error
 // page (served with HTTP 200) can never poison the cache into a permanent 400.
 
-const CACHE_DIR = join(homedir(), ".intercode", "cache");
+const CACHE_DIR = join(homedir(), SETTINGS_DIR_NAME, "cache");
 const CACHE_FILE = join(CACHE_DIR, "gpt-5-codex-instructions.md");
 const RELEASES_LATEST = "https://api.github.com/repos/openai/codex/releases/latest";
 const PROMPT_PATH = "codex-rs/core/gpt_5_codex_prompt.md";

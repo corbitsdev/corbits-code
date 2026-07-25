@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 test("createAgentToolset wires posix tools for a real cwd", async () => {
-  const cwd = mkdtempSync(join(tmpdir(), "intercode-toolset-"));
+  const cwd = mkdtempSync(join(tmpdir(), "corbits-toolset-"));
   spyOn(posixModule, "createPosixTools").mockReturnValue({
     definitions: [],
     run: async () => ({ output: "" }),

@@ -1,4 +1,5 @@
 import pkg from "../../package.json" with { type: "json" };
+import { ENV_PREFIX } from "../branding.js";
 import type { Settings } from "../config/settings.js";
 
 // Compiled-in defaults, overridable via env for testing. An empty API key
@@ -6,8 +7,12 @@ import type { Settings } from "../config/settings.js";
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 const DEFAULT_POSTHOG_API_KEY = "phc_BWpXcEx3XBH2EiuNi3fXrdzfgnfbVe4WbVyfR8r5KbLp";
 
-export const POSTHOG_HOST = process.env.INTERCODE_TELEMETRY_HOST ?? DEFAULT_POSTHOG_HOST;
-export const POSTHOG_API_KEY = process.env.INTERCODE_TELEMETRY_KEY ?? DEFAULT_POSTHOG_API_KEY;
+const TELEMETRY_HOST_ENV = `${ENV_PREFIX}TELEMETRY_HOST`;
+const TELEMETRY_KEY_ENV = `${ENV_PREFIX}TELEMETRY_KEY`;
+export const TELEMETRY_ENV = `${ENV_PREFIX}TELEMETRY`;
+
+export const POSTHOG_HOST = process.env[TELEMETRY_HOST_ENV] ?? DEFAULT_POSTHOG_HOST;
+export const POSTHOG_API_KEY = process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG_API_KEY;
 
 // Upper bound on how long flush() may hold up process exit; anything still
 // in flight past this is dropped.
@@ -51,11 +56,11 @@ function truthyEnvFlag(value: string | undefined): boolean {
 
 // Env kills win over everything and require no settings at all — callers use
 // this to skip settings writes (installationId generation) entirely.
-// INTERCODE_TELEMETRY set to any falsy value ("0", "false", "off", "")
+// CORBITS_TELEMETRY set to any falsy value ("0", "false", "off", "")
 // disables, through the same flag parsing as DO_NOT_TRACK, so the two kill
 // switches agree on what counts as "off".
 export function telemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.INTERCODE_TELEMETRY !== undefined && !truthyEnvFlag(env.INTERCODE_TELEMETRY)) return true;
+  if (env[TELEMETRY_ENV] !== undefined && !truthyEnvFlag(env[TELEMETRY_ENV])) return true;
   return truthyEnvFlag(env.DO_NOT_TRACK);
 }
 

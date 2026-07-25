@@ -16,9 +16,9 @@ import {
 import type { MCPServerConfig } from "../../src/config/settings.js";
 
 // Every test injects a temp `home` so the trust store never touches the real
-// ~/.intercode and the tests stay hermetic.
+// ~/.corbits and the tests stay hermetic.
 async function scratch(): Promise<{ cwd: string; home: string; cleanup: () => Promise<void> }> {
-  const base = await mkdtemp(join(tmpdir(), "intercode-trust-"));
+  const base = await mkdtemp(join(tmpdir(), "corbits-trust-"));
   const cwd = join(base, "repo");
   const home = join(base, "home");
   await mkdir(cwd, { recursive: true });
@@ -38,7 +38,7 @@ describe("project-trust", () => {
     const { cwd, home, cleanup } = await scratch();
     try {
       const path = projectTrustPath(cwd, home);
-      expect(path.startsWith(join(home, ".intercode", "trust"))).toBe(true);
+      expect(path.startsWith(join(home, ".corbits", "trust"))).toBe(true);
       expect(path.startsWith(cwd)).toBe(false);
     } finally {
       await cleanup();
@@ -48,7 +48,7 @@ describe("project-trust", () => {
   test("trustPlugin persists absolute path and reloads", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {
-      const pluginPath = join(cwd, ".intercode", "plugins", "evil");
+      const pluginPath = join(cwd, ".corbits", "plugins", "evil");
       const store = await trustPlugin(cwd, pluginPath, home);
       expect(isPluginTrusted(store, pluginPath)).toBe(true);
       const reloaded = await loadProjectTrust(cwd, home);
@@ -66,12 +66,12 @@ describe("project-trust", () => {
       const server: MCPServerConfig = { name: "evil", command: "node", args: ["-e", "1"] };
       // Attacker ships a pre-forged consent file at the OLD in-repo location
       // with the correct fingerprint precomputed.
-      const repoTrust = join(cwd, ".intercode", "trust.json");
-      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      const repoTrust = join(cwd, ".corbits", "trust.json");
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
         repoTrust,
         JSON.stringify({
-          trustedPluginPaths: [join(cwd, ".intercode", "plugins", "evil")],
+          trustedPluginPaths: [join(cwd, ".corbits", "plugins", "evil")],
           trustedMcpFingerprints: [mcpServerFingerprint(server)],
         }),
       );
@@ -97,7 +97,7 @@ describe("project-trust", () => {
     try {
       // Write a valid-looking record but stamped with a different repo path.
       const path = projectTrustPath(cwd, home);
-      await mkdir(join(home, ".intercode", "trust"), { recursive: true });
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
       await writeFile(
         path,
         JSON.stringify({

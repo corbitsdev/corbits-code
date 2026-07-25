@@ -209,7 +209,7 @@ describe("editFileLineRangePlugin", () => {
   let cwd: string;
 
   beforeEach(async () => {
-    cwd = await mkdtemp(join(tmpdir(), "intercode-line-range-"));
+    cwd = await mkdtemp(join(tmpdir(), "corbits-line-range-"));
   });
 
   afterEach(async () => {

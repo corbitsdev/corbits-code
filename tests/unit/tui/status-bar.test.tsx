@@ -32,9 +32,9 @@ function renderBar(
 test("StatusBar renders the product name on the left", () => {
   const { lastFrame } = renderBar();
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Intercode");
+  expect(frame).toContain("Corbits Code");
   // Brand is the first non-whitespace content — left-aligned.
-  expect(frame.trimStart().startsWith("Intercode")).toBe(true);
+  expect(frame.trimStart().startsWith("Corbits Code")).toBe(true);
 });
 
 test("StatusBar shows the session elapsed time beside the brand", () => {
@@ -46,7 +46,7 @@ test("StatusBar shows MCP health on the right when servers are connected", () =>
   const { lastFrame } = renderBar({ mcpCount: 3 });
   const frame = lastFrame() ?? "";
   expect(frame).toContain("MCP ✓ 3");
-  expect(frame.indexOf("Intercode")).toBeLessThan(frame.indexOf("MCP"));
+  expect(frame.indexOf("Corbits Code")).toBeLessThan(frame.indexOf("MCP"));
 });
 
 test("StatusBar hides MCP when none are connected", () => {
@@ -110,7 +110,7 @@ test("StatusBar drops cost/context and truncates cwd when the terminal is narrow
     columns: 40,
   });
   const frame = lastFrame() ?? "";
-  expect(frame).toContain("Intercode");
+  expect(frame).toContain("Corbits Code");
   expect(frame).not.toContain("$0.42");
   expect(frame).not.toContain("Ctx 12%");
 });
@@ -157,13 +157,13 @@ test("planStatusBarLayout keeps everything when it fits", () => {
 });
 
 test("planStatusBarLayout counts padding and per-child gaps in the budget", () => {
-  // brand(9) + timer(2) = 11 text columns; children are brand, timer, and the
-  // flex spacer, so 2 gaps; plus 2 padding columns = 15 total.
-  const fits = planStatusBarLayout({ columns: 15, timerText: "5s", contextLabel: "Ctx" });
-  const overflows = planStatusBarLayout({ columns: 14, timerText: "5s", contextLabel: "Ctx" });
+  // brand(12) + timer(2) = 14 text columns; children are brand, timer, and the
+  // flex spacer, so 2 gaps; plus 2 padding columns = 18 total.
+  const fits = planStatusBarLayout({ columns: 18, timerText: "5s", contextLabel: "Ctx" });
+  const overflows = planStatusBarLayout({ columns: 17, timerText: "5s", contextLabel: "Ctx" });
   expect(fits.showContext).toBe(false);
-  // "Ctx"(3) + its gap(1) pushes the fitting width to 19.
-  expect(planStatusBarLayout({ columns: 19, timerText: "5s", contextLabel: "Ctx" }).showContext).toBe(true);
+  // "Ctx"(3) + its gap(1) pushes the fitting width to 22.
+  expect(planStatusBarLayout({ columns: 22, timerText: "5s", contextLabel: "Ctx" }).showContext).toBe(true);
   expect(overflows.showContext).toBe(false);
 });
 
@@ -179,11 +179,11 @@ test("planStatusBarLayout drops context before cost before the model segment", (
   const wide = planStatusBarLayout({ ...base, columns: 80 });
   expect(wide.showContext).toBe(true);
 
-  const narrower = planStatusBarLayout({ ...base, columns: 56 });
+  const narrower = planStatusBarLayout({ ...base, columns: 59 });
   expect(narrower.showContext).toBe(false);
   expect(narrower.showCost).toBe(true);
 
-  const narrowest = planStatusBarLayout({ ...base, columns: 48 });
+  const narrowest = planStatusBarLayout({ ...base, columns: 51 });
   expect(narrowest.showCost).toBe(false);
   expect(narrowest.modelCwdBranchText).toBeDefined();
 });

@@ -1,4 +1,4 @@
-/** Intercode-local timeout copy for search/read guards. Do not patch interchange. */
+/** Corbits Code-local timeout copy for search/read guards. Do not patch interchange. */
 
 export type ScopedSearchTool = "grep" | "search_files";
 

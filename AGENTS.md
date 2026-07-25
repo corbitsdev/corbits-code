@@ -1,6 +1,6 @@
-# Agent Instructions — Intercode
+# Agent Instructions — Corbits Code
 
-**Intercode** is a single-process coding agent CLI built on the Interchange runtime. For how the system is built, read `/docs` — do not re-derive it from source.
+**Corbits Code** is a single-process coding agent CLI built on the Interchange runtime. For how the system is built, read `/docs` — do not re-derive it from source.
 
 ## Before You Start
 

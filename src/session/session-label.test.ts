@@ -10,7 +10,7 @@ import { isGenericSessionTask, resolveSessionLabel, truncateSessionLabel } from 
 let cwd = "";
 
 beforeEach(async () => {
-  cwd = join(tmpdir(), `intercode-session-label-${Date.now()}`);
+  cwd = join(tmpdir(), `corbits-session-label-${Date.now()}`);
   await mkdir(cwd, { recursive: true });
 });
 

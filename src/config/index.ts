@@ -353,6 +353,7 @@ export async function loadConfig(
   }
 
   const pricingCachePath = defaultPricingCachePath();
+
   await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
 
   const settings =
@@ -381,7 +382,7 @@ export async function loadConfig(
       : settings;
 
   // The per-repo selection file still applies on top of a --config source: that
-  // file supplies provider definitions, while .intercode/settings.json supplies
+  // file supplies provider definitions, while .corbits/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
   const local = await loadLocalSettings(localSettingsPath(cwd));
 

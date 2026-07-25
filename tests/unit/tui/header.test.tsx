@@ -16,7 +16,7 @@ function renderHeader(props: Partial<HeaderProps> = {}) {
 
 test("Header no longer renders the product name — it lives in the status bar", () => {
   const { lastFrame } = renderHeader();
-  expect(lastFrame() ?? "").not.toContain("Intercode");
+  expect(lastFrame() ?? "").not.toContain("Corbits Code");
 });
 
 test("Header renders the latest user message", () => {

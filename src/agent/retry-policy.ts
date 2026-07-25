@@ -9,7 +9,7 @@ import { normalizeInferenceErrorForRetry } from "../inference-gateway-error.js";
 // so the user can switch providers or decide when to retry manually.
 const MAX_BLIND_WAIT_MS = 30_000;
 
-export function createIntercodeRetryPolicy(): RetryPolicy {
+export function createCorbitsRetryPolicy(): RetryPolicy {
   const defaultPolicy = createDefaultRetryPolicy();
   return (situation: RetrySituation): RetryDecision | Promise<RetryDecision> => {
     const error = normalizeInferenceErrorForRetry(situation.error);

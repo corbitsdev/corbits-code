@@ -1,6 +1,6 @@
 # Vendored packages
 
-Intercode vendors a small number of `@intx/*` packages from the `interchange`
+Corbits Code vendors a small number of `@intx/*` packages from the `interchange`
 submodule into `vendor/` instead of consuming them directly from
 `interchange/packages/`. The root `package.json` `workspaces` list points at the
 vendored copy, and Bun resolves `@intx/<name>` by package name, so every
@@ -8,7 +8,7 @@ consumer transparently uses the local copy.
 
 ## Why vendor
 
-- Carry intercode-local patches that are not yet upstream in
+- Carry corbits-local patches that are not yet upstream in
   `faremeter/interchange`, without opening pull requests against that submodule.
 - Let performance and correctness work on the shared runtime land through this
   repo's normal review flow rather than a cross-repo submodule change.
@@ -49,7 +49,7 @@ directly.
 
 ## Local patches (`vendor/intx-inference`)
 
-The vendored inference runtime carries intercode-local changes on top of the
+The vendored inference runtime carries corbits-local changes on top of the
 `69c75847` baseline. See the git history for `vendor/intx-inference/**` for the
 authoritative list; at a high level:
 
@@ -72,13 +72,14 @@ A vendored copy drifts from `interchange` over time. When adopting a newer
 them), then update the submodule commit recorded in the table above. Treat that
 commit as the baseline the current vendored copy was derived from.
 
+
 ### Sync checklist
 
 Before bumping the `interchange` submodule or cutting a release that touches inference:
 
 1. Record current baseline: `git -C interchange rev-parse HEAD` and the table row above.
 2. Diff vendored tree vs submodule package: `diff -ru interchange/packages/inference/src vendor/intx-inference/src` (expect intentional deltas only).
-3. After re-copy or merge from upstream, replay local patch commits listed in `vendor/intx-inference` git history; do not edit submodule `interchange/packages/inference` for intercode-only fixes.
+3. After re-copy or merge from upstream, replay local patch commits listed in `vendor/intx-inference` git history; do not edit submodule `interchange/packages/inference` for corbits-only fixes.
 4. Run `bun run typecheck`, `bun run build`, and `bun test` from repo root.
 5. Update the **Copied from** commit in the table when the vendored baseline changes.
 6. Confirm no workspace entry points at `./interchange/packages/inference` in root `package.json`.

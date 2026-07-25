@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { PRODUCT_NAME } from "../../branding.js";
 
 export type CallbackServer = {
   // Resolves with the validated authorization code once the browser redirects
@@ -114,6 +115,6 @@ export function authorizationDoneHtml(productName: string): string {
   return (
     "<!doctype html><meta charset=utf-8><title>Authorized</title>" +
     '<body style="font-family:system-ui;padding:3rem;text-align:center">' +
-    `<h1>${productName} authorization complete</h1><p>You can close this tab and return to Intercode.</p>`
+    `<h1>${productName} authorization complete</h1><p>You can close this tab and return to ${PRODUCT_NAME}.</p>`
   );
 }

@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   const mode = process.argv[2] ?? "tui";
   if (mode === "cli") {
     console.error(
-      "Headless CLI demo was removed with run-agent; use mode=tui or run intercode from the fixture with env vars set.",
+      "Headless CLI demo was removed with run-agent; use mode=tui or run corbits from the fixture with env vars set.",
     );
     process.exit(1);
   }

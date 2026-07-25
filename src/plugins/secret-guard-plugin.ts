@@ -16,10 +16,10 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /(^|\/)\.npmrc$/,
   /(^|\/)\.netrc$/,
   /(^|\/)\.git-credentials$/,
-  // Intercode's own settings hold provider credentials. Covers both the
-  // global (~/.intercode/settings.json) and per-repo (.intercode/settings.json)
+  // Corbits Code's own settings hold provider credentials. Covers both the
+  // global (~/.corbits/settings.json) and per-repo (.corbits/settings.json)
   // locations.
-  /(^|\/)\.intercode\/settings\.json$/,
+  /(^|\/)\.corbits\/settings\.json$/,
   /(^|\/)\.pgpass$/,
   /(^|\/)\.htpasswd$/,
   /(^|\/)\.ssh\//,

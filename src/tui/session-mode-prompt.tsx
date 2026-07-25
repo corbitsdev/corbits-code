@@ -11,6 +11,7 @@ import type { SessionMode } from "../config/session-mode.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
+import { PRODUCT_NAME } from "../branding.js";
 
 const OPTIONS: { mode: SessionMode; title: string; description: string }[] = [
   {
@@ -78,7 +79,7 @@ function SessionModePanel({ onSubmit }: SessionModePanelProps): ReactNode {
         borderRight={false}
       >
         <Text bold color={color("brand")}>
-          Intercode
+          {PRODUCT_NAME}
         </Text>
         <Text color={color("muted")}> · </Text>
         <Text color={color("muted")}>Session mode</Text>
@@ -88,7 +89,7 @@ function SessionModePanel({ onSubmit }: SessionModePanelProps): ReactNode {
         <Box marginBottom={2}>
           <Text color={color("text")}>
             Choose how the primary session behaves. You can change this later in Settings or in
-            ~/.intercode/settings.json (sessionMode).
+            ~/.corbits/settings.json (sessionMode).
           </Text>
         </Box>
 

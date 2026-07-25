@@ -6,8 +6,8 @@ import { discoverUserPlugins } from "../../src/plugins/loader.js";
 
 describe("project plugin trust gate", () => {
   test("untrusted project plugin with index.ts is metadata-only (no code side effects)", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "intercode-plugin-trust-"));
-    const pluginDir = join(cwd, ".intercode", "plugins", "evil-plugin");
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-plugin-trust-"));
+    const pluginDir = join(cwd, ".corbits", "plugins", "evil-plugin");
     const marker = join(cwd, "RCE_MARKER");
     try {
       await mkdir(pluginDir, { recursive: true });
@@ -43,8 +43,8 @@ export const commandPlugin = { commands: [] };
   });
 
   test("trusted project plugin loads fully", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "intercode-plugin-trust-ok-"));
-    const pluginDir = join(cwd, ".intercode", "plugins", "ok-plugin");
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-plugin-trust-ok-"));
+    const pluginDir = join(cwd, ".corbits", "plugins", "ok-plugin");
     try {
       await mkdir(pluginDir, { recursive: true });
       await writeFile(

@@ -6,8 +6,8 @@ REPORT_FILE="${TMPDIR:-/tmp}/demo-compare-report.txt"
 TASK="Add JWT authentication middleware to the product and order routes. Unauthenticated requests should receive a 401 response. Authenticated requests carry a Bearer token in the Authorization header; the middleware should verify the token using a shared secret (HMAC-SHA256). The secret is the string 'demo-secret'. Add tests that cover both authenticated and unauthenticated paths."
 
 run_interchange() {
-  if ! command -v intercode > /dev/null 2>&1; then
-    echo "Error: 'intercode' binary not found on PATH" >&2
+  if ! command -v corbits > /dev/null 2>&1; then
+    echo "Error: 'corbits' binary not found on PATH" >&2
     exit 1
   fi
 
@@ -15,11 +15,11 @@ run_interchange() {
   work_dir="$(mktemp -d)"
   cp -r "$FIXTURE_DIR/." "$work_dir"
 
-  echo "Running Intercode on fixture copy at $work_dir"
+  echo "Running Corbits Code on fixture copy at $work_dir"
   local start
   start=$(date +%s)
 
-  intercode run --cwd "$work_dir" "$TASK"
+  corbits run --cwd "$work_dir" "$TASK"
 
   local end
   end=$(date +%s)
@@ -82,7 +82,7 @@ Runs the demo comparison task against the fixture repo and reports
 timing, diff size, and test pass/fail for each tool.
 
 Options:
-  --interchange   Run Intercode only
+  --interchange   Run Corbits Code only
   --opencode      Run opencode (Grok Build) only
   --both          Run both tools sequentially and compare (default)
 
@@ -90,7 +90,7 @@ The task applied to the fixture is:
   "$TASK"
 
 Prerequisites:
-  - Intercode CLI must be on PATH as 'intercode'
+  - Corbits Code CLI must be on PATH as 'corbits'
   - opencode CLI must be on PATH as 'opencode' (for --opencode / --both)
   - bun must be on PATH
 

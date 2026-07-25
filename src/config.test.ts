@@ -15,7 +15,7 @@ function assertConfigured(config: Config | UnconfiguredConfig): asserts config i
 
 // A global settings path guaranteed not to exist, so resolution finds no
 // provider — used by the "missing provider" cases.
-const NO_SETTINGS = join(tmpdir(), "intercode-tests-missing", ".intercode", "settings.json");
+const NO_SETTINGS = join(tmpdir(), "corbits-tests-missing", ".corbits", "settings.json");
 
 // Writes a minimal valid global settings file with a single provider and
 // returns its path. Provider resolution reads exclusively from such files.
@@ -237,9 +237,9 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
-        join(cwd, ".intercode", "profile.json"),
+        join(cwd, ".corbits", "profile.json"),
         JSON.stringify({ model: "profile-model", maxTurns: 25, systemPromptExtensions: ["ext1"] }),
       );
       const config = await loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath });
@@ -256,9 +256,9 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
-        join(cwd, ".intercode", "profile.json"),
+        join(cwd, ".corbits", "profile.json"),
         JSON.stringify({ model: "profile-model" }),
       );
       const config = await loadConfig(["--cwd", cwd, "--model", "accounts/fireworks/routers/kimi-k2p6-turbo", "task"], {
@@ -274,9 +274,9 @@ describe("loadConfig", () => {
   test("per-repo local settings select the provider", async () => {
     const cwd = await emptyCwd();
     try {
-      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
-        join(cwd, ".intercode", "settings.json"),
+        join(cwd, ".corbits", "settings.json"),
         JSON.stringify({ provider: "b", model: "b-model" }),
       );
       const globalPath = join(cwd, "global.json");
@@ -303,9 +303,9 @@ describe("loadConfig", () => {
   test("rejects a local reasoningEffort unsupported by the selected model", async () => {
     const cwd = await emptyCwd();
     try {
-      await mkdir(join(cwd, ".intercode"), { recursive: true });
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
-        join(cwd, ".intercode", "settings.json"),
+        join(cwd, ".corbits", "settings.json"),
         JSON.stringify({ provider: "a", model: "a-model", reasoningEffort: "xhigh" }),
       );
       const globalPath = join(cwd, "global.json");

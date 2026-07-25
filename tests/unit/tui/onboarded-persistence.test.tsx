@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { markOnboarded, loadSettings } from "../../../src/config/settings.js";
 
 async function tempSettingsPath(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "intercode-onboarded-"));
+  const dir = await mkdtemp(join(tmpdir(), "corbits-onboarded-"));
   return join(dir, "settings.json");
 }
 

@@ -13,6 +13,8 @@ import type {
   ToolResult,
 } from "@intx/types/runtime";
 
+import { COMMAND_NAME, SETTINGS_DIR_NAME } from "../branding.js";
+
 export type HookKind = "postTurn" | "postRun";
 
 export type LifecycleHookType = "typescript" | "shell";
@@ -96,11 +98,11 @@ export function hooksDirectory(): string {
 }
 
 export function localHooksDirectory(cwd: string = process.cwd()): string {
-  return join(cwd, ".intercode", "hooks");
+  return join(cwd, SETTINGS_DIR_NAME, "hooks");
 }
 
 export function globalHooksDirectory(): string {
-  return join(homedir(), ".intercode", "hooks");
+  return join(homedir(), SETTINGS_DIR_NAME, "hooks");
 }
 
 export function hookDirectories(cwd: string = process.cwd()): string[] {
@@ -371,12 +373,9 @@ async function createTypeScriptHookCommand(
   hook: LifecycleHook,
   kind: HookKind,
 ): Promise<string[]> {
-  const runnerPath = join(
-    tmpdir(),
-    "intercode-hook-runners",
-    `${hashHookRunner(hook.path, kind)}.ts`,
-  );
-  await mkdir(join(tmpdir(), "intercode-hook-runners"), { recursive: true });
+  const runnerDir = join(tmpdir(), `${COMMAND_NAME}-hook-runners`);
+  const runnerPath = join(runnerDir, `${hashHookRunner(hook.path, kind)}.ts`);
+  await mkdir(runnerDir, { recursive: true });
   await writeFile(runnerPath, typeScriptHookRunnerSource(hook.path, kind));
   return ["bun", runnerPath];
 }

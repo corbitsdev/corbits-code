@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Approval } from "./types.js";
 import { sessionDir } from "../session/index.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Approvals are remembered per session, alongside the run state.
 function storePath(cwd: string, sessionId: string): string {
@@ -14,13 +15,13 @@ function storePath(cwd: string, sessionId: string): string {
 // gitignored (machine-local), so a teammate who pulls the repo never silently
 // inherits another machine's auto-approvals.
 function projectStorePath(cwd: string): string {
-  return join(cwd, ".intercode", "permissions.json");
+  return join(cwd, SETTINGS_DIR_NAME, "permissions.json");
 }
 
 // Persistent global and provider-model grants share one file under the user's
 // home, alongside the global settings file.
 function globalStorePath(home: string = homedir()): string {
-  return join(home, ".intercode", "permissions.json");
+  return join(home, SETTINGS_DIR_NAME, "permissions.json");
 }
 
 // Tool calls dispatch concurrently, so two approvals can resolve at nearly the

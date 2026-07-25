@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { sessionDir } from "../session/index.js";
 import { atomicWrite, warnUnreadableState } from "../session/state.js";
 import type { StepStatus, WorkflowState } from "./types.js";
+import { COMMAND_NAME } from "../branding.js";
 
 const STEP_STATUSES: StepStatus[] = ["pending", "active", "completed", "skipped"];
 
@@ -37,7 +38,7 @@ function isValidWorkflowState(data: unknown): data is WorkflowState {
 
 /** Surface a failed workflow.json write instead of dropping it silently. */
 export function warnWorkflowPersistenceFailure(path: string, reason: string): void {
-  process.stderr.write(`intercode: failed to persist workflow state at ${path} (${reason})\n`);
+  process.stderr.write(`${COMMAND_NAME}: failed to persist workflow state at ${path} (${reason})\n`);
 }
 
 export async function saveWorkflowState(

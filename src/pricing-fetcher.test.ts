@@ -20,10 +20,10 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("defaultPricingCachePath", () => {
-  test("resolves under ~/.intercode/, not project cwd .cache/", () => {
+  test("resolves under ~/.corbits/, not project cwd .cache/", () => {
     const path = defaultPricingCachePath();
     expect(isAbsolute(path)).toBe(true);
-    expect(path).toBe(join(homedir(), ".intercode", "cache", "models-pricing.json"));
+    expect(path).toBe(join(homedir(), ".corbits", "cache", "models-pricing.json"));
     // Must not be the old cwd-relative default that polluted project directories.
     expect(path).not.toBe(".cache/models-pricing.json");
     expect(path.endsWith(join(".cache", "models-pricing.json"))).toBe(false);
@@ -31,7 +31,7 @@ describe("defaultPricingCachePath", () => {
 
   test("accepts an injectable home directory", () => {
     expect(defaultPricingCachePath("/tmp/fake-home")).toBe(
-      join("/tmp/fake-home", ".intercode", "cache", "models-pricing.json"),
+      join("/tmp/fake-home", ".corbits", "cache", "models-pricing.json"),
     );
   });
 });

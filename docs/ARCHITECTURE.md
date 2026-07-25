@@ -1,4 +1,4 @@
-# Intercode — Architecture
+# Corbits Code — Architecture
 
 ## System Overview
 
@@ -43,7 +43,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 
 ### Config Resolution (`src/config/index.ts`, `src/config/settings.ts`)
 
-- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > per-repo `.intercode/settings.json` (selection only) > global `~/.intercode/settings.json`. Credentials come only from the settings files — no environment-variable override, and `.env` is not loaded.
+- Resolves the inference provider from layered sources into `{ apiKey, baseURL, model, providerName }` — the struct the runtime consumes. Per field, highest wins: CLI flags (`--provider`/`--model`) > per-repo `.corbits/settings.json` (selection only) > global `~/.corbits/settings.json`. Credentials come only from the settings files — no environment-variable override, and `.env` is not loaded.
 - `--config <path>` replaces the global settings file as the provider source (useful for CI per-run injection). A provider must be defined in a settings file; there is no env fallback.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
@@ -138,15 +138,15 @@ Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlug
 
 ### System Prompt (`src/agent/prompts.ts`)
 
-The agent's identity is **Intercode**, framed as a senior coding assistant running in a terminal harness. The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
+The agent's identity is **Corbits Code**, framed as a senior coding assistant running in a terminal harness. The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
 
 - `buildChatRole` — one-line identity and purpose.
-- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.intercode/MEMORY.md`.
+- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
 - `buildGuidelines` — be concise, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
 
-`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → lazy skills listing → live `<env>` block → appended extensions. Built-in catalog tools and MCP integrations load dynamically via `tool_search` rather than being enumerated. Skills follow the same lazy principle pi-style: each discovered skill contributes only its name + one-line description to the prompt, and the model pulls a skill's full instructions into context on demand by calling `use_skill`. Skill loading is entirely model-driven — there is no operator invocation. Skills are discovered (and deduped by name) from enabled plugin dirs, then `.agents`/`.claude`/`.codex/skills`, in that precedence. Intercode does not ship a bundled skill catalog — skills come from plugins and the project tree.
+`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → lazy skills listing → live `<env>` block → appended extensions. Built-in catalog tools and MCP integrations load dynamically via `tool_search` rather than being enumerated. Skills follow the same lazy principle pi-style: each discovered skill contributes only its name + one-line description to the prompt, and the model pulls a skill's full instructions into context on demand by calling `use_skill`. Skill loading is entirely model-driven — there is no operator invocation. Skills are discovered (and deduped by name) from enabled plugin dirs, then `.agents`/`.claude`/`.codex/skills`, in that precedence. Corbits Code does not ship a bundled skill catalog — skills come from plugins and the project tree.
 
-**Overrides.** `loadSystemPromptOverrides` (`src/agent/context-extensions.ts`) resolves a project `SYSTEM.md` (repo root, then `.intercode/`) that **replaces** the static base block, and an `APPEND_SYSTEM.md` that is **appended** as an extension. These compose with `config.systemPromptExtensions` (profile config) and the auto-discovered `AGENTS.md`, all of which attach as appended sections after the base.
+**Overrides.** `loadSystemPromptOverrides` (`src/agent/context-extensions.ts`) resolves a project `SYSTEM.md` (repo root, then `.corbits/`) that **replaces** the static base block, and an `APPEND_SYSTEM.md` that is **appended** as an extension. These compose with `config.systemPromptExtensions` (profile config) and the auto-discovered `AGENTS.md`, all of which attach as appended sections after the base.
 
 ### State Persistence (`src/session/state.ts`)
 
@@ -156,7 +156,7 @@ The agent's identity is **Intercode**, framed as a senior coding assistant runni
 
 ### Lifecycle Hooks (`src/session/hooks.ts`)
 
-- Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.intercode/hooks` (local) and `~/.intercode/hooks` (global)
+- Discovers `postTurn` / `postRun` hooks (TypeScript or shell) from `.corbits/hooks` (local) and `~/.corbits/hooks` (global)
 - `TurnContext` aggregates per-turn data (assistant turn, tool calls/results, token usage, source, duration); a turn-context collector builds it from the event stream
 - `RunSummary` aggregates the whole run for `postRun`
 - The manager exposes enable/disable and emits `hooks.loaded` / `hook.updated` events for the TUI hook panel
@@ -188,14 +188,14 @@ tool call
 **Rejection behavior:** Any plugin can short-circuit by returning a `ToolResult` with `isError: true`; the error propagates to the agent and downstream plugins/execution are skipped.
 
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes. Runs first so later plugins see resolved paths.
-- **Tool-output URI** (`tool-output-uri-plugin.ts`) — Normalizes mistaken `read_file` blob URIs to `tool-output:///id` (intercode-only; interchange stays unpatched).
+- **Tool-output URI** (`tool-output-uri-plugin.ts`) — Normalizes mistaken `read_file` blob URIs to `tool-output:///id` (corbits-only; interchange stays unpatched).
 - **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies path-keyed tool calls (`read_file`, `write_file`, …) that would put a sensitive file into (or write it from) the model context. Runs before the permission plugin, so the path-arg deny holds even under `--dangerously-skip-permissions`. Shell commands that *reference* a sensitive path (tokenized so `cat .env`, `bun --env-file=.env run …`, and quote/env-assignment forms are detected) are not hard-denied here: they require operator approval via the permission gate, and auto mode forces an ask through the auto-shell policy (`sensitive-path` rule). Once the operator approves, the command runs. Shell detection is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly). Tool-result secret scrub still redacts credential-shaped output.
 - **Authorization** (`run-shell-authz.ts`, wired by `authz-plugin.ts`) — Denies catastrophic shell command patterns by regex, and hard-blocks open-ended shell searches (`find`, `rg`, `grep -r`) that OOM the host; those must go through the bounded `grep`/`search_files`/`list_dir` tools. The permission gate’s shell auto-allow path consults the same policy so it never pre-approves a command authz would reject.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
-- **Shell Guard** (`shell-guard-plugin.ts`) — Intercode-only replacement for stock `run_shell` (interchange stays unpatched): 15s default timeout, 512KB display cap with head+tail retention (the process keeps running when the cap is hit), process-group kill on timeout/abort only. Also applies a 10s wall-clock budget to `grep`/`search_files`.
-- **Read File Guard** (`read-file-guard-plugin.ts`) — Intercode-only short-circuit for `read_file` on real filesystem paths and configured `tool-output://` URIs (interchange stays unpatched): streaming reads that never decode the whole file in one pass, caps model-facing output at 50KB, defaults to 2000 lines, truncates long lines with recovery hints, samples the first chunk to reject binary, and stops at an 8MB scan ceiling. Emits `offset` continuation notices so the model can page without losing file or spill content on disk.
+- **Shell Guard** (`shell-guard-plugin.ts`) — Corbits Code-only replacement for stock `run_shell` (interchange stays unpatched): 15s default timeout, 512KB display cap with head+tail retention (the process keeps running when the cap is hit), process-group kill on timeout/abort only. Also applies a 10s wall-clock budget to `grep`/`search_files`.
+- **Read File Guard** (`read-file-guard-plugin.ts`) — Corbits Code-only short-circuit for `read_file` on real filesystem paths and configured `tool-output://` URIs (interchange stays unpatched): streaming reads that never decode the whole file in one pass, caps model-facing output at 50KB, defaults to 2000 lines, truncates long lines with recovery hints, samples the first chunk to reject binary, and stops at an 8MB scan ceiling. Emits `offset` continuation notices so the model can page without losing file or spill content on disk.
 - **Verify** (`verify-plugin.ts`) — Re-reads after `write_file` / `edit_file` and errors on mismatch. Per-path serialization (`file-mutation-lock.ts`) prevents parallel edits on one file from tripping verification.
-- **Edit file line range** (`edit-file-line-range-plugin.ts`) — Intercode-only short-circuit for `edit_file` mode B (`start_line`/`end_line`/`new_string`), same pattern as shell-guard; schema advertised via `advertiseEditFileLineRange`. When a call includes both `old_string` and line-range fields, the plugin reads the file and treats the call as line-range if `old_string` matches those lines; otherwise it returns a recoverable error naming which fields to omit.
+- **Edit file line range** (`edit-file-line-range-plugin.ts`) — Corbits Code-only short-circuit for `edit_file` mode B (`start_line`/`end_line`/`new_string`), same pattern as shell-guard; schema advertised via `advertiseEditFileLineRange`. When a call includes both `old_string` and line-range fields, the plugin reads the file and treats the call as line-range if `old_string` matches those lines; otherwise it returns a recoverable error naming which fields to omit.
 - **Edit file diagnostics** (`edit-file-diagnostics-plugin.ts`) — On stock substring mismatch (`old_string not found` / not unique), appends nearby file context (whitespace near-miss, occurrence lines) without changing match semantics.
 - **LSP hint** (`lsp-hint-plugin.ts`) — Appends a typescript-language-server install hint when the stock `lsp` tool reports no server for TS/JS paths.
 
@@ -238,7 +238,7 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 - Components: `header`, `event-log`, `chat-input`, `status-bar`, `task-view`, `operator-modal`, `permission-modal`, `permissions-manager`, `plugins-manager`, `settings-overlay`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `login-provider-picker`, `codex-login-modal`, `mcp-auth-prompt`, `onboarding-animation`, `in-flight-indicator`.
 - Support: `stdin-filter.ts` (strips SGR mouse sequences before Ink parses input — see below), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
 - Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/model`, `/settings`, `/permissions`, `/plugins`, `/login`, `/codex`, `/xai`, `/grok`, `/clear`, `/new`, `/mcp`).
-- `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the provider catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.intercode/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the add-provider/onboarding step.
+- `/agent` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. The Provider/Model section reuses the provider catalog (from `config.providers`) and applies a switch live via `agent.setSource()` — the runtime's in-place source mutation, read at the next inference call, so no agent recreation. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.corbits/settings.json` via `saveLocalSettings`. The section model leaves room for system-prompt/profile sections without new slash commands, and for the add-provider/onboarding step.
 
 #### Event log rendering
 

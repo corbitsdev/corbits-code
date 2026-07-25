@@ -1,6 +1,6 @@
 # Telemetry
 
-Intercode sends a small amount of anonymous usage telemetry to PostHog to help
+Corbits Code sends a small amount of anonymous usage telemetry to PostHog to help
 us understand aggregate usage. It is opt-out, contains no PII, and never
 includes prompts, code, file contents, or paths.
 
@@ -42,8 +42,8 @@ anything identifying in a model name.
 Any of the following disables telemetry entirely:
 
 - Turn it off in the TUI: `/settings` → Telemetry tab → Off
-- Set `"telemetry": { "enabled": false }` in `~/.intercode/settings.json`
-- `INTERCODE_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
+- Set `"telemetry": { "enabled": false }` in `~/.corbits/settings.json`
+- `CORBITS_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
 - `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
 
 Re-enable from the same Telemetry tab or by removing the env var / settings
@@ -77,7 +77,7 @@ prompt is later submitted.
 ## Identification
 
 `installationId` is a random UUID (`crypto.randomUUID()`) generated once on
-first run and stored in `~/.intercode/settings.json`. It identifies an
+first run and stored in `~/.corbits/settings.json`. It identifies an
 installation, not a person — there is no account, email, or other PII behind
 it.
 

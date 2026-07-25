@@ -99,7 +99,7 @@ describe("createAuthStore", () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {
       const store = createAuthStore<TestTokens>({ filename: "test-auth.json", isTokens: isTestTokens });
-      expect(store.authPath(home)).toBe(join(home, ".intercode", "test-auth.json"));
+      expect(store.authPath(home)).toBe(join(home, ".corbits", "test-auth.json"));
       expect(await store.listProfiles(home)).toEqual([]);
 
       const profile = {

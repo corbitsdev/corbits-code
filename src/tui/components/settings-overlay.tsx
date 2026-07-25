@@ -251,7 +251,7 @@ function SessionModeTab({
       </Text>
       <Text color={color("muted")}>
         Single: one agent does the work. Orchestrator: delegates via task. Per-repo override saves to
-        .intercode/settings.json (l); global saves to ~/.intercode/settings.json (g). Takes effect on next
+        .corbits/settings.json (l); global saves to ~/.corbits/settings.json (g). Takes effect on next
         session start.
       </Text>
       <Box marginTop={1}>
@@ -318,7 +318,7 @@ function SubAgentsTab({
       </Text>
       <Text color={color("muted")}>
         Maximum task-tool workers running at once (each has its own LSP and context store). Takes effect
-        immediately; also saved to ~/.intercode/settings.json.
+        immediately; also saved to ~/.corbits/settings.json.
       </Text>
       <Box marginTop={1}>
         <Text bold>

@@ -70,6 +70,7 @@ import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { SubAgentSessionStore } from "./session-store.js";
+import { ID_PREFIX } from "../branding.js";
 
 export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
@@ -760,7 +761,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
 
   const directorDef = defineDirector({
-    id: "intercode/subagent",
+    id: `${ID_PREFIX}/subagent`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       new SubAgentDirector(
@@ -772,7 +773,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   });
 
   const toolsFactory = defineTool({
-    id: "intercode/subagent-tools",
+    id: `${ID_PREFIX}/subagent-tools`,
     factory: () => createDynamicToolRunner(tools),
   });
 
@@ -780,7 +781,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   await mkdir(workdir, { recursive: true });
 
   const def = defineAgent({
-    id: "intercode/subagent",
+    id: `${ID_PREFIX}/subagent`,
     systemPrompt,
     tools: [toolsFactory],
     capabilities: [],
@@ -818,7 +819,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({
       factories: [directorDef.factory],
-      defaultId: "intercode/subagent",
+      defaultId: `${ID_PREFIX}/subagent`,
     }),
     compactors: {
       "pruning-compactor": createPruningCompactor({
@@ -965,13 +966,13 @@ export const SUBAGENT_SPAWN_DRAIN_MS = 2_000;
 
 /**
  * Honest limits for plugin-spawn teardown (for operator docs and output notes).
- * Intercode can dispose posix tools and LSP sidecars per sub-agent session; OS
+ * Corbits Code can dispose posix tools and LSP sidecars per sub-agent session; OS
  * children spawned inside shell-guard and ripgrep middleware are aborted via the
  * tool AbortSignal on cancel/close but are not centrally registered without
  * upstream spawn hooks on those plugins.
  */
 export const SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS =
-  "Per sub-agent session Intercode runs agent.close(), drains in-flight tool middleware (best-effort), then posixTools.dispose() (LSP and plugin dispose callbacks). " +
+  "Per sub-agent session Corbits Code runs agent.close(), drains in-flight tool middleware (best-effort), then posixTools.dispose() (LSP and plugin dispose callbacks). " +
   "run_shell and ripgrep spawns honor AbortSignal process-group kill but are not tracked in a global registry until shell-guard/ripgrep expose spawn hooks.";
 
 export type SubAgentSpawnSnapshot = {

@@ -29,8 +29,8 @@ test("resolveTelemetryEnabled is false when settings.telemetry.enabled is false"
   expect(resolveTelemetryEnabled(settingsWith("id", false), {})).toBe(false);
 });
 
-test("resolveTelemetryEnabled is false when INTERCODE_TELEMETRY=0", () => {
-  expect(resolveTelemetryEnabled(settingsWith("id"), { INTERCODE_TELEMETRY: "0" })).toBe(false);
+test("resolveTelemetryEnabled is false when CORBITS_TELEMETRY=0", () => {
+  expect(resolveTelemetryEnabled(settingsWith("id"), { CORBITS_TELEMETRY: "0" })).toBe(false);
 });
 
 test("resolveTelemetryEnabled is false when DO_NOT_TRACK is truthy", () => {
@@ -39,18 +39,18 @@ test("resolveTelemetryEnabled is false when DO_NOT_TRACK is truthy", () => {
 
 test("telemetryDisabledByEnv reflects env kills only", () => {
   expect(telemetryDisabledByEnv({})).toBe(false);
-  expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "0" })).toBe(true);
+  expect(telemetryDisabledByEnv({ CORBITS_TELEMETRY: "0" })).toBe(true);
   expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "1" })).toBe(true);
   expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "true" })).toBe(true);
   expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "0" })).toBe(false);
 });
 
-test("telemetryDisabledByEnv treats any falsy INTERCODE_TELEMETRY value as disable", () => {
+test("telemetryDisabledByEnv treats any falsy CORBITS_TELEMETRY value as disable", () => {
   for (const value of ["0", "false", "FALSE", "off", "no", "", " 0", "false\n", " off "]) {
-    expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: value })).toBe(true);
+    expect(telemetryDisabledByEnv({ CORBITS_TELEMETRY: value })).toBe(true);
   }
-  expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "1" })).toBe(false);
-  expect(telemetryDisabledByEnv({ INTERCODE_TELEMETRY: "true" })).toBe(false);
+  expect(telemetryDisabledByEnv({ CORBITS_TELEMETRY: "1" })).toBe(false);
+  expect(telemetryDisabledByEnv({ CORBITS_TELEMETRY: "true" })).toBe(false);
 });
 
 test("resolveTelemetryEnabled is false when installationId is missing", () => {
@@ -73,7 +73,7 @@ test("createTelemetry never fetches when api key is empty (default)", () => {
 test("createTelemetry never fetches for any kill-switch combination", () => {
   const cases: [Settings, NodeJS.ProcessEnv][] = [
     [settingsWith("id", false), {}],
-    [settingsWith("id"), { INTERCODE_TELEMETRY: "0" }],
+    [settingsWith("id"), { CORBITS_TELEMETRY: "0" }],
     [settingsWith("id"), { DO_NOT_TRACK: "true" }],
     [settingsWith("id"), { DO_NOT_TRACK: "1" }],
     [settingsWith(undefined), {}],
@@ -241,7 +241,7 @@ test("flush resolves immediately when nothing is pending", async () => {
 });
 
 test("ensureTelemetrySettings called twice keeps installationId and enabled flag unchanged", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "intercode-telemetry-settings-"));
+  const dir = await mkdtemp(join(tmpdir(), "corbits-telemetry-settings-"));
   const path = join(dir, "settings.json");
   try {
     const first = await ensureTelemetrySettings(path);

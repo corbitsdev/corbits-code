@@ -1,5 +1,5 @@
 /**
- * Agent-loop integration harness for Intercode: wires `createAgent` to
+ * Agent-loop integration harness for Corbits Code: wires `createAgent` to
  * `@intx/inference-testing` so full reactor cycles run without network I/O.
  *
  * Production-shaped stack: `createChatDirector`, `createAgentToolset` (posix +
@@ -26,6 +26,7 @@ import { type } from "arktype";
 
 import { createChatDirector } from "../../src/agent/director.js";
 import { createAgentToolset } from "../../src/agent/tools.js";
+import { ID_PREFIX } from "../../src/branding.js";
 import type { PermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
 
@@ -54,7 +55,7 @@ export async function openIntegrationSession(
   opts: OpenIntegrationSessionOpts,
 ): Promise<IntegrationSession> {
   const harness = setupHarness();
-  const cwd = mkdtempSync(join(tmpdir(), "intercode-integration-cwd-"));
+  const cwd = mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
   const workdir = join(cwd, ".agent-state", "integration-session");
 
   const toolset = await createAgentToolset({
@@ -64,7 +65,7 @@ export async function openIntegrationSession(
   });
 
   const chatDirectorDef = defineDirector({
-    id: "intercode/chat",
+    id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       createChatDirector(
@@ -77,12 +78,12 @@ export async function openIntegrationSession(
   });
 
   const toolsFactory = defineTool({
-    id: "intercode/integration-tools",
+    id: `${ID_PREFIX}/integration-tools`,
     factory: () => toolset.dynamicRunner,
   });
 
   const def = defineAgent({
-    id: "intercode/integration-agent",
+    id: `${ID_PREFIX}/integration-agent`,
     systemPrompt: opts.systemPrompt ?? "You are a test agent. Follow the user.",
     tools: [toolsFactory],
     capabilities: [],
@@ -103,7 +104,7 @@ export async function openIntegrationSession(
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({
       factories: [chatDirectorDef.factory],
-      defaultId: "intercode/chat",
+      defaultId: `${ID_PREFIX}/chat`,
     }),
     closeTimeoutMs: 0,
   });

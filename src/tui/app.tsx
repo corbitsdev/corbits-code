@@ -139,6 +139,7 @@ import {
   type PendingImageAttachment,
 } from "./image-attachments.js";
 import { setConfiguredTiers } from "./commands/built-in.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
 const MAX_MENTION_TOTAL_BYTES = 400_000;
@@ -440,6 +441,7 @@ export type AppProps = {
   // The TRUE global settings file path (never a --config/project file). The
   // `onboarded` flag is always written here. Defaults to globalSettingsPath.
   globalOnboardingPath?: string;
+
   // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
   // from stdin before they reach useInput (see createFilteredStdin).
   mouseEvents?: EventEmitter;
@@ -1971,7 +1973,7 @@ export function App({
     // synthetic OAuth provider entries with short-lived access tokens (see
     // providerCatalogToSettings) that must never be written to settings.json.
     void markOnboarded(globalOnboardingPath ?? globalSettingsPath).catch((err: unknown) => {
-      getLogger(["intercode", "tui", "onboarding"]).error(
+      getLogger([LOG_NAMESPACE_ROOT, "tui", "onboarding"]).error(
         "Failed to persist onboarded flag: {error}",
         { error: err instanceof Error ? err.message : String(err) },
       );

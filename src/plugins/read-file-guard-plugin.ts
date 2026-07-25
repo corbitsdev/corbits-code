@@ -8,7 +8,7 @@ import type { BlobReader } from "@intx/types/runtime";
 import { canonicalToolOutputUri, isToolOutputLike } from "../util/tool-output-uri.js";
 import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 
-// Intercode-side guard for read_file. Stock @intx/tools-posix read-file loads the
+// Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file loads the
 // whole file into memory (buffer -> string -> split) and, with no limit, returns
 // every line -- so a model told to "go deep" into a tree of large transcripts can
 // pull multi-MB files into context with no ceiling and OOM the host. This

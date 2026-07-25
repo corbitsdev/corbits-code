@@ -1,14 +1,14 @@
 # Lifecycle Hooks
 
-Interchange Code discovers lifecycle hooks from:
+Corbits Code discovers lifecycle hooks from:
 
 ```text
-.intercode/hooks/
-~/.intercode/hooks/
+.corbits/hooks/
+~/.corbits/hooks/
 ```
 
-Local hooks in `.intercode/hooks/` take precedence over global hooks in
-`~/.intercode/hooks/` when both directories contain a hook with the same file
+Local hooks in `.corbits/hooks/` take precedence over global hooks in
+`~/.corbits/hooks/` when both directories contain a hook with the same file
 name.
 
 Supported files:

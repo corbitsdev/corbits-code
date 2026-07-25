@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const repoRoot = join(import.meta.dirname, "../..");
-const scopeScript = join(repoRoot, "scripts/verify-intercode-only-scope.sh");
+const scopeScript = join(repoRoot, "scripts/verify-corbits-only-scope.sh");
 
 async function runScopeScript(cwd: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bash", scopeScript], {
@@ -33,13 +33,13 @@ async function initGitRepo(dir: string): Promise<void> {
   await run(["commit", "-m", "init"]);
 }
 
-test("verify-intercode-only-scope passes on clean intercode-only tree", async () => {
+test("verify-corbits-only-scope passes on clean corbits-only tree", async () => {
   const { exitCode, stdout } = await runScopeScript(repoRoot);
   expect(exitCode).toBe(0);
   expect(stdout).toContain("OK: no forbidden path changes detected.");
 });
 
-test("verify-intercode-only-scope fails on untracked vendor path", async () => {
+test("verify-corbits-only-scope fails on untracked vendor path", async () => {
   const dir = await mkdtemp(join(tmpdir(), "scope-guard-"));
   try {
     await initGitRepo(dir);
@@ -54,7 +54,7 @@ test("verify-intercode-only-scope fails on untracked vendor path", async () => {
   }
 });
 
-test("verify-intercode-only-scope passes on empty change set in fresh repo", async () => {
+test("verify-corbits-only-scope passes on empty change set in fresh repo", async () => {
   const dir = await mkdtemp(join(tmpdir(), "scope-guard-clean-"));
   try {
     await initGitRepo(dir);

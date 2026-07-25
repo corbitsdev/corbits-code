@@ -25,7 +25,7 @@ test("gatherEnvironment detects this repository as a git work tree", async () =>
 });
 
 test("gatherEnvironment gathers branch and dirty status from the same work tree", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "intercode-env-"));
+  const dir = await mkdtemp(join(tmpdir(), "corbits-env-"));
   try {
     await run("git", ["init"], { cwd: dir });
     await run("git", ["config", "user.email", "t@t.test"], { cwd: dir });

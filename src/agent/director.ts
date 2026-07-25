@@ -18,14 +18,15 @@ import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
 import { type } from "arktype";
 import { applyManageTasks, hasActiveTasks, parseManageTasksArgs, type Task } from "./tasks.js";
-import { createIntercodeRetryPolicy } from "./retry-policy.js";
+import { createCorbitsRetryPolicy } from "./retry-policy.js";
 import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import type { GoalGovernor } from "./goal.js";
 import { evidenceFromTurns } from "./goal-evaluator.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
-const RETRY_POLICY = createIntercodeRetryPolicy();
+const RETRY_POLICY = createCorbitsRetryPolicy();
 
-const logger = getLogger(["intercode", "agent", "director"]);
+const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
 function isInternalRecoveryAbort(event: Extract<ReactorInboundEvent, { type: "inference.error" }>): boolean {
   return isInternalRecoveryAbortRaw(event.error.raw);

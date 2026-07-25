@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
@@ -295,8 +296,8 @@ async function scanPluginsDir(
 }
 
 // Discover user-installed plugins from:
-//   <cwd>/.intercode/plugins/   (project-local — requires path trust to execute)
-//   ~/.intercode/plugins/       (user-global — auto-trusted)
+//   <cwd>/.corbits/plugins/   (project-local — requires path trust to execute)
+//   ~/.corbits/plugins/       (user-global — auto-trusted)
 //
 // Pass `isPluginTrusted` to gate project plugins. When omitted, project plugins
 // still load fully (backward compatible for tests/callers that do not pass trust).
@@ -304,8 +305,8 @@ export async function discoverUserPlugins(
   cwd: string,
   opts: { isPluginTrusted?: (pluginPath: string) => boolean } = {},
 ): Promise<PluginModule[]> {
-  const projectDir = join(cwd, ".intercode", "plugins");
-  const userDir = join(homedir(), ".intercode", "plugins");
+  const projectDir = join(cwd, SETTINGS_DIR_NAME, "plugins");
+  const userDir = join(homedir(), SETTINGS_DIR_NAME, "plugins");
   const [project, user] = await Promise.all([
     scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted),
     scanPluginsDir(userDir, cwd, "user"),
@@ -369,7 +370,7 @@ export async function loadPluginsFromPaths(
 // Discover built-in repo plugins from the plugins/ directory that lives
 // alongside this source file (two levels up: src/plugins/ -> plugins/).
 // Repo plugins resolve skills against the session cwd, not the repo root,
-// so project-local skills stay in scope when Intercode is invoked from a
+// so project-local skills stay in scope when Corbits Code is invoked from a
 // different working directory. Product-shipped plugins are auto-trusted.
 export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> {
   const repoRoot = new URL("../../", import.meta.url).pathname;
