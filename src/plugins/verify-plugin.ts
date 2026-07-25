@@ -50,7 +50,7 @@ export function verifyPlugin(): ToolPlugin {
 
         if (call.name === "edit_file" && !result.isError && before !== undefined) {
           const path = String(call.arguments.path ?? "");
-          const mode = parseEditFileMode(call.arguments, { fileContent: before });
+          const mode = parseEditFileMode(call.arguments);
           try {
             const actual = await readFile(path, "utf8");
             let expected: string;

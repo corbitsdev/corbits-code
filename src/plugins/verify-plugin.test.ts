@@ -158,10 +158,12 @@ describe("verifyPlugin", () => {
     }
   });
 
-  test("passes when edit_file mixed args disambiguate to line-range", async () => {
+  test("skips verification when edit_file mixes substring and line-range args", async () => {
     const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
     try {
       const plugin = verifyPlugin();
+      // Mixed-mode is invalid at the parse layer; verify should not treat it as
+      // a successful line-range edit even if the underlying write applied one.
       const editHandler = async (call: ToolCall): Promise<ToolResult> => {
         const path = String(call.arguments.path ?? "");
         const start = Number(call.arguments.start_line);
@@ -194,7 +196,9 @@ describe("verifyPlugin", () => {
         },
         new AbortController().signal,
       );
+      // Invalid mode short-circuits verification; result is whatever the handler returned.
       expect(result.isError).not.toBe(true);
+      expect(result.content).toBe("edited");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
