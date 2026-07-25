@@ -533,6 +533,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const streamPromise = consumeStream(currentAgent.stream(), sink);
 
+    // send() resolves on connector.reply when the reactor finishes the cycle.
+    // Chat sessions never emit reactor.done until close, so runSink status after
+    // an intentional post-send close is "cancelled" even on success. Treat a
+    // completed send as success unless the sink recorded a real run error.
+    let sendCompleted = false;
     try {
       // Final OAuth refresh immediately before send (token may have aged during MCP).
       if (initialCodexProfile !== undefined) {
@@ -550,12 +555,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
         }
       }
 
-      // send() resolves when the reactor finishes the turn.
+      // Stream stays open for multi-turn chat until close() — close first, then
+      // drain, or streamPromise never settles.
       await currentAgent.send(task);
-      // Drain stream so runSink sees reactor.done / errors before we summarize.
-      await streamPromise.catch(() => undefined);
+      sendCompleted = true;
     } finally {
-      // Close after drain (or after send failure) so the stream can settle.
       await currentAgent.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
     }
@@ -567,7 +571,17 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const turnCollector = runSink.getTurnCollector();
     turnsUsed = turnCollector.getTurnCount();
     const finishedAt = Date.now();
-    const summaryStatus = runSink.getStatus();
+    // Prefer sink status when it observed reactor.done/error; otherwise map
+    // intentional close after a successful send to "done".
+    const sinkStatus = runSink.getStatus();
+    const summaryStatus: "done" | "failed" | "cancelled" =
+      runError !== undefined || sinkStatus === "failed"
+        ? "failed"
+        : sendCompleted
+          ? "done"
+          : sinkStatus === "done"
+            ? "done"
+            : "cancelled";
 
     const runSummary = createRunSummary({
       task,
@@ -582,7 +596,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
     await hookManager.dispatchPostRun(runSummary).catch(() => undefined);
 
-    if (runError !== undefined || summaryStatus === "failed" || summaryStatus === "cancelled") {
+    if (!sendCompleted || runError !== undefined || summaryStatus === "failed") {
       const message =
         runError
         ?? (summaryStatus === "cancelled" ? "run cancelled before completion" : "run failed");

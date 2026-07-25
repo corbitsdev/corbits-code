@@ -20,3 +20,4 @@ tmp/
 worktree
 worktrees
 dispatch/
+evals/capability/results/
