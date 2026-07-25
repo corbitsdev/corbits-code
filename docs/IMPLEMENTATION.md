@@ -1,6 +1,6 @@
 # Corbits Code — Implementation
 
-Package version: **0.2.35**. CLI binary: `corbits` (`./dist/index.js`).
+CLI binary: `corbits` (`./dist/index.js`). Version lives in `package.json` only.
 
 ## Runtime
 
