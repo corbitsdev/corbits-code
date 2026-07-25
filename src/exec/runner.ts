@@ -106,7 +106,24 @@ export type ExecResult = {
   sessionId: string;
   text: string;
   error?: string;
+  /** Run status after send/close (done | failed | cancelled). */
+  status?: "done" | "failed" | "cancelled";
+  /** Wall time from runExec start to summary (ms). */
+  durationMs?: number;
+  turnsUsed?: number;
+  toolCallCount?: number;
+  tokenUsage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    thinking: number;
+  };
+  /** Provider/model the config resolved for this run. */
+  provider?: string;
+  model?: string;
 };
+
 
 /**
  * Product non-TUI agent path (`corbits exec "prompt"`).
@@ -120,8 +137,21 @@ export async function runExec(config: Config): Promise<ExecResult> {
   const task = config.task.trim();
   if (task.length === 0) {
     stderr.write('Usage: corbits exec "<prompt>"\n');
-    return { exitCode: 2, sessionId: config.sessionId, text: "", error: "missing prompt" };
+    return {
+      exitCode: 2,
+      sessionId: config.sessionId,
+      text: "",
+      error: "missing prompt",
+      status: "failed",
+      durationMs: 0,
+      turnsUsed: 0,
+      toolCallCount: 0,
+      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      provider: config.providerName,
+      model: config.model,
+    };
   }
+
 
   const sessionId = config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
@@ -603,18 +633,53 @@ export async function runExec(config: Config): Promise<ExecResult> {
       stderr.write(`Error: ${message}\n`);
       const persistStatus = summaryStatus === "cancelled" ? "cancelled" : "failed";
       await persist(persistStatus, { error: message });
-      return { exitCode: 1, sessionId, text: textOut, error: message };
+      return {
+        exitCode: 1,
+        sessionId,
+        text: textOut,
+        error: message,
+        status: summaryStatus,
+        durationMs: finishedAt - startedAt,
+        turnsUsed: turnCollector.getTurnCount(),
+        toolCallCount: turnCollector.getToolCallCount(),
+        tokenUsage: turnCollector.getTokenUsage(),
+        provider: config.providerName,
+        model: config.model,
+      };
     }
 
     await persist("done");
-    return { exitCode: 0, sessionId, text: textOut };
+    return {
+      exitCode: 0,
+      sessionId,
+      text: textOut,
+      status: "done",
+      durationMs: finishedAt - startedAt,
+      turnsUsed: turnCollector.getTurnCount(),
+      toolCallCount: turnCollector.getToolCallCount(),
+      tokenUsage: turnCollector.getTokenUsage(),
+      provider: config.providerName,
+      model: config.model,
+    };
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("exec failed: {error}", { error: message });
     stderr.write(`Error: ${message}\n`);
     await persist("failed", { error: message });
-    return { exitCode: 1, sessionId, text: textOut, error: message };
+    return {
+      exitCode: 1,
+      sessionId,
+      text: textOut,
+      error: message,
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      turnsUsed,
+      toolCallCount: 0,
+      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      provider: config.providerName,
+      model: config.model,
+    };
   } finally {
     if (agent !== null) {
       await agent.close().catch(() => undefined);
