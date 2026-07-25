@@ -1760,6 +1760,44 @@ describe("workspace-scoped autonomy in auto mode", () => {
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
+
+  test("auto mode asks for flag-glued outside paths on unmatched shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: "grep --file=/etc/passwd pattern" },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("auto mode asks for tilde paths on unmatched shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: "cat ~/.aws/config" },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
 });
 
 describe("listWorktreeRoots", () => {
