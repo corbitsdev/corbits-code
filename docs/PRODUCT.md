@@ -2,7 +2,7 @@
 
 ## What It Is
 
-A single-process coding agent CLI that autonomously implements features in a codebase. It reads files, writes code, runs tests, and submits work — driven by a deterministic event loop rather than a chat transcript. The agent is backed by an OpenAI-compatible LLM and built on Interchange primitives. It runs as a full-screen terminal UI by default, or headless for scripts and CI.
+A single-process coding agent CLI that autonomously implements features in a codebase. It reads files, writes code, runs tests, and submits work — driven by a deterministic event loop rather than a chat transcript. The agent is backed by an OpenAI-compatible LLM and built on Interchange primitives. It runs as a full-screen terminal UI by default, or as a non-TUI `exec` path for scripts and CI.
 
 ## Why It Exists
 
@@ -17,14 +17,14 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 ## Key Value Propositions
 
 1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
-2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; headless `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `task` tool / sub-agent surface.)
+2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; non-interactive `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `task` tool / sub-agent surface.)
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
 5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.
 6. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
-7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or stdin (headless).
+7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or via stdin when the product agent runs under `corbits exec`.
 8. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
-9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Corbits Code asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/agent` provider switches). Headless/CLI entry points do not yet read `sessionMode` from config.
+9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Corbits Code asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/agent` provider switches). The `exec` path uses the same `sessionMode` resolution as the TUI (global + per-repo settings; defaults to orchestrator when unset).
 
 ## User Experience
 
@@ -36,13 +36,15 @@ $ corbits "Add JWT auth to the API"
 
 A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
 
-### Headless Mode
+### Exec mode (non-TUI product path)
 
 ```bash
-$ corbits --headless "Add JWT auth to the API"
+$ corbits exec "Add JWT auth to the API"
+# alias:
+$ corbits run "Add JWT auth to the API"
 ```
 
-Streams the event log to stderr for scripts and CI. Non-interactive: any action that would need operator approval is denied unless `--dangerously-skip-permissions` is set.
+Same product agent stack as the TUI (directors, tools, permissions, MCP, plugins, hooks) without the Ink shell. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
 
 ### Resume
 
@@ -88,9 +90,9 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 **Recovery:** State is saved; inspect `.agent-state/run.json`, adjust the task or prompt, and start a new run.
 
-### Permission denied (headless)
+### Permission denied (exec)
 
-**What the user sees:** In a non-interactive run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
+**What the user sees:** In a non-interactive `corbits exec` run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
 
 **Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, or re-run with `--dangerously-skip-permissions`.
 

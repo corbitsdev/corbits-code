@@ -120,6 +120,38 @@ describe("loadConfig", () => {
       });
       expect(config.force).toBe(true);
       expect(config.task).toBe("run task");
+      expect(config.command).toBe("tui");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("parses exec subcommand and keeps flags", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["exec", "--cwd", cwd, "--force", "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.task).toBe("ship it");
+      expect(config.force).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("parses run as exec alias", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["run", "--cwd", cwd, "alias task"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.task).toBe("alias task");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
