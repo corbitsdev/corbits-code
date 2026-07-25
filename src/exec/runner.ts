@@ -66,7 +66,7 @@ import type {
   GrantScope,
   PermissionRequest,
 } from "../permission/types.js";
-import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
+import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
@@ -86,7 +86,7 @@ import {
   sessionDir,
 } from "../session/index.js";
 import { saveState, type ConnectedMcpServer } from "../session/state.js";
-import { createRunSink } from "../session/run-sink.js";
+import { createRunSink, resolveExecRunStatus } from "../session/run-sink.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -128,10 +128,14 @@ export type ExecResult = {
 /**
  * Product non-TUI agent path (`corbits exec "prompt"`).
  *
- * Boots the same ChatDirector, toolset, permission gate, session mode, and
- * sub-agent surface as the TUI — without Ink. Operator/permission prompts use
- * stdin when a TTY is available; otherwise they deny (fail closed) unless
- * `--dangerously-skip-permissions` / auto grants cover the action.
+ * Shares the same ChatDirector, toolset, permission gate, session mode, and
+ * sub-agent surface as the TUI — without Ink. Bootstrap is intentionally a
+ * forked copy of the TUI path (not a shared factory yet); see
+ * docs/ARCHITECTURE.md "Exec Runner" for the intentional deltas.
+ *
+ * Operator/permission prompts use stdin when a TTY is available; otherwise
+ * they deny (fail closed) unless `--dangerously-skip-permissions` / auto
+ * grants cover the action.
  */
 export async function runExec(config: Config): Promise<ExecResult> {
   const task = config.task.trim();
@@ -160,6 +164,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
   let connectedMcp: ConnectedMcpServer[] = [];
   let agent: Agent | null = null;
+  let toolset: AgentToolset | null = null;
   let textOut = "";
   let finalized = false;
   let turnsUsed = 0;
@@ -301,13 +306,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     let currentAgent!: Agent;
 
-    const toolset = await createAgentToolset({
+    const agentToolset = await createAgentToolset({
       cwd: config.cwd,
       permissionGate,
       skillDirs,
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
       getBlobReader: () => currentAgent.blobReader,
+      // Exec has no workflow controller — intentional delta vs TUI.
       isWorkflowActive: () => false,
       onOperatorGate: (question, options) => promptOperator(question, options, interactive),
       sessionMode,
@@ -340,6 +346,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(activeWeb?.provider !== undefined ? { webProvider: activeWeb.provider } : {}),
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     });
+    toolset = agentToolset;
 
     const [agentExtensions, overrides, environment, skills] = await Promise.all([
       loadAgentContextExtensions(config.cwd),
@@ -378,7 +385,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
           (names) => {
             if (!activatedToolNames.activate(names)) return;
             directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+              computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
             );
           },
           config.inactivityTimeoutMs ?? 750_000,
@@ -391,7 +398,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const toolsFactory = defineTool({
       id: `${ID_PREFIX}/exec-tools`,
-      factory: () => toolset.dynamicRunner,
+      factory: () => agentToolset.dynamicRunner,
     });
 
     const def = defineAgent({
@@ -528,8 +535,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     currentAgent = await buildAgent();
     agent = currentAgent;
 
-    if (toolset.connectMCP !== undefined) {
-      await toolset
+    if (agentToolset.connectMCP !== undefined) {
+      await agentToolset
         .connectMCP({
           onStatus: (status) => {
             if (status.state === "connected") {
@@ -601,17 +608,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const turnCollector = runSink.getTurnCollector();
     turnsUsed = turnCollector.getTurnCount();
     const finishedAt = Date.now();
-    // Prefer sink status when it observed reactor.done/error; otherwise map
-    // intentional close after a successful send to "done".
     const sinkStatus = runSink.getStatus();
-    const summaryStatus: "done" | "failed" | "cancelled" =
-      runError !== undefined || sinkStatus === "failed"
-        ? "failed"
-        : sendCompleted
-          ? "done"
-          : sinkStatus === "done"
-            ? "done"
-            : "cancelled";
+    const summaryStatus = resolveExecRunStatus({
+      sendCompleted,
+      sinkStatus,
+      runError,
+    });
 
     const runSummary = createRunSummary({
       task,
@@ -683,6 +685,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
   } finally {
     if (agent !== null) {
       await agent.close().catch(() => undefined);
+    }
+    // Match TUI: always dispose toolset (MCP clients + posix/plugin resources).
+    if (toolset !== null) {
+      await toolset.dispose().catch(() => undefined);
     }
   }
 }

@@ -61,11 +61,15 @@ In TUI chat mode there is no completion gate — the session stays open across t
 
 ### Exec Runner (`src/exec/runner.ts`)
 
-- Same product agent bootstrap as the TUI (session mode, directors, toolset, permission gate, MCP, plugins, hooks, run-sink) without Ink
+- Product non-TUI agent path that **shares** the TUI stack (session mode, ChatDirector, toolset, permission gate, MCP, plugins, hooks, run-sink) without Ink
+- Bootstrap is intentionally a **forked copy** of the TUI path (not a shared factory yet). Intentional deltas vs TUI:
+  - No workflow controller (`isWorkflowActive` is always false)
+  - Single primary `send` (no multi-turn TUI goal loop)
+  - Non-interactive permission gate by default; optional stdin for `ask_operator`
 - Entry: `corbits exec "prompt"` (alias `corbits run`); `loadConfig` sets `command: "exec"`
 - Streams assistant text deltas to stdout; lifecycle errors to stderr
-- Non-interactive permission gate (`interactive: false`); optional stdin line for `ask_operator`
-- Single primary `agent.send(task)` turn, then drains the stream and exits with 0/1
+- Single primary `agent.send(task)` turn; closes the agent before draining the stream so the process exits; toolset is always disposed in `finally`
+- Status: chat sessions rarely emit `reactor.done` before close, so a completed `send()` maps to `done` unless the run sink holds a real error
 - Used by `scripts/demo.ts` (mode `exec`) and the capability eval suite (`scripts/eval-capability.ts` / `evals/capability/`)
 
 ### Event Stream Consumer (`src/session/stream-consumer.ts`)

@@ -38,6 +38,24 @@ export function getTUIRunSummaryStatus(
   return "cancelled";
 }
 
+/**
+ * Map exec lifecycle signals to a run status.
+ *
+ * Chat sessions never emit `reactor.done` until close, so after an intentional
+ * post-send close the sink alone often says "cancelled". A completed `send()`
+ * is success unless the sink still holds a real run error.
+ */
+export function resolveExecRunStatus(args: {
+  sendCompleted: boolean;
+  sinkStatus: RunSummary["status"];
+  runError: string | undefined;
+}): RunSummary["status"] {
+  if (args.runError !== undefined || args.sinkStatus === "failed") return "failed";
+  if (args.sendCompleted) return "done";
+  if (args.sinkStatus === "done") return "done";
+  return "cancelled";
+}
+
 export function createRunSink(args: RunSinkArgs): RunSink {
   const { emitter, hookManager, onTurnComplete } = args;
 
@@ -53,6 +71,14 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     turnCollector.observe(event);
     if (event.type === "reactor.done") {
       runCompleted = true;
+      // Terminal success clears any earlier transient inference error.
+      runError = undefined;
+    }
+    // A completed inference turn supersedes a prior recoverable inference.error
+    // (ChatDirector retries timeout/retryable/aborted). Leaving the sticky error
+    // would mark a recovered successful send as failed.
+    if (event.type === "inference.done") {
+      runError = undefined;
     }
     if (event.type === "reactor.error") {
       const data = event.data as { error: string };

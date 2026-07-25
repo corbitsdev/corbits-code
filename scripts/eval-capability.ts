@@ -45,6 +45,10 @@ type CliOptions = {
   baselinePath?: string;
   skipPermissions: boolean;
   maxTurnsOverride?: number;
+  /** Wall-clock limit for runExec (ms). */
+  agentTimeoutMs: number;
+  /** Wall-clock limit for verify.sh (ms). */
+  verifyTimeoutMs: number;
   dryRun: boolean;
 };
 
@@ -59,7 +63,9 @@ function printUsage(): void {
   --out <path>          Write results JSON
   --baseline <path>     Compare to prior results JSON
   --ask-permissions     Do not pass --dangerously-skip-permissions
-  --max-turns <n>       Override case maxTurns
+  --max-turns <n>       Soft turn budget (case fails if turnsUsed exceeds; not a hard kill)
+  --agent-timeout-ms <n> Wall-clock limit for runExec (default 600000)
+  --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --dry-run             List cases × variants only
   -h, --help            Show help
 `);
@@ -70,6 +76,8 @@ function parseArgs(argv: readonly string[]): CliOptions {
     caseSelector: "all",
     skipPermissions: true,
     dryRun: false,
+    agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 600_000),
+    verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -114,6 +122,22 @@ function parseArgs(argv: readonly string[]): CliOptions {
         opts.maxTurnsOverride = Math.floor(n);
         break;
       }
+      case "--agent-timeout-ms": {
+        const n = Number(next());
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error("--agent-timeout-ms must be a positive number");
+        }
+        opts.agentTimeoutMs = Math.floor(n);
+        break;
+      }
+      case "--verify-timeout-ms": {
+        const n = Number(next());
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error("--verify-timeout-ms must be a positive number");
+        }
+        opts.verifyTimeoutMs = Math.floor(n);
+        break;
+      }
       case "--dry-run":
         opts.dryRun = true;
         break;
@@ -128,7 +152,8 @@ function runCommand(
   command: string,
   args: readonly string[],
   cwd: string,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  timeoutMs: number,
+): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, [...args], {
       cwd,
@@ -137,23 +162,58 @@ function runCommand(
     });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      // Escalate if the process ignores SIGTERM.
+      setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already dead */
+        }
+      }, 5_000).unref();
+    }, timeoutMs);
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
     child.on("error", (e) => {
+      clearTimeout(timer);
       resolvePromise({
         exitCode: 1,
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: `${Buffer.concat(err).toString("utf8")}${e.message}`,
+        timedOut,
       });
     });
     child.on("close", (code) => {
+      clearTimeout(timer);
       resolvePromise({
-        exitCode: code ?? 1,
+        exitCode: timedOut ? 124 : (code ?? 1),
         stdout: Buffer.concat(out).toString("utf8"),
-        stderr: Buffer.concat(err).toString("utf8"),
+        stderr: Buffer.concat(err).toString("utf8")
+          + (timedOut ? `\n[eval] timed out after ${timeoutMs}ms` : ""),
+        timedOut,
       });
     });
   });
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function prepareWorkdir(caseDef: EvalCase): Promise<string> {
@@ -166,13 +226,19 @@ async function prepareWorkdir(caseDef: EvalCase): Promise<string> {
 async function runVerify(
   caseDef: EvalCase,
   workdir: string,
-): Promise<{ exitCode: number; output: string; durationMs: number }> {
+  timeoutMs: number,
+): Promise<{ exitCode: number; output: string; durationMs: number; timedOut: boolean }> {
   const verifyPath = join(caseDef.caseDir, caseDef.verify);
   await chmod(verifyPath, 0o755).catch(() => undefined);
   const started = Date.now();
-  const result = await runCommand("bash", [verifyPath], workdir);
+  const result = await runCommand("bash", [verifyPath], workdir, timeoutMs);
   const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
-  return { exitCode: result.exitCode, output, durationMs: Date.now() - started };
+  return {
+    exitCode: result.exitCode,
+    output,
+    durationMs: Date.now() - started,
+    timedOut: result.timedOut,
+  };
 }
 
 async function resolveVariantLabels(
@@ -257,9 +323,8 @@ async function runCase(
     argv.push("--force");
 
     const maxTurns = opts.maxTurnsOverride ?? caseDef.maxTurns ?? null;
-    if (maxTurns !== null) {
-      process.env.CORBITS_EVAL_MAX_TURNS = String(maxTurns);
-    }
+    // maxTurns is a soft post-run budget (case fails if exceeded). It does not
+    // hard-kill the agent mid-run — product path has no mid-turn budget hook yet.
 
     argv.push(caseDef.prompt);
 
@@ -269,7 +334,11 @@ async function runCase(
     }
 
     const agentStarted = Date.now();
-    const execResult = await runExec(config);
+    const execResult = await withTimeout(
+      runExec(config),
+      opts.agentTimeoutMs,
+      `agent (${caseDef.id})`,
+    );
     const agentDurationMs = execResult.durationMs ?? Date.now() - agentStarted;
     const agentExitCode = execResult.exitCode;
     const turnsUsed = execResult.turnsUsed ?? null;
@@ -288,17 +357,34 @@ async function runCase(
       console.log(`agent error: ${execResult.error}`);
     }
 
-    const verify = await runVerify(caseDef, workdir);
+    const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs);
     if (verify.output.trim().length > 0) {
       console.log(verify.output.trimEnd());
     }
     console.log(`verify exit: ${verify.exitCode}  (${verify.durationMs}ms)`);
 
-    const passed = agentExitCode === 0 && verify.exitCode === 0;
     const overBudget =
       maxTurns !== null && turnsUsed !== null ? turnsUsed > maxTurns : null;
+    // Soft maxTurns budget fails the case when exceeded (honest signal, not a no-op).
+    const passed =
+      agentExitCode === 0 && verify.exitCode === 0 && overBudget !== true;
     const preview =
       execResult.text.length > 400 ? `${execResult.text.slice(0, 400)}…` : execResult.text;
+
+    let error: string | null = null;
+    if (!passed) {
+      if (overBudget === true) {
+        error = `over turn budget (${turnsUsed} > ${maxTurns})`;
+      } else if (verify.timedOut) {
+        error = `verify timed out after ${opts.verifyTimeoutMs}ms`;
+      } else if (execResult.error !== undefined) {
+        error = execResult.error;
+      } else if (verify.exitCode !== 0) {
+        error = `verify failed (exit ${verify.exitCode})`;
+      } else {
+        error = `agent exit ${agentExitCode}`;
+      }
+    }
 
     return {
       resultKey: makeResultKey(variant.id, caseDef.id),
@@ -322,10 +408,7 @@ async function runCase(
       maxTurns,
       overBudget,
       skipPermissions: opts.skipPermissions,
-      error: passed
-        ? null
-        : execResult.error
-          ?? (verify.exitCode !== 0 ? `verify failed (exit ${verify.exitCode})` : `agent exit ${agentExitCode}`),
+      error,
       textPreview: preview,
     };
   } catch (err) {

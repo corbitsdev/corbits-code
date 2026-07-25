@@ -19,7 +19,7 @@ Everything the product path already observes is recorded:
 
 | Field | Source |
 |-------|--------|
-| `passed` | agent exit 0 **and** verify.sh exit 0 |
+| `passed` | agent exit 0 **and** verify.sh exit 0 **and** not over soft turn budget |
 | `agentExitCode` / `verifyExitCode` | process exits |
 | `status` | run sink (`done` / `failed` / `cancelled`) |
 | `sessionId` | exec session id |
@@ -77,7 +77,9 @@ Flags:
 | `--out <path>` | Write machine-readable results JSON |
 | `--baseline <path>` | Compare this run to a prior results file (improve/regress + metric deltas) |
 | `--ask-permissions` | Do **not** pass `--dangerously-skip-permissions` |
-| `--max-turns <n>` | Override case `maxTurns` |
+| `--max-turns <n>` | Soft turn budget: case **fails** if `turnsUsed` exceeds (does not hard-kill mid-run) |
+| `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `600000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
+| `--verify-timeout-ms <n>` | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`) |
 | `--dry-run` | Load cases × variants and print plan; no inference |
 
 ## Case format
@@ -96,7 +98,7 @@ verify.sh   # objective grader (exit 0 = pass)
 - `title` — human label
 - `fixture` — path relative to repo root (copied into a temp workdir)
 - `prompt` — task text for `corbits exec`
-- `maxTurns` — optional turn budget (recorded; over-budget flagged)
+- `maxTurns` — optional soft turn budget; when `turnsUsed` exceeds it the case **fails** (`overBudget: true`). Not a hard mid-run kill (product path has no turn budget hook yet).
 - `verify` — grader filename (default `verify.sh`)
 
 ## Results JSON (v2)
