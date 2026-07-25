@@ -703,10 +703,12 @@ export function createSubAgentRunController(
     parentSignal?.addEventListener("abort", onParentAbort, { once: true });
   }
   const timer = setTimeout(() => {
+    // Only mark deadline if we are the abort source. A parent cancel that
+    // already aborted must not be relabeled as a deadline hit when the timer
+    // fires later (e.g. during stream drain before dispose).
+    if (controller.signal.aborted) return;
     hit = true;
-    if (!controller.signal.aborted) {
-      controller.abort(new Error(`sub-agent deadline of ${deadlineMs}ms exceeded`));
-    }
+    controller.abort(new Error(`sub-agent deadline of ${deadlineMs}ms exceeded`));
   }, deadlineMs);
   return {
     signal: controller.signal,

@@ -374,6 +374,18 @@ describe("sub-agent stop helpers", () => {
     ctl.dispose();
   });
 
+  test("createSubAgentRunController does not mark deadlineHit when timer fires after parent cancel", async () => {
+    const parent = new AbortController();
+    const ctl = createSubAgentRunController(parent.signal, 20);
+    parent.abort(new Error("operator cancel"));
+    expect(ctl.signal.aborted).toBe(true);
+    expect(ctl.deadlineHit()).toBe(false);
+    // Intentionally do not dispose yet — let the timer callback run.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ctl.deadlineHit()).toBe(false);
+    ctl.dispose();
+  });
+
   test("resolveSubAgentDeadlineMs keeps the default when the outer watchdog is comfortably above it", () => {
     expect(resolveSubAgentDeadlineMs(undefined, 660_000)).toBe(DEFAULT_SUBAGENT_DEADLINE_MS);
   });
