@@ -203,6 +203,11 @@ export type Config = {
   force: boolean;
   dangerouslySkipPermissions: boolean;
   auto: boolean;
+  /**
+   * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the non-TUI
+   * product agent path (`corbits exec "prompt"`). Same directors/tools/permissions.
+   */
+  command: "tui" | "exec";
   globalSettingsPath: string;
   globalDefaultProvider?: string;
   // Every provider available to switch to at runtime. From the settings file
@@ -246,9 +251,10 @@ export type UnconfiguredConfig = {
   force: boolean;
   dangerouslySkipPermissions: boolean;
   auto: boolean;
+  command: "tui" | "exec";
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
-  // The original error message, used for headless error output.
+  // The original error message, used for non-TUI (exec) error output.
   providerError: string;
 };
 
@@ -278,6 +284,13 @@ export async function loadConfig(
   options: LoadConfigOptions = {},
 ): Promise<Config | UnconfiguredConfig> {
   const args = [...argv];
+
+  // Leading subcommand: `corbits exec "prompt"` (alias: `run`). Default is TUI.
+  let command: "tui" | "exec" = "tui";
+  if (args[0] === "exec" || args[0] === "run") {
+    command = "exec";
+    args.shift();
+  }
 
   let cwd = process.cwd();
   let force = false;
@@ -426,6 +439,7 @@ export async function loadConfig(
       force,
       dangerouslySkipPermissions,
       auto,
+      command,
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
     };
@@ -450,6 +464,7 @@ export async function loadConfig(
     force,
     dangerouslySkipPermissions,
     auto,
+    command,
     globalSettingsPath: effectiveSettingsPath,
     sessionId: generateSessionId(),
     noWorkflow,

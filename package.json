@@ -32,9 +32,10 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
     "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/corbits",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src ./tests",
+    "test": "bun test ./src ./tests ./evals",
     "test:tui": "bun test --isolate ./src/tui ./tests/unit/tui",
-    "start": "bun run build && bun ./dist/index.js"
+    "start": "bun run build && bun ./dist/index.js",
+    "eval:capability": "bun scripts/eval-capability.ts"
   },
   "workspaces": [
     ".",

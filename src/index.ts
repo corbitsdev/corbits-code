@@ -4,11 +4,13 @@ import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
+import { runExec } from "./exec/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import { runTUI } from "./tui/runner.js";
 
 export type Runners = {
   runTUI: (config: import("./config/index.js").Config) => Promise<number>;
+  runExec: (config: import("./config/index.js").Config) => Promise<number>;
   runOnboarding: (config: import("./config/index.js").UnconfiguredConfig) => Promise<number>;
 };
 
@@ -45,9 +47,26 @@ export async function mainWithRunners(
       telemetry.capture("cli_start");
     }
   }
-  const exitCode = config.configured
-    ? await runners.runTUI(config)
-    : await runners.runOnboarding(config);
+
+  let exitCode: number;
+  if (!config.configured) {
+    if (config.command === "exec") {
+      // Exec needs a provider; onboarding is TUI-only. Fail closed with a
+      // clear message rather than launching Ink.
+      process.stderr.write(
+        "No provider configured. Run `corbits` (interactive) once to complete setup, "
+          + "or pass --provider / --model with credentials.\n",
+      );
+      exitCode = 2;
+    } else {
+      exitCode = await runners.runOnboarding(config);
+    }
+  } else if (config.command === "exec") {
+    exitCode = await runners.runExec(config);
+  } else {
+    exitCode = await runners.runTUI(config);
+  }
+
   // Bound against process.exit dropping in-flight captures for short
   // sessions; flush itself is deadline-capped so exit stays snappy.
   await getTelemetry().flush();
@@ -55,7 +74,14 @@ export async function mainWithRunners(
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  return mainWithRunners(argv, { runTUI, runOnboarding });
+  return mainWithRunners(argv, {
+    runTUI,
+    runExec: async (config) => {
+      const result = await runExec(config);
+      return result.exitCode;
+    },
+    runOnboarding,
+  });
 }
 
 if (import.meta.main) {

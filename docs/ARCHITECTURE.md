@@ -39,7 +39,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 ### CLI Entry (`src/index.ts`)
 
 - Parses arguments and `--help`
-- Dispatches to `runTUI` (or first-run onboarding)
+- Dispatches to `runTUI` (default), `runExec` for `corbits exec` / `corbits run`, or first-run onboarding when unconfigured
 
 ### Config Resolution (`src/config/index.ts`, `src/config/settings.ts`)
 
@@ -47,7 +47,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - `--config <path>` replaces the global settings file as the provider source (useful for CI per-run injection). A provider must be defined in a settings file; there is no env fallback.
 - `settings.ts` owns the schema, validators (the per-repo file rejects credentials), file loaders, and the pure `resolveProvider` precedence function.
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
-- `loadConfig` is async (it reads settings files). Parses flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--dangerously-skip-permissions`, `--auto` / `--no-auto` (auto mode defaults on); collects positional arguments as the optional initial task for the TUI.
+- `loadConfig` is async (it reads settings files). Parses a leading `exec`/`run` subcommand, flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--dangerously-skip-permissions`, `--auto` / `--no-auto` (auto mode defaults on); collects positional arguments as the optional initial task for the TUI or the required prompt for exec.
 - Both settings files are on the secret-guard denylist for path-keyed tools, so the agent cannot `read_file` its own credentials. Shell commands that reference them still require explicit operator approval.
 
 ### TUI Runner (`src/tui/runner.tsx`)
@@ -58,6 +58,20 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - Bridges reactor events to React via an `EventEmitter`
 - **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
+
+### Exec Runner (`src/exec/runner.ts`)
+
+- Product non-TUI agent path that **shares** the TUI stack (session mode, ChatDirector, toolset, permission gate, MCP, plugins, hooks, run-sink) without Ink
+- Bootstrap is intentionally a **forked copy** of the TUI path (not a shared factory yet). Intentional deltas vs TUI:
+  - No workflow controller (`isWorkflowActive` is always false)
+  - No goal governor / multi-turn goal loop (single primary `send`)
+  - Non-interactive permission gate by default; optional stdin for `ask_operator`
+- Entry: `corbits exec "prompt"` (alias `corbits run`); `loadConfig` sets `command: "exec"`
+- Streams assistant text deltas to stdout; lifecycle errors to stderr
+- Shares ChatDirector compaction continuation (`requestContinuation` → content-less deliver after compact) so long runs do not stall post-compact
+- Single primary `agent.send(task)` turn; samples run-sink status/error **before** close (close emits `reactor.done` which would clear sticky errors); then closes the agent before draining the stream so the process exits; toolset is always disposed in `finally`
+- Status: chat sessions rarely emit `reactor.done` before close, so a completed `send()` maps to `done` unless the pre-close run sink holds a real error
+- Used by `scripts/demo.ts` (mode `exec`) and the capability eval suite (`scripts/eval-capability.ts` / `evals/capability/`)
 
 ### Event Stream Consumer (`src/session/stream-consumer.ts`)
 

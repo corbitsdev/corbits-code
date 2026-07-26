@@ -33,7 +33,8 @@ Tool-plugin `consented` remains a separate gate for **in-process tool**
 activation after the module is trusted and loaded.
 
 See also `docs/MCP.md` — local MCP servers from `.corbits/settings.json` use
-the same trust file (fingerprints) and fail closed when headless.
+the same trust file (fingerprints) and fail closed when non-interactive (`corbits exec`).
+
 
 ## Goals
 

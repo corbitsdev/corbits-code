@@ -1,4 +1,5 @@
 import { test, expect, mock } from "bun:test";
+import type { Config } from "../../src/config/index.js";
 import { mainWithRunners } from "../../src/index.js";
 
 const envVars = {
@@ -26,16 +27,55 @@ async function withEnv(fn: () => void | Promise<void>): Promise<void> {
   }
 }
 
-const mockRunTUI = mock(() => Promise.resolve(0));
-const mockRunOnboarding = mock(() => Promise.resolve(0));
-
 test("main launches TUI when configured", async () => {
   await withEnv(async () => {
+    const runTUI = mock((_config: Config) => Promise.resolve(0));
+    const runExec = mock((_config: Config) => Promise.resolve(0));
+    const runOnboarding = mock(() => Promise.resolve(0));
     const code = await mainWithRunners([], {
-      runTUI: mockRunTUI,
-      runOnboarding: mockRunOnboarding,
+      runTUI,
+      runExec,
+      runOnboarding,
     });
     expect(code).toBe(0);
-    expect(mockRunTUI).toHaveBeenCalled();
+    expect(runTUI).toHaveBeenCalled();
+    expect(runExec).not.toHaveBeenCalled();
+  });
+});
+
+test("main launches exec when configured with exec subcommand", async () => {
+  await withEnv(async () => {
+    const runTUI = mock((_config: Config) => Promise.resolve(0));
+    const runExec = mock((_config: Config) => Promise.resolve(0));
+    const runOnboarding = mock(() => Promise.resolve(0));
+    const code = await mainWithRunners(["exec", "say hello"], {
+      runTUI,
+      runExec,
+      runOnboarding,
+    });
+    expect(code).toBe(0);
+    expect(runExec).toHaveBeenCalled();
+    expect(runTUI).not.toHaveBeenCalled();
+    const cfg = runExec.mock.calls[0]![0];
+    expect(cfg.command).toBe("exec");
+    expect(cfg.task).toBe("say hello");
+  });
+});
+
+test("main launches exec for run alias", async () => {
+  await withEnv(async () => {
+    const runTUI = mock((_config: Config) => Promise.resolve(0));
+    const runExec = mock((_config: Config) => Promise.resolve(0));
+    const runOnboarding = mock(() => Promise.resolve(0));
+    const code = await mainWithRunners(["run", "do the thing"], {
+      runTUI,
+      runExec,
+      runOnboarding,
+    });
+    expect(code).toBe(0);
+    expect(runExec).toHaveBeenCalled();
+    const cfg = runExec.mock.calls[0]![0];
+    expect(cfg.command).toBe("exec");
+    expect(cfg.task).toBe("do the thing");
   });
 });

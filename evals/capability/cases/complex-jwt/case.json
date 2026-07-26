@@ -1,0 +1,9 @@
+{
+  "id": "complex-jwt",
+  "tier": "complex",
+  "title": "JWT auth middleware on product and order routes",
+  "fixture": "tests/fixtures/demo-comparison",
+  "prompt": "Add JWT authentication to the product and order routes. Extend handleRequest to accept an optional fourth argument headers: Record<string, string> so the signature is handleRequest(method, path, body?, headers?). Unauthenticated requests to /products and /orders must return status 401. Authenticated requests carry Authorization: Bearer <jwt>; verify the token with HMAC-SHA256 using the shared secret string 'demo-secret'. Reject malformed Authorization values and tokens signed with a different secret with 401. Add tests that cover unauthenticated, valid-token, and invalid-token paths.",
+  "maxTurns": 40,
+  "verify": "verify.sh"
+}

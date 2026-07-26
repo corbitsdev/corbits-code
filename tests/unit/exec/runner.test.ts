@@ -1,0 +1,42 @@
+import { describe, expect, test } from "bun:test";
+import type { Config } from "../../../src/config/index.js";
+import { runExec } from "../../../src/exec/runner.js";
+
+function bareConfig(task: string): Config {
+  // Minimal unconfigured-shaped object is not enough — runExec only needs
+  // `task` for the empty-prompt early return before any bootstrap.
+  return {
+    command: "exec",
+    task,
+    cwd: process.cwd(),
+    configured: true,
+    providerName: "test",
+    model: "test",
+    providers: {},
+    force: false,
+    dangerouslySkipPermissions: true,
+    autoMode: false,
+    sessionId: "test-session",
+  } as unknown as Config;
+}
+
+describe("runExec", () => {
+  test("empty prompt exits 2 with stderr message without bootstrapping", async () => {
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return origWrite(chunk as never, ...(rest as never[]));
+    }) as typeof process.stderr.write;
+
+    try {
+      const result = await runExec(bareConfig("   "));
+      expect(result.exitCode).toBe(2);
+      expect(result.status).toBe("failed");
+      expect(result.error).toMatch(/missing prompt|empty prompt/i);
+      expect(stderrChunks.join("")).toMatch(/missing prompt|empty prompt|Usage: corbits exec/i);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+});

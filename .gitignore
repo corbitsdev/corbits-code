@@ -20,3 +20,7 @@ tmp/
 worktree
 worktrees
 dispatch/
+evals/capability/results/
+local-harness-bench/
+
+evals/capability/results/
