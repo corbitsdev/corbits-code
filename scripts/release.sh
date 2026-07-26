@@ -1,35 +1,35 @@
 #!/usr/bin/env bash
 #
-# release.sh -- cut an intercode release and publish every artifact.
+# release.sh -- cut a Corbits Code release and publish every artifact.
 #
 #   scripts/release.sh X.Y.Z [--notes FILE] [--skip-tap] [--skip-deb] [--no-push]
 #
 # End to end this:
 #   1. bumps "version" in package.json,
-#   2. commits "Release intercode X.Y.Z" and tags vX.Y.Z, pushing both,
+#   2. commits "Release corbits X.Y.Z" and tags vX.Y.Z, pushing both,
 #   3. cross-compiles standalone binaries (no runtime required) for
 #      macOS arm64/x64 and Linux x64/arm64 with `bun build --compile`,
 #   4. packages each as a .tar.gz (+ .sha256) and each Linux target as a
 #      .deb (built from stock `ar` + `tar`, so no dpkg is needed),
-#   5. creates the GitHub release on corbitsdev/intercode with those assets,
+#   5. creates the GitHub release on corbitsdev/corbits-code with those assets,
 #   6. regenerates the Homebrew formula (per-arch url + sha256) in the
-#      corbitsdev/tools tap and pushes it, so `brew install intercode` works.
+#      corbitsdev/code tap and pushes it, so `brew install corbits` works.
 #
 # Every step is idempotent: a stage whose artifact already exists is skipped,
 # so a half-finished release can be completed by re-running with the version.
 #
 # Requirements: run on a Mac with git, gh (authenticated), bun, jq, ar, tar,
 # and shasum available. `bun build --compile` cross-compiles every target
-# from here; no Linux host is needed. For the tap step, the corbitsdev/tools
-# tap must be tapped (brew tap corbitsdev/tools) or reachable so it can clone.
+# from here; no Linux host is needed. For the tap step, the corbitsdev/code
+# tap must be tapped (brew tap corbitsdev/code) or reachable so it can clone.
 
 set -euo pipefail
 
 # ---- configuration ---------------------------------------------------------
-MAIN_REPO="corbitsdev/intercode"            # source repo (releases + tags)
-TAP_REPO="corbitsdev/homebrew-tools"        # tap repo (formula)
-TAP_SLUG="corbitsdev/tools"                 # `brew tap' name of TAP_REPO
-FORMULA="intercode"                         # formula / binary name
+MAIN_REPO="corbitsdev/corbits-code"         # source repo (releases + tags)
+TAP_REPO="corbitsdev/homebrew-code"         # tap repo (formula)
+TAP_SLUG="corbitsdev/code"                  # `brew tap' name of TAP_REPO
+FORMULA="corbits"                           # formula / binary name
 DESC="Single-process coding agent CLI built on the Interchange runtime"
 DOC_FILES=(LICENSE.md README.md GPLv2-AI-Exception.md GPL-2.0.txt)  # shipped with the binary
 
@@ -121,7 +121,7 @@ Section: devel
 Priority: optional
 Homepage: https://github.com/$MAIN_REPO
 Description: $DESC
- Intercode is a local-first coding agent that runs in your terminal and works
+ Corbits Code is a local-first coding agent that runs in your terminal and works
  with whatever model you point it at. The binary is self-contained; no
  separate runtime is required.
 EOF
@@ -212,8 +212,14 @@ for entry in "${TARGETS[@]}"; do
   else
     info "compiling $label ($target)"
     bin="$STAGE/$FORMULA-$label.bin"
+    # react-devtools-core stays out of release binaries: DEV is pinned false so
+    # Ink's conditional devtools import is dead code, and the module is marked
+    # external so the bundler never inlines it. A dev/debug build variant that
+    # wants devtools should drop both flags.
     bun build ./src/index.ts --compile --target="$target" --minify \
-      --define process.env.NODE_ENV='"production"' --outfile "$bin" >/dev/null
+      --define process.env.NODE_ENV='"production"' \
+      --define process.env.DEV='"false"' \
+      --external react-devtools-core --outfile "$bin" >/dev/null
     [ -s "$bin" ] || die "compile produced no binary for $label"
     rm -rf "$STAGE/$pkg"; mkdir -p "$STAGE/$pkg"
     cp "$bin" "$STAGE/$pkg/$FORMULA"; chmod 755 "$STAGE/$pkg/$FORMULA"
@@ -234,7 +240,9 @@ for entry in "${TARGETS[@]}"; do
       [ -s "$bin" ] || {  # tarball was cached: recompile the raw binary for the deb
         info "recompiling $label for .deb"
         bun build ./src/index.ts --compile --target="$target" --minify \
-          --define process.env.NODE_ENV='"production"' --outfile "$bin" >/dev/null; }
+          --define process.env.NODE_ENV='"production"' \
+          --define process.env.DEV='"false"' \
+          --external react-devtools-core --outfile "$bin" >/dev/null; }
       build_deb "$bin" "$debarch" "$deb"
       ( cd "$STAGE" && shasum -a 256 "$(basename "$deb")" > "$(basename "$deb").sha256" )
       info "packaged $(basename "$deb") ($(du -h "$deb" | cut -f1))"
