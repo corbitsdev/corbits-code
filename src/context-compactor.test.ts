@@ -194,12 +194,21 @@ describe("createPruningCompactor — image aging", () => {
     // The full base64 payload must not appear anywhere in the materialized output.
     expect(JSON.stringify(result.output)).not.toContain("iVBORw0KGgo=");
     expect(result.output.some((t) => t.content.some((b) => b.type === "image"))).toBe(false);
-    // The turn's text content, and the fact an image was there, still survive.
+    // The turn's text content, and a rehydratable attachment URI, still survive.
     const initiatingTurn = result.output.find((t) =>
       t.content.some((b) => b.type === "text" && b.text === "here's a screenshot of the bug"),
     );
     expect(initiatingTurn).toBeDefined();
-    expect(initiatingTurn?.content.some((b) => b.type === "text" && b.text.includes("shown"))).toBe(true);
+    expect(
+      initiatingTurn?.content.some(
+        (b) => b.type === "text" && b.text.includes("attachment:///") && b.text.includes("aged"),
+      ),
+    ).toBe(true);
+    expect(result.blobs).toBeDefined();
+    expect(result.blobs!.length).toBeGreaterThanOrEqual(1);
+    expect(result.blobs![0]!.contentType).toBe("image/png");
+    // Blob payload is the original base64 (UTF-8), not lost.
+    expect(new TextDecoder().decode(result.blobs![0]!.bytes)).toBe("iVBORw0KGgo=");
   });
 
   test("keeps an image intact when its turn is still within the recent window", async () => {
