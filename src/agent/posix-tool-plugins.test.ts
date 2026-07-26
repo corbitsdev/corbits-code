@@ -1,12 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createBlobReader } from "@intx/types/runtime";
-import { createPosixTools } from "@intx/tools-posix";
+import { createPosixTools, composeMiddleware } from "@intx/tools-posix";
+import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createCompositeBlobReader, createLazyBlobReader } from "./lazy-blob-reader.js";
+import { verifyPlugin } from "../plugins/verify-plugin.js";
+import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
+
+type ToolHandlerLike = (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>;
+
+/**
+ * editFileLineRangePlugin never calls `next` for start_line/end_line edits (it
+ * writes and returns directly), so verifyPlugin only observes those calls when
+ * it sits earlier in the plugin array (composeMiddleware wraps outer-to-inner
+ * in array order). Identify each plugin's middleware by a string unique to its
+ * implementation rather than assuming array indices.
+ */
+function findMiddlewareIndex(
+  plugins: ReturnType<typeof buildCorePosixToolPlugins>,
+  marker: string,
+): number {
+  return plugins.findIndex((plugin) => plugin.middleware?.toString().includes(marker) === true);
+}
 
 describe("buildCorePosixToolPlugins", () => {
   test("applies permission gate and result truncation like the main agent stack", async () => {
@@ -175,6 +194,105 @@ describe("buildCorePosixToolPlugins", () => {
       expect(String(fromChild.content)).toContain("child-own-spill");
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("verifyPlugin wraps editFileLineRangePlugin so line-range edits are still verified (CL-4405)", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
+    try {
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        cwd,
+      });
+      const plugins = buildCorePosixToolPlugins({ cwd, permissionGate: gate });
+
+      const verifyIndex = findMiddlewareIndex(plugins, "Edit verification failed");
+      const editRangeIndex = findMiddlewareIndex(plugins, "runEditFileLineRange");
+
+      expect(verifyIndex).toBeGreaterThanOrEqual(0);
+      expect(editRangeIndex).toBeGreaterThanOrEqual(0);
+      expect(verifyIndex).toBeLessThan(editRangeIndex);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("a real line-range edit_file call verifies as success through the wired plugin chain", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
+    try {
+      const path = join(cwd, "test.txt");
+      await writeFile(path, "a\nb\nc\n");
+
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+
+      const result = await runner.run(
+        {
+          id: "call-1",
+          name: "edit_file",
+          arguments: { path, start_line: 2, end_line: 2, new_string: "B" },
+        },
+        new AbortController().signal,
+      );
+
+      expect(result.isError).not.toBe(true);
+      const final = await readFile(path, "utf8");
+      expect(final).toBe("a\nB\nc\n");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("verifyPlugin still catches a genuine line-range mismatch caused by a concurrent write", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
+    try {
+      const path = join(dir, "test.txt");
+      await writeFile(path, "a\nb\nc\n");
+
+      // Stands in for another actor mutating the file between verifyPlugin's
+      // before-snapshot and editFileLineRangePlugin's own read, so the edit
+      // lands against a baseline verify never saw.
+      const concurrentWriterMiddleware =
+        (next: ToolHandlerLike): ToolHandlerLike =>
+        async (call, signal) => {
+          await writeFile(path, "z\ny\nx\n");
+          return next(call, signal);
+        };
+
+      const base: ToolHandlerLike = async (call) => ({ callId: call.id, content: "unreachable" });
+      const verifyMiddleware = verifyPlugin().middleware;
+      const editRangeMiddleware = editFileLineRangePlugin().middleware;
+      if (verifyMiddleware === undefined || editRangeMiddleware === undefined) {
+        throw new Error("expected verifyPlugin and editFileLineRangePlugin to expose middleware");
+      }
+      const composed = composeMiddleware(
+        [verifyMiddleware, concurrentWriterMiddleware, editRangeMiddleware],
+        base,
+      );
+
+      const result = await composed(
+        {
+          id: "call-1",
+          name: "edit_file",
+          arguments: { path, start_line: 2, end_line: 2, new_string: "B" },
+        },
+        new AbortController().signal,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/content mismatch after replacement/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   });
 });
