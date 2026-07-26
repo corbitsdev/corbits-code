@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
 import { splitChainedCommand, tokenize, deriveCommandScopes, isShellCommentOnly } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved } from "./matcher.js";
@@ -10,9 +10,10 @@ import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.
 import { createPermissionGate } from "./gate.js";
 import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
 import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktrees.js";
-import { createPathRestriction } from "./path-restriction.js";
+import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
+import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 
 const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
 
@@ -1746,6 +1747,47 @@ describe("listWorktreeRoots", () => {
     });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
+  });
+
+  test("resolveWorkspacePath resolves relative traversal into an allowlisted sibling worktree", async () => {
+    const { repo, worktree } = createRepoWithWorktree();
+    const roots = await listWorktreeRoots(repo);
+    const relativeTarget = join("..", "secondary", "notes.md");
+    expect(resolveWorkspacePath(repo, relativeTarget, () => roots)).toBe(join(repo, "..", "secondary", "notes.md"));
+  });
+
+  test("resolveWorkspacePath still rejects a genuinely unrelated outside path", async () => {
+    const { repo } = createRepoWithWorktree();
+    const roots = await listWorktreeRoots(repo);
+    const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-"));
+    expect(resolveWorkspacePath(repo, join(outside, "payload.ts"), () => roots)).toBeUndefined();
+  });
+
+  test("pathEscapePlugin resolves a relative ../ path into an allowlisted sibling worktree instead of rejecting it pre-realpath", async () => {
+    const { repo, worktree } = createRepoWithWorktree();
+    const roots = await listWorktreeRoots(repo);
+    const plugin = pathEscapePlugin(repo, () => roots);
+    const handler = plugin.middleware!((call) => Promise.resolve({ callId: call.id, content: "ok" }));
+    const result = await handler(
+      { id: "c", name: "read_file", arguments: { path: join("..", "secondary", "notes.md") } },
+      new AbortController().signal,
+    );
+    expect(result.isError).not.toBe(true);
+  });
+
+  test("pathEscapePlugin still rejects a relative path into a genuinely unrelated directory", async () => {
+    const { repo } = createRepoWithWorktree();
+    const roots = await listWorktreeRoots(repo);
+    const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-plugin-"));
+    const relativeToOutside = relative(repo, join(outside, "payload.ts"));
+    const plugin = pathEscapePlugin(repo, () => roots);
+    const handler = plugin.middleware!((call) => Promise.resolve({ callId: call.id, content: "ok" }));
+    const result = await handler(
+      { id: "c", name: "read_file", arguments: { path: relativeToOutside } },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/escapes working directory/);
   });
 });
 
