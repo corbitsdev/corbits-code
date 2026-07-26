@@ -169,6 +169,7 @@ export function PermissionModal({
       return;
     }
 
+    if (key.ctrl && (key.upArrow || key.downArrow)) return;
     if (key.upArrow && message.length === 0) {
       setSelected((s) => (s > 0 ? s - 1 : choices.length - 1));
       return;

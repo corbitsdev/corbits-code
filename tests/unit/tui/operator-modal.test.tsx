@@ -64,6 +64,16 @@ test("up arrow wraps from first to the last option", async () => {
   expect(result).toEqual({ kind: "option", index: 2 });
 });
 
+test("Ctrl+Up leaves approval selection unchanged for transcript scrolling", async () => {
+  let result: OperatorResult | null = null;
+  const { stdin } = renderModal(OPTIONS, (next) => { result = next; });
+  stdin.write("\x1B[1;5A");
+  await tick();
+  stdin.write("\r");
+  await tick();
+  expect(result).toEqual({ kind: "option", index: 0 });
+});
+
 test("Enter calls onSelect with the currently selected option", async () => {
   let result: OperatorResult | null = null;
   const { stdin } = renderModal(OPTIONS, (r) => { result = r; });

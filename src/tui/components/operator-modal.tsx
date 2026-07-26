@@ -134,6 +134,7 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
       onSelect({ kind: "cancel" });
       return;
     }
+    if (key.ctrl && (key.upArrow || key.downArrow)) return;
     if (key.upArrow || input === "\x1B[A" || input === "[A") {
       setSelected((s) => (s > 0 ? s - 1 : options.length - 1));
       return;
