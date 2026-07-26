@@ -121,7 +121,20 @@ export function splitChainedCommand(command: string): string[] {
     }
 
     const next = command[i + 1];
+    // A chain operator immediately following a dangling redirect operator
+    // (`>`, `<`, `>&`, `<&` with no target yet) does not start a new command —
+    // the target got separated from its redirect, most often by a stray
+    // separator a model inserted mid-redirect (e.g. "cmd 2>& ; 1" meaning
+    // "cmd 2>&1"). Treat the operator as whitespace so the target rejoins the
+    // command it belongs to, instead of surfacing as its own "Run shell
+    // command" approval. A well-formed chain ("sleep 5 ; -1 ; echo end") has
+    // no dangling redirect before the separator, so it is never affected.
     if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
+      if (endsWithDanglingRedirect(current)) {
+        current = `${current.trimEnd()} `;
+        i++;
+        continue;
+      }
       push();
       i++;
       continue;
@@ -139,6 +152,10 @@ export function splitChainedCommand(command: string): string[] {
     // is a chain boundary. Without this, "ls & rm -rf foo" is treated as a
     // single segment and the approval scope is derived from the benign head.
     if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
+      if (endsWithDanglingRedirect(current)) {
+        current = `${current.trimEnd()} `;
+        continue;
+      }
       push();
       continue;
     }
@@ -146,6 +163,15 @@ export function splitChainedCommand(command: string): string[] {
   }
   push();
   return segments;
+}
+
+// Whether `text` ends (ignoring trailing whitespace) in a redirect operator
+// that has not yet received its target: a bare `>`/`<`, or a fd-duplication
+// opener `>&`/`<&` awaiting the fd number.
+const DANGLING_REDIRECT = /(?:>&|<&|>|<)$/;
+
+function endsWithDanglingRedirect(text: string): boolean {
+  return DANGLING_REDIRECT.test(text.trimEnd());
 }
 
 // The inner chain of a segment that is exactly one parenthesised group, or null
