@@ -83,6 +83,22 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
       inCmd(String.raw`(?:brew|apt|apt-get|yum|dnf|apk|pacman)\s+(?:install|add)\b`),
     ],
   },
+  {
+    name: "credential-print",
+    effect: "ask",
+    reason:
+      "This command dumps or prints credentials from the OS keychain, a GPG keyring, or a cloud CLI's cached token store. It needs explicit operator approval and never runs unattended in auto mode.",
+    patterns: [
+      // macOS Keychain: `security find-generic-password` / `find-internet-password`,
+      // both of which can print the stored secret with `-w`.
+      inCmd(String.raw`security\s+find-(?:generic|internet)-password\b`),
+      // GPG secret-key export: --export-secret-keys / --export-secret-subkeys.
+      /\bgpg2?\b[^\n]*--export-secret/,
+      // Cloud CLI token printers.
+      inCmd(String.raw`aws\s+configure\s+get\b`),
+      inCmd(String.raw`gcloud\s+auth\s+print-access-token\b`),
+    ],
+  },
 ];
 
 export function matchAutoShellRule(command: string): AutoShellRule | undefined {
