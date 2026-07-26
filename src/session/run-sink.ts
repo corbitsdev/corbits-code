@@ -1,5 +1,6 @@
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
+import type { TokenUsage } from "@intx/types/runtime";
 import {
   createTurnContextCollector,
   type LifecycleHookManager,
@@ -10,7 +11,7 @@ type TurnCollector = ReturnType<typeof createTurnContextCollector>;
 
 export type RunSinkArgs = {
   emitter: EventEmitter;
-  hookManager: Pick<LifecycleHookManager, "dispatchPostTurn">;
+  hookManager: Pick<LifecycleHookManager, "dispatchPostTurn" | "getStatuses">;
   // Fired alongside dispatchPostTurn for each completed turn. Separate from
   // hookManager so telemetry can observe turn completion without run-sink
   // knowing anything about telemetry. The TurnContext carries the source the
@@ -23,7 +24,13 @@ export type RunSink = {
   sink: (event: ReactorEmittedEvent) => void;
   getStatus: () => RunSummary["status"];
   getRunError: () => string | undefined;
-  getTurnCollector: () => TurnCollector;
+  getTurnCount: () => number;
+  getTokenUsage: () => TokenUsage;
+  getToolCallCount: () => number;
+  // The full turn history — including tool results — is retained only when a
+  // lifecycle hook is configured to consume it; null otherwise so a hookless
+  // run does not carry a second standing copy of recent history in memory.
+  getTurnCollector: () => TurnCollector | null;
   // Resets accumulated run state (completed flag, error, turn history) so the
   // post-run hook for a new session reports only the turns from that session.
   reset: () => void;
@@ -59,13 +66,29 @@ export function resolveExecRunStatus(args: {
 export function createRunSink(args: RunSinkArgs): RunSink {
   const { emitter, hookManager, onTurnComplete } = args;
 
-  let runCompleted = false;
-  let runError: string | undefined;
+  function hasConfiguredHooks(): boolean {
+    return hookManager.getStatuses().length > 0;
+  }
+
+  // One collector tracks turn/token/tool-call counts for the lifetime of the
+  // run, needed for run-state persistence regardless of hooks. It only
+  // retains full turn history — including tool results — when a hook is
+  // configured to consume it, so a hookless run never carries a second
+  // standing copy of recent history.
   const handleTurn = (ctx: Parameters<NonNullable<typeof onTurnComplete>>[0]): void => {
     hookManager.dispatchPostTurn(ctx);
     onTurnComplete?.(ctx);
   };
-  let turnCollector = createTurnContextCollector(handleTurn);
+
+  function createCollector(): TurnCollector {
+    return createTurnContextCollector(handleTurn, Date.now, {
+      retainHistory: hasConfiguredHooks(),
+    });
+  }
+
+  let runCompleted = false;
+  let runError: string | undefined;
+  let turnCollector = createCollector();
 
   const sink = (event: ReactorEmittedEvent): void => {
     turnCollector.observe(event);
@@ -95,11 +118,14 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     sink,
     getStatus: () => getTUIRunSummaryStatus(runCompleted, runError),
     getRunError: () => runError,
-    getTurnCollector: () => turnCollector,
+    getTurnCount: () => turnCollector.getTurnCount(),
+    getTokenUsage: () => turnCollector.getTokenUsage(),
+    getToolCallCount: () => turnCollector.getToolCallCount(),
+    getTurnCollector: () => (hasConfiguredHooks() ? turnCollector : null),
     reset: () => {
       runCompleted = false;
       runError = undefined;
-      turnCollector = createTurnContextCollector(handleTurn);
+      turnCollector = createCollector();
     },
   };
 }
