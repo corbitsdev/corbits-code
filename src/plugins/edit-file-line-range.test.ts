@@ -8,7 +8,6 @@ import { composeMiddleware } from "@intx/tools-posix";
 import {
   advertiseEditFileLineRange,
   applyLineRangeEdit,
-  lineRangeSourceText,
   parseEditFileMode,
   runEditFileLineRange,
 } from "./edit-file-line-range.js";
@@ -40,7 +39,7 @@ describe("parseEditFileMode", () => {
     }
   });
 
-  test("mixed modes without file content returns recoverable error", () => {
+  test("rejects a call supplying both old_string and a line range", () => {
     const mode = parseEditFileMode({
       path: "a.ts",
       old_string: "x",
@@ -50,82 +49,23 @@ describe("parseEditFileMode", () => {
     });
     expect(mode.kind).toBe("invalid");
     if (mode.kind === "invalid") {
-      expect(mode.message).toContain("omit old_string");
-      expect(mode.message).toContain("omit start_line");
-      expect(mode.message).not.toContain("not both");
+      expect(mode.message).toContain("only one edit mode is allowed");
+      expect(mode.message).toContain("Omit old_string");
+      expect(mode.message).toContain("omit start_line/end_line");
     }
   });
 
-  test("mixed modes match CRLF file when old_string uses LF newlines", () => {
-    const file = "one\r\ntwo\r\nthree\r\n";
-    const mode = parseEditFileMode(
-      {
-        path: "a.ts",
-        old_string: "two",
-        start_line: 2,
-        end_line: 2,
-        new_string: "T",
-      },
-      { fileContent: file },
-    );
-    expect(mode.kind).toBe("line_range");
-  });
-
-  test("mixed modes with matching range text proceeds as line-range", () => {
-    const file = "alpha\nbeta\ngamma\n";
-    const mode = parseEditFileMode(
-      {
-        path: "a.ts",
-        old_string: "beta",
-        start_line: 2,
-        end_line: 2,
-        new_string: "B",
-      },
-      { fileContent: file },
-    );
-    expect(mode.kind).toBe("line_range");
-    if (mode.kind === "line_range") {
-      expect(mode.start_line).toBe(2);
-      expect(mode.end_line).toBe(2);
-    }
-  });
-
-  test("mixed modes with out-of-range lines returns recoverable error", () => {
-    const file = "alpha\nbeta\n";
-    const mode = parseEditFileMode(
-      {
-        path: "a.ts",
-        old_string: "beta",
-        start_line: 2,
-        end_line: 99,
-        new_string: "B",
-      },
-      { fileContent: file },
-    );
+  test("rejects both modes even when old_string matches the line-range text", () => {
+    const mode = parseEditFileMode({
+      path: "a.ts",
+      old_string: "beta",
+      start_line: 2,
+      end_line: 2,
+      new_string: "B",
+    });
     expect(mode.kind).toBe("invalid");
     if (mode.kind === "invalid") {
-      expect(mode.message).toContain("omit old_string");
-      expect(mode.message).toContain("out of range");
-    }
-  });
-
-  test("mixed modes with mismatched range text returns recoverable error", () => {
-    const file = "alpha\nbeta\ngamma\n";
-    const mode = parseEditFileMode(
-      {
-        path: "a.ts",
-        old_string: "alpha",
-        start_line: 2,
-        end_line: 2,
-        new_string: "B",
-      },
-      { fileContent: file },
-    );
-    expect(mode.kind).toBe("invalid");
-    if (mode.kind === "invalid") {
-      expect(mode.message).toContain("does not match");
-      expect(mode.message).toContain("omit old_string");
-      expect(mode.message).toContain("omit start_line");
+      expect(mode.message).toContain("only one edit mode is allowed");
     }
   });
 
@@ -138,13 +78,18 @@ describe("parseEditFileMode", () => {
     });
     expect(mode.kind).toBe("invalid");
   });
-});
 
-describe("lineRangeSourceText", () => {
-  test("extracts inclusive line range with file newline", () => {
-    const file = ["one", "two", "three"].join("\n") + "\n";
-    expect(lineRangeSourceText(file, 2, 3)).toBe("two\nthree");
-    expect(lineRangeSourceText(file, 2, 2)).toBe("two");
+  test("rejects a placeholder line number up front, before touching the file", () => {
+    const mode = parseEditFileMode({
+      path: "a.ts",
+      start_line: 0,
+      end_line: 2,
+      new_string: "y",
+    });
+    expect(mode.kind).toBe("invalid");
+    if (mode.kind === "invalid") {
+      expect(mode.message).toContain(">= 1");
+    }
   });
 });
 
@@ -250,7 +195,7 @@ describe("editFileLineRangePlugin", () => {
     expect(await readFile(path, "utf8")).toBe("line1\nL2\nline3\n");
   });
 
-  test("disambiguates mixed mode when old_string matches the line range", async () => {
+  test("rejects a call supplying both old_string and a line range, even when old_string matches", async () => {
     const path = join(cwd, "f.ts");
     await writeFile(path, "line1\nline2\nline3\n");
 
@@ -276,11 +221,12 @@ describe("editFileLineRangePlugin", () => {
     );
 
     expect(stockCalled).toBe(false);
-    expect(result.isError).toBeUndefined();
-    expect(await readFile(path, "utf8")).toBe("line1\nL2\nline3\n");
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("only one edit mode is allowed");
+    expect(await readFile(path, "utf8")).toBe("line1\nline2\nline3\n");
   });
 
-  test("mixed mode with conflicting old_string returns recoverable error", async () => {
+  test("rejects a placeholder start_line before touching the file", async () => {
     const path = join(cwd, "f.ts");
     await writeFile(path, "line1\nline2\nline3\n");
 
@@ -291,8 +237,7 @@ describe("editFileLineRangePlugin", () => {
         name: "edit_file",
         arguments: {
           path: "f.ts",
-          old_string: "line1",
-          start_line: 2,
+          start_line: 0,
           end_line: 2,
           new_string: "L2",
         },
@@ -300,8 +245,8 @@ describe("editFileLineRangePlugin", () => {
       new AbortController().signal,
     );
     expect(result.isError).toBe(true);
-    expect(String(result.content)).toContain("omit old_string");
-    expect(String(result.content)).not.toContain("not both");
+    expect(String(result.content)).toContain(">= 1");
+    expect(await readFile(path, "utf8")).toBe("line1\nline2\nline3\n");
   });
 
   test("runEditFileLineRange integrates with verify expectations", async () => {
