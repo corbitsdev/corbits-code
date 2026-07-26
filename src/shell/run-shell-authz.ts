@@ -12,6 +12,20 @@ const CMD = String.raw`(?:^|[\n;&|(` + "`" + String.raw`]\s*)(?:\w+=\S*\s+)*`;
 
 const cmd = (name: string): RegExp => new RegExp(`${CMD}${name}\\b`);
 
+// A command-*head* anchor: like CMD, but a bare `|` does not count as a
+// boundary. A stage downstream of a single pipe consumes already-bounded piped
+// data (or, for `rg`/`grep`, ripgrep's own bounded stdin read) rather than
+// walking the filesystem, so it carries none of the OOM risk the open-ended
+// search patterns exist to catch (e.g. `git show sha:path | rg -n foo` reads
+// one blob through rg, not a tree walk). `&&` and `||` are still boundaries —
+// neither carries piped data to the following stage — matched as explicit
+// two-character operators so a lone `|` inside them is not mistaken for the
+// single-pipe case.
+const CMD_HEAD =
+  String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
+
+const cmdHead = (name: string): RegExp => new RegExp(`${CMD_HEAD}${name}\\b`);
+
 // Redirecting to /dev/null, /dev/stdout, /dev/stderr, /dev/tty and /dev/fd/* is
 // routine and harmless; only redirects to real device nodes (e.g. /dev/sda) are
 // destructive. The negative lookahead exempts the safe pseudo-devices, anchored
@@ -65,13 +79,15 @@ const BLOCKED_PATTERNS: RegExp[] = [
 // (`git log | tail` and similar non-walk pipes are fine — the 512KB shell
 // output cap is the backstop for those.)
 const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
-  // `find` is almost always a full-tree walk.
+  // `find` is almost always a full-tree walk — keep full CMD so
+  // `… | find …` cannot bypass (find does not treat the pipe as search domain).
   cmd("find"),
   // ripgrep via shell — the `grep` tool already routes through rg with caps.
-  cmd("rg"),
+  // CMD_HEAD so `git show … | rg` (bounded stdin) is allowed.
+  cmdHead("rg"),
   // Recursive grep/egrep/fgrep (flag form -r/-R/--recursive, alone or clustered).
   new RegExp(
-    String.raw`${CMD}(?:grep|egrep|fgrep)\b[^\n|;]*?(?:\s-[A-Za-z0-9]*[rR][A-Za-z0-9]*\b|\s--recursive\b)`,
+    String.raw`${CMD_HEAD}(?:grep|egrep|fgrep)\b[^\n|;]*?(?:\s-[A-Za-z0-9]*[rR][A-Za-z0-9]*\b|\s--recursive\b)`,
   ),
 ];
 
