@@ -153,9 +153,9 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 | Effect | Categories |
 |---|---|
 | **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc) |
-| **ask** | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, opaque unparseable wrappers |
+| **ask** | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
 
-Unmatched shell auto-allows. Paths outside the workspace, writes under `.agent-state`, mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
+Unmatched shell auto-allows. Writes under `.agent-state`, mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
 Plan approval is handled separately by `use-gates` (`pendingPlan`), independent of auto mode.
 

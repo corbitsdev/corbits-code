@@ -69,13 +69,28 @@ export function restrictedPathArg(
 // `cat .agent-state/run.json` is caught; flags are ignored since they are not
 // path arguments. The auto-shell allowlist (SAFE_SHELL_PROGRAMS) only ever
 // admits read-only commands, so shell targets are always judged as reads.
+// Surfaces flag-glued path values (`--file=PATH`, `-fPATH`) and treats `~…`
+// as outside-workspace the same way the safe-shell path does.
 export function commandTargetsRestricted(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
-  return tokenize(command)
-    .filter((token) => !token.startsWith("-"))
-    .some((token) => isRestricted(token, false));
+  return pathLikeTokens(command).some(
+    (token) => token.startsWith("~") || isRestricted(token, false),
+  );
+}
+
+function pathLikeTokens(command: string): string[] {
+  const out: string[] = [];
+  for (const token of tokenize(command)) {
+    if (!token.startsWith("-")) {
+      out.push(token);
+      continue;
+    }
+    const value = flagPathValue(token);
+    if (value !== null && value.length > 0) out.push(value);
+  }
+  return out;
 }
 
 export function callTargetsRestricted(

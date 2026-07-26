@@ -1697,6 +1697,107 @@ describe("workspace-scoped autonomy in auto mode", () => {
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
+
+  test("an unmatched shell command reading a path outside the workspace asks", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "intercode-shell-outside-"));
+    const target = join(outside, "secret.txt");
+    writeFileSync(target, "secret");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "run_shell", arguments: { command: `cat ${target}` } });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("an unmatched shell command reading through a symlink escape asks", async () => {
+    const base = mkdtempSync(join(tmpdir(), "intercode-shell-symlink-"));
+    const workspace = join(base, "ws");
+    const outside = join(base, "outside");
+    mkdirSync(workspace);
+    mkdirSync(outside);
+    writeFileSync(join(outside, "secret.txt"), "secret");
+    symlinkSync(outside, join(workspace, "link"));
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: workspace,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: `cat ${join(workspace, "link", "secret.txt")}` },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("an unmatched shell command reading a path inside the workspace still auto-runs", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: "cat src/permission/gate.ts" },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("auto mode asks for flag-glued outside paths on unmatched shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: "grep --file=/etc/passwd pattern" },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("auto mode asks for tilde paths on unmatched shell", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: "cat ~/.aws/config" },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
 });
 
 describe("listWorktreeRoots", () => {
