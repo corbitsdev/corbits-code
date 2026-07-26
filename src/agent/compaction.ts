@@ -16,6 +16,13 @@ const CHARS_PER_TOKEN = 4;
 // `usage.input` stands for the accumulated input context, so the fallback
 // estimate must approximate the same thing: a chars/4 measure over every
 // turn the governor can see, not just the turn that was just generated.
+//
+// Known lower-bound: this only measures turn content. System prompt, tool
+// schemas, framing, and tokenizer density (code denser than English) are not
+// counted, so the estimate undercounts the real prompt and may arm proactive
+// compaction later than true usage would. Prefer that over thrashing small
+// sessions; the reactive overflow path (bounded to MAX_OVERFLOW_RECOVERIES)
+// remains the hard safety net when the estimate is too low.
 function estimateContextTokens(turns: readonly ConversationTurn[]): number {
   const totalChars = turns.reduce(
     (sum, turn) => sum + JSON.stringify(turn.content).length,
