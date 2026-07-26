@@ -696,7 +696,7 @@ export function ChatInput({
                 <Box key={`/${s.name}`} flexDirection="row" gap={1}>
                   <Box width={22} flexShrink={0}>
                     <Text
-                      color={selected ? "cyan" : "white"}
+                      color={selected ? color("accent") : color("text")}
                       bold={selected}
                       wrap="truncate-end"
                     >
@@ -704,11 +704,11 @@ export function ChatInput({
                     </Text>
                   </Box>
                   {s.argumentHint !== undefined && s.argumentHint.length > 0 && (
-                    <Text color="gray" dimColor wrap="truncate-end">
+                    <Text color={color("muted")} dimColor wrap="truncate-end">
                       {s.argumentHint}
                     </Text>
                   )}
-                  <Text color="gray" wrap="truncate-end">{s.description}</Text>
+                  <Text color={color("muted")} wrap="truncate-end">{s.description}</Text>
                 </Box>
               );
             }
@@ -716,11 +716,11 @@ export function ChatInput({
               return (
                 <Box key={`hint-${s.parentName}`} flexDirection="row" gap={1}>
                   <Box width={22} flexShrink={0}>
-                    <Text color="gray" dimColor wrap="truncate-end">
+                    <Text color={color("muted")} dimColor wrap="truncate-end">
                       {s.hint}
                     </Text>
                   </Box>
-                  <Text color="gray" wrap="truncate-end">
+                  <Text color={color("muted")} wrap="truncate-end">
                     args (optional pattern)
                   </Text>
                 </Box>
@@ -731,14 +731,14 @@ export function ChatInput({
               <Box key={label} flexDirection="row" gap={1}>
                 <Box width={22} flexShrink={0}>
                   <Text
-                    color={selected ? "cyan" : "white"}
+                    color={selected ? color("accent") : color("text")}
                     bold={selected}
                     wrap="truncate-end"
                   >
                     {label}
                   </Text>
                 </Box>
-                <Text color="gray" wrap="truncate-end">{s.sub.description}</Text>
+                <Text color={color("muted")} wrap="truncate-end">{s.sub.description}</Text>
               </Box>
             );
           })}
@@ -791,7 +791,7 @@ export function ChatInput({
           const out: ReactNode[] = [];
           if (atTopEdge) {
             out.push(
-              <Text key="top-edge" color="green">{"  ↑"}</Text>,
+              <Text key="top-edge" color={color("success")}>{"  ↑"}</Text>,
             );
           }
           for (let i = windowStart; i < windowEnd; i++) {
@@ -800,7 +800,7 @@ export function ChatInput({
             if (i !== cursorLine) {
               out.push(
                 <Text key={i}>
-                  <Text color="green">{prefix}</Text>
+                  <Text color={color("success")}>{prefix}</Text>
                   {line}
                 </Text>,
               );
@@ -811,22 +811,22 @@ export function ChatInput({
             const tail = line.slice(cursorCol + cursorCharLength);
             out.push(
               <Text key={i}>
-                <Text color="green">{prefix}</Text>
+                <Text color={color("success")}>{prefix}</Text>
                 <Text>{head}</Text>
                 {atChar.length > 0 ? (
                   <>
-                    <Text backgroundColor="white" color="black">{atChar}</Text>
+                    <Text backgroundColor={color("emphasis")} color={color("surface")}>{atChar}</Text>
                     <Text>{tail}</Text>
                   </>
                 ) : (
-                  <Text color="green">▏</Text>
+                  <Text color={color("success")}>▏</Text>
                 )}
               </Text>,
             );
           }
           if (atBottomEdge) {
             out.push(
-              <Text key="bottom-edge" color="green">{"  ↓"}</Text>,
+              <Text key="bottom-edge" color={color("success")}>{"  ↓"}</Text>,
             );
           }
           return out;
