@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { EventEmitter } from "node:events";
+import { createElement } from "react";
+import { render } from "ink-testing-library";
+import { Text } from "ink";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../inference-abort.js";
@@ -11,6 +15,8 @@ import {
   capStoredToolResultContent,
   createAgentStreamState,
   settleSubAgentOnToolResult,
+  useAgentStream,
+  type AgentStreamView,
   type ContentBlockData,
 } from "./use-stream.js";
 import { resolveSessionSpinnerLabel } from "./session-chrome.js";
@@ -1012,3 +1018,59 @@ describe("turnsToContentBlocks", () => {
     expect(result?.type === "tool_result" && result.content).toContain("characters omitted from stored tool output");
   });
 });
+
+function StreamHarness({ emitter }: { emitter: EventEmitter }) {
+  const view = useAgentStream(emitter);
+  return createElement(Text, null, view.status);
+}
+
+describe("useAgentStream drain timers", () => {
+  test("an idle session schedules no periodic drain timers", () => {
+    const setIntervalSpy = spyOn(global, "setInterval");
+    const emitter = new EventEmitter();
+
+    const { unmount } = render(createElement(StreamHarness, { emitter }));
+
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+
+    unmount();
+    setIntervalSpy.mockRestore();
+  });
+
+  test("a token delta buffered right before stop is still flushed after the stopping transition", async () => {
+    const emitter = new EventEmitter();
+    const viewRef: { current: AgentStreamView | null } = { current: null };
+    const element = () => createElement(StreamRevisionHarness, { emitter, viewRef });
+
+    const { rerender, unmount } = render(element());
+
+    viewRef.current!.markRunning();
+    rerender(element());
+
+    emitter.emit("event", event("inference.text.delta", { token: "hi" }));
+
+    const revisionBeforeStop = viewRef.current!.displayRevision;
+
+    viewRef.current!.requestStop();
+    rerender(element());
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    rerender(element());
+
+    expect(viewRef.current!.displayRevision).toBeGreaterThan(revisionBeforeStop);
+
+    unmount();
+  });
+});
+
+function StreamRevisionHarness({
+  emitter,
+  viewRef,
+}: {
+  emitter: EventEmitter;
+  viewRef: { current: AgentStreamView | null };
+}) {
+  const view = useAgentStream(emitter);
+  viewRef.current = view;
+  return createElement(Text, null, String(view.displayRevision));
+}

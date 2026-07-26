@@ -1321,8 +1321,10 @@ export function useAgentStream(
     setDisplayRevision((r) => r + 1);
   };
 
-  // ~30fps drain makes streaming feel metronomic rather than bursty.
+  // ~30fps drain makes streaming feel metronomic rather than bursty. Gated to
+  // running/blocked so an idle session schedules no periodic timer.
   useEffect(() => {
+    if (state.status !== "running" && state.status !== "blocked") return;
     const interval = setInterval(() => {
       if (pendingRenderRef.current) {
         pendingRenderRef.current = false;
@@ -1330,17 +1332,34 @@ export function useAgentStream(
       }
     }, 33);
     return () => clearInterval(interval);
-  }, []);
+  }, [state, state.status]);
 
-  // Line layout is heavier than chrome updates; coalesce it during token streaming.
+  // Line layout is heavier than chrome updates; coalesce it during token
+  // streaming. Gated to running/blocked so an idle session schedules no
+  // periodic timer.
   useEffect(() => {
+    if (state.status !== "running" && state.status !== "blocked") return;
     const interval = setInterval(() => {
       if (pendingLineRevisionRef.current) {
         bumpDisplayRevision();
       }
     }, 100);
     return () => clearInterval(interval);
-  }, []);
+  }, [state, state.status]);
+
+  // requestStop()/clear() can transition status out of running/blocked with a
+  // token delta still buffered in pendingRenderRef/pendingLineRevisionRef —
+  // the two drain intervals above are gated off before their next tick would
+  // have flushed it. Perform that flush once on the transition so nothing is
+  // stranded, without reviving a periodic timer while idle.
+  useEffect(() => {
+    if (state.status === "running" || state.status === "blocked") return;
+    if (pendingRenderRef.current || pendingLineRevisionRef.current) {
+      pendingRenderRef.current = false;
+      setTick((t) => t + 1);
+      bumpDisplayRevision();
+    }
+  }, [state, state.status]);
 
   useEffect(() => {
     const handler = (event: ReactorEmittedEvent) => {
