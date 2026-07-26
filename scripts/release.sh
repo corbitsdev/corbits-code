@@ -6,17 +6,21 @@
 #
 # End to end this:
 #   1. bumps "version" in package.json,
-#   2. commits "Release corbits X.Y.Z" and tags vX.Y.Z, pushing both,
+#   2. commits "Release corbits X.Y.Z" and tags vX.Y.Z locally (no push yet),
 #   3. cross-compiles standalone binaries (no runtime required) for
 #      macOS arm64/x64 and Linux x64/arm64 with `bun build --compile`,
-#   4. packages each as a .tar.gz (+ .sha256) and each Linux target as a
-#      .deb (built from stock `ar` + `tar`, so no dpkg is needed),
-#   5. creates the GitHub release on corbitsdev/corbits-code with those assets,
-#   6. regenerates the Homebrew formula (per-arch url + sha256) in the
+#   4. smoke-tests the host-native binary, then packages each target as a
+#      .tar.gz (+ .sha256) and each Linux target as a .deb (built from stock
+#      `ar` + `tar`, so no dpkg is needed),
+#   5. pushes the release commit and tag only after artifacts exist,
+#   6. creates the GitHub release on corbitsdev/corbits-code with those assets,
+#   7. regenerates the Homebrew formula (per-arch url + sha256) in the
 #      corbitsdev/code tap and pushes it, so `brew install corbits` works.
 #
 # Every step is idempotent: a stage whose artifact already exists is skipped,
 # so a half-finished release can be completed by re-running with the version.
+# Push is deferred until after a successful build so a failed compile never
+# publishes a tag without binaries.
 #
 # Requirements: run on a Mac with git, gh (authenticated), bun, jq, ar, tar,
 # and shasum available. `bun build --compile` cross-compiles every target
@@ -54,7 +58,7 @@ while [ $# -gt 0 ]; do
     --skip-tap) SKIP_TAP=1; shift ;;
     --skip-deb) SKIP_DEB=1; shift ;;
     --no-push)  DO_PUSH=0; shift ;;
-    -h|--help)  sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,28p' "$0"; exit 0 ;;
     -*)         echo "unknown option: $1" >&2; exit 2 ;;
     *)          if [ -z "$VERSION" ]; then VERSION=$1; shift
                 else echo "unexpected argument: $1" >&2; exit 2; fi ;;
@@ -74,20 +78,76 @@ info()  { printf '    %s\n' "$*"; }
 skip()  { printf '    \033[2m(skip) %s\033[0m\n' "$*"; }
 die()   { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
-# Push a repo's HEAD (and optionally a ref) to origin. A GitHub HTTPS remote
-# has no non-interactive credentials, so fall back to the authenticated gh
-# token; SSH remotes push directly.
+# Push a repo's HEAD (and optionally a ref) to origin. HTTPS remotes authenticate
+# via `gh auth git-credential` (token never lands in argv/URLs/process lists).
+# SSH remotes push directly.
 git_push() {  # git_push DIR [REFSPEC...]
   local dir=$1; shift
   if [ "$DO_PUSH" != 1 ]; then skip "would: git -C $dir push origin ${*:-HEAD}"; return; fi
   local url; url=$(git -C "$dir" remote get-url origin)
   case "$url" in
-    https://github.com/*)
-      local slug=${url#https://github.com/}; slug=${slug%.git}
-      git -C "$dir" push "https://x-access-token:$(gh auth token)@github.com/$slug.git" \
+    https://github.com/*|https://x-access-token:*@github.com/*)
+      local slug
+      slug=${url#*github.com/}; slug=${slug%.git}
+      # Clear inherited helpers, then use only gh — keeps the token out of the
+      # remote URL and out of `ps` argv.
+      git -C "$dir" \
+        -c credential.helper= \
+        -c credential.helper='!gh auth git-credential' \
+        push "https://github.com/${slug}.git" \
         "${@:-HEAD:$(git -C "$dir" symbolic-ref --short HEAD)}" ;;
     *) git -C "$dir" push origin "${@:-HEAD}" ;;
   esac
+}
+
+# Host-native release label (empty when uname is unrecognized). Used so we only
+# smoke-test a binary we can actually exec.
+host_label() {
+  case "$(uname -s):$(uname -m)" in
+    Darwin:arm64)          echo macos-arm64 ;;
+    Darwin:x86_64)         echo macos-x64 ;;
+    Linux:x86_64|Linux:amd64) echo linux-x64 ;;
+    Linux:aarch64|Linux:arm64) echo linux-arm64 ;;
+    *)                     echo "" ;;
+  esac
+}
+
+# Compile one target. Flags match package.json "build:bin" (compile + minify +
+# NODE_ENV=production) and add:
+#   --target               cross-compile from the Mac host
+#   --define DEV=false     dead-code-eliminate Ink's optional devtools import
+#   --external react-devtools-core  keep the optional dep out of the binary
+# Keep this block in sync with package.json "build:bin" when those flags change.
+compile_bin() {  # compile_bin BUN_TARGET OUTFILE
+  local target=$1 out=$2
+  bun build ./src/index.ts --compile --target="$target" --minify \
+    --define process.env.NODE_ENV='"production"' \
+    --define process.env.DEV='"false"' \
+    --external react-devtools-core \
+    --outfile "$out" >/dev/null
+}
+
+# Smoke-test a freshly compiled native binary before packaging. Cross-compiled
+# targets are skipped (cannot exec). Prefer --version/--help; otherwise any
+# argv that loads the binary without entering the TUI is enough to prove the
+# compile linked (unrecognized flags error after startup).
+smoke_bin() {  # smoke_bin LABEL BINARY
+  local label=$1 bin=$2
+  local host; host=$(host_label)
+  [ -n "$host" ] || return 0
+  [ "$label" = "$host" ] || return 0
+  info "smoke-testing $label"
+  [ -x "$bin" ] || die "smoke: $label binary is not executable"
+  if "$bin" --version >/dev/null 2>&1; then return 0; fi
+  if "$bin" --help >/dev/null 2>&1; then return 0; fi
+  local rc=0
+  "$bin" --__release_smoke__ >/dev/null 2>&1 || rc=$?
+  # 126 = cannot execute, 127 = not found — real link/exec failures.
+  if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
+    die "smoke: cannot execute $label binary (rc=$rc)"
+  fi
+  # Non-zero from "unrecognized flag" (or similar) still proves the binary ran.
+  return 0
 }
 
 # tar a tree with root ownership (for reproducible .deb payloads). GNU tar and
@@ -181,8 +241,8 @@ else
 fi
 trap '[ -n "$NOTES_TMP" ] && rm -f "$NOTES_TMP"' EXIT
 
-# ---- 1-2. version bump, commit, tag, push ----------------------------------
-step "Version, commit, and tag"
+# ---- 1-2. version bump, commit, tag (local only; push after build) ---------
+step "Version, commit, and tag (local)"
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   skip "tag $TAG already exists"
   cur=$(jq -r .version package.json)
@@ -195,12 +255,10 @@ else
   git add package.json
   git commit -q -m "Release $FORMULA $VERSION"
   git tag -a "$TAG" -m "$FORMULA $VERSION"
-  info "committed and tagged $TAG"
-  git_push "$ROOT"
-  git_push "$ROOT" "$TAG"
+  info "committed and tagged $TAG (push deferred until after build)"
 fi
 
-# ---- 3. build binaries, tarballs, and debs ---------------------------------
+# ---- 3. build binaries, smoke, tarballs, and debs --------------------------
 step "Build standalone binaries and packages"
 mkdir -p "$STAGE"
 for entry in "${TARGETS[@]}"; do
@@ -212,15 +270,9 @@ for entry in "${TARGETS[@]}"; do
   else
     info "compiling $label ($target)"
     bin="$STAGE/$FORMULA-$label.bin"
-    # react-devtools-core stays out of release binaries: DEV is pinned false so
-    # Ink's conditional devtools import is dead code, and the module is marked
-    # external so the bundler never inlines it. A dev/debug build variant that
-    # wants devtools should drop both flags.
-    bun build ./src/index.ts --compile --target="$target" --minify \
-      --define process.env.NODE_ENV='"production"' \
-      --define process.env.DEV='"false"' \
-      --external react-devtools-core --outfile "$bin" >/dev/null
+    compile_bin "$target" "$bin"
     [ -s "$bin" ] || die "compile produced no binary for $label"
+    smoke_bin "$label" "$bin"
     rm -rf "$STAGE/$pkg"; mkdir -p "$STAGE/$pkg"
     cp "$bin" "$STAGE/$pkg/$FORMULA"; chmod 755 "$STAGE/$pkg/$FORMULA"
     for f in "${DOC_FILES[@]}"; do cp "$ROOT/$f" "$STAGE/$pkg/"; done
@@ -239,10 +291,10 @@ for entry in "${TARGETS[@]}"; do
       bin="$STAGE/$FORMULA-$label.bin"
       [ -s "$bin" ] || {  # tarball was cached: recompile the raw binary for the deb
         info "recompiling $label for .deb"
-        bun build ./src/index.ts --compile --target="$target" --minify \
-          --define process.env.NODE_ENV='"production"' \
-          --define process.env.DEV='"false"' \
-          --external react-devtools-core --outfile "$bin" >/dev/null; }
+        compile_bin "$target" "$bin"
+        [ -s "$bin" ] || die "recompile produced no binary for $label"
+        smoke_bin "$label" "$bin"
+      }
       build_deb "$bin" "$debarch" "$deb"
       ( cd "$STAGE" && shasum -a 256 "$(basename "$deb")" > "$(basename "$deb").sha256" )
       info "packaged $(basename "$deb") ($(du -h "$deb" | cut -f1))"
@@ -251,7 +303,12 @@ for entry in "${TARGETS[@]}"; do
   rm -f "$STAGE/$FORMULA-$label.bin"
 done
 
-# ---- 4. GitHub release on the main repo ------------------------------------
+# ---- 4. push commit + tag only after artifacts exist -----------------------
+step "Push release commit and tag"
+git_push "$ROOT"
+git_push "$ROOT" "$TAG"
+
+# ---- 5. GitHub release on the main repo ------------------------------------
 step "GitHub release on $MAIN_REPO"
 ASSETS=()
 for f in "$STAGE"/*.tar.gz "$STAGE"/*.tar.gz.sha256 "$STAGE"/*.deb "$STAGE"/*.deb.sha256; do
@@ -266,7 +323,7 @@ else
   info "created release $TAG with ${#ASSETS[@]} assets"
 fi
 
-# ---- 5. regenerate the tap formula -----------------------------------------
+# ---- 6. regenerate the tap formula -----------------------------------------
 if [ "$SKIP_TAP" = 1 ]; then
   step "Homebrew formula (skipped: --skip-tap)"
 else
