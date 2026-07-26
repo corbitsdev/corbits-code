@@ -23,6 +23,42 @@ describe("renderDiff colors", () => {
   });
 });
 
+describe("renderDiff background washes", () => {
+  test("a pure addition washes the sign column and body with the added background", () => {
+    const lines = renderDiff("", "new line", 40);
+    const [addedLine] = lines;
+    expect(addedLine).toBeDefined();
+    for (const segment of addedLine!.slice(2)) expect(segment.backgroundColor).toBe(color("diffAddedBg"));
+    expect(addedLine![1]!.backgroundColor).toBe(color("diffAddedBg"));
+  });
+
+  test("a pure removal washes the sign column and body with the removed background", () => {
+    const lines = renderDiff("old line", "", 40);
+    const [removedLine] = lines;
+    expect(removedLine).toBeDefined();
+    for (const segment of removedLine!.slice(2)) expect(segment.backgroundColor).toBe(color("diffRemovedBg"));
+    expect(removedLine![1]!.backgroundColor).toBe(color("diffRemovedBg"));
+  });
+
+  test("context rows carry no background wash", () => {
+    const lines = renderDiff("a\nb", "a\nB", 40);
+    const contextLine = lines[0]!;
+    for (const segment of contextLine) expect(segment.backgroundColor).toBeUndefined();
+  });
+
+  test("word-level changed tokens on a paired line carry background emphasis, shared tokens do not", () => {
+    const lines = renderDiff("const foo = bar(x, y);", "const foo = baz(x, y);", 80);
+    const delBody = lines[0]!.slice(2);
+    const addBody = lines[1]!.slice(2);
+    const changedDel = delBody.find((s) => s.text.includes("bar"));
+    const sharedDel = delBody.find((s) => s.text.includes("const"));
+    const changedAdd = addBody.find((s) => s.text.includes("baz"));
+    expect(changedDel?.backgroundColor).toBe(color("diffRemovedBg"));
+    expect(changedAdd?.backgroundColor).toBe(color("diffAddedBg"));
+    expect(sharedDel?.backgroundColor).toBeUndefined();
+  });
+});
+
 describe("diffLines", () => {
   test("marks added, removed, and context lines", () => {
     const rows = diffLines("a\nb\nc", "a\nB\nc");

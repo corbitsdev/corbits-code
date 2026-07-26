@@ -22,7 +22,7 @@ import { wrapLines, wrapRanges, stringWidth } from "../view/height.js";
 import { color } from "../theme.js";
 import { inkPropsForSegment } from "../styled-segment-props.js";
 import { osc8Hyperlink } from "../osc8.js";
-import { editDiffFromArgs, renderDiff } from "../diff.js";
+import { diffStat, editDiffFromArgs, renderDiff } from "../diff.js";
 import { PRODUCT_NAME, PRODUCT_SHORT_NAME } from "../../branding.js";
 
 export type RenderableBlock = Exclude<ContentBlock, { type: "reply" } | { type: "tasks" }>;
@@ -530,6 +530,18 @@ function toolCallLines(
   );
 }
 
+// A collapsed edit_file/write_file row hides the diff itself, so it needs its
+// own signal of how big the change was. Appended as two colored runs rather
+// than one plain string so +/- read at a glance against the diff palette.
+function appendDiffStat(lines: StyledLine[], toolName: string, rawArgs: string): StyledLine[] {
+  const edit = editDiffFromArgs(toolName, rawArgs);
+  if (edit === null) return lines;
+  const { added, removed } = diffStat(edit.oldText, edit.newText);
+  if (added === 0 && removed === 0) return lines;
+  const withAdded = appendTextToLastLine(lines, ` +${added}`, { color: color("diffAdded") });
+  return appendTextToLastLine(withAdded, `/-${removed}`, { color: color("diffRemoved") });
+}
+
 function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
   return wrapStyledLine(
     [
@@ -573,13 +585,18 @@ function mergedToolLines(
 
   const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const collapsedColor = role === "danger" ? roleColor : color("muted");
-  return wrapStyledLine(
+  const rows = wrapStyledLine(
     [
       { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
-      { text: `${merged}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
+      { text: merged, color: collapsedColor, dim: role !== "danger" },
     ],
     width,
   );
+  const withStat =
+    !result.isError && (call.name === "edit_file" || call.name === "write_file")
+      ? appendDiffStat(rows, call.name, call.arguments)
+      : rows;
+  return appendTextToLastLine(withStat, durationSuffix, { color: collapsedColor, dim: role !== "danger" });
 }
 
 function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }>, columns: number, width: number, expanded: boolean): StyledLine[] {

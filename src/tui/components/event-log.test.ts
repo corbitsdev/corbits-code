@@ -788,6 +788,37 @@ describe("flat line buffer", () => {
       "  ✐ Edited package.json (1 replacement)",
     ]);
   });
+
+  test("a collapsed edit_file row shows a +N/-M diff stat", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock(
+        "c1",
+        "edit_file",
+        JSON.stringify({ path: "src/a.ts", old_string: "one\ntwo", new_string: "one\ntwo\nthree\nfour" }),
+      ),
+      toolResultBlock("r1", "c1", "edit_file", "replaced 1 occurrence(s) in src/a.ts"),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines[0]).toContain("+2/-0");
+  });
+
+  test("a collapsed write_file row shows a +N/-M diff stat", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("c1", "write_file", JSON.stringify({ path: "src/a.ts", content: "one\ntwo\nthree" })),
+      toolResultBlock("r1", "c1", "write_file", "wrote 13 bytes to src/a.ts"),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines[0]).toContain("+3/-0");
+  });
+
+  test("a collapsed edit_file row omits the diff stat when the call errored", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("c1", "edit_file", JSON.stringify({ path: "src/a.ts", old_string: "one", new_string: "one\ntwo" })),
+      toolResultBlock("r1", "c1", "edit_file", "old_string not found", true),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines[0]).not.toContain("+1/-0");
+  });
 });
 
 describe("incremental layout fast paths", () => {
