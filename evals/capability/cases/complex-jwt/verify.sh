@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
-# Behavioral grader: unauthenticated protected routes must 401; valid JWT must
-# authorize; fixture tests must pass. Avoids grepping source for "JWT"/"401".
+# Behavioral grader for JWT auth on product + order routes.
+#
+# Contract (fixed call shape — no multi-shape fallback):
+#   handleRequest(method, path, body?, headers?) → { status, body? }
+#
+# Checks:
+#   1) Unauthenticated GET /products → 401
+#   2) Unauthenticated GET /orders → 401
+#   3) Valid demo-secret JWT → 200 on /products
+#   4) Malformed Authorization → 401
+#   5) JWT signed with wrong secret → 401
+#   6) Fixture unit tests pass
 set -euo pipefail
 
 if [[ ! -f package.json ]]; then
@@ -16,6 +26,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const SECRET = "demo-secret";
+const WRONG_SECRET = "not-the-demo-secret";
 
 function b64url(input) {
   return Buffer.from(input)
@@ -69,51 +80,74 @@ function asStatus(res) {
   return null;
 }
 
-// Try several call shapes the agent might have introduced for auth headers.
+// Fixed call shape only — matches case prompt contract.
+// handleRequest(method, path, body?, headers?)
 function call(method, path, opts = {}) {
-  const { body, headers, auth } = opts;
-  const hdrs = { ...(headers ?? {}) };
-  if (auth !== undefined) hdrs.Authorization = auth;
-  const attempts = [
-    () => handle(method, path, body, hdrs),
-    () => handle(method, path, { body, headers: hdrs }),
-    () => handle({ method, path, body, headers: hdrs }),
-    () => handle(method, path, body),
-    () => handle(method, path),
-  ];
-  let lastErr;
-  for (const fn of attempts) {
-    try {
-      return fn();
-    } catch (e) {
-      lastErr = e;
-    }
+  const { body, headers } = opts;
+  try {
+    return handle(method, path, body, headers ?? {});
+  } catch (e) {
+    console.error(
+      "FAIL: handleRequest(method, path, body, headers) threw — expected signature",
+      "handleRequest(method: string, path: string, body?: unknown, headers?: Record<string, string>)",
+    );
+    console.error(e);
+    process.exit(1);
   }
-  throw lastErr ?? new Error("all handleRequest call shapes failed");
 }
 
-// 1) Unauthenticated access to a protected product route should be 401.
-const unauth = call("GET", "/products");
-const unauthStatus = asStatus(unauth);
-if (unauthStatus !== 401) {
-  console.error("FAIL: unauthenticated GET /products expected 401, got", unauthStatus, unauth);
-  process.exit(1);
+function expectStatus(label, res, expected) {
+  const status = asStatus(res);
+  if (status !== expected) {
+    console.error(`FAIL: ${label} expected ${expected}, got`, status, res);
+    process.exit(1);
+  }
 }
 
-// 2) Valid JWT with demo-secret should authorize.
-const token = signJwt({ sub: "eval-user", exp: Math.floor(Date.now() / 1000) + 3600 }, SECRET);
-const authz = call("GET", "/products", { auth: `Bearer ${token}` });
-const authStatus = asStatus(authz);
-if (authStatus !== 200) {
-  console.error(
-    "FAIL: authenticated GET /products expected 200 with demo-secret JWT, got",
-    authStatus,
-    authz,
-  );
-  process.exit(1);
-}
+// 1) Unauthenticated protected product route → 401
+expectStatus(
+  "unauthenticated GET /products",
+  call("GET", "/products"),
+  401,
+);
 
-// 3) Fixture unit tests must pass (agent should have added JWT coverage).
+// 2) Unauthenticated protected orders route → 401
+expectStatus(
+  "unauthenticated GET /orders",
+  call("GET", "/orders"),
+  401,
+);
+
+// 3) Valid JWT with demo-secret should authorize products
+const goodToken = signJwt(
+  { sub: "eval-user", exp: Math.floor(Date.now() / 1000) + 3600 },
+  SECRET,
+);
+expectStatus(
+  "authenticated GET /products (demo-secret)",
+  call("GET", "/products", { headers: { Authorization: `Bearer ${goodToken}` } }),
+  200,
+);
+
+// 4) Malformed Authorization header → 401
+expectStatus(
+  "malformed Authorization GET /products",
+  call("GET", "/products", { headers: { Authorization: "not-a-bearer-token" } }),
+  401,
+);
+
+// 5) JWT signed with wrong secret → 401
+const badToken = signJwt(
+  { sub: "eval-user", exp: Math.floor(Date.now() / 1000) + 3600 },
+  WRONG_SECRET,
+);
+expectStatus(
+  "wrong-secret JWT GET /products",
+  call("GET", "/products", { headers: { Authorization: `Bearer ${badToken}` } }),
+  401,
+);
+
+// 6) Fixture unit tests must pass (agent should have added JWT coverage)
 const test = spawnSync("bun", ["test"], { encoding: "utf8" });
 if (test.status !== 0) {
   console.error(test.stdout || "");
@@ -122,5 +156,7 @@ if (test.status !== 0) {
   process.exit(1);
 }
 
-console.log("PASS: unauth 401, auth 200, bun test green");
+console.log(
+  "PASS: unauth /products+/orders 401, valid JWT 200, bad auth 401, wrong secret 401, bun test green",
+);
 '

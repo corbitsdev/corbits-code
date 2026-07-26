@@ -13,6 +13,7 @@ import {
   makeResultKey,
   defaultVariantId,
   emptyTokenUsage,
+  evaluateSoftBudget,
   type CaseResult,
   type EvalCase,
 } from "./lib.js";
@@ -166,6 +167,34 @@ describe("summarizeRun", () => {
     expect(s.toolCallCount).toBe(10);
     expect(s.tokenUsage.input).toBe(110);
     expect(s.tokenUsage.output).toBe(70);
+  });
+});
+
+describe("evaluateSoftBudget", () => {
+  test("null maxTurns means budget not in force", () => {
+    expect(evaluateSoftBudget({ maxTurns: null, turnsUsed: 99 })).toEqual({
+      overBudget: null,
+      budgetError: null,
+    });
+  });
+
+  test("fails closed when maxTurns set but turnsUsed missing", () => {
+    const r = evaluateSoftBudget({ maxTurns: 10, turnsUsed: null });
+    expect(r.overBudget).toBe(true);
+    expect(r.budgetError).toMatch(/not reported/);
+  });
+
+  test("over budget when turns exceed max", () => {
+    const r = evaluateSoftBudget({ maxTurns: 5, turnsUsed: 6 });
+    expect(r.overBudget).toBe(true);
+    expect(r.budgetError).toMatch(/over turn budget/);
+  });
+
+  test("within budget", () => {
+    expect(evaluateSoftBudget({ maxTurns: 10, turnsUsed: 10 })).toEqual({
+      overBudget: false,
+      budgetError: null,
+    });
   });
 });
 

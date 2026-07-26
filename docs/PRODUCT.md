@@ -44,7 +44,7 @@ $ corbits exec "Add JWT auth to the API"
 $ corbits run "Add JWT auth to the API"
 ```
 
-Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the Ink shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller; single primary send). Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
+Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the Ink shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller or goal governor; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
 
 Local multi-model capability checks use this path (`bun run eval:capability`); see `evals/capability/README.md`.
 

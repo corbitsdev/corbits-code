@@ -42,7 +42,7 @@ import {
 } from "../agent/tool-search.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
-import type { InferenceSource, ToolDefinition } from "@intx/types/runtime";
+import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createChatDirector } from "../agent/director.js";
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import { gatherEnvironment } from "../agent/environment.js";
@@ -100,6 +100,22 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { setAgentSourceUnlessClosed } from "../tui/agent-source-sync.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
+
+/** Content-less inbound used after compact so the reactor re-enters (matches TUI). */
+function buildCompactionContinuationMessage(): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `compact-continue-${Date.now()}@local`,
+    },
+    flags: [],
+    content: "",
+    signatureStatus: "missing",
+  };
+}
 
 export type ExecResult = {
   exitCode: number;
@@ -304,7 +320,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     const toolWatchdog = toolWatchdogFromSettings(config.settings);
 
-    let currentAgent!: Agent;
+    let currentAgent: Agent | null = null;
 
     const agentToolset = await createAgentToolset({
       cwd: config.cwd,
@@ -312,7 +328,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
       skillDirs,
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
-      getBlobReader: () => currentAgent.blobReader,
+      getBlobReader: () => {
+        if (currentAgent === null) {
+          throw new Error("blob reader requested before agent init");
+        }
+        return currentAgent.blobReader;
+      },
       // Exec has no workflow controller — intentional delta vs TUI.
       isWorkflowActive: () => false,
       onOperatorGate: (question, options) => promptOperator(question, options, interactive),
@@ -390,6 +411,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
           },
           config.inactivityTimeoutMs ?? 750_000,
           config.totalTimeoutMs,
+          undefined,
+          undefined,
+          () => {
+            // Compaction governor self-delivers after compact so the loop re-enters.
+            currentAgent?.deliver(buildCompactionContinuationMessage());
+          },
         );
         directorHolder.instance = d;
         return d;
@@ -534,6 +561,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     currentAgent = await buildAgent();
     agent = currentAgent;
+    // Local non-null handle after init (currentAgent stays mutable for compaction deliver).
+    const activeAgent = currentAgent;
 
     if (agentToolset.connectMCP !== undefined) {
       await agentToolset
@@ -568,47 +597,51 @@ export async function runExec(config: Config): Promise<ExecResult> {
       }
     };
 
-    const streamPromise = consumeStream(currentAgent.stream(), sink);
+    const streamPromise = consumeStream(activeAgent.stream(), sink);
 
     // send() resolves on connector.reply when the reactor finishes the cycle.
     // Chat sessions never emit reactor.done until close, so runSink status after
     // an intentional post-send close is "cancelled" even on success. Treat a
     // completed send as success unless the sink recorded a real run error.
+    // Snapshot sink state BEFORE close: close emits reactor.done which clears
+    // sticky inference.error and would hide a real failure.
     let sendCompleted = false;
+    let runError: string | undefined;
+    let sinkStatus: ReturnType<typeof runSink.getStatus> = "cancelled";
     try {
       // Final OAuth refresh immediately before send (token may have aged during MCP).
       if (initialCodexProfile !== undefined) {
         const { access } = await getValidCodexToken(initialCodexProfile);
         if (access !== liveSource.apiKey) {
           liveSource = { ...liveSource, apiKey: access };
-          setAgentSourceUnlessClosed(currentAgent, liveSource);
+          setAgentSourceUnlessClosed(activeAgent, liveSource);
         }
       }
       if (initialXaiProfile !== undefined) {
         const { access } = await getValidXaiToken(initialXaiProfile);
         if (access !== liveSource.apiKey) {
           liveSource = { ...liveSource, apiKey: access };
-          setAgentSourceUnlessClosed(currentAgent, liveSource);
+          setAgentSourceUnlessClosed(activeAgent, liveSource);
         }
       }
 
       // Stream stays open for multi-turn chat until close() — close first, then
       // drain, or streamPromise never settles.
-      await currentAgent.send(task);
+      await activeAgent.send(task);
       sendCompleted = true;
+      runError = runSink.getRunError();
+      sinkStatus = runSink.getStatus();
     } finally {
-      await currentAgent.close().catch(() => undefined);
+      await activeAgent.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
     }
 
     textOut = textChunks.join("");
     if (textOut.length > 0 && !textOut.endsWith("\n")) output.write("\n");
 
-    const runError = runSink.getRunError();
     const turnCollector = runSink.getTurnCollector();
     turnsUsed = turnCollector.getTurnCount();
     const finishedAt = Date.now();
-    const sinkStatus = runSink.getStatus();
     const summaryStatus = resolveExecRunStatus({
       sendCompleted,
       sinkStatus,

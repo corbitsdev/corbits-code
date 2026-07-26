@@ -24,6 +24,7 @@ import {
   parseMatrix,
   expandMatrix,
   makeResultKey,
+  evaluateSoftBudget,
   type CaseResult,
   type EvalCase,
   type EvalRunReport,
@@ -363,9 +364,9 @@ async function runCase(
     }
     console.log(`verify exit: ${verify.exitCode}  (${verify.durationMs}ms)`);
 
-    const overBudget =
-      maxTurns !== null && turnsUsed !== null ? turnsUsed > maxTurns : null;
-    // Soft maxTurns budget fails the case when exceeded (honest signal, not a no-op).
+    // Soft maxTurns: fail when exceeded; fail closed when turns weren't reported.
+    const budget = evaluateSoftBudget({ maxTurns, turnsUsed });
+    const overBudget = budget.overBudget;
     const passed =
       agentExitCode === 0 && verify.exitCode === 0 && overBudget !== true;
     const preview =
@@ -373,8 +374,8 @@ async function runCase(
 
     let error: string | null = null;
     if (!passed) {
-      if (overBudget === true) {
-        error = `over turn budget (${turnsUsed} > ${maxTurns})`;
+      if (budget.budgetError !== null) {
+        error = budget.budgetError;
       } else if (verify.timedOut) {
         error = `verify timed out after ${opts.verifyTimeoutMs}ms`;
       } else if (execResult.error !== undefined) {

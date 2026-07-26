@@ -77,7 +77,7 @@ Flags:
 | `--out <path>` | Write machine-readable results JSON |
 | `--baseline <path>` | Compare this run to a prior results file (improve/regress + metric deltas) |
 | `--ask-permissions` | Do **not** pass `--dangerously-skip-permissions` |
-| `--max-turns <n>` | Soft turn budget: case **fails** if `turnsUsed` exceeds (does not hard-kill mid-run) |
+| `--max-turns <n>` | Soft turn budget: case **fails** if `turnsUsed` exceeds, or if turns are not reported when a budget is set (fail closed). Does not hard-kill mid-run |
 | `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `600000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
 | `--verify-timeout-ms <n>` | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`) |
 | `--dry-run` | Load cases × variants and print plan; no inference |
@@ -98,7 +98,7 @@ verify.sh   # objective grader (exit 0 = pass)
 - `title` — human label
 - `fixture` — path relative to repo root (copied into a temp workdir)
 - `prompt` — task text for `corbits exec`
-- `maxTurns` — optional soft turn budget; when `turnsUsed` exceeds it the case **fails** (`overBudget: true`). Not a hard mid-run kill (product path has no turn budget hook yet).
+- `maxTurns` — optional soft turn budget; when set, the case **fails** if `turnsUsed` exceeds it (`overBudget: true`) **or** if `turnsUsed` was not reported (fail closed so a broken metrics path cannot pass a budgeted case). Not a hard mid-run kill (product path has no turn budget hook yet).
 - `verify` — grader filename (default `verify.sh`)
 
 ## Results JSON (v2)

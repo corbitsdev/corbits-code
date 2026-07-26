@@ -336,6 +336,35 @@ export function summarizeRun(results: readonly CaseResult[]): EvalRunTotals {
   };
 }
 
+/**
+ * Soft turn-budget evaluation. When maxTurns is set:
+ * - missing turnsUsed → fail closed (overBudget true) so a broken metrics path
+ *   cannot silently pass a budgeted case
+ * - turnsUsed > maxTurns → overBudget true
+ * When maxTurns is unset, overBudget is null (budget not in force).
+ */
+export function evaluateSoftBudget(args: {
+  maxTurns: number | null;
+  turnsUsed: number | null;
+}): { overBudget: boolean | null; budgetError: string | null } {
+  if (args.maxTurns === null) {
+    return { overBudget: null, budgetError: null };
+  }
+  if (args.turnsUsed === null) {
+    return {
+      overBudget: true,
+      budgetError: `turn budget set (${args.maxTurns}) but turnsUsed was not reported`,
+    };
+  }
+  if (args.turnsUsed > args.maxTurns) {
+    return {
+      overBudget: true,
+      budgetError: `over turn budget (${args.turnsUsed} > ${args.maxTurns})`,
+    };
+  }
+  return { overBudget: false, budgetError: null };
+}
+
 function parseTokenUsage(raw: unknown): EvalTokenUsage | null {
   if (!isRecord(raw)) return null;
   const num = (k: string): number =>
