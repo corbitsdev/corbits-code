@@ -267,7 +267,7 @@ export function createSubAgentSessionStore(
             const name = typeof data.name === "string" ? data.name : "tool";
             const callId = typeof data.callId === "string" ? data.callId : `${name}-${session.entries.length}`;
             session.currentToolName = name;
-            session.toolNames.push(name);
+            if (!session.toolNames.includes(name)) session.toolNames.push(name);
             pushEntry(session, { kind: "tool", callId, name, arguments: "" });
             return;
           }
