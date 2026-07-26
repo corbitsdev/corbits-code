@@ -10,7 +10,8 @@ import {
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { isApproved } from "./matcher.js";
+import { isApproved, escapeGlobLiteral } from "./matcher.js";
+import { splitChainedCommand, tokenize } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
 import {
@@ -21,6 +22,17 @@ import {
 import type { MCPClient } from "../mcp/client.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
+
+// A run_shell pre-approval must name exactly one real command — not a chain
+// (`a && b`), not a pipeline (`a | b`), not an empty or whitespace-only string.
+// Rejecting anything else here keeps ask_operator's `command` argument from
+// minting a grant broader than the single command the operator actually saw.
+function isSingleShellCommand(command: string): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
+  if (splitChainedCommand(trimmed).length !== 1) return false;
+  return tokenize(trimmed).length > 0;
+}
 
 // In auto mode these non-shell built-in tools auto-allow without an operator
 // prompt: file mutations plus the benign built-ins that a hands-off run should
@@ -104,7 +116,10 @@ export type PermissionGate = {
   setAuto: (value: boolean) => void;
   // Grant a session-only approval outside the normal ask flow, e.g. when the
   // operator already approved a literal command through ask_operator — so the
-  // matching run_shell call that follows does not prompt a second time.
+  // matching run_shell call that follows does not prompt a second time. The
+  // grant always covers the literal `pattern` string, never an interpreted
+  // glob; a `run_shell` pattern that is not a single real command is dropped
+  // rather than minted.
   preApprove: (tool: string, pattern: string) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
@@ -264,7 +279,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   };
 
   const preApprove = (tool: string, pattern: string): void => {
-    const approval: Approval = { tool, pattern };
+    // run_shell pre-approvals come from ask_operator's free-text `command`
+    // argument. Reject anything that is not a single real command, and store
+    // the grant as the escaped literal — never as a glob — so it can only
+    // ever match the exact command the operator approved.
+    if (tool === "run_shell" && !isSingleShellCommand(pattern)) return;
+    const approval: Approval = { tool, pattern: escapeGlobLiteral(pattern) };
     approvals.push(approval);
     sessionGrants.push(approval);
   };
