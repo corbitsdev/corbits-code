@@ -65,6 +65,26 @@ export function toolGlyph(toolName: string): string {
   return TOOL_GLYPHS[toolName] ?? DEFAULT_TOOL_GLYPH;
 }
 
+// A collapsed shell row's outcome is otherwise buried in text ("exit 1: ...").
+// Pass/fail glyphs mirror the plan-step checkmarks so the outcome reads at a
+// glance without opening the row.
+const SHELL_PASS_GLYPH = "✓";
+const SHELL_FAIL_GLYPH = "✗";
+
+export function shellOutcomeGlyph(isError: boolean): string {
+  return isError ? SHELL_FAIL_GLYPH : SHELL_PASS_GLYPH;
+}
+
+// run_shell prefixes a failed result with "exit code N\n<output>" (see
+// summarizeToolResult's run_shell case); other tool errors, and shell errors
+// raised outside that envelope (e.g. a rejected permission), carry no such
+// prefix and should render as plain errors instead of a parsed exit summary.
+const SHELL_EXIT_ENVELOPE = /^exit code \d+\n/;
+
+export function isShellExitEnvelope(toolName: string, content: string): boolean {
+  return toolName === "run_shell" && SHELL_EXIT_ENVELOPE.test(content);
+}
+
 // Brand of the active web plugin (e.g. "Exa"), set at startup when a web plugin
 // overrides the built-in provider. Renders web_search/web_fetch as branded
 // actions so it is clear which backend served the call.

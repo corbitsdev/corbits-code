@@ -276,6 +276,68 @@ describe("tool row backgrounds", () => {
   });
 });
 
+describe("error tool result output", () => {
+  function shellErrorResult(exitCode: number, output: string): ContentBlock {
+    return toolResultBlock("err1", "err1", "run_shell", `exit code ${exitCode}\n${output}`, true);
+  }
+
+  test("a collapsed long error trace shows a short summary, not the raw dump", () => {
+    const trace = Array.from({ length: 300 }, (_, i) => `at frame ${i} (file.ts:${i}:1)`).join("\n");
+    const lines = lineText(buildLines([shellErrorResult(1, trace)], COLUMNS, false, isExpanded));
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toContain("frame 0");
+    expect(lines.join("\n")).not.toContain("frame 299");
+  });
+
+  test("an expanded long error trace caps behind the same hidden-lines marker the success path uses", () => {
+    const trace = Array.from({ length: 300 }, (_, i) => `at frame ${i} (file.ts:${i}:1)`).join("\n");
+    function alwaysExpanded(): boolean {
+      return true;
+    }
+    const text = lineText(buildLines([shellErrorResult(1, trace)], COLUMNS, false, alwaysExpanded)).join("\n");
+    expect(text).toContain("more lines hidden");
+    expect(text.length).toBeLessThan(trace.length);
+  });
+
+  test("a collapsed shell error row shows a fail glyph derived from the exit code", () => {
+    const text = lineText(buildLines([shellErrorResult(1, "boom")], COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("✗");
+    expect(text).toContain("exit 1");
+  });
+
+  test("a non-shell collapsed error keeps the plain error prefix without a glyph", () => {
+    const block = toolResultBlock("err2", "err2", "read_file", "ENOENT: no such file", true);
+    const text = lineText(buildLines([block], COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("error:");
+    expect(text).not.toContain("✗");
+  });
+});
+
+describe("merged collapsed shell failure", () => {
+  function shellCallAndFailure(command: string, exitCode: number, output: string): ContentBlock[] {
+    const callId = "shell-err-1";
+    return [
+      toolCallBlock(callId, "run_shell", JSON.stringify({ command }), callId),
+      toolResultBlock(`${callId}-result`, callId, "run_shell", `exit code ${exitCode}\n${output}`, true),
+    ];
+  }
+
+  test("shows a fail glyph and the parsed exit summary, not the raw envelope", () => {
+    const text = lineText(buildLines(shellCallAndFailure("false", 1, "boom"), COLUMNS, false, isExpanded)).join("\n");
+    expect(text).toContain("✗");
+    expect(text).toContain("exit 1: boom");
+    expect(text).not.toContain("exit code 1");
+  });
+
+  test("caps a long error trace to a short summary instead of dumping it", () => {
+    const trace = Array.from({ length: 300 }, (_, i) => `at frame ${i} (file.ts:${i}:1)`).join("\n");
+    const lines = lineText(buildLines(shellCallAndFailure("run-trace", 1, trace), COLUMNS, false, isExpanded));
+    const text = lines.join("\n");
+    expect(text).toContain("frame 0");
+    expect(text).not.toContain("frame 299");
+  });
+});
+
 describe("flat line buffer", () => {
   test("a layoutKey change recomputes renderable blocks even when contentBlocks is unchanged", () => {
     const blocks: ContentBlock[] = [

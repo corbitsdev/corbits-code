@@ -6,6 +6,7 @@ import {
   isUserFacingJSON,
   describeToolCall,
   humanizeToolName,
+  shellOutcomeGlyph,
   toolGlyph,
 } from "./tool-formatter.js";
 
@@ -92,6 +93,14 @@ describe("toolGlyph", () => {
     expect(describeToolCall("present", "{}").glyph).toBe(toolGlyph("present"));
     expect(describeToolCall("task", '{"agent":"claude"}').glyph).toBe(toolGlyph("task"));
     expect(describeToolCall("unknown_tool", "{}").glyph).toBe("●");
+  });
+});
+
+describe("shellOutcomeGlyph", () => {
+  test("distinguishes pass and fail with distinct glyphs", () => {
+    expect(shellOutcomeGlyph(false)).not.toBe(shellOutcomeGlyph(true));
+    expect(shellOutcomeGlyph(true)).toBe("✗");
+    expect(shellOutcomeGlyph(false)).toBe("✓");
   });
 });
 
