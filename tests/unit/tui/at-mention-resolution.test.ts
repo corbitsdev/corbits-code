@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { resolveAtMentions } from "../../../src/tui/app.js";
+
+const execFileAsync = promisify(execFile);
 
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "at-mention-resolution-"));
@@ -106,7 +110,7 @@ describe("resolveAtMentions", () => {
     }
   });
 
-  test("follows symlinks outside the start directory", async () => {
+  test("blocks symlinks that resolve outside the workspace", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
@@ -114,10 +118,67 @@ describe("resolveAtMentions", () => {
       await symlink(outside, join(dir, "escape"));
 
       const resolved = await resolveAtMentions("read @escape/outside.txt", dir);
-      expect(resolved).toContain("outside content");
+      expect(resolved).toContain("@escape/outside.txt (blocked: outside workspace)");
+      expect(resolved).not.toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks absolute paths outside the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      const outsideFile = join(outside, "outside.txt");
+      await writeFile(outsideFile, "outside content\n");
+
+      const resolved = await resolveAtMentions(`read @${outsideFile}`, dir);
+      expect(resolved).toContain(`@${outsideFile} (blocked: outside workspace)`);
+      expect(resolved).not.toContain("outside content");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks parent-traversal paths that escape the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      await writeFile(join(outside, "outside.txt"), "outside content\n");
+      const traversal = `../../${outside.split("/").pop() ?? ""}/outside.txt`;
+
+      const resolved = await resolveAtMentions(`read @${traversal}`, join(dir, "src"));
+      expect(resolved).toContain(`@${traversal} (blocked: outside workspace)`);
+      expect(resolved).not.toContain("outside content");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("inlines mentions into a sibling git worktree of the same session", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "at-mention-resolution-repo-"));
+    const worktree = await mkdtemp(join(tmpdir(), "at-mention-resolution-worktree-"));
+    await rm(worktree, { recursive: true, force: true });
+    try {
+      await execFileAsync("git", ["init"], { cwd: repo });
+      await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
+      await execFileAsync("git", ["config", "user.name", "Test"], { cwd: repo });
+      await writeFile(join(repo, "README.md"), "root\n");
+      await execFileAsync("git", ["add", "README.md"], { cwd: repo });
+      await execFileAsync("git", ["commit", "-m", "initial"], { cwd: repo });
+      await execFileAsync("git", ["worktree", "add", "-b", "sibling", worktree], { cwd: repo });
+      await writeFile(join(worktree, "shared.ts"), "export const shared = true;\n");
+
+      const resolved = await resolveAtMentions(`read @${join(worktree, "shared.ts")}`, repo);
+      expect(resolved).toContain(`\`${join(worktree, "shared.ts")}\`:`);
+      expect(resolved).toContain("export const shared = true;");
+    } finally {
+      await execFileAsync("git", ["worktree", "remove", "--force", worktree]).catch(() => {});
+      await rm(repo, { recursive: true, force: true });
+      await rm(worktree, { recursive: true, force: true });
     }
   });
 
