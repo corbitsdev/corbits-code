@@ -65,4 +65,72 @@ describe("goal state persistence", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  test("rejects an unknown goal status", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "goal-state-"));
+    try {
+      await writeGoalStateRaw(
+        cwd,
+        "s1",
+        JSON.stringify({
+          status: "in_progress",
+          condition: "tests green",
+          startedAt: 100,
+          turnBudget: 25,
+          turnsUsed: 3,
+          mainTokens: 10,
+          evalTokens: 2,
+        }),
+      );
+      expect(await loadGoalState(cwd, "s1")).toBeNull();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a criterion with an unknown status", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "goal-state-"));
+    try {
+      await writeGoalStateRaw(
+        cwd,
+        "s1",
+        JSON.stringify({
+          status: "active",
+          condition: "tests green",
+          criteria: [{ id: "c1", title: "typecheck clean", status: "in_review" }],
+          startedAt: 100,
+          turnBudget: 25,
+          turnsUsed: 3,
+          mainTokens: 10,
+          evalTokens: 2,
+        }),
+      );
+      expect(await loadGoalState(cwd, "s1")).toBeNull();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a criterion with an empty title", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "goal-state-"));
+    try {
+      await writeGoalStateRaw(
+        cwd,
+        "s1",
+        JSON.stringify({
+          status: "active",
+          condition: "tests green",
+          criteria: [{ id: "c1", title: "", status: "todo" }],
+          startedAt: 100,
+          turnBudget: 25,
+          turnsUsed: 3,
+          mainTokens: 10,
+          evalTokens: 2,
+        }),
+      );
+      expect(await loadGoalState(cwd, "s1")).toBeNull();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });

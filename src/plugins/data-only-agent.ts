@@ -12,6 +12,28 @@ import { REASONING_EFFORTS } from "../agent/profile-types.js";
 import { splitFrontmatter } from "./frontmatter.js";
 import { type } from "arktype";
 
+// Reasoning-effort schema derived from the canonical array, mirroring the
+// pattern in ../agent/profiles.ts (arktype's `type()` needs a literal union
+// string, so a computed one is threaded through `unknown`).
+const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(" | ");
+const ReasoningEffortSchema = type(reasoningEffortLiteral as unknown as "'none'");
+
+// Shared shape for one inference leg across the two frontmatter dialects that
+// carry them (native `inference.order[]` and the `model` field). Each call
+// site still owns how it resolves `reasoningEffort` (own value vs. a
+// top-level fallback), so that stays outside the schema.
+const InferenceLegBaseSchema = type({
+  provider: "string>0",
+  model: "string>0",
+});
+
+// Native `capabilities: { mode, tools[] }` block. Only `mode` is
+// schema-validated here; `tools` elements are filtered rather than
+// whole-array-validated, so one malformed entry narrows the tool set instead
+// of invalidating the entire capabilities block and falling through to
+// undefined (unrestricted) access — a rejected block must never widen access.
+const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
+
 // A data-only agent plugin is a directory containing either:
 //   • an `agents/` subfolder holding `*.md` files (standard layout), or
 //   • the `*.md` files directly (e.g. you point the plugin path at an `agents/`
@@ -59,7 +81,7 @@ function aliasTool(raw: string): string {
 }
 
 function isReasoningEffort(v: unknown): v is ReasoningEffort {
-  return typeof v === "string" && (REASONING_EFFORTS as readonly string[]).includes(v);
+  return !(ReasoningEffortSchema(v) instanceof type.errors);
 }
 
 // Resolve the agent id: frontmatter `id` wins, then `name`, then the file stem.
@@ -86,21 +108,20 @@ function normalizeCapabilities(
 ): CapabilityFilter | undefined {
   if (fm === null) return undefined;
 
-  // Native: capabilities: { mode, tools[] } — accept verbatim if it survives
-  // schema validation later.
+  // Native: capabilities: { mode, tools[] } — mode must validate, but tools
+  // elements are filtered individually so a stray non-string entry restricts
+  // rather than rejecting the whole block (see NativeCapabilitiesModeSchema).
   if (
     fm.capabilities !== undefined &&
     typeof fm.capabilities === "object" &&
     fm.capabilities !== null
   ) {
     const cap = fm.capabilities as { mode?: unknown; tools?: unknown };
-    if (
-      (cap.mode === "allow" || cap.mode === "exclude") &&
-      Array.isArray(cap.tools)
-    ) {
+    const mode = NativeCapabilitiesModeSchema(cap.mode);
+    if (!(mode instanceof type.errors) && Array.isArray(cap.tools)) {
       return {
-        mode: cap.mode,
-        tools: (cap.tools as unknown[]).filter((t): t is string => typeof t === "string").map(aliasTool),
+        mode,
+        tools: cap.tools.filter((t): t is string => typeof t === "string").map(aliasTool),
       };
     }
   }
@@ -256,12 +277,11 @@ function normalizeInferenceSpec(raw: Record<string, unknown>): InferenceSpec | u
   if (!Array.isArray(orderRaw)) return undefined;
   const order: InferenceLeg[] = [];
   for (const leg of orderRaw) {
-    if (typeof leg !== "object" || leg === null) continue;
-    const l = leg as { provider?: unknown; model?: unknown; reasoningEffort?: unknown };
-    if (typeof l.provider !== "string" || typeof l.model !== "string") continue;
-    if (l.provider.length === 0 || l.model.length === 0) continue;
-    const entry: InferenceLeg = { provider: l.provider, model: l.model };
-    if (isReasoningEffort(l.reasoningEffort)) entry.reasoningEffort = l.reasoningEffort;
+    const base = InferenceLegBaseSchema(leg);
+    if (base instanceof type.errors) continue;
+    const entry: InferenceLeg = { provider: base.provider, model: base.model };
+    const reasoningEffort = (leg as { reasoningEffort?: unknown }).reasoningEffort;
+    if (isReasoningEffort(reasoningEffort)) entry.reasoningEffort = reasoningEffort;
     order.push(entry);
   }
   if (order.length === 0) return undefined;
@@ -278,12 +298,10 @@ function normalizeModelField(
   const legs: InferenceLeg[] = [];
 
   const asLeg = (raw: unknown): InferenceLeg | undefined => {
-    if (typeof raw !== "object" || raw === null) return undefined;
-    const l = raw as { provider?: unknown; model?: unknown; reasoningEffort?: unknown };
-    if (typeof l.provider !== "string" || typeof l.model !== "string") return undefined;
-    if (l.provider.length === 0 || l.model.length === 0) return undefined;
-    const leg: InferenceLeg = { provider: l.provider, model: l.model };
-    const effortForLeg = l.reasoningEffort ?? effort;
+    const base = InferenceLegBaseSchema(raw);
+    if (base instanceof type.errors) return undefined;
+    const leg: InferenceLeg = { provider: base.provider, model: base.model };
+    const effortForLeg = (raw as { reasoningEffort?: unknown }).reasoningEffort ?? effort;
     if (isReasoningEffort(effortForLeg)) leg.reasoningEffort = effortForLeg;
     return leg;
   };

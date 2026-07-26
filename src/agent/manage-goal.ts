@@ -11,11 +11,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import type { GoalCriterion, GoalCriterionStatus, GoalGovernor } from "./goal.js";
-import { formatGoalStatus, goalCriteriaProgress } from "./goal.js";
-
-export const GoalCriterionStatusSchema = type(
-  "'todo' | 'doing' | 'done' | 'blocked' | 'cancelled'",
-);
+import { formatGoalStatus, goalCriteriaProgress, GoalCriterionStatusSchema } from "./goal.js";
 
 const ManageGoalArgsSchema = type({
   action: "'create' | 'update'",

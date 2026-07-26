@@ -193,6 +193,42 @@ describe("loadDataOnlyAgentPlugin", () => {
     });
   });
 
+  test("native inference block drops a leg missing model but keeps the valid ones", async () => {
+    const dir = await makePlugin({
+      "agents/a.md":
+        "---\ninference:\n  order:\n    - { provider: anthropic, model: claude-sonnet-4 }\n    - { provider: xai }\n---\nbody\n",
+    });
+    const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
+    const agent = plugin!.agentPlugin.agents[0] as {
+      inference?: { order: { provider: string; model: string }[] };
+    };
+    expect(agent.inference!.order).toHaveLength(1);
+    expect(agent.inference!.order[0]).toEqual({ provider: "anthropic", model: "claude-sonnet-4" });
+  });
+
+  test("native capabilities block with a non-boolean mode falls through instead of restricting", async () => {
+    const dir = await makePlugin({
+      "agents/a.md": "---\ncapabilities:\n  mode: sometimes\n  tools: [read_file]\n---\nbody\n",
+    });
+    const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
+    const agent = plugin!.agentPlugin.agents[0] as { capabilities?: unknown };
+    expect(agent.capabilities).toBeUndefined();
+  });
+
+  test("native capabilities block with a non-string tools entry restricts rather than granting unrestricted access", async () => {
+    const dir = await makePlugin({
+      "agents/a.md":
+        "---\ncapabilities:\n  mode: allow\n  tools: [read_file, 42, grep]\n---\nbody\n",
+    });
+    const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
+    const agent = plugin!.agentPlugin.agents[0] as {
+      capabilities?: { mode: string; tools: string[] };
+    };
+    expect(agent.capabilities).toBeDefined();
+    expect(agent.capabilities!.mode).toBe("allow");
+    expect(agent.capabilities!.tools.sort()).toEqual(["grep", "read_file"]);
+  });
+
   test("model: array becomes a prefer chain", async () => {
     const dir = await makePlugin({
       "agents/a.md":
