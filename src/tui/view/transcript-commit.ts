@@ -12,11 +12,16 @@ import type { StyledLine } from "./index.js";
 //     diffs against the previous frame and rewrites only changed lines.
 //
 // This module owns the commit boundary: the backbuffer of already-committed
-// lines plus the accounting that decides when a whole block has settled far
-// enough above the live window to move into scrollback. Commits happen at block
-// granularity so a resize (which re-wraps the live region at the new width)
-// never re-emits or double-counts a block already frozen in scrollback — the
-// accepted tradeoff being that committed history keeps its original width.
+// lines plus the accounting that decides when content has settled far enough
+// above the live window to move into scrollback. Settled blocks commit whole;
+// the block straddling the boundary additionally commits line by line, so
+// history flows into scrollback continuously instead of freezing in whole-block
+// jumps. The live window always keeps the newest liveRows lines dynamic, which
+// bounds how far back a streaming block's markdown reflow could disagree with
+// its already-frozen prefix. Accepted tradeoffs: committed history keeps its
+// original width, and a mid-stream resize may leave a wrap seam inside the
+// partially committed block (its frozen prefix wrapped at the old width, the
+// remainder at the new).
 
 export type TranscriptCommitState = {
   // Lines already emitted to native scrollback, in commit order. Only ever
@@ -37,6 +42,11 @@ export type TranscriptCommitState = {
   // The session generation this state was last advanced against. A change means
   // clear() replaced the transcript, which triggers the epoch bump and reset.
   generation: number;
+  // The block straddling the commit boundary whose leading lines are already in
+  // scrollback, and how many of them. Only the first uncommitted block can be
+  // partial, so one pair suffices.
+  partialBlockId: string | null;
+  partialLineCount: number;
 };
 
 export function emptyTranscriptCommitState(): TranscriptCommitState {
@@ -47,6 +57,8 @@ export function emptyTranscriptCommitState(): TranscriptCommitState {
     bannerCommitted: false,
     epoch: 0,
     generation: 0,
+    partialBlockId: null,
+    partialLineCount: 0,
   };
 }
 
@@ -109,12 +121,20 @@ export function advanceTranscriptCommit(
 
   const uStart = blockLineStarts[firstUncommitted] ?? blockLines.length;
   const bannerLead = base.bannerCommitted ? 0 : bannerLines.length;
-  const uncommittedLineCount = bannerLead + (blockLines.length - uStart);
+  // Leading lines of the first uncommitted block already frozen by an earlier
+  // partial commit. Tracked by index into the block's lines: if the block
+  // re-wrapped since (a mid-stream resize), the remainder continues at the new
+  // wrap — a seam, accepted over re-emitting or rewriting scrollback.
+  const partialCount =
+    base.partialBlockId !== null && base.partialBlockId === blockIds[firstUncommitted]
+      ? Math.min(base.partialLineCount, blockRenderLineCounts[firstUncommitted] ?? 0)
+      : 0;
+  const uncommittedLineCount = bannerLead + (blockLines.length - uStart) - partialCount;
   const commitBudget = uncommittedLineCount - Math.max(0, liveRows);
 
   // Walk whole blocks off the top while they fit under the commit budget. The
-  // last block is never committed: it may still be streaming, so its lines are
-  // not yet final.
+  // last block is never committed whole: it may still be streaming, so its
+  // full height is not yet final.
   const lastIndex = blockIds.length - 1;
   let consumed = bannerLead;
   let newCommitted = firstUncommitted;
@@ -122,14 +142,28 @@ export function advanceTranscriptCommit(
     // A block with a pending/running tool call still mutates, so it (and every
     // block after it, to keep scrollback append-only in order) stays live.
     if (!blockSettled[i]) break;
-    const height = blockRenderLineCounts[i] ?? 0;
+    const height = (blockRenderLineCounts[i] ?? 0) - (i === firstUncommitted ? partialCount : 0);
     if (consumed + height > commitBudget) break;
     consumed += height;
     newCommitted = i + 1;
   }
 
+  // The block straddling the boundary commits line by line up to the budget,
+  // so history flows into scrollback continuously instead of pinning whole tall
+  // blocks in the live region. A pending tool block still mutates and commits
+  // nothing; everything else is line-stable except a streaming text tail, whose
+  // reflow window is covered by the liveRows the budget always keeps live.
+  const already = newCommitted === firstUncommitted ? partialCount : 0;
+  const boundaryHeight = blockRenderLineCounts[newCommitted] ?? 0;
+  const partialExtra =
+    newCommitted <= lastIndex && blockSettled[newCommitted] === true
+      ? Math.min(Math.max(0, commitBudget - consumed), Math.max(0, boundaryHeight - already))
+      : 0;
+  const partialTotal = already + partialExtra;
+  const partialBlockId = partialTotal > 0 ? blockIds[newCommitted] ?? null : null;
+
   let state = base;
-  if (newCommitted > firstUncommitted) {
+  if (newCommitted > firstUncommitted || partialExtra > 0) {
     // Append only the newly settled lines. committedLines is never re-copied, so
     // freezing a block into scrollback stays O(block height) rather than O(total
     // committed) — the axis this renderer exists to keep flat over a long session.
@@ -139,8 +173,9 @@ export function advanceTranscriptCommit(
       for (const line of bannerLines) committedLines.push(line);
       bannerCommitted = true;
     }
-    const uEnd = blockLineStarts[newCommitted] ?? blockLines.length;
-    for (let li = uStart; li < uEnd; li++) committedLines.push(blockLines[li]!);
+    const wholeEnd = blockLineStarts[newCommitted] ?? blockLines.length;
+    const uEnd = wholeEnd + already + partialExtra;
+    for (let li = uStart + partialCount; li < uEnd; li++) committedLines.push(blockLines[li]!);
     const committedBlockIds = base.committedBlockIds;
     const committedBlockIdSet = base.committedBlockIdSet;
     for (let i = firstUncommitted; i < newCommitted; i++) {
@@ -154,12 +189,18 @@ export function advanceTranscriptCommit(
       bannerCommitted,
       epoch: base.epoch,
       generation: base.generation,
+      partialBlockId,
+      partialLineCount: partialTotal,
     };
-  } else if (base !== prev) {
-    state = base;
+  } else if (
+    base !== prev
+    || partialBlockId !== base.partialBlockId
+    || partialTotal !== base.partialLineCount
+  ) {
+    state = { ...base, partialBlockId, partialLineCount: partialTotal };
   }
 
-  const liveStart = blockLineStarts[newCommitted] ?? blockLines.length;
+  const liveStart = (blockLineStarts[newCommitted] ?? blockLines.length) + partialTotal;
   const live: StyledLine[] = state.bannerCommitted
     ? blockLines.slice(liveStart)
     : [...bannerLines, ...blockLines.slice(liveStart)];

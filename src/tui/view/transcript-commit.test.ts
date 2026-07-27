@@ -74,14 +74,16 @@ describe("advanceTranscriptCommit", () => {
     );
     const { state, committed, live } = advanceTranscriptCommit(emptyTranscriptCommitState(), frame);
     // banner + a (3 lines) fits under commitBudget (8 total - 3 live = 5); b
-    // straddles the boundary so it stays live alongside the streaming block c.
+    // straddles the boundary, so its first line commits partially and the rest
+    // stays live alongside the streaming block c.
     expect(state.bannerCommitted).toBe(true);
     expect(state.committedBlockIds).toEqual(["a"]);
-    expect(texts(committed)).toEqual(["banner", "a1", "a2"]);
-    expect(texts(live)).toEqual(["b1", "b2", "c1", "c2"]);
+    expect(state.partialBlockId).toBe("b");
+    expect(texts(committed)).toEqual(["banner", "a1", "a2", "b1"]);
+    expect(texts(live)).toEqual(["b2", "c1", "c2"]);
   });
 
-  test("never commits the last block even when it is taller than the live window", () => {
+  test("commits the stable prefix lines of a tall last block, keeping the live window live", () => {
     const frame = buildFrame(
       [],
       [
@@ -91,9 +93,108 @@ describe("advanceTranscriptCommit", () => {
       2,
     );
     const { state, committed, live } = advanceTranscriptCommit(emptyTranscriptCommitState(), frame);
+    // The last block may still be streaming, so it never commits as a whole,
+    // but its lines above the live window freeze so a long reply scrolls into
+    // native scrollback continuously instead of pinning whole in the tail.
     expect(state.committedBlockIds).toEqual(["a"]);
+    expect(state.partialBlockId).toBe("tall");
+    expect(state.partialLineCount).toBe(4);
+    expect(texts(committed)).toEqual(["a1", "t1", "t2", "t3", "t4"]);
+    expect(texts(live)).toEqual(["t5", "t6"]);
+  });
+
+  test("partial commit of a streaming block advances monotonically as it grows", () => {
+    let state = emptyTranscriptCommitState();
+    ({ state } = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "a", lines: ["a1"] },
+        { id: "s", lines: ["s1", "s2", "s3"] },
+      ], 2),
+    ));
+    expect(state.partialBlockId).toBe("s");
+    expect(state.partialLineCount).toBe(1);
+    expect(texts(state.committedLines)).toEqual(["a1", "s1"]);
+
+    const grown = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "a", lines: ["a1"] },
+        { id: "s", lines: ["s1", "s2", "s3", "s4", "s5"] },
+      ], 2),
+    );
+    expect(grown.state.partialLineCount).toBe(3);
+    expect(texts(grown.committed)).toEqual(["a1", "s1", "s2", "s3"]);
+    expect(texts(grown.live)).toEqual(["s4", "s5"]);
+  });
+
+  test("a partially committed block finishes committing only its remaining lines", () => {
+    let state = emptyTranscriptCommitState();
+    ({ state } = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "a", lines: ["a1"] },
+        { id: "s", lines: ["s1", "s2", "s3"] },
+      ], 2),
+    ));
+    expect(state.partialLineCount).toBe(1);
+
+    // A new block lands after the stream; the partial block commits its
+    // remainder exactly once — no duplicated lines in scrollback.
+    const after = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "a", lines: ["a1"] },
+        { id: "s", lines: ["s1", "s2", "s3"] },
+        { id: "n", lines: ["n1", "n2"] },
+      ], 2),
+    );
+    expect(after.state.committedBlockIds).toEqual(["a", "s"]);
+    expect(after.state.partialBlockId).toBeNull();
+    expect(texts(after.committed)).toEqual(["a1", "s1", "s2", "s3"]);
+    expect(texts(after.live)).toEqual(["n1", "n2"]);
+  });
+
+  test("settling on abort commits the already-frozen prefix without re-emitting it", () => {
+    let state = emptyTranscriptCommitState();
+    // A long reply streams while pinned: most of it partial-commits as it grows.
+    ({ state } = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "s", lines: ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"] },
+      ], 3),
+    ));
+    expect(state.partialLineCount).toBe(5);
+
+    // Abort settles everything at once and a trailing error block lands. Only
+    // the lines above the live window move — the settle does not dump the
+    // whole block into scrollback in one jump.
+    const settled = advanceTranscriptCommit(
+      state,
+      buildFrame([], [
+        { id: "s", lines: ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"] },
+        { id: "err", lines: ["Aborted."] },
+      ], 3),
+    );
+    expect(texts(settled.committed)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6"]);
+    expect(texts(settled.live)).toEqual(["s7", "s8", "Aborted."]);
+  });
+
+  test("a pending last block never partial-commits", () => {
+    const frame = buildFrame(
+      [],
+      [
+        { id: "a", lines: ["a1"] },
+        { id: "p", lines: ["p1", "p2", "p3", "p4"], settled: false },
+      ],
+      1,
+    );
+    const { state, committed, live } = advanceTranscriptCommit(emptyTranscriptCommitState(), frame);
+    // A pending tool row still mutates (clock, merge with its result), so none
+    // of its lines may freeze.
+    expect(state.partialBlockId).toBeNull();
     expect(texts(committed)).toEqual(["a1"]);
-    expect(texts(live)).toEqual(["t1", "t2", "t3", "t4", "t5", "t6"]);
+    expect(texts(live)).toEqual(["p1", "p2", "p3", "p4"]);
   });
 
   test("commit is monotonic and appends only newly settled blocks across frames", () => {
@@ -109,8 +210,8 @@ describe("advanceTranscriptCommit", () => {
     blocks.push({ id: "d", lines: ["d1"] });
     const second = advanceTranscriptCommit(state, buildFrame(["banner"], blocks, 3));
     expect(second.state.committedBlockIds).toEqual(["a", "b"]);
-    expect(texts(second.committed)).toEqual(["banner", "a1", "a2", "b1"]);
-    expect(texts(second.live)).toEqual(["c1", "c2", "c3", "d1"]);
+    expect(texts(second.committed)).toEqual(["banner", "a1", "a2", "b1", "c1"]);
+    expect(texts(second.live)).toEqual(["c2", "c3", "d1"]);
   });
 
   test("a width change re-wraps the live region without re-emitting frozen history", () => {
@@ -125,15 +226,16 @@ describe("advanceTranscriptCommit", () => {
     expect(state.committedBlockIds).toEqual(["a", "b"]);
 
     // Same blocks, re-wrapped narrower: committed blocks a and b keep their frozen
-    // wide lines; only the still-live block c reflects the new width.
+    // wide lines; the still-live block c reflects the new width, and its lines
+    // above the live window commit at the new wrap.
     const narrow: BlockSpec[] = [
       { id: "a", lines: ["a-nar", "row"] },
       { id: "b", lines: ["b-nar", "row"] },
       { id: "c", lines: ["c-nar", "row"] },
     ];
     const after = advanceTranscriptCommit(state, buildFrame(["banner"], narrow, 1));
-    expect(texts(after.committed)).toEqual(frozen);
-    expect(texts(after.live)).toEqual(["c-nar", "row"]);
+    expect(texts(after.committed)).toEqual([...frozen, "c-nar"]);
+    expect(texts(after.live)).toEqual(["row"]);
   });
 
   test("front-trimming already-committed blocks leaves scrollback frozen and live correct", () => {
@@ -301,6 +403,6 @@ describe("advanceTranscriptCommit", () => {
       2,
     );
     const { committed } = advanceTranscriptCommit(emptyTranscriptCommitState(), frame);
-    expect(texts(committed)).toEqual(["b1", "b2", "a1", "a2", "a3"]);
+    expect(texts(committed)).toEqual(["b1", "b2", "a1", "a2", "a3", "b1"]);
   });
 });
