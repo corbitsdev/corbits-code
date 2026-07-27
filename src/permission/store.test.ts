@@ -49,10 +49,10 @@ describe("project store", () => {
   });
 
   test("drops a hand-edited entry missing a required field, keeping valid entries", async () => {
-    const intercodeDir = join(dir, ".intercode");
-    await mkdir(intercodeDir, { recursive: true });
+    const settingsDir = join(dir, ".corbits");
+    await mkdir(settingsDir, { recursive: true });
     await writeFile(
-      join(intercodeDir, "permissions.json"),
+      join(settingsDir, "permissions.json"),
       JSON.stringify({
         approvals: [
           { tool: "run_shell", pattern: "npm *" },
