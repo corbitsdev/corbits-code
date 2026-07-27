@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output, stderr } from "node:process";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { access } from "node:fs/promises";
 import {
   createAgent,
   defineAgent,
@@ -74,10 +75,12 @@ import {
   discoverRepoPlugins,
   discoverUserPlugins,
   discoverClaudeInstalledPlugins,
+  expandPluginPath,
   loadPluginsFromPaths,
   dedupePluginModules,
 } from "../plugins/loader.js";
 import { isPluginTrusted, loadProjectTrust } from "../trust/project-trust.js";
+import { isPathPluginTrusted, migratePathTrustFromPluginPaths } from "../trust/path-trust.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import {
   generateSessionId,
@@ -215,17 +218,36 @@ export async function runExec(config: Config): Promise<ExecResult> {
     );
 
     let projectTrust = await loadProjectTrust(config.cwd);
-    const isTrustedPath = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+    const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+    // One-shot migration only when the path-trust file does not exist yet.
+    let pathTrust = await migratePathTrustFromPluginPaths(
+      config.settings?.pluginPaths ?? [],
+      async (p) => {
+        const abs = isAbsolute(p) ? p : resolve(config.cwd, p);
+        const members = await expandPluginPath(abs);
+        const existing: string[] = [];
+        for (const m of members) {
+          try {
+            await access(m);
+            existing.push(m);
+          } catch {
+            // skip missing
+          }
+        }
+        return existing;
+      },
+    );
+    const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
     const claudePlugins =
       config.settings?.discoverClaudePlugins === true
         ? await discoverClaudeInstalledPlugins(config.cwd)
         : [];
     const pluginModules = dedupePluginModules([
       ...(await discoverRepoPlugins(config.cwd)),
-      ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isTrustedPath })),
+      ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isProjectPluginTrusted })),
       ...claudePlugins,
       ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd, {
-        isPluginTrusted: isTrustedPath,
+        isPluginTrusted: isRegisteredPathTrusted,
       })),
     ]);
     // Metadata-only (untrusted) modules stay out of executable plugins.

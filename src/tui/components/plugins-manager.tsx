@@ -15,6 +15,11 @@ export type PluginDescriptor = {
   // For kind:"agent" plugins — the profiles contributed, shown so the user can
   // see which sub-agents and tiers a plugin provides before enabling it.
   agentProfiles?: { id: string; tier?: string; description?: string }[];
+  /**
+   * True when discovery found the plugin but code is not imported yet (project
+   * or path origin still untrusted). Enabling records trust and full-loads.
+   */
+  needsTrust?: boolean;
 };
 
 export type VerifyResult = { ok: boolean; message: string };
@@ -304,9 +309,19 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
                 <Text bold={isActive}>{p.name}</Text>
                 {p.kind !== undefined && <Text color={color("dim")} dimColor>{`[${p.kind}]`}</Text>}
                 <Text color={enabled ? color("success") : color("dim")}>{enabled ? "● enabled" : "○ disabled"}</Text>
+                {p.needsTrust === true && (
+                  <Text color={color("warning")}>needs trust</Text>
+                )}
                 {webActive && <Text color={color("accent")}>web override</Text>}
                 {p.kind === "tool" && isConsented(p.id) && <Text color={color("dim")} dimColor>consented</Text>}
               </Box>
+              {isActive && p.needsTrust === true && (
+                <Box marginLeft={2}>
+                  <Text color={color("muted")}>
+                    Code not loaded — press e to trust and enable
+                  </Text>
+                </Box>
+              )}
               {isActive && p.description !== undefined && (
                 <Box marginLeft={2}><Text color={color("muted")}>{p.description}</Text></Box>
               )}

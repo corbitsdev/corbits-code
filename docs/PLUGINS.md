@@ -11,29 +11,39 @@ historical motivation.)
 ## Trust model (untrusted repo)
 
 Plugin **code execution** is gated by origin. Clone-and-run of a foreign repo
-must not import project-local plugins or path plugins until the operator trusts
-that absolute path.
+must not import project-local plugins until the operator trusts that absolute
+path in that working directory. Explicit path plugins are different: they are
+registered in global settings (`pluginPaths`), so consent is global once granted.
 
-| Origin | Path | Auto-trusted? |
-|---|---|---|
-| `repo` | Product-shipped `plugins/` next to the Corbits Code binary | Yes |
-| `user` | `~/.corbits/plugins/` | Yes (user home) |
-| `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) |
-| `project` | `<cwd>/.corbits/plugins/` | **No** — path-bound trust |
-| `path` | `settings.pluginPaths` entries | **No** — path-bound trust |
-
+| Origin | Path | Auto-trusted? | Trust store |
+|---|---|---|---|
+| `repo` | Product-shipped `plugins/` next to the Corbits Code binary | Yes | — |
+| `user` | `~/.corbits/plugins/` | Yes (user home) | — |
+| `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) | — |
+| `project` | `<cwd>/.corbits/plugins/` | **No** — per working directory | `~/.corbits/trust/<cwd-hash>.json` |
+| `path` | `settings.pluginPaths` entries (add-by-path) | **No** until granted once | `~/.corbits/trust/path-plugins.json` (global) |
 
 Untrusted `project` / `path` plugins are discovered as **metadata-only**: the
 loader reads `manifest.json` (or equivalent) but does **not** `import()` the
 module and does **not** load markdown agents/commands. Enabling a listed
-project plugin in `/plugins`, or adding a path via the UI, records trust in
-`<cwd>/.corbits/trust.json` (gitignored) and full-loads the module.
+project plugin in `/plugins` records project trust for that cwd; adding a path
+via the UI (or enabling a path stub) records global path trust and full-loads
+the module. Path trust survives opening a different project directory; project
+trust does not. The `/plugins` UI shows a **needs trust** badge when a listed
+plugin is still metadata-only.
+
+**Migration:** On first run after this split, if `path-plugins.json` does not
+exist yet, Corbits Code seeds global path trust from existing `pluginPaths`
+entries (expanding marketplace roots to members that exist on disk). After that
+file exists, new marketplace members and hand-edited paths stay metadata-only
+until granted via the UI.
 
 Tool-plugin `consented` remains a separate gate for **in-process tool**
 activation after the module is trusted and loaded.
 
-See also `docs/MCP.md` — local MCP servers from `.corbits/settings.json` use
-the same trust file (fingerprints) and fail closed when non-interactive (`corbits exec`).
+See also `docs/MCP.md` — local MCP servers from project settings use the
+per-cwd trust file (fingerprints) and fail closed when non-interactive
+(`corbits exec`).
 
 
 ## Goals

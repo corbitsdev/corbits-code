@@ -206,7 +206,7 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-async function expandPluginPath(path: string): Promise<string[]> {
+export async function expandPluginPath(path: string): Promise<string[]> {
   // 1. Declared marketplace: trust its `source` list (relative to the root).
   try {
     const raw = await readFile(join(path, ".claude-plugin", "marketplace.json"), "utf8");
@@ -296,7 +296,7 @@ async function scanPluginsDir(
 }
 
 // Discover user-installed plugins from:
-//   <cwd>/.corbits/plugins/   (project-local — requires path trust to execute)
+//   <cwd>/.corbits/plugins/   (project-local — requires project trust to execute)
 //   ~/.corbits/plugins/       (user-global — auto-trusted)
 //
 // Pass `isPluginTrusted` to gate project plugins. When omitted, project plugins
@@ -425,7 +425,7 @@ export async function discoverClaudeInstalledPlugins(
       const installPath = (entry as { installPath?: unknown }).installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
       // Relative installPath resolves against process cwd and would let a
-      // poisoned registry load project trees as origin:"user" (no path trust).
+      // poisoned registry load project trees as origin:"user" (no project trust).
       if (!isAbsolute(installPath)) continue;
       const abs = resolve(installPath);
       // Contain under ~/.claude/plugins only (registry is home-scoped).
