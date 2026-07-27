@@ -92,14 +92,30 @@ export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
  * effective outer tool-execution watchdog. There is no default leaf deadline —
  * maxTurns + operator cancel are the primary bounds; callers pass deadlineMs
  * only when they want an extra wall-clock stop.
+ *
+ * Returns undefined (do not arm) when the outer watchdog is at or below the
+ * salvage margin — an internal deadline would otherwise race or exceed outer
+ * and leave no room to return a salvage report.
  */
 export function resolveSubAgentDeadlineMs(
   requestedMs: number,
   outerWatchdogMs: number,
-): number {
+): number | undefined {
   const requested = Math.max(1, Math.floor(requestedMs));
-  const ceiling = Math.max(1_000, outerWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  if (outerWatchdogMs <= SUBAGENT_DEADLINE_MARGIN_MS) return undefined;
+  // Ceiling must never exceed outer − margin (and stays ≥ 1 once outer > margin).
+  const ceiling = Math.max(1, outerWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
   return Math.min(requested, ceiling);
+}
+
+/**
+ * After agent.send resolves: keep a non-empty reply even if abort fired in the
+ * completion window. Empty replies still honor abort so the catch path can
+ * salvage from lastPartialText / tools rather than inventing a "no textual result"
+ * success over a cancelled run.
+ */
+export function preferCompletedSubAgentReply(reply: string): "keep-reply" | "honor-abort" {
+  return reply.trim().length > 0 ? "keep-reply" : "honor-abort";
 }
 
 export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "rethrow";
@@ -1029,7 +1045,13 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       );
       agent.setSources(fresh.sources, fresh.defaultSource);
       const result = await agent.send(fullPrompt, sendOpts);
-      ensureNotAborted();
+      // A successful non-empty reply must not be clobbered by a late cancel that
+      // races the completion window — keep the completed report. Empty replies
+      // still honor abort so we salvage (or rethrow) rather than fabricating
+      // a "no textual result" success over a cancelled run.
+      if (preferCompletedSubAgentReply(result.reply) === "honor-abort") {
+        ensureNotAborted();
+      }
       const reply =
         result.reply.trim().length > 0
           ? result.reply.trim()

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import {
   createTaskTool,
   createSubAgentRunController,
@@ -19,6 +20,7 @@ import {
   appendDeadlineParentHint,
   appendNeverActedParentHint,
   partialTextFromEvent,
+  preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
   subAgentToolName,
@@ -406,8 +408,21 @@ describe("sub-agent stop helpers", () => {
     expect(resolveSubAgentDeadlineMs(45_000, 660_000)).toBe(45_000);
   });
 
-  test("resolveSubAgentDeadlineMs never returns a non-positive ceiling for a tiny outer watchdog", () => {
-    expect(resolveSubAgentDeadlineMs(5_000, 5_000)).toBeGreaterThan(0);
+  test("resolveSubAgentDeadlineMs skips arming when outer watchdog is at or below the margin", () => {
+    expect(resolveSubAgentDeadlineMs(5_000, 5_000)).toBeUndefined();
+    expect(resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS)).toBeUndefined();
+    // Outer just above margin: ceiling is 1 — never exceeds outer.
+    expect(resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS + 1)).toBe(1);
+  });
+
+  test("preferCompletedSubAgentReply keeps a non-empty reply over late cancel", () => {
+    expect(preferCompletedSubAgentReply("## Summary\nDone")).toBe("keep-reply");
+    expect(preferCompletedSubAgentReply("  mapped gate.ts  ")).toBe("keep-reply");
+  });
+
+  test("preferCompletedSubAgentReply honors abort when send returned empty", () => {
+    expect(preferCompletedSubAgentReply("")).toBe("honor-abort");
+    expect(preferCompletedSubAgentReply("   ")).toBe("honor-abort");
   });
 
   test("resolveSubAgentCatchOutcome always salvages a deadline hit, even with zero output", () => {
@@ -865,5 +880,61 @@ describe("createTaskTool", () => {
     const report = row?.entries.find((e) => e.kind === "report");
     expect(report?.content.startsWith("Error: ")).toBe(true);
     expect(report?.content.includes("Error: Error:")).toBe(false);
+  });
+
+  test("forwards deadlineMs to run and appends parent hint on deadline salvage", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      deadlineMs: 45_000,
+      run: async (params) => {
+        captured = params;
+        return forcedStopReport("deadline", "partial before wall clock");
+      },
+    });
+    const out = await callTask(tool, { description: "deadline", prompt: "x" });
+    expect(captured?.deadlineMs).toBe(45_000);
+    expect(out).toContain("## Summary");
+    expect(out).toContain("deadline");
+    expect(out).toContain("partial before wall clock");
+    expect(out).toContain("explicit wall-clock deadline");
+  });
+
+  test("dynamic runner + task: parent cancel keeps salvage body, not task aborted", async () => {
+    const parent = new AbortController();
+    const task = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        // Wait for linked cancel, then return structured salvage.
+        await new Promise<void>((resolve) => {
+          if (params.signal?.aborted) {
+            resolve();
+            return;
+          }
+          params.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        await new Promise((r) => setTimeout(r, 10));
+        return forcedStopReport("cancelled", "Found path in gate.ts");
+      },
+    });
+    const runner = createDynamicToolRunner([task], { defaultMs: 10_000 });
+    const pending = runner.run(
+      { id: "int-1", name: "task", arguments: { description: "race", prompt: "x" } },
+      parent.signal,
+    );
+    await new Promise((r) => setTimeout(r, 15));
+    parent.abort();
+    const result = await pending;
+    expect(result.isError).not.toBe(true);
+    expect(String(result.content)).toContain("## Summary");
+    expect(String(result.content)).toContain("gate.ts");
+    expect(String(result.content)).not.toBe("task aborted");
+    expect(String(result.content)).not.toContain("task aborted");
   });
 });
