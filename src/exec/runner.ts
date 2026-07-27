@@ -639,8 +639,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
     textOut = textChunks.join("");
     if (textOut.length > 0 && !textOut.endsWith("\n")) output.write("\n");
 
+    // Counts always live on runSink; getTurnCollector() is null when no
+    // lifecycle hooks are configured (typical exec/eval path) and only
+    // exposes retained turn history for post-run hooks.
     const turnCollector = runSink.getTurnCollector();
-    turnsUsed = turnCollector.getTurnCount();
+    turnsUsed = runSink.getTurnCount();
     const finishedAt = Date.now();
     const summaryStatus = resolveExecRunStatus({
       sendCompleted,
@@ -653,10 +656,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       status: summaryStatus,
       startedAt,
       finishedAt,
-      turnsUsed: turnCollector.getTurnCount(),
-      tokenUsage: turnCollector.getTokenUsage(),
-      turns: turnCollector.getTurns(),
-      toolCallCount: turnCollector.getToolCallCount(),
+      turnsUsed: runSink.getTurnCount(),
+      tokenUsage: runSink.getTokenUsage(),
+      turns: turnCollector?.getTurns() ?? [],
+      toolCallCount: runSink.getToolCallCount(),
       ...(runError !== undefined ? { error: runError } : {}),
     });
     await hookManager.dispatchPostRun(runSummary).catch(() => undefined);
@@ -675,9 +678,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         error: message,
         status: summaryStatus,
         durationMs: finishedAt - startedAt,
-        turnsUsed: turnCollector.getTurnCount(),
-        toolCallCount: turnCollector.getToolCallCount(),
-        tokenUsage: turnCollector.getTokenUsage(),
+        turnsUsed: runSink.getTurnCount(),
+        toolCallCount: runSink.getToolCallCount(),
+        tokenUsage: runSink.getTokenUsage(),
         provider: config.providerName,
         model: config.model,
       };
@@ -690,9 +693,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       text: textOut,
       status: "done",
       durationMs: finishedAt - startedAt,
-      turnsUsed: turnCollector.getTurnCount(),
-      toolCallCount: turnCollector.getToolCallCount(),
-      tokenUsage: turnCollector.getTokenUsage(),
+      turnsUsed: runSink.getTurnCount(),
+      toolCallCount: runSink.getToolCallCount(),
+      tokenUsage: runSink.getTokenUsage(),
       provider: config.providerName,
       model: config.model,
     };
