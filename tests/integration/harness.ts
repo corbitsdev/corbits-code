@@ -21,7 +21,7 @@ import {
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setupHarness, type Harness } from "@intx/inference-testing";
-import type { InferenceSource } from "@intx/types/runtime";
+import type { ContextTransform, InferenceSource } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { createChatDirector } from "../../src/agent/director.js";
@@ -49,6 +49,8 @@ export type IntegrationSession = {
 export type OpenIntegrationSessionOpts = {
   permissionGate: PermissionGate;
   systemPrompt?: string;
+  /** Pre-inference transforms, delivered the production way: riding deps. */
+  contextTransforms?: ContextTransform[];
 };
 
 export async function openIntegrationSession(
@@ -99,7 +101,12 @@ export async function openIntegrationSession(
     defaultSource: INTEGRATION_SOURCE.id,
     storage,
     workdir,
-    deps: harness.deps,
+    deps: {
+      ...harness.deps,
+      ...(opts.contextTransforms !== undefined
+        ? { contextTransforms: opts.contextTransforms }
+        : {}),
+    },
     audit: noopAuditStore(),
     authorize: permissiveAuthorize(),
     directors: createDirectorRegistry({

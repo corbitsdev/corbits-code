@@ -644,10 +644,10 @@ describe("transient nudges", () => {
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
     const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
     const infer = actions.find((a) => a.type === "infer");
-    const options =
-      infer?.type === "infer"
-        ? (infer.options as ExtendedInferenceOptions | undefined)
-        : undefined;
+    // Plain annotation, not a cast: InferenceOptions is assignable to the
+    // extended type, which only adds an optional member.
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
     expect(options?.ephemeralTurns?.length ?? 0).toBeGreaterThan(0);
     const nudgeText = options?.ephemeralTurns?.[0]?.content?.find(
       (b) => b.type === "text",
