@@ -62,9 +62,9 @@ type ToolResultBlock = Extract<RenderableBlock, { type: "tool_result" }>;
 // call is O(blocks^2). Index each blocks array once (keyed on its identity, so a
 // freshly-built array reindexes and a stale one is collected) and look up in
 // O(1). The first matching result per callId wins, matching the old scan.
-const toolResultIndexCache = new WeakMap<RenderableBlock[], Map<string, ToolResultBlock>>();
+const toolResultIndexCache = new WeakMap<readonly RenderableBlock[], Map<string, ToolResultBlock>>();
 
-function toolResultIndex(blocks: RenderableBlock[]): Map<string, ToolResultBlock> {
+function toolResultIndex(blocks: readonly RenderableBlock[]): Map<string, ToolResultBlock> {
   const cached = toolResultIndexCache.get(blocks);
   if (cached !== undefined) return cached;
   const index = new Map<string, ToolResultBlock>();
@@ -75,8 +75,43 @@ function toolResultIndex(blocks: RenderableBlock[]): Map<string, ToolResultBlock
   return index;
 }
 
-function toolResultForCall(blocks: RenderableBlock[], callId: string): ToolResultBlock | undefined {
+function toolResultForCall(blocks: readonly RenderableBlock[], callId: string): ToolResultBlock | undefined {
   return toolResultIndex(blocks).get(callId);
+}
+
+type ToolCallBlock = Extract<RenderableBlock, { type: "tool_call" }>;
+
+const toolCallIndexCache = new WeakMap<readonly RenderableBlock[], Map<string, ToolCallBlock>>();
+
+function toolCallForId(blocks: readonly RenderableBlock[], callId: string): ToolCallBlock | undefined {
+  const cached = toolCallIndexCache.get(blocks);
+  if (cached !== undefined) return cached.get(callId);
+  const index = new Map<string, ToolCallBlock>();
+  for (const block of blocks) {
+    if (block.type === "tool_call") {
+      const id = block.callId ?? block.id;
+      if (!index.has(id)) index.set(id, block);
+    }
+  }
+  toolCallIndexCache.set(blocks, index);
+  return index.get(callId);
+}
+
+// A result is consumed when its call's collapsed row merges it — the exact
+// mirror of the assembler's merge condition. Decided per result rather than
+// accumulated while assembling, so an incremental pass whose window starts
+// after the call still skips the result instead of re-rendering it standalone.
+function isConsumedResult(
+  blocks: readonly RenderableBlock[],
+  result: ToolResultBlock,
+  isExpanded: (block: RenderableBlock) => boolean,
+): boolean {
+  if (isExpanded(result)) return false;
+  const callId = result.callId ?? result.id;
+  // Only the first result per callId merges, matching toolResultForCall.
+  if (toolResultForCall(blocks, callId) !== result) return false;
+  const call = toolCallForId(blocks, callId);
+  return call !== undefined && call.name === result.name && !isExpanded(call);
 }
 // One-column gutter shared by the transcript, the chrome (header/tasks/status),
 // and the prompt-box border, so every left edge lines up at the same column.
@@ -817,7 +852,12 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
   const lines = [...prefixLines];
   const blockLineStarts = new Array<number>(blocks.length);
   const lastIdx = blocks.length - 1;
-  let lastWasAction = false;
+  // Seed the separator state from the block just above the assemble window, so
+  // an incremental pass starting mid-transcript spaces action groups exactly
+  // like a full rebuild instead of inserting a stray blank between tool rows.
+  const prevBlock = blocks[startBlockIndex - 1];
+  let lastWasAction = prevBlock !== undefined
+    && (prevBlock.type === "tool_call" || prevBlock.type === "tool_result");
 
   for (let i = startBlockIndex; i < blocks.length; i++) {
     blockLineStarts[i] = lines.length;
@@ -849,6 +889,7 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
           || result?.type !== "tool_result"
           || (call.name !== "edit_file" && call.name !== "write_file")
           || result.name !== call.name
+          || (result.callId ?? result.id) !== (call.callId ?? call.id)
           || isExpanded(call)
           || isExpanded(result)
         ) break;
@@ -868,21 +909,24 @@ function assembleRenderableBlocks(args: AssembleBlocksArgs): { lines: StyledLine
       }
     }
 
-    if (
-      block.type === "tool_call"
-      && next?.type === "tool_result"
-      && (next.callId ?? next.id) === (block.callId ?? block.id)
-      && next.name === block.name
-      && !isExpanded(block)
-      && !isExpanded(next)
-    ) {
-      const mergedLines = indentLines(
-        mergedToolLines(block, next, Math.max(8, columns) - TOOL_INDENT),
-        TOOL_INDENT,
-      );
-      lines.push(...mergedLines);
-      if (i + 1 < blocks.length) blockLineStarts[i + 1] = lines.length;
-      i++;
+    if (block.type === "tool_call" && !isExpanded(block)) {
+      // Match the result by callId, not adjacency: parallel calls interleave
+      // their results, and each pair must still collapse to one coherent row.
+      const result = toolResultForCall(blocks, block.callId ?? block.id);
+      if (result !== undefined && result.name === block.name && !isExpanded(result)) {
+        const mergedLines = indentLines(
+          mergedToolLines(block, result, Math.max(8, columns) - TOOL_INDENT),
+          TOOL_INDENT,
+        );
+        lines.push(...mergedLines);
+        lastWasAction = true;
+        continue;
+      }
+    }
+
+    if (block.type === "tool_result" && isConsumedResult(blocks, block, isExpanded)) {
+      // Consumed by its call's merged row (which may sit anywhere earlier,
+      // including the frozen incremental prefix); contributes zero lines.
       lastWasAction = true;
       continue;
     }
@@ -1062,14 +1106,15 @@ function isFileEditTool(name: string): boolean {
   return name === "edit_file" || name === "write_file";
 }
 
-/** Adjacent call+result with matching name — same rule as the merge assembler. */
+/** Adjacent call+result with matching callId — the file-edit group pairing rule. */
 function isAdjacentToolPair(
   call: RenderableBlock,
   result: RenderableBlock,
 ): boolean {
   return call.type === "tool_call"
     && result.type === "tool_result"
-    && result.name === call.name;
+    && result.name === call.name
+    && (result.callId ?? result.id) === (call.callId ?? call.id);
 }
 
 /**
@@ -1080,12 +1125,14 @@ function recoverCollapsedPartners(
   blocks: readonly RenderableBlock[],
   ids: Set<string>,
 ): void {
-  for (let i = 0; i < blocks.length - 1; i++) {
-    const call = blocks[i]!;
-    const result = blocks[i + 1]!;
-    if (!isAdjacentToolPair(call, result)) continue;
-    if (ids.has(call.id)) ids.add(result.id);
-    else if (ids.has(result.id)) ids.add(call.id);
+  // Pair by callId, matching the merge assembler: parallel calls interleave, so
+  // a merged result is not necessarily adjacent to its call.
+  for (const block of blocks) {
+    if (block.type !== "tool_call") continue;
+    const result = toolResultForCall(blocks, block.callId ?? block.id);
+    if (result === undefined) continue;
+    if (ids.has(block.id)) ids.add(result.id);
+    else if (ids.has(result.id)) ids.add(block.id);
   }
 
   // Collapsed file-edit groups (≥3 pairs) draw one summary on the first call and

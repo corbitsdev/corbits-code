@@ -1277,3 +1277,99 @@ describe("viewport-local expand", () => {
     expect(two.lines.length).toBeLessThan(Math.floor(expandAll.lines.length / 4));
   });
 });
+
+describe("parallel tool call merging", () => {
+  test("interleaved parallel calls each merge with their result by callId", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("g1", "grep", JSON.stringify({ pattern: "alpha" })),
+      toolCallBlock("g2", "grep", JSON.stringify({ pattern: "beta" })),
+      toolResultBlock("r1", "g1", "grep", "src/a.ts:1:alpha\nsrc/b.ts:2:alpha\nsrc/c.ts:3:alpha"),
+      toolResultBlock("r2", "g2", "grep", "src/a.ts:1:beta"),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded)).filter((l) => l.length > 0);
+    // Each call collapses to one coherent row (preview + duration); the result
+    // blocks are consumed by the merge and contribute no orphan lines.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("Found 3 matches with Grep");
+    expect(lines[0]).toContain("· 1.0s");
+    expect(lines[1]).toContain("Found 1 matches with Grep");
+    expect(lines[1]).toContain("· 1.0s");
+  });
+
+  test("a parallel call whose result has not arrived stays a pending row while siblings merge", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("g1", "grep", JSON.stringify({ pattern: "alpha" })),
+      toolCallBlock("g2", "grep", JSON.stringify({ pattern: "beta" })),
+      toolResultBlock("r2", "g2", "grep", "src/a.ts:1:beta"),
+    ];
+    const styled = buildLines(blocks, COLUMNS, false, isExpanded);
+    const lines = lineText(styled);
+    const nonEmpty = lines.filter((l) => l.length > 0);
+    expect(nonEmpty).toHaveLength(2);
+    expect(nonEmpty[1]).toContain("Found 1 matches with Grep");
+    const pendingRow = styled.find((line) => line[0]?.toolRunningSince !== undefined);
+    expect(pendingRow).toBeDefined();
+  });
+
+  test("incremental append of interleaved results matches a full rebuild", () => {
+    const callA = toolCallBlock("g1", "grep", JSON.stringify({ pattern: "alpha" }));
+    const callB = toolCallBlock("g2", "grep", JSON.stringify({ pattern: "beta" }));
+    const cache = new Map();
+    const pending = buildLinesIncremental(undefined, [callA, callB], COLUMNS, false, isExpanded, cache);
+    expect(pending.lines.some((line) => line[0]?.toolRunningSince !== undefined)).toBe(true);
+
+    const resultA = toolResultBlock("r1", "g1", "grep", "src/a.ts:1:alpha");
+    const resultB = toolResultBlock("r2", "g2", "grep", "src/a.ts:1:beta");
+    const afterB = buildLinesIncremental(pending, [callA, callB, resultB], COLUMNS, false, isExpanded, cache);
+    const done = buildLinesIncremental(afterB, [callA, callB, resultB, resultA], COLUMNS, false, isExpanded, cache);
+    expect(lineText(done.lines)).toEqual(
+      lineText(buildLines([callA, callB, resultB, resultA], COLUMNS, false, isExpanded)),
+    );
+    expect(done.lines.some((line) => line[0]?.toolRunningSince !== undefined)).toBe(false);
+  });
+
+  test("incremental append of results in issue order matches a full rebuild", () => {
+    // Results arriving in issue order (A then B) leave A's merged call in the
+    // frozen incremental prefix when B's result pulls the window back only to
+    // call B; result A must still be consumed, not re-rendered standalone.
+    const callA = toolCallBlock("g1", "grep", JSON.stringify({ pattern: "alpha" }));
+    const callB = toolCallBlock("g2", "grep", JSON.stringify({ pattern: "beta" }));
+    const cache = new Map();
+    const pending = buildLinesIncremental(undefined, [callA, callB], COLUMNS, false, isExpanded, cache);
+
+    const resultA = toolResultBlock("r1", "g1", "grep", "src/a.ts:1:alpha");
+    const resultB = toolResultBlock("r2", "g2", "grep", "src/a.ts:1:beta");
+    const afterA = buildLinesIncremental(pending, [callA, callB, resultA], COLUMNS, false, isExpanded, cache);
+    const done = buildLinesIncremental(afterA, [callA, callB, resultA, resultB], COLUMNS, false, isExpanded, cache);
+    expect(lineText(done.lines)).toEqual(
+      lineText(buildLines([callA, callB, resultA, resultB], COLUMNS, false, isExpanded)),
+    );
+  });
+
+  test("an expanded call renders its result standalone instead of merging", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("g1", "grep", JSON.stringify({ pattern: "alpha" })),
+      toolCallBlock("g2", "grep", JSON.stringify({ pattern: "beta" })),
+      toolResultBlock("r1", "g1", "grep", "src/a.ts:1:alpha"),
+      toolResultBlock("r2", "g2", "grep", "src/a.ts:1:beta"),
+    ];
+    const text = lineText(buildLines(blocks, COLUMNS, false, (b) => b.id === "g1" || b.id === "r1")).join("\n");
+    expect(text).toContain("src/a.ts:1:alpha");
+    expect(text).toContain("Found 1 matches with Grep");
+  });
+
+  test("blockIdsInLineRange recovers the non-adjacent partner of a merged pair", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("g1", "grep", JSON.stringify({ pattern: "alpha" })),
+      toolCallBlock("g2", "grep", JSON.stringify({ pattern: "beta" })),
+      toolResultBlock("r1", "g1", "grep", "src/a.ts:1:alpha"),
+      toolResultBlock("r2", "g2", "grep", "src/a.ts:1:beta"),
+    ];
+    const state = buildLinesIncremental(undefined, blocks, COLUMNS, false, isExpanded);
+    // The window covers only the first merged row; its consumed result is
+    // zero-width and must be recovered so expand toggles keep pairs together.
+    const ids = blockIdsInLineRange(state.blocks, state.blockLineStarts, state.lines.length, 0, 2);
+    expect(ids.has("g1")).toBe(true);
+    expect(ids.has("r1")).toBe(true);
+  });
+});
