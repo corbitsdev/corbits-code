@@ -1,7 +1,7 @@
 import { type } from "arktype";
+import type { ExtendedInferenceOptions } from "@intx/inference";
 import type {
   ConversationTurn,
-  InferenceOptions,
   ReactorAction,
   ReactorCapabilities,
 } from "@intx/types/runtime";
@@ -260,7 +260,7 @@ function goalNudgeTurn(text: string): ConversationTurn {
   };
 }
 
-function withEphemeralNudge(options: InferenceOptions, nudge: string): InferenceOptions {
+function withEphemeralNudge(options: ExtendedInferenceOptions, nudge: string): ExtendedInferenceOptions {
   const turn = goalNudgeTurn(nudge);
   const existing = options.ephemeralTurns;
   if (existing === undefined || existing.length === 0) {
@@ -272,7 +272,7 @@ function withEphemeralNudge(options: InferenceOptions, nudge: string): Inference
 function inferWithNudge(
   capabilities: ReactorCapabilities,
   nudge: string,
-  options?: InferenceOptions,
+  options?: ExtendedInferenceOptions,
 ): ReactorAction {
   return capabilities.infer(withEphemeralNudge(options ?? {}, nudge));
 }
