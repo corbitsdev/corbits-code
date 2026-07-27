@@ -12,7 +12,8 @@
 // The persisted run history is always kept complete in the context store.
 // Only the inference-facing context is curated here.
 
-import type { ConversationTurn, Compactor, StrategyContext, StrategyResult } from "@intx/types/runtime";
+import type { ConversationTurn, Compactor, StrategyContext, StrategyResult, StrategyBlob } from "@intx/types/runtime";
+import { ageImageBlocks } from "./attachment-store.js";
 
 // ---------------------------------------------------------------------------
 // Task boundary decision
@@ -333,23 +334,50 @@ function isPlainTextTurn(turn: ConversationTurn): boolean {
   return !turn.content.some((b) => b.type === "tool_call" || b.type === "tool_result");
 }
 
-const IMAGE_AGED_PLACEHOLDER =
-  "[image attachment omitted — it was shown in full in an earlier turn]";
+/**
+ * Age base64 images in every turn outside the recent window into rehydratable
+ * attachment:// markers + StrategyBlob spills. Runs even when full pruning is
+ * not needed so pastes stop being resent as soon as they leave the window.
+ */
+async function ageImagesOutsideRecentWindow(
+  turns: ConversationTurn[],
+  keepRecentTurns: number,
+): Promise<{ turns: ConversationTurn[]; blobs: StrategyBlob[]; agedImageCount: number }> {
+  if (turns.length === 0) {
+    return { turns, blobs: [], agedImageCount: 0 };
+  }
+  const keepCount = Math.min(keepRecentTurns, turns.length);
+  const keepFrom = turns.length - keepCount;
 
-// A pasted image (e.g. a screenshot) is embedded as a full base64 payload in
-// the turn it arrives in and stays there verbatim until something removes
-// it -- otherwise it is resent, byte for byte, on every subsequent inference
-// call for the rest of the session. Once a turn carrying an image has aged
-// past the recent window (i.e. it survives compaction only as an anchor, or
-// is the initiating task turn), replace the image content with a compact
-// text placeholder. Non-image blocks in the turn are left untouched so text
-// instructions that referenced the image still read coherently.
-function ageImageBlocks(turn: ConversationTurn): ConversationTurn {
-  if (!turn.content.some((b) => b.type === "image")) return turn;
-  const content = turn.content.map((block): ConversationTurn["content"][number] =>
-    block.type === "image" ? { type: "text", text: IMAGE_AGED_PLACEHOLDER } : block,
-  );
-  return { ...turn, content };
+  // Fast path: nothing outside the recent window needs aging.
+  let needsAge = false;
+  for (let i = 0; i < keepFrom; i++) {
+    if (turns[i]!.content.some((b) => b.type === "image")) {
+      needsAge = true;
+      break;
+    }
+  }
+  if (!needsAge) {
+    return { turns, blobs: [], agedImageCount: 0 };
+  }
+
+  const blobs: StrategyBlob[] = [];
+  let agedImageCount = 0;
+  const out: ConversationTurn[] = [];
+
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i]!;
+    if (i < keepFrom && turn.content.some((b) => b.type === "image")) {
+      const aged = await ageImageBlocks(turn);
+      out.push(aged.turn);
+      blobs.push(...aged.blobs);
+      agedImageCount += aged.blobs.length;
+    } else {
+      out.push(turn);
+    }
+  }
+
+  return { turns: out, blobs, agedImageCount };
 }
 
 // Merge each adjacent same-role turn whose later half is plain text into the
@@ -388,30 +416,38 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.0.0",
+    version: "1.1.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
     ): Promise<StrategyResult<ConversationTurn[]>> {
-      if (turns.length <= cfg.keepRecentTurns + 1) {
+      // Eager image aging runs before the compact/no-op branch so base64 pastes
+      // leave the inference-facing context as soon as they exit the recent window.
+      const aged = await ageImagesOutsideRecentWindow(turns, cfg.keepRecentTurns);
+
+      if (aged.turns.length <= cfg.keepRecentTurns + 1) {
         return {
-          output: turns,
+          output: aged.turns,
           record: {
             strategy: this.name,
             version: this.version,
             parameters: { keepRecentTurns: cfg.keepRecentTurns },
-            reason: "no compaction needed",
-            decisions: {},
+            reason:
+              aged.agedImageCount > 0
+                ? "aged images outside recent window"
+                : "no compaction needed",
+            decisions: { agedImageCount: aged.agedImageCount },
           },
+          ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
         };
       }
 
-      const callIndex = buildCallIndex(turns);
+      const callIndex = buildCallIndex(aged.turns);
 
-      const keepCount = Math.min(cfg.keepRecentTurns, turns.length - 1);
-      const keepFrom = turns.length - keepCount;
-      const recentTurns = turns.slice(keepFrom);
-      const olderTurns = turns.slice(0, keepFrom);
+      const keepCount = Math.min(cfg.keepRecentTurns, aged.turns.length - 1);
+      const keepFrom = aged.turns.length - keepCount;
+      const recentTurns = aged.turns.slice(keepFrom);
+      const olderTurns = aged.turns.slice(0, keepFrom);
 
       // Pull high-importance turns forward regardless of age. Take from the
       // tail of the older set so the most recent anchors survive.
@@ -435,7 +471,7 @@ export function createPruningCompactor(
       // tool_result, which the inference layer rejects. Pull the older partner
       // forward as an anchor so the surviving sequence stays well-formed.
       // Pairing wins over maxAnchorTurns: correctness outranks the size target.
-      const pairs = buildPairIndex(turns);
+      const pairs = buildPairIndex(aged.turns);
       const isKept = (idx: number): boolean => idx >= keepFrom || anchorIndices.has(idx);
       for (const { callIdx, resultIdx } of pairs.values()) {
         if (callIdx === undefined || resultIdx === undefined) continue;
@@ -467,20 +503,11 @@ export function createPruningCompactor(
       const process = (t: ConversationTurn): ConversationTurn =>
         cfg.stripResultContent ? stripTurnResults(t, callIndex) : t;
 
-      // Anchors are, by construction, older than the recent window -- age
-      // out any images they carry (e.g. the initiating task's pasted
-      // screenshot, kept forever via firstUserTurnIndex). Recent turns are
-      // left untouched so an image pasted in the last few turns still
-      // renders for the model that needs it.
-      const processAnchor = (t: ConversationTurn): ConversationTurn =>
-        ageImageBlocks(process(t));
-      const agedImageCount = anchorTurns.filter((t) =>
-        t.content.some((b) => b.type === "image"),
-      ).length;
-
+      // Anchors are already image-aged (outside the recent window). Recent
+      // turns keep live base64 so a just-pasted screenshot still reaches the model.
       const output = coalesceAdjacentTextTurns([
         summaryTurn,
-        ...anchorTurns.map(processAnchor),
+        ...anchorTurns.map(process),
         ...recentTurns.map(process),
       ]);
 
@@ -501,9 +528,10 @@ export function createPruningCompactor(
             anchorTurnCount: anchorTurns.length,
             recentTurnCount: recentTurns.length,
             summaryLength: summary.length,
-            agedImageCount,
+            agedImageCount: aged.agedImageCount,
           },
         },
+        ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
       };
     },
   };
