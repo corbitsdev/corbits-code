@@ -12,8 +12,6 @@ cd intercode
 bun install
 ```
 
-Interchange is consumed as published `@intx/*` npm packages; `bun install` is all the setup the dependencies need. Never open pull requests against or push to the upstream interchange repository — interchange-related changes belong in this repo (see `AGENTS.md`).
-
 Before your first commit, point Git at the project hooks and verify the environment:
 
 ```bash

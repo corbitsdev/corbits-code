@@ -45,7 +45,7 @@ export type {
   UploadedGoogleGenAIFile,
 } from "./providers/google-genai-files";
 
-export { createInboundTurn } from "./turns";
+export { assertWellFormedToolSequence, createInboundTurn } from "./turns";
 export { createReactor } from "./reactor";
 export type {
   ExtendedInferenceOptions,
