@@ -1,6 +1,11 @@
 // Persist and rehydrate aged image attachments via the context store blob API.
 
-import type { ContentBlock, ConversationTurn, StrategyBlob } from "@intx/types/runtime";
+import type {
+  ContentBlock,
+  ContextTransform,
+  ConversationTurn,
+  StrategyBlob,
+} from "@intx/types/runtime";
 import {
   attachmentIdFromBase64,
   attachmentUri,
@@ -96,4 +101,36 @@ export async function rehydrateAttachmentImages(
     out.push(changed ? { ...turn, content } : turn);
   }
   return out;
+}
+
+/**
+ * Pre-inference transform: restore aged attachment markers into image blocks
+ * for the model prompt only. Durable history keeps the compact marker + blob.
+ */
+export function createAttachmentRehydrateTransform(
+  readBlob: (key: string) => Promise<Uint8Array>,
+): ContextTransform {
+  return {
+    name: "attachment-rehydrate",
+    version: "1",
+    async apply(turns, _ctx) {
+      const output = await rehydrateAttachmentImages(turns, readBlob);
+      let restored = 0;
+      for (let i = 0; i < turns.length; i++) {
+        const before = turns[i]!.content.filter((b) => b.type === "image").length;
+        const after = output[i]!.content.filter((b) => b.type === "image").length;
+        restored += Math.max(0, after - before);
+      }
+      return {
+        output,
+        record: {
+          strategy: "attachment-rehydrate",
+          version: "1",
+          parameters: {},
+          reason: restored > 0 ? "restored-attachments" : "noop",
+          decisions: { restoredImageCount: restored },
+        },
+      };
+    },
+  };
 }

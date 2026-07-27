@@ -48,6 +48,7 @@ import type { PermissionGate } from "../permission/gate.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { createPruningCompactor } from "../session/compactor.js";
+import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
@@ -979,6 +980,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
           : {}),
       }),
     },
+    contextTransforms: [
+      createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+    ],
   });
   // Tools were built before the agent; bind the child's store now so own spills
   // resolve without dropping the parent fallback.

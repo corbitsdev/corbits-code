@@ -94,6 +94,7 @@ import {
   hookDirectories,
 } from "../session/hooks.js";
 import { createPruningCompactor } from "../session/compactor.js";
+import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -550,6 +551,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
               : { stripResultContent: true }),
           }),
         },
+        contextTransforms: [
+          createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+        ],
       });
     };
 

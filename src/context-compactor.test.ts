@@ -226,6 +226,37 @@ describe("createPruningCompactor — image aging", () => {
     expect(JSON.stringify(result.output)).toContain("iVBORw0KGgo=");
   });
 
+  test("ages images outside the keep window even when total length is under the compact threshold", async () => {
+    // With few turns, full pruning is a no-op, but images outside keepRecentTurns
+    // must still spill so they are not resent as base64 forever.
+    const compactor = createPruningCompactor({ keepRecentTurns: 2, summaryMaxChars: 500 });
+    const turns: ConversationTurn[] = [
+      makeTurn({
+        role: "user",
+        content: [
+          { type: "text", text: "old screenshot" },
+          imageBlock,
+        ],
+      }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "noted" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "recent reply" }] }),
+    ];
+
+    const result = await compactor.apply(turns, mockStrategyCtx);
+
+    expect(JSON.stringify(result.output)).not.toContain("iVBORw0KGgo=");
+    expect(result.blobs).toBeDefined();
+    expect(result.blobs!.length).toBeGreaterThanOrEqual(1);
+    expect(
+      result.output.some((t) =>
+        t.content.some(
+          (b) => b.type === "text" && b.text.includes("attachment:///") && b.text.includes("aged"),
+        ),
+      ),
+    ).toBe(true);
+  });
+
   test("records the number of turns aged out in the transform record", async () => {
     const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 1, summaryMaxChars: 500 });
     const turns: ConversationTurn[] = [

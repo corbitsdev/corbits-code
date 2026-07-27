@@ -121,6 +121,7 @@ import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";
 import { createPruningCompactor } from "../session/compactor.js";
+import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 
@@ -946,6 +947,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(liveCompactionMode !== "pruning" ? { summarize: summarizeForCompaction } : { stripResultContent: true }),
         }),
       },
+      contextTransforms: [
+        createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+      ],
     });
   };
 

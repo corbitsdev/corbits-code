@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
-import { ageImageBlocks, rehydrateAttachmentImages } from "./attachment-store.js";
+import {
+  ageImageBlocks,
+  createAttachmentRehydrateTransform,
+  rehydrateAttachmentImages,
+} from "./attachment-store.js";
 import {
   attachmentUri,
   formatAgedImageMarker,
@@ -51,5 +55,55 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
       type: "image",
       source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
     });
+  });
+
+  test("createAttachmentRehydrateTransform restores images for the model prompt", async () => {
+    const turn: ConversationTurn = {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
+        },
+      ],
+      timestamp: 1,
+    };
+    const aged = await ageImageBlocks(turn);
+    const blobMap = new Map(aged.blobs.map((b) => [b.key, b.bytes]));
+    const transform = createAttachmentRehydrateTransform(async (key) => {
+      const bytes = blobMap.get(key);
+      if (bytes === undefined) throw new Error(`missing ${key}`);
+      return bytes;
+    });
+    const result = await transform.apply([aged.turn], {
+      state: {} as never,
+      trigger: "test",
+    });
+    expect(result.output[0]!.content.some((b) => b.type === "image")).toBe(true);
+    expect(JSON.stringify(result.output)).toContain(PNG_B64);
+    expect(result.record.decisions.restoredImageCount).toBe(1);
+    // Input turn is not mutated — durable history keeps the marker.
+    expect(aged.turn.content.some((b) => b.type === "text")).toBe(true);
+  });
+
+  test("createAttachmentRehydrateTransform leaves missing blobs as markers", async () => {
+    const text = formatAgedImageMarker({
+      uri: attachmentUri("img-missing"),
+      mimeType: "image/png",
+    });
+    const turn: ConversationTurn = {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: 1,
+    };
+    const transform = createAttachmentRehydrateTransform(async () => {
+      throw new Error("Blob not found");
+    });
+    const result = await transform.apply([turn], {
+      state: {} as never,
+      trigger: "test",
+    });
+    expect(result.output[0]!.content).toEqual([{ type: "text", text }]);
+    expect(result.record.decisions.restoredImageCount).toBe(0);
   });
 });
