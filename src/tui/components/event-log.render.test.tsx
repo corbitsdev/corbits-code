@@ -53,7 +53,6 @@ function Harness({ frame }: { frame: TranscriptFrame }): ReactNode {
       key={split.state.epoch}
       committedLines={split.committed}
       liveLines={split.live}
-      visibleRows={frame.liveRows}
       width={40}
     />
   );
@@ -198,5 +197,39 @@ describe("EventLog transcript rendering", () => {
     expect(out).toContain("AAA");
     expect(out).toContain("BBB");
     expect(out).toContain("CCC");
+  });
+});
+
+describe("live region padding", () => {
+  test("a live tail shorter than the viewport renders flush against committed history", () => {
+    // banner + a commit; the short tail must sit directly below the committed
+    // history with no blank dead band padded above it.
+    const seeded = frameFrom(
+      ["BANNER"],
+      [
+        { id: "a", lines: ["A1"] },
+        { id: "b", lines: ["B1"] },
+        { id: "c", lines: ["TAIL"] },
+      ],
+      1,
+      0,
+    );
+    const { lastFrame, rerender } = render(<Harness frame={seeded} />);
+
+    // The viewport grows (resize) while the tail stays one line; the tail must
+    // not be pushed down by blank rows to the bottom of the taller window.
+    const taller = frameFrom(
+      ["BANNER"],
+      [
+        { id: "a", lines: ["A1"] },
+        { id: "b", lines: ["B1"] },
+        { id: "c", lines: ["TAIL"] },
+      ],
+      6,
+      0,
+    );
+    rerender(<Harness frame={taller} />);
+    const rows = (lastFrame() ?? "").split("\n").map((row) => row.trim());
+    expect(rows).toEqual(["BANNER", "A1", "B1", "TAIL"]);
   });
 });

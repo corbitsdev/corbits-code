@@ -32,7 +32,6 @@ export type EventLogProps = {
   committedLines: StyledLine[];
   // The dynamic tail re-rendered each frame.
   liveLines: StyledLine[];
-  visibleRows: number;
   width: number;
 };
 
@@ -1362,7 +1361,6 @@ const CommittedRow = memo(function CommittedRow({ line, width }: RenderedLinePro
 export const EventLog = memo(function EventLog({
   committedLines,
   liveLines,
-  visibleRows,
   width,
 }: EventLogProps): ReactNode {
   const contentWidth = Math.max(1, width);
@@ -1385,17 +1383,14 @@ export const EventLog = memo(function EventLog({
     }
     committedItemsRef.current = committed;
   }
-  const missingRows = Math.max(0, visibleRows - liveLines.length);
-
-  // Pad above the live region so a short tail sits on the last rows of the
-  // viewport, flush with the prompt chrome instead of leaving a dead band.
+  // A short tail renders flush below committed history — never padded down to
+  // the prompt, which left a dead band between scrollback and the live region.
   return (
     <>
       <Static items={committed}>
         {(item) => <CommittedRow key={item.key} line={item.line} width={contentWidth} />}
       </Static>
       <Box flexDirection="column">
-        {Array.from({ length: missingRows }, (_, i) => <RenderedLine key={`blank-top-${i}`} line={[]} width={contentWidth} />)}
         {liveLines.map((line, i) => {
           const startedAt = runningStartOfLine(line);
           return startedAt !== undefined

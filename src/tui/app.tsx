@@ -2090,7 +2090,10 @@ export function App({
             <>
               <Box
                 flexDirection="column"
-                justifyContent="flex-end"
+                // A short tail hugs the committed history above; only an
+                // overflowing tail bottom-anchors so the newest lines stay
+                // visible while the top clips.
+                justifyContent={transcript.live.length >= visibleRows ? "flex-end" : "flex-start"}
                 overflow="hidden"
                 paddingX={TEXT_GUTTER}
                 {...(showParentTranscript
@@ -2111,7 +2114,6 @@ export function App({
                   key={transcript.state.epoch}
                   committedLines={transcript.committed}
                   liveLines={showParentTranscript ? transcript.live : []}
-                  visibleRows={showParentTranscript ? visibleRows : 0}
                   width={contentWidth}
                 />
               </Box>
