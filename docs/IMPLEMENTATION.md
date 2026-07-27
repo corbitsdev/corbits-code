@@ -118,8 +118,10 @@ src/
     lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
   tui/
     app.tsx               Root full-screen layout
-    runner.tsx            Chat-mode agent setup + Ink render (alt-screen)
+    runner.tsx            Chat-mode agent setup + Ink render (inline, native scrollback)
     use-stream.ts         Event stream → React state (AgentStatus machine)
+    view/
+      transcript-commit.ts  Committed/live transcript split (commit boundary)
     tool-formatter.ts     Human-readable tool args/results
     markdown-parser.ts    Markdown rendering
     keymap-table.ts       Keybindings

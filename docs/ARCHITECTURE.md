@@ -54,7 +54,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 
 - Builds a chat-mode agent using the `ChatDirector`
 - Wires `ask_operator` to an operator-gate event resolved by a modal
-- Drives the terminal alternate-screen buffer manually (Ink 7 has no alt-screen option) and renders the Ink app
+- Renders the Ink app inline into the terminal's normal buffer (no alternate screen); committed transcript history is emitted into native scrollback and only the live tail repaints
 - Bridges reactor events to React via an `EventEmitter`
 - **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
@@ -227,11 +227,11 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 ### TUI (`src/tui/`)
 
-Ink 7 + React 19, full-screen via the alternate-screen buffer.
+Ink 7 + React 19, rendered inline into the terminal's normal buffer — committed transcript history lives in native scrollback and only the live tail repaints.
 
 - `app.tsx` — Root layout: pinned header, scrollable event log, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue (`pendingQueueRef` + `queuedCount`): while `isProcessing`, **Alt+Enter** enqueues outbound messages and **Enter** steers via interrupt (see interrupt/queue steering below). The queue drains one message per `connector.reply` (end of a response cycle), skipping drain while status is `blocked` (permission/operator gates). The queue is cleared on session rotation (`/clear`, `/new`). SHIFT+TAB toggles auto mode through the permission gate (`onToggleAuto`); enabling shows a one-line envelope reminder. Plan handling is a separate approval gate (`use-gates`), not a mode. `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
 
-  **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLines`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLines` evicts entries for block IDs not in the current block list on every call, so manage_tasks/present splices do not accumulate orphaned entries.
+  **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLinesIncremental`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLinesIncremental` evicts entries for block IDs not in the current block list when blocks are removed, so manage_tasks/present splices do not accumulate orphaned entries.
 
 - `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost. **AgentStatus** is a 7-state machine: `"idle"` (not-yet-started or post-clear), `"running"`, `"stopping"`, `"stopped"`, `"blocked"` (awaiting operator), `"done"`, `"failed"`. Initial state and post-`/clear` state are both `"idle"` (not `"running"`), so the permission-gate refcount (`setGatePending`) correctly skips terminal and idle states.
 
@@ -256,11 +256,17 @@ Ink 7 + React 19, full-screen via the alternate-screen buffer.
 
 #### Event log rendering
 
-`event-log.tsx` renders the content block list to a flat `StyledLine[]` buffer; the viewport slices it by index. Notable rendering behaviors:
+`event-log.tsx` renders the content block list to a flat `StyledLine[]` buffer (`buildLinesIncremental`). The transcript then splits into two regions — the differential-inline model:
 
+- **Committed** — lines that have settled above the live window. `advanceTranscriptCommit` (`src/tui/view/transcript-commit.ts`) owns the commit boundary: settled blocks freeze whole, and the block straddling the boundary freezes line by line, so history flows continuously into the terminal's native scrollback. Committed lines are handed to Ink's `<Static>`, emitted exactly once, and never rewritten — native scroll, copy, and find operate on them directly. The newest `liveRows` lines always stay dynamic, which also bounds how far back a streaming block's markdown reflow can disagree with its frozen prefix.
+- **Live** — the dynamic tail re-rendered each frame in Ink's dynamic region. A block with a pending tool call still mutates (elapsed clock, merge with its result), so it and everything after it stay live; a short tail renders flush under the committed history rather than being padded down to the prompt.
+
+Notable rendering behaviors:
+
+- **Tool call/result merging** — A collapsed call merges with its result by `callId`, regardless of adjacency, so parallel tool calls each collapse to one coherent row (preview + duration); the consumed result contributes zero lines.
 - **Collapsed tool calls** — Non-danger tools render dimmed with a muted summary suffix. Danger-role tools (destructive shell, writes under risk paths) retain their role color when collapsed so they remain visually salient.
 - **Thinking gutter** — When `thinkingExpanded` is true, thinking content lines are prefixed with `│ ` in the `dim` color, separating them visually from model output without requiring a header.
-- **Block-level cache** — `buildLines` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick. Individual log lines use a memoized `RenderedLine` component so padding/segment merge work is not repeated when only the viewport scroll offset changes.
+- **Block-level cache** — `buildLinesIncremental` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick. Individual log lines use a memoized `RenderedLine` component so padding/segment merge work is not repeated when only the live tail changes.
 
 #### Input handling
 
