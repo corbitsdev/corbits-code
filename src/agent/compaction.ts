@@ -1,9 +1,11 @@
 import type {
+  ConversationTurn,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
 } from "@intx/types/runtime";
 import { compactionThresholdFor } from "../provider/context-window.js";
+import { createContextEstimate } from "./context-estimate.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
 const MIN_TURNS_TO_COMPACT = 6;
@@ -24,19 +26,34 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
   let postCompactInfer = false;
   let overflowRecoveries = 0;
 
+  // Running local estimate of the turns we send. Providers that omit usage or
+  // report zero leave the proactive path blind; the estimate fills that gap.
+  // When the provider reports real usage we prefer it so a coarse local count
+  // cannot thrash against a trustworthy signal.
+  const estimate = createContextEstimate();
+
+  // Re-sync after turn appends, tool results, and compaction rewrites. Callers
+  // pass the full turn list so the estimate stays accurate without incremental
+  // add/subtract bookkeeping.
+  function syncFromTurns(turns: readonly ConversationTurn[]): number {
+    return estimate.syncFromTurns(turns);
+  }
+
   function noteInferenceDone(
     event: Extract<ReactorInboundEvent, { type: "inference.done" }>,
-    turnCount: number,
+    turns: readonly ConversationTurn[],
   ): void {
     overflowRecoveries = 0;
     if (requestContinuation === undefined) return;
-    const contextTokens = event.usage?.input ?? 0;
-    if (
+    syncFromTurns(turns);
+    const reportedTokens = event.usage?.input ?? 0;
+    const contextTokens = reportedTokens > 0 ? reportedTokens : estimate.tokens;
+    // Assign, don't OR: an under-threshold follow-up must disarm a sticky pending
+    // left from an earlier over-threshold turn (e.g. after the provider reports
+    // real usage that lands below the threshold).
+    pending =
       contextTokens > compactionThresholdFor(event.source?.model) &&
-      turnCount > MIN_TURNS_TO_COMPACT
-    ) {
-      pending = true;
-    }
+      turns.length > MIN_TURNS_TO_COMPACT;
   }
 
   // Compaction waits for the natural pause between a tool batch finishing and
@@ -120,6 +137,10 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
   }
 
   return {
+    get estimatedTokens(): number {
+      return estimate.tokens;
+    },
+    syncFromTurns,
     noteInferenceDone,
     noteIdleTurn,
     interceptActions,

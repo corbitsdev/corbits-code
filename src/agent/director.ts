@@ -589,8 +589,13 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
+    // Keep the running local estimate current on every cycle (tool results and
+    // rewrites included). Arming still happens inside noteInferenceDone, which
+    // prefers provider usage when present.
+    const turns = state.turns ?? [];
+    this.compaction.syncFromTurns(turns);
     if (event.type === "inference.done") {
-      this.compaction.noteInferenceDone(event, state?.turns?.length ?? 0);
+      this.compaction.noteInferenceDone(event, turns);
     }
 
     const base = await super.decide(event, state, capabilities);

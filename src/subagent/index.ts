@@ -311,8 +311,12 @@ class SubAgentDirector extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
+    // Keep the running local estimate current on every cycle (tool results and
+    // rewrites included). Arming still happens inside noteInferenceDone, which
+    // prefers provider usage when present.
+    this.compaction.syncFromTurns(state.turns);
     if (event.type === "inference.done") {
-      this.compaction.noteInferenceDone(event, state.turns.length);
+      this.compaction.noteInferenceDone(event, state.turns);
       this.turnsCompleted++;
       const content = event.turn.content as ReadonlyArray<{
         type: string;
