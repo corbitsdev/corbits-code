@@ -1,4 +1,4 @@
-import { DefaultDirector } from "@intx/inference";
+import { DefaultDirector, type ExtendedInferenceOptions } from "@intx/inference";
 import { getLogger } from "@intx/log";
 import type {
   ReactorDirector,
@@ -7,7 +7,6 @@ import type {
   ReactorCapabilities,
   ReactorAction,
   ToolDefinition,
-  InferenceOptions,
   ConversationTurn,
 } from "@intx/types/runtime";
 import {
@@ -40,7 +39,7 @@ function directorNudgeTurn(text: string): ConversationTurn {
   };
 }
 
-function withEphemeralNudge(options: InferenceOptions, nudge: string): InferenceOptions {
+function withEphemeralNudge(options: ExtendedInferenceOptions, nudge: string): ExtendedInferenceOptions {
   const turn = directorNudgeTurn(nudge);
   const existing = options.ephemeralTurns;
   if (existing === undefined || existing.length === 0) {
@@ -52,7 +51,7 @@ function withEphemeralNudge(options: InferenceOptions, nudge: string): Inference
 function inferWithNudge(
   capabilities: ReactorCapabilities,
   nudge: string,
-  options?: InferenceOptions,
+  options?: ExtendedInferenceOptions,
 ): ReactorAction {
   return capabilities.infer(withEphemeralNudge(options ?? {}, nudge));
 }
@@ -492,11 +491,15 @@ class ChatDirectorImpl extends DefaultDirector {
 
           return [
             capabilities.checkpoint(`new-task: ${boundary.reason}`),
-            capabilities.infer({
-              systemPrompt: this._systemPrompt,
-              tools: this._toolDefinitions,
-              ephemeralTurns: [directorNudgeTurn(envelope)],
-            }),
+            capabilities.infer(
+              withEphemeralNudge(
+                {
+                  systemPrompt: this._systemPrompt,
+                  tools: this._toolDefinitions,
+                },
+                envelope,
+              ),
+            ),
           ];
         }
       } catch {

@@ -38,12 +38,17 @@ else
 fi
 echo ""
 
-# interchange submodule
-echo "interchange submodule"
-if [[ -f "interchange/packages/agent/package.json" ]]; then
-  ok "interchange submodule initialised"
+# interchange packages (published to npm; inference is vendored)
+echo "interchange packages"
+if [[ -f "node_modules/@intx/agent/package.json" ]]; then
+  ok "@intx packages installed"
 else
-  fail "interchange submodule missing — run: git submodule update --init --recursive"
+  fail "@intx packages missing — run: bun install"
+fi
+if [[ -f "vendor/intx-inference/package.json" ]]; then
+  ok "vendored inference package present"
+else
+  fail "vendor/intx-inference missing — restore it from git"
 fi
 echo ""
 

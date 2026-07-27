@@ -5,20 +5,10 @@ Thanks for contributing. This document covers setup, workflow, and legal require
 ## Prerequisites
 
 - [Bun](https://bun.sh) v1.2 or newer (`package.json` engines)
-- Git with submodule support
-
-Clone with submodules (the `interchange` submodule is required):
 
 ```bash
-git clone --recurse-submodules https://github.com/corbitsdev/intercode.git
+git clone https://github.com/corbitsdev/intercode.git
 cd intercode
-bun install
-```
-
-If you already cloned without submodules:
-
-```bash
-git submodule update --init --recursive
 bun install
 ```
 

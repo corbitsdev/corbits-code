@@ -535,7 +535,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
         defaultSource,
         storage,
         workdir,
-        deps: inferenceDeps,
+        // contextTransforms ride deps: the published @intx/agent forwards
+        // deps into reactor assembly verbatim, and the vendored assembly
+        // picks the transforms up from there.
+        deps: {
+          ...inferenceDeps,
+          contextTransforms: [
+            createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+          ],
+        },
         audit: noopAuditStore(),
         authorize: permissiveAuthorize(),
         directors: createDirectorRegistry({
@@ -551,9 +559,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
               : { stripResultContent: true }),
           }),
         },
-        contextTransforms: [
-          createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
-        ],
       });
     };
 

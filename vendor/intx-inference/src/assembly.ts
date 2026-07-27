@@ -222,6 +222,12 @@ export function createReactorAssembly(
         }
       : callerOnShutdown;
 
+  // Transforms arrive either directly on the assembly config or riding
+  // `deps` (the only channel the published `@intx/agent` forwards verbatim).
+  // A direct value wins so callers composing their own assembly are
+  // unaffected by whatever a shared deps object carries.
+  const resolvedContextTransforms = contextTransforms ?? deps.contextTransforms;
+
   // exactOptionalPropertyTypes is on: only set optional keys when defined.
   const reactorConfig: ReactorConfig = {
     sessionId,
@@ -237,7 +243,9 @@ export function createReactorAssembly(
     ...(composedBeforeToolExtensions !== undefined
       ? { beforeToolExtensions: composedBeforeToolExtensions }
       : {}),
-    ...(contextTransforms !== undefined ? { contextTransforms } : {}),
+    ...(resolvedContextTransforms !== undefined
+      ? { contextTransforms: resolvedContextTransforms }
+      : {}),
     ...(compactors !== undefined ? { compactors } : {}),
     ...(composedAfterCheckpoint !== undefined
       ? { afterCheckpoint: composedAfterCheckpoint }

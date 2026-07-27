@@ -19,6 +19,7 @@ import type {
   CitationBlock,
   CodeExecutionRequestBlock,
   CodeExecutionResultBlock,
+  ContextTransform,
   ConversationTurn,
   ImageBlock,
   InferenceError,
@@ -108,6 +109,14 @@ export type Dependencies = {
    * built-in set, `@intx/inference/providers`' `createDefaultDependencies()`.
    */
   readonly adapters: AdapterRegistry;
+  /**
+   * Pre-inference context transforms applied in order before every model
+   * call. Carried on Dependencies because the published `@intx/agent`
+   * forwards `deps` into reactor assembly verbatim while exposing no env
+   * field for transforms; riding `deps` reaches the vendored assembly
+   * without modifying the published package.
+   */
+  readonly contextTransforms?: ContextTransform[];
   readonly [HarnessId]?: symbol;
 };
 

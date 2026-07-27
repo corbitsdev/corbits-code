@@ -7,7 +7,7 @@ Corbits Code is a local-first coding agent. It lives in your terminal and works 
 [Bun](https://bun.sh) v1.2+ is required.
 
 ```sh
-git clone --recurse-submodules https://github.com/corbitsdev/intercode.git
+git clone https://github.com/corbitsdev/intercode.git
 cd intercode
 bun install
 bun run start
@@ -125,7 +125,7 @@ Licensed under the GNU General Public License Version 2 with the
 supplemental terms in `GPLv2-AI-Exception.md`; see `LICENSE.md`.
 Contributions are accepted under the terms of `CLA.md`.
 
-The `interchange` submodule and the vendored copies of its packages
-under `vendor/` are third-party code licensed under LGPL-2.1-only and
-keep their own license; see `interchange/LICENSE` and the `LICENSE`
-file in each vendored package.
+The `@intx/*` packages installed from npm and the vendored copy of the
+inference package under `vendor/` are third-party code licensed under
+LGPL-2.1-only and keep their own license; see the `LICENSE` file in
+each package.

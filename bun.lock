@@ -5,19 +5,19 @@
     "": {
       "name": "interchange-code",
       "dependencies": {
-        "@intx/agent": "workspace:*",
+        "@intx/agent": "0.2.2",
         "@intx/inference": "workspace:*",
-        "@intx/log": "workspace:*",
-        "@intx/storage-isogit": "workspace:*",
-        "@intx/tools-lsp": "workspace:*",
-        "@intx/tools-posix": "workspace:*",
-        "@intx/types": "workspace:*",
+        "@intx/log": "0.2.2",
+        "@intx/storage-isogit": "0.2.2",
+        "@intx/tools-lsp": "0.2.2",
+        "@intx/tools-posix": "0.2.2",
+        "@intx/types": "0.2.2",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "arktype": "catalog:",
         "highlight.js": "^11.11.1",
       },
       "devDependencies": {
-        "@intx/inference-testing": "workspace:*",
+        "@intx/inference-testing": "0.2.2",
         "@types/bun": "1.3.9",
         "@types/react": "^19.2.15",
         "ink": "^7.0.4",
@@ -29,127 +29,21 @@
         "ws": "^8.21.0",
       },
     },
-    "interchange/packages/agent": {
-      "name": "@intx/agent",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/inference": "workspace:*",
-        "@intx/log": "workspace:*",
-        "@intx/mime": "workspace:*",
-        "@intx/types": "workspace:*",
-        "arktype": "catalog:",
-      },
-      "devDependencies": {
-        "@intx/storage-isogit": "workspace:*",
-      },
-    },
-    "interchange/packages/crypto-node": {
-      "name": "@intx/crypto-node",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/types": "workspace:*",
-      },
-    },
-    "interchange/packages/inference-discovery": {
-      "name": "@intx/inference-discovery",
-      "version": "0.1.2",
-      "dependencies": {
-        "arktype": "catalog:",
-      },
-    },
-    "interchange/packages/inference-testing": {
-      "name": "@intx/inference-testing",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/inference": "workspace:*",
-        "@intx/inference-discovery": "workspace:*",
-        "@intx/types": "workspace:*",
-        "arktype": "catalog:",
-      },
-    },
-    "interchange/packages/log": {
-      "name": "@intx/log",
-      "version": "0.1.2",
-      "dependencies": {
-        "@logtape/hono": "^2.0.2",
-        "@logtape/logtape": "^2.0.2",
-      },
-      "peerDependencies": {
-        "hono": "^4.0.0",
-      },
-      "optionalPeers": [
-        "hono",
-      ],
-    },
-    "interchange/packages/mime": {
-      "name": "@intx/mime",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/crypto-node": "workspace:*",
-        "@intx/types": "workspace:*",
-        "arktype": "catalog:",
-      },
-    },
-    "interchange/packages/storage-isogit": {
-      "name": "@intx/storage-isogit",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/mime": "workspace:*",
-        "@intx/types": "workspace:*",
-        "arktype": "catalog:",
-        "isomorphic-git": "catalog:",
-      },
-      "devDependencies": {
-        "@intx/crypto-node": "workspace:*",
-      },
-    },
-    "interchange/packages/tools-lsp": {
-      "name": "@intx/tools-lsp",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/agent": "workspace:*",
-        "@intx/log": "workspace:*",
-        "@intx/tools-posix": "workspace:*",
-        "@intx/types": "workspace:*",
-        "vscode-jsonrpc": "^8.2.0",
-        "vscode-languageserver-types": "^3.17.5",
-        "which": "^4.0.0",
-      },
-      "devDependencies": {
-        "@types/which": "^3.0.0",
-      },
-    },
-    "interchange/packages/tools-posix": {
-      "name": "@intx/tools-posix",
-      "version": "0.1.2",
-      "dependencies": {
-        "@intx/agent": "workspace:*",
-        "@intx/types": "workspace:*",
-      },
-    },
-    "interchange/packages/types": {
-      "name": "@intx/types",
-      "version": "0.1.2",
-      "dependencies": {
-        "arktype": "catalog:",
-        "semver": "catalog:",
-      },
-      "devDependencies": {
-        "@types/semver": "catalog:",
-      },
-    },
     "vendor/intx-inference": {
       "name": "@intx/inference",
-      "version": "0.1.2",
+      "version": "0.2.2",
       "dependencies": {
-        "@intx/log": "workspace:*",
-        "@intx/types": "workspace:*",
+        "@intx/log": "0.2.2",
+        "@intx/types": "0.2.2",
         "arktype": "catalog:",
       },
       "devDependencies": {
-        "@intx/mime": "workspace:*",
+        "@intx/mime": "0.2.2",
       },
     },
+  },
+  "overrides": {
+    "@intx/inference": "workspace:*",
   },
   "catalog": {
     "@types/semver": "^7.7.1",
@@ -171,27 +65,27 @@
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 
-    "@intx/agent": ["@intx/agent@workspace:interchange/packages/agent"],
+    "@intx/agent": ["@intx/agent@0.2.2", "", { "dependencies": { "@intx/inference": "0.2.2", "@intx/log": "0.2.2", "@intx/mime": "0.2.2", "@intx/types": "0.2.2", "arktype": "^2.1.29" } }, "sha512-tlsFL0bjYQ7MimcgUIfx7WJgXpNX5YA2v0EVOsZaNXPubjx+ifnh/Ewlol5gf0pADvLG7yiXryuJ7DTUFg/bTw=="],
 
-    "@intx/crypto-node": ["@intx/crypto-node@workspace:interchange/packages/crypto-node"],
+    "@intx/crypto": ["@intx/crypto@0.2.2", "", { "dependencies": { "@intx/types": "0.2.2" } }, "sha512-RhqDZ+Yyt24xDmFrBRm58vGyFT20AK/OF5L6GxXUwu/8TRVf406pfpMuRMNzgGxd0mDopdv/Fb+gWc1/PULfFQ=="],
 
     "@intx/inference": ["@intx/inference@workspace:vendor/intx-inference"],
 
-    "@intx/inference-discovery": ["@intx/inference-discovery@workspace:interchange/packages/inference-discovery"],
+    "@intx/inference-discovery": ["@intx/inference-discovery@0.2.2", "", { "dependencies": { "arktype": "^2.1.29" } }, "sha512-S99b04k/966fS7ZI5oMZM3HS7VImobmFN5DgLMPsMoPF8rQHVVTAHHsZcFn3Mo7HqSdgbNSL8SMC2WpKlsz64A=="],
 
-    "@intx/inference-testing": ["@intx/inference-testing@workspace:interchange/packages/inference-testing"],
+    "@intx/inference-testing": ["@intx/inference-testing@0.2.2", "", { "dependencies": { "@intx/inference": "0.2.2", "@intx/inference-discovery": "0.2.2", "@intx/types": "0.2.2", "arktype": "^2.1.29" } }, "sha512-ur7fiZk86jOQdi2OYsL0r+UlCfkYaqO/1SBondQ3q556+2pZVCrSsA29irVP73ObdnFFgPDs/Z7YXmZLh/Ai6Q=="],
 
-    "@intx/log": ["@intx/log@workspace:interchange/packages/log"],
+    "@intx/log": ["@intx/log@0.2.2", "", { "dependencies": { "@logtape/hono": "^2.0.2", "@logtape/logtape": "^2.0.2" }, "peerDependencies": { "hono": "^4.0.0" }, "optionalPeers": ["hono"] }, "sha512-Rlkd4pvyXwlqkm6hui97VwuTytqgOmenvbdaHAFdYr1e6DHHhGu7ZodUEsLiF4993qJmWNHGlNbHEgQY1LNPrQ=="],
 
-    "@intx/mime": ["@intx/mime@workspace:interchange/packages/mime"],
+    "@intx/mime": ["@intx/mime@0.2.2", "", { "dependencies": { "@intx/crypto": "0.2.2", "@intx/types": "0.2.2", "arktype": "^2.1.29" } }, "sha512-uSrPWqEi8GurKbawtqk3S3KOHi/o1DmxCEeUb3un3fsZC2RkZrhqtqkTpY8a8q5r5gIJCqW/jmi3hyPyjZMakw=="],
 
-    "@intx/storage-isogit": ["@intx/storage-isogit@workspace:interchange/packages/storage-isogit"],
+    "@intx/storage-isogit": ["@intx/storage-isogit@0.2.2", "", { "dependencies": { "@intx/log": "0.2.2", "@intx/mime": "0.2.2", "@intx/types": "0.2.2", "arktype": "^2.1.29", "isomorphic-git": "^1.27.2" } }, "sha512-vd7v2LjJgDwoPygEOHOxCPJuL3XlsH9AWj3/aG6vPOKBzEoIq6FOZOOZYnpFIbYSWjW5ftRIXDjmjufe2JRuQQ=="],
 
-    "@intx/tools-lsp": ["@intx/tools-lsp@workspace:interchange/packages/tools-lsp"],
+    "@intx/tools-lsp": ["@intx/tools-lsp@0.2.2", "", { "dependencies": { "@intx/agent": "0.2.2", "@intx/log": "0.2.2", "@intx/tools-posix": "0.2.2", "@intx/types": "0.2.2", "vscode-jsonrpc": "^9.0.1", "vscode-languageserver-types": "^3.17.5", "which": "^4.0.0" } }, "sha512-MCng6nK/25B/4EQGKlbyiPjDhOxHC0xNtgqiWd8gyWpTqDJ3zWHNKv3qVGoBrNWN72KkQHxwoQg4wMyfbQZ4lA=="],
 
-    "@intx/tools-posix": ["@intx/tools-posix@workspace:interchange/packages/tools-posix"],
+    "@intx/tools-posix": ["@intx/tools-posix@0.2.2", "", { "dependencies": { "@intx/agent": "0.2.2", "@intx/types": "0.2.2" } }, "sha512-SN2TDAotUj/9wj4QdmmcSsO8InujxMFNLn5UGwmKXYSz7yoGcJrFyJlYkhmrJPECRdU86bvflTvgEydxpW0wZg=="],
 
-    "@intx/types": ["@intx/types@workspace:interchange/packages/types"],
+    "@intx/types": ["@intx/types@0.2.2", "", { "dependencies": { "arktype": "^2.1.29", "semver": "^7.7.2" } }, "sha512-9DYTXLuf6ARsHWOWnRuOaA/+5haM3yJVUhvzlps/eQTH6zjk3CMOlbgKUtBYZ164MhC5IbXCvJTLGyM1grpMqw=="],
 
     "@logtape/hono": ["@logtape/hono@2.1.1", "", { "peerDependencies": { "@logtape/logtape": "^2.1.1", "hono": "^4.0.0" } }, "sha512-U6bU0MscH3b8DHyrlJhPgnu2XpFwwf0qnd8xPNh9/DXmVG/YF3ITWiB6rqk/2dCOdLdrHq3GtKGrtoRQJg20Qw=="],
 
@@ -204,10 +98,6 @@
     "@types/node": ["@types/node@25.9.1", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg=="],
 
     "@types/react": ["@types/react@19.2.15", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-eRwcGNHve+E8qtEQSSRl6urh+rFop4v8gm6O8rGv25CodbvFdLjA1vVQ1KkiFE0w0UPOnb8tDiFKL5lp0rtY5Q=="],
-
-    "@types/semver": ["@types/semver@7.7.1", "", {}, "sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA=="],
-
-    "@types/which": ["@types/which@3.0.4", "", {}, "sha512-liyfuo/106JdlgSchJzXEQCVArk0CvevqPote8F8HgWgJ3dRCcTHgJIsLDuee0kxk/mhbInzIZk3QWSZJ8R+2w=="],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 
@@ -545,7 +435,7 @@
 
     "vary": ["vary@1.1.2", "", {}, "sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg=="],
 
-    "vscode-jsonrpc": ["vscode-jsonrpc@8.2.1", "", {}, "sha512-kdjOSJ2lLIn7r1rtrMbbNCHjyMPfRnowdKjBQ+mGq6NAW5QY2bEZC/khaC5OR8svbbjvLEaIXkOq45e2X9BIbQ=="],
+    "vscode-jsonrpc": ["vscode-jsonrpc@9.0.1", "", {}, "sha512-rfuA6T75H6m5EkbhtEPzre9pT0HPcDI2MMy4+nPFIBks5J8JBAUHD4tRYSgaBOijIEC7SRkC1kKyXTLqbmh9jw=="],
 
     "vscode-languageserver-types": ["vscode-languageserver-types@3.18.0", "", {}, "sha512-8TsGPNMIMiiBdkORgRSvLjuiEIiAFtO+KssmYWxQ+uSVvlf7RjK8YKCOjPzZ+YA04jXEV7+7LvkSmHkhpNS99g=="],
 

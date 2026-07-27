@@ -54,6 +54,16 @@ import type { CorrelationValidator } from "./correlation";
 
 const logger = getLogger(["interchange", "reactor"]);
 
+/**
+ * `InferenceOptions` plus vendored-only fields the published `@intx/types`
+ * does not carry. `ephemeralTurns` are appended to the materialized prompt
+ * for one inference only and never written to durable history, so transient
+ * director guidance leaves the cached transcript prefix untouched.
+ */
+export type ExtendedInferenceOptions = InferenceOptions & {
+  ephemeralTurns?: ConversationTurn[];
+};
+
 function buildHarnessOpts(
   turns: ConversationTurn[],
   source: InferenceSource,
@@ -417,7 +427,7 @@ export function createReactor(config: ReactorConfig): Reactor {
   }
 
   async function executeInfer(
-    options: InferenceOptions | undefined,
+    options: ExtendedInferenceOptions | undefined,
   ): Promise<void> {
     if (stateManager === null) return;
 

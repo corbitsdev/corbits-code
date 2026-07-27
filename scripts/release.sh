@@ -197,8 +197,6 @@ EOF
 step "Preflight for $TAG"
 for t in git gh bun jq ar tar shasum; do command -v "$t" >/dev/null || die "missing tool: $t"; done
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated (run: gh auth login)"
-[ -f "interchange/packages/agent/package.json" ] || {
-  info "initialising submodules"; git submodule update --init --recursive; }
 info "installing dependencies (bun install)"
 bun install >/dev/null 2>&1 || die "bun install failed"
 if [ "$SKIP_TAP" != 1 ]; then

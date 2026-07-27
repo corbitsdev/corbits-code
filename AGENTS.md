@@ -50,7 +50,7 @@ Follow the `style` skill's message format: plain-English summary, no `feat:`/`fi
 
 ## Building on Interchange
 
-Interchange is the standard library for this repo. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check the interchange submodule packages.
+Interchange is the standard library for this repo, consumed as published `@intx/*` npm packages pinned at 0.2.2 (`@intx/inference` resolves to the vendored copy in `vendor/intx-inference` — upstream 0.2.2 plus the audited patch set on CL-4352). We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
 
 | Package | Covers |
 |---|---|

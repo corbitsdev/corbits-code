@@ -4,6 +4,7 @@ import { createAgentToolset } from "./agent/tools.js";
 import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search.js";
 import { createPermissionGate } from "./permission/gate.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
+import type { ExtendedInferenceOptions } from "@intx/inference";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
@@ -643,14 +644,16 @@ describe("transient nudges", () => {
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
     const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
     const infer = actions.find((a) => a.type === "infer");
-    expect(infer?.type === "infer" ? infer.options?.ephemeralTurns?.length : 0).toBeGreaterThan(0);
-    const nudgeText = infer?.type === "infer"
-      ? infer.options?.ephemeralTurns?.[0]?.content?.find((b) => b.type === "text")
-      : undefined;
+    // Plain annotation, not a cast: InferenceOptions is assignable to the
+    // extended type, which only adds an optional member.
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
+    expect(options?.ephemeralTurns?.length ?? 0).toBeGreaterThan(0);
+    const nudgeText = options?.ephemeralTurns?.[0]?.content?.find(
+      (b) => b.type === "text",
+    );
     expect(nudgeText?.type === "text" ? nudgeText.text : "").toContain("tasks are still open");
-    if (infer?.type === "infer") {
-      expect(infer.options?.systemPrompt).toBeUndefined();
-    }
+    expect(options?.systemPrompt).toBeUndefined();
   });
 });
 

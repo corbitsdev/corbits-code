@@ -1,6 +1,6 @@
 import { test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
-import { TOOL_NAMES } from "../../../interchange/packages/tools-posix/src/registry.js";
+import { TOOL_NAMES } from "@intx/tools-posix";
 
 const mockDispose = mock(async () => {});
 
