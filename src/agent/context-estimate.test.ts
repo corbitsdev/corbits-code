@@ -34,6 +34,17 @@ describe("estimateMediaSourceTokens", () => {
     const url: MediaSource = { kind: "url", url: "https://example.com/a.png", mimeType: "image/png" };
     expect(estimateMediaSourceTokens(url)).toBe(1_000);
   });
+
+  test("caps large base64 payloads at a vision-tile ballpark", () => {
+    // ~1MB of base64 would be ~250k tokens uncapped; providers bill tiles not bytes.
+    const huge: MediaSource = {
+      kind: "base64",
+      data: "a".repeat(1_000_000),
+      mimeType: "image/png",
+    };
+    expect(estimateMediaSourceTokens(huge)).toBe(2_500);
+    expect(estimateMediaSourceTokens(huge)).toBeLessThan(estimateTokensFromChars(1_000_000));
+  });
 });
 
 describe("estimateContentBlockTokens", () => {

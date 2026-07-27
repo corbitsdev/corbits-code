@@ -104,6 +104,14 @@ describe("compaction governor", () => {
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
   });
 
+  test("disarms a sticky pending when a later measurement falls under threshold", () => {
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    // Under-threshold follow-up must clear pending, not leave it armed.
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+  });
+
   test("stays inert without a continuation channel", () => {
     const governor = createCompactionGovernor(undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);

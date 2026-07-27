@@ -48,12 +48,12 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
     syncFromTurns(turns);
     const reportedTokens = event.usage?.input ?? 0;
     const contextTokens = reportedTokens > 0 ? reportedTokens : estimate.tokens;
-    if (
+    // Assign, don't OR: an under-threshold follow-up must disarm a sticky pending
+    // left from an earlier over-threshold turn (e.g. after the provider reports
+    // real usage that lands below the threshold).
+    pending =
       contextTokens > compactionThresholdFor(event.source?.model) &&
-      turns.length > MIN_TURNS_TO_COMPACT
-    ) {
-      pending = true;
-    }
+      turns.length > MIN_TURNS_TO_COMPACT;
   }
 
   // Compaction waits for the natural pause between a tool batch finishing and

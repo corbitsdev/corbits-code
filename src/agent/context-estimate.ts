@@ -13,6 +13,10 @@ const CHARS_PER_TOKEN = 4;
 // keeps attached images from vanishing from the estimate entirely.
 const MEDIA_REFERENCE_FLOOR_TOKENS = 1_000;
 
+// Providers bill vision tiles, not raw base64 length. Uncapped chars/4 turns a
+// 1MB screenshot into ~250k tokens and thrash-arms compaction.
+const MEDIA_BASE64_MAX_TOKENS = 2_500;
+
 export function estimateTokensFromChars(chars: number): number {
   if (chars <= 0) return 0;
   return Math.ceil(chars / CHARS_PER_TOKEN);
@@ -20,7 +24,7 @@ export function estimateTokensFromChars(chars: number): number {
 
 export function estimateMediaSourceTokens(source: MediaSource): number {
   if (source.kind === "base64") {
-    return estimateTokensFromChars(source.data.length);
+    return Math.min(estimateTokensFromChars(source.data.length), MEDIA_BASE64_MAX_TOKENS);
   }
   return MEDIA_REFERENCE_FLOOR_TOKENS;
 }
