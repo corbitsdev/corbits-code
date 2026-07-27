@@ -5,22 +5,14 @@ Thanks for contributing. This document covers setup, workflow, and legal require
 ## Prerequisites
 
 - [Bun](https://bun.sh) v1.2 or newer (`package.json` engines)
-- Git with submodule support
-
-Clone with submodules (the `interchange` submodule is required):
 
 ```bash
-git clone --recurse-submodules https://github.com/corbitsdev/intercode.git
+git clone https://github.com/corbitsdev/intercode.git
 cd intercode
 bun install
 ```
 
-If you already cloned without submodules:
-
-```bash
-git submodule update --init --recursive
-bun install
-```
+Interchange is consumed as published `@intx/*` npm packages; `bun install` is all the setup the dependencies need. Never open pull requests against or push to the upstream interchange repository — interchange-related changes belong in this repo (see `AGENTS.md`).
 
 Before your first commit, point Git at the project hooks and verify the environment:
 

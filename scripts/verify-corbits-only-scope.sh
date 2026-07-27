@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Fail if staged or working-tree changes touch forbidden trees (submodule / vendored inference).
+# Fail if staged or working-tree changes touch the vendored inference package.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-forbidden='^(interchange/|vendor/)'
+forbidden='^vendor/'
 
 # Tracked edits (staged + unstaged) and untracked paths; dedupe for stable checks.
 changed="$(
@@ -20,7 +20,7 @@ fi
 
 violations="$(printf '%s\n' "$changed" | grep -E "$forbidden" || true)"
 if [ -n "$violations" ]; then
-  echo "SCOPE VIOLATION: changes under interchange/ or vendor/ are not allowed for this wave."
+  echo "SCOPE VIOLATION: changes under vendor/ are not allowed for this wave."
   printf '%s\n' "$violations" | LC_ALL=C sort -u
   exit 1
 fi

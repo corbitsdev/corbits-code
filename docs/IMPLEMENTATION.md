@@ -38,9 +38,9 @@ Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`,
 | `typescript` | 5.9.3 | Type checking |
 | `typescript-language-server` | ^4.3.4 | TS/JS language server for the `lsp` tool (`bin/check-env` checks for it) |
 
-## Interchange submodule
+## Interchange packages
 
-The `interchange/` git submodule tracks **`origin/main`** with no corbits-specific patches inside it. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
+Interchange is consumed as published `@intx/*` npm packages pinned at **0.2.2**. The one exception is `@intx/inference`, which resolves (via a workspace override) to `vendor/intx-inference` — upstream 0.2.2 source plus the audited patch set recorded on CL-4352. There is no interchange working copy in this repo, and we never modify or push to the upstream interchange repository. Behavior overrides (URI normalization, LSP hints, verify locking, etc.) live under `src/plugins/` and `src/util/` in this repo.
 
 ## Developer Setup
 
@@ -50,7 +50,7 @@ Configure git hooks before the first commit:
 git config core.hooksPath .githooks
 ```
 
-Verify the environment (git hooks, bun install, interchange submodule, provider settings):
+Verify the environment (git hooks, bun install, @intx packages, provider settings):
 
 ```bash
 ./bin/check-env
@@ -62,7 +62,7 @@ Verify the environment (git hooks, bun install, interchange submodule, provider 
 
 ```
 bin/
-  check-env               Environment check (git hooks, bun, submodule, provider settings)
+  check-env               Environment check (git hooks, bun, @intx packages, provider settings)
 .githooks/
   pre-commit              Runs typecheck + build before every commit
 src/
@@ -335,7 +335,7 @@ See `docs/PLUGINS.md` for the full design. Summary:
 
 ## Hardening wave — deferred and upstream-owned items
 
-Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `interchange/` submodule and `vendor/` trees are out of scope for that wave (`scripts/verify-corbits-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Corbits Code because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
+Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `vendor/` tree is out of scope for that wave (`scripts/verify-corbits-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Corbits Code because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
 
 ### Child-supervisor IPC awaiter deadlines
 
