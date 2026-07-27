@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import {
   createTaskTool,
+  createSubAgentRunController,
   createSubAgentSessionStore,
   createSubAgentSpawnRegistryPlugin,
   DEFAULT_SUBAGENT_MAX_TURNS,
@@ -15,9 +17,14 @@ import {
   formatSubAgentReport,
   nextToolCallStreak,
   parseSubAgentReport,
+  appendDeadlineParentHint,
   appendNeverActedParentHint,
   partialTextFromEvent,
+  preferCompletedSubAgentReply,
+  resolveSubAgentCatchOutcome,
+  resolveSubAgentDeadlineMs,
   subAgentToolName,
+  SUBAGENT_DEADLINE_MARGIN_MS,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
@@ -331,6 +338,111 @@ describe("sub-agent stop helpers", () => {
     expect(cancelledReparsed.summary).toContain("cancelled");
     expect(cancelledReparsed.findings).toContain("Halfway done");
     expect(cancelledReparsed.findings).toContain("### Summary");
+
+    const deadline = forcedStopReport("deadline", "Refactored half of gate.ts");
+    const deadlineParsed = parseSubAgentReport(deadline);
+    expect(deadlineParsed.summary).toContain("deadline reached");
+    expect(deadlineParsed.findings).toContain("Refactored half of gate.ts");
+    expect(deadlineParsed.blockers).toContain("re-dispatch");
+
+    const deadlineWithHint = appendDeadlineParentHint(deadline);
+    expect(deadlineWithHint).toContain("wall-clock deadline");
+    expect(deadlineWithHint).toContain("deadline reached");
+    // Only fires for a deadline report, not for other forced-stop reasons.
+    expect(appendDeadlineParentHint(forcedStopReport("cancelled", "x"))).not.toContain(
+      "wall-clock deadline",
+    );
+  });
+
+  test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {
+    const ctl = createSubAgentRunController(undefined, 20);
+    expect(ctl.signal.aborted).toBe(false);
+    expect(ctl.deadlineHit()).toBe(false);
+    await new Promise<void>((resolve) => {
+      ctl.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    expect(ctl.signal.aborted).toBe(true);
+    expect(ctl.deadlineHit()).toBe(true);
+    ctl.dispose();
+  });
+
+  test("createSubAgentRunController arms no timer when deadlineMs is omitted", async () => {
+    const ctl = createSubAgentRunController(undefined);
+    expect(ctl.signal.aborted).toBe(false);
+    expect(ctl.deadlineHit()).toBe(false);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(ctl.signal.aborted).toBe(false);
+    expect(ctl.deadlineHit()).toBe(false);
+    ctl.dispose();
+  });
+
+  test("createSubAgentRunController prefers an explicit parent cancel over the deadline", async () => {
+    const parent = new AbortController();
+    const ctl = createSubAgentRunController(parent.signal, 60_000);
+    parent.abort(new Error("operator cancel"));
+    expect(ctl.signal.aborted).toBe(true);
+    expect(ctl.deadlineHit()).toBe(false);
+    ctl.dispose();
+  });
+
+  test("createSubAgentRunController does not mark deadlineHit when timer fires after parent cancel", async () => {
+    const parent = new AbortController();
+    const ctl = createSubAgentRunController(parent.signal, 20);
+    parent.abort(new Error("operator cancel"));
+    expect(ctl.signal.aborted).toBe(true);
+    expect(ctl.deadlineHit()).toBe(false);
+    // Intentionally do not dispose yet — let the timer callback run.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ctl.deadlineHit()).toBe(false);
+    ctl.dispose();
+  });
+
+  test("resolveSubAgentDeadlineMs clamps an explicit deadline below a lowered outer watchdog", () => {
+    const loweredOuterWatchdogMs = 120_000;
+    const clamped = resolveSubAgentDeadlineMs(600_000, loweredOuterWatchdogMs);
+    expect(clamped).toBeLessThan(loweredOuterWatchdogMs);
+    expect(clamped).toBe(loweredOuterWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  });
+
+  test("resolveSubAgentDeadlineMs keeps a short explicit deadline when the outer watchdog is high", () => {
+    expect(resolveSubAgentDeadlineMs(45_000, 660_000)).toBe(45_000);
+  });
+
+  test("resolveSubAgentDeadlineMs skips arming when outer watchdog is at or below the margin", () => {
+    expect(resolveSubAgentDeadlineMs(5_000, 5_000)).toBeUndefined();
+    expect(resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS)).toBeUndefined();
+    // Outer just above margin: ceiling is 1 — never exceeds outer.
+    expect(resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS + 1)).toBe(1);
+  });
+
+  test("preferCompletedSubAgentReply keeps a non-empty reply over late cancel", () => {
+    expect(preferCompletedSubAgentReply("## Summary\nDone")).toBe("keep-reply");
+    expect(preferCompletedSubAgentReply("  mapped gate.ts  ")).toBe("keep-reply");
+  });
+
+  test("preferCompletedSubAgentReply honors abort when send returned empty", () => {
+    expect(preferCompletedSubAgentReply("")).toBe("honor-abort");
+    expect(preferCompletedSubAgentReply("   ")).toBe("honor-abort");
+  });
+
+  test("resolveSubAgentCatchOutcome always salvages a deadline hit, even with zero output", () => {
+    // Zero-output edge case: no tool calls, no partial text, but an opt-in
+    // deadline fired. It must not fall through to a bare rethrow.
+    expect(
+      resolveSubAgentCatchOutcome({ deadlineHit: true, hadProgress: false }),
+    ).toBe("salvage-deadline");
+  });
+
+  test("resolveSubAgentCatchOutcome salvages a mid-run operator cancel that made progress", () => {
+    expect(
+      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: true }),
+    ).toBe("salvage-cancelled");
+  });
+
+  test("resolveSubAgentCatchOutcome rethrows a pre-progress operator cancel", () => {
+    expect(
+      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: false }),
+    ).toBe("rethrow");
   });
 
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {
@@ -768,5 +880,61 @@ describe("createTaskTool", () => {
     const report = row?.entries.find((e) => e.kind === "report");
     expect(report?.content.startsWith("Error: ")).toBe(true);
     expect(report?.content.includes("Error: Error:")).toBe(false);
+  });
+
+  test("forwards deadlineMs to run and appends parent hint on deadline salvage", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      deadlineMs: 45_000,
+      run: async (params) => {
+        captured = params;
+        return forcedStopReport("deadline", "partial before wall clock");
+      },
+    });
+    const out = await callTask(tool, { description: "deadline", prompt: "x" });
+    expect(captured?.deadlineMs).toBe(45_000);
+    expect(out).toContain("## Summary");
+    expect(out).toContain("deadline");
+    expect(out).toContain("partial before wall clock");
+    expect(out).toContain("explicit wall-clock deadline");
+  });
+
+  test("dynamic runner + task: parent cancel keeps salvage body, not task aborted", async () => {
+    const parent = new AbortController();
+    const task = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        // Wait for linked cancel, then return structured salvage.
+        await new Promise<void>((resolve) => {
+          if (params.signal?.aborted) {
+            resolve();
+            return;
+          }
+          params.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        await new Promise((r) => setTimeout(r, 10));
+        return forcedStopReport("cancelled", "Found path in gate.ts");
+      },
+    });
+    const runner = createDynamicToolRunner([task], { defaultMs: 10_000 });
+    const pending = runner.run(
+      { id: "int-1", name: "task", arguments: { description: "race", prompt: "x" } },
+      parent.signal,
+    );
+    await new Promise((r) => setTimeout(r, 15));
+    parent.abort();
+    const result = await pending;
+    expect(result.isError).not.toBe(true);
+    expect(String(result.content)).toContain("## Summary");
+    expect(String(result.content)).toContain("gate.ts");
+    expect(String(result.content)).not.toBe("task aborted");
+    expect(String(result.content)).not.toContain("task aborted");
   });
 });

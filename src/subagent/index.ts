@@ -62,8 +62,10 @@ import {
   resolveSubAgentMaxTurns,
   resolveTier,
   resolveInferenceWithPolicy,
+  toolWatchdogFromSettings,
   validateTaskMaxTurns,
 } from "../config/settings.js";
+import { resolveToolExecutionTimeoutMs } from "../tui/tool-execution-watchdog.js";
 import { validateEffort } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
@@ -79,6 +81,61 @@ export { DEFAULT_SUBAGENT_MAX_TURNS } from "../config/settings.js";
 
 /** Consecutive identical tool-call fingerprints before a leaf is forced to stop. */
 export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 2;
+
+// Minimum gap kept between an opt-in internal deadline and the outer
+// tool-execution watchdog, so there is time left for the salvage report to
+// unwind and return before the outer watchdog would discard the run wholesale.
+export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
+
+/**
+ * Clamp an explicit opt-in wall-clock deadline to stay a margin below the
+ * effective outer tool-execution watchdog. There is no default leaf deadline —
+ * maxTurns + operator cancel are the primary bounds; callers pass deadlineMs
+ * only when they want an extra wall-clock stop.
+ *
+ * Returns undefined (do not arm) when the outer watchdog is at or below the
+ * salvage margin — an internal deadline would otherwise race or exceed outer
+ * and leave no room to return a salvage report.
+ */
+export function resolveSubAgentDeadlineMs(
+  requestedMs: number,
+  outerWatchdogMs: number,
+): number | undefined {
+  const requested = Math.max(1, Math.floor(requestedMs));
+  if (outerWatchdogMs <= SUBAGENT_DEADLINE_MARGIN_MS) return undefined;
+  // Ceiling must never exceed outer − margin (and stays ≥ 1 once outer > margin).
+  const ceiling = Math.max(1, outerWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  return Math.min(requested, ceiling);
+}
+
+/**
+ * After agent.send resolves: keep a non-empty reply even if abort fired in the
+ * completion window. Empty replies still honor abort so the catch path can
+ * salvage from lastPartialText / tools rather than inventing a "no textual result"
+ * success over a cancelled run.
+ */
+export function preferCompletedSubAgentReply(reply: string): "keep-reply" | "honor-abort" {
+  return reply.trim().length > 0 ? "keep-reply" : "honor-abort";
+}
+
+export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "rethrow";
+
+/**
+ * Decide what a cancelled/aborted sub-agent run should return to the parent.
+ * An opt-in deadline firing must always produce a salvage report — even with
+ * zero tool calls and zero partial text — so the parent gets a graceful report
+ * instead of a bare AbortError racing the outer tool-execution watchdog. A
+ * genuine pre-progress operator cancel still rethrows so the task tool's
+ * cancel path stays a bare abort; mid-run cancel with progress salvages.
+ */
+export function resolveSubAgentCatchOutcome(input: {
+  deadlineHit: boolean;
+  hadProgress: boolean;
+}): SubAgentCatchOutcome {
+  if (input.deadlineHit) return "salvage-deadline";
+  if (input.hadProgress) return "salvage-cancelled";
+  return "rethrow";
+}
 
 export function subAgentTurnLimitExceeded(turnsCompleted: number, maxTurns: number): boolean {
   return turnsCompleted >= maxTurns;
@@ -205,7 +262,7 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
  * instruction asking the finished worker to summarize.
  */
 export function forcedStopReport(
-  reason: "no-progress" | "turn-budget" | "never-acted" | "cancelled",
+  reason: "no-progress" | "turn-budget" | "never-acted" | "cancelled" | "deadline",
   partialText: string,
 ): string {
   const summary =
@@ -215,7 +272,9 @@ export function forcedStopReport(
         ? "Stopped: completed without using any tools."
         : reason === "cancelled"
           ? "Stopped: cancelled by operator before finishing."
-          : "Turn budget reached before finishing.";
+          : reason === "deadline"
+            ? "Stopped: wall-clock deadline reached before finishing."
+            : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
@@ -223,7 +282,9 @@ export function forcedStopReport(
         ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
         : reason === "cancelled"
           ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
-          : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+          : reason === "deadline"
+            ? "Leaf wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
+            : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (never-acted planning envelopes; cancel after a
@@ -258,11 +319,20 @@ export function isNeverActedSubAgentReport(report: string): boolean {
   return parsed.summary.includes("without using any tools");
 }
 
+/** True when the worker returned a deadline salvage report for the parent. */
+export function isDeadlineSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.includes("deadline reached");
+}
+
 const TURN_BUDGET_PARENT_HINT =
-  "[Sub-agent hit its turn budget before finishing. Summarize what was learned, then re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
+  "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
 
 const NEVER_ACTED_PARENT_HINT =
   "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing.]";
+
+const DEADLINE_PARENT_HINT =
+  "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
 
 export function appendTurnBudgetParentHint(report: string): string {
   if (!isTurnBudgetSubAgentReport(report)) return report;
@@ -272,6 +342,11 @@ export function appendTurnBudgetParentHint(report: string): string {
 export function appendNeverActedParentHint(report: string): string {
   if (!isNeverActedSubAgentReport(report)) return report;
   return `${NEVER_ACTED_PARENT_HINT}\n\n${report}`;
+}
+
+export function appendDeadlineParentHint(report: string): string {
+  if (!isDeadlineSubAgentReport(report)) return report;
+  return `${DEADLINE_PARENT_HINT}\n\n${report}`;
 }
 
 class SubAgentDirector extends DefaultDirector {
@@ -487,6 +562,12 @@ export type RunSubAgentParams = {
   nested?: boolean;
   /** Inference-turn budget for this worker only (not the parent session limit). */
   maxTurns?: number;
+  /**
+   * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
+   * there is no default leaf death clock; omit to bound the run with maxTurns
+   * and operator cancel alone.
+   */
+  deadlineMs?: number;
 } & SubAgentSandboxDeps;
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
@@ -609,6 +690,54 @@ export function formatSubAgentReport(report: SubAgentReport): string {
   return lines.join("\n");
 }
 
+export type SubAgentRunController = {
+  signal: AbortSignal;
+  deadlineHit: () => boolean;
+  dispose: () => void;
+};
+
+/**
+ * Combines an optional caller cancel signal with an optional opt-in wall-clock
+ * deadline into one abort signal. The run has a single signal to check while
+ * still being able to tell a genuine cancel apart from the deadline firing
+ * (deadlineHit()) when picking a forcedStopReport reason. When deadlineMs is
+ * omitted, no timer is armed — maxTurns + cancel remain the only bounds.
+ */
+export function createSubAgentRunController(
+  parentSignal: AbortSignal | undefined,
+  deadlineMs?: number,
+): SubAgentRunController {
+  const controller = new AbortController();
+  let hit = false;
+  const onParentAbort = (): void => {
+    if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
+  };
+  if (parentSignal?.aborted === true) {
+    controller.abort(parentSignal.reason);
+  } else {
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (deadlineMs !== undefined && deadlineMs > 0) {
+    timer = setTimeout(() => {
+      // Only mark deadline if we are the abort source. A parent cancel that
+      // already aborted must not be relabeled as a deadline hit when the timer
+      // fires later (e.g. during stream drain before dispose).
+      if (controller.signal.aborted) return;
+      hit = true;
+      controller.abort(new Error(`sub-agent deadline of ${deadlineMs}ms exceeded`));
+    }, deadlineMs);
+  }
+  return {
+    signal: controller.signal,
+    deadlineHit: () => hit,
+    dispose: (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", onParentAbort);
+    },
+  };
+}
+
 // Spin up an isolated, autonomous agent loop against the same working tree,
 // hand it one task, and return its final report. The sub-agent shares the
 // dispatcher's cwd so its edits land in the real repo, but gets its own posix
@@ -654,6 +783,19 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   let agent: Awaited<ReturnType<typeof createAgent>> | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
+  // Combines the caller's cancel signal with an optional opt-in wall-clock
+  // deadline so a leaf that hits the deadline can still return a salvage report
+  // rather than racing the outer per-tool-call watchdog (which would discard the
+  // run wholesale). When deadlineMs is omitted, no timer is armed — maxTurns +
+  // cancel remain the only bounds. Declared before try so finally can dispose.
+  const resolvedDeadlineMs =
+    params.deadlineMs !== undefined
+      ? resolveSubAgentDeadlineMs(
+          params.deadlineMs,
+          resolveToolExecutionTimeoutMs(toolWatchdogFromSettings(params.settings)),
+        )
+      : undefined;
+  const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
 
   try {
   const shellDefaultMs = params.shellTimeout?.defaultMs;
@@ -876,12 +1018,10 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       }
     })();
   };
-  if (params.signal !== undefined) {
-    if (params.signal.aborted) {
-      closeOnAbort();
-    } else {
-      params.signal.addEventListener("abort", closeOnAbort, { once: true });
-    }
+  if (runController.signal.aborted) {
+    closeOnAbort();
+  } else {
+    runController.signal.addEventListener("abort", closeOnAbort, { once: true });
   }
 
     const fullPrompt = buildDispatchBrief({
@@ -891,14 +1031,13 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       ...(params.goals !== undefined && params.goals.length > 0 ? { goals: params.goals } : {}),
     });
     const ensureNotAborted = (): void => {
-      const signal = params.signal;
       // Re-read .aborted after await — control-flow narrowing would wrongly
       // treat a pre-send check as permanent.
-      if (signal !== undefined && signal.aborted) throw abortError(signal);
+      if (runController.signal.aborted) throw abortError(runController.signal);
     };
     try {
       ensureNotAborted();
-      const sendOpts = params.signal !== undefined ? { signal: params.signal } : undefined;
+      const sendOpts = { signal: runController.signal };
       const fresh = await refreshInferenceSourceBundle(
         bundle.sources,
         bundle.defaultSource,
@@ -906,7 +1045,13 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       );
       agent.setSources(fresh.sources, fresh.defaultSource);
       const result = await agent.send(fullPrompt, sendOpts);
-      ensureNotAborted();
+      // A successful non-empty reply must not be clobbered by a late cancel that
+      // races the completion window — keep the completed report. Empty replies
+      // still honor abort so we salvage (or rethrow) rather than fabricating
+      // a "no textual result" success over a cancelled run.
+      if (preferCompletedSubAgentReply(result.reply) === "honor-abort") {
+        ensureNotAborted();
+      }
       const reply =
         result.reply.trim().length > 0
           ? result.reply.trim()
@@ -916,20 +1061,25 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       const report = formatSubAgentReport(parseSubAgentReport(reply));
       return appendActivitySummary(report, toolNamesUsed);
     } catch (err) {
-      if (isSubAgentCancelError(err, params.signal)) {
+      if (isSubAgentCancelError(err, runController.signal)) {
         // Drain stream events so tool.start / inference.done that already
         // left the reactor are reflected before we decide bare vs salvage.
         if (streamPromise !== undefined) {
           await streamPromise.catch(() => {});
         }
-        // Cancel after any tools or assistant prose returns a structured salvage
-        // report so the parent keeps partial work; pre-progress cancel still
-        // surfaces as a bare AbortError for the task tool's cancel path.
+        // Deadline always salvages (even with zero output). Cancel after any
+        // tools or assistant prose salvages so the parent keeps partial work;
+        // pre-progress cancel still surfaces as a bare AbortError.
         const hadProgress =
           toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
-        if (hadProgress) {
+        const outcome = resolveSubAgentCatchOutcome({
+          deadlineHit: runController.deadlineHit(),
+          hadProgress,
+        });
+        if (outcome !== "rethrow") {
+          const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
           return appendActivitySummary(
-            forcedStopReport("cancelled", lastPartialText),
+            forcedStopReport(reason, lastPartialText),
             toolNamesUsed,
           );
         }
@@ -937,8 +1087,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       throw err;
     }
   } finally {
+    runController.dispose();
     await disposeSubAgentSession({
-      ...(params.signal !== undefined ? { signal: params.signal } : {}),
+      signal: runController.signal,
       ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
       agent,
       ...(streamPromise !== undefined ? { streamPromise } : {}),
@@ -1146,6 +1297,12 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // the orchestrator's own session id, so workers it spawns record as nested
   // sessions the Agents strip can indent under it.
   parentSessionId?: string;
+  /**
+   * Optional wall-clock budget (ms) for each worker this tool spawns. Opt-in
+   * only — there is no default leaf death clock. When set, clamped below the
+   * outer tool-execution watchdog so a salvage report can return first.
+   */
+  deadlineMs?: number;
 };
 
 function taskToolResult(callId: string, content: string): ToolResult {
@@ -1445,6 +1602,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // slot) reuse the parent slot rather than acquiring their own.
           ...(deps.allowOrchestrator === false ? { nested: true } : {}),
           maxTurns: resolvedMaxTurns,
+          ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
         };
         const result = await run(params);
         // Operator cancel may race after run resolves. Keep strip status cancelled
@@ -1460,14 +1618,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ) {
             deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          const reported = appendTurnBudgetParentHint(result);
+          const reported = appendDeadlineParentHint(appendTurnBudgetParentHint(result));
           return taskToolResult(
             call.id,
             `Sub-agent "${description}" reported:\n\n${reported}`,
           );
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
-        const reported = appendNeverActedParentHint(appendTurnBudgetParentHint(result));
+        const reported = appendDeadlineParentHint(
+          appendNeverActedParentHint(appendTurnBudgetParentHint(result)),
+        );
         return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
 
       } catch (err) {
