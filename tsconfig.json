@@ -1,5 +1,5 @@
 {
-  "extends": "./interchange/tsconfig.base.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": false,
     "composite": false,

@@ -1,6 +1,6 @@
 {
   "name": "@intx/inference",
-  "version": "0.1.2",
+  "version": "0.2.2",
   "license": "LGPL-2.1-only",
   "type": "module",
   "exports": {
@@ -14,11 +14,11 @@
     }
   },
   "dependencies": {
-    "@intx/log": "workspace:*",
-    "@intx/types": "workspace:*",
+    "@intx/log": "0.2.2",
+    "@intx/types": "0.2.2",
     "arktype": "catalog:"
   },
   "devDependencies": {
-    "@intx/mime": "workspace:*"
+    "@intx/mime": "0.2.2"
   }
 }
