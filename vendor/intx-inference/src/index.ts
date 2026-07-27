@@ -1,4 +1,6 @@
 export { parseSSE } from "./sse";
+export { encodeToolName, decodeToolName } from "./tool-name";
+export type { ToolNameLimit } from "./tool-name";
 export {
   runInference,
   createDependencies,
@@ -45,7 +47,12 @@ export type {
 
 export { createInboundTurn } from "./turns";
 export { createReactor } from "./reactor";
-export type { Reactor, ReactorConfig, ReactorEmittedEvent } from "./reactor";
+export type {
+  ExtendedInferenceOptions,
+  Reactor,
+  ReactorConfig,
+  ReactorEmittedEvent,
+} from "./reactor";
 export { validateActions } from "./actions";
 export type { ValidationResult } from "./actions";
 export { createGateManager } from "./gates";
