@@ -7,8 +7,8 @@ Thanks for contributing. This document covers setup, workflow, and legal require
 - [Bun](https://bun.sh) v1.2 or newer (`package.json` engines)
 
 ```bash
-git clone https://github.com/corbitsdev/intercode.git
-cd intercode
+git clone https://github.com/corbitsdev/corbits-code.git
+cd corbits-code
 bun install
 ```
 

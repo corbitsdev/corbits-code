@@ -7,11 +7,11 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/corbitsdev/intercode.git"
+    "url": "git+https://github.com/corbitsdev/corbits-code.git"
   },
-  "homepage": "https://github.com/corbitsdev/intercode#readme",
+  "homepage": "https://github.com/corbitsdev/corbits-code#readme",
   "bugs": {
-    "url": "https://github.com/corbitsdev/intercode/issues"
+    "url": "https://github.com/corbitsdev/corbits-code/issues"
   },
   "keywords": [
     "agent",

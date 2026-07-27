@@ -7,23 +7,23 @@ Corbits Code is a local-first coding agent. It lives in your terminal and works 
 [Bun](https://bun.sh) v1.2+ is required.
 
 ```sh
-git clone https://github.com/corbitsdev/intercode.git
-cd intercode
+git clone https://github.com/corbitsdev/corbits-code.git
+cd corbits-code
 bun install
 bun run start
 ```
 
 `bun run start` builds and launches Corbits Code in your terminal.
 
-Optionally, add a `corbits` command to your shell by putting an alias
-in your shell rc:
+Optionally, compile a standalone binary and put it on your PATH:
 
 ```sh
-alias corbits="bun run /path/to/intercode/dist/index.js"
+bun run build:bin   # produces dist/corbits
+export PATH="$PWD/dist:$PATH"
+# or: ln -s "$PWD/dist/corbits" ~/.local/bin/corbits
 ```
 
-The alias runs the built bundle; after pulling new changes, rebuild it
-with `bun run build` (or launch once with `bun run start`).
+After pulling new changes, re-run `bun run build:bin` to refresh the binary.
 
 ## Contributing
 
