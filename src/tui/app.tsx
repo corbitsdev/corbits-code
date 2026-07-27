@@ -2078,41 +2078,67 @@ export function App({
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
-        {taskFullScreenOpen ? (
-          <TaskView
-            tasks={state.tasks}
-          />
-        ) : enteredSession !== undefined ? (
-          <Box
-            width={leftWidth}
-            flexDirection="column"
-            overflow="hidden"
-            paddingX={TEXT_GUTTER}
-          >
-            <SubAgentSessionView
-              session={enteredSession}
-              visibleRows={visibleRows}
-              width={contentWidth}
-              scrollOffset={enteredScroll.scrollOffset}
-            />
-          </Box>
-        ) : (
-          <Box
-            width={leftWidth}
-            flexDirection="column"
-            justifyContent="flex-end"
-            overflow="hidden"
-            paddingX={TEXT_GUTTER}
-          >
-            <EventLog
-              key={transcript.state.epoch}
-              committedLines={transcript.committed}
-              liveLines={transcript.live}
-              visibleRows={visibleRows}
-              width={contentWidth}
-            />
-          </Box>
-        )}
+        {/* Parent transcript stays mounted across task-fullscreen and child-session
+            overlays. Ink <Static> starts at index 0 on every mount, so unmounting
+            EventLog here used to re-emit the full committed history into native
+            scrollback on every enter/exit. Collapse the live viewport to zero when
+            an overlay owns the row; Static still receives appends. */}
+        {(() => {
+          const showParentTranscript =
+            !taskFullScreenOpen && enteredSession === undefined;
+          return (
+            <>
+              <Box
+                flexDirection="column"
+                justifyContent="flex-end"
+                overflow="hidden"
+                paddingX={TEXT_GUTTER}
+                {...(showParentTranscript
+                  ? {
+                      width: leftWidth,
+                      flexGrow: 1,
+                      flexShrink: 1,
+                    }
+                  : {
+                      // Stay mounted but take no layout space so Static does not remount.
+                      width: 0,
+                      height: 0,
+                      flexGrow: 0,
+                      flexShrink: 0,
+                    })}
+              >
+                <EventLog
+                  key={transcript.state.epoch}
+                  committedLines={transcript.committed}
+                  liveLines={showParentTranscript ? transcript.live : []}
+                  visibleRows={showParentTranscript ? visibleRows : 0}
+                  width={contentWidth}
+                />
+              </Box>
+              {taskFullScreenOpen ? (
+                <Box flexGrow={1} flexShrink={1} overflow="hidden">
+                  <TaskView tasks={state.tasks} />
+                </Box>
+              ) : enteredSession !== undefined ? (
+                <Box
+                  width={leftWidth}
+                  flexGrow={1}
+                  flexShrink={1}
+                  flexDirection="column"
+                  overflow="hidden"
+                  paddingX={TEXT_GUTTER}
+                >
+                  <SubAgentSessionView
+                    session={enteredSession}
+                    visibleRows={visibleRows}
+                    width={contentWidth}
+                    scrollOffset={enteredScroll.scrollOffset}
+                  />
+                </Box>
+              ) : null}
+            </>
+          );
+        })()}
       </Box>
       <Box flexShrink={0} flexDirection="column">
         <ModalStack
