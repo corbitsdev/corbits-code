@@ -11,7 +11,7 @@ import {
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { isApproved, escapeGlobLiteral } from "./matcher.js";
-import { splitChainedCommand, tokenize } from "./command.js";
+import { splitChainedCommand, tokenize, isShellCommentOnly } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
 import {
@@ -32,6 +32,25 @@ function isSingleShellCommand(command: string): boolean {
   if (trimmed.length === 0) return false;
   if (splitChainedCommand(trimmed).length !== 1) return false;
   return tokenize(trimmed).length > 0;
+}
+
+// Multi-segment shell may only short-circuit on an exact full-command grant.
+// Prefix globs like `npm *` must not match `npm i && curl x` — the unapproved
+// tail still needs a full-block operator decision. String equality (not glob)
+// keeps exact multi-segment reuse without reopening that hole.
+function hasExactFullCommandGrant(
+  tool: string,
+  fullCommand: string,
+  approvals: readonly Approval[],
+  activeProviderModel: string | undefined,
+): boolean {
+  const normalized = fullCommand.trim();
+  return approvals.some(
+    (a) =>
+      a.tool === tool &&
+      a.pattern === normalized &&
+      (a.providerModel === undefined || a.providerModel === activeProviderModel),
+  );
 }
 
 // In auto mode these non-shell built-in tools auto-allow without an operator
@@ -183,47 +202,111 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     }
 
     for (const request of buildRequests(call)) {
-      const segmentReferencesSecret =
-        request.tool === "run_shell" &&
-        commandReferencesSensitivePath(request.subject) !== undefined;
-      // Broad grants like `cat *` must not authorize secret-path segments after
-      // the plugin hard-deny was removed. Always re-prompt (or headless-deny).
-      if (
-        !segmentReferencesSecret &&
-        isApproved(request.tool, request.subject, approvals, activeProviderModel)
-      ) {
+      // Shell: security still splits the chain, but the operator sees (and
+      // accepts/rejects) the full command once. Any unapproved segment fails the
+      // whole block. Execution always runs the full string the model asked for.
+      if (request.tool === "run_shell") {
+        const fullCommand = request.subject;
+        const segments = splitChainedCommand(fullCommand).filter(
+          (segment) => !isShellCommentOnly(segment),
+        );
+        if (segments.length === 0) continue;
+
+        const fullReferencesSecret = commandReferencesSensitivePath(fullCommand) !== undefined;
+        // Multi-segment: only an exact stored pattern for the full command may
+        // short-circuit. Never glob-match the unsplit string — a grant like
+        // `npm *` would otherwise swallow `npm i && curl evil`. Single-segment
+        // grants are applied per segment in the loop below.
+        if (
+          !fullReferencesSecret &&
+          segments.length > 1 &&
+          hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel)
+        ) {
+          continue;
+        }
+
+        let needsOperator = false;
+        let anySecret = false;
+        for (const segment of segments) {
+          const segmentReferencesSecret = commandReferencesSensitivePath(segment) !== undefined;
+          if (segmentReferencesSecret) {
+            anySecret = true;
+            needsOperator = true;
+            continue;
+          }
+          if (isApproved(request.tool, segment, approvals, activeProviderModel)) {
+            continue;
+          }
+          // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
+          if (
+            isAutoAllowedShellSegment(segment, cwd) &&
+            !commandTargetsRestricted(segment, isRestricted)
+          ) {
+            continue;
+          }
+          needsOperator = true;
+        }
+        if (!needsOperator) continue;
+
+        if (!interactive || requestApproval === undefined) {
+          return {
+            allowed: false,
+            reason: anySecret
+              ? `${request.action} references a sensitive path and requires operator approval, which is unavailable in a non-interactive run.`
+              : `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
+          };
+        }
+
+        // Secret-path shell must never mint a stored grant — even an exact match
+        // would be misleading because future secret-path shell always re-asks.
+        const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
+        const outcome = await requestApproval(requestForOperator);
+        if (!outcome.allow) {
+          const suffix =
+            outcome.message !== undefined && outcome.message.length > 0
+              ? ` — ${outcome.message}`
+              : "";
+          return {
+            allowed: false,
+            reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
+          };
+        }
+        if (!anySecret && outcome.persist && outcome.persist.pattern !== null) {
+          const grant: GrantScope = outcome.persist.grant ?? "session";
+          const approval: Approval =
+            grant === "provider-model" && activeProviderModel !== undefined
+              ? {
+                  tool: request.tool,
+                  pattern: outcome.persist.pattern,
+                  providerModel: activeProviderModel,
+                }
+              : { tool: request.tool, pattern: outcome.persist.pattern };
+          approvals.push(approval);
+          if (grant === "session") {
+            sessionGrants.push(approval);
+          } else {
+            persist?.(approval, grant);
+          }
+        }
         continue;
       }
-      // A pipeline that mixes a consequential segment (e.g. `find`) with an
-      // intrinsically safe one (e.g. `sort`) only needs approval for the unsafe
-      // segment. Skip prompting for any non-secret segment that auto-allows.
-      if (
-        !segmentReferencesSecret &&
-        request.tool === "run_shell" &&
-        isAutoAllowedShellSegment(request.subject, cwd) &&
-        !commandTargetsRestricted(request.subject, isRestricted)
-      ) {
+
+      const restrictedSubject =
+        // Path-arg tools already drop to ask via callTargetsRestricted; grants
+        // match on the path subject the same as before.
+        isApproved(request.tool, request.subject, approvals, activeProviderModel);
+      if (restrictedSubject) {
         continue;
       }
 
       if (!interactive || requestApproval === undefined) {
         return {
           allowed: false,
-          reason: segmentReferencesSecret
-            ? `${request.action} references a sensitive path and requires operator approval, which is unavailable in a non-interactive run.`
-            : `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
+          reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
         };
       }
 
-      // Secret-path shell must never mint a stored grant — even an exact match
-      // would be misleading because future secret-path shell always re-asks.
-      // Strip persist scopes so the UI only offers Accept once; also ignore any
-      // persist payload if a caller still returns one.
-      const requestForOperator = segmentReferencesSecret
-        ? { ...request, scopes: [] }
-        : request;
-
-      const outcome = await requestApproval(requestForOperator);
+      const outcome = await requestApproval(request);
       if (!outcome.allow) {
         const suffix = outcome.message !== undefined && outcome.message.length > 0
           ? ` — ${outcome.message}`
@@ -231,7 +314,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})${suffix}` };
       }
       if (
-        !segmentReferencesSecret &&
         outcome.persist &&
         outcome.persist.pattern !== null
       ) {

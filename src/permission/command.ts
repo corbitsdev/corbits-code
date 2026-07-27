@@ -1,7 +1,8 @@
 import type { ApprovalScope } from "./types.js";
 
 // Split a shell command into the individual commands it chains together, so each
-// is classified and approved on its own. Operators recognised: && || | ; and a
+// can be classified for security. The operator still approves the full command
+// as one block (see buildRequests / gate). Operators recognised: && || | ; and a
 // newline. Splitting is quote-aware — operators inside '...', "..." or `...` are
 // part of an argument, not a separator. Heredoc bodies (<< 'MARKER' ... MARKER)
 // are treated as atomic — newlines inside them are not chain boundaries.
@@ -207,6 +208,16 @@ function unwrapGroup(segment: string): string | null {
 export function isShellCommentOnly(segment: string): boolean {
   const trimmed = segment.trim();
   return trimmed.length === 0 || trimmed.startsWith("#");
+}
+
+// Pure shell builtins with no side effects. Agents append `|| true` constantly;
+// treating these as consequential commands produces spammy approval subjects.
+// Only the bare program counts — `true > file` still has tokens beyond the name.
+export function isShellNoOp(segment: string): boolean {
+  const tokens = tokenize(segment);
+  if (tokens.length !== 1) return false;
+  const program = tokens[0];
+  return program === "true" || program === "false" || program === ":";
 }
 
 // Split a single command segment into whitespace-separated tokens, treating a

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
-import { splitChainedCommand, tokenize, deriveCommandScopes, isShellCommentOnly } from "./command.js";
+import { splitChainedCommand, tokenize, deriveCommandScopes, isShellCommentOnly, isShellNoOp } from "./command.js";
 import { globToRegExp, matchesPattern, isApproved, escapeGlobLiteral } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
@@ -30,6 +30,22 @@ describe("isShellCommentOnly", () => {
     expect(isShellCommentOnly("npm test")).toBe(false);
     expect(isShellCommentOnly("npm test # suite")).toBe(false);
     expect(isShellCommentOnly("git worktree list")).toBe(false);
+  });
+});
+
+describe("isShellNoOp", () => {
+  test("recognizes bare true/false/:", () => {
+    expect(isShellNoOp("true")).toBe(true);
+    expect(isShellNoOp("false")).toBe(true);
+    expect(isShellNoOp(":")).toBe(true);
+    expect(isShellNoOp("  true  ")).toBe(true);
+  });
+
+  test("does not treat argument-bearing or unrelated commands as no-ops", () => {
+    expect(isShellNoOp("true > /tmp/x")).toBe(false);
+    expect(isShellNoOp("true foo")).toBe(false);
+    expect(isShellNoOp("echo true")).toBe(false);
+    expect(isShellNoOp("npm test")).toBe(false);
   });
 });
 
@@ -217,10 +233,14 @@ describe("classifyTool", () => {
 });
 
 describe("buildRequests", () => {
-  test("a chained shell command becomes one request per segment", () => {
+  test("a chained shell command becomes one request for the full block", () => {
     const reqs = buildRequests(shellCall("npm i && curl x"));
-    expect(reqs.map((r) => r.subject)).toEqual(["npm i", "curl x"]);
-    expect(reqs.every((r) => r.tool === "run_shell")).toBe(true);
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe("npm i && curl x");
+    expect(reqs[0]?.tool).toBe("run_shell");
+    // Multi-segment chains only offer the exact full string — never a prefix
+    // that would also match a later dangerous chain.
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["npm i && curl x"]);
   });
 
   test("full-line shell comments never become approval subjects", () => {
@@ -233,11 +253,15 @@ describe("buildRequests", () => {
     expect(buildRequests(shellCall("# worktree\n\n# still a heading"))).toEqual([]);
   });
 
-  test("markdown headings mixed with real commands only prompt the real command", () => {
-    const reqs = buildRequests(shellCall("# worktree\ngit worktree list"));
-    expect(reqs.map((r) => r.subject)).toEqual(["git worktree list"]);
-    expect(reqs.flatMap((r) => r.scopes.map((s) => s.pattern))).not.toContain("# *");
-    expect(reqs.flatMap((r) => r.scopes.map((s) => s.pattern))).not.toContain("# worktree");
+  test("markdown headings mixed with real commands still surface the full command", () => {
+    const full = "# worktree\ngit worktree list";
+    const reqs = buildRequests(shellCall(full));
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe(full);
+    // Scopes derive from the single real segment, not the comment.
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).not.toContain("# *");
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).not.toContain("# worktree");
+    expect(reqs[0]?.scopes.some((s) => s.pattern !== null && s.pattern.startsWith("git"))).toBe(true);
   });
 
   test("trailing comments on a real command still produce one request", () => {
@@ -273,9 +297,10 @@ describe("buildRequests", () => {
   });
 });
 
-describe("gate authorizes every subshell segment independently", () => {
+describe("gate authorizes shell chains as one block with per-segment security", () => {
   test("declining a later segment blocks the call even when the first segment is approved", async () => {
     const prompted: string[] = [];
+    const full = "(cd packages/shared && rm -rf dist)";
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "cd *" }],
       requestApproval: async (request) => {
@@ -285,13 +310,15 @@ describe("gate authorizes every subshell segment independently", () => {
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("(cd packages/shared && rm -rf dist)"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
-    expect(prompted).toEqual(["rm -rf dist"]);
+    // One prompt for the full block — not a separate prompt for the dangerous tail alone.
+    expect(prompted).toEqual([full]);
   });
 
-  test("each unapproved segment of a subshell chain is prompted on its own", async () => {
+  test("unapproved multi-segment chains prompt once for the full command", async () => {
     const prompted: string[] = [];
+    const full = "(cd a && bunx tsc --noEmit) && curl x";
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async (request) => {
@@ -301,9 +328,9 @@ describe("gate authorizes every subshell segment independently", () => {
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("(cd a && bunx tsc --noEmit) && curl x"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
-    expect(prompted).toEqual(["cd a", "bunx tsc --noEmit", "curl x"]);
+    expect(prompted).toEqual([full]);
   });
 
   test("comment-only shell commands never prompt", async () => {
@@ -338,8 +365,9 @@ describe("gate authorizes every subshell segment independently", () => {
     expect(asked).toBe(0);
   });
 
-  test("multi-line comment plus real command only prompts the real command", async () => {
+  test("multi-line comment plus real command prompts once for the full block", async () => {
     const prompted: string[] = [];
+    const full = "# worktree\ngit worktree add ../wt -b feature";
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async (request) => {
@@ -349,9 +377,60 @@ describe("gate authorizes every subshell segment independently", () => {
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("# worktree\ngit worktree add ../wt -b feature"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
-    expect(prompted).toEqual(["git worktree add ../wt -b feature"]);
+    expect(prompted).toEqual([full]);
+  });
+
+  test("|| true never becomes its own approval subject", async () => {
+    const prompted: string[] = [];
+    const full = "npm test || true";
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(full));
+    expect(verdict.allowed).toBe(true);
+    expect(prompted).toEqual([full]);
+    expect(prompted).not.toContain("true");
+  });
+
+  test("an already-approved head with || true does not re-prompt", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm test" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("npm test || true"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  test("bare true/false/: never prompt", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall("true"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("false"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall(":"))).allowed).toBe(true);
+    expect(asked).toBe(0);
   });
 });
 
@@ -488,30 +567,34 @@ describe("createPermissionGate", () => {
     expect(verdict.allowed).toBe(false);
   });
 
-  test("every segment of a chain must be approved", async () => {
+  test("declining a multi-segment chain blocks the whole block", async () => {
     const seen: string[] = [];
+    const full = "npm i && curl evil";
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async (req) => { seen.push(req.subject); return { allow: req.subject.startsWith("npm") }; },
+      requestApproval: async (req) => { seen.push(req.subject); return { allow: false }; },
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("npm i && curl evil"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
-    expect(seen).toEqual(["npm i", "curl evil"]);
+    // One prompt for the full block — rejecting it rejects everything.
+    expect(seen).toEqual([full]);
   });
 
-  test("a pipeline only prompts for its consequential segment, not its safe tail", async () => {
+  test("a pipeline with a safe tail prompts once for the full command", async () => {
     const seen: string[] = [];
+    const full = "npm ls --all | sort";
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async (req) => { seen.push(req.subject); return { allow: true }; },
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("npm ls --all | sort"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
-    expect(seen).toEqual(["npm ls --all"]);
+    // Safe tail (`sort`) is auto-allowed under the hood; operator still sees the full block once.
+    expect(seen).toEqual([full]);
   });
 
   test("auto mode auto-allows non-shell ask-tier tools", async () => {
@@ -1171,45 +1254,134 @@ describe("createPermissionGate", () => {
   });
 
   // SECURITY: chained-shell bypass vector. A command whose first segment is
-  // benign and whose later segment is write-like must NOT have the dangerous
-  // segment masked. Each segment must be classified and approved independently.
+  // benign and whose later segment is write-like must NOT slip through on the
+  // head alone. Security still classifies every segment; the operator sees the
+  // full block once and rejecting it fails the whole call.
   // A failure here means `echo ok && cat > /etc/passwd` could slip through if
   // only the first segment's classification were checked.
-  test("dangerous later segment in a chain is classified independently from a benign first", async () => {
+  test("dangerous later segment in a chain forces a full-block prompt and can be rejected", async () => {
     const seen: string[] = [];
+    const full = "npm i && cat > /etc/x";
     const gate = createPermissionGate({
       approvals: [],
-      // Allow the first segment, deny everything else.
       requestApproval: async (req) => {
         seen.push(req.subject);
-        return { allow: req.subject === "npm i" };
+        return { allow: false };
       },
       interactive: true,
       skipPermissions: false,
     });
-    // The dangerous second segment must be presented as its own request, not
-    // hidden behind the first.
-    const verdict = await gate.evaluate(shellCall("npm i && cat > /etc/x"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
-    expect(seen).toContain("npm i");
-    expect(seen).toContain("cat > /etc/x");
+    expect(seen).toEqual([full]);
   });
 
-  // Verify the chained classification produces separate PermissionRequests with
-  // the correct subjects — the dangerous segment must not inherit the benign one's
-  // approval scope or subject.
-  test("buildRequests splits chained command into independent requests with correct subjects", () => {
-    const reqs = buildRequests(shellCall("echo ok && cat > /etc/x"));
-    expect(reqs).toHaveLength(2);
-    expect(reqs[0]?.subject).toBe("echo ok");
-    expect(reqs[1]?.subject).toBe("cat > /etc/x");
-    // Each request must carry its own scopes derived from its own segment.
-    const firstPatterns = reqs[0]?.scopes.map((s) => s.pattern) ?? [];
-    const secondPatterns = reqs[1]?.scopes.map((s) => s.pattern) ?? [];
-    expect(firstPatterns.some((p) => p !== null && p.startsWith("echo"))).toBe(true);
-    expect(secondPatterns.some((p) => p !== null && p.startsWith("cat"))).toBe(true);
-    // Cross-contamination check: the dangerous segment must not carry an echo scope.
-    expect(secondPatterns.some((p) => p !== null && p.startsWith("echo"))).toBe(false);
+  // A prior grant on only the head segment does not authorize a dangerous tail —
+  // the full block still needs operator approval.
+  test("a head-only grant still forces a prompt when the chain has an unapproved tail", async () => {
+    const seen: string[] = [];
+    const full = "npm i && cat > /etc/x";
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm i" }],
+      requestApproval: async (req) => {
+        seen.push(req.subject);
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(full));
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toEqual([full]);
+  });
+
+  // Prefix globs must not match across chain operators. A grant for `npm *`
+  // covers `npm i`, not `npm i && curl evil` — the unapproved tail still needs
+  // a full-block decision (exact multi-segment persist if the operator wants).
+  test("a head prefix grant does not auto-allow a multi-segment chain", async () => {
+    const seen: string[] = [];
+    const full = "npm i && curl evil.com";
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+      requestApproval: async (req) => {
+        seen.push(req.subject);
+        // Multi-segment scopes stay exact-only for the full block.
+        expect(req.scopes.map((s) => s.pattern)).toEqual([full]);
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(full));
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toEqual([full]);
+  });
+
+  test("a multiplexer-style prefix grant does not auto-allow a chained dangerous tail", async () => {
+    const seen: string[] = [];
+    const full = "npm test && curl evil.com";
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "npm test *" }],
+      requestApproval: async (req) => {
+        seen.push(req.subject);
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(false);
+    expect(seen).toEqual([full]);
+  });
+
+  // buildRequests surfaces the full chain once; multi-segment scopes are exact-only
+  // so a prefix grant cannot later cover a different dangerous chain.
+  test("buildRequests surfaces a chained command as one full-block request with exact scopes", () => {
+    const full = "echo ok && cat > /etc/x";
+    const reqs = buildRequests(shellCall(full));
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe(full);
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([full]);
+    // No per-segment prefix scopes that would cross-contaminate.
+    expect(reqs[0]?.scopes.some((s) => s.pattern === "echo *")).toBe(false);
+    expect(reqs[0]?.scopes.some((s) => s.pattern === "cat *")).toBe(false);
+  });
+
+  // Persisting the exact multi-segment scope must cover the same full block on
+  // a later call without re-prompting, and must not cover a different chain.
+  test("persisting an exact multi-segment scope reuses on the same chain only", async () => {
+    const full = "npm i && curl x";
+    const other = "npm i && curl y";
+    let asked = 0;
+    const persisted: Approval[] = [];
+    const built = buildRequests(shellCall(full))[0]?.scopes[0];
+    expect(built?.pattern).toBe(full);
+    if (built === undefined) throw new Error("expected exact multi-segment scope");
+    const exactScope: PermissionRequest["scopes"][number] = {
+      ...built,
+      grant: "project",
+    };
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (req) => {
+        asked++;
+        if (req.subject === full) {
+          return { allow: true, persist: exactScope };
+        }
+        return { allow: true };
+      },
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(asked).toBe(1);
+    expect(persisted).toEqual([{ tool: "run_shell", pattern: full }]);
+    // Same full block is covered by the exact grant.
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(asked).toBe(1);
+    // A different chain still needs its own decision.
+    expect((await gate.evaluate(shellCall(other))).allowed).toBe(true);
+    expect(asked).toBe(2);
   });
 
   // The gate must own its approval state, not mutate the caller's array.

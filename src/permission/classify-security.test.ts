@@ -302,8 +302,9 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(asked).toBe(1);
   });
 
-  test("pipeline with secret segment re-prompts only that segment; safe tail can grant-skip", async () => {
+  test("pipeline with secret segment prompts once for the full block; safe tail grant-skips under the hood", async () => {
     const subjects: string[] = [];
+    const full = "cat .env | sort";
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "sort *" }],
       requestApproval: async (req) => {
@@ -313,13 +314,15 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("cat .env | sort"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
-    expect(subjects).toEqual(["cat .env"]);
+    // One full-block prompt (secret segment forces ask); safe tail is not a separate subject.
+    expect(subjects).toEqual([full]);
   });
 
-  test("chain with grant on safe segment still re-prompts secret segment", async () => {
+  test("chain with grant on safe segment still re-prompts the full block for a secret segment", async () => {
     const subjects: string[] = [];
+    const full = "cat README.md && cat .env";
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "cat *" }],
       requestApproval: async (req) => {
@@ -329,9 +332,10 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate(shellCall("cat README.md && cat .env"));
+    const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(true);
-    expect(subjects).toEqual(["cat .env"]);
+    // Broad `cat *` must not authorize the secret path; operator sees the full block once.
+    expect(subjects).toEqual([full]);
   });
 
   test("secret-path approval strips persist scopes and ignores persist payloads", async () => {

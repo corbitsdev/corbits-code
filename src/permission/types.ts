@@ -28,9 +28,9 @@ export type ApprovalScope = {
   grant?: GrantScope;
 };
 
-// A request surfaced to the operator for one consequential action. For a shell
-// command this is a single segment of a chained command; for a file tool it is
-// the target path.
+// A request surfaced to the operator for one consequential action. For shell
+// this is the full command the model asked to run (security still splits the
+// chain under the hood); for a file tool it is the target path.
 export type PermissionRequest = {
   tool: string;
   action: string;
