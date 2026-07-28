@@ -12,7 +12,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Local context estimate for compaction when providers omit usage (CL-4345)
 - Image age → rehydratable attachment URI (CL-4349)
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)
-- Pi-style differential-inline transcript hard cutover (CL-4426)
+- Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
+
+## [0.2.83] - 2026-07-27
+
+Patch release: reverts the inline transcript renderer.
+
+### Fixed
+
+- **Alternate-screen transcript restored** — the inline renderer emitted committed history into the terminal's native scrollback, so a running session could be scrolled out of, and a live tail shorter than the viewport left a large blank region between the transcript and the prompt. Reverts the differential-inline cutover ([#250](https://github.com/corbitsdev/corbits-code/pull/250)), bringing back the full-screen alternate buffer, mouse-wheel scrolling, and the app-owned viewport.
 
 ## [0.2.82] - 2026-07-26
 
