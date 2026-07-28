@@ -102,7 +102,8 @@ import {
 } from "../permission/store.js";
 import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../session/stream-consumer.js";
-import { createFilteredStdin } from "./stdin-filter.js";
+import { enterAltScreen } from "../util/alt-screen.js";
+import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
 import { App } from "./app.js";
 import type { OperatorGateEvent, PermissionGateEvent } from "./hooks/use-gates.js";
 import {
@@ -1228,11 +1229,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   };
 
-  // The transcript renders inline into the normal screen buffer so the terminal
-  // owns scrollback (native scroll, copy/paste, find). Committed history is
-  // emitted append-only via Ink <Static>; the live region diffs in place. There
-  // is no alternate screen and no SGR mouse reporting — releasing the wheel lets
-  // the terminal scroll its own scrollback.
+  // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
+  // screen buffer by hand: enter before render to hide pre-launch scrollback,
+  // and restore it on exit (including abrupt process exit) so history returns.
   // The `onboarded` flag is global user state: read and written against the TRUE
   // global settings file, never config.globalSettingsPath (which is the --config
   // file when one was given). This keeps first-run detection consistent and stops
@@ -1262,11 +1261,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
-  // Strip SGR mouse sequences before Ink's parser broadcasts input to every
-  // useInput handler, so a stray sequence can never leak into a text field as
-  // literal text. Reporting is left off, so this is a pass-through guard.
-  const filteredStdin = createFilteredStdin(process.stdin);
+  const exitAltScreen = enterAltScreen();
 
+  // Strip SGR mouse sequences before Ink's parser broadcasts input to every
+  // useInput handler, so they can never leak into a text field as literal text.
+  // Scroll-wheel events are re-routed through `mouseEvents` since they no longer
+  // arrive via useInput.
+  const { stdin: filteredStdin, mouse: mouseEvents } = createFilteredStdin(process.stdin);
+
+  // Turn on SGR mouse reporting so the terminal emits the wheel sequences the
+  // filter detects and re-routes to `mouseEvents`.
+  const disableMouseReporting = enableMouseReporting();
 
   // Render first so the App's gate listeners are registered before it sends the
   // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
@@ -1370,6 +1375,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       loadedSkills={skills}
       activePlugins={activePlugins}
       initialWorkflowStatus={workflowController.status()}
+      mouseEvents={mouseEvents}
       sessionStartedAt={startedAt}
       subAgentSessions={subAgentSessions}
       goalApi={{
@@ -1450,6 +1456,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   await waitUntilExit();
   mcpConnectController.abort();
+  disableMouseReporting();
+  exitAltScreen();
 
   const finishedAt = Date.now();
   const turnCollector = runSink.getTurnCollector();

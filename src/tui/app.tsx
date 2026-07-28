@@ -16,16 +16,13 @@ import {
   buildLinesIncremental,
   buildResourceBanner,
   clearMarkdownLineCache,
+  DEFAULT_MAX_RENDERED_LOG_LINES,
+  maxLineOffset,
   TEXT_GUTTER,
   resolveViewportExpandIds,
   type IncrementalLinesState,
   type RenderableBlock,
 } from "./components/event-log.js";
-import {
-  advanceTranscriptCommit,
-  emptyTranscriptCommitState,
-  type TranscriptCommitState,
-} from "./view/transcript-commit.js";
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { useGitBranch } from "./git-branch.js";
@@ -96,8 +93,9 @@ import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
 import { useGates } from "./hooks/use-gates.js";
-import { useScroll, type ScrollController } from "./hooks/use-scroll.js";
+import { useScroll } from "./hooks/use-scroll.js";
 import { useKeymap } from "./hooks/use-keymap.js";
+import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { isExitCommand } from "./exit-command.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { removeAgentProfile, upsertAgentProfile } from "./agent-profiles.js";
@@ -355,17 +353,6 @@ function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean 
   return sortedSetKey(a) === sortedSetKey(b);
 }
 
-// The parent transcript scrolls through native terminal scrollback, not an
-// app-managed offset, so scroll keys have nothing to drive there. This inert
-// controller stands in when no child-session inspector is focused.
-const NOOP_SCROLL: ScrollController = {
-  scrollOffset: 0,
-  atBottom: true,
-  scrollUp: () => undefined,
-  scrollDown: () => undefined,
-  scrollToBottom: () => undefined,
-};
-
 function formatCountdown(ms: number): string {
   if (ms <= 0) return "now";
   const totalSeconds = Math.ceil(ms / 1000);
@@ -472,10 +459,13 @@ export type AppProps = {
   // The TRUE global settings file path (never a --config/project file). The
   // `onboarded` flag is always written here. Defaults to globalSettingsPath.
   globalOnboardingPath?: string;
+
+  // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
+  // from stdin before they reach useInput (see createFilteredStdin).
+  mouseEvents?: EventEmitter;
   // Wall-clock ms timestamp the session started. Drives the whole-session timer
   // in the status bar; reset on /new.
   sessionStartedAt?: number;
-
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
   /** Goal mode operator surface. */
@@ -549,6 +539,7 @@ export function App({
   onChangeSessionMode,
   globallyOnboarded = false,
   globalOnboardingPath,
+  mouseEvents,
   sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
@@ -1020,7 +1011,6 @@ export function App({
 
   const extraChromeRows =
     (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
-    (state.trimmedBlockCount > 0 ? 1 : 0) +
     (commandMessage !== null ? 1 : 0) +
     goalChromeRows +
     taskChromeRows +
@@ -1116,19 +1106,23 @@ export function App({
         lineCacheRef.current,
         { currentStep: state.currentPlanStep, deviated: state.planDeviated },
         baseLayoutKey,
+        DEFAULT_MAX_RENDERED_LOG_LINES,
       );
       baseLinesRef.current = next;
       return next;
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.displayRevision, state.generation, baseLayoutKey, contentWidth, thinkingExpanded, isExplicitlyExpanded, state.currentPlanStep, state.planDeviated],
+    [state.displayRevision, baseLayoutKey, contentWidth, thinkingExpanded, isExplicitlyExpanded, state.currentPlanStep, state.planDeviated],
   );
 
   const resourceBanner = useMemo(
     () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd, telemetryNotice),
     [loadedSkills, activePlugins, contentWidth, cwd, telemetryNotice],
   );
+
+  const prefixLineCount =
+    resourceBanner.length + (state.trimmedBlockCount > 0 ? 2 : 0);
 
   const viewportExpandKey = useMemo(
     () => {
@@ -1156,7 +1150,7 @@ export function App({
     [verbose, viewportExpandedIds, expandedTools, isExplicitlyExpanded],
   );
 
-  const eventLogState = useMemo(
+  const eventLogLines = useMemo(
     () => {
       let next: IncrementalLinesState;
       if (!verbose) {
@@ -1172,49 +1166,26 @@ export function App({
           lineCacheRef.current,
           { currentStep: state.currentPlanStep, deviated: state.planDeviated },
           linesLayoutKey,
+          DEFAULT_MAX_RENDERED_LOG_LINES,
         );
         incrementalLinesRef.current = next;
       }
-      return next;
+      return state.trimmedBlockCount > 0
+        ? [
+            ...resourceBanner,
+            [
+              { text: `↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed to keep the session responsive`, dim: true },
+            ] satisfies StyledLine,
+            [],
+            ...next.lines,
+          ]
+        : [...resourceBanner, ...next.lines];
     },
     // lineCacheRef is a stable ref — intentionally not in the dep array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.displayRevision, state.generation, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated],
+    [state.displayRevision, state.trimmedBlockCount, membershipBase, linesLayoutKey, contentWidth, thinkingExpanded, verbose, isViewportExpanded, state.currentPlanStep, state.planDeviated, resourceBanner],
   );
-
-  // Split the assembled transcript into frozen scrollback (committed) and the
-  // dynamic tail (live). advanceTranscriptCommit owns the backbuffer and the
-  // commit boundary; the committed accumulator persists across renders in the
-  // ref and only ever grows within a layout epoch.
-  const transcriptCommitRef = useRef<TranscriptCommitState>(emptyTranscriptCommitState());
-  const transcript = useMemo(
-    () => {
-      const blocks = eventLogState.blocks;
-      // A tool_call is settled once its result lands; until then it (and the
-      // blocks after it) must stay live so a pending row is never frozen into
-      // scrollback. Parallel pending calls mean the result may belong to any
-      // earlier call, so match on callId rather than adjacency.
-      const resolvedCallIds = new Set<string>();
-      for (const block of blocks) {
-        if (block.type === "tool_result") resolvedCallIds.add(block.callId ?? block.id);
-      }
-      const split = advanceTranscriptCommit(transcriptCommitRef.current, {
-        bannerLines: resourceBanner,
-        blockLines: eventLogState.lines,
-        blockLineStarts: eventLogState.blockLineStarts,
-        blockRenderLineCounts: eventLogState.blockRenderLineCounts,
-        blockIds: blocks.map((b) => b.id),
-        blockSettled: blocks.map(
-          (b) => b.type !== "tool_call" || resolvedCallIds.has(b.callId ?? b.id),
-        ),
-        liveRows: visibleRows,
-        generation: state.generation,
-      });
-      transcriptCommitRef.current = split.state;
-      return split;
-    },
-    [eventLogState, resourceBanner, visibleRows, state.generation],
-  );
+  const scrollMaxOffset = maxLineOffset(eventLogLines, visibleRows);
 
   const lastToolId = useMemo(() => {
     const blocks = state.contentBlocks;
@@ -1223,6 +1194,8 @@ export function App({
     }
     return null;
   }, [state.contentBlocks]);
+
+  const scroll = useScroll({ maxOffset: scrollMaxOffset });
 
   // The entered child view owns its own scroll: the parent transcript and the
   // child transcript have unrelated line counts, so one shared offset would
@@ -1240,17 +1213,13 @@ export function App({
     0,
   ).maxOffset;
   const enteredScroll = useScroll({ maxOffset: enteredScrollMaxOffset });
-  // The parent transcript no longer scrolls in-app — its history lives in native
-  // terminal scrollback. Only the entered child-session inspector keeps a
-  // managed scroll, so scroll keys are inert unless a child session is entered.
-  const activeScroll = enteredSession !== undefined ? enteredScroll : NOOP_SCROLL;
+  const activeScroll = enteredSession !== undefined ? enteredScroll : scroll;
 
-  // Ctrl+O expands tools intersecting the live region. With the transcript pinned
-  // to the bottom (committed history is off-screen in scrollback), proximity is
-  // membership in the live tail, so the window is anchored at the bottom. Sticky
-  // hold + tool-count cap keep the set from thrashing or exploding under dense
-  // tool rows. Toggle seeds the set synchronously so the first verbose paint is
-  // already expanded.
+  // Ctrl+O expands tools intersecting the visible window. Membership uses the
+  // *display* layout (same line space as scrollOffset) so mid-scroll tracking
+  // stays correct after tools grow. Sticky hold + tool-count cap keep the set
+  // from thrashing or exploding under dense tool rows. Toggle seeds the set
+  // synchronously so the first verbose paint is already expanded.
   useLayoutEffect(() => {
     if (!verbose) {
       if (viewportExpandedIds.size > 0) setViewportExpandedIds(new Set());
@@ -1264,10 +1233,10 @@ export function App({
       blocks: layout.blocks,
       blockLineStarts: layout.blockLineStarts,
       lineCount: layout.lines.length,
-      prefixLineCount: 0,
+      prefixLineCount,
       visibleRows,
-      scrollOffset: 0,
-      atBottom: true,
+      scrollOffset: scroll.scrollOffset,
+      atBottom: scroll.atBottom,
       previousIds: viewportExpandedIds,
     });
 
@@ -1275,10 +1244,13 @@ export function App({
     setViewportExpandedIds(nextIds);
   }, [
     verbose,
+    scroll.scrollOffset,
+    scroll.atBottom,
     visibleRows,
-    // Recompute when the layout changes (content, expand set).
+    // Recompute when either layout changes (content, expand set, prefix).
     membershipBase,
-    eventLogState,
+    eventLogLines,
+    prefixLineCount,
     viewportExpandedIds,
   ]);
 
@@ -1341,6 +1313,7 @@ export function App({
     quotaAutoRetryFiredRef.current = false;
     sendCounterRef.current += 1;
     state.markRunning();
+    scroll.scrollToBottom();
 
     // Append the user message to the transcript immediately (optimistic echo).
     // This ensures the input is visible even when send() is delayed by pre-send
@@ -1462,6 +1435,7 @@ export function App({
     } else {
       setSentHistoryBrowse(createSentHistoryBrowse([]));
     }
+    scroll.scrollToBottom();
     forceRender((n) => n + 1);
   };
   const startNewSession = () => startNewSessionRef.current();
@@ -1773,10 +1747,10 @@ export function App({
             blocks: layout.blocks,
             blockLineStarts: layout.blockLineStarts,
             lineCount: layout.lines.length,
-            prefixLineCount: 0,
+            prefixLineCount,
             visibleRows,
-            scrollOffset: 0,
-            atBottom: true,
+            scrollOffset: scroll.scrollOffset,
+            atBottom: scroll.atBottom,
             previousIds: new Set(),
           }));
         }
@@ -1915,6 +1889,12 @@ export function App({
         setCommandMessage("Back to parent session");
       },
     },
+  );
+
+  useMouseScroll(
+    mouseEvents,
+    (ticks) => activeScroll.scrollUp(ticks * 3),
+    (ticks) => activeScroll.scrollDown(ticks * 3),
   );
 
   const handleCommand = (result: CommandResult) => {
@@ -2078,67 +2058,40 @@ export function App({
         />
       </Box>
       <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
-        {/* Parent transcript stays mounted across task-fullscreen and child-session
-            overlays. Ink <Static> starts at index 0 on every mount, so unmounting
-            EventLog here used to re-emit the full committed history into native
-            scrollback on every enter/exit. Collapse the live viewport to zero when
-            an overlay owns the row; Static still receives appends. */}
-        {(() => {
-          const showParentTranscript =
-            !taskFullScreenOpen && enteredSession === undefined;
-          return (
-            <>
-              <Box
-                flexDirection="column"
-                justifyContent="flex-end"
-                overflow="hidden"
-                paddingX={TEXT_GUTTER}
-                {...(showParentTranscript
-                  ? {
-                      width: leftWidth,
-                      flexGrow: 1,
-                      flexShrink: 1,
-                    }
-                  : {
-                      // Stay mounted but take no layout space so Static does not remount.
-                      width: 0,
-                      height: 0,
-                      flexGrow: 0,
-                      flexShrink: 0,
-                    })}
-              >
-                <EventLog
-                  key={transcript.state.epoch}
-                  committedLines={transcript.committed}
-                  liveLines={showParentTranscript ? transcript.live : []}
-                  visibleRows={showParentTranscript ? visibleRows : 0}
-                  width={contentWidth}
-                />
-              </Box>
-              {taskFullScreenOpen ? (
-                <Box flexGrow={1} flexShrink={1} overflow="hidden">
-                  <TaskView tasks={state.tasks} />
-                </Box>
-              ) : enteredSession !== undefined ? (
-                <Box
-                  width={leftWidth}
-                  flexGrow={1}
-                  flexShrink={1}
-                  flexDirection="column"
-                  overflow="hidden"
-                  paddingX={TEXT_GUTTER}
-                >
-                  <SubAgentSessionView
-                    session={enteredSession}
-                    visibleRows={visibleRows}
-                    width={contentWidth}
-                    scrollOffset={enteredScroll.scrollOffset}
-                  />
-                </Box>
-              ) : null}
-            </>
-          );
-        })()}
+        {taskFullScreenOpen ? (
+          <TaskView
+            tasks={state.tasks}
+          />
+        ) : enteredSession !== undefined ? (
+          <Box
+            width={leftWidth}
+            flexDirection="column"
+            overflow="hidden"
+            paddingX={TEXT_GUTTER}
+          >
+            <SubAgentSessionView
+              session={enteredSession}
+              visibleRows={visibleRows}
+              width={contentWidth}
+              scrollOffset={enteredScroll.scrollOffset}
+            />
+          </Box>
+        ) : (
+          <Box
+            width={leftWidth}
+            flexDirection="column"
+            justifyContent="flex-end"
+            overflow="hidden"
+            paddingX={TEXT_GUTTER}
+          >
+            <EventLog
+              lines={eventLogLines}
+              scrollOffset={scroll.scrollOffset}
+              visibleRows={visibleRows}
+              width={contentWidth}
+            />
+          </Box>
+        )}
       </Box>
       <Box flexShrink={0} flexDirection="column">
         <ModalStack
@@ -2274,13 +2227,6 @@ export function App({
         />
       )}
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
-      {state.trimmedBlockCount > 0 && (
-        <Box paddingX={1}>
-          <Text color={color("dim")} dimColor>
-            {`↑ ${state.trimmedBlockCount} earlier message${state.trimmedBlockCount === 1 ? "" : "s"} trimmed from the tracked transcript to keep the session responsive`}
-          </Text>
-        </Box>
-      )}
       {commandMessage !== null && (
         <Box paddingX={1}>
           <Text color="cyan">{commandMessage}</Text>

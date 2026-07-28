@@ -102,11 +102,6 @@ export type AgentStreamState = {
   // exceeded. Non-zero means the rendered transcript is a tail, not the whole
   // history; the UI surfaces this so the trim is never silent.
   trimmedBlockCount: number;
-  // Bumped each time clear() replaces the transcript for a fresh session. The
-  // renderer keys the committed-scrollback reset off this explicit signal rather
-  // than inferring "replaced" from block ids, which clear() resets to reuse the
-  // prior session's values.
-  generation: number;
   addEvent(event: ReactorEmittedEvent): void;
   hydrateHistory(blocks: ContentBlockData[]): void;
   addHookEvent(event: LifecycleHookEvent): void;
@@ -327,9 +322,6 @@ export function createAgentStreamState(
   // Cap the retained tail so per-render cost and memory plateau; the dropped
   // count feeds a trimmed-history marker.
   let trimmedBlockCount = 0;
-  // Session epoch: incremented by clear() so the renderer can reset committed
-  // scrollback on an explicit signal instead of guessing from block ids.
-  let generation = 0;
   const trimOldestBlocks = (): void => {
     let drop = Math.max(0, contentBlocks.length - MAX_RETAINED_BLOCKS);
     let retainedBytes = 0;
@@ -663,9 +655,6 @@ export function createAgentStreamState(
     get trimmedBlockCount() {
       return trimmedBlockCount;
     },
-    get generation() {
-      return generation;
-    },
     setGatePending(pending: boolean): void {
       // Always balance the count, even when the run is terminal/stopping — a gate
       // that opened while running can still resolve after a stop, and if the
@@ -727,8 +716,6 @@ export function createAgentStreamState(
       contentBlocksDirty = true;
       hooksDirty = true;
       blockSeq = 0;
-      generation += 1;
-      trimmedBlockCount = 0;
       callIdToName.clear();
       callIdToArguments.clear();
       activeToolCallIds.clear();
