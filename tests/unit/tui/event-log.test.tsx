@@ -1,0 +1,515 @@
+import { expect, test } from "bun:test";
+import { render } from "ink-testing-library";
+import {
+  EventLog,
+  buildLines,
+  buildLinesIncremental,
+  lineWindow,
+  maxLineOffset,
+  renderableBlocks,
+  type IncrementalLinesState,
+} from "../../../src/tui/components/event-log.js";
+import type { RenderableBlock } from "../../../src/tui/components/event-log.js";
+import type { ContentBlock, ContentBlockData } from "../../../src/tui/use-stream.js";
+import { wrapCount, wrapLines } from "../../../src/tui/view/height.js";
+
+let blockSeq = 0;
+function block(data: ContentBlockData): RenderableBlock {
+  const base: ContentBlockData =
+    data.type === "tool_call"
+      ? { ...data, callId: data.callId ?? "call-fixture", startedAt: data.startedAt ?? 0 }
+      : data.type === "tool_result"
+        ? { ...data, finishedAt: data.finishedAt ?? 1_000 }
+        : data;
+  return { ...base, id: `wb${(blockSeq += 1)}` } as RenderableBlock;
+}
+
+const lineText = (line: { text: string }[]): string => line.map((s) => s.text).join("");
+
+type Overrides = {
+  scrollOffset?: number;
+  visibleRows?: number;
+  columns?: number;
+  thinkingExpanded?: boolean;
+  expandedTools?: ReadonlySet<string>;
+  verbose?: boolean;
+};
+
+function renderLog(blocks: ContentBlockData[], overrides: Overrides = {}) {
+  const withIds = blocks.map((b, i) => {
+    const data: ContentBlockData =
+      b.type === "tool_call"
+        ? { ...b, callId: b.callId ?? "call-fixture", startedAt: b.startedAt ?? 0 }
+        : b.type === "tool_result"
+          ? { ...b, finishedAt: b.finishedAt ?? 1_000 }
+          : b;
+    // Preserve caller-supplied ids so expandedTools lookups match the fixtures.
+    const id = typeof (b as { id?: unknown }).id === "string" ? (b as { id: string }).id : `fixture-${i}`;
+    return { ...data, id } as ContentBlock;
+  });
+  const columns = overrides.columns ?? 200;
+  const expandedTools = overrides.expandedTools ?? new Set<string>();
+  const verbose = overrides.verbose ?? false;
+  const lines = buildLines(
+    renderableBlocks(withIds),
+    columns,
+    overrides.thinkingExpanded ?? false,
+    (b) => verbose || expandedTools.has(b.id),
+  );
+  return render(
+    <EventLog
+      lines={lines}
+      scrollOffset={overrides.scrollOffset ?? 0}
+      visibleRows={overrides.visibleRows ?? 100}
+      width={columns}
+    />,
+    { stdout: { columns: columns + 20, rows: 200 } as unknown as NodeJS.WriteStream },
+  );
+}
+
+test("EventLog renders nothing when there are no blocks", () => {
+  const { lastFrame } = renderLog([]);
+  expect(lastFrame() ?? "").not.toContain("Waiting for events");
+});
+
+test("EventLog pins short output to the bottom of the viewport", () => {
+  const { lastFrame } = renderLog([block({ type: "text", content: "only line" })], {
+    columns: 40,
+    visibleRows: 5,
+  });
+  const rows = (lastFrame() ?? "").split("\n");
+  const contentIdx = rows.findIndex((r) => r.includes("only line"));
+  expect(contentIdx).toBeGreaterThanOrEqual(0);
+  expect(contentIdx).toBe(rows.length - 1);
+});
+
+test("EventLog renders user message", () => {
+  const { lastFrame } = renderLog([{ type: "user", content: "hello world" }]);
+  expect(lastFrame()).toContain("hello world");
+});
+
+test("EventLog renders text block", () => {
+  const { lastFrame } = renderLog([{ type: "text", content: "Hello!" }]);
+  expect(lastFrame()).toContain("Hello!");
+});
+
+test("EventLog renders error block in danger color", () => {
+  const { lastFrame } = renderLog([{ type: "error", message: "fatal: oops" }]);
+  expect(lastFrame()).toContain("fatal: oops");
+});
+
+test("EventLog renders tool call with a humanized name and readable arg summary", () => {
+  const { lastFrame } = renderLog([
+    {
+      type: "tool_call",
+      callId: "c1",
+      name: "read_file",
+      arguments: '{"path":"/tmp/example"}',
+      startedAt: 0,
+    },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Read");
+  expect(frame).not.toContain("read_file");
+  expect(frame).toContain("/tmp/example");
+});
+
+test("EventLog wraps a long line with inline bold instead of overflowing", () => {
+  const content = "Before your last message you asked about **Acme Interchange** which is the platform we build the agentic business runtime around the world today.";
+  const { lastFrame } = renderLog([{ type: "text", content }], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  const rows = frame.split("\n").filter((r) => r.trim().length > 0);
+  // The line is longer than the pane, so it flows across more than one row
+  // rather than overflowing on a single row or exploding word-by-word.
+  expect(rows.length).toBeGreaterThan(1);
+  expect(rows.length).toBeLessThan(8);
+  // The bolded words and the trailing word all survive the wrap.
+  expect(frame).toContain("Acme");
+  expect(frame).toContain("today");
+});
+
+test("EventLog paints a pending tool call with a static indicator and elapsed clock", () => {
+  const { lastFrame } = renderLog(
+    [{ type: "tool_call", callId: "run-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: Date.now() - 3_000 }],
+    { columns: 60 },
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Read");
+  // A running row shows the elapsed clock; three seconds have passed since start.
+  expect(frame).toContain("3s");
+  // The pending marker is a fixed glyph, not an animated braille spinner — the
+  // session's one live spinner belongs to the bottom status row only.
+  expect(frame).toContain("○");
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+});
+
+test("EventLog and the in-flight status row never both show a braille spinner", () => {
+  // The pending transcript row uses a static glyph; only InFlightIndicator (the
+  // bottom status row, rendered separately in app.tsx) owns the animated
+  // braille cycle. This guards against a second live spinner creeping back
+  // into the transcript.
+  const { lastFrame } = renderLog(
+    [{ type: "tool_call", callId: "run-2", name: "run_shell", arguments: '{"command":"echo hi"}', startedAt: Date.now() }],
+    { columns: 60 },
+  );
+  const frame = lastFrame() ?? "";
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+});
+
+test("EventLog shows a completed tool call's duration and no spinner", () => {
+  const { lastFrame } = renderLog([
+    { type: "tool_call", callId: "done-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: 0 },
+    { type: "tool_result", callId: "done-1", name: "read_file", content: "x", isError: false, finishedAt: 2_500 },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("· 2.5s");
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+});
+
+test("EventLog stops spinning a tool once an aborted result finalizes it", () => {
+  // When a turn is aborted mid-tool, use-stream synthesizes an error tool_result
+  // for the outstanding call. That resolves the pending state, so the row must
+  // render as a completed (error) tool with no braille spinner or live clock.
+  const { lastFrame } = renderLog([
+    { type: "tool_call", callId: "aborted-1", name: "read_file", arguments: '{"path":"/tmp/foo"}', startedAt: Date.now() - 3_000 },
+    { type: "tool_result", callId: "aborted-1", name: "read_file", content: "Aborted.", isError: true, finishedAt: Date.now() },
+  ], { columns: 60 });
+  const frame = lastFrame() ?? "";
+  expect(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(frame)).toBe(false);
+  expect(frame).not.toContain("3s");
+});
+
+test("EventLog renders a shell call leanly as the command, not run_shell", () => {
+  const { lastFrame } = renderLog([
+    {
+      type: "tool_call",
+      callId: "c2",
+      name: "run_shell",
+      arguments: '{"command":"npm test"}',
+      startedAt: 0,
+    },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("npm test");
+  expect(frame).not.toContain("run_shell");
+});
+
+test("EventLog never shows raw JSON for tool call args in default view", () => {
+  const { lastFrame } = renderLog([
+    {
+      type: "tool_call",
+      name: "read_file",
+      arguments: '{"path":"/tmp/example","limit":40}',
+    },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain('{"path"');
+  expect(frame).not.toContain('"limit":40');
+});
+
+test("EventLog summarizes a tool result by default and shows full content when expanded", () => {
+  const blocks: ContentBlock[] = [
+    { id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\tline one\n     2\tline two", isError: false },
+  ];
+  expect(renderLog(blocks).lastFrame()).toContain("Read 2 lines");
+  expect(renderLog(blocks).lastFrame()).not.toContain("line one");
+  expect(renderLog(blocks, { expandedTools: new Set(["r"]) }).lastFrame()).toContain("line one");
+});
+
+test("EventLog renders web_search result envelopes as a readable summary", () => {
+  const content = JSON.stringify({
+    results: [
+      { title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" },
+    ],
+  });
+  const { lastFrame } = renderLog([
+    { type: "tool_result", callId: "web-1", name: "web_search", content, isError: false },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("Found 1 web result");
+  expect(frame).not.toContain('"results"');
+});
+
+test("EventLog collapses a real JSON document result until expanded", () => {
+  const json = '{"name":"corbits","version":"1.0.0"}';
+  const blocks: ContentBlock[] = [
+    { id: "json", type: "tool_result", callId: "c1", name: "read_file", content: json, isError: false },
+  ];
+
+  const collapsedFrame = renderLog(blocks).lastFrame() ?? "";
+  expect(collapsedFrame).toContain("Read 1 line");
+  expect(collapsedFrame).not.toContain("corbits");
+
+  const expandedFrame = renderLog(blocks, { expandedTools: new Set(["json"]) }).lastFrame() ?? "";
+  expect(expandedFrame).toContain("corbits");
+  expect(expandedFrame).toContain("1.0.0");
+});
+
+test("EventLog renders tool result errors in danger styling", () => {
+  const { lastFrame } = renderLog([
+    { type: "tool_result", callId: "c2", name: "write_file", content: "permission denied", isError: true },
+  ]);
+  expect(lastFrame()).toContain("error: permission denied");
+});
+
+test("EventLog hides thinking by default", () => {
+  const { lastFrame } = renderLog([{ type: "thinking", content: "internal reasoning" }]);
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("thinking…");
+  expect(frame).not.toContain("internal reasoning");
+});
+
+test("EventLog expands thinking content when thinkingExpanded is set", () => {
+  const { lastFrame } = renderLog([{ type: "thinking", content: "internal reasoning" }], {
+    thinkingExpanded: true,
+  });
+  expect(lastFrame()).toContain("internal reasoning");
+});
+
+test("EventLog verbose reveals full tool args", () => {
+  const { lastFrame } = renderLog(
+    [{ type: "tool_call", name: "read_file", arguments: '{"path":"/tmp/example"}' }],
+    { verbose: true },
+  );
+  expect(lastFrame()).toContain("/tmp/example");
+});
+
+test("EventLog reveals full tool result content when the block is expanded", () => {
+  const { lastFrame } = renderLog(
+    [{ id: "r", type: "tool_result", callId: "c1", name: "read_file", content: "     1\thidden text", isError: false }],
+    { expandedTools: new Set(["r"]) },
+  );
+  expect(lastFrame()).toContain("hidden text");
+});
+
+test("EventLog filters out reply and task blocks", () => {
+  const { lastFrame } = renderLog([
+    { type: "tasks", tasks: [{ id: "1", title: "create", status: "todo" }] },
+    { type: "reply", content: "synthetic" },
+    { type: "user", content: "go" },
+  ]);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("go");
+  expect(frame).not.toContain("create");
+  expect(frame).not.toContain("synthetic");
+});
+
+test("renderableBlocks drops reply and task blocks", () => {
+  const blocks: ContentBlock[] = [
+    { type: "tasks", tasks: [] },
+    { type: "reply", content: "x" },
+    { type: "text", content: "keep" },
+  ];
+  expect(renderableBlocks(blocks).map((b) => b.type)).toEqual(["text"]);
+});
+
+test("EventLog shows long content in full by default, never a show-more marker", () => {
+  const long = "z".repeat(300);
+  const { lastFrame } = renderLog([{ id: "u", type: "user", content: long }], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("[show more]");
+  const stripped = frame.replace(/\u001b\[\d+(;\d+)*m/g, "").replace(/\s/g, "");
+  expect(stripped).toContain(long);
+});
+
+test("a long tool summary wraps rather than truncating", () => {
+  const { lastFrame } = renderLog([
+    { type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: "x".repeat(300) }) },
+  ], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("[show more]");
+  // Full command content must be present, not truncated
+  const stripped = frame.replace(/\u001b\[\d+(;\d+)*m/g, "").replace(/\s/g, "");
+  expect(stripped).toContain("x".repeat(300));
+});
+
+test("thinking stays hidden by default while other content shows in full", () => {
+  const long = "z".repeat(300);
+  const { lastFrame } = renderLog([
+    { id: "t", type: "thinking", content: "hidden reasoning" },
+    { id: "u", type: "user", content: long },
+  ], { columns: 80 });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("hidden reasoning");
+  const stripped = frame.replace(/\u001b\[\d+(;\d+)*m/g, "").replace(/\s/g, "");
+  expect(stripped).toContain(long);
+});
+
+test("maxLineOffset leaves exactly the last visibleRows lines on screen", () => {
+  const lines = buildLines(
+    Array.from({ length: 12 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 5;
+  const maxOffset = maxLineOffset(lines, visibleRows);
+  expect(maxOffset).toBe(lines.length - visibleRows);
+  const { start, end } = lineWindow(lines, maxOffset, visibleRows);
+  expect(end).toBe(lines.length);
+  expect(end - start).toBe(visibleRows);
+});
+
+test("the bottom is steady: every offset at or past maxLineOffset shows the same full tail", () => {
+  const lines = buildLines(
+    Array.from({ length: 12 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 5;
+  const maxOffset = maxLineOffset(lines, visibleRows);
+  const atMax = lineWindow(lines, maxOffset, visibleRows);
+  expect(atMax.end).toBe(lines.length);
+  for (const offset of [maxOffset + 1, lines.length - 1, lines.length + 5]) {
+    expect(lineWindow(lines, offset, visibleRows)).toEqual(atMax);
+  }
+});
+
+test("the window never paints more than visibleRows for any offset", () => {
+  const lines = buildLines(
+    Array.from({ length: 30 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const visibleRows = 6;
+  for (let offset = -3; offset <= lines.length + 3; offset++) {
+    const { start, end } = lineWindow(lines, offset, visibleRows);
+    expect(end - start).toBeLessThanOrEqual(visibleRows);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeLessThanOrEqual(lines.length);
+  }
+});
+
+test("EventLog windows visible blocks by scrollOffset", () => {
+  const blocks: ContentBlock[] = Array.from({ length: 10 }, (_, i) => ({
+    type: "text" as const,
+    content: `line-${i}`,
+  }));
+  const { lastFrame } = renderLog(blocks, { scrollOffset: 0, visibleRows: 3 });
+  const frame = lastFrame() ?? "";
+  // Offset zero starts at the oldest line and paints forward within the row
+  // budget. The window is bounded — distant lines stay hidden.
+  expect(frame).toContain("line-0");
+  expect(frame).not.toContain("line-5");
+  expect(frame).not.toContain("line-9");
+});
+
+test("wrapCount word-wraps greedily instead of packing characters", () => {
+  expect(wrapCount("aaaaaa aaaaaa aaaaaa", 10)).toBe(3);
+  expect(Math.ceil("aaaaaa aaaaaa aaaaaa".length / 10)).toBe(2);
+  expect(wrapCount("short", 10)).toBe(1);
+  expect(wrapCount("a\nb\nc", 10)).toBe(3);
+});
+
+test("buildLines explodes a multi-line text block into one line per visual row", () => {
+  const lines = buildLines([block({ type: "text", content: "a\nb\nc" })], 200, false, () => false);
+  expect(lines.length).toBe(3);
+});
+
+test("buildLines inserts a blank spacer line between conversational turns", () => {
+  const lines = buildLines(
+    [block({ type: "user", content: "hi" }), block({ type: "text", content: "reply" })],
+    200,
+    false,
+    () => false,
+  );
+  // The user banner contributes its own padding rows above/below; the turn
+  // separator is the true empty line right before the next turn starts.
+  const spacerIndex = lines.length - 2;
+  expect(lineText(lines[spacerIndex]!)).toBe("");
+});
+
+test("an expanded shell command wraps into rows that each fit the width", () => {
+  const cmd = "echo " + "y".repeat(60);
+  const columns = 30;
+  const lines = buildLines(
+    [block({ type: "tool_call", name: "run_shell", arguments: JSON.stringify({ command: cmd }) })],
+    columns,
+    false,
+    () => true,
+  );
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) expect(lineText(line).length).toBeLessThanOrEqual(columns - 2);
+});
+
+test("a wrapped line becomes one single-row line per visual row", () => {
+  // One logical line far longer than the pane: every line it produces must be a
+  // single row so the scroll window can step one terminal row at a time.
+  const long = Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ");
+  const columns = 24;
+  const lines = buildLines([block({ type: "text", content: long })], columns, false, () => false);
+  expect(lines.length).toBeGreaterThan(1);
+});
+
+test("inline styling survives across a wrap boundary", () => {
+  // The bold span sits late in a line that must wrap, so it lands on a later
+  // visual row. Slicing segments per row must keep the styled text intact.
+  const content = "padding ".repeat(8) + "**emphasised**";
+  const { lastFrame } = renderLog([{ type: "text", content }], { columns: 30 });
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("emphasised");
+});
+
+test("wrapLines preserves leading indentation on the first row", () => {
+  const rows = wrapLines("    indented code line that is quite long here", 20);
+  expect(rows.length).toBeGreaterThan(1);
+  expect(rows[0]!.startsWith("    ")).toBe(true);
+});
+
+test("wrapLines hard-breaks a word longer than the width without losing characters", () => {
+  const rows = wrapLines("x".repeat(50), 20);
+  expect(rows.join("")).toBe("x".repeat(50));
+  expect(rows.every((r) => r.length <= 20)).toBe(true);
+});
+
+test("lineWindow advances one line per scroll step", () => {
+  const lines = buildLines(
+    Array.from({ length: 6 }, (_, i) => block({ type: "text", content: `line-${i}` })),
+    200,
+    false,
+    () => false,
+  );
+  const w0 = lineWindow(lines, 0, 3);
+  const w1 = lineWindow(lines, 1, 3);
+  expect(w1.start).toBe(w0.start + 1);
+});
+
+test("buildLinesIncremental reuses the filtered blocks array when contentBlocks is unchanged by reference", () => {
+  // A streamed token mutates the trailing block's content in place rather than
+  // replacing the ContentBlock[] array (see use-stream.ts's contentBlocks
+  // getter), so buildLinesIncremental must skip renderableBlocks().filter()
+  // entirely on that reference match. Re-walking the whole array on every
+  // token is what made per-token layout cost grow with transcript length.
+  const raw: ContentBlock[] = Array.from({ length: 500 }, (_, i) => block({ type: "text", content: `line-${i}` }));
+  const streaming = block({ type: "text", content: "hello " });
+  raw.push(streaming);
+
+  let prev: IncrementalLinesState | undefined;
+  const isExpanded = () => false;
+  prev = buildLinesIncremental(prev, raw, 200, false, isExpanded, undefined, undefined, "k");
+  const firstBlocks = prev.blocks;
+
+  // Mutate the same object already reachable from `raw` — no new array,
+  // matching how a real token delta settles.
+  (streaming as { content: string }).content += "world";
+  prev = buildLinesIncremental(prev, raw, 200, false, isExpanded, undefined, undefined, "k");
+
+  expect(prev.blocks).toBe(firstBlocks);
+  expect(lineText(prev.lines[prev.lines.length - 1]!)).toContain("hello world");
+});
+
+test("buildLinesIncremental re-filters when contentBlocks is a new array reference", () => {
+  const raw: ContentBlock[] = [block({ type: "text", content: "a" })];
+  let prev: IncrementalLinesState | undefined;
+  const isExpanded = () => false;
+  prev = buildLinesIncremental(prev, raw, 200, false, isExpanded, undefined, undefined, "k");
+  const firstBlocks = prev.blocks;
+
+  const grown = [...raw, block({ type: "text", content: "b" })];
+  prev = buildLinesIncremental(prev, grown, 200, false, isExpanded, undefined, undefined, "k");
+
+  expect(prev.blocks).not.toBe(firstBlocks);
+  expect(prev.blocks.length).toBe(2);
+});

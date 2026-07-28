@@ -63,7 +63,6 @@ test("clear resets the transcript, telemetry, and status", () => {
   expect(state.contentBlocks.length).toBeGreaterThan(0);
   expect(state.turnsUsed).toBeGreaterThan(0);
 
-  const generationBefore = state.generation;
   state.clear();
 
   expect(state.contentBlocks.length).toBe(0);
@@ -73,10 +72,6 @@ test("clear resets the transcript, telemetry, and status", () => {
   expect(state.status).toBe("idle");
   expect(state.latestUserMessage).toBe("");
   expect(state.currentPlanStep).toBe(null);
-  // clear() replaces the transcript, so the renderer's reset signal advances and
-  // the trimmed-history count starts fresh for the new session.
-  expect(state.generation).toBe(generationBefore + 1);
-  expect(state.trimmedBlockCount).toBe(0);
 });
 
 test("streamed text deltas reuse the contentBlocks snapshot reference", () => {

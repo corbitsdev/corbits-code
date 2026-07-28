@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 // SGR mouse tracking sequences arrive as `ESC[<button;col;row` terminated by
 // `M` (press) or `m` (release). Ink's input parser turns whatever it reads into
 // string events and broadcasts them to every `useInput` handler, so any sequence
@@ -24,17 +26,74 @@ const MOUSE_FRAGMENT = /\[<(\d+);\d+;\d+[Mm]/g;
 // or arrow key (those start with a bare `ESC` / `ESC[`, never `[<`).
 const TRAILING_PARTIAL = /(?:\x1b)?\[<[\d;]*$/;
 
-// Wrap a TTY stream so Ink reads mouse-free input. SGR mouse sequences are
-// stripped at the read boundary; reporting is never enabled, so this is purely a
-// guard against stray sequences leaking into a text field as literal text.
+// Wheel events encode button 64 (up) / 65 (down). They are the one class of
+// mouse input we still act on, re-routed through a dedicated channel since they
+// can no longer reach `useInput`.
+const SCROLL_UP_BUTTON = 64;
+const SCROLL_DOWN_BUTTON = 65;
+
+// SGR mouse mode escape sequences. Mode 1000 enables basic button-event
+// reporting; mode 1006 switches to the SGR extended format that supports
+// coordinates beyond 223 and encodes the button value as a decimal number in
+// the sequence body rather than as a single 8-bit byte. Enabling reporting is
+// what makes the terminal emit the sequences this module then filters, so the
+// two halves live together. These are terminal-level side effects, owned by the
+// runner's lifecycle rather than a React component.
+const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1006h";
+const MOUSE_DISABLE = "\x1b[?1000l\x1b[?1006l";
+
+// Enable SGR mouse reporting and return a function that disables it. Mirrors
+// enterAltScreen: an `exit` handler restores the terminal on abrupt exit so a
+// crash never leaves it stuck emitting mouse sequences.
+export function enableMouseReporting(): () => void {
+  if (!process.stdin.isTTY) return () => {};
+  const disable = (): void => {
+    process.stdout.write(MOUSE_DISABLE);
+  };
+  process.stdout.write(MOUSE_ENABLE);
+  process.once("exit", disable);
+  return (): void => {
+    process.removeListener("exit", disable);
+    disable();
+  };
+}
+
+export type FilteredStdin = {
+  stdin: NodeJS.ReadStream;
+  mouse: EventEmitter;
+};
+
+// Wrap a TTY stream so Ink reads mouse-free input. Scroll-wheel events are
+// emitted on `mouse` as "scrollUp"/"scrollDown" before being stripped.
 //
 // This depends on Ink 7's input pipeline driving off `stdin.read()` (see
 // ink/build/components/App.js). Bytes Ink consumes through its transient Kitty
 // keyboard probe are `unshift`ed back into the stream and re-enter through
 // read(), so they pass through this filter too.
-export function createFilteredStdin(source: NodeJS.ReadStream): NodeJS.ReadStream {
-  const strip = (text: string): string =>
-    text.replace(MOUSE_SEQUENCE, "").replace(MOUSE_FRAGMENT, "");
+export function createFilteredStdin(source: NodeJS.ReadStream): FilteredStdin {
+  const mouse = new EventEmitter();
+
+  const stripAndEmit = (text: string): string => {
+    let stripped = text.replace(MOUSE_SEQUENCE, "");
+    MOUSE_SEQUENCE.lastIndex = 0;
+    for (const match of text.matchAll(MOUSE_SEQUENCE)) {
+      emitScroll(Number(match[1]));
+    }
+    // Catch orphaned fragments whose leading ESC was consumed by Ink's parser in
+    // a prior read. Run only on the full-sequence-free remainder so a complete
+    // sequence is never counted twice.
+    MOUSE_FRAGMENT.lastIndex = 0;
+    for (const match of stripped.matchAll(MOUSE_FRAGMENT)) {
+      emitScroll(Number(match[1]));
+    }
+    stripped = stripped.replace(MOUSE_FRAGMENT, "");
+    return stripped;
+  };
+
+  function emitScroll(button: number): void {
+    if (button === SCROLL_UP_BUTTON) mouse.emit("scrollUp");
+    else if (button === SCROLL_DOWN_BUTTON) mouse.emit("scrollDown");
+  }
 
   // Carries an incomplete trailing mouse sequence from one read/data chunk to the next.
   let pending = "";
@@ -61,7 +120,7 @@ export function createFilteredStdin(source: NodeJS.ReadStream): NodeJS.ReadStrea
       }
     }
 
-    return strip(text);
+    return stripAndEmit(text);
   };
 
   const read = (size?: number): string | null => {
@@ -142,5 +201,5 @@ export function createFilteredStdin(source: NodeJS.ReadStream): NodeJS.ReadStrea
     },
   }) as NodeJS.ReadStream;
 
-  return stdin;
+  return { stdin, mouse };
 }
