@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
@@ -5,6 +6,13 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 export type ToolWatchdogConfig = {
   defaultMs?: number;
   maxMs?: number;
+  /**
+   * When true (default), freeze this budget while a permission prompt is open
+   * so a late approve still runs the tool. When false, the budget keeps ticking
+   * during the prompt; if it expires first the tool is skipped and the prompt
+   * is dismissed via the budget AbortSignal.
+   */
+  waitForApproval?: boolean;
 };
 
 // Default exceeds shell-guard's per-command max so run_shell is not cut off by
@@ -27,6 +35,11 @@ export function resolveToolExecutionTimeoutMs(config?: ToolWatchdogConfig): numb
   return Math.min(max, Math.max(1, Math.floor(raw)));
 }
 
+/** Default true: freeze tool budget while a permission prompt is open. */
+export function resolveWaitForApproval(config?: ToolWatchdogConfig): boolean {
+  return config?.waitForApproval !== false;
+}
+
 export function withTimeout(
   signal: AbortSignal,
   timeoutMs: number,
@@ -43,6 +56,114 @@ export function withTimeout(
       signal.removeEventListener("abort", onParentAbort);
     },
   };
+}
+
+export type PauseableTimeout = {
+  signal: AbortSignal;
+  dispose: () => void;
+  pause: () => void;
+  resume: () => void;
+};
+
+/**
+ * Like withTimeout, but the remaining budget freezes while paused (e.g. while
+ * a permission prompt is open). Pause/resume are refcounted so nested pauses
+ * (multi-segment shell approvals) stay correct.
+ */
+export function withPauseableTimeout(signal: AbortSignal, timeoutMs: number): PauseableTimeout {
+  const controller = new AbortController();
+  let remaining = Math.max(1, Math.floor(timeoutMs));
+  let startedAt: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pauseDepth = 0;
+  let disposed = false;
+
+  const clearTimer = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const fire = (): void => {
+    remaining = 0;
+    startedAt = null;
+    clearTimer();
+    controller.abort();
+  };
+
+  const arm = (): void => {
+    clearTimer();
+    if (disposed || pauseDepth > 0 || controller.signal.aborted) return;
+    if (remaining <= 0) {
+      fire();
+      return;
+    }
+    startedAt = Date.now();
+    timer = setTimeout(fire, remaining);
+  };
+
+  const pause = (): void => {
+    if (disposed || controller.signal.aborted) return;
+    pauseDepth += 1;
+    if (pauseDepth !== 1) return;
+    if (startedAt !== null) {
+      remaining = Math.max(0, remaining - (Date.now() - startedAt));
+      startedAt = null;
+    }
+    clearTimer();
+  };
+
+  const resume = (): void => {
+    if (disposed || controller.signal.aborted) return;
+    if (pauseDepth === 0) return;
+    pauseDepth -= 1;
+    if (pauseDepth === 0) arm();
+  };
+
+  const onParentAbort = () => controller.abort();
+  signal.addEventListener("abort", onParentAbort, { once: true });
+  if (signal.aborted) controller.abort();
+  else arm();
+
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      disposed = true;
+      clearTimer();
+      signal.removeEventListener("abort", onParentAbort);
+    },
+    pause,
+    resume,
+  };
+}
+
+/** Per-tool budget handle visible to permission-gate code via ALS. */
+export type ToolApprovalBudget = {
+  signal: AbortSignal;
+  pause: () => void;
+  resume: () => void;
+  waitForApproval: boolean;
+};
+
+const toolApprovalBudgetAls = new AsyncLocalStorage<ToolApprovalBudget>();
+
+export function getToolApprovalBudget(): ToolApprovalBudget | undefined {
+  return toolApprovalBudgetAls.getStore();
+}
+
+/** Freeze the active tool budget (no-op when waitForApproval is off or no budget). */
+export function pauseToolApprovalBudget(): void {
+  const budget = toolApprovalBudgetAls.getStore();
+  if (budget === undefined || !budget.waitForApproval) return;
+  budget.pause();
+}
+
+/** Resume the active tool budget after a permission prompt settles. */
+export function resumeToolApprovalBudget(): void {
+  const budget = toolApprovalBudgetAls.getStore();
+  if (budget === undefined || !budget.waitForApproval) return;
+  budget.resume();
 }
 
 function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
@@ -110,6 +231,11 @@ export async function preferExecuteSalvageAfterAbort(
 export type ToolExecutionWatchdogOptions = {
   /** Override the post-abort salvage grace (tests); defaults to TOOL_EXECUTION_SALVAGE_GRACE_MS. */
   salvageGraceMs?: number;
+  /**
+   * When true (default), the budget freezes during permission prompts via
+   * pauseToolApprovalBudget / resumeToolApprovalBudget.
+   */
+  waitForApproval?: boolean;
 };
 
 /**
@@ -129,45 +255,61 @@ export async function runWithToolExecutionWatchdog(
   options?: ToolExecutionWatchdogOptions,
 ): Promise<ToolResult> {
   const salvageGraceMs = options?.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
-  const budget = withTimeout(parentSignal, timeoutMs);
-  try {
-    const executePromise = execute(budget.signal);
-    const outcome = await Promise.race([executePromise, budgetExpiry(budget.signal)]);
-
-    if (outcome === BUDGET_EXPIRED) {
-      const salvaged = await preferExecuteSalvageAfterAbort(executePromise, salvageGraceMs);
-      if (salvaged !== undefined) return salvaged;
-      // Avoid unhandled rejection if execute later fails after we move on.
-      void executePromise.catch(() => {});
-      const content = parentSignal.aborted
-        ? `${call.name} aborted`
-        : formatToolExecutionTimeoutMessage(call.name, timeoutMs);
-      return { callId: call.id, content, isError: true };
-    }
-
-    if (
-      outcome.isError === true &&
-      typeof outcome.content === "string" &&
-      outcome.content.includes("[timed out before completing]")
-    ) {
-      return outcome;
-    }
-
-    if (
-      budget.signal.aborted &&
-      !parentSignal.aborted &&
-      outcome.isError === true &&
-      typeof outcome.content === "string" &&
-      isAbortLikeToolError(outcome.content)
-    ) {
-      return {
-        callId: call.id,
-        content: formatToolExecutionTimeoutMessage(call.name, timeoutMs),
-        isError: true,
+  const waitForApproval = options?.waitForApproval !== false;
+  const budget = waitForApproval
+    ? withPauseableTimeout(parentSignal, timeoutMs)
+    : {
+        ...withTimeout(parentSignal, timeoutMs),
+        pause: () => {},
+        resume: () => {},
       };
-    }
+  const approvalBudget: ToolApprovalBudget = {
+    signal: budget.signal,
+    pause: budget.pause,
+    resume: budget.resume,
+    waitForApproval,
+  };
 
-    return outcome;
+  try {
+    return await toolApprovalBudgetAls.run(approvalBudget, async () => {
+      const executePromise = execute(budget.signal);
+      const outcome = await Promise.race([executePromise, budgetExpiry(budget.signal)]);
+
+      if (outcome === BUDGET_EXPIRED) {
+        const salvaged = await preferExecuteSalvageAfterAbort(executePromise, salvageGraceMs);
+        if (salvaged !== undefined) return salvaged;
+        // Avoid unhandled rejection if execute later fails after we move on.
+        void executePromise.catch(() => {});
+        const content = parentSignal.aborted
+          ? `${call.name} aborted`
+          : formatToolExecutionTimeoutMessage(call.name, timeoutMs);
+        return { callId: call.id, content, isError: true };
+      }
+
+      if (
+        outcome.isError === true &&
+        typeof outcome.content === "string" &&
+        outcome.content.includes("[timed out before completing]")
+      ) {
+        return outcome;
+      }
+
+      if (
+        budget.signal.aborted &&
+        !parentSignal.aborted &&
+        outcome.isError === true &&
+        typeof outcome.content === "string" &&
+        isAbortLikeToolError(outcome.content)
+      ) {
+        return {
+          callId: call.id,
+          content: formatToolExecutionTimeoutMessage(call.name, timeoutMs),
+          isError: true,
+        };
+      }
+
+      return outcome;
+    });
   } finally {
     budget.dispose();
   }
