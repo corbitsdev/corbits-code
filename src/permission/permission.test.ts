@@ -34,18 +34,27 @@ describe("isShellCommentOnly", () => {
 });
 
 describe("isShellNoOp", () => {
-  test("recognizes bare true/false/:", () => {
+  test("recognizes bare true/false/: and control-flow keywords", () => {
     expect(isShellNoOp("true")).toBe(true);
     expect(isShellNoOp("false")).toBe(true);
     expect(isShellNoOp(":")).toBe(true);
     expect(isShellNoOp("  true  ")).toBe(true);
+    for (const word of ["do", "done", "fi", "then", "else", "elif", "esac", "continue", "break"]) {
+      expect(isShellNoOp(word)).toBe(true);
+      expect(isShellNoOp(`  ${word}  `)).toBe(true);
+    }
   });
 
-  test("does not treat argument-bearing or unrelated commands as no-ops", () => {
+  test("does not treat argument-bearing, quoted, or unrelated commands as no-ops", () => {
     expect(isShellNoOp("true > /tmp/x")).toBe(false);
     expect(isShellNoOp("true foo")).toBe(false);
     expect(isShellNoOp("echo true")).toBe(false);
     expect(isShellNoOp("npm test")).toBe(false);
+    expect(isShellNoOp("then cat x")).toBe(false);
+    expect(isShellNoOp("for f in x")).toBe(false);
+    expect(isShellNoOp("break 2")).toBe(false);
+    expect(isShellNoOp('"done"')).toBe(false);
+    expect(isShellNoOp("do>/tmp/x")).toBe(false);
   });
 });
 
@@ -431,6 +440,112 @@ describe("gate authorizes shell chains as one block with per-segment security", 
     expect((await gate.evaluate(shellCall("false"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall(":"))).allowed).toBe(true);
     expect(asked).toBe(0);
+  });
+
+  test("bare control-flow keywords never prompt on their own", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    for (const word of ["do", "done", "fi", "then", "else", "elif", "esac", "continue", "break"]) {
+      expect((await gate.evaluate(shellCall(word))).allowed).toBe(true);
+    }
+    expect(asked).toBe(0);
+  });
+
+  test("auto-safe body with stranded do/done does not re-prompt for keywords", async () => {
+    let asked = 0;
+    const prompted: string[] = [];
+    // Multi-line for-loop: head is still consequential, body is auto-safe, keywords no-op.
+    // After the operator approves once, a second evaluation with a head grant must not
+    // re-prompt solely for do/done.
+    const script = 'for f in a b; do\ncat "$f"\ndone';
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        asked++;
+        prompted.push(request.subject);
+        return { allow: true, pattern: "for f in a b" };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const first = await gate.evaluate(shellCall(script));
+    expect(first.allowed).toBe(true);
+    expect(asked).toBe(1);
+    expect(prompted).toEqual([script]);
+
+    // Fresh gate with only the head grant — body auto-allowed, keywords no-ops.
+    let askedAgain = 0;
+    const gate2 = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "for f in a b" }],
+      requestApproval: async () => {
+        askedAgain++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const second = await gate2.evaluate(shellCall(script));
+    expect(second.allowed).toBe(true);
+    expect(askedAgain).toBe(0);
+  });
+
+  test("dangerous body in a for-loop still prompts once for the full block", async () => {
+    const prompted: string[] = [];
+    const script = 'for f in /tmp; do\nrm -rf "$f"\ndone';
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(script));
+    expect(verdict.allowed).toBe(true);
+    expect(prompted).toEqual([script]);
+  });
+
+  test("dangerous if/then body still prompts once for the full block", async () => {
+    const prompted: string[] = [];
+    const script = 'if true; then\nrm -rf /tmp/x\nfi';
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        prompted.push(request.subject);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(script));
+    expect(verdict.allowed).toBe(true);
+    expect(prompted).toEqual([script]);
+  });
+
+  test("head grant alone does not skip a dangerous for-loop body", async () => {
+    let asked = 0;
+    const script = 'for f in /tmp; do\nrm -rf "$f"\ndone';
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "for f in /tmp" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(script));
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(1);
   });
 });
 

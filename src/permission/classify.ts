@@ -167,7 +167,7 @@ function argEscapesWorkspace(token: string, realCwd: string): boolean {
 export function isAutoAllowedShellSegment(segment: string, cwd: string = process.cwd()): boolean {
   const trimmed = segment.trim();
   // Empty is not auto-allowed as a "command"; full-line comments and pure shell
-  // no-ops (`true`/`false`/`:`) never need approval.
+  // no-ops (true/false/: and bare control-flow keywords) never need approval.
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
   if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
