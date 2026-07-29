@@ -23,6 +23,7 @@ import {
   clampSubAgentMaxTurns,
   validateTaskMaxTurns,
   toolWatchdogFromSettings,
+  resolveWaitForApproval,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -341,19 +342,34 @@ describe("loaders", () => {
       const path = join(dir, ".corbits", "settings.json");
       const withTools: Settings = {
         ...firepass,
-        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000 },
+        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000, waitForApproval: false },
       };
       await saveGlobalSettings(path, withTools);
       const loaded = await loadSettings(path);
-      expect(loaded?.tools).toEqual({ timeoutMs: 120_000, maxTimeoutMs: 600_000 });
+      expect(loaded?.tools).toEqual({
+        timeoutMs: 120_000,
+        maxTimeoutMs: 600_000,
+        waitForApproval: false,
+      });
       expect(loaded).toEqual(withTools);
       expect(toolWatchdogFromSettings(loaded)).toEqual({
         defaultMs: 120_000,
         maxMs: 600_000,
+        waitForApproval: false,
       });
+      expect(resolveWaitForApproval(loaded)).toBe(false);
+      expect(resolveWaitForApproval(undefined)).toBe(true);
+      expect(resolveWaitForApproval({ providers: {} })).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("toolWatchdogFromSettings maps waitForApproval alone", () => {
+    expect(toolWatchdogFromSettings({ providers: {}, tools: { waitForApproval: true } })).toEqual({
+      waitForApproval: true,
+    });
+    expect(toolWatchdogFromSettings({ providers: {} })).toBeUndefined();
   });
 });
 

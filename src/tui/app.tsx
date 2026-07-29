@@ -488,6 +488,14 @@ export type AppProps = {
   telemetryEnabled?: boolean;
   /** Persists the settings Telemetry on|off toggle to global settings. */
   onChangeTelemetryEnabled?: (enabled: boolean) => void;
+  /**
+   * When true (default), freeze each tool's wall-clock budget while its
+   * permission prompt is open. When false, the budget keeps ticking and a
+   * timeout dismisses the prompt.
+   */
+  waitForApproval?: boolean;
+  /** Persists the wait-for-approval toggle to global settings (tools.waitForApproval). */
+  onChangeWaitForApproval?: (value: boolean) => Promise<void>;
   /** Fired once, on the first interactively submitted prompt of the session.
    * The runner uses this as the affirmative action that activates telemetry
    * held for first-run disclosure; auto-sent initial tasks never count. */
@@ -546,6 +554,8 @@ export function App({
   telemetryNotice,
   telemetryEnabled = false,
   onChangeTelemetryEnabled,
+  waitForApproval: waitForApprovalProp = true,
+  onChangeWaitForApproval,
   onFirstUserMessage,
 }: AppProps): ReactNode {
   // Tracks the live model so the stream's cost meter prices each turn at the
@@ -627,6 +637,7 @@ export function App({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [liveTelemetryEnabled, setLiveTelemetryEnabled] = useState(telemetryEnabled);
+  const [waitForApproval, setWaitForApproval] = useState(waitForApprovalProp);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
     initialSettings?.compactionMode ?? "llm",
   );
@@ -2186,6 +2197,11 @@ export function App({
           onChangeTelemetryEnabled={(enabled) => {
             setLiveTelemetryEnabled(enabled);
             onChangeTelemetryEnabled?.(enabled);
+          }}
+          waitForApproval={waitForApproval}
+          onChangeWaitForApproval={(value) => {
+            setWaitForApproval(value);
+            void onChangeWaitForApproval?.(value);
           }}
           onClose={() => setSettingsOpen(false)}
           maxHeight={permissionsOverlayRows}

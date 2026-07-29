@@ -108,7 +108,12 @@ export type Settings = {
   // override so a single command cannot wait effectively unbounded.
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
   // Outer wall-clock budget for each tool `run()` (dynamic runner / agent dispatch).
-  tools?: { timeoutMs?: number; maxTimeoutMs?: number };
+  //
+  // waitForApproval (default true when unset): freeze this budget while a
+  // permission prompt is open so a late approve still runs the tool. When false,
+  // the budget keeps ticking during the prompt; if it expires first the tool is
+  // skipped and the prompt is dismissed.
+  tools?: { timeoutMs?: number; maxTimeoutMs?: number; waitForApproval?: boolean };
   // Anonymous PostHog telemetry. Global only — never written to per-repo
   // local settings. `enabled` defaults to true (opt-out); `installationId`
   // is a random UUID generated once on first use; `noticeShown` stamps that
@@ -134,15 +139,25 @@ export function shellTimeoutFromSettings(
 }
 
 // Maps the settings tools block to the shape the tool-execution watchdog expects.
+// Returns undefined when nothing is configured so callers can skip the override.
 export function toolWatchdogFromSettings(
   settings?: Settings | null,
-): { defaultMs?: number; maxMs?: number } | undefined {
+): { defaultMs?: number; maxMs?: number; waitForApproval?: boolean } | undefined {
   const tools = settings?.tools;
   if (tools === undefined) return undefined;
+  const hasTimeout = tools.timeoutMs !== undefined || tools.maxTimeoutMs !== undefined;
+  const hasWait = tools.waitForApproval !== undefined;
+  if (!hasTimeout && !hasWait) return undefined;
   return {
     ...(tools.timeoutMs !== undefined ? { defaultMs: tools.timeoutMs } : {}),
     ...(tools.maxTimeoutMs !== undefined ? { maxMs: tools.maxTimeoutMs } : {}),
+    ...(tools.waitForApproval !== undefined ? { waitForApproval: tools.waitForApproval } : {}),
   };
+}
+
+/** Default true: freeze the tool budget while a permission prompt is open. */
+export function resolveWaitForApproval(settings?: Settings | null): boolean {
+  return settings?.tools?.waitForApproval !== false;
 }
 
 export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
@@ -351,7 +366,11 @@ const SettingsSchema = type({
   "sessionMode?": "'single' | 'orchestrator'",
   "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
-  "tools?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
+  "tools?": type({
+    "timeoutMs?": "number",
+    "maxTimeoutMs?": "number",
+    "waitForApproval?": "boolean",
+  }),
   "telemetry?": type({
     "enabled?": "boolean",
     "installationId?": "string",
