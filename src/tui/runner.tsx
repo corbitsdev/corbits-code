@@ -31,6 +31,10 @@ import {
   type PluginConfig,
   type ProviderTier,
 } from "../config/settings.js";
+import type { ToolWatchdogConfig } from "./tool-execution-watchdog.js";
+import {
+  getToolApprovalBudget,
+} from "./tool-execution-watchdog.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
@@ -300,15 +304,30 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     requestApproval: (request) =>
       new Promise((resolve) => {
         const snap = goalGovernorRef.current?.get() ?? null;
+        // Freeze the tool wall-clock budget while the operator decides (when
+        // waitForApproval is on). Always attach the budget signal so a timeout
+        // with waitForApproval off dismisses the modal instead of leaving a ghost.
+        // Capture the handle here: finish() runs on the UI thread outside the
+        // tool ALS, so helpers that re-lookup ALS would no-op on resume.
+        const budget = getToolApprovalBudget();
+        if (budget?.waitForApproval) budget.pause();
+        let settled = false;
+        const finish = (outcome: Parameters<PermissionGateEvent["resolve"]>[0]) => {
+          if (settled) return;
+          settled = true;
+          if (budget?.waitForApproval) budget.resume();
+          resolve(outcome);
+        };
         const event: PermissionGateEvent = {
           request,
-          resolve,
+          resolve: finish,
           ...(isGoalApprovalTimeoutActive(snap?.status)
             ? {
                 timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
                 timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
               }
             : {}),
+          ...(budget !== undefined ? { signal: budget.signal } : {}),
         };
         emitter.emit("permission.gate", event);
       }),
@@ -583,7 +602,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
-  const toolWatchdog = toolWatchdogFromSettings(config.settings);
+  // Mutable so Settings → waitForApproval takes effect on the next tool call
+  // without rebuilding the toolset.
+  const liveToolWatchdog: ToolWatchdogConfig = {
+    ...(toolWatchdogFromSettings(config.settings) ?? {}),
+  };
   const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
   if (liveSessionMode === undefined) {
@@ -611,7 +634,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     permissionGate,
     skillDirs,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-    ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
+    toolWatchdog: liveToolWatchdog,
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     getGoalGovernor: () => goalGovernorRef.current,
@@ -1341,6 +1364,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           maxConcurrentSubAgents: limit,
+        });
+      }}
+      waitForApproval={liveToolWatchdog.waitForApproval !== false}
+      onChangeWaitForApproval={async (value) => {
+        liveToolWatchdog.waitForApproval = value;
+        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
+        const base: Settings = current ?? { providers: {} };
+        await saveGlobalSettings(config.globalSettingsPath, {
+          ...base,
+          tools: { ...base.tools, waitForApproval: value },
         });
       }}
       initialSessionMode={liveSessionMode}

@@ -292,6 +292,68 @@ test("permission gate surfaces a request and resolves the outcome", async () => 
   expect(lastFrame()).toContain("none none none open=0");
 });
 
+test("permission gate auto-denies when the tool budget signal aborts", async () => {
+  const emitter = new EventEmitter();
+  let outcome: { allow: boolean; message?: string } | null = null;
+  const budget = new AbortController();
+  const { lastFrame } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run shell command", subject: "bun install", scopes: [] },
+    resolve: (o: { allow: boolean; message?: string }) => {
+      outcome = o;
+    },
+    signal: budget.signal,
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:bun install");
+  expect(lastFrame()).toContain("open=1");
+
+  budget.abort();
+  await tick();
+  expect(outcome).toMatchObject({ allow: false });
+  expect(outcome?.message).toContain("timed out");
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
+test("budget abort dismisses a non-head permission still in the queue", async () => {
+  const emitter = new EventEmitter();
+  let headOutcome: { allow: boolean } | null = null;
+  let queuedOutcome: { allow: boolean; message?: string } | null = null;
+  const budget = new AbortController();
+  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  await tick();
+
+  emitter.emit("permission.gate", {
+    request: { tool: "write_file", action: "Write file", subject: "a.ts", scopes: [] },
+    resolve: (o: { allow: boolean }) => {
+      headOutcome = o;
+    },
+  });
+  emitter.emit("permission.gate", {
+    request: { tool: "run_shell", action: "Run shell command", subject: "rm -rf /", scopes: [] },
+    resolve: (o: { allow: boolean; message?: string }) => {
+      queuedOutcome = o;
+    },
+    signal: budget.signal,
+  });
+  await tick();
+  expect(lastFrame()).toContain("perm:a.ts");
+
+  budget.abort();
+  await tick();
+  expect(queuedOutcome).toMatchObject({ allow: false });
+  expect(headOutcome).toBeNull();
+  // Head is still the first permission.
+  expect(lastFrame()).toContain("perm:a.ts");
+
+  stdin.write("p");
+  await tick();
+  expect(headOutcome).toEqual({ allow: true });
+  expect(lastFrame()).toContain("none none none open=0");
+});
+
 // resetGates drains all queues, resolves each with safe defaults, and clears
 // visible state — simulating a /clear rotation that fires while gates are open.
 test("resetGates resolves all pending gates and clears visible state", async () => {
