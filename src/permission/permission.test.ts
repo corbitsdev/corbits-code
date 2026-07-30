@@ -471,7 +471,10 @@ describe("gate authorizes shell chains as one block with per-segment security", 
       requestApproval: async (request) => {
         asked++;
         prompted.push(request.subject);
-        return { allow: true, pattern: "for f in a b" };
+        return {
+          allow: true,
+          persist: { id: "head", label: "Allow the loop head", pattern: "for f in a b" },
+        };
       },
       interactive: true,
       skipPermissions: false,
@@ -481,20 +484,11 @@ describe("gate authorizes shell chains as one block with per-segment security", 
     expect(asked).toBe(1);
     expect(prompted).toEqual([script]);
 
-    // Fresh gate with only the head grant — body auto-allowed, keywords no-ops.
-    let askedAgain = 0;
-    const gate2 = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "for f in a b" }],
-      requestApproval: async () => {
-        askedAgain++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-    });
-    const second = await gate2.evaluate(shellCall(script));
+    // The persisted head grant covers the only consequential segment; the body
+    // is auto-safe and the stranded keywords are no-ops, so no second prompt.
+    const second = await gate.evaluate(shellCall(script));
     expect(second.allowed).toBe(true);
-    expect(askedAgain).toBe(0);
+    expect(asked).toBe(1);
   });
 
   test("dangerous body in a for-loop still prompts once for the full block", async () => {
