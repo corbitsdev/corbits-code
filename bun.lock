@@ -27,6 +27,7 @@
         "typescript": "5.9.3",
         "typescript-language-server": "^4.3.4",
         "ws": "^8.21.0",
+        "yoga-layout": "~3.2.1",
       },
     },
     "vendor/intx-inference": {
