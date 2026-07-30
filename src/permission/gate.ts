@@ -10,6 +10,7 @@ import {
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import { runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
 import { isApproved, escapeGlobLiteral } from "./matcher.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
@@ -246,6 +247,19 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel)
         ) {
           continue;
+        }
+
+        // A segment authz would hard-deny at execution is stricter than "ask":
+        // the gate must deny the call outright rather than show an Accept
+        // button for a command that can never actually run. Checked across
+        // every segment up front so the strictest result across the whole
+        // chain wins, matching how a declined segment already blocks the
+        // whole call below.
+        const blockedSegment = segments
+          .map((segment) => runShellAuthzSegmentBlockReason(segment))
+          .find((reason) => reason !== undefined);
+        if (blockedSegment !== undefined) {
+          return { allowed: false, reason: blockedSegment };
         }
 
         let needsOperator = false;

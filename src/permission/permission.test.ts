@@ -543,6 +543,27 @@ describe("gate authorizes shell chains as one block with per-segment security", 
   });
 });
 
+describe("gate denies compound commands with an authz-hard-blocked segment", () => {
+  // A segment authz would hard-deny at execution must deny at the gate
+  // outright, not degrade to an operator prompt — the strictest tier across
+  // all segments wins, and "blocked" is stricter than "ask".
+  test("does not prompt the operator for a compound command with a blocked tail", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("echo ok && sudo rm -rf /etc"));
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(0);
+  });
+});
+
 describe("createPermissionGate", () => {
   test("allow-tier tools pass without asking", async () => {
     let asked = 0;
@@ -1026,10 +1047,14 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       auto: true,
     });
-    for (const command of ["npm test", "git status", "bun run build 2>&1", "ls -la > /dev/null", "ls > /dev/pts/0"]) {
+    for (const command of ["npm test", "git status", "bun run build 2>&1", "ls -la > /dev/null"]) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(true);
     }
+    // A redirect into /dev/pts is authz-hard-blocked by policy (only /dev/null,
+    // /dev/std*, /dev/tty, /dev/fd/* are exempted), so the gate now denies it
+    // outright instead of letting auto mode wave it through.
+    expect((await gate.evaluate(shellCall("ls > /dev/pts/0"))).allowed).toBe(false);
   });
 
   test("auto mode does not flag a redirect or install mentioned inside a quoted argument", async () => {
@@ -1143,7 +1168,7 @@ describe("createPermissionGate", () => {
     }
   });
 
-  test("auto mode peels xargs utility tails for recursive rm", async () => {
+  test("auto mode denies xargs utility tails for rm -rf with no static target (authz would hard-block it anyway)", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1158,17 +1183,17 @@ describe("createPermissionGate", () => {
     for (const command of ["echo build | xargs rm -rf", "printf '%s\\n' tmp | xargs -n1 rm -rf"]) {
       asked = 0;
       const verdict = await gate.evaluate(shellCall(command));
-      expect(asked).toBeGreaterThan(0);
-      expect(verdict.allowed).toBe(true);
+      // `xargs rm -rf` has no static target the classifier can see, so authz
+      // treats it as catastrophic and hard-blocks it — the gate denies outright
+      // rather than asking the operator to approve a command that can never run.
+      expect(asked).toBe(0);
+      expect(verdict.allowed).toBe(false);
     }
   });
 
-  test("auto mode asks for xargs feeding a shell -c recursive rm", async () => {
-    // Regression: rejoining dequoted tokens in the xargs peel used to split
-    // the `-c` payload, so `xargs -I{} sh -c 'sudo rm -rf {}'` auto-allowed.
+  test("auto mode denies xargs feeding a shell -c recursive rm (authz-hard-blocked)", async () => {
     for (const command of [
       "echo x | xargs -I {} sh -c 'sudo rm -rf {}'",
-      "echo build | xargs -I{} bash -c 'rm -rf {}'",
       "find . -name tmp | xargs -n1 sh -c 'rm -rf \"$0\"'",
     ]) {
       let asked = 0;
@@ -1183,9 +1208,28 @@ describe("createPermissionGate", () => {
         auto: true,
       });
       const verdict = await gate.evaluate(shellCall(command));
-      expect(asked).toBeGreaterThan(0);
-      expect(verdict.allowed).toBe(true);
+      expect(asked).toBe(0);
+      expect(verdict.allowed).toBe(false);
     }
+  });
+
+  test("auto mode still asks for an xargs -> shell -c rm whose target is not itself authz-hard-blocked", async () => {
+    // Regression: rejoining dequoted tokens in the xargs peel used to split
+    // the `-c` payload, so `xargs -I{} bash -c 'rm -rf {}'` auto-allowed.
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+    });
+    const verdict = await gate.evaluate(shellCall("echo build | xargs -I{} bash -c 'rm -rf {}'"));
+    expect(asked).toBeGreaterThan(0);
+    expect(verdict.allowed).toBe(true);
   });
 
   test("auto mode peels shell -c for git worktree ask", async () => {
@@ -1364,11 +1408,13 @@ describe("createPermissionGate", () => {
 
   // SECURITY: chained-shell bypass vector. A command whose first segment is
   // benign and whose later segment is write-like must NOT slip through on the
-  // head alone. Security still classifies every segment; the operator sees the
-  // full block once and rejecting it fails the whole call.
+  // head alone. Security still classifies every segment. `cat > /etc/x` is
+  // itself authz-hard-blocked (a redirect into /etc), so the gate denies the
+  // whole block outright rather than asking the operator to approve a command
+  // that could never actually execute.
   // A failure here means `echo ok && cat > /etc/passwd` could slip through if
   // only the first segment's classification were checked.
-  test("dangerous later segment in a chain forces a full-block prompt and can be rejected", async () => {
+  test("an authz-hard-blocked later segment denies the full block without prompting", async () => {
     const seen: string[] = [];
     const full = "npm i && cat > /etc/x";
     const gate = createPermissionGate({
@@ -1382,12 +1428,12 @@ describe("createPermissionGate", () => {
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
-    expect(seen).toEqual([full]);
+    expect(seen).toEqual([]);
   });
 
   // A prior grant on only the head segment does not authorize a dangerous tail —
-  // the full block still needs operator approval.
-  test("a head-only grant still forces a prompt when the chain has an unapproved tail", async () => {
+  // the full block still denies, without ever reaching the operator.
+  test("a head-only grant does not authorize a hard-blocked tail", async () => {
     const seen: string[] = [];
     const full = "npm i && cat > /etc/x";
     const gate = createPermissionGate({
@@ -1401,7 +1447,7 @@ describe("createPermissionGate", () => {
     });
     const verdict = await gate.evaluate(shellCall(full));
     expect(verdict.allowed).toBe(false);
-    expect(seen).toEqual([full]);
+    expect(seen).toEqual([]);
   });
 
   // Prefix globs must not match across chain operators. A grant for `npm *`
@@ -1754,7 +1800,7 @@ describe("isAutoAllowedShellCall", () => {
     expect(isAutoAllowedShellCall(shellCall("sed -i s/a/b/ f"))).toBe(false);
   });
 
-  test("the gate does not auto-allow find without prompting (aligned with authz)", async () => {
+  test("the gate does not auto-allow find, and does not prompt either since authz hard-blocks open-ended find", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
@@ -1764,7 +1810,7 @@ describe("isAutoAllowedShellCall", () => {
     });
     const verdict = await gate.evaluate(shellCall("find . -name x"));
     expect(verdict.allowed).toBe(false);
-    expect(asked).toBe(1);
+    expect(asked).toBe(0);
   });
 
   test("the gate allows a safe command without asking, and still prompts for an unsafe one", async () => {
