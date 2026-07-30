@@ -69,12 +69,17 @@ function truncateAgentBody(body: string): string {
 function formatAgentProfileEntry(p: AgentProfile): string {
   const desc = (p.description ?? "").trim();
   const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
+  const caps =
+    p.capabilities !== undefined
+      ? ` [tools: ${p.capabilities.mode} ${p.capabilities.tools.join(", ")}]`
+      : "";
+  const maxTurns = p.maxTurns !== undefined ? ` [maxTurns: ${p.maxTurns}]` : "";
   const orch = p.orchestrator === true ? " [orchestrator]" : "";
   const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
   const header =
     desc.length > 0
-      ? `### ${p.id}${tier}${orch}${source}\n${desc}`
-      : `### ${p.id}${tier}${orch}${source}`;
+      ? `### ${p.id}${tier}${caps}${maxTurns}${orch}${source}\n${desc}`
+      : `### ${p.id}${tier}${caps}${maxTurns}${orch}${source}`;
   const body = (p.systemPromptRole ?? "").trim();
   if (body.length === 0) return header;
   return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;
