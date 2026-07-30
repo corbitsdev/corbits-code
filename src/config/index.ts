@@ -238,6 +238,12 @@ export type Config = {
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
   tiers?: Partial<Record<ProviderTier, import("./settings.js").TierConfig>>;
+  /**
+   * Runtime settings view for tier/provider resolution. Includes OAuth provider
+   * projections from the live catalog that are never written to settings.json.
+   * Do not pass this object to saveGlobalSettings — rebuild with
+   * providerCatalogToSettings (or re-read disk) before any persist.
+   */
   settings?: Settings;
 };
 
@@ -489,7 +495,49 @@ export async function loadConfig(
         ? { mcpServers: settings.mcpServers, mcpServersSource: "global" as const }
         : { mcpServersSource: "none" as const }),
     ...(settings?.tiers !== undefined ? { tiers: settings.tiers } : {}),
-    ...(settings !== null ? { settings } : {}),
+    // Runtime view includes OAuth projections so tier resolution can see
+    // Codex/xAI providers that are never written to settings.json. Not safe
+    // to persist as-is — use providerCatalogToSettings or re-read disk.
+    ...(settingsForResolution !== null ? { settings: settingsForResolution } : {}),
+  };
+}
+
+export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): ProviderSettings {
+  return {
+    baseURL: normalizeOpenAICompatibleBaseURL(entry.baseURL),
+    ...(entry.keyless === true ? { keyless: true } : {}),
+    ...(entry.apiKey !== undefined && entry.apiKey.length > 0 ? { apiKey: entry.apiKey } : {}),
+    models: entry.models,
+    ...(entry.defaultModel !== undefined ? { defaultModel: entry.defaultModel } : {}),
+    ...(entry.free !== undefined ? { free: entry.free } : {}),
+    ...(entry.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+  };
+}
+
+// Overlay the full live catalog (including OAuth profiles) onto settings for
+// runtime tier/provider resolution. OAuth credentials live in home auth stores
+// and are stripped from settings.json; the catalog is the source of truth for
+// which OAuth providers are available right now. Never pass the result to a
+// disk write path — use providerCatalogToSettings for persistence.
+export function runtimeSettingsWithCatalog(
+  settings: Settings | undefined,
+  catalog: readonly ProviderCatalogEntry[],
+): Settings {
+  const fromCatalog = Object.fromEntries(
+    catalog.map((entry): [string, ProviderSettings] => [
+      entry.name,
+      catalogEntryAsProviderSettings(entry),
+    ]),
+  );
+  if (settings === undefined) {
+    return { providers: fromCatalog };
+  }
+  return {
+    ...settings,
+    providers: {
+      ...settings.providers,
+      ...fromCatalog,
+    },
   };
 }
 
@@ -537,15 +585,7 @@ export function providerCatalogToSettings(
   const providers = Object.fromEntries(
     persistable.map((p): [string, ProviderSettings] => [
       p.name,
-      {
-        baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
-        ...(p.keyless === true ? { keyless: true } : {}),
-        ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
-        models: p.models,
-        ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
-        ...(p.free !== undefined ? { free: p.free } : {}),
-        ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
-      },
+      catalogEntryAsProviderSettings(p),
     ]),
   );
   // Spread the full existing settings so provider saves never drop plugins,
@@ -565,3 +605,4 @@ export function providerCatalogToSettings(
     providers,
   };
 }
+

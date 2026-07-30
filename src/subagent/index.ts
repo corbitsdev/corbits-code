@@ -30,7 +30,7 @@ import type {
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
-import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
+import { buildBifrostSource, buildOpenAISource, runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
@@ -530,7 +530,15 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
 };
 
 /** Typed spawn intent — optional on `task`; omit Intent section when unset. */
-export type TaskIntent = "explore" | "implement" | "review" | "plan" | "general";
+export type { TaskIntent } from "./intent-defaults.js";
+import type { TaskIntent } from "./intent-defaults.js";
+import { resolveIntentDefaults } from "./intent-defaults.js";
+export {
+  INTENT_WRITE_TOOLS,
+  resolveIntentDefaults,
+  type IntentDefaults,
+} from "./intent-defaults.js";
+
 
 export type RunSubAgentParams = {
   cwd: string;
@@ -546,8 +554,9 @@ export type RunSubAgentParams = {
   // the dispatch brief as a suggested manage_tasks seed — the child's list is
   // still its own; the parent does not share a checklist.
   goals?: readonly string[];
-  /** Spawn intent for the brief (no tool filtering here — that is a later task). */
+  /** Spawn intent: brief section + soft tool/tier/maxTurns defaults when profile/task omit them. */
   intent?: TaskIntent;
+
   /** Concrete done checks preferred over free-form prompt alone. */
   successCriteria?: readonly string[];
   /** Explicit out-of-scope / forbidden actions. */
@@ -1284,7 +1293,8 @@ export const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Toolset defaults to full file/search/shell; intent explore|review|plan excludes write tools unless a profile sets capabilities. Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general — also sets soft maxTurns/tier defaults when omitted), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).",
+
   inputSchema: {
     type: "object",
     properties: {
@@ -1312,8 +1322,9 @@ export const taskToolDefinition: ToolDefinition = {
         type: "string",
         enum: ["explore", "implement", "review", "plan", "general"],
         description:
-          "Optional spawn intent (explore | implement | review | plan | general). Rendered in the dispatch brief when set; omit for max back-compat.",
+          "Optional spawn intent (explore | implement | review | plan | general). Rendered in the dispatch brief. Soft defaults when parent/profile omit fields: explore/review/plan exclude write tools; explore maxTurns 20 + tier fast (if configured); review 25 + standard; plan 25 + clever; implement maxTurns 50. Profile capabilities/maxTurns/tier and task(maxTurns|tier) still win. Omit for max back-compat (full toolset, settings maxTurns).",
       },
+
       success_criteria: {
         type: "array",
         items: { type: "string" },
@@ -1443,8 +1454,17 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let orchestrator = false;
       let tier: ProviderTier | undefined;
       let profileMaxTurns: number | undefined;
-      const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+      // Set when a profile pins provider/model directly (not via tier alias),
+      // so the intent tier soft default doesn't clobber it below.
+      let profileInferencePinned = false;
+      const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
+      // OAuth providers live in the live catalog, not settings.json. Overlay so
+      // tier/inference resolution can target Codex/xAI the same way the TUI does.
+      const settings =
+        catalog !== undefined
+          ? runtimeSettingsWithCatalog(diskSettings, catalog)
+          : diskSettings;
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
 
       // Rebuild provider from a resolved provider/model assignment. Shared by
@@ -1547,7 +1567,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
                 `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
               );
             }
-            if (outcome.kind === "resolved") resolved = outcome.value;
+            if (outcome.kind === "resolved") {
+              resolved = outcome.value;
+              profileInferencePinned = true;
+            }
           }
           if (resolved === null && profile.tier !== undefined) {
             const assignment = resolveTier(profile.tier as ProviderTier, settings);
@@ -1587,6 +1610,37 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         tier = taskTier;
       }
 
+      // Intent soft defaults: fill gaps only. Profile capabilities win; orchestrators
+      // keep the full toolset so they can write and re-dispatch. Intent tier is soft
+      // (skip if unconfigured) unlike explicit task(tier=), and never overrides a
+      // profile's pinned provider/model even when the profile has no tier alias.
+      const intentDefaults = resolveIntentDefaults(intent);
+      if (
+        capabilities === undefined &&
+        !orchestrator &&
+        intentDefaults.capabilities !== undefined
+      ) {
+        capabilities = intentDefaults.capabilities;
+      }
+      if (
+        tier === undefined &&
+        rawTaskTier === undefined &&
+        !profileInferencePinned &&
+        intentDefaults.tier !== undefined &&
+        settings !== undefined
+      ) {
+        const assignment = resolveTier(intentDefaults.tier, settings);
+        if (assignment !== null) {
+          const err = applyResolvedProvider(
+            assignment,
+            `intent "${intent}" tier "${intentDefaults.tier}"`,
+          );
+          if (err === null) {
+            tier = intentDefaults.tier;
+          }
+        }
+      }
+
       let taskMaxTurns: number | undefined;
       if (rawMaxTurns !== undefined) {
         const verdict = validateTaskMaxTurns(rawMaxTurns);
@@ -1598,8 +1652,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const resolvedMaxTurns = resolveSubAgentMaxTurns({
         ...(settings !== undefined ? { settings } : {}),
         ...(profileMaxTurns !== undefined ? { profileMaxTurns } : {}),
+        ...(intentDefaults.maxTurns !== undefined
+          ? { intentMaxTurns: intentDefaults.maxTurns }
+          : {}),
         ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
       });
+
 
       const brief = buildDispatchBrief({
         description,

@@ -650,6 +650,132 @@ describe("createTaskTool", () => {
     expect(out).toContain("not configured");
   });
 
+  test("task tier targeting OAuth provider resolves via live catalog", async () => {
+    let captured: RunSubAgentParams | undefined;
+    // Realistic disk shape: OAuth never lands in settings.json. Tiers name
+    // xAI; only the live catalog supplies the provider credentials.
+    const diskSettings = {
+      providers: {},
+      tiers: {
+        clever: { provider: "xai/work", model: "grok-4" },
+        standard: { provider: "xai/work", model: "grok-3" },
+        fast: { provider: "xai/work", model: "grok-3-mini" },
+      },
+    };
+    const catalog = [
+      {
+        name: "codex/home",
+        baseURL: "https://chatgpt.com/backend-api",
+        apiKey: "codex-token",
+        models: ["gpt-5.3-codex"],
+        codexProfile: "home",
+      },
+      {
+        name: "xai/work",
+        baseURL: "https://api.x.ai/v1",
+        apiKey: "xai-token",
+        models: ["grok-4", "grok-3", "grok-3-mini"],
+        xaiProfile: "work",
+      },
+    ];
+    const parentProvider = {
+      providerName: "codex/home",
+      baseURL: "https://chatgpt.com/backend-api",
+      apiKey: "codex-token",
+      model: "gpt-5.3-codex",
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider: parentProvider,
+      settings: diskSettings,
+      catalog,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, {
+      description: "oauth-tier",
+      prompt: "x",
+      tier: "clever",
+    });
+    expect(captured?.provider.providerName).toBe("xai/work");
+    expect(captured?.provider.model).toBe("grok-4");
+    expect(captured?.provider.apiKey).toBe("xai-token");
+    expect(captured?.tier).toBe("clever");
+  });
+
+  test("profile tier targeting OAuth resolves via live catalog", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const diskSettings = {
+      providers: {},
+      tiers: {
+        standard: { provider: "xai/work", model: "grok-3" },
+      },
+    };
+    const catalog = [
+      {
+        name: "xai/work",
+        baseURL: "https://api.x.ai/v1",
+        apiKey: "xai-token",
+        models: ["grok-3"],
+        xaiProfile: "work",
+      },
+    ];
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings: diskSettings,
+      catalog,
+      profiles: [{ id: "deep", tier: "standard" }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, { description: "oauth-profile-tier", prompt: "x", agent: "deep" });
+    expect(captured?.provider.providerName).toBe("xai/work");
+    expect(captured?.provider.model).toBe("grok-3");
+    expect(captured?.tier).toBe("standard");
+  });
+
+  test("task tier targeting OAuth fails closed when catalog lacks the provider", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings: {
+        providers: {
+          "api-only": { baseURL: "http://api", apiKey: "k", models: ["m"] },
+        },
+        tiers: {
+          clever: { provider: "xai/missing", model: "grok-4" },
+        },
+      },
+      catalog: [
+        {
+          name: "api-only",
+          baseURL: "http://api",
+          apiKey: "k",
+          models: ["m"],
+        },
+      ],
+      run: async () => "done",
+    });
+    const out = await callTask(tool, {
+      description: "missing-oauth",
+      prompt: "x",
+      tier: "clever",
+    });
+    expect(out).toContain("Error:");
+    expect(out).toContain("not configured");
+  });
+
   test("rejects task maxTurns above the cap", async () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
@@ -1008,7 +1134,252 @@ describe("createTaskTool", () => {
     });
     expect(out).toContain("Error:");
   });
+
+  test("explore intent applies write exclude and maxTurns 20", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "map callers",
+      prompt: "Find every caller of X",
+      intent: "explore",
+    });
+
+    expect(captured?.capabilities).toEqual({
+      mode: "exclude",
+      tools: ["write_file", "edit_file", "delete_file"],
+    });
+    expect(captured?.maxTurns).toBe(20);
+  });
+
+  test("implement intent raises maxTurns to 50 without tool filter", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "ship it",
+      prompt: "Implement the feature",
+      intent: "implement",
+    });
+
+    expect(captured?.capabilities).toBeUndefined();
+    expect(captured?.maxTurns).toBe(50);
+  });
+
+  test("profile capabilities win over explore intent tool defaults", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      profiles: [
+        {
+          id: "scout",
+          capabilities: { mode: "allow", tools: ["read_file", "grep"] },
+        },
+      ],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "scout",
+      prompt: "Look around",
+      intent: "explore",
+      agent: "scout",
+    });
+
+    expect(captured?.capabilities).toEqual({
+      mode: "allow",
+      tools: ["read_file", "grep"],
+    });
+    // Intent still fills maxTurns when profile omits it.
+    expect(captured?.maxTurns).toBe(20);
+  });
+
+  test("profile maxTurns wins over intent maxTurns", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      profiles: [{ id: "deep", maxTurns: 40 }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "deep explore",
+      prompt: "Dig",
+      intent: "explore",
+      agent: "deep",
+    });
+
+    expect(captured?.maxTurns).toBe(40);
+  });
+
+  test("profile pinned inference survives intent tier soft default", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const settings = {
+      providers: {
+        pinned: { baseURL: "http://pinned", apiKey: "k", models: ["pinned-model"] },
+        "fast-p": { baseURL: "http://fast", apiKey: "k", models: ["fast-model"] },
+      },
+      tiers: { fast: { provider: "fast-p", model: "fast-model" } },
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings,
+      profiles: [
+        { id: "pinned-agent", inference: { order: [{ provider: "pinned", model: "pinned-model" }] } },
+      ],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "d",
+      prompt: "p",
+      intent: "explore",
+      agent: "pinned-agent",
+    });
+
+    expect(captured?.provider.model).toBe("pinned-model");
+    expect(captured?.provider.providerName).toBe("pinned");
+  });
+
+  test("task maxTurns wins over intent maxTurns", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "bounded",
+      prompt: "Explore a bit",
+      intent: "explore",
+      maxTurns: 8,
+    });
+
+    expect(captured?.maxTurns).toBe(8);
+    expect(captured?.capabilities?.mode).toBe("exclude");
+  });
+
+  test("missing intent keeps settings maxTurns and no capabilities", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings: { providers: {}, subagentMaxTurns: 33 },
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, { description: "legacy", prompt: "Work" });
+
+    expect(captured?.capabilities).toBeUndefined();
+    expect(captured?.maxTurns).toBe(33);
+  });
+
+  test("explore intent soft-applies tier when configured", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const settings = {
+      providers: {
+        "fast-p": { baseURL: "http://fast", apiKey: "k", models: ["fast-model"] },
+      },
+      tiers: {
+        fast: { provider: "fast-p", model: "fast-model" },
+      },
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "cheap recon",
+      prompt: "Map it",
+      intent: "explore",
+    });
+
+    expect(captured?.tier).toBe("fast");
+    expect(captured?.provider.model).toBe("fast-model");
+  });
+
+  test("orchestrator profile skips intent write exclude", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      profiles: [{ id: "boss", orchestrator: true }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "coordinate",
+      prompt: "Fan out work",
+      intent: "explore",
+      agent: "boss",
+    });
+
+    expect(captured?.orchestrator).toBe(true);
+    expect(captured?.capabilities).toBeUndefined();
+    expect(captured?.maxTurns).toBe(20);
+  });
 });
+
 
 describe("TaskToolArgs schema", () => {
   test("accepts optional typed spawn fields", () => {

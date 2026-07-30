@@ -477,6 +477,21 @@ describe("subagentMaxTurns", () => {
     expect(
       resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55, taskMaxTurns: 70 }),
     ).toBe(70);
+    expect(resolveSubAgentMaxTurns({ settings, intentMaxTurns: 20 })).toBe(20);
+    expect(
+      resolveSubAgentMaxTurns({
+        settings,
+        intentMaxTurns: 20,
+        profileMaxTurns: 55,
+      }),
+    ).toBe(55);
+    expect(
+      resolveSubAgentMaxTurns({
+        settings,
+        intentMaxTurns: 20,
+        taskMaxTurns: 8,
+      }),
+    ).toBe(8);
   });
 
   test("clampSubAgentMaxTurns enforces floor and cap", () => {

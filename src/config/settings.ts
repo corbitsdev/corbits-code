@@ -207,6 +207,8 @@ export function validateTaskMaxTurns(value: number): TaskMaxTurnsValidation {
 export function resolveSubAgentMaxTurns(input: {
   settings?: Settings | null;
   profileMaxTurns?: number;
+  /** Intent soft default; used when task and profile omit maxTurns. */
+  intentMaxTurns?: number;
   /** Must already pass validateTaskMaxTurns when set. */
   taskMaxTurns?: number;
 }): number {
@@ -215,6 +217,9 @@ export function resolveSubAgentMaxTurns(input: {
   }
   if (input.profileMaxTurns !== undefined) {
     return clampSubAgentMaxTurns(input.profileMaxTurns);
+  }
+  if (input.intentMaxTurns !== undefined) {
+    return clampSubAgentMaxTurns(input.intentMaxTurns);
   }
   return resolveDefaultSubAgentMaxTurns(input.settings);
 }

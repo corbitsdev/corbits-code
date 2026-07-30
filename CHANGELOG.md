@@ -6,14 +6,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
-### Fixed
-
-- **Permission prompts no longer race the tool timeout** — by default the per-tool wall-clock budget freezes while an approval modal is open, so a late approve still runs the tool. Settings → Tools → “Wait for approval” can turn this off (budget keeps ticking; timeout dismisses the prompt). Ghost modals for already-timed-out tools are dismissed via the budget signal.
-
-### Changed
-
-- **Chained shell commands are approved as one decision** — a command like `npm i && ./deploy.sh` now shows a single approval prompt enumerating every segment instead of one prompt per segment. Accepting approves the whole chain; rejecting any part rejects it all. Persisted grants for multi-segment chains are exact-match only, so a broad grant such as `npm *` never covers a chain (CL-4632)
-
 ### Planned
 
 - What's-new banner on interactive start after upgrade (CL-4604)
@@ -21,6 +13,20 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Image age → rehydratable attachment URI (CL-4349)
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)
 - Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
+
+## [0.2.84] - 2026-07-29
+
+Patch release: permission-approval hardening and plugin trust fixes.
+
+### Fixed
+
+- Tool timeout freezes while a permission prompt is open; toggle via Settings → Tools ([#261](https://github.com/corbitsdev/corbits-code/pull/261)).
+- Path-added plugin trust is global, revocable from `/plugins`, and survives directory changes ([#257](https://github.com/corbitsdev/corbits-code/pull/257)).
+- Install docs and package metadata point at corbits-code and the `dist/corbits` binary ([#259](https://github.com/corbitsdev/corbits-code/pull/259)).
+
+### Changed
+
+- Chained shell commands prompt once for the whole chain; multi-segment grants are exact-match only and the modal strips spoofing characters ([#258](https://github.com/corbitsdev/corbits-code/pull/258)).
 
 ## [0.2.83] - 2026-07-27
 
