@@ -69,3 +69,5 @@ Interchange is the standard library for this repo, consumed as published `@intx/
 - `docs/PRODUCT.md` — what we're building and why
 - `docs/HOOKS.md` — lifecycle hooks
 - `docs/MCP.md` — connecting MCP servers
+- `docs/PLUGINS.md` — plugin manifest system and discovery
+- `docs/TELEMETRY.md` — what usage telemetry is collected and why

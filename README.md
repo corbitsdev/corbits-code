@@ -48,11 +48,9 @@ Corbits Code is a single-process CLI built on Interchange primitives. The goal i
 CLI (src/index.ts)
   → load config, load skills
   → createPosixTools({ cwd, plugins: [pathEscapePlugin, authzPlugin, verifyPlugin] })
-  → createAgent({
-      contextDir,
-      sources: [xaiSource],
-      defaultSource: "xai",
-      systemPrompt,
+  → createAgent(agentDef, {
+      sources,        // built per active provider: Anthropic, OpenAI, Google, Ollama, or an OpenAI-compatible endpoint
+      defaultSource,
       tools: posixTools,
       director: createChatDirector(systemPrompt, tools),
     })
