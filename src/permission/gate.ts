@@ -235,9 +235,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // Multi-segment: only an exact stored pattern for the full command may
         // short-circuit. Never glob-match the unsplit string — a grant like
         // `npm *` would otherwise swallow `npm i && curl evil`. Single-segment
-        // grants are applied per segment in the loop below.
+        // grants are applied per segment in the loop below. A restricted target
+        // always requires a fresh operator decision, so no grant — however it
+        // matched — ever replays for a restricted command; see the per-segment
+        // restriction check below for the same rule applied within a chain.
         if (
           !fullReferencesSecret &&
+          !commandTargetsRestricted(fullCommand, isRestricted) &&
           segments.length > 1 &&
           hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel)
         ) {
@@ -253,14 +257,19 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             needsOperator = true;
             continue;
           }
+          // A restricted target always requires the operator, whether the
+          // segment would otherwise auto-allow or match a stored grant — a
+          // grant approved for a safe command must never replay for a
+          // restricted one just because the pattern also matches it.
+          if (commandTargetsRestricted(segment, isRestricted)) {
+            needsOperator = true;
+            continue;
+          }
           if (isApproved(request.tool, segment, approvals, activeProviderModel)) {
             continue;
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
-          if (
-            isAutoAllowedShellSegment(segment, cwd) &&
-            !commandTargetsRestricted(segment, isRestricted)
-          ) {
+          if (isAutoAllowedShellSegment(segment, cwd)) {
             continue;
           }
           needsOperator = true;
