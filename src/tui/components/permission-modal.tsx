@@ -4,6 +4,16 @@ import { useState } from "react";
 import type { ApprovalOutcome, ApprovalScope, GrantScope, PermissionRequest } from "../../permission/types.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
+import { stripTerminalControlSequences } from "../../util/control-char-strip.js";
+import { splitChainedCommand, isShellCommentOnly } from "../../permission/command.js";
+
+// The approval subject is model-authored. Raw control bytes (\r, cursor moves,
+// line erases) could repaint the modal into showing a different command than
+// the one that will run, so strip them and render any surviving line break as
+// a visible marker instead of a real terminal line.
+function sanitizeForPrompt(text: string): string {
+  return stripTerminalControlSequences(text).replace(/\r\n|\r|\n/g, "↵");
+}
 
 export type PermissionModalProps = {
   request: PermissionRequest;
@@ -138,6 +148,12 @@ export function PermissionModal({
     JSON.stringify(descriptorArgs(request)),
   );
   const toolColor = color(descriptor.role);
+  const summary = sanitizeForPrompt(descriptor.summary);
+  const shellSegments = descriptor.isShell
+    ? splitChainedCommand(request.subject)
+        .filter((segment) => !isShellCommentOnly(segment))
+        .map(sanitizeForPrompt)
+    : [];
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
@@ -231,20 +247,31 @@ export function PermissionModal({
             ? ` · +${queuedBehind} more approval${queuedBehind === 1 ? "" : "s"} queued`
             : ""}
         </Text>
-        {descriptor.summary.length > 0 && (
-          <Box marginLeft={2}>
-            <Text color={color("text")} wrap="wrap">{descriptor.summary}</Text>
+        {shellSegments.length > 1 ? (
+          <Box marginLeft={2} flexDirection="column">
+            {shellSegments.map((segment, i) => (
+              <Text key={i} color={color("text")} wrap="wrap">{`${i + 1}. ${segment}`}</Text>
+            ))}
+            <Text color={color("muted")}>
+              One decision covers every segment — rejecting any blocks the whole command.
+            </Text>
           </Box>
-        )}
+        ) : summary.length > 0 ? (
+          <Box marginLeft={2}>
+            <Text color={color("text")} wrap="wrap">{summary}</Text>
+          </Box>
+        ) : null}
       </Box>
       <Box marginTop={1} flexDirection="column">
         {choices.map((choice, i) => {
           const isReject = choice.outcome.allow === false;
           const tone = isReject ? color("danger") : color("success");
           const active = i === selected;
+          // The message is operator-typed; the hint carries the model-authored
+          // command pattern and needs the same sanitization as the subject.
           const hintText = active && messageMode
             ? message
-            : choice.hint;
+            : sanitizeForPrompt(choice.hint);
           const hintOpen = choice.hintStyle === "command" ? "[" : "(";
           const hintClose = choice.hintStyle === "command" ? "]" : ")";
           const hintColor = choice.hintStyle === "command" ? color("muted") : color("muted");
@@ -256,7 +283,7 @@ export function PermissionModal({
               </Text>
               <Text color={color("muted")}>{`${i + 1}. `}</Text>
               <Text color={active ? tone : color("text")} bold={active}>
-                {choice.label}
+                {sanitizeForPrompt(choice.label)}
               </Text>
               {"  "}
               <Text color={hintColor} dimColor={hintDim}>
