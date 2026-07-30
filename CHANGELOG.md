@@ -10,6 +10,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 - **Permission prompts no longer race the tool timeout** — by default the per-tool wall-clock budget freezes while an approval modal is open, so a late approve still runs the tool. Settings → Tools → “Wait for approval” can turn this off (budget keeps ticking; timeout dismisses the prompt). Ghost modals for already-timed-out tools are dismissed via the budget signal.
 
+### Changed
+
+- **Chained shell commands are approved as one decision** — a command like `npm i && ./deploy.sh` now shows a single approval prompt enumerating every segment instead of one prompt per segment. Accepting approves the whole chain; rejecting any part rejects it all. Persisted grants for multi-segment chains are exact-match only, so a broad grant such as `npm *` never covers a chain (CL-4632)
+
 ### Planned
 
 - What's-new banner on interactive start after upgrade (CL-4604)
