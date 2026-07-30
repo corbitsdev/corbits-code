@@ -18,7 +18,7 @@ import { createOptimizedContextStore } from "../session/optimized-context-store.
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
-import { DefaultDirector } from "@intx/inference";
+import { DefaultDirector, type ExtendedInferenceOptions } from "@intx/inference";
 import type {
   ReactorInboundEvent,
   ReactorState,
@@ -26,6 +26,7 @@ import type {
   ReactorAction,
   ToolDefinition,
   ToolResult,
+  ConversationTurn,
 } from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -97,7 +98,6 @@ export {
   type ThrashState,
   type ThrashStopReason,
 } from "./thrash.js";
-
 
 export { DEFAULT_SUBAGENT_MAX_TURNS } from "../config/settings.js";
 
@@ -216,8 +216,11 @@ export type SubAgentStopReason =
  *
  * Precedence when tools are still firing:
  * no-progress (identical fingerprints) > thrash (re-read pressure) >
- * report-forced (near budget still tooling) > turn-budget (hard cap).
- * Tool-less turns always end the leaf as complete or never-acted.
+ * turn-budget (hard cap). "report-forced" is not a competing stop reason —
+ * it is a one-shot signal, forceReportWithin turns before the cap, telling
+ * the caller to inject a wrap-up nudge and keep running; turn-budget remains
+ * reachable afterward. Tool-less turns always end the leaf as complete or
+ * never-acted.
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
@@ -283,9 +286,10 @@ export function nextToolCallStreak(
 // It has no submit_output or ask_operator; consequential tools still go through
 // the parent's permission gate (grants, auto mode, or prompts). Hard stops also
 // fire on identical tool fingerprints (no-progress), progressive re-read thrash,
-// near-budget force-report, and the hard turn budget so a thrashing leaf cannot
-// burn the full budget with no parent-visible report.
-
+// and the hard turn budget so a thrashing leaf cannot burn the full budget
+// with no parent-visible report. Near the budget the leaf gets a one-shot
+// wrap-up nudge (report-forced) rather than a stop, so turn-budget stays
+// reachable for a leaf that is genuinely still making progress.
 
 function lastText(content: ReadonlyArray<{ type: string }>): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -320,8 +324,7 @@ export function forcedStopReport(
     | "never-acted"
     | "cancelled"
     | "deadline"
-    | "thrash"
-    | "report-forced",
+    | "thrash",
   partialText: string,
 ): string {
   const summary =
@@ -329,29 +332,25 @@ export function forcedStopReport(
       ? "Stopped: repeated the same tool calls with no progress."
       : reason === "thrash"
         ? "Stopped: progressive thrash (re-read pressure without finishing)."
-        : reason === "report-forced"
-          ? "Stopped: forced report near turn budget while still using tools."
-          : reason === "never-acted"
-            ? "Stopped: completed without using any tools."
-            : reason === "cancelled"
-              ? "Stopped: cancelled by operator before finishing."
-              : reason === "deadline"
-                ? "Stopped: wall-clock deadline reached before finishing."
-                : "Turn budget reached before finishing.";
+        : reason === "never-acted"
+          ? "Stopped: completed without using any tools."
+          : reason === "cancelled"
+            ? "Stopped: cancelled by operator before finishing."
+            : reason === "deadline"
+              ? "Stopped: wall-clock deadline reached before finishing."
+              : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
       : reason === "thrash"
         ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent should re-dispatch with a narrower scope, success_criteria, and do_not rather than more turns alone."
-        : reason === "report-forced"
-          ? "Leaf was still calling tools near the turn cap; salvage partial findings and re-dispatch only for remaining work with continuation context."
-          : reason === "never-acted"
-            ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
-            : reason === "cancelled"
-              ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
-              : reason === "deadline"
-                ? "Leaf wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
-                : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+        : reason === "never-acted"
+          ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
+          : reason === "cancelled"
+            ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
+            : reason === "deadline"
+              ? "Leaf wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
+              : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (never-acted planning envelopes; cancel after a
@@ -364,7 +363,6 @@ export function forcedStopReport(
     summary,
     findings,
     blockers,
-
     paths: "",
   });
 }
@@ -399,12 +397,6 @@ export function isThrashSubAgentReport(report: string): boolean {
   return parsed.summary.includes("progressive thrash");
 }
 
-/** True when the worker was force-stopped near budget while still tooling. */
-export function isReportForcedSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("forced report near turn budget");
-}
-
 const TURN_BUDGET_PARENT_HINT =
   "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
 
@@ -416,9 +408,6 @@ const DEADLINE_PARENT_HINT =
 
 const THRASH_PARENT_HINT =
   "[Sub-agent stopped for progressive thrash (re-read pressure). Do not only raise maxTurns — re-dispatch with a narrower scope, success_criteria, and do_not; continue from Findings.]";
-
-const REPORT_FORCED_PARENT_HINT =
-  "[Sub-agent was forced to report near its turn budget while still calling tools. Continue from Findings; re-dispatch only the remaining work with continuation context.]";
 
 export function appendTurnBudgetParentHint(report: string): string {
   if (!isTurnBudgetSubAgentReport(report)) return report;
@@ -440,22 +429,30 @@ export function appendThrashParentHint(report: string): string {
   return `${THRASH_PARENT_HINT}\n\n${report}`;
 }
 
-export function appendReportForcedParentHint(report: string): string {
-  if (!isReportForcedSubAgentReport(report)) return report;
-  return `${REPORT_FORCED_PARENT_HINT}\n\n${report}`;
-}
-
-/** Stack parent-visible salvage hints for thrash / force-report / budget / never-acted / deadline. */
+/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline. */
 export function appendSubAgentParentHints(report: string): string {
   return appendDeadlineParentHint(
     appendNeverActedParentHint(
-      appendTurnBudgetParentHint(
-        appendReportForcedParentHint(appendThrashParentHint(report)),
-      ),
+      appendTurnBudgetParentHint(appendThrashParentHint(report)),
     ),
   );
 }
 
+
+const REPORT_FORCED_WRAP_UP_NUDGE =
+  "You are close to your turn budget. Stop calling tools and write your final report now: summarize what you did, your findings, and any blockers.";
+
+function reportForcedNudgeTurn(): ConversationTurn {
+  return {
+    role: "user",
+    content: [{ type: "text", text: REPORT_FORCED_WRAP_UP_NUDGE }],
+    timestamp: Date.now(),
+  };
+}
+
+function withReportForcedNudge(): ExtendedInferenceOptions {
+  return { ephemeralTurns: [reportForcedNudgeTurn()] };
+}
 
 class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
@@ -536,12 +533,17 @@ class SubAgentDirector extends DefaultDirector {
         if (compacted !== null) return compacted;
         return terminal;
       }
+      if (stop === "report-forced") {
+        // Not a stop: inject a wrap-up instruction and let the leaf finish on
+        // its own, rather than fabricating a salvage report. Turn-budget stays
+        // reachable — this fires once, forceReportWithin turns before the cap.
+        return capabilities.infer(withReportForcedNudge());
+      }
       if (
         stop === "no-progress" ||
         stop === "turn-budget" ||
         stop === "never-acted" ||
-        stop === "thrash" ||
-        stop === "report-forced"
+        stop === "thrash"
       ) {
         const checkpoint =
           stop === "no-progress"
@@ -550,9 +552,7 @@ class SubAgentDirector extends DefaultDirector {
               ? "subagent-never-acted"
               : stop === "thrash"
                 ? "subagent-thrash"
-                : stop === "report-forced"
-                  ? "subagent-report-forced"
-                  : "subagent-turn-budget";
+                : "subagent-turn-budget";
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
           capabilities.reply(forcedStopReport(stop, lastText(content))),

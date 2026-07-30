@@ -20,7 +20,6 @@ import {
   parseSubAgentReport,
   appendDeadlineParentHint,
   appendNeverActedParentHint,
-  appendReportForcedParentHint,
   appendSubAgentParentHints,
   appendThrashParentHint,
   EMPTY_THRASH_STATE,
@@ -289,6 +288,13 @@ describe("sub-agent stop helpers", () => {
         { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
       ]);
     }
+    // Push totalToolCalls to the reReadMinTotalTools gate (8) so the edited
+    // path's re-read pressure alone is not enough to trip thrash.
+    for (let i = 0; i < 3; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "grep", arguments: { pattern: `p${i}`, path: "src" } },
+      ]);
+    }
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
@@ -302,7 +308,19 @@ describe("sub-agent stop helpers", () => {
     ).toBe("thrash");
   });
 
-  test("evaluateSubAgentStop returns report-forced near budget while tooling", () => {
+  test("evaluateSubAgentStop returns report-forced once, at forceReportWithin turns before the cap", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 8,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: EMPTY_THRASH_STATE,
+      }),
+    ).toBe("report-forced");
+    // Nudge already fired; turn-budget stays reachable on the following turns.
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
@@ -313,7 +331,18 @@ describe("sub-agent stop helpers", () => {
         repeatLimit: 2,
         thrashState: EMPTY_THRASH_STATE,
       }),
-    ).toBe("report-forced");
+    ).toBeNull();
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 10,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: EMPTY_THRASH_STATE,
+      }),
+    ).toBe("turn-budget");
   });
 
   test("evaluateSubAgentStop multi-file unique reads do not thrash under budget", () => {
@@ -378,11 +407,6 @@ describe("sub-agent stop helpers", () => {
     expect(thrashParsed.blockers).toContain("Re-read pressure");
     expect(appendThrashParentHint(thrashReport)).toContain("progressive thrash");
     expect(appendSubAgentParentHints(thrashReport)).toContain("narrower scope");
-
-    const forced = forcedStopReport("report-forced", "Still grepping");
-    const forcedParsed = parseSubAgentReport(forced);
-    expect(forcedParsed.summary).toContain("forced report near turn budget");
-    expect(appendReportForcedParentHint(forced)).toContain("forced to report");
 
     // Nested agent envelope must not clobber the outer never-acted Summary when
     // runSubAgent re-parses the forced stop (the common planning-only path).
@@ -600,6 +624,84 @@ describe("sub-agent stop helpers", () => {
   });
 });
 
+
+describe("thrash edge cases", () => {
+  const read = (path: string, extra: Record<string, unknown> = {}) => ({
+    type: "tool_call",
+    name: "read_file",
+    arguments: { path, ...extra },
+  });
+  const edit = (path: string) => ({
+    type: "tool_call",
+    name: "edit_file",
+    arguments: { path, old_string: "a", new_string: "b" },
+  });
+  const grep = (pattern: string) => ({
+    type: "tool_call",
+    name: "grep",
+    arguments: { pattern, path: "src" },
+  });
+  const stop = (turnsCompleted: number, maxTurns: number, thrashState = EMPTY_THRASH_STATE) =>
+    evaluateSubAgentStop({
+      hasToolCalls: true,
+      everHadToolCalls: true,
+      turnsCompleted,
+      maxTurns,
+      consecutiveIdentical: 0,
+      repeatLimit: 2,
+      thrashState,
+    });
+
+  test("report-forced fires once and turn-budget remains reachable", () => {
+    // Director always passes thrashState, so these are the director's semantics.
+    expect(stop(27, 30)).toBeNull();
+    expect(stop(28, 30)).toBe("report-forced"); // single wrap-up nudge, 2 turns out
+    expect(stop(29, 30)).toBeNull(); // nudge consumed; leaf keeps working
+    expect(stop(30, 30)).toBe("turn-budget"); // hard cap still reachable
+  });
+
+  test("small maxTurns degrades gracefully instead of collapsing to one turn", () => {
+    expect(stop(1, 1)).toBe("turn-budget"); // no room for a nudge turn
+    expect(stop(1, 2)).toBeNull();
+    expect(stop(2, 2)).toBe("turn-budget");
+    // maxTurns=3: room for exactly one nudge turn before the cap.
+    expect(stop(1, 3)).toBe("report-forced");
+    expect(stop(2, 3)).toBeNull();
+    expect(stop(3, 3)).toBe("turn-budget");
+  });
+
+  test("an ordinary edit-then-verify loop does not thrash", () => {
+    // edit -> read-back verify, four times, on one file: legitimate iteration.
+    let s = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 4; i++) {
+      s = nextThrashState(s, [edit("hot.ts")]);
+      s = nextThrashState(s, [read("hot.ts")]);
+    }
+    expect(stop(8, 30, s)).toBeNull();
+  });
+
+  test("chunked reads of a large edited file do not trip thrash (offset-aware key)", () => {
+    let s = EMPTY_THRASH_STATE;
+    s = nextThrashState(s, [edit("big.ts")]);
+    s = nextThrashState(s, [
+      read("big.ts", { offset: 0, limit: 500 }),
+      read("big.ts", { offset: 500, limit: 500 }),
+      read("big.ts", { offset: 1000, limit: 500 }),
+      read("big.ts", { offset: 1500, limit: 500 }),
+    ]);
+    expect(stop(2, 30, s)).toBeNull();
+  });
+
+  test("re-reading the same chunk repeatedly amid enough tool volume still thrashes", () => {
+    let s = EMPTY_THRASH_STATE;
+    s = nextThrashState(s, [edit("big.ts")]);
+    for (let i = 0; i < 4; i++) {
+      s = nextThrashState(s, [read("big.ts", { offset: 0, limit: 500 })]);
+    }
+    s = nextThrashState(s, [grep("p1"), grep("p2"), grep("p3")]);
+    expect(stop(6, 30, s)).toBe("thrash");
+  });
+});
 
 describe("createTaskTool", () => {
   test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
