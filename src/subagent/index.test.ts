@@ -20,6 +20,10 @@ import {
   parseSubAgentReport,
   appendDeadlineParentHint,
   appendNeverActedParentHint,
+  appendSubAgentParentHints,
+  appendThrashParentHint,
+  EMPTY_THRASH_STATE,
+  nextThrashState,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
@@ -29,10 +33,18 @@ import {
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
+  SubAgentDirector,
   TaskToolArgs,
   type RunSubAgentParams,
 } from "./index.js";
 import { type } from "arktype";
+import type {
+  ReactorAction,
+  ReactorCapabilities,
+  ReactorInboundEvent,
+  ReactorState,
+} from "@intx/types/runtime";
+
 
 
 
@@ -247,6 +259,119 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 
+  test("evaluateSubAgentStop prefers no-progress over thrash", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 4; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+      ]);
+    }
+    thrash = nextThrashState(thrash, [
+      { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
+    ]);
+    thrash = nextThrashState(thrash, [
+      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+    ]);
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 20,
+        consecutiveIdentical: 2,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBe("no-progress");
+  });
+
+  test("evaluateSubAgentStop returns thrash before turn-budget", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    thrash = nextThrashState(thrash, [
+      { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
+    ]);
+    for (let i = 0; i < 4; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+      ]);
+    }
+    // Push totalToolCalls to the reReadMinTotalTools gate (8) so the edited
+    // path's re-read pressure alone is not enough to trip thrash.
+    for (let i = 0; i < 3; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "grep", arguments: { pattern: `p${i}`, path: "src" } },
+      ]);
+    }
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 10,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBe("thrash");
+  });
+
+  test("evaluateSubAgentStop returns report-forced once, at forceReportWithin turns before the cap", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 8,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: EMPTY_THRASH_STATE,
+      }),
+    ).toBe("report-forced");
+    // Nudge already fired; turn-budget stays reachable on the following turns.
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 9,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: EMPTY_THRASH_STATE,
+      }),
+    ).toBeNull();
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 10,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: EMPTY_THRASH_STATE,
+      }),
+    ).toBe("turn-budget");
+  });
+
+  test("evaluateSubAgentStop multi-file unique reads do not thrash under budget", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 12; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: `f${i}.ts` } },
+      ]);
+    }
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 20,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBeNull();
+  });
+
   test("nextToolCallStreak increments on identical fingerprints and resets on change", () => {
     let streak = nextToolCallStreak(
       { lastFingerprint: undefined, consecutiveIdentical: 0 },
@@ -281,6 +406,14 @@ describe("sub-agent stop helpers", () => {
     expect(neverParsed.findings).toContain("red tests");
     expect(neverParsed.blockers).toContain("unexecuted");
     expect(neverActed.toLowerCase()).not.toContain("summarize what you found");
+
+    const thrashReport = forcedStopReport("thrash", "Re-read a.ts after edit");
+    const thrashParsed = parseSubAgentReport(thrashReport);
+    expect(thrashParsed.summary).toContain("progressive thrash");
+    expect(thrashParsed.findings).toContain("a.ts");
+    expect(thrashParsed.blockers).toContain("Re-read pressure");
+    expect(appendThrashParentHint(thrashReport)).toContain("progressive thrash");
+    expect(appendSubAgentParentHints(thrashReport)).toContain("narrower scope");
 
     // Nested agent envelope must not clobber the outer never-acted Summary when
     // runSubAgent re-parses the forced stop (the common planning-only path).
@@ -498,6 +631,190 @@ describe("sub-agent stop helpers", () => {
   });
 });
 
+
+describe("thrash edge cases", () => {
+  const read = (path: string, extra: Record<string, unknown> = {}) => ({
+    type: "tool_call",
+    name: "read_file",
+    arguments: { path, ...extra },
+  });
+  const edit = (path: string) => ({
+    type: "tool_call",
+    name: "edit_file",
+    arguments: { path, old_string: "a", new_string: "b" },
+  });
+  const grep = (pattern: string) => ({
+    type: "tool_call",
+    name: "grep",
+    arguments: { pattern, path: "src" },
+  });
+  const stop = (turnsCompleted: number, maxTurns: number, thrashState = EMPTY_THRASH_STATE) =>
+    evaluateSubAgentStop({
+      hasToolCalls: true,
+      everHadToolCalls: true,
+      turnsCompleted,
+      maxTurns,
+      consecutiveIdentical: 0,
+      repeatLimit: 2,
+      thrashState,
+    });
+
+  test("report-forced fires once and turn-budget remains reachable", () => {
+    // Director always passes thrashState, so these are the director's semantics.
+    expect(stop(27, 30)).toBeNull();
+    expect(stop(28, 30)).toBe("report-forced"); // single wrap-up nudge, 2 turns out
+    expect(stop(29, 30)).toBeNull(); // nudge consumed; leaf keeps working
+    expect(stop(30, 30)).toBe("turn-budget"); // hard cap still reachable
+  });
+
+  test("small maxTurns degrades gracefully instead of collapsing to one turn", () => {
+    expect(stop(1, 1)).toBe("turn-budget"); // no room for a nudge turn
+    expect(stop(1, 2)).toBeNull();
+    expect(stop(2, 2)).toBe("turn-budget");
+    // maxTurns=3: room for exactly one nudge turn before the cap.
+    expect(stop(1, 3)).toBe("report-forced");
+    expect(stop(2, 3)).toBeNull();
+    expect(stop(3, 3)).toBe("turn-budget");
+  });
+
+  test("an ordinary edit-then-verify loop does not thrash", () => {
+    // edit -> read-back verify, four times, on one file: legitimate iteration.
+    let s = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 4; i++) {
+      s = nextThrashState(s, [edit("hot.ts")]);
+      s = nextThrashState(s, [read("hot.ts")]);
+    }
+    expect(stop(8, 30, s)).toBeNull();
+  });
+
+  test("chunked reads of a large edited file do not trip thrash (offset-aware key)", () => {
+    let s = EMPTY_THRASH_STATE;
+    s = nextThrashState(s, [edit("big.ts")]);
+    s = nextThrashState(s, [
+      read("big.ts", { offset: 0, limit: 500 }),
+      read("big.ts", { offset: 500, limit: 500 }),
+      read("big.ts", { offset: 1000, limit: 500 }),
+      read("big.ts", { offset: 1500, limit: 500 }),
+    ]);
+    expect(stop(2, 30, s)).toBeNull();
+  });
+
+  test("re-reading the same chunk repeatedly amid enough tool volume still thrashes", () => {
+    let s = EMPTY_THRASH_STATE;
+    s = nextThrashState(s, [edit("big.ts")]);
+    for (let i = 0; i < 4; i++) {
+      s = nextThrashState(s, [read("big.ts", { offset: 0, limit: 500 })]);
+    }
+    s = nextThrashState(s, [grep("p1"), grep("p2"), grep("p3")]);
+    expect(stop(6, 30, s)).toBe("thrash");
+  });
+});
+
+describe("SubAgentDirector report-forced wiring", () => {
+  const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
+
+  function makeCapabilities(): ReactorCapabilities {
+    return {
+      infer: (options) =>
+        ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
+      executeTools: (calls, parallel, addToHistory) =>
+        ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
+      suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
+      fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
+      emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
+      reply: (content) => ({ type: "reply", content }) as ReactorAction,
+      checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
+      compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
+      wait: () => ({ type: "wait" }) as ReactorAction,
+      done: () => ({ type: "done" }) as ReactorAction,
+    };
+  }
+
+  function makeInferenceDoneEvent(
+    toolCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }>,
+  ): ReactorInboundEvent {
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: toolCalls.map((tc) => ({
+          type: "tool_call",
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.args ?? {},
+        })),
+      },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function makeToolDoneEvent(callId: string): ReactorInboundEvent {
+    return {
+      type: "tool.done",
+      result: { callId, content: "ok" },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
+    return Array.isArray(result) ? result : [result];
+  }
+
+  // maxTurns=3, forceReportWithin (default 2) → report-forced fires exactly
+  // at turnsCompleted===1, leaving turns 2 and 3 for turn-budget to remain
+  // reachable (regression for the report-forced turn-budget blocker).
+  test("report-forced still executes the pending tool calls, then nudges the follow-up infer", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 3);
+    const capabilities = makeCapabilities();
+
+    // Turn 1: model calls a tool while report-forced's window is active.
+    const doneEvent = makeInferenceDoneEvent([{ id: "tc-1", name: "read_file", args: { path: "a.ts" } }]);
+    const turn1 = actionsArray(await director.decide(doneEvent, mockState, capabilities));
+
+    // A tool_use turn must be followed by tool_result — report-forced must
+    // not skip execution and send a bare nudge, or every provider 400s.
+    const execute = turn1.find((a) => a.type === "execute_tools");
+    expect(execute).toBeDefined();
+    expect(turn1.some((a) => a.type === "infer")).toBe(false);
+
+    // Turn 1's tool result lands; the follow-up infer must carry the
+    // ephemeral wrap-up nudge armed by the report-forced turn.
+    const toolDone = makeToolDoneEvent("tc-1");
+    const turn2 = actionsArray(await director.decide(toolDone, mockState, capabilities));
+    const infer = turn2.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> })
+      ?.ephemeralTurns;
+    expect(ephemeralTurns).toBeDefined();
+    expect(ephemeralTurns?.[0]?.content?.[0]?.text).toContain("turn budget");
+  });
+
+  test("the nudge fires only once — the next infer after report-forced carries no ephemeral turn", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 3);
+    const capabilities = makeCapabilities();
+
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "tc-1", name: "read_file", args: { path: "a.ts" } }]),
+      mockState,
+      capabilities,
+    );
+    await director.decide(makeToolDoneEvent("tc-1"), mockState, capabilities);
+
+    // Turn 2 (post-nudge): model calls another tool, well clear of the
+    // single report-forced window: the follow-up infer must be a plain infer.
+    const turn2Done = makeInferenceDoneEvent([{ id: "tc-2", name: "read_file", args: { path: "b.ts" } }]);
+    await director.decide(turn2Done, mockState, capabilities);
+    const turn3 = actionsArray(await director.decide(makeToolDoneEvent("tc-2"), mockState, capabilities));
+    const infer = turn3.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
+    expect(ephemeralTurns).toBeUndefined();
+  });
+});
 
 describe("createTaskTool", () => {
   test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
