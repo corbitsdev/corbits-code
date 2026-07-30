@@ -33,10 +33,17 @@ import {
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
+  SubAgentDirector,
   TaskToolArgs,
   type RunSubAgentParams,
 } from "./index.js";
 import { type } from "arktype";
+import type {
+  ReactorAction,
+  ReactorCapabilities,
+  ReactorInboundEvent,
+  ReactorState,
+} from "@intx/types/runtime";
 
 
 
@@ -700,6 +707,112 @@ describe("thrash edge cases", () => {
     }
     s = nextThrashState(s, [grep("p1"), grep("p2"), grep("p3")]);
     expect(stop(6, 30, s)).toBe("thrash");
+  });
+});
+
+describe("SubAgentDirector report-forced wiring", () => {
+  const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
+
+  function makeCapabilities(): ReactorCapabilities {
+    return {
+      infer: (options) =>
+        ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
+      executeTools: (calls, parallel, addToHistory) =>
+        ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
+      suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
+      fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
+      emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
+      reply: (content) => ({ type: "reply", content }) as ReactorAction,
+      checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
+      compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
+      wait: () => ({ type: "wait" }) as ReactorAction,
+      done: () => ({ type: "done" }) as ReactorAction,
+    };
+  }
+
+  function makeInferenceDoneEvent(
+    toolCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }>,
+  ): ReactorInboundEvent {
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: toolCalls.map((tc) => ({
+          type: "tool_call",
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.args ?? {},
+        })),
+      },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function makeToolDoneEvent(callId: string): ReactorInboundEvent {
+    return {
+      type: "tool.done",
+      result: { callId, content: "ok" },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
+    return Array.isArray(result) ? result : [result];
+  }
+
+  // maxTurns=3, forceReportWithin (default 2) → report-forced fires exactly
+  // at turnsCompleted===1, leaving turns 2 and 3 for turn-budget to remain
+  // reachable (regression for the report-forced turn-budget blocker).
+  test("report-forced still executes the pending tool calls, then nudges the follow-up infer", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 3);
+    const capabilities = makeCapabilities();
+
+    // Turn 1: model calls a tool while report-forced's window is active.
+    const doneEvent = makeInferenceDoneEvent([{ id: "tc-1", name: "read_file", args: { path: "a.ts" } }]);
+    const turn1 = actionsArray(await director.decide(doneEvent, mockState, capabilities));
+
+    // A tool_use turn must be followed by tool_result — report-forced must
+    // not skip execution and send a bare nudge, or every provider 400s.
+    const execute = turn1.find((a) => a.type === "execute_tools");
+    expect(execute).toBeDefined();
+    expect(turn1.some((a) => a.type === "infer")).toBe(false);
+
+    // Turn 1's tool result lands; the follow-up infer must carry the
+    // ephemeral wrap-up nudge armed by the report-forced turn.
+    const toolDone = makeToolDoneEvent("tc-1");
+    const turn2 = actionsArray(await director.decide(toolDone, mockState, capabilities));
+    const infer = turn2.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> })
+      ?.ephemeralTurns;
+    expect(ephemeralTurns).toBeDefined();
+    expect(ephemeralTurns?.[0]?.content?.[0]?.text).toContain("turn budget");
+  });
+
+  test("the nudge fires only once — the next infer after report-forced carries no ephemeral turn", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 3);
+    const capabilities = makeCapabilities();
+
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "tc-1", name: "read_file", args: { path: "a.ts" } }]),
+      mockState,
+      capabilities,
+    );
+    await director.decide(makeToolDoneEvent("tc-1"), mockState, capabilities);
+
+    // Turn 2 (post-nudge): model calls another tool, well clear of the
+    // single report-forced window: the follow-up infer must be a plain infer.
+    const turn2Done = makeInferenceDoneEvent([{ id: "tc-2", name: "read_file", args: { path: "b.ts" } }]);
+    await director.decide(turn2Done, mockState, capabilities);
+    const turn3 = actionsArray(await director.decide(makeToolDoneEvent("tc-2"), mockState, capabilities));
+    const infer = turn3.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
+    expect(ephemeralTurns).toBeUndefined();
   });
 });
 

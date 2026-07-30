@@ -27,6 +27,7 @@ import type {
   ToolDefinition,
   ToolResult,
   ConversationTurn,
+  InferenceOptions,
 } from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -450,11 +451,17 @@ function reportForcedNudgeTurn(): ConversationTurn {
   };
 }
 
-function withReportForcedNudge(): ExtendedInferenceOptions {
-  return { ephemeralTurns: [reportForcedNudgeTurn()] };
+/**
+ * Attach the wrap-up nudge to an existing infer action's options rather than
+ * building a fresh infer — a tool_use turn must be followed by tool_result,
+ * never a bare user turn, so the nudge can only ride the infer that follows
+ * once the pending tool calls have actually executed.
+ */
+function withReportForcedNudge(options: InferenceOptions | undefined): ExtendedInferenceOptions {
+  return { ...(options ?? {}), ephemeralTurns: [reportForcedNudgeTurn()] };
 }
 
-class SubAgentDirector extends DefaultDirector {
+export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly maxTurns: number;
   private readonly repeatLimit: number;
@@ -465,6 +472,12 @@ class SubAgentDirector extends DefaultDirector {
     consecutiveIdentical: 0,
   };
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
+  // Set on a report-forced turn so the follow-up infer (after the pending
+  // tool calls from THIS turn have executed) carries the wrap-up nudge.
+  // Cannot attach the nudge to this turn's own infer: the model just emitted
+  // tool_use blocks, and every provider requires tool_result before the next
+  // turn — a bare nudge here would send an invalid conversation.
+  private pendingWrapUpNudge = false;
 
   constructor(
     systemPrompt: string,
@@ -534,12 +547,12 @@ class SubAgentDirector extends DefaultDirector {
         return terminal;
       }
       if (stop === "report-forced") {
-        // Not a stop: inject a wrap-up instruction and let the leaf finish on
-        // its own, rather than fabricating a salvage report. Turn-budget stays
-        // reachable — this fires once, forceReportWithin turns before the cap.
-        return capabilities.infer(withReportForcedNudge());
-      }
-      if (
+        // Not a stop: let the pending tool calls execute as normal (deferring
+        // to super.decide below), and arm the nudge for the infer that
+        // follows once their results land. Turn-budget stays reachable —
+        // this fires once, forceReportWithin turns before the cap.
+        this.pendingWrapUpNudge = true;
+      } else if (
         stop === "no-progress" ||
         stop === "turn-budget" ||
         stop === "never-acted" ||
@@ -564,8 +577,31 @@ class SubAgentDirector extends DefaultDirector {
       }
     }
     const base = await super.decide(event, state, capabilities);
-    const actions = Array.isArray(base) ? base : [base];
-    return this.compaction.interceptActions(event, actions, capabilities) ?? base;
+    const actions = this.applyPendingWrapUpNudge(
+      Array.isArray(base) ? base : [base],
+      capabilities,
+    );
+    return this.compaction.interceptActions(event, actions, capabilities) ?? actions;
+  }
+
+  /**
+   * Rewrite the infer action in a fall-through actions batch to carry the
+   * armed wrap-up nudge, once — this only ever matches the infer that
+   * follows the report-forced turn's tool results (super.decide only emits
+   * infer once pendingToolResults reaches zero).
+   */
+  private applyPendingWrapUpNudge(
+    actions: ReactorAction[],
+    capabilities: ReactorCapabilities,
+  ): ReactorAction[] {
+    if (!this.pendingWrapUpNudge) return actions;
+    const inferIndex = actions.findIndex((action) => action.type === "infer");
+    if (inferIndex === -1) return actions;
+    this.pendingWrapUpNudge = false;
+    const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
+    const rewritten = [...actions];
+    rewritten[inferIndex] = capabilities.infer(withReportForcedNudge(existing.options));
+    return rewritten;
   }
 }
 
