@@ -1340,8 +1340,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }}
       onChangeMaxConcurrentSubAgents={async (limit) => {
         configureSubAgentConcurrency(limit);
-        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
-        const base: Settings = current ?? { providers: {} };
+        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+        if (base === null) return;
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           maxConcurrentSubAgents: limit,
