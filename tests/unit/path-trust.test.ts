@@ -145,6 +145,37 @@ describe("path-trust (global)", () => {
     }
   });
 
+  test("migration reports the granted paths once, on the seeding run only", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      const plugin = join(home, "shared", "plugin");
+      const seen: string[][] = [];
+      await migratePathTrustFromPluginPaths([plugin], async () => [plugin], home, {
+        onMigrated: (granted) => seen.push(granted),
+      });
+      expect(seen).toEqual([[plugin]]);
+
+      await migratePathTrustFromPluginPaths([plugin], async () => [plugin], home, {
+        onMigrated: (granted) => seen.push(granted),
+      });
+      expect(seen).toEqual([[plugin]]);
+
+      // An empty seed writes the store but has nothing to report.
+      const empty = await mkdtemp(join(tmpdir(), "corbits-path-trust-"));
+      try {
+        const silent: string[][] = [];
+        await migratePathTrustFromPluginPaths([plugin], async () => [], empty, {
+          onMigrated: (granted) => silent.push(granted),
+        });
+        expect(silent).toEqual([]);
+      } finally {
+        await rm(empty, { recursive: true, force: true });
+      }
+    } finally {
+      await cleanup();
+    }
+  });
+
   test("revokePathPlugin removes the grant and keeps the store file", async () => {
     const { home, cleanup } = await scratch();
     try {

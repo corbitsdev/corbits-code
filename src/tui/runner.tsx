@@ -50,6 +50,7 @@ import {
 import {
   isPathPluginTrusted,
   migratePathTrustFromPluginPaths,
+  reportPathTrustMigration,
   revokePathPlugin,
   trustPathPlugin,
   trustPathPlugins,
@@ -182,6 +183,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let pathTrust: PathTrustStore = await migratePathTrustFromPluginPaths(
     config.settings?.pluginPaths ?? [],
     (p) => expandExistingPluginMembers(p, config.cwd),
+    undefined,
+    { onMigrated: reportPathTrustMigration },
   );
   const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);

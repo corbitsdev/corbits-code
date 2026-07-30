@@ -166,20 +166,27 @@ export async function revokePathPlugin(
 }
 
 /**
- * One-shot migration: when the global path-trust file does not exist yet, seed
- * grants from registered pluginPaths so users who only had per-cwd trust keep
- * path plugins across projects. After the file exists, grants come only from
- * add-by-path / enable — marketplace growth and hand-edited settings do not
- * silently gain code-execution consent.
+ * One-shot migration: seed the global store from `settings.pluginPaths` when
+ * no valid store file exists yet. Every registered entry that resolves to a
+ * plugin on disk is granted — pluginPaths lives in the user's global settings,
+ * so each entry was put there by the user (add-by-path or a hand edit) and
+ * registration is taken as consent at the moment the store is created, even
+ * for entries never confirmed through the UI. Per-cwd project trust stores are
+ * deliberately not consulted: they gate repo-controlled directories, which
+ * never appear in pluginPaths. After the file exists, grants come only from
+ * add-by-path / enable — marketplace growth and newly hand-edited settings do
+ * not silently gain code-execution consent.
  *
  * `resolveMembers` maps each registered path to existing absolute plugin dirs
  * (expand marketplaces, drop missing paths). Callers supply expansion so this
- * module stays free of the plugin loader.
+ * module stays free of the plugin loader. `onMigrated` fires only on the run
+ * that seeds grants, so callers can surface the one-time event to the user.
  */
 export async function migratePathTrustFromPluginPaths(
   pluginPaths: string[],
   resolveMembers: (registeredPath: string) => Promise<string[]>,
   home: string = homedir(),
+  opts: { onMigrated?: (grantedPaths: string[]) => void } = {},
 ): Promise<PathTrustStore> {
   const existing = await readPathTrustStore(home);
   if (existing.state === "valid") {
@@ -198,5 +205,15 @@ export async function migratePathTrustFromPluginPaths(
     await savePathTrust(emptyStore(), home);
     return emptyStore();
   }
-  return trustPathPlugins(members, home);
+  const store = await trustPathPlugins(members, home);
+  opts.onMigrated?.(store.trustedPluginPaths);
+  return store;
+}
+
+/** One-line seeding notice shared by the TUI and exec entry points. */
+export function reportPathTrustMigration(grantedPaths: string[]): void {
+  const n = grantedPaths.length;
+  process.stderr.write(
+    `plugins: one-time migration granted code-execution trust to ${n} path plugin${n === 1 ? "" : "s"} from settings.pluginPaths — review in /plugins or ${pathTrustPath()}\n`,
+  );
 }

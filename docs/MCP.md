@@ -16,6 +16,10 @@ in `~/.corbits/trust/<cwd-hash>.json` (outside the repo). The TUI prompts on
 first connect (trust-on-first-use). Headless runs without a trust callback
 **fail closed** — untrusted local servers are not connected.
 
+The same per-cwd file also records project plugin trust; path-added plugins use
+a separate global store (`~/.corbits/trust/path-plugins.json`) that never gates
+MCP — see the trust model in `docs/PLUGINS.md`.
+
 Global MCP from `~/.corbits/settings.json` is treated as user-configured and
 does not require project trust. Local settings **replace** global MCP entirely
 when present (they do not merge).

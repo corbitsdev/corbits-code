@@ -32,18 +32,48 @@ the module. Path trust survives opening a different project directory; project
 trust does not. The `/plugins` UI shows a **needs trust** badge when a listed
 plugin is still metadata-only.
 
+**Path trust store properties.** Three properties of
+`~/.corbits/trust/path-plugins.json` are load-bearing:
+
+- **Path-keyed, no content binding.** A grant is the lexically resolved
+  absolute path, deliberately without `realpath` and without any hash of the
+  plugin's contents. The grant covers the *location*, machine-wide: whatever
+  code sits at that path (including after a symlink retarget or an update in
+  place) runs once trusted. This matches the consent model — the user vouches
+  for a directory they registered, not for a snapshot of its bytes — and keeps
+  grants stable across plugin updates. Anyone who can write to a trusted path
+  can execute code; register paths you control.
+- **Revocable.** Press `r` on a trusted path plugin in `/plugins` to withdraw
+  its grant; the plugin drops to metadata-only and is disabled. Revocation
+  rewrites the store file in place — the file itself always survives.
+- **Deleting the file re-seeds.** A missing (or invalid) `path-plugins.json`
+  re-triggers the one-shot migration below, which re-grants every registered
+  `pluginPaths` entry. Deleting the file is therefore **not** a revocation
+  mechanism — use `/plugins` → `r`, or remove the entry from `pluginPaths`.
+
+Only absolute paths are accepted: non-absolute store entries are dropped at
+load and grant calls reject them, so nothing ever resolves against an
+incidental working directory.
+
 **Migration:** On first run after this split, if `path-plugins.json` does not
-exist yet, Corbits Code seeds global path trust from existing `pluginPaths`
-entries (expanding marketplace roots to members that exist on disk). After that
-file exists, new marketplace members and hand-edited paths stay metadata-only
-until granted via the UI.
+exist or does not parse, Corbits Code seeds global path trust from existing
+`pluginPaths` entries (expanding marketplace roots to members that exist on
+disk) and prints a one-line notice naming how many plugins were granted.
+Registration in global settings is taken as consent — every entry that exists
+on disk is granted, including hand-edited ones never confirmed through the UI;
+per-cwd project trust stores are not consulted. The migration also runs (and
+writes the store) in headless `corbits exec`: `pluginPaths` is user-global
+input, not repo-controlled, so the fail-closed rule for repo-supplied config
+does not apply to it. After the file exists, new marketplace members and
+hand-edited paths stay metadata-only until granted via the UI.
 
 Tool-plugin `consented` remains a separate gate for **in-process tool**
 activation after the module is trusted and loaded.
 
 See also `docs/MCP.md` — local MCP servers from project settings use the
 per-cwd trust file (fingerprints) and fail closed when non-interactive
-(`corbits exec`).
+(`corbits exec`); the global path-plugin store described here is separate and
+never gates MCP.
 
 
 ## Goals

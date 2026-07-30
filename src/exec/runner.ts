@@ -79,7 +79,11 @@ import {
   dedupePluginModules,
 } from "../plugins/loader.js";
 import { isPluginTrusted, loadProjectTrust } from "../trust/project-trust.js";
-import { isPathPluginTrusted, migratePathTrustFromPluginPaths } from "../trust/path-trust.js";
+import {
+  isPathPluginTrusted,
+  migratePathTrustFromPluginPaths,
+  reportPathTrustMigration,
+} from "../trust/path-trust.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import {
   generateSessionId,
@@ -222,6 +226,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     let pathTrust = await migratePathTrustFromPluginPaths(
       config.settings?.pluginPaths ?? [],
       (p) => expandExistingPluginMembers(p, config.cwd),
+      undefined,
+      { onMigrated: reportPathTrustMigration },
     );
     const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
     const claudePlugins =
