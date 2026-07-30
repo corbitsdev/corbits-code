@@ -1,7 +1,8 @@
 import type { ApprovalScope } from "./types.js";
 
 // Split a shell command into the individual commands it chains together, so each
-// is classified and approved on its own. Operators recognised: && || | ; and a
+// can be classified for security. The operator still approves the full command
+// as one block (see buildRequests / gate). Operators recognised: && || | ; and a
 // newline. Splitting is quote-aware — operators inside '...', "..." or `...` are
 // part of an argument, not a separator. Heredoc bodies (<< 'MARKER' ... MARKER)
 // are treated as atomic — newlines inside them are not chain boundaries.
@@ -208,6 +209,31 @@ export function isShellCommentOnly(segment: string): boolean {
   const trimmed = segment.trim();
   return trimmed.length === 0 || trimmed.startsWith("#");
 }
+
+// Segments with no program payload for approval purposes. Agents append
+// `|| true` constantly, and naive chain-splitting strands bare control-flow
+// keywords (`do` / `done` / …) as their own segments — neither should become
+// approval subjects. Only the exact bare word counts (no args, redirects, or
+// quoted forms that would PATH-lookup a different program).
+const SHELL_NO_OPS = new Set([
+  "true",
+  "false",
+  ":",
+  "do",
+  "done",
+  "fi",
+  "then",
+  "else",
+  "elif",
+  "esac",
+  "continue",
+  "break",
+]);
+
+export function isShellNoOp(segment: string): boolean {
+  return SHELL_NO_OPS.has(segment.trim());
+}
+
 
 // Split a single command segment into whitespace-separated tokens, treating a
 // quoted run as one token.

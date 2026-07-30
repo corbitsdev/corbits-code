@@ -2,7 +2,7 @@ import { resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
-import { splitChainedCommand, deriveCommandScopes, tokenize, isShellCommentOnly } from "./command.js";
+import { splitChainedCommand, deriveCommandScopes, tokenize, isShellCommentOnly, isShellNoOp } from "./command.js";
 import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
 import {
@@ -166,10 +166,10 @@ function argEscapesWorkspace(token: string, realCwd: string): boolean {
 // judged in isolation — authz applies to the full command string, not each stage.
 export function isAutoAllowedShellSegment(segment: string, cwd: string = process.cwd()): boolean {
   const trimmed = segment.trim();
-  // Empty is not auto-allowed as a "command"; full-line comments are no-ops
-  // (markdown headings pasted into multi-line agent shells) and never need approval.
+  // Empty is not auto-allowed as a "command"; full-line comments and pure shell
+  // no-ops (true/false/: and bare control-flow keywords) never need approval.
   if (trimmed.length === 0) return false;
-  if (isShellCommentOnly(trimmed)) return true;
+  if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
   if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
   const realCwd = realpathOr(cwd);
   return isAutoAllowedSegment(segment, realCwd);
@@ -178,7 +178,7 @@ export function isAutoAllowedShellSegment(segment: string, cwd: string = process
 function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
-  if (isShellCommentOnly(trimmed)) return true;
+  if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
   if (commandReferencesSensitivePath(trimmed)) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
   // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
@@ -201,10 +201,11 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
 export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
-  // Single-line full comments are no-ops. Multi-line strings that merely *start*
-  // with `#` can still contain real commands on later lines, so those go through
-  // the normal segment path (buildRequests filters comment-only segments).
-  if (!trimmed.includes("\n") && isShellCommentOnly(trimmed)) return true;
+  // Single-line full comments and pure shell no-ops are inert.
+  // Multi-line strings that merely *start* with `#` can still contain real
+  // commands on later lines, so those go through the normal segment path
+  // (buildRequests filters comment-only segments).
+  if (!trimmed.includes("\n") && (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))) return true;
   if (commandReferencesSensitivePath(trimmed)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
@@ -243,23 +244,38 @@ function stringArg(call: ToolCall, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-// Decompose an "ask"-tier tool call into the discrete approval requests it needs.
-// A chained shell command yields one request per segment so each is judged on
-// its own; file tools yield a single request keyed on the target path.
+// Approval scopes for a shell command the operator may persist. Multi-segment
+// chains only offer the exact full string — a prefix like `npm *` would also
+// match `npm i && rm -rf /` on a later call (fail-closed).
+function shellApprovalScopes(command: string): ApprovalScope[] {
+  const segments = splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
+  if (segments.length === 0) return [];
+  if (segments.length === 1) {
+    const only = segments[0];
+    if (only === undefined) return [];
+    return deriveCommandScopes(only);
+  }
+  return [{ id: "exact", label: "Always allow this exact command", pattern: command.trim() }];
+}
+
+// Decompose an "ask"-tier tool call into the approval request(s) the operator
+// should see. Shell is one request for the full command the model asked to run
+// (security still splits under the gate); file tools are keyed on the target path.
 export function buildRequests(call: ToolCall): PermissionRequest[] {
   if (call.name === "run_shell") {
     const command = stringArg(call, "command");
-    // Full-line comments (markdown headings, shell comments) are no-ops — never
-    // surface them as approval subjects or derive allow patterns from them.
-    return splitChainedCommand(command)
-      .filter((segment) => !isShellCommentOnly(segment))
-      .map((segment) => ({
+    // Pure comments / empty: nothing to approve.
+    const realSegments = splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
+    if (realSegments.length === 0) return [];
+    return [
+      {
         tool: "run_shell",
         action: "Run shell command",
-        subject: segment,
-        arguments: { command: segment },
-        scopes: deriveCommandScopes(segment),
-      }));
+        subject: command,
+        arguments: { command },
+        scopes: shellApprovalScopes(command),
+      },
+    ];
   }
   if (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file") {
     const path = stringArg(call, "path");
