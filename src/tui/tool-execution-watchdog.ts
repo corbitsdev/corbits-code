@@ -131,7 +131,7 @@ export function withPauseableTimeout(
       fire();
       return;
     }
-    startedAt = Date.now();
+    startedAt = performance.now();
     timer = setTimeout(fire, remaining);
   };
 
@@ -140,7 +140,7 @@ export function withPauseableTimeout(
     pauseDepth += 1;
     if (pauseDepth !== 1) return pauseGeneration;
     if (startedAt !== null) {
-      remaining = Math.max(0, remaining - (Date.now() - startedAt));
+      remaining = Math.max(0, remaining - (performance.now() - startedAt));
       startedAt = null;
     }
     clearTimer();
