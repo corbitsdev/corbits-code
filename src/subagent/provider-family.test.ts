@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isXaiGrokLeafProvider } from "./provider-family.js";
+import { isXaiGrokLeafProvider, shouldApplyGrokAntiThrash } from "./provider-family.js";
 
 describe("isXaiGrokLeafProvider", () => {
   test("matches xai/ OAuth provider names", () => {
@@ -23,5 +23,29 @@ describe("isXaiGrokLeafProvider", () => {
       isXaiGrokLeafProvider({ providerName: "anthropic", model: "claude-sonnet-4" }),
     ).toBe(false);
     expect(isXaiGrokLeafProvider({ providerName: "openai", model: "gpt-4.1" })).toBe(false);
+  });
+
+  test("matches xai/ OAuth provider names regardless of case", () => {
+    expect(isXaiGrokLeafProvider({ providerName: "XAI/default" })).toBe(true);
+  });
+});
+
+describe("shouldApplyGrokAntiThrash", () => {
+  test("applies the residual to a Grok leaf worker", () => {
+    expect(
+      shouldApplyGrokAntiThrash({ providerName: "xai/default", orchestrator: false }),
+    ).toBe(true);
+  });
+
+  test("withholds the residual from a Grok orchestrator", () => {
+    expect(
+      shouldApplyGrokAntiThrash({ providerName: "xai/default", orchestrator: true }),
+    ).toBe(false);
+  });
+
+  test("withholds the residual from non-Grok leaves", () => {
+    expect(
+      shouldApplyGrokAntiThrash({ providerName: "anthropic", orchestrator: false }),
+    ).toBe(false);
   });
 });
