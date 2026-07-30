@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  dedupePluginModules,
   discoverUserPlugins,
   expandPluginPath,
   loadPluginsFromPaths,
@@ -140,6 +141,39 @@ describe("path plugin trust across working directories", () => {
       });
       expect(loadedA.find((m) => m.manifest?.id === "local")?.metadataOnly).toBeUndefined();
       expect(loadedB.find((m) => m.manifest?.id === "local")?.metadataOnly).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("a pluginPaths entry inside <cwd>/.corbits/plugins stays project origin", async () => {
+    const base = await mkdtemp(join(tmpdir(), "corbits-dual-origin-"));
+    const home = join(base, "home");
+    const cwd = join(base, "repo");
+    try {
+      await mkdir(home, { recursive: true });
+      const pluginDir = join(cwd, ".corbits", "plugins", "dual");
+      await writeCommandPlugin(pluginDir, "dual");
+      await trustPlugin(cwd, pluginDir, home);
+      const projectTrust = await loadProjectTrust(cwd, home);
+
+      // Same discovery order as the runners: project scan first, explicit
+      // paths last. The path store has no grant for this plugin.
+      const fromPaths = await loadPluginsFromPaths([pluginDir], cwd, {
+        isPluginTrusted: () => false,
+      });
+      expect(fromPaths).toEqual([]);
+
+      const mods = dedupePluginModules([
+        ...(await discoverUserPlugins(cwd, {
+          isPluginTrusted: (p) => isPluginTrusted(projectTrust, p),
+        })),
+        ...fromPaths,
+      ]);
+      const mod = mods.find((m) => m.manifest?.id === "dual");
+      expect(mod?.origin).toBe("project");
+      expect(mod?.metadataOnly).toBeUndefined();
+      expect(mod?.commandPlugin).toBeDefined();
     } finally {
       await rm(base, { recursive: true, force: true });
     }

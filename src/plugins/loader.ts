@@ -355,14 +355,22 @@ export async function loadPluginsFromPaths(
       return expandPluginPath(abs);
     }),
   );
+  // Anything under <cwd>/.corbits/plugins/ is project origin no matter how it
+  // was registered: discoverUserPlugins already loads it behind per-cwd project
+  // trust, and loading it here as origin "path" would let enabling the stub
+  // record a machine-wide grant for a repo-controlled directory.
+  const projectPluginsDir = resolve(cwd, SETTINGS_DIR_NAME, "plugins");
   const loaded = await Promise.all(
-    resolved.flat().map(async (p) => {
-      const abs = resolve(p);
-      if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
-        return readPluginMetadataOnly(abs, "path");
-      }
-      return loadPluginEntry(p, { cwd, origin: "path" });
-    }),
+    resolved
+      .flat()
+      .filter((p) => !pathIsInsideOrEqual(resolve(p), projectPluginsDir))
+      .map(async (p) => {
+        const abs = resolve(p);
+        if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
+          return readPluginMetadataOnly(abs, "path");
+        }
+        return loadPluginEntry(p, { cwd, origin: "path" });
+      }),
   );
   return loaded.filter((m): m is PluginModule => m !== null);
 }
