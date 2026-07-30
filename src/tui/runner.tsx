@@ -41,7 +41,7 @@ import { createInferenceDependencies } from "../provider/inference-dependencies.
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, expandPluginPath, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, expandPluginPath, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules, type PluginOrigin } from "../plugins/loader.js";
 import {
   isPluginTrusted,
   loadProjectTrust,
@@ -51,6 +51,7 @@ import {
 import {
   isPathPluginTrusted,
   migratePathTrustFromPluginPaths,
+  revokePathPlugin,
   trustPathPlugin,
   trustPathPlugins,
   type PathTrustStore,
@@ -405,6 +406,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const toDescriptor = (mod: {
     manifest?: PluginManifest;
     metadataOnly?: boolean;
+    origin?: PluginOrigin;
   }): PluginDescriptor | undefined =>
     mod.manifest === undefined
       ? undefined
@@ -415,6 +417,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           ...(mod.manifest.description !== undefined ? { description: mod.manifest.description } : {}),
           credentials: mod.manifest.credentials ?? [],
           ...(mod.metadataOnly === true ? { needsTrust: true } : {}),
+          ...(mod.origin === "path" && mod.metadataOnly !== true ? { canRevokeTrust: true } : {}),
         };
   const pluginDescriptors: PluginDescriptor[] = livePluginModules
     .map((m) => toDescriptor(m))
@@ -473,8 +476,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
             );
-            const desc = pluginDescriptors.find((d) => d.id === id);
-            if (desc !== undefined) delete desc.needsTrust;
+            const di = pluginDescriptors.findIndex((d) => d.id === id);
+            const fullDesc = toDescriptor(full);
+            if (di >= 0 && fullDesc !== undefined) pluginDescriptors.splice(di, 1, fullDesc);
             // Refresh web/tool candidate lists from the newly loaded module.
             for (const cand of collectWebPlugins([full])) {
               const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
@@ -599,6 +603,34 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
       return { ok: true, message: `Added ${descriptor.name}`, id: descriptor.id };
+    },
+    revokeTrust: async (id) => {
+      const mod = livePluginModules.find((m) => m.manifest?.id === id);
+      if (mod === undefined || mod.origin !== "path" || mod.pluginPath === undefined) {
+        return { ok: false, message: "Only path-added plugins carry revocable global trust" };
+      }
+      pathTrust = await revokePathPlugin(mod.pluginPath);
+      // Drop back to the metadata-only stub and disable: the module stays
+      // registered in pluginPaths, but its code no longer loads. Anything
+      // already imported this session unloads on the next launch.
+      const stub = {
+        ...(mod.dir !== undefined ? { dir: mod.dir } : {}),
+        ...(mod.manifest !== undefined ? { manifest: mod.manifest } : {}),
+        origin: mod.origin,
+        pluginPath: mod.pluginPath,
+        metadataOnly: true,
+      };
+      livePluginModules = livePluginModules.map((m) => (m.manifest?.id === id ? stub : m));
+      const di = pluginDescriptors.findIndex((d) => d.id === id);
+      const stubDesc = toDescriptor(stub);
+      if (di >= 0 && stubDesc !== undefined) pluginDescriptors.splice(di, 1, stubDesc);
+      const wi = webPluginCandidates.findIndex((c) => c.id === id);
+      if (wi >= 0) webPluginCandidates.splice(wi, 1);
+      const ti = toolPluginCandidates.findIndex((c) => c.id === id);
+      if (ti >= 0) toolPluginCandidates.splice(ti, 1);
+      livePluginConfig = { ...livePluginConfig, [id]: { ...(livePluginConfig[id] ?? {}), enabled: false } };
+      await persistPluginSettings();
+      return { ok: true, message: "Trust revoked — code stays unloaded from next launch" };
     },
   };
 

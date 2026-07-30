@@ -8,6 +8,7 @@ import {
   migratePathTrustFromPluginPaths,
   pathTrustPath,
   readPathTrustStore,
+  revokePathPlugin,
   trustPathPlugin,
   trustPathPlugins,
 } from "../../src/trust/path-trust.js";
@@ -139,6 +140,35 @@ describe("path-trust (global)", () => {
         home,
       );
       expect(resolveCalls).toBe(0);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("revokePathPlugin removes the grant and keeps the store file", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      const a = join(home, "plugins", "a");
+      const b = join(home, "plugins", "b");
+      await trustPathPlugins([a, b], home);
+
+      const afterRevoke = await revokePathPlugin(a, home);
+      expect(isPathPluginTrusted(afterRevoke, a)).toBe(false);
+      expect(isPathPluginTrusted(afterRevoke, b)).toBe(true);
+
+      // Revoking the last grant must leave a valid empty store behind:
+      // deleting the file would re-trigger migration and re-seed the grants.
+      const emptied = await revokePathPlugin(b, home);
+      expect(emptied.trustedPluginPaths).toEqual([]);
+      expect((await readPathTrustStore(home)).state).toBe("valid");
+
+      const plugin = join(home, "plugins", "a");
+      const migrated = await migratePathTrustFromPluginPaths(
+        [plugin],
+        async () => [plugin],
+        home,
+      );
+      expect(isPathPluginTrusted(migrated, plugin)).toBe(false);
     } finally {
       await cleanup();
     }

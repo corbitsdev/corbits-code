@@ -146,6 +146,26 @@ export async function trustPathPlugins(
 }
 
 /**
+ * Withdraw a grant. Always writes, even when the store ends up empty: the
+ * file's continued existence is what stops the one-shot migration from
+ * re-seeding the revoked path on the next launch.
+ */
+export async function revokePathPlugin(
+  pluginPath: string,
+  home: string = homedir(),
+): Promise<PathTrustStore> {
+  const abs = requireAbsolute(pluginPath);
+  return enqueueMutation(async () => {
+    const store = await loadPathTrust(home);
+    const next: PathTrustStore = {
+      trustedPluginPaths: store.trustedPluginPaths.filter((p) => p !== abs),
+    };
+    await savePathTrust(next, home);
+    return next;
+  });
+}
+
+/**
  * One-shot migration: when the global path-trust file does not exist yet, seed
  * grants from registered pluginPaths so users who only had per-cwd trust keep
  * path plugins across projects. After the file exists, grants come only from
