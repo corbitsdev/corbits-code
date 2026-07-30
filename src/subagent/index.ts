@@ -921,7 +921,9 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
 
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/subagent-tools`,
-    factory: () => createDynamicToolRunner(tools),
+    // Without the watchdog config, child tool calls run under default budgets
+    // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
+    factory: () => createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings)),
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());

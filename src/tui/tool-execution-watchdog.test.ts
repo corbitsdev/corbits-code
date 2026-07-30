@@ -262,6 +262,43 @@ describe("tool execution watchdog", () => {
     budget.dispose();
   });
 
+  test("nested watchdog pause freezes the enclosing budget too", async () => {
+    // task tool: outer watchdog wraps the parent `task` call; each child tool
+    // call opens its own nested watchdog. A permission prompt during the child
+    // captures the innermost budget — pausing it must also freeze the parent
+    // budget, or the parent keeps ticking under the modal.
+    const result = await runWithToolExecutionWatchdog(
+      { id: "outer", name: "task", arguments: {} },
+      new AbortController().signal,
+      60,
+      async (outerSignal) => {
+        const outerBudget = getToolApprovalBudget();
+        const inner = await runWithToolExecutionWatchdog(
+          { id: "inner", name: "child", arguments: {} },
+          outerSignal,
+          500,
+          async () => {
+            const budget = getToolApprovalBudget();
+            expect(budget).toBeDefined();
+            budget!.pause();
+            // Longer than the outer budget — outer must be frozen too.
+            await new Promise((r) => setTimeout(r, 120));
+            budget!.resume();
+            return { callId: "inner", content: "child-ok" };
+          },
+          { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+        );
+        // The parent budget must have been frozen during the child's pause —
+        // salvage grace could still return the body even if it expired.
+        expect(outerBudget?.signal.aborted).toBe(false);
+        return inner;
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("child-ok");
+  });
+
   test("waitForApproval false lets budget expire while execute is parked", async () => {
     const result = await runWithToolExecutionWatchdog(
       { id: "tick", name: "parked", arguments: {} },

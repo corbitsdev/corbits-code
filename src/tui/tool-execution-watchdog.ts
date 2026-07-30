@@ -263,10 +263,20 @@ export async function runWithToolExecutionWatchdog(
         pause: () => {},
         resume: () => {},
       };
+  // Nested runs (task tool → child tool call) shadow the parent store: the
+  // gate captures the innermost budget, so pause/resume must chain outward or
+  // the parent `task` budget keeps ticking under the permission modal.
+  const enclosing = toolApprovalBudgetAls.getStore();
   const approvalBudget: ToolApprovalBudget = {
     signal: budget.signal,
-    pause: budget.pause,
-    resume: budget.resume,
+    pause: () => {
+      budget.pause();
+      enclosing?.pause();
+    },
+    resume: () => {
+      budget.resume();
+      enclosing?.resume();
+    },
     waitForApproval,
   };
 
