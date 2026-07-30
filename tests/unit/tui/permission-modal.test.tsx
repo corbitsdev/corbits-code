@@ -123,6 +123,18 @@ test("an enormous single command is truncated for display", () => {
   expect(Date.now() - start).toBeLessThan(5_000);
 });
 
+test("the verbatim command is shown even when no persistable scopes exist", () => {
+  const secretPath: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: "cat ~/.aws/credentials && echo done",
+    scopes: [],
+  };
+  const { lastFrame } = render(<PermissionModal request={secretPath} onResolve={() => {}} />);
+  const frame = (lastFrame() ?? "").replace(/[\s│]/g, "");
+  expect(frame).toContain("cat~/.aws/credentials&&echodone");
+});
+
 test("PermissionModal shows reject, accept-once, and broad-scope options", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";

@@ -269,6 +269,17 @@ export function PermissionModal({
             ? ` · +${queuedBehind} more approval${queuedBehind === 1 ? "" : "s"} queued`
             : ""}
         </Text>
+        {descriptor.isShell && (
+          // The exact string that will execute, always shown verbatim: the
+          // segment list below is a lossy reconstruction, and the scope hints
+          // that otherwise carry the full command are absent when a request
+          // must not mint grants (secret-path shell).
+          <Box marginLeft={2}>
+            <Text color={toolColor} wrap="wrap">
+              {clampForDisplay(sanitizeForPrompt(request.subject))}
+            </Text>
+          </Box>
+        )}
         {shellSegments.length > 1 ? (
           <Box marginLeft={2} flexDirection="column">
             {shellSegments.map((segment, i) => (
@@ -281,7 +292,7 @@ export function PermissionModal({
               One decision covers every segment — rejecting any blocks the whole command.
             </Text>
           </Box>
-        ) : summary.length > 0 ? (
+        ) : !descriptor.isShell && summary.length > 0 ? (
           <Box marginLeft={2}>
             <Text color={color("text")} wrap="wrap">{summary}</Text>
           </Box>
