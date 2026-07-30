@@ -152,6 +152,34 @@ describe("tokenize", () => {
   test("treats a quoted run as one token", () => {
     expect(tokenize(`curl -s "https://a.com/x?y=1"`)).toEqual(["curl", "-s", "https://a.com/x?y=1"]);
   });
+
+  test("a backtick pair inside double quotes still surfaces its content as a bare token", () => {
+    expect(tokenize('cat "`/etc/passwd`"')).toEqual(["cat", "/etc/passwd"]);
+  });
+
+  test("a $() substitution inside double quotes still surfaces its content as bare tokens", () => {
+    expect(tokenize('cat "$(cat /etc/passwd)"')).toEqual(["cat", "cat", "/etc/passwd"]);
+  });
+
+  test("double-quoted text around a backtick substitution stays split at the backtick boundary", () => {
+    expect(tokenize('echo "a`b`c"')).toEqual(["echo", "a", "b", "c"]);
+  });
+
+  test("a single-quoted backtick pair stays literal, never a substitution boundary", () => {
+    expect(tokenize("cat '`/etc/passwd`'")).toEqual(["cat", "`/etc/passwd`"]);
+  });
+
+  test("a single-quoted $() stays literal, never a substitution boundary", () => {
+    expect(tokenize("cat '$(/etc/passwd)'")).toEqual(["cat", "$(/etc/passwd)"]);
+  });
+
+  test("a # inside double quotes is not treated as a comment marker", () => {
+    expect(tokenize('echo "a#b"')).toEqual(["echo", "a#b"]);
+  });
+
+  test("unquoted backtick substitution remains a bare token boundary (regression)", () => {
+    expect(tokenize("cat `/etc/passwd`")).toEqual(["cat", "/etc/passwd"]);
+  });
 });
 
 describe("deriveCommandScopes", () => {
@@ -287,10 +315,26 @@ describe("buildRequests", () => {
   });
 
   test("unknown ask-tier tools preserve arguments for approval display", () => {
+    const reqs = buildRequests({ id: "c", name: "some_plugin_tool", arguments: { query: "hono.dev web framework" } });
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.subject).toBe("some_plugin_tool");
+    expect(reqs[0]?.arguments).toEqual({ query: "hono.dev web framework" });
+  });
+
+  test("web_fetch is keyed on the requested URL, not the tool name", () => {
+    const reqs = buildRequests({ id: "c", name: "web_fetch", arguments: { url: "https://example.com/docs" } });
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]?.tool).toBe("web_fetch");
+    expect(reqs[0]?.subject).toBe("https://example.com/docs");
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["https://example.com/docs"]);
+  });
+
+  test("web_search is keyed on the query, allow-always scoped to the tool", () => {
     const reqs = buildRequests({ id: "c", name: "web_search", arguments: { query: "hono.dev web framework" } });
     expect(reqs).toHaveLength(1);
-    expect(reqs[0]?.subject).toBe("web_search");
-    expect(reqs[0]?.arguments).toEqual({ query: "hono.dev web framework" });
+    expect(reqs[0]?.tool).toBe("web_search");
+    expect(reqs[0]?.subject).toBe("hono.dev web framework");
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["web_search"]);
   });
 
   test("MCP tools are presented by a human label, not the raw identifier", () => {
@@ -1983,6 +2027,20 @@ describe("createPermissionGate restricted paths", () => {
       skipPermissions: false,
     });
     const verdict = await gate.evaluate(shellCall("cat `/etc/passwd`"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("a broad prefix grant does not replay for a double-quoted backtick-substituted restricted target", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall('cat "`/etc/passwd`"'));
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });

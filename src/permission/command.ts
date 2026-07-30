@@ -237,35 +237,89 @@ export function isShellNoOp(segment: string): boolean {
 
 
 // Split a single command segment into whitespace-separated tokens, treating a
-// quoted run as one token. Backtick is not treated as a quote delimiter here:
-// unlike '...' and "...", a backtick pair is command substitution, not
-// literal text — stripping it as a quote would glue the substituted command
-// onto one token (e.g. "`/etc/passwd`"), hiding the plain path text from
-// every caller that inspects tokens (classify's dangerous-flag and path
-// checks, commandTargetsRestricted's target scan). Instead each backtick acts
-// as a bare token boundary, the same way whitespace does, so the substituted
-// content surfaces as its own visible token(s).
+// quoted run as one token. Backtick and `$(` are not treated as literal text
+// even inside double quotes: shell double-quoting suppresses word-splitting
+// and globbing, but command substitution still runs inside "...". Stripping
+// a backtick pair as literal quoting (e.g. `cat "`/etc/passwd`"`) would glue
+// the substituted command onto the surrounding text as one opaque token,
+// hiding the plain path from every caller that inspects tokens (classify's
+// dangerous-flag and path checks, commandTargetsRestricted's target scan).
+// So a backtick — and the start of a `$(` substitution — acts as a bare
+// token boundary, the same way whitespace does, whether or not a double
+// quote is currently open; the content inside surfaces as its own visible
+// token(s). Single quotes are the one shell construct that suppresses
+// substitution entirely, so '...' keeps swallowing backticks and `$(`
+// as literal characters.
 export function tokenize(command: string): string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
+  // Depth of nested "(" seen since the last unmatched "$(" opener, and the
+  // double-quote state to restore once the substitution's closing ")" is
+  // reached. While a substitution is open its content is parsed like
+  // top-level shell text (whitespace splits, its own quotes nest) even
+  // though it may be sitting inside a double-quoted string, matching real
+  // shell semantics: "..." suppresses word-splitting of the literal text
+  // around a substitution, not the substitution's own parsing.
+  let substDepth = 0;
+  let savedQuote: '"' | "'" | null = null;
 
   const push = (): void => {
     if (current.length > 0) tokens.push(current);
     current = "";
   };
 
-  for (const ch of command.trim()) {
-    if (quote !== null) {
-      if (ch === quote) quote = null;
+  const chars = command.trim();
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i] as string;
+
+    if (quote === "'") {
+      if (ch === "'") quote = null;
       else current += ch;
       continue;
     }
+
+    if (ch === "`") {
+      push();
+      continue;
+    }
+    if (ch === "$" && chars[i + 1] === "(") {
+      push();
+      if (substDepth === 0) savedQuote = quote;
+      substDepth++;
+      quote = null;
+      i++; // consume the "(" as part of the boundary, not a token
+      continue;
+    }
+    if (substDepth > 0 && quote === null) {
+      if (ch === "(") {
+        substDepth++;
+        current += ch;
+        continue;
+      }
+      if (ch === ")") {
+        substDepth--;
+        if (substDepth === 0) {
+          push();
+          quote = savedQuote;
+          continue;
+        }
+        current += ch;
+        continue;
+      }
+    }
+
+    if (quote === '"') {
+      if (ch === '"') quote = null;
+      else current += ch;
+      continue;
+    }
+
     if (ch === '"' || ch === "'") {
       quote = ch;
       continue;
     }
-    if (ch === " " || ch === "\t" || ch === "`") {
+    if (ch === " " || ch === "\t") {
       push();
       continue;
     }

@@ -499,6 +499,14 @@ function peelOnce(segment: string): PeelOutcome {
 
   const prog = programBasename(tokens[i]!);
   if (SHELL_INTERPRETERS.has(prog)) {
+    // A backtick or `$(` anywhere in the raw segment means the -c payload may
+    // contain command substitution. tokenize() surfaces substitution content as
+    // its own bare tokens (so the security scanner can see substituted paths),
+    // which means the payload token peelShellDashC would read back is only the
+    // first fragment of the original quoted argument, not the whole string —
+    // reconstructing it accurately is not possible from tokens alone. Treat the
+    // wrapper as opaque rather than risk peeling a truncated, misleading payload.
+    if (segment.includes("`") || segment.includes("$(")) return { kind: "opaque" };
     const shellPeel = peelShellDashC(tokens, i + 1);
     if (shellPeel.kind !== "none") return shellPeel;
     // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
