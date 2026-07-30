@@ -299,11 +299,14 @@ export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): st
 }
 
 // Final-reply envelope the parent can parse. Free-form prose is allowed inside
-// each field; the headings are the structure.
+// each field; the headings are the structure. When the brief carries Success
+// criteria / Do not, those are the completion gate and scope fence.
 export function buildSubAgentReportContract(): string {
   return [
     "Reporting back:",
     "- Stick to the dispatch brief. Do not invent scope or wander into unrelated work.",
+    "- If the brief lists Success criteria, treat them as the done-definition: when all are met (or you are blocked), stop calling tools and emit the report envelope. Do not keep tooling past done.",
+    "- If the brief lists Do not, respect those constraints; do not invent scope outside Intent / Do not.",
     "- When done, stop calling tools and reply with ONLY this markdown envelope (prose inside each section is fine; omit empty sections rather than inventing content):",
     "",
     "## Summary",

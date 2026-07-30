@@ -11,6 +11,7 @@ import {
   buildEnvironmentContext,
   buildGuidelines,
   buildHarnessFacts,
+  buildSubAgentReportContract,
   buildSubAgentSystemPrompt,
 } from "./agent/prompts.js";
 
@@ -222,6 +223,15 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
   expect(prompt).toContain("parent session's permission gate");
   expect(prompt).not.toContain("without asking for approval");
   expect(prompt).not.toContain("ask_operator");
+});
+
+test("sub-agent report contract treats Success criteria as completion gate", () => {
+  const contract = buildSubAgentReportContract();
+  expect(contract).toContain("Success criteria");
+  expect(contract).toContain("done-definition");
+  expect(contract).toContain("stop calling tools");
+  expect(contract).toContain("Do not");
+  expect(contract).toContain("Intent / Do not");
 });
 
 test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
