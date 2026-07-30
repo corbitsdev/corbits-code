@@ -321,8 +321,11 @@ test("budget abort dismisses a non-head permission still in the queue", async ()
   const emitter = new EventEmitter();
   let headOutcome: { allow: boolean } | null = null;
   let queuedOutcome: { allow: boolean; message?: string } | null = null;
+  const gateCalls: boolean[] = [];
   const budget = new AbortController();
-  const { lastFrame, stdin } = render(<Harness emitter={emitter} onGate={() => {}} />);
+  const { lastFrame, stdin } = render(
+    <Harness emitter={emitter} onGate={(p) => gateCalls.push(p)} />,
+  );
   await tick();
 
   emitter.emit("permission.gate", {
@@ -347,11 +350,16 @@ test("budget abort dismisses a non-head permission still in the queue", async ()
   expect(headOutcome).toBeNull();
   // Head is still the first permission.
   expect(lastFrame()).toContain("perm:a.ts");
+  // setGatePending is a refcount upstream (use-stream gateCount): the non-head
+  // removal must emit exactly one balancing false for its own enqueue, leaving
+  // the visible head's count intact so the run stays "blocked".
+  expect(gateCalls).toEqual([true, true, false]);
 
   stdin.write("p");
   await tick();
   expect(headOutcome).toEqual({ allow: true });
   expect(lastFrame()).toContain("none none none open=0");
+  expect(gateCalls).toEqual([true, true, false, false]);
 });
 
 // resetGates drains all queues, resolves each with safe defaults, and clears
