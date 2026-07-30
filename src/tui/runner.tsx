@@ -445,9 +445,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // Enabling a project/path plugin records trust and full-loads code.
       if (cfg.enabled === true) {
         const stub = livePluginModules.find((m) => m.manifest?.id === id);
+        // Trust routing must use the origin stamped at discovery — a fallback
+        // here could turn one store's gate into the other's grant.
         if (
           stub?.metadataOnly === true
           && stub.pluginPath !== undefined
+          && stub.origin !== undefined
         ) {
           if (stub.origin === "path") {
             pathTrust = await trustPathPlugin(stub.pluginPath);
@@ -456,7 +459,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           }
           const full = await loadPluginEntry(stub.pluginPath, {
             cwd: config.cwd,
-            origin: stub.origin ?? "project",
+            origin: stub.origin,
           });
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
