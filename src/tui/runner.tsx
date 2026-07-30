@@ -346,6 +346,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         : {}),
     },
   };
+  // Live catalog + runtime settings so task(tier=…) sees mid-session OAuth
+  // login and tier edits (config.providers / config.settings are load-time only).
+  const liveSubAgentCatalog: { current: typeof config.providers } = {
+    current: config.providers,
+  };
+  const liveSubAgentSettings: { current: typeof config.settings } = {
+    current: config.settings,
+  };
 
   // Dedicated child-session records for enter-session inspection. Child events
   // land here only — never in the parent chat transcript.
@@ -655,8 +663,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onProgress: (info) => {
         emitter.emit("subagent.progress", info);
       },
-      ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
-      catalog: () => config.providers,
+      ...(liveSubAgentSettings.current !== undefined
+        ? { settings: () => liveSubAgentSettings.current! }
+        : {}),
+      catalog: () => liveSubAgentCatalog.current,
       profiles: () => liveAgentProfiles,
     },
   });
@@ -1370,7 +1380,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onSubAgentProviderChange={(provider) => {
         liveSubAgentProvider.current = provider;
       }}
+      onSubAgentRuntimeResolutionChange={({ catalog, settings }) => {
+        liveSubAgentCatalog.current = [...catalog];
+        liveSubAgentSettings.current = settings;
+      }}
       onStartWorkflow={(name) => workflowController.start(name)}
+
       onToggleCapability={(name) => workflowController.toggleCapability(name)}
       loadedSkills={skills}
       activePlugins={activePlugins}

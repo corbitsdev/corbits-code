@@ -238,6 +238,12 @@ export type Config = {
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
   tiers?: Partial<Record<ProviderTier, import("./settings.js").TierConfig>>;
+  /**
+   * Runtime settings view for tier/provider resolution. Includes OAuth provider
+   * projections from the live catalog that are never written to settings.json.
+   * Do not pass this object to saveGlobalSettings — rebuild with
+   * providerCatalogToSettings (or re-read disk) before any persist.
+   */
   settings?: Settings;
 };
 
@@ -490,7 +496,8 @@ export async function loadConfig(
         : { mcpServersSource: "none" as const }),
     ...(settings?.tiers !== undefined ? { tiers: settings.tiers } : {}),
     // Runtime view includes OAuth projections so tier resolution can see
-    // Codex/xAI providers that are never written to settings.json.
+    // Codex/xAI providers that are never written to settings.json. Not safe
+    // to persist as-is — use providerCatalogToSettings or re-read disk.
     ...(settingsForResolution !== null ? { settings: settingsForResolution } : {}),
   };
 }

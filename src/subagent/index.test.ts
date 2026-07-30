@@ -649,16 +649,10 @@ describe("createTaskTool", () => {
 
   test("task tier targeting OAuth provider resolves via live catalog", async () => {
     let captured: RunSubAgentParams | undefined;
-    // Disk settings omit OAuth providers (they are never persisted) but tiers
-    // still name them. The live catalog supplies the missing provider entry.
+    // Realistic disk shape: OAuth never lands in settings.json. Tiers name
+    // xAI; only the live catalog supplies the provider credentials.
     const diskSettings = {
-      providers: {
-        "codex/home": {
-          baseURL: "https://chatgpt.com/backend-api",
-          apiKey: "codex-token",
-          models: ["gpt-5.3-codex"],
-        },
-      },
+      providers: {},
       tiers: {
         clever: { provider: "xai/work", model: "grok-4" },
         standard: { provider: "xai/work", model: "grok-3" },
@@ -708,6 +702,42 @@ describe("createTaskTool", () => {
     expect(captured?.provider.model).toBe("grok-4");
     expect(captured?.provider.apiKey).toBe("xai-token");
     expect(captured?.tier).toBe("clever");
+  });
+
+  test("profile tier targeting OAuth resolves via live catalog", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const diskSettings = {
+      providers: {},
+      tiers: {
+        standard: { provider: "xai/work", model: "grok-3" },
+      },
+    };
+    const catalog = [
+      {
+        name: "xai/work",
+        baseURL: "https://api.x.ai/v1",
+        apiKey: "xai-token",
+        models: ["grok-3"],
+        xaiProfile: "work",
+      },
+    ];
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings: diskSettings,
+      catalog,
+      profiles: [{ id: "deep", tier: "standard" }],
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, { description: "oauth-profile-tier", prompt: "x", agent: "deep" });
+    expect(captured?.provider.providerName).toBe("xai/work");
+    expect(captured?.provider.model).toBe("grok-3");
+    expect(captured?.tier).toBe("standard");
   });
 
   test("task tier targeting OAuth fails closed when catalog lacks the provider", async () => {

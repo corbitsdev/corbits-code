@@ -48,6 +48,12 @@ export type UseProviderManagerArgs = {
   // Fired whenever the active source changes (provider, model, or effort) so the
   // subagent provider can track a live /agent switch, not just the startup value.
   onSelectionChange?: (provider: SubAgentProvider) => void;
+  // Fired when the live catalog or tier map changes so task(tier=…) can resolve
+  // OAuth providers and mid-session tier edits without a restart.
+  onRuntimeResolutionChange?: (args: {
+    catalog: readonly ProviderCatalogEntry[];
+    settings: Settings;
+  }) => void;
 };
 
 export type ProviderManagerController = {
@@ -168,6 +174,7 @@ export function useProviderManager({
   agent,
   onMessage,
   onSelectionChange,
+  onRuntimeResolutionChange,
 }: UseProviderManagerArgs): ProviderManagerController {
   const [provider, setProvider] = useState<string>(initialProvider);
   const [model, setModel] = useState<string>(initialModel);
@@ -175,6 +182,17 @@ export function useProviderManager({
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(initialCatalog);
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
   const [tiers, setTiers] = useState<Partial<Record<ProviderTier, TierConfig>>>(initialTiers ?? {});
+
+  const publishRuntimeResolution = (
+    catalog: readonly ProviderCatalogEntry[],
+    tierState: Partial<Record<ProviderTier, TierConfig>>,
+    defaultProvider: string | undefined = globalDefaultProvider,
+  ): void => {
+    onRuntimeResolutionChange?.({
+      catalog,
+      settings: runtimeSettingsWithTiers(catalog, defaultProvider, initialSettings, tierState),
+    });
+  };
 
   const syncMainSessionSources = (args: {
     catalog: readonly ProviderCatalogEntry[];
@@ -320,6 +338,7 @@ export function useProviderManager({
       }
       setProviderCatalog(catalog);
       setGlobalDefaultProvider(defaultProvider);
+      publishRuntimeResolution(catalog, tiers, defaultProvider);
       persistGlobalSettings(
         globalSettingsPath,
         settings,
@@ -374,6 +393,7 @@ export function useProviderManager({
   ): void => {
     setTiers(nextTiers);
     pushLiveSources(nextTiers);
+    publishRuntimeResolution(providerCatalog, nextTiers);
     void (async () => {
       let base: Settings | undefined;
       try {
@@ -448,6 +468,7 @@ export function useProviderManager({
     }
     const catalog = providerCatalog.filter((p) => p.name !== entry.name).concat(entry);
     setProviderCatalog(catalog);
+    publishRuntimeResolution(catalog, tiers);
     if (applyCatalogSelection(catalog, entry.name, targetModel, reasoningEffort)) {
       persistLocalSelection(entry.name, targetModel);
       onMessage(`Now using ${entry.name} · ${targetModel}`);
@@ -457,7 +478,9 @@ export function useProviderManager({
   const removeOAuthProvider = (providerName: string, label: string): void => {
     const catalog = providerCatalog.filter((p) => p.name !== providerName);
     setProviderCatalog(catalog);
+    publishRuntimeResolution(catalog, tiers);
     switchActiveAfterCatalogChange(
+
       catalog,
       providerName,
       `Removed the active ${label} profile but no other provider is configured`,
