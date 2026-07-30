@@ -5,7 +5,9 @@ import type { ApprovalOutcome, ApprovalScope, GrantScope, PermissionRequest } fr
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
 import { stripTerminalControlSequences } from "../../util/control-char-strip.js";
-import { splitChainedCommand, isShellCommentOnly } from "../../permission/command.js";
+import { isShellCommentOnly } from "../../permission/command.js";
+import { groupChainSegmentsForDisplay, middleEllipsis, verbatimCommandLines } from "../command-display.js";
+import type { VerbatimLine } from "../command-display.js";
 
 // Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
 // command — Trojan Source — and zero-width characters hide payload boundaries,
@@ -17,6 +19,7 @@ const BIDI_AND_ZERO_WIDTH = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u20
 // screen (and stall layout). The executed and persisted command is never
 // touched — only what the modal draws.
 const MAX_RENDERED_SEGMENTS = 12;
+const MAX_RENDERED_LINES = 12;
 const MAX_DISPLAY_LINE_LENGTH = 240;
 
 function clampForDisplay(text: string): string {
@@ -33,6 +36,36 @@ function sanitizeForPrompt(text: string): string {
   return stripTerminalControlSequences(text)
     .replace(BIDI_AND_ZERO_WIDTH, "")
     .replace(/\r\n|\r|\n/g, "↵");
+}
+
+// The verbatim block renders top-level newlines as real wrapped lines so a
+// genuinely multi-line command reads naturally. Newlines inside quotes and
+// bare CRs stay inline as a visible ↵ marker (see verbatimCommandLines) so an
+// embedded break in a quoted argument still cannot masquerade as a fresh,
+// unmarked line — see the "cannot fake extra lines" regression test. Control
+// sequences and bidi/zero-width characters are stripped exactly as before;
+// only line-break presentation differs from sanitizeForPrompt. Each line is
+// clamped individually and the line count is capped, mirroring the segment
+// cap: many short lines would otherwise pass the character clamp yet still
+// push the Reject/Accept choices off screen.
+function verbatimDisplayLines(text: string): { lines: VerbatimLine[]; hiddenLineCount: number } {
+  const stripped = stripTerminalControlSequences(text).replace(BIDI_AND_ZERO_WIDTH, "");
+  const all = verbatimCommandLines(stripped);
+  const lines = all
+    .slice(0, MAX_RENDERED_LINES)
+    .map((line) => ({ ...line, text: clampForDisplay(line.text) }));
+  return { lines, hiddenLineCount: all.length - lines.length };
+}
+
+// Hints (and, more rarely, labels) for persistent Allow options share a long
+// command prefix and differ only in a trailing grant note or pattern
+// suffix — tail-truncation clips exactly the part that distinguishes them.
+// Middle-ellipsis keeps both ends visible instead.
+const CHOICE_TEXT_MAX = 64;
+
+function truncateChoiceText(text: string, width: number): string {
+  const budget = Math.max(20, Math.min(CHOICE_TEXT_MAX, width - 24));
+  return middleEllipsis(text, budget);
 }
 
 export type PermissionModalProps = {
@@ -170,12 +203,15 @@ export function PermissionModal({
   const toolColor = color(descriptor.role);
   const summary = clampForDisplay(sanitizeForPrompt(descriptor.summary));
   const allShellSegments = descriptor.isShell
-    ? splitChainedCommand(request.subject).filter((segment) => !isShellCommentOnly(segment))
+    ? groupChainSegmentsForDisplay(request.subject).filter((segment) => !isShellCommentOnly(segment))
     : [];
   const shellSegments = allShellSegments
     .slice(0, MAX_RENDERED_SEGMENTS)
     .map((segment) => clampForDisplay(sanitizeForPrompt(segment)));
   const hiddenSegmentCount = allShellSegments.length - shellSegments.length;
+  const verbatim = descriptor.isShell
+    ? verbatimDisplayLines(request.subject)
+    : { lines: [] as VerbatimLine[], hiddenLineCount: 0 };
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
@@ -274,10 +310,22 @@ export function PermissionModal({
           // segment list below is a lossy reconstruction, and the scope hints
           // that otherwise carry the full command are absent when a request
           // must not mint grants (secret-path shell).
-          <Box marginLeft={2}>
-            <Text color={toolColor} wrap="wrap">
-              {clampForDisplay(sanitizeForPrompt(request.subject))}
-            </Text>
+          <Box marginLeft={2} flexDirection="column">
+            {verbatim.lines.map((line, i) => (
+              // Full-line comments are shell no-ops: de-emphasize them so the
+              // executable lines carry the visual weight.
+              <Text
+                key={i}
+                color={line.isComment ? color("muted") : toolColor}
+                dimColor={line.isComment}
+                wrap="wrap"
+              >
+                {line.text}
+              </Text>
+            ))}
+            {verbatim.hiddenLineCount > 0 && (
+              <Text color={color("muted")}>{`… ${verbatim.hiddenLineCount} more lines`}</Text>
+            )}
           </Box>
         )}
         {shellSegments.length > 1 ? (
@@ -307,19 +355,23 @@ export function PermissionModal({
           // command pattern and needs the same sanitization as the subject.
           const hintText = active && messageMode
             ? message
-            : clampForDisplay(sanitizeForPrompt(choice.hint));
+            : expanded
+              ? sanitizeForPrompt(choice.hint)
+              : truncateChoiceText(sanitizeForPrompt(choice.hint), width);
           const hintOpen = choice.hintStyle === "command" ? "[" : "(";
           const hintClose = choice.hintStyle === "command" ? "]" : ")";
           const hintColor = choice.hintStyle === "command" ? color("muted") : color("muted");
           const hintDim = choice.hintStyle === "command";
           return (
-            <Text key={i} wrap={expanded ? "wrap" : "truncate-end"}>
+            <Text key={i} wrap="wrap">
               <Text color={active ? color("brand") : color("muted")} bold={active}>
                 {active ? "› " : "  "}
               </Text>
               <Text color={color("muted")}>{`${i + 1}. `}</Text>
               <Text color={active ? tone : color("text")} bold={active}>
-                {clampForDisplay(sanitizeForPrompt(choice.label))}
+                {expanded
+                  ? sanitizeForPrompt(choice.label)
+                  : truncateChoiceText(sanitizeForPrompt(choice.label), width)}
               </Text>
               {"  "}
               <Text color={hintColor} dimColor={hintDim}>
