@@ -100,6 +100,29 @@ test("a very long command still renders the modal chrome", () => {
   expect(frame).toContain("Reject");
 });
 
+test("a huge chain caps the segment list and keeps the decision buttons visible", () => {
+  const chain = Array.from({ length: 2000 }, (_, i) => `echo ${i}`).join(" && ");
+  const { lastFrame } = render(<PermissionModal request={shellRequest(chain)} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  const segmentLines = (frame.split("\n") as string[]).filter((line) => /\d+\. echo /.test(line));
+  expect(segmentLines.length).toBeLessThanOrEqual(20);
+  expect(frame).toMatch(/… \d+ more segments/);
+  expect(frame).toContain("Reject");
+  expect(frame).toContain("Accept once");
+});
+
+test("an enormous single command is truncated for display", () => {
+  const start = Date.now();
+  const { lastFrame } = render(
+    <PermissionModal request={shellRequest(`echo ${"a".repeat(200_000)}`)} onResolve={() => {}} />,
+  );
+  const frame = lastFrame() ?? "";
+  // Terminal wrapping may break the marker across lines; compare without layout.
+  expect(frame.replace(/[\s│]/g, "")).toContain("…truncated");
+  expect(frame).toContain("Reject");
+  expect(Date.now() - start).toBeLessThan(5_000);
+});
+
 test("PermissionModal shows reject, accept-once, and broad-scope options", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";

@@ -12,6 +12,19 @@ import { splitChainedCommand, isShellCommentOnly } from "../../permission/comman
 // so a spoofed command can read as harmless in a security prompt.
 const BIDI_AND_ZERO_WIDTH = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
 
+// Display-only caps: a model-authored command can be arbitrarily long or have
+// thousands of chain segments, which would push the Reject/Accept choices off
+// screen (and stall layout). The executed and persisted command is never
+// touched — only what the modal draws.
+const MAX_RENDERED_SEGMENTS = 12;
+const MAX_DISPLAY_LINE_LENGTH = 240;
+
+function clampForDisplay(text: string): string {
+  return text.length > MAX_DISPLAY_LINE_LENGTH
+    ? `${text.slice(0, MAX_DISPLAY_LINE_LENGTH)} … truncated`
+    : text;
+}
+
 // The approval subject is model-authored. Raw control bytes (\r, cursor moves,
 // line erases) could repaint the modal into showing a different command than
 // the one that will run, so strip them and render any surviving line break as
@@ -155,12 +168,14 @@ export function PermissionModal({
     JSON.stringify(descriptorArgs(request)),
   );
   const toolColor = color(descriptor.role);
-  const summary = sanitizeForPrompt(descriptor.summary);
-  const shellSegments = descriptor.isShell
-    ? splitChainedCommand(request.subject)
-        .filter((segment) => !isShellCommentOnly(segment))
-        .map(sanitizeForPrompt)
+  const summary = clampForDisplay(sanitizeForPrompt(descriptor.summary));
+  const allShellSegments = descriptor.isShell
+    ? splitChainedCommand(request.subject).filter((segment) => !isShellCommentOnly(segment))
     : [];
+  const shellSegments = allShellSegments
+    .slice(0, MAX_RENDERED_SEGMENTS)
+    .map((segment) => clampForDisplay(sanitizeForPrompt(segment)));
+  const hiddenSegmentCount = allShellSegments.length - shellSegments.length;
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
@@ -259,6 +274,9 @@ export function PermissionModal({
             {shellSegments.map((segment, i) => (
               <Text key={i} color={color("text")} wrap="wrap">{`${i + 1}. ${segment}`}</Text>
             ))}
+            {hiddenSegmentCount > 0 && (
+              <Text color={color("muted")}>{`… ${hiddenSegmentCount} more segments`}</Text>
+            )}
             <Text color={color("muted")}>
               One decision covers every segment — rejecting any blocks the whole command.
             </Text>
@@ -278,7 +296,7 @@ export function PermissionModal({
           // command pattern and needs the same sanitization as the subject.
           const hintText = active && messageMode
             ? message
-            : sanitizeForPrompt(choice.hint);
+            : clampForDisplay(sanitizeForPrompt(choice.hint));
           const hintOpen = choice.hintStyle === "command" ? "[" : "(";
           const hintClose = choice.hintStyle === "command" ? "]" : ")";
           const hintColor = choice.hintStyle === "command" ? color("muted") : color("muted");
@@ -290,7 +308,7 @@ export function PermissionModal({
               </Text>
               <Text color={color("muted")}>{`${i + 1}. `}</Text>
               <Text color={active ? tone : color("text")} bold={active}>
-                {sanitizeForPrompt(choice.label)}
+                {clampForDisplay(sanitizeForPrompt(choice.label))}
               </Text>
               {"  "}
               <Text color={hintColor} dimColor={hintDim}>
