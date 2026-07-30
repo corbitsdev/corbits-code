@@ -562,6 +562,27 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
     expect(verdict.allowed).toBe(false);
     expect(asked).toBe(0);
   });
+
+  // rg downstream of a single pipe reads only the bounded stdin the upstream
+  // stage produced, not a filesystem walk — the authz plugin exempts it at
+  // execution time (see CMD_HEAD in run-shell-authz.ts). Judging the "rg"
+  // segment in isolation loses that pipe context and denies it with no
+  // operator override possible, even though the full command the authz
+  // plugin actually enforces at execution time would allow it.
+  test("does not deny rg reading bounded stdin downstream of a single pipe", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("git show HEAD:file | rg -n foo"));
+    expect(verdict.allowed).toBe(true);
+  });
 });
 
 describe("createPermissionGate", () => {

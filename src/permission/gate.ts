@@ -10,7 +10,7 @@ import {
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
+import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { isApproved, escapeGlobLiteral } from "./matcher.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
@@ -249,17 +249,16 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           continue;
         }
 
-        // A segment authz would hard-deny at execution is stricter than "ask":
+        // A command authz would hard-deny at execution is stricter than "ask":
         // the gate must deny the call outright rather than show an Accept
-        // button for a command that can never actually run. Checked across
-        // every segment up front so the strictest result across the whole
-        // chain wins, matching how a declined segment already blocks the
-        // whole call below.
-        const blockedSegment = segments
-          .map((segment) => runShellAuthzSegmentBlockReason(segment))
-          .find((reason) => reason !== undefined);
-        if (blockedSegment !== undefined) {
-          return { allowed: false, reason: blockedSegment };
+        // button for a command that can never actually run. Judged against the
+        // full command string with the same predicate authz enforces at
+        // execution time — not per split segment — so a stage that only reads
+        // bounded, already-piped data (e.g. `git show sha:path | rg -n foo`)
+        // is not denied in isolation when the full pipeline is exempt.
+        const blockReason = runShellAuthzBlockReason(fullCommand);
+        if (blockReason !== undefined) {
+          return { allowed: false, reason: blockReason };
         }
 
         let needsOperator = false;
