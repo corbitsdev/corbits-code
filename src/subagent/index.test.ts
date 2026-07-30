@@ -20,6 +20,11 @@ import {
   parseSubAgentReport,
   appendDeadlineParentHint,
   appendNeverActedParentHint,
+  appendReportForcedParentHint,
+  appendSubAgentParentHints,
+  appendThrashParentHint,
+  EMPTY_THRASH_STATE,
+  nextThrashState,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
@@ -33,6 +38,7 @@ import {
   type RunSubAgentParams,
 } from "./index.js";
 import { type } from "arktype";
+
 
 
 
@@ -247,6 +253,89 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 
+  test("evaluateSubAgentStop prefers no-progress over thrash", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 4; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+      ]);
+    }
+    thrash = nextThrashState(thrash, [
+      { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
+    ]);
+    thrash = nextThrashState(thrash, [
+      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+    ]);
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 20,
+        consecutiveIdentical: 2,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBe("no-progress");
+  });
+
+  test("evaluateSubAgentStop returns thrash before turn-budget", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    thrash = nextThrashState(thrash, [
+      { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
+    ]);
+    for (let i = 0; i < 4; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
+      ]);
+    }
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 10,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBe("thrash");
+  });
+
+  test("evaluateSubAgentStop returns report-forced near budget while tooling", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 9,
+        maxTurns: 10,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: EMPTY_THRASH_STATE,
+      }),
+    ).toBe("report-forced");
+  });
+
+  test("evaluateSubAgentStop multi-file unique reads do not thrash under budget", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 12; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: `f${i}.ts` } },
+      ]);
+    }
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 20,
+        consecutiveIdentical: 1,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBeNull();
+  });
+
   test("nextToolCallStreak increments on identical fingerprints and resets on change", () => {
     let streak = nextToolCallStreak(
       { lastFingerprint: undefined, consecutiveIdentical: 0 },
@@ -281,6 +370,19 @@ describe("sub-agent stop helpers", () => {
     expect(neverParsed.findings).toContain("red tests");
     expect(neverParsed.blockers).toContain("unexecuted");
     expect(neverActed.toLowerCase()).not.toContain("summarize what you found");
+
+    const thrashReport = forcedStopReport("thrash", "Re-read a.ts after edit");
+    const thrashParsed = parseSubAgentReport(thrashReport);
+    expect(thrashParsed.summary).toContain("progressive thrash");
+    expect(thrashParsed.findings).toContain("a.ts");
+    expect(thrashParsed.blockers).toContain("Re-read pressure");
+    expect(appendThrashParentHint(thrashReport)).toContain("progressive thrash");
+    expect(appendSubAgentParentHints(thrashReport)).toContain("narrower scope");
+
+    const forced = forcedStopReport("report-forced", "Still grepping");
+    const forcedParsed = parseSubAgentReport(forced);
+    expect(forcedParsed.summary).toContain("forced report near turn budget");
+    expect(appendReportForcedParentHint(forced)).toContain("forced to report");
 
     // Nested agent envelope must not clobber the outer never-acted Summary when
     // runSubAgent re-parses the forced stop (the common planning-only path).
