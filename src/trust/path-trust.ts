@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { type } from "arktype";
@@ -75,10 +75,27 @@ export async function loadPathTrust(home: string = homedir()): Promise<PathTrust
   return (await readPathTrustStore(home)).store;
 }
 
+// Written via temp-file + rename (same pattern as saveGlobalSettings) so a
+// concurrent reader never sees a truncated or half-written store — a torn read
+// would disable every path plugin for that session.
 async function savePathTrust(store: PathTrustStore, home: string = homedir()): Promise<void> {
   const path = pathTrustPath(home);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  await rename(tmp, path);
+}
+
+// The grant helpers re-read the store immediately before writing, but two
+// in-process mutations interleaving between that read and the write would
+// still drop grants. Chain them so each mutation sees the previous one's
+// result. (Cross-process writers remain last-writer-wins of a complete file.)
+let mutationQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueMutation<T>(run: () => Promise<T>): Promise<T> {
+  const next = mutationQueue.then(run, run);
+  mutationQueue = next.catch(() => undefined);
+  return next;
 }
 
 export function isPathPluginTrusted(store: PathTrustStore, pluginPath: string): boolean {
@@ -100,16 +117,7 @@ export async function trustPathPlugin(
   pluginPath: string,
   home: string = homedir(),
 ): Promise<PathTrustStore> {
-  const store = await loadPathTrust(home);
-  const abs = requireAbsolute(pluginPath);
-  if (!store.trustedPluginPaths.includes(abs)) {
-    const next: PathTrustStore = {
-      trustedPluginPaths: [...store.trustedPluginPaths, abs],
-    };
-    await savePathTrust(next, home);
-    return next;
-  }
-  return store;
+  return trustPathPlugins([pluginPath], home);
 }
 
 /** Grant trust for many absolute plugin paths in one read/write cycle. */
@@ -117,22 +125,24 @@ export async function trustPathPlugins(
   pluginPaths: string[],
   home: string = homedir(),
 ): Promise<PathTrustStore> {
-  const store = await loadPathTrust(home);
-  const known = new Set(store.trustedPluginPaths);
-  let changed = false;
-  const next = [...store.trustedPluginPaths];
-  for (const p of pluginPaths) {
-    const abs = requireAbsolute(p);
-    if (!known.has(abs)) {
-      known.add(abs);
-      next.push(abs);
-      changed = true;
+  const absPaths = pluginPaths.map(requireAbsolute);
+  return enqueueMutation(async () => {
+    const store = await loadPathTrust(home);
+    const known = new Set(store.trustedPluginPaths);
+    let changed = false;
+    const next = [...store.trustedPluginPaths];
+    for (const abs of absPaths) {
+      if (!known.has(abs)) {
+        known.add(abs);
+        next.push(abs);
+        changed = true;
+      }
     }
-  }
-  if (!changed) return store;
-  const updated: PathTrustStore = { trustedPluginPaths: next };
-  await savePathTrust(updated, home);
-  return updated;
+    if (!changed) return store;
+    const updated: PathTrustStore = { trustedPluginPaths: next };
+    await savePathTrust(updated, home);
+    return updated;
+  });
 }
 
 /**

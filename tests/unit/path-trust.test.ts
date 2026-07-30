@@ -144,6 +144,22 @@ describe("path-trust (global)", () => {
     }
   });
 
+  test("concurrent grants all persist and never tear the store file", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      const paths = Array.from({ length: 10 }, (_, i) => join(home, "plugins", `p${i}`));
+      await Promise.all(paths.map((p) => trustPathPlugin(p, home)));
+      const raw = await readFile(pathTrustPath(home), "utf8");
+      expect(() => JSON.parse(raw)).not.toThrow();
+      const store = await loadPathTrust(home);
+      for (const p of paths) {
+        expect(isPathPluginTrusted(store, p)).toBe(true);
+      }
+    } finally {
+      await cleanup();
+    }
+  });
+
   test("a zero-byte store file is invalid and migration re-seeds it", async () => {
     const { home, cleanup } = await scratch();
     try {
