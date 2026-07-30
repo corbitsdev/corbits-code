@@ -1,5 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
-import type { Approval, GrantScope, RequestApproval } from "./types.js";
+import type { Approval, ApprovalOutcome, GrantScope, RequestApproval } from "./types.js";
 import {
   classifyTool,
   buildRequests,
@@ -162,6 +162,25 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // options.approvals and re-routed to a store by the persist callback.
   const sessionGrants: Approval[] = [];
 
+  // Record an operator-granted approval in the live list and route it to the
+  // scope-appropriate home: session grants stay in memory, everything else is
+  // persisted. Both approval branches must mint identically — this is the
+  // single place a grant comes into existence.
+  const mintGrant = (tool: string, outcome: ApprovalOutcome): void => {
+    if (!outcome.persist || outcome.persist.pattern === null) return;
+    const grant: GrantScope = outcome.persist.grant ?? "session";
+    const approval: Approval =
+      grant === "provider-model" && activeProviderModel !== undefined
+        ? { tool, pattern: outcome.persist.pattern, providerModel: activeProviderModel }
+        : { tool, pattern: outcome.persist.pattern };
+    approvals.push(approval);
+    if (grant === "session") {
+      sessionGrants.push(approval);
+    } else {
+      persist?.(approval, grant);
+    }
+  };
+
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
     // A call targeting a restricted path (outside the workspace, or a write
@@ -271,22 +290,8 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
           };
         }
-        if (!anySecret && outcome.persist && outcome.persist.pattern !== null) {
-          const grant: GrantScope = outcome.persist.grant ?? "session";
-          const approval: Approval =
-            grant === "provider-model" && activeProviderModel !== undefined
-              ? {
-                  tool: request.tool,
-                  pattern: outcome.persist.pattern,
-                  providerModel: activeProviderModel,
-                }
-              : { tool: request.tool, pattern: outcome.persist.pattern };
-          approvals.push(approval);
-          if (grant === "session") {
-            sessionGrants.push(approval);
-          } else {
-            persist?.(approval, grant);
-          }
+        if (!anySecret) {
+          mintGrant(request.tool, outcome);
         }
         continue;
       }
@@ -313,22 +318,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           : "";
         return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})${suffix}` };
       }
-      if (
-        outcome.persist &&
-        outcome.persist.pattern !== null
-      ) {
-        const grant: GrantScope = outcome.persist.grant ?? "session";
-        const approval: Approval =
-          grant === "provider-model" && activeProviderModel !== undefined
-            ? { tool: request.tool, pattern: outcome.persist.pattern, providerModel: activeProviderModel }
-            : { tool: request.tool, pattern: outcome.persist.pattern };
-        approvals.push(approval);
-        if (grant === "session") {
-          sessionGrants.push(approval);
-        } else {
-          persist?.(approval, grant);
-        }
-      }
+      mintGrant(request.tool, outcome);
     }
     return { allowed: true };
   };
