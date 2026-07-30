@@ -44,6 +44,8 @@ import {
 } from "../subagent/index.js";
 import { parseManageTasksArgs } from "./tasks.js";
 import { createListDirTool } from "../util/list-dir.js";
+import { createWebFetchTool } from "../tools/web-fetch.js";
+import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-search.js";
 import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
@@ -101,6 +103,8 @@ export type AgentToolsetArgs = {
   // Session blob store for tool-output:// reads; resolved when tools run so agent
   // rebuilds do not require recreating the posix toolset.
   getBlobReader?: () => BlobReader | undefined;
+  // Per-project settings.env, merged into the run_shell tool's spawn environment.
+  shellEnv?: Record<string, string>;
   // Whether a workflow is currently running. advance_workflow rides the wire
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
@@ -171,6 +175,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     toolWatchdog,
     getBlobReader,
     sessionMode = "orchestrator",
+    shellEnv,
   } = args;
   const sessionBlobReader =
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
@@ -191,6 +196,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ...(sessionBlobReader !== undefined
         ? { readFileGuard: { blobReader: sessionBlobReader } }
         : {}),
+      ...(shellEnv !== undefined ? { shellEnv } : {}),
     }),
   });
 
@@ -204,6 +210,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     })),
     createListDirTool(cwd),
     createUseSkillTool(cwd, skillDirs),
+    createWebFetchTool(),
+    createWebSearchTool(),
     ...(subAgentsEnabled && args.subAgent !== undefined
       ? [
           createTaskTool({
@@ -380,6 +388,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       }
       await Promise.all(connectedClients.map((c) => c.close().catch(() => undefined)));
       await posixTools.dispose();
+      await disposeWebSearchClients();
     },
   };
 }

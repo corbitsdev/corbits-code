@@ -21,7 +21,6 @@ import {
   readFileGuardPlugin,
   type ReadFileGuardPluginOptions,
 } from "../plugins/read-file-guard-plugin.js";
-import { webToolsPlugin } from "../web/plugin.js";
 import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
@@ -29,10 +28,16 @@ import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 export type CorePosixToolPluginsArgs = {
   cwd: string;
   permissionGate: PermissionGate;
+  // Kept for signature parity with callers that still resolve a discovered
+  // "web"-kind plugin (e.g. sub-agent toolset assembly); no longer consumed
+  // here since web_search/web_fetch are now always-on built-ins (see
+  // src/tools/web-fetch.ts, src/tools/web-search.ts) rather than plugin-backed.
   webProvider?: WebProvider;
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
   readFileGuard?: ReadFileGuardPluginOptions;
+  // Per-project settings.env, merged into the run_shell spawn environment.
+  shellEnv?: Record<string, string>;
 };
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -42,10 +47,10 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
   const {
     cwd,
     permissionGate,
-    webProvider,
     shellTimeout,
     extraToolPlugins = [],
     readFileGuard = {},
+    shellEnv,
   } = args;
   return [
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd)),
@@ -54,7 +59,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     secretGuardPlugin(),
     authzPlugin(),
     permissionPlugin(permissionGate),
-    shellGuardPlugin(cwd, shellTimeout),
+    shellGuardPlugin(cwd, shellTimeout, shellEnv),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
     // Verify wraps the line-range short-circuit (composeMiddleware runs plugins
@@ -64,7 +69,6 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     editFileLineRangePlugin(),
     // Outside verify: enrich stock substring mismatch errors (composeMiddleware last→first).
     editFileDiagnosticsPlugin(),
-    webToolsPlugin(webProvider !== undefined ? { provider: webProvider } : {}),
     lspHintPlugin(),
     createLSPPlugin({ cwd, minSeverity: 1 }),
     toolResultSecretScrubPlugin(),

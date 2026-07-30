@@ -112,7 +112,7 @@ Providers and models are configured in `~/.corbits/settings.json` (holds provide
 
 Capabilities beyond the core toolset are opt-in plugins, enabled per workspace through the `/plugins` UI — nothing is wired in until enabled.
 
-- **Web search and fetch** — `web_search`/`web_fetch` are provided by an optional web plugin (e.g. Exa). There is no built-in web access: with no web plugin enabled the tools are simply absent (so they are not advertised in the base prompt), and network egress lives in the external provider rather than the agent's own process.
+- **Web search and fetch** — `web_search`/`web_fetch` are always-on built-in core tools, no plugin or API key required. `web_fetch` runs in-process (Bun native `fetch()`) with SSRF guarding, a 5 MB response cap, and HTML-to-markdown conversion; `web_search` calls a keyless hosted MCP provider (Exa by default, Parallel optional). See `docs/ARCHITECTURE.md` for details.
 
 ## Multi-agent (sub-agents)
 

@@ -155,6 +155,15 @@ export function toolWatchdogFromSettings(
   };
 }
 
+// Maps settings.env (per-project) to the extra env vars the shell-guard plugin
+// merges into the run_shell spawn environment. Returns undefined when unset so
+// callers can skip the override and inherit process.env unmodified.
+export function shellEnvFromSettings(
+  local?: LocalSettings | null,
+): Record<string, string> | undefined {
+  return local?.env;
+}
+
 export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
 
 export function clampMaxConcurrentSubAgents(value: number): number {
@@ -249,6 +258,10 @@ export type LocalSettings = {
   reasoningEffort?: ReasoningEffort;
   mcpServers?: MCPServerConfig[];
   sessionMode?: SessionMode;
+  // Per-project env vars applied to the run_shell tool's spawn environment (in
+  // addition to the process's own inherited environment). Configuration
+  // instead of a shell command that mutates the environment mid-session.
+  env?: Record<string, string>;
 };
 
 // The provider fields the runtime consumes, identical to what the env vars used
@@ -389,6 +402,7 @@ const LocalSettingsSchema = type({
   "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
   "mcpServers?": "unknown",
   "sessionMode?": "'single' | 'orchestrator'",
+  "env?": "Record<string, string>",
   // Reject any other key so local settings can never smuggle credentials.
   "+": "reject",
 });

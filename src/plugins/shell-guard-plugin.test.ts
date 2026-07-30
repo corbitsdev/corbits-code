@@ -38,6 +38,22 @@ describe("runGuardedShell", () => {
     expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(15_000);
   });
 
+  test("merges settings.env into the spawn environment on top of process.env", async () => {
+    const { output } = await runGuardedShell(
+      { command: "echo $CORBITS_TEST_ENV_VAR", env: { CORBITS_TEST_ENV_VAR: "from-settings" } },
+      neverAbort(),
+    );
+    expect(output).toContain("from-settings");
+  });
+
+  test("still inherits process.env when settings.env is provided", async () => {
+    const { output } = await runGuardedShell(
+      { command: "echo $PATH", env: { CORBITS_TEST_ENV_VAR: "x" } },
+      neverAbort(),
+    );
+    expect(output.trim().length).toBeGreaterThan(0);
+  });
+
   test("returns partial output and a timed-out flag instead of throwing", async () => {
     const start = Date.now();
     const { exitCode, timedOut, output } = await runGuardedShell(
@@ -191,6 +207,17 @@ describe("shellGuardPlugin", () => {
     });
     expect(result.content).toContain("guarded");
     expect(result.content).not.toBe("FALLBACK");
+  });
+
+  test("plugin-level env is applied to run_shell's spawn environment", async () => {
+    const handler = shellGuardPlugin(process.cwd(), undefined, { CORBITS_TEST_ENV_VAR: "plugin-env" }).middleware!(
+      fallback,
+    );
+    const result = await handler(
+      { id: "c-env", name: "run_shell", arguments: { command: "echo $CORBITS_TEST_ENV_VAR" } },
+      neverAbort(),
+    );
+    expect(result.content).toContain("plugin-env");
   });
 
   test("returns partial output plus a timed-out notice on timeout", async () => {

@@ -249,6 +249,17 @@ describe("validators", () => {
     expect(isLocalSettings({ reasoningEffort: "legendary" })).toBe(false);
     expect(isLocalSettings({ reasoningEffort: 5 })).toBe(false);
   });
+
+  test("isLocalSettings accepts a valid env map", () => {
+    expect(isLocalSettings({ env: { FOO: "bar", BAZ: "qux" } })).toBe(true);
+    expect(isLocalSettings({ env: {} })).toBe(true);
+  });
+
+  test("isLocalSettings rejects a malformed env map", () => {
+    expect(isLocalSettings({ env: { FOO: 5 } })).toBe(false);
+    expect(isLocalSettings({ env: "not-an-object" })).toBe(false);
+    expect(isLocalSettings({ env: { FOO: { nested: true } } })).toBe(false);
+  });
 });
 
 describe("loaders", () => {

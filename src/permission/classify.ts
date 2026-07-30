@@ -287,6 +287,34 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
     const action = call.name === "write_file" ? "Write file" : call.name === "edit_file" ? "Edit file" : "Delete file";
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
   }
+  // web_fetch/web_search get their own permission classes (webfetch/websearch)
+  // keyed on the URL/query rather than the generic tool-name scope below, so an
+  // "always allow" grant is scoped to what was actually requested. Additive
+  // mapping only — does not touch shell classification.
+  if (call.name === "web_fetch") {
+    const url = stringArg(call, "url");
+    return [
+      {
+        tool: "web_fetch",
+        action: "Fetch URL",
+        subject: url,
+        arguments: call.arguments,
+        scopes: [{ id: "exact", label: "Always allow this URL", pattern: url }],
+      },
+    ];
+  }
+  if (call.name === "web_search") {
+    const query = stringArg(call, "query");
+    return [
+      {
+        tool: "web_search",
+        action: "Search the web",
+        subject: query,
+        arguments: call.arguments,
+        scopes: [{ id: "tool", label: "Always allow web_search", pattern: call.name }],
+      },
+    ];
+  }
   // A read-only tool only reaches here when its target is restricted (outside
   // the workspace boundary). Key the request on the path so approving it
   // grants that path or directory, not every future read.

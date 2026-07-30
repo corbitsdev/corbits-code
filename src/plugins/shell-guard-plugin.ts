@@ -79,6 +79,7 @@ type RunShellArgs = {
   timeout?: number;
   cwd?: string;
   maxOutputBytes?: number;
+  env?: Record<string, string>;
 };
 
 export type GuardedShellResult = {
@@ -215,6 +216,9 @@ export async function runGuardedShell(
       stdio: ["ignore", "pipe", "pipe"],
       cwd: args.cwd,
       detached: process.platform !== "win32",
+      // Inherits process.env (node_child_process default) plus any per-project
+      // settings.env overrides layered on top.
+      env: args.env !== undefined ? { ...process.env, ...args.env } : undefined,
     });
 
     if (child.stdout === null || child.stderr === null) {
@@ -336,6 +340,7 @@ function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
 export function shellGuardPlugin(
   cwd: string,
   timeoutConfig?: ShellTimeoutConfig,
+  env?: Record<string, string>,
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
@@ -403,6 +408,7 @@ export function shellGuardPlugin(
                   cwd: executionCwd,
                   timeout: effectiveTimeout,
                   maxOutputBytes,
+                  ...(env !== undefined ? { env } : {}),
                 },
                 signal,
               );
