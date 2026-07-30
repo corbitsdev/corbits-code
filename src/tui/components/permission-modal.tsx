@@ -7,12 +7,19 @@ import { describeToolCall } from "../tool-formatter.js";
 import { stripTerminalControlSequences } from "../../util/control-char-strip.js";
 import { splitChainedCommand, isShellCommentOnly } from "../../permission/command.js";
 
+// Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
+// command — Trojan Source — and zero-width characters hide payload boundaries,
+// so a spoofed command can read as harmless in a security prompt.
+const BIDI_AND_ZERO_WIDTH = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
 // The approval subject is model-authored. Raw control bytes (\r, cursor moves,
 // line erases) could repaint the modal into showing a different command than
 // the one that will run, so strip them and render any surviving line break as
 // a visible marker instead of a real terminal line.
 function sanitizeForPrompt(text: string): string {
-  return stripTerminalControlSequences(text).replace(/\r\n|\r|\n/g, "↵");
+  return stripTerminalControlSequences(text)
+    .replace(BIDI_AND_ZERO_WIDTH, "")
+    .replace(/\r\n|\r|\n/g, "↵");
 }
 
 export type PermissionModalProps = {

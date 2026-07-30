@@ -37,6 +37,25 @@ test("ANSI escape sequences in the command never reach the terminal", () => {
   expect(frame).not.toContain("\x07");
 });
 
+test("bidi and zero-width format characters never reach the terminal", () => {
+  const spoofers = [
+    "\u200B", "\u200C", "\u200D", "\u200E", "\u200F",
+    "\u202A", "\u202B", "\u202C", "\u202D", "\u202E",
+    "\u2066", "\u2067", "\u2068", "\u2069", "\uFEFF",
+  ];
+  const { lastFrame } = render(
+    <PermissionModal
+      request={shellRequest(`echo ${spoofers.join("x")} && ls`)}
+      onResolve={() => {}}
+    />,
+  );
+  const frame = lastFrame() ?? "";
+  for (const ch of spoofers) {
+    expect(frame).not.toContain(ch);
+  }
+  expect(frame).toContain("echo");
+});
+
 test("carriage returns in the command are not rendered raw", () => {
   const { lastFrame } = render(
     <PermissionModal request={shellRequest("echo safe\rrm -rf /")} onResolve={() => {}} />,
