@@ -66,11 +66,19 @@ export function withTimeout(
   };
 }
 
+/**
+ * Identifies the pause generation a `pause()` call belonged to. A forced
+ * ceiling resume bumps the generation, so a `resume(token)` call made after
+ * the ceiling already fired for that pause can recognize itself as stale
+ * instead of decrementing a newer, unrelated pause's depth.
+ */
+export type PauseToken = number;
+
 export type PauseableTimeout = {
   signal: AbortSignal;
   dispose: () => void;
-  pause: () => void;
-  resume: () => void;
+  pause: () => PauseToken;
+  resume: (token: PauseToken) => void;
 };
 
 /**
@@ -90,6 +98,10 @@ export function withPauseableTimeout(
   let ceilingTimer: ReturnType<typeof setTimeout> | null = null;
   let pauseDepth = 0;
   let disposed = false;
+  // Bumped on every forced ceiling resume. Lets a pause()/resume() pair from
+  // before the forced resume recognize itself as stale (see resume() below)
+  // instead of decrementing a newer, unrelated pause's depth.
+  let pauseGeneration = 0;
 
   const clearTimer = (): void => {
     if (timer !== null) {
@@ -123,27 +135,32 @@ export function withPauseableTimeout(
     timer = setTimeout(fire, remaining);
   };
 
-  const pause = (): void => {
-    if (disposed || controller.signal.aborted) return;
+  const pause = (): PauseToken => {
+    if (disposed || controller.signal.aborted) return pauseGeneration;
     pauseDepth += 1;
-    if (pauseDepth !== 1) return;
+    if (pauseDepth !== 1) return pauseGeneration;
     if (startedAt !== null) {
       remaining = Math.max(0, remaining - (Date.now() - startedAt));
       startedAt = null;
     }
     clearTimer();
     // Ceiling on the freeze: an invisible or orphaned prompt never calls
-    // resume, so force the clock back on after pauseCeilingMs. Outstanding
-    // resume() calls after a forced resume are no-ops (depth guard below).
+    // resume, so force the clock back on after pauseCeilingMs. That bumps the
+    // generation, so a resume() for this pause arriving afterward is stale
+    // and recognized as such by its token (see resume() below) rather than
+    // decrementing whatever pause is active by then.
     ceilingTimer = setTimeout(() => {
       ceilingTimer = null;
       pauseDepth = 0;
+      pauseGeneration += 1;
       arm();
     }, pauseCeilingMs);
+    return pauseGeneration;
   };
 
-  const resume = (): void => {
+  const resume = (token: PauseToken): void => {
     if (disposed || controller.signal.aborted) return;
+    if (token !== pauseGeneration) return; // stale: its ceiling already fired
     if (pauseDepth === 0) return;
     pauseDepth -= 1;
     if (pauseDepth === 0) {
@@ -170,11 +187,18 @@ export function withPauseableTimeout(
   };
 }
 
+/**
+ * Composite pause token for a chained budget (task tool → child tool call):
+ * one entry per budget in the enclosing chain, each keyed to that budget's
+ * own generation.
+ */
+export type ChainedPauseToken = { own: PauseToken; enclosing?: ChainedPauseToken };
+
 /** Per-tool budget handle visible to permission-gate code via ALS. */
 export type ToolApprovalBudget = {
   signal: AbortSignal;
-  pause: () => void;
-  resume: () => void;
+  pause: () => ChainedPauseToken;
+  resume: (token: ChainedPauseToken) => void;
   waitForApproval: boolean;
 };
 
@@ -278,8 +302,8 @@ export async function runWithToolExecutionWatchdog(
     ? withPauseableTimeout(parentSignal, timeoutMs)
     : {
         ...withTimeout(parentSignal, timeoutMs),
-        pause: () => {},
-        resume: () => {},
+        pause: (): PauseToken => 0,
+        resume: (_token: PauseToken) => {},
       };
   // Nested runs (task tool → child tool call) shadow the parent store: the
   // gate captures the innermost budget, so pause/resume must chain outward or
@@ -287,13 +311,15 @@ export async function runWithToolExecutionWatchdog(
   const enclosing = toolApprovalBudgetAls.getStore();
   const approvalBudget: ToolApprovalBudget = {
     signal: budget.signal,
-    pause: () => {
-      budget.pause();
-      enclosing?.pause();
-    },
-    resume: () => {
-      budget.resume();
-      enclosing?.resume();
+    pause: (): ChainedPauseToken => ({
+      own: budget.pause(),
+      ...(enclosing !== undefined ? { enclosing: enclosing.pause() } : {}),
+    }),
+    resume: (token: ChainedPauseToken) => {
+      budget.resume(token.own);
+      if (enclosing !== undefined && token.enclosing !== undefined) {
+        enclosing.resume(token.enclosing);
+      }
     },
     waitForApproval,
   };

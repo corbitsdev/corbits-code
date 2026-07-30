@@ -793,7 +793,7 @@ async function promptPermission(
       tool: request.tool,
     });
   }
-  if (budget?.waitForApproval) budget.pause();
+  const pauseToken = budget?.waitForApproval ? budget.pause() : undefined;
   const summary = `${request.tool}: ${request.subject}`;
   stderr.write(`\nPermission required: ${summary}\n`);
   const scopes = request.scopes;
@@ -815,6 +815,6 @@ async function promptPermission(
     };
   } finally {
     rl.close();
-    if (budget?.waitForApproval) budget.resume();
+    if (pauseToken !== undefined) budget?.resume(pauseToken);
   }
 }
