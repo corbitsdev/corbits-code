@@ -14,6 +14,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)
 - Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
 
+## [0.2.85] - 2026-07-29
+
+Patch release: shell permission hardening, sub-agent dispatch controls, and a live TUI test suite.
+
+### Security
+
+- Command substitution (`` `...` ``, `$(...)`) no longer auto-allows, and substituted paths stay visible to the restricted-target check ([#268](https://github.com/corbitsdev/corbits-code/pull/268)).
+- Authz-hard-blocked commands deny at the gate instead of showing an Accept button ([#272](https://github.com/corbitsdev/corbits-code/pull/272)).
+- Restricted targets are re-checked when replaying a stored grant ([#271](https://github.com/corbitsdev/corbits-code/pull/271)).
+- Glob metacharacters are escaped in persisted exact-command grants ([#269](https://github.com/corbitsdev/corbits-code/pull/269)).
+- Relative `pluginPaths` entries are dropped at trust migration instead of resolving against the launch directory ([#267](https://github.com/corbitsdev/corbits-code/pull/267)).
+
+### New Features
+
+- Task tiers resolve OAuth providers from the live catalog ([#262](https://github.com/corbitsdev/corbits-code/pull/262)).
+- Typed task spawn contract: intent, success criteria, do-not list, report focus ([#264](https://github.com/corbitsdev/corbits-code/pull/264)), with intent-driven soft defaults for tools, tier, and turn budget ([#265](https://github.com/corbitsdev/corbits-code/pull/265)).
+- Sub-agent thrash detection with re-read caps and a one-shot wrap-up nudge near the turn budget ([#263](https://github.com/corbitsdev/corbits-code/pull/263)); Grok leaf agents get a finish-bias prompt residual ([#266](https://github.com/corbitsdev/corbits-code/pull/266)).
+
+### Fixed
+
+- A stale approval-prompt resume no longer unfreezes a newer tool-budget pause ([#270](https://github.com/corbitsdev/corbits-code/pull/270)).
+- The TUI test suite runs again (1105 tests were dark from a Bun isolate regression) ([#273](https://github.com/corbitsdev/corbits-code/pull/273)).
+
 ## [0.2.84] - 2026-07-29
 
 Patch release: permission-approval hardening and plugin trust fixes.
