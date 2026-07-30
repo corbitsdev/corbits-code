@@ -1,6 +1,7 @@
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ApprovalOutcome, PermissionRequest, RequestApproval } from "../permission/types.js";
+import type { ChainedPauseToken } from "./tool-execution-watchdog.js";
 import { getToolApprovalBudget } from "./tool-execution-watchdog.js";
 import type { PermissionGateEvent } from "./hooks/use-gates.js";
 
@@ -33,12 +34,14 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
           tool: request.tool,
         });
       }
-      if (budget?.waitForApproval) budget.pause();
+      const pauseToken: ChainedPauseToken | undefined = budget?.waitForApproval
+        ? budget.pause()
+        : undefined;
       let settled = false;
       const finish = (outcome: ApprovalOutcome): void => {
         if (settled) return;
         settled = true;
-        if (budget?.waitForApproval) budget.resume();
+        if (pauseToken !== undefined) budget?.resume(pauseToken);
         resolve(outcome);
       };
       const goal = args.goalTimeout();

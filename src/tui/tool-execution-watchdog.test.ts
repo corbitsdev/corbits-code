@@ -188,10 +188,10 @@ describe("tool execution watchdog", () => {
   test("withPauseableTimeout freezes remaining budget while paused", async () => {
     const parent = new AbortController();
     const budget = withPauseableTimeout(parent.signal, 80);
-    budget.pause();
+    const token = budget.pause();
     await new Promise((r) => setTimeout(r, 120));
     expect(budget.signal.aborted).toBe(false);
-    budget.resume();
+    budget.resume(token);
     await new Promise((r) => setTimeout(r, 100));
     expect(budget.signal.aborted).toBe(true);
     budget.dispose();
@@ -205,10 +205,10 @@ describe("tool execution watchdog", () => {
       async () => {
         const budget = getToolApprovalBudget();
         expect(budget).toBeDefined();
-        budget!.pause();
+        const token = budget!.pause();
         // Longer than the budget — would time out if not paused.
         await new Promise((r) => setTimeout(r, 120));
-        budget!.resume();
+        budget!.resume(token);
         return { callId: "pause", content: "approved-late" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
@@ -227,11 +227,11 @@ describe("tool execution watchdog", () => {
       async () => {
         const budget = getToolApprovalBudget();
         expect(budget).toBeDefined();
-        budget!.pause();
+        const token = budget!.pause();
         // Simulate UI thread: resume via captured methods outside this ALS tick.
         await new Promise<void>((resolve) => {
           setTimeout(() => {
-            budget!.resume();
+            budget!.resume(token);
             resolve();
           }, 120);
         });
@@ -268,16 +268,40 @@ describe("tool execution watchdog", () => {
   test("resume before the pause ceiling clears the ceiling timer", async () => {
     const parent = new AbortController();
     const budget = withPauseableTimeout(parent.signal, 100, 30);
-    budget.pause();
+    const firstToken = budget.pause();
     await new Promise((r) => setTimeout(r, 10));
-    budget.resume();
-    budget.pause();
+    budget.resume(firstToken);
+    const secondToken = budget.pause();
     // A fresh pause restarts the ceiling; forced resume must not double-fire.
     await new Promise((r) => setTimeout(r, 50));
     expect(budget.signal.aborted).toBe(false);
-    budget.resume();
+    budget.resume(secondToken);
     await new Promise((r) => setTimeout(r, 130));
     expect(budget.signal.aborted).toBe(true);
+    budget.dispose();
+  });
+
+  test("stale resume after a forced ceiling resume does not unfreeze a newer pause", async () => {
+    // Ceiling fires at 120ms and force-resumes prompt A's pause. Prompt B then
+    // opens its own pause on the now-running clock. When prompt A's orphaned
+    // resume() finally arrives, it must not decrement prompt B's pause depth
+    // or cancel B's own ceiling timer — B should get its own full ceiling
+    // window before the budget clock resumes on its account.
+    const parent = new AbortController();
+    const budget = withPauseableTimeout(parent.signal, 240, 120);
+    const tokenA = budget.pause(); // prompt A, ceiling armed to fire at ~120ms
+    await new Promise((r) => setTimeout(r, 200)); // past A's ceiling
+    const tokenB = budget.pause(); // prompt B opens at ~200ms, ceiling armed to ~320ms
+    budget.resume(tokenA); // stale resume from prompt A must be a no-op
+    // If the stale resume wrongly unfroze the clock (bug: it also cancels B's
+    // ceiling timer), the budget aborts around 360ms. With the fix, B's own
+    // ceiling doesn't fire until ~320ms, so the budget is still frozen here.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(budget.signal.aborted).toBe(false);
+    // B's ceiling eventually force-resumes it on its own account.
+    await new Promise((r) => setTimeout(r, 90));
+    expect(budget.signal.aborted).toBe(true);
+    budget.resume(tokenB);
     budget.dispose();
   });
 
@@ -299,10 +323,10 @@ describe("tool execution watchdog", () => {
           async () => {
             const budget = getToolApprovalBudget();
             expect(budget).toBeDefined();
-            budget!.pause();
+            const token = budget!.pause();
             // Longer than the outer budget — outer must be frozen too.
             await new Promise((r) => setTimeout(r, 120));
-            budget!.resume();
+            budget!.resume(token);
             return { callId: "inner", content: "child-ok" };
           },
           { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
