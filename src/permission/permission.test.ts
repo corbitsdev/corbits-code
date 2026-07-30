@@ -1906,6 +1906,20 @@ describe("createPermissionGate restricted paths", () => {
     expect(asked).toBe(1);
   });
 
+  test("a broad prefix grant does not replay for a backtick-substituted restricted target", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat `/etc/passwd`"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
   test("an exact full multi-segment command grant does not replay when the command targets a restricted path", async () => {
     let asked = 0;
     const command = "cat /etc/passwd && echo done";
