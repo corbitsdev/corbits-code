@@ -1888,6 +1888,39 @@ describe("createPermissionGate restricted paths", () => {
     expect(pluginResult.isError).toBe(true);
     expect(pluginResult.content).toMatch(/sensitive file blocked/);
   });
+
+  // A stored grant (whether a broad prefix like "cat *" or an exact
+  // full-command match) must never let a restricted-path command skip the
+  // operator. Restriction is re-evaluated against the actual command being
+  // replayed, not just at the moment the grant was minted.
+  test("a broad prefix grant does not replay for a segment that targets a restricted path", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "cat *" }],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall("cat /etc/passwd"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  test("an exact full multi-segment command grant does not replay when the command targets a restricted path", async () => {
+    let asked = 0;
+    const command = "cat /etc/passwd && echo done";
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: command }],
+      cwd,
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate(shellCall(command));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
 });
 
 describe("read-only tools in auto mode", () => {
