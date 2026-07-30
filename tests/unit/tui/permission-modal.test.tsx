@@ -122,6 +122,15 @@ test("the verbatim command renders as a wrapped multi-line block for a real mult
   expect(lines).not.toContain("echo one↵echo two");
 });
 
+test("a background & chain is enumerated like the security splitter sees it", () => {
+  const { lastFrame } = render(
+    <PermissionModal request={shellRequest("ls & rm -rf /tmp/scratch")} onResolve={() => {}} />,
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("1. ls");
+  expect(frame).toContain("2. rm -rf /tmp/scratch");
+});
+
 test("a comment+pipe command renders one inline segment, a separated comment line, and distinct scope options", () => {
   const command =
     "# Extract history lines for the two latest sessions only\ngrep -E 'aaa11111|bbb22222' /path/to/example.jsonl | cut -c1-500";
@@ -219,6 +228,18 @@ test("an enormous single command is truncated for display", () => {
   expect(frame.replace(/[\s│]/g, "")).toContain("…truncated");
   expect(frame).toContain("Reject");
   expect(Date.now() - start).toBeLessThan(5_000);
+});
+
+test("a many-line command caps the verbatim block and keeps the choice chrome in frame", () => {
+  const flood = `rm -rf / #hidden\n${Array.from({ length: 100 }, () => "x").join("\n")}`;
+  const { lastFrame } = render(<PermissionModal request={shellRequest(flood)} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  const lines = frame.split("\n") as string[];
+  expect(lines.length).toBeLessThan(50);
+  expect(frame).toContain("rm -rf / #hidden");
+  expect(frame).toMatch(/… \d+ more lines/);
+  expect(frame).toContain("Reject");
+  expect(frame).toContain("Accept once");
 });
 
 test("the verbatim command is shown even when no persistable scopes exist", () => {

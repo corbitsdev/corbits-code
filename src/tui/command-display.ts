@@ -6,14 +6,47 @@
 // grouping is coarser (pipes stay inline) and must never feed back into a
 // security decision.
 
-// Mirrors the top-level boundary rules in splitChainedCommand (quote- and
-// paren-aware, && / || / ; / newline are chain boundaries) but treats a
-// single "|" as part of the current segment instead of a boundary, so a pipe
-// stage never shows up as its own meaningless numbered item.
+// `&` participates in a redirect when it opens a bash combined redirect
+// (`&>file`) or duplicates a fd (`2>&1`, `<&-`); only a lone `&` word is the
+// background operator. Mirrors the same rule in src/permission/command.ts.
+function isRedirectAmpersand(next: string | undefined): boolean {
+  return !(next === undefined || next === " " || next === "\t");
+}
+
+// The marker word of a heredoc redirect starting at `i` (pointing at `<<`),
+// or null when `<<` is not a heredoc opener (e.g. `<<<` here-string).
+function parseHeredocMarker(command: string, i: number): string | null {
+  if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<") return null;
+  let j = i + 2;
+  if (command[j] === "-") j++;
+  while (command[j] === " " || command[j] === "\t") j++;
+  let markerQuote: string | null = null;
+  if (command[j] === "'" || command[j] === '"') {
+    markerQuote = command[j] as string;
+    j++;
+  }
+  let marker = "";
+  while (
+    j < command.length &&
+    command[j] !== "\n" &&
+    command[j] !== markerQuote &&
+    !(markerQuote === null && (command[j] === " " || command[j] === "\t"))
+  ) {
+    marker += command[j++];
+  }
+  return marker.length > 0 ? marker : null;
+}
+
+// Mirrors the top-level boundary rules in splitChainedCommand (quote-, paren-,
+// heredoc- and continuation-aware; && / || / ; / newline / lone & are chain
+// boundaries) but treats a single "|" as part of the current segment instead
+// of a boundary, so a pipe stage never shows up as its own meaningless
+// numbered item.
 export function groupChainSegmentsForDisplay(command: string): string[] {
   const segments: string[] = [];
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
+  let heredocMarker: string | null = null;
   let parenDepth = 0;
 
   const push = (): void => {
@@ -25,6 +58,21 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
   for (let i = 0; i < command.length; i++) {
     const ch = command[i] as string;
 
+    if (heredocMarker !== null) {
+      if (ch === "\n") {
+        const lines = current.split("\n");
+        const lastLine = lines[lines.length - 1] ?? "";
+        if (lastLine.trim() === heredocMarker) {
+          // The newline that closes the heredoc is a real chain boundary.
+          heredocMarker = null;
+          push();
+          continue;
+        }
+      }
+      current += ch;
+      continue;
+    }
+
     if (quote !== null) {
       current += ch;
       if (ch === quote) quote = null;
@@ -34,6 +82,26 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
       quote = ch;
       current += ch;
       continue;
+    }
+
+    // The shell elides a backslash-newline, joining the lines into one
+    // command — so it is never a display boundary either.
+    if (ch === "\\" && (command[i + 1] === "\n" || command[i + 1] === "\r")) {
+      i += 1;
+      if (command[i] === "\r" && command[i + 1] === "\n") i += 1;
+      continue;
+    }
+
+    if (ch === "<" && command[i + 1] === "<") {
+      const marker = parseHeredocMarker(command, i);
+      if (marker !== null) {
+        let j = i;
+        while (j < command.length && command[j] !== "\n") j++;
+        current += command.slice(i, j);
+        i = j - 1;
+        heredocMarker = marker;
+        continue;
+      }
     }
 
     if (ch === "(") {
@@ -57,7 +125,11 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
       i++;
       continue;
     }
-    if (ch === ";" || ch === "\n") {
+    if (ch === "&" && isRedirectAmpersand(next)) {
+      current += ch;
+      continue;
+    }
+    if (ch === ";" || ch === "\n" || ch === "&") {
       push();
       continue;
     }
@@ -67,6 +139,14 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
   return segments;
 }
 
+export type VerbatimLine = {
+  text: string;
+  // True only for a genuine full-line shell comment: never for heredoc body
+  // lines or for a line the shell joins onto the previous one via a
+  // backslash-newline continuation (where a leading # is executable payload).
+  isComment: boolean;
+};
+
 // Split an already-control-stripped command into the lines the verbatim block
 // renders. A top-level LF is a genuine command separator and becomes a real
 // rendered line. A newline inside quotes is the Trojan-Source vector — a
@@ -74,31 +154,81 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
 // stays inline as a visible "↵" marker, as does a bare CR (which the shell
 // would not treat as a separator but a terminal would repaint on). CRLF is an
 // ordinary line ending and follows the LF rule.
-export function verbatimCommandLines(text: string): string[] {
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "↵");
-  const lines: string[] = [];
+export function verbatimCommandLines(text: string): VerbatimLine[] {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const lines: VerbatimLine[] = [];
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
+  let heredocMarker: string | null = null;
+  let heredocPending: string | null = null;
+  let continued = false;
 
-  for (const ch of normalized) {
-    if (ch === "\n") {
-      if (quote !== null) {
+  const push = (): void => {
+    const isComment =
+      heredocMarker === null && !continued && current.trimStart().startsWith("#");
+    lines.push({ text: current, isComment });
+    current = "";
+    continued = false;
+  };
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i] as string;
+
+    if (ch === "\r") {
+      current += "↵";
+      continue;
+    }
+
+    if (heredocMarker !== null) {
+      if (ch === "\n") {
+        const done = current.trim() === heredocMarker;
+        push();
+        if (done) heredocMarker = null;
+        continue;
+      }
+      current += ch;
+      continue;
+    }
+
+    if (quote !== null) {
+      if (ch === "\n") {
         current += "↵";
         continue;
       }
-      lines.push(current);
-      current = "";
+      if (ch === quote) quote = null;
+      current += ch;
       continue;
     }
-    if (quote !== null) {
-      if (ch === quote) quote = null;
-    } else if (ch === '"' || ch === "'" || ch === "`") {
+
+    if (ch === "\\" && normalized[i + 1] === "\n") {
+      current += "\\";
+      push();
+      continued = true;
+      i++;
+      continue;
+    }
+
+    if (ch === "\n") {
+      push();
+      heredocMarker = heredocPending;
+      heredocPending = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
       quote = ch;
+      current += ch;
+      continue;
+    }
+
+    if (ch === "<" && normalized[i + 1] === "<" && heredocPending === null) {
+      const marker = parseHeredocMarker(normalized, i);
+      if (marker !== null) heredocPending = marker;
     }
     current += ch;
   }
-  lines.push(current);
-  return lines.filter((line, i) => line.trim().length > 0 || i === 0);
+  push();
+  return lines.filter((line, i) => line.text.trim().length > 0 || i === 0);
 }
 
 // Truncate to `max` characters keeping both the head and tail, so a set of

@@ -7,6 +7,7 @@ import { describeToolCall } from "../tool-formatter.js";
 import { stripTerminalControlSequences } from "../../util/control-char-strip.js";
 import { isShellCommentOnly } from "../../permission/command.js";
 import { groupChainSegmentsForDisplay, middleEllipsis, verbatimCommandLines } from "../command-display.js";
+import type { VerbatimLine } from "../command-display.js";
 
 // Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
 // command — Trojan Source — and zero-width characters hide payload boundaries,
@@ -18,6 +19,7 @@ const BIDI_AND_ZERO_WIDTH = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u20
 // screen (and stall layout). The executed and persisted command is never
 // touched — only what the modal draws.
 const MAX_RENDERED_SEGMENTS = 12;
+const MAX_RENDERED_LINES = 12;
 const MAX_DISPLAY_LINE_LENGTH = 240;
 
 function clampForDisplay(text: string): string {
@@ -42,12 +44,17 @@ function sanitizeForPrompt(text: string): string {
 // embedded break in a quoted argument still cannot masquerade as a fresh,
 // unmarked line — see the "cannot fake extra lines" regression test. Control
 // sequences and bidi/zero-width characters are stripped exactly as before;
-// only line-break presentation differs from sanitizeForPrompt.
-function verbatimDisplayLines(text: string): string[] {
-  const stripped = clampForDisplay(
-    stripTerminalControlSequences(text).replace(BIDI_AND_ZERO_WIDTH, ""),
-  );
-  return verbatimCommandLines(stripped);
+// only line-break presentation differs from sanitizeForPrompt. Each line is
+// clamped individually and the line count is capped, mirroring the segment
+// cap: many short lines would otherwise pass the character clamp yet still
+// push the Reject/Accept choices off screen.
+function verbatimDisplayLines(text: string): { lines: VerbatimLine[]; hiddenLineCount: number } {
+  const stripped = stripTerminalControlSequences(text).replace(BIDI_AND_ZERO_WIDTH, "");
+  const all = verbatimCommandLines(stripped);
+  const lines = all
+    .slice(0, MAX_RENDERED_LINES)
+    .map((line) => ({ ...line, text: clampForDisplay(line.text) }));
+  return { lines, hiddenLineCount: all.length - lines.length };
 }
 
 // Hints (and, more rarely, labels) for persistent Allow options share a long
@@ -202,6 +209,9 @@ export function PermissionModal({
     .slice(0, MAX_RENDERED_SEGMENTS)
     .map((segment) => clampForDisplay(sanitizeForPrompt(segment)));
   const hiddenSegmentCount = allShellSegments.length - shellSegments.length;
+  const verbatim = descriptor.isShell
+    ? verbatimDisplayLines(request.subject)
+    : { lines: [] as VerbatimLine[], hiddenLineCount: 0 };
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
@@ -301,18 +311,21 @@ export function PermissionModal({
           // that otherwise carry the full command are absent when a request
           // must not mint grants (secret-path shell).
           <Box marginLeft={2} flexDirection="column">
-            {verbatimDisplayLines(request.subject).map((line, i) => (
+            {verbatim.lines.map((line, i) => (
               // Full-line comments are shell no-ops: de-emphasize them so the
               // executable lines carry the visual weight.
               <Text
                 key={i}
-                color={line.trimStart().startsWith("#") ? color("muted") : toolColor}
-                dimColor={line.trimStart().startsWith("#")}
+                color={line.isComment ? color("muted") : toolColor}
+                dimColor={line.isComment}
                 wrap="wrap"
               >
-                {line}
+                {line.text}
               </Text>
             ))}
+            {verbatim.hiddenLineCount > 0 && (
+              <Text color={color("muted")}>{`… ${verbatim.hiddenLineCount} more lines`}</Text>
+            )}
           </Box>
         )}
         {shellSegments.length > 1 ? (
