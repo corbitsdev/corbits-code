@@ -6,7 +6,7 @@ import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
 import { stripTerminalControlSequences } from "../../util/control-char-strip.js";
 import { isShellCommentOnly } from "../../permission/command.js";
-import { groupChainSegmentsForDisplay, middleEllipsis } from "../command-display.js";
+import { groupChainSegmentsForDisplay, middleEllipsis, verbatimCommandLines } from "../command-display.js";
 
 // Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
 // command — Trojan Source — and zero-width characters hide payload boundaries,
@@ -36,14 +36,18 @@ function sanitizeForPrompt(text: string): string {
     .replace(/\r\n|\r|\n/g, "↵");
 }
 
-// The verbatim block renders each ↵-marked break as its own wrapped line
-// instead of one dense run, so a genuinely multi-line command reads
-// naturally. The marker is kept as a prefix on every continuation line
-// (rather than dropped) so an embedded newline inside a quoted argument
-// still cannot masquerade as a fresh, unmarked line — see the "cannot fake
-// extra lines" regression test.
+// The verbatim block renders top-level newlines as real wrapped lines so a
+// genuinely multi-line command reads naturally. Newlines inside quotes and
+// bare CRs stay inline as a visible ↵ marker (see verbatimCommandLines) so an
+// embedded break in a quoted argument still cannot masquerade as a fresh,
+// unmarked line — see the "cannot fake extra lines" regression test. Control
+// sequences and bidi/zero-width characters are stripped exactly as before;
+// only line-break presentation differs from sanitizeForPrompt.
 function verbatimDisplayLines(text: string): string[] {
-  return clampForDisplay(sanitizeForPrompt(text)).split("↵");
+  const stripped = clampForDisplay(
+    stripTerminalControlSequences(text).replace(BIDI_AND_ZERO_WIDTH, ""),
+  );
+  return verbatimCommandLines(stripped);
 }
 
 // Hints (and, more rarely, labels) for persistent Allow options share a long
@@ -298,8 +302,15 @@ export function PermissionModal({
           // must not mint grants (secret-path shell).
           <Box marginLeft={2} flexDirection="column">
             {verbatimDisplayLines(request.subject).map((line, i) => (
-              <Text key={i} color={toolColor} wrap="wrap">
-                {i > 0 ? `↵${line}` : line}
+              // Full-line comments are shell no-ops: de-emphasize them so the
+              // executable lines carry the visual weight.
+              <Text
+                key={i}
+                color={line.trimStart().startsWith("#") ? color("muted") : toolColor}
+                dimColor={line.trimStart().startsWith("#")}
+                wrap="wrap"
+              >
+                {line}
               </Text>
             ))}
           </Box>

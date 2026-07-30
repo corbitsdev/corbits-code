@@ -67,6 +67,40 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
   return segments;
 }
 
+// Split an already-control-stripped command into the lines the verbatim block
+// renders. A top-level LF is a genuine command separator and becomes a real
+// rendered line. A newline inside quotes is the Trojan-Source vector — a
+// quoted argument line-breaking itself to imitate a fresh list entry — so it
+// stays inline as a visible "↵" marker, as does a bare CR (which the shell
+// would not treat as a separator but a terminal would repaint on). CRLF is an
+// ordinary line ending and follows the LF rule.
+export function verbatimCommandLines(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "↵");
+  const lines: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | "`" | null = null;
+
+  for (const ch of normalized) {
+    if (ch === "\n") {
+      if (quote !== null) {
+        current += "↵";
+        continue;
+      }
+      lines.push(current);
+      current = "";
+      continue;
+    }
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+    }
+    current += ch;
+  }
+  lines.push(current);
+  return lines.filter((line, i) => line.trim().length > 0 || i === 0);
+}
+
 // Truncate to `max` characters keeping both the head and tail, so a set of
 // strings that share a long common prefix (e.g. persistent Allow options that
 // differ only in their trailing grant note) stay visually distinguishable

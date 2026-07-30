@@ -113,10 +113,46 @@ test("the verbatim command renders as a wrapped multi-line block for a real mult
   const frame = lastFrame() ?? "";
   const lines = (frame.split("\n") as string[]).map((l) => l.replace(/^[│\s]+|[│\s]+$/g, ""));
   expect(lines.some((l) => l === "echo one")).toBe(true);
-  expect(lines.some((l) => l === "↵echo two")).toBe(true);
+  // A top-level LF is a real command separator: it renders as an actual
+  // fresh line with no ↵ marker (the marker is reserved for suspicious
+  // breaks — quoted newlines and bare CRs).
+  expect(lines.some((l) => l === "echo two")).toBe(true);
   // The verbatim block itself is no longer a single dense line with the
   // command collapsed onto it via the marker.
   expect(lines).not.toContain("echo one↵echo two");
+});
+
+test("a comment+pipe command renders one inline segment, a separated comment line, and distinct scope options", () => {
+  const command =
+    "# Extract history lines for the two latest sessions only\ngrep -E 'aaa11111|bbb22222' /path/to/example.jsonl | cut -c1-500";
+  const withScopes: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: command,
+    scopes: [
+      { id: "prefix", label: "broad", pattern: "grep -E 'aaa11111|bbb22222' *", hint: "grep -E 'aaa11111|bbb22222' *" },
+    ],
+  };
+  const { lastFrame } = render(<PermissionModal request={withScopes} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  const lines = (frame.split("\n") as string[]).map((l) => l.replace(/^[│\s]+|[│\s]+$/g, ""));
+
+  // (b) The comment renders on its own line, not glued to the command with a marker.
+  expect(lines.some((l) => l === "# Extract history lines for the two latest sessions only")).toBe(true);
+  expect(frame).not.toContain("only↵grep");
+
+  // The pipe chain is a single command: no enumerated segment list at all
+  // (grouping yields one display segment, and single segments are not numbered),
+  // and no pipe stage stranded as its own item.
+  expect(frame).not.toMatch(/\d+\. cut -c1-500/);
+  expect(frame).not.toMatch(/\d+\. grep -E/);
+
+  // (c) The three persistent Allow options stay pairwise distinct: beyond the
+  // option number, each one's distinguishing grant note survives to the screen
+  // instead of being clipped off by tail truncation.
+  expect(frame).toContain("this session");
+  expect(frame).toContain("persisted per repo");
+  expect(frame).toContain("all projects");
 });
 
 test("persistent Allow options remain distinguishable after truncation", async () => {
