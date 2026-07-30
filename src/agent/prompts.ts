@@ -326,11 +326,28 @@ export function buildSubAgentReportContract(): string {
   ].join("\n");
 }
 
+// Tiny residual for Grok/xAI leaves: mining showed higher tools-only thrash
+// than Codex on the same harness. Shared thrash harness + spawn contracts do
+// the structural work; this is only a finish-bias nudge, not a full rewrite.
+export function buildGrokLeafAntiThrashNote(): string {
+  return [
+    "Finish bias (xAI / Grok leaf):",
+    "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
+    "- If the next call would only re-open paths you already read, write the report instead.",
+    "- Leave the last turn for the report envelope; do not spend the budget on one more search or micro-edit.",
+  ].join("\n");
+}
+
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
   baseOverride?: string,
-  opts: { orchestrator?: boolean; toolNames?: readonly string[] } = {},
+  opts: {
+    orchestrator?: boolean;
+    toolNames?: readonly string[];
+    /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
+    grokAntiThrash?: boolean;
+  } = {},
 ): string {
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
@@ -347,6 +364,9 @@ export function buildSubAgentSystemPrompt(
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
+  if (opts.grokAntiThrash === true) {
+    sections.push(buildGrokLeafAntiThrashNote());
+  }
   // Always-last: the Corbits Code translation notes apply to every dispatched
   // agent, regardless of whether its definition came from a JS plugin or a
   // corbitsdev-format markdown file. The orchestrator flag rewrites the
@@ -354,3 +374,4 @@ export function buildSubAgentSystemPrompt(
   sections.push(buildSubAgentAppendix(opts));
   return joinSections(sections);
 }
+

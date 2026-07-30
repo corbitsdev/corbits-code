@@ -10,10 +10,12 @@ import {
   buildChatSystemPrompt,
   buildEnvironmentContext,
   buildGuidelines,
+  buildGrokLeafAntiThrashNote,
   buildHarnessFacts,
   buildSubAgentReportContract,
   buildSubAgentSystemPrompt,
 } from "./agent/prompts.js";
+
 
 const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
 
@@ -299,4 +301,24 @@ test("sub-agent prompt requires structured report envelope and stick-to-brief", 
   expect(prompt).toContain("## Paths");
   expect(prompt).toContain("Stick to the dispatch brief");
   expect(prompt).toContain("manage_tasks checklist");
+});
+
+test("default sub-agent prompt omits Grok anti-thrash residual", () => {
+  const prompt = buildSubAgentSystemPrompt();
+  expect(prompt).not.toContain("Finish bias (xAI / Grok leaf)");
+});
+
+test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => {
+  const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+    grokAntiThrash: true,
+  });
+  const note = buildGrokLeafAntiThrashNote();
+  expect(prompt).toContain(note);
+  expect(prompt).toContain("prefer the structured report");
+  expect(prompt).toContain("re-open paths you already read");
+  expect(prompt).toContain("Leave the last turn for the report envelope");
+  // Appendix still last.
+  expect(prompt.indexOf("Finish bias (xAI / Grok leaf)")).toBeLessThan(
+    prompt.indexOf("## Corbits Code notes"),
+  );
 });
