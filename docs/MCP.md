@@ -12,9 +12,13 @@ either settings file:
 **Project trust:** When `mcpServers` comes from **local** `.corbits/settings.json`,
 Corbits Code does **not** spawn or connect until each server is trusted for this
 project. Trust is stored as a fingerprint of `{ name, type, command, args, url }`
-in `.corbits/trust.json` (gitignored). The TUI prompts on first connect
-(trust-on-first-use). Headless runs without a trust callback **fail closed** —
-untrusted local servers are not connected.
+in `~/.corbits/trust/<cwd-hash>.json` (outside the repo). The TUI prompts on
+first connect (trust-on-first-use). Headless runs without a trust callback
+**fail closed** — untrusted local servers are not connected.
+
+The same per-cwd file also records project plugin trust; path-added plugins use
+a separate global store (`~/.corbits/trust/path-plugins.json`) that never gates
+MCP — see the trust model in `docs/PLUGINS.md`.
 
 Global MCP from `~/.corbits/settings.json` is treated as user-configured and
 does not require project trust. Local settings **replace** global MCP entirely

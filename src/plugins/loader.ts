@@ -206,7 +206,7 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-async function expandPluginPath(path: string): Promise<string[]> {
+export async function expandPluginPath(path: string): Promise<string[]> {
   // 1. Declared marketplace: trust its `source` list (relative to the root).
   try {
     const raw = await readFile(join(path, ".claude-plugin", "marketplace.json"), "utf8");
@@ -260,6 +260,20 @@ async function expandPluginPath(path: string): Promise<string[]> {
   return [path];
 }
 
+// Resolve a registered pluginPaths entry to the member plugin directories that
+// exist on disk: relative entries resolve against cwd, marketplace roots expand
+// to their members. Missing paths are dropped so trust decisions made from this
+// list never pre-grant a directory that could appear later with other content.
+export async function expandExistingPluginMembers(
+  registeredPath: string,
+  cwd: string,
+): Promise<string[]> {
+  const abs = isAbsolute(registeredPath) ? registeredPath : resolve(cwd, registeredPath);
+  const members = await expandPluginPath(abs);
+  const existing = await Promise.all(members.map((m) => pathExists(m)));
+  return members.filter((_, i) => existing[i]);
+}
+
 // Scan a plugins root directory and return all loaded plugin modules.
 // `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
 // When `isTrusted` is set and origin requires trust, untrusted paths load
@@ -296,7 +310,7 @@ async function scanPluginsDir(
 }
 
 // Discover user-installed plugins from:
-//   <cwd>/.corbits/plugins/   (project-local — requires path trust to execute)
+//   <cwd>/.corbits/plugins/   (project-local — requires project trust to execute)
 //   ~/.corbits/plugins/       (user-global — auto-trusted)
 //
 // Pass `isPluginTrusted` to gate project plugins. When omitted, project plugins
@@ -355,14 +369,22 @@ export async function loadPluginsFromPaths(
       return expandPluginPath(abs);
     }),
   );
+  // Anything under <cwd>/.corbits/plugins/ is project origin no matter how it
+  // was registered: discoverUserPlugins already loads it behind per-cwd project
+  // trust, and loading it here as origin "path" would let enabling the stub
+  // record a machine-wide grant for a repo-controlled directory.
+  const projectPluginsDir = resolve(cwd, SETTINGS_DIR_NAME, "plugins");
   const loaded = await Promise.all(
-    resolved.flat().map(async (p) => {
-      const abs = resolve(p);
-      if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
-        return readPluginMetadataOnly(abs, "path");
-      }
-      return loadPluginEntry(p, { cwd, origin: "path" });
-    }),
+    resolved
+      .flat()
+      .filter((p) => !pathIsInsideOrEqual(resolve(p), projectPluginsDir))
+      .map(async (p) => {
+        const abs = resolve(p);
+        if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
+          return readPluginMetadataOnly(abs, "path");
+        }
+        return loadPluginEntry(p, { cwd, origin: "path" });
+      }),
   );
   return loaded.filter((m): m is PluginModule => m !== null);
 }
@@ -425,7 +447,7 @@ export async function discoverClaudeInstalledPlugins(
       const installPath = (entry as { installPath?: unknown }).installPath;
       if (typeof installPath !== "string" || installPath.length === 0) continue;
       // Relative installPath resolves against process cwd and would let a
-      // poisoned registry load project trees as origin:"user" (no path trust).
+      // poisoned registry load project trees as origin:"user" (no project trust).
       if (!isAbsolute(installPath)) continue;
       const abs = resolve(installPath);
       // Contain under ~/.claude/plugins only (registry is home-scoped).

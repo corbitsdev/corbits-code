@@ -15,6 +15,13 @@ export type PluginDescriptor = {
   // For kind:"agent" plugins — the profiles contributed, shown so the user can
   // see which sub-agents and tiers a plugin provides before enabling it.
   agentProfiles?: { id: string; tier?: string; description?: string }[];
+  /**
+   * True when discovery found the plugin but code is not imported yet (project
+   * or path origin still untrusted). Enabling records trust and full-loads.
+   */
+  needsTrust?: boolean;
+  /** True for a trusted path-origin plugin, whose global grant can be withdrawn. */
+  canRevokeTrust?: boolean;
 };
 
 export type VerifyResult = { ok: boolean; message: string };
@@ -30,6 +37,8 @@ export type PluginsAdmin = {
   // Register a plugin from an arbitrary file/dir path, persisting it so it loads
   // on future startups. Returns the new plugin id on success.
   addPath: (path: string) => Promise<AddPathResult>;
+  // Withdraw the global trust grant for a path-origin plugin and disable it.
+  revokeTrust: (id: string) => Promise<VerifyResult>;
 };
 
 export type PluginsManagerProps = {
@@ -275,6 +284,21 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
       return;
     }
     if (input === "v" && (current.kind === "web" || current.kind === "tool")) { runVerify(); return; }
+    if (input === "r" && current.canRevokeTrust === true) {
+      const id = current.id;
+      setStatuses((s) => ({ ...s, [id]: { busy: true } }));
+      void Promise.resolve(admin.revokeTrust(id)).then(
+        (result) => {
+          setStatuses((s) => ({ ...s, [id]: { ok: result.ok, message: result.message } }));
+          if (result.ok) {
+            setConfig((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), enabled: false } }));
+            setVersion((v) => v + 1);
+          }
+        },
+        (err: unknown) => setStatuses((s) => ({ ...s, [id]: { ok: false, message: err instanceof Error ? err.message : String(err) } })),
+      );
+      return;
+    }
     if (/^[1-9]$/.test(input)) {
       const field = current.credentials[Number(input) - 1];
       if (field !== undefined) {
@@ -304,9 +328,19 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
                 <Text bold={isActive}>{p.name}</Text>
                 {p.kind !== undefined && <Text color={color("dim")} dimColor>{`[${p.kind}]`}</Text>}
                 <Text color={enabled ? color("success") : color("dim")}>{enabled ? "● enabled" : "○ disabled"}</Text>
+                {p.needsTrust === true && (
+                  <Text color={color("warning")}>needs trust</Text>
+                )}
                 {webActive && <Text color={color("accent")}>web override</Text>}
                 {p.kind === "tool" && isConsented(p.id) && <Text color={color("dim")} dimColor>consented</Text>}
               </Box>
+              {isActive && p.needsTrust === true && (
+                <Box marginLeft={2}>
+                  <Text color={color("muted")}>
+                    Code not loaded — press e to trust and enable
+                  </Text>
+                </Box>
+              )}
               {isActive && p.description !== undefined && (
                 <Box marginLeft={2}><Text color={color("muted")}>{p.description}</Text></Box>
               )}
@@ -397,7 +431,7 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
               ? "type path · ↑↓/Tab pick · Enter add · Esc cancel"
               : editing !== null
                 ? "type value · Enter save · Esc cancel"
-                : "↑↓ select · 1-9 edit credential · e enable · w web override · v verify · a add by path · Esc close"}
+                : `↑↓ select · 1-9 edit credential · e enable · w web override · v verify · a add by path${current?.canRevokeTrust === true ? " · r revoke trust" : ""} · Esc close`}
         </Text>
       </Box>
     </Box>

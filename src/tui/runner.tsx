@@ -40,13 +40,22 @@ import { createInferenceDependencies } from "../provider/inference-dependencies.
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, expandExistingPluginMembers, expandPluginPath, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules, type PluginOrigin } from "../plugins/loader.js";
 import {
   isPluginTrusted,
   loadProjectTrust,
   trustPlugin,
   type ProjectTrustStore,
 } from "../trust/project-trust.js";
+import {
+  isPathPluginTrusted,
+  migratePathTrustFromPluginPaths,
+  reportPathTrustMigration,
+  revokePathPlugin,
+  trustPathPlugin,
+  trustPathPlugins,
+  type PathTrustStore,
+} from "../trust/path-trust.js";
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
@@ -166,23 +175,33 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Auto-discover plugins from the repo's plugins/ directory and user plugin
   // dirs, plus any explicit paths registered through the /plugins UI.
-  // Project/path origins without a trust entry load metadata-only (no import).
+  // Project origins without a project-trust entry, and path origins without a
+  // global path-trust entry, load metadata-only (no import).
   // Claude Code marketplace installs are opt-in via settings.discoverClaudePlugins.
   let projectTrust: ProjectTrustStore = await loadProjectTrust(config.cwd);
-  const isTrustedPath = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+  // One-shot: seed global path trust from pluginPaths only when the store file
+  // does not exist yet (legacy per-cwd grants). Later boots load the store as-is.
+  let pathTrust: PathTrustStore = await migratePathTrustFromPluginPaths(
+    config.settings?.pluginPaths ?? [],
+    (p) => expandExistingPluginMembers(p, config.cwd),
+    undefined,
+    { onMigrated: reportPathTrustMigration },
+  );
+  const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+  const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
   const claudePlugins =
     config.settings?.discoverClaudePlugins === true
       ? await discoverClaudeInstalledPlugins(config.cwd)
       : [];
   const pluginModules = dedupePluginModules([
     ...(await discoverRepoPlugins(config.cwd)),
-    ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isTrustedPath })),
+    ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isProjectPluginTrusted })),
     ...claudePlugins,
     ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd, {
-      isPluginTrusted: isTrustedPath,
+      isPluginTrusted: isRegisteredPathTrusted,
     })),
   ]);
-  // Mutable list so trusting a project plugin can replace a metadata-only stub
+  // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
   const executablePlugins = () => livePluginModules.filter((m) => m.metadataOnly !== true);
@@ -374,18 +393,24 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // global settings file. Verify runs a real trial search through the web
   // candidate. The descriptor/candidate lists are mutable so plugins added by
   // path mid-session appear without a restart.
-  const toDescriptor = (m: PluginManifest | undefined): PluginDescriptor | undefined =>
-    m === undefined
+  const toDescriptor = (mod: {
+    manifest?: PluginManifest;
+    metadataOnly?: boolean;
+    origin?: PluginOrigin;
+  }): PluginDescriptor | undefined =>
+    mod.manifest === undefined
       ? undefined
       : {
-          id: m.id,
-          name: m.name,
-          ...(m.kind !== undefined ? { kind: m.kind } : {}),
-          ...(m.description !== undefined ? { description: m.description } : {}),
-          credentials: m.credentials ?? [],
+          id: mod.manifest.id,
+          name: mod.manifest.name,
+          ...(mod.manifest.kind !== undefined ? { kind: mod.manifest.kind } : {}),
+          ...(mod.manifest.description !== undefined ? { description: mod.manifest.description } : {}),
+          credentials: mod.manifest.credentials ?? [],
+          ...(mod.metadataOnly === true ? { needsTrust: true } : {}),
+          ...(mod.origin === "path" && mod.metadataOnly !== true ? { canRevokeTrust: true } : {}),
         };
   const pluginDescriptors: PluginDescriptor[] = livePluginModules
-    .map((m) => toDescriptor(m.manifest))
+    .map((m) => toDescriptor(m))
     .filter((d): d is PluginDescriptor => d !== undefined);
   // Attach agent profiles to their descriptors so the /plugins UI can show
   // which sub-agents and tiers a plugin contributes.
@@ -421,22 +446,32 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     getWebOverride: () => liveWebOverride,
     saveConfig: async (id, cfg) => {
       livePluginConfig = { ...livePluginConfig, [id]: cfg };
-      // Enabling a project/path plugin records path trust and full-loads code.
+      // Enabling a project/path plugin records trust and full-loads code.
       if (cfg.enabled === true) {
         const stub = livePluginModules.find((m) => m.manifest?.id === id);
+        // Trust routing must use the origin stamped at discovery — a fallback
+        // here could turn one store's gate into the other's grant.
         if (
           stub?.metadataOnly === true
           && stub.pluginPath !== undefined
+          && stub.origin !== undefined
         ) {
-          projectTrust = await trustPlugin(config.cwd, stub.pluginPath);
+          if (stub.origin === "path") {
+            pathTrust = await trustPathPlugin(stub.pluginPath);
+          } else {
+            projectTrust = await trustPlugin(config.cwd, stub.pluginPath);
+          }
           const full = await loadPluginEntry(stub.pluginPath, {
             cwd: config.cwd,
-            origin: stub.origin ?? "project",
+            origin: stub.origin,
           });
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
             );
+            const di = pluginDescriptors.findIndex((d) => d.id === id);
+            const fullDesc = toDescriptor(full);
+            if (di >= 0 && fullDesc !== undefined) pluginDescriptors.splice(di, 1, fullDesc);
             // Refresh web/tool candidate lists from the newly loaded module.
             for (const cand of collectWebPlugins([full])) {
               const ci = webPluginCandidates.findIndex((c) => c.id === cand.id);
@@ -524,11 +559,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (mod.manifest === undefined) {
         return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
       }
-      const descriptor = toDescriptor(mod.manifest);
+      const descriptor = toDescriptor(mod);
       if (descriptor === undefined) return { ok: false, message: "Invalid plugin manifest" };
-      // Persist trust only once it resolves to a real plugin, so a bogus path
-      // never leaves a dangling entry in the trust store.
-      projectTrust = await trustPlugin(config.cwd, abs);
+      // Persist global path trust only once it resolves to a real plugin, so a
+      // bogus path never leaves a dangling entry. Expand marketplaces so each
+      // member is trusted (exact-path match on reload).
+      const members = await expandPluginPath(abs);
+      pathTrust = await trustPathPlugins(members.length > 0 ? members : [abs]);
       // Replace any existing descriptor/candidate with the same id so re-adding
       // refreshes rather than duplicates.
       const existingIdx = pluginDescriptors.findIndex((d) => d.id === descriptor.id);
@@ -559,6 +596,34 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
       return { ok: true, message: `Added ${descriptor.name}`, id: descriptor.id };
+    },
+    revokeTrust: async (id) => {
+      const mod = livePluginModules.find((m) => m.manifest?.id === id);
+      if (mod === undefined || mod.origin !== "path" || mod.pluginPath === undefined) {
+        return { ok: false, message: "Only path-added plugins carry revocable global trust" };
+      }
+      pathTrust = await revokePathPlugin(mod.pluginPath);
+      // Drop back to the metadata-only stub and disable: the module stays
+      // registered in pluginPaths, but its code no longer loads. Anything
+      // already imported this session unloads on the next launch.
+      const stub = {
+        ...(mod.dir !== undefined ? { dir: mod.dir } : {}),
+        ...(mod.manifest !== undefined ? { manifest: mod.manifest } : {}),
+        origin: mod.origin,
+        pluginPath: mod.pluginPath,
+        metadataOnly: true,
+      };
+      livePluginModules = livePluginModules.map((m) => (m.manifest?.id === id ? stub : m));
+      const di = pluginDescriptors.findIndex((d) => d.id === id);
+      const stubDesc = toDescriptor(stub);
+      if (di >= 0 && stubDesc !== undefined) pluginDescriptors.splice(di, 1, stubDesc);
+      const wi = webPluginCandidates.findIndex((c) => c.id === id);
+      if (wi >= 0) webPluginCandidates.splice(wi, 1);
+      const ti = toolPluginCandidates.findIndex((c) => c.id === id);
+      if (ti >= 0) toolPluginCandidates.splice(ti, 1);
+      livePluginConfig = { ...livePluginConfig, [id]: { ...(livePluginConfig[id] ?? {}), enabled: false } };
+      await persistPluginSettings();
+      return { ok: true, message: "Trust revoked — code stays unloaded from next launch" };
     },
   };
 

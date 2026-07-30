@@ -8,7 +8,7 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 /** Where a plugin was discovered from. */
 export type PluginOrigin = "repo" | "user" | "project" | "path";
 
-/** Origins that may execute code without a project trust entry. */
+/** Origins that must not execute code until a trust gate passes (project or path store). */
 export function originRequiresTrust(origin: PluginOrigin): boolean {
   return origin === "project" || origin === "path";
 }
@@ -25,11 +25,12 @@ const emptyStore = (): ProjectTrustStore => ({
   trustedMcpFingerprints: [],
 });
 
-// SECURITY: trust records must NOT live inside the repo they authorize — a
-// hostile repo could otherwise ship its own `.corbits/trust.json` and
+// SECURITY: project trust records must NOT live inside the repo they authorize —
+// a hostile repo could otherwise ship its own `.corbits/trust.json` and
 // pre-grant consent to its plugins and MCP servers. We store them under the
 // user's home, in a file keyed by the resolved repo path, so only prior
-// interactive consent on THIS machine can populate them.
+// interactive consent on THIS machine can populate them. Path-origin plugins
+// use a separate global store (`path-trust.ts`); do not OR the two lists.
 export function projectTrustPath(cwd: string, home: string = homedir()): string {
   const repo = resolve(cwd);
   const key = createHash("sha256").update(repo).digest("hex").slice(0, 32);
