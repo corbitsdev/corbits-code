@@ -46,6 +46,8 @@ import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { isXaiGrokLeafProvider } from "./provider-family.js";
+
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { createPruningCompactor } from "../session/compactor.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
@@ -920,7 +922,12 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
     orchestrator: params.orchestrator === true,
     toolNames,
+    grokAntiThrash: isXaiGrokLeafProvider({
+      providerName: params.provider.providerName,
+      model: params.provider.model,
+    }),
   });
+
 
   let agentHandle: Awaited<ReturnType<typeof createAgent>> | null = null;
   const requestContinuation = (): void => {
