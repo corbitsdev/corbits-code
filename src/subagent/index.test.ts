@@ -816,6 +816,134 @@ describe("SubAgentDirector report-forced wiring", () => {
   });
 });
 
+describe("SubAgentDirector stall management", () => {
+  const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
+
+  function makeCapabilities(): ReactorCapabilities {
+    return {
+      infer: (options) =>
+        ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
+      executeTools: (calls, parallel, addToHistory) =>
+        ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
+      suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
+      fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
+      emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
+      reply: (content) => ({ type: "reply", content }) as ReactorAction,
+      checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
+      compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
+      wait: () => ({ type: "wait" }) as ReactorAction,
+      done: () => ({ type: "done" }) as ReactorAction,
+    };
+  }
+
+  function toolCallDoneEvent(id: string): ReactorInboundEvent {
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [{ type: "tool_call", id, name: "read_file", arguments: { path: "a.ts" } }],
+      },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function toolDoneEvent(callId: string): ReactorInboundEvent {
+    return { type: "tool.done", result: { callId, content: "ok" } } as unknown as ReactorInboundEvent;
+  }
+
+  function stallPing(): ReactorInboundEvent {
+    return { type: "message.received", message: { content: "" } } as unknown as ReactorInboundEvent;
+  }
+
+  function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
+    return Array.isArray(result) ? result : [result];
+  }
+
+  test("no nudge fires before the stall timeout elapses", async () => {
+    let now = 0;
+    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const capabilities = makeCapabilities();
+
+    await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
+    await director.decide(toolDoneEvent("tc-1"), mockState, capabilities);
+
+    now += 500; // under the 1000ms stall timeout
+    const actions = actionsArray(await director.decide(stallPing(), mockState, capabilities));
+    expect(actions.some((a) => a.type === "reply")).toBe(false);
+    const infer = actions.find((a) => a.type === "infer");
+    const options = infer?.type === "infer" ? (infer.options as { ephemeralTurns?: unknown[] } | undefined) : undefined;
+    expect(options?.ephemeralTurns).toBeUndefined();
+  });
+
+  test("first stall past the timeout gets one continuation nudge", async () => {
+    let now = 0;
+    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const capabilities = makeCapabilities();
+
+    await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
+    await director.decide(toolDoneEvent("tc-1"), mockState, capabilities);
+
+    now += 1500; // past the stall timeout
+    const actions = actionsArray(await director.decide(stallPing(), mockState, capabilities));
+    const infer = actions.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> })
+      ?.ephemeralTurns;
+    expect(ephemeralTurns?.[0]?.content?.[0]?.text).toContain("background");
+  });
+
+  test("a second consecutive stall escalates to the salvage report", async () => {
+    let now = 0;
+    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const capabilities = makeCapabilities();
+
+    await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
+    await director.decide(toolDoneEvent("tc-1"), mockState, capabilities);
+
+    now += 1500;
+    await director.decide(stallPing(), mockState, capabilities); // first stall: nudge
+
+    now += 1500; // no activity since the nudge
+    const actions = actionsArray(await director.decide(stallPing(), mockState, capabilities));
+    const reply = actions.find((a) => a.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("Stopped: no activity for two consecutive stall checks.");
+    expect(actions.some((a) => a.type === "infer")).toBe(false);
+  });
+
+  test("real activity between pings resets the stall streak", async () => {
+    let now = 0;
+    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const capabilities = makeCapabilities();
+
+    await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
+    await director.decide(toolDoneEvent("tc-1"), mockState, capabilities);
+
+    now += 1500;
+    await director.decide(stallPing(), mockState, capabilities); // first stall: nudge
+
+    // Real activity lands before the next ping — this must not count as a
+    // second consecutive stall.
+    now += 100;
+    await director.decide(toolCallDoneEvent("tc-2"), mockState, capabilities);
+    await director.decide(toolDoneEvent("tc-2"), mockState, capabilities);
+
+    now += 1500;
+    const actions = actionsArray(await director.decide(stallPing(), mockState, capabilities));
+    const infer = actions.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
+    // A fresh first stall nudges again rather than immediately escalating.
+    expect(ephemeralTurns).toBeDefined();
+  });
+});
+
 describe("createTaskTool", () => {
   test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
     let captured: RunSubAgentParams | undefined;

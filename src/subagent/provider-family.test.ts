@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isXaiGrokLeafProvider, shouldApplyGrokAntiThrash } from "./provider-family.js";
+import {
+  detectModelFamily,
+  isKimiLeafProvider,
+  isXaiGrokLeafProvider,
+  shouldApplyGrokAntiThrash,
+} from "./provider-family.js";
 
 describe("isXaiGrokLeafProvider", () => {
   test("matches xai/ OAuth provider names", () => {
@@ -47,5 +52,24 @@ describe("shouldApplyGrokAntiThrash", () => {
     expect(
       shouldApplyGrokAntiThrash({ providerName: "anthropic", orchestrator: false }),
     ).toBe(false);
+  });
+});
+
+describe("isKimiLeafProvider", () => {
+  test("matches moonshot provider names and kimi model ids", () => {
+    expect(isKimiLeafProvider({ providerName: "moonshot" })).toBe(true);
+    expect(isKimiLeafProvider({ providerName: "openai-compat", model: "kimi-k2" })).toBe(true);
+  });
+
+  test("rejects unrelated providers", () => {
+    expect(isKimiLeafProvider({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe(false);
+  });
+});
+
+describe("detectModelFamily", () => {
+  test("detects grok, kimi, and default", () => {
+    expect(detectModelFamily({ providerName: "xai/default", model: "grok-4.5" })).toBe("grok");
+    expect(detectModelFamily({ providerName: "moonshot", model: "kimi-k2" })).toBe("kimi");
+    expect(detectModelFamily({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe("default");
   });
 });

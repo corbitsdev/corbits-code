@@ -49,6 +49,7 @@ import type { PermissionGate } from "../permission/gate.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { shouldApplyGrokAntiThrash } from "./provider-family.js";
+import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { createPruningCompactor } from "../session/compactor.js";
@@ -325,7 +326,8 @@ export function forcedStopReport(
     | "never-acted"
     | "cancelled"
     | "deadline"
-    | "thrash",
+    | "thrash"
+    | "stalled",
   partialText: string,
 ): string {
   const summary =
@@ -339,7 +341,9 @@ export function forcedStopReport(
             ? "Stopped: cancelled by operator before finishing."
             : reason === "deadline"
               ? "Stopped: wall-clock deadline reached before finishing."
-              : "Turn budget reached before finishing.";
+              : reason === "stalled"
+                ? "Stopped: no activity for two consecutive stall checks."
+                : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
@@ -351,7 +355,9 @@ export function forcedStopReport(
             ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
             : reason === "deadline"
               ? "Leaf wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
-              : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+              : reason === "stalled"
+                ? "Leaf went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
+                : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (never-acted planning envelopes; cancel after a
@@ -451,6 +457,20 @@ function reportForcedNudgeTurn(): ConversationTurn {
   };
 }
 
+const SUBAGENT_STALL_NUDGE =
+  "No activity has been observed for a while. If you are waiting on a " +
+  "background command, check its status now; otherwise continue working or " +
+  "write your report.";
+
+function inferWithSubAgentNudge(capabilities: ReactorCapabilities, text: string): ReactorAction {
+  const options: ExtendedInferenceOptions = {
+    ephemeralTurns: [
+      { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
+    ],
+  };
+  return capabilities.infer(options);
+}
+
 /**
  * Attach the wrap-up nudge to an existing infer action's options rather than
  * building a fresh infer — a tool_use turn must be followed by tool_result,
@@ -479,17 +499,39 @@ export class SubAgentDirector extends DefaultDirector {
   // turn — a bare nudge here would send an invalid conversation.
   private pendingWrapUpNudge = false;
 
+  // Stall management: a leaf that goes quiet (e.g. parked on a long-running
+  // background command with nothing else to do) produces no inbound events
+  // for the director to react to. The reactor has no proactive "idle" event
+  // (directors are pure decide(event, ...) functions — see requestContinuation
+  // above), so the run loop periodically pings this same continuation channel
+  // and the director only acts on a ping if genuinely nothing happened since
+  // the last one. Precedence: this check sits below no-progress / thrash /
+  // turn-budget (evaluateSubAgentStop, above) — those fire from real
+  // inference.done turns and always take priority; stall pings only ever
+  // fire on a continuation message that inference.done/tool.done handling
+  // did not already consume this cycle.
+  private readonly stallTimeoutMs: number | undefined;
+  private readonly now: () => number;
+  private lastActivityAt: number;
+  private consecutiveStalls = 0;
+  private lastAssistantText = "";
+
   constructor(
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     requestContinuation: (() => void) | undefined,
     maxTurns: number,
     repeatLimit: number = DEFAULT_SUBAGENT_REPEAT_LIMIT,
+    stallTimeoutMs?: number,
+    now: () => number = Date.now,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation);
     this.maxTurns = maxTurns;
     this.repeatLimit = repeatLimit;
+    this.stallTimeoutMs = stallTimeoutMs;
+    this.now = now;
+    this.lastActivityAt = now();
   }
 
   override async decide(
@@ -505,11 +547,16 @@ export class SubAgentDirector extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
+    const stallOutcome = this.checkStallPing(event, capabilities);
+    if (stallOutcome !== null) return stallOutcome;
+
     // Keep the running local estimate current on every cycle (tool results and
     // rewrites included). Arming still happens inside noteInferenceDone, which
     // prefers provider usage when present.
     this.compaction.syncFromTurns(state.turns);
     if (event.type === "inference.done") {
+      this.lastActivityAt = this.now();
+      this.consecutiveStalls = 0;
       this.compaction.noteInferenceDone(event, state.turns);
       this.turnsCompleted++;
       const content = event.turn.content as ReadonlyArray<{
@@ -518,6 +565,7 @@ export class SubAgentDirector extends DefaultDirector {
         arguments?: unknown;
         text?: string;
       }>;
+      this.lastAssistantText = lastText(content);
       const fingerprint = fingerprintToolCalls(content);
       this.streak = nextToolCallStreak(this.streak, fingerprint);
       const hasToolCalls = fingerprint !== null;
@@ -576,12 +624,57 @@ export class SubAgentDirector extends DefaultDirector {
         return terminal;
       }
     }
+    if (event.type === "tool.done") {
+      this.lastActivityAt = this.now();
+      this.consecutiveStalls = 0;
+    }
     const base = await super.decide(event, state, capabilities);
     const actions = this.applyPendingWrapUpNudge(
       Array.isArray(base) ? base : [base],
       capabilities,
     );
     return this.compaction.interceptActions(event, actions, capabilities) ?? actions;
+  }
+
+  /**
+   * Reacts to the periodic stall-check ping (an empty-content continuation,
+   * same channel compaction uses to re-enter an idle reactor) started by the
+   * run loop when stallTimeoutMs is configured. Only ever sees this event
+   * when the reactor is genuinely between cycles — a ping delivered while a
+   * tool call is still executing simply queues until that cycle finishes, so
+   * "no pending harness-tracked work" falls out of when this method can run
+   * at all rather than needing separate bookkeeping.
+   *
+   * First stall past the timeout: one continuation nudge, asking the leaf to
+   * report status or keep going. A second consecutive stall (no activity
+   * since the nudge) escalates to the existing salvage path, same shape as
+   * no-progress/turn-budget/thrash above. Returns null when this event is not
+   * a stall check the director should act on (let it fall through as an
+   * ordinary continuation).
+   */
+  private checkStallPing(
+    event: ReactorInboundEvent,
+    capabilities: ReactorCapabilities,
+  ): ReactorAction[] | null {
+    if (this.stallTimeoutMs === undefined) return null;
+    if (event.type !== "message.received") return null;
+    const content = event.message.content;
+    if (typeof content !== "string" || content.length > 0) return null;
+    const elapsed = this.now() - this.lastActivityAt;
+    if (elapsed < this.stallTimeoutMs) return null;
+
+    this.consecutiveStalls++;
+    if (this.consecutiveStalls === 1) {
+      return [
+        capabilities.checkpoint("subagent-stall-nudge"),
+        inferWithSubAgentNudge(capabilities, SUBAGENT_STALL_NUDGE),
+      ];
+    }
+    const terminal: ReactorAction[] = [
+      capabilities.checkpoint("subagent-stalled"),
+      capabilities.reply(forcedStopReport("stalled", this.lastAssistantText)),
+    ];
+    return terminal;
   }
 
   /**
@@ -981,6 +1074,10 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   let agent: Awaited<ReturnType<typeof createAgent>> | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
+  // Declared before try (same reasoning as closeOnAbort above): assigned once
+  // requestContinuation/modelFamilyPolicy exist inside the try, but must be
+  // visible to the finally block, which is a sibling scope, not a child.
+  let stallWatchdog: ReturnType<typeof setInterval> | undefined;
   // Combines the caller's cancel signal with an optional opt-in wall-clock
   // deadline so a leaf that hits the deadline can still return a salvage report
   // rather than racing the outer per-tool-call watchdog (which would discard the
@@ -1110,6 +1207,12 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   const maxTurns =
     params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
 
+  const modelFamilyPolicy = resolveModelFamilyPolicy({
+    providerName: params.provider.providerName,
+    model: params.provider.model,
+    orchestrator: params.orchestrator === true,
+  });
+
   const directorDef = defineDirector({
     id: `${ID_PREFIX}/subagent`,
     configSchema: type({}),
@@ -1119,8 +1222,18 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         [...agentCtx.toolDefinitions],
         requestContinuation,
         maxTurns,
+        DEFAULT_SUBAGENT_REPEAT_LIMIT,
+        modelFamilyPolicy.subAgentStallTimeoutMs,
       ),
   });
+
+  // Directors are pure decide(event, ...) functions with no timer of their
+  // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
+  // external nudge to even get a decide() call. Ping the same continuation
+  // channel compaction uses at the stall interval; the director only acts on
+  // a ping if nothing happened since the last one.
+  stallWatchdog = setInterval(() => requestContinuation(), modelFamilyPolicy.subAgentStallTimeoutMs);
+  if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/subagent-tools`,
@@ -1309,6 +1422,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       throw err;
     }
   } finally {
+    if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
     runController.dispose();
     await disposeSubAgentSession({
       signal: runController.signal,

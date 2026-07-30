@@ -344,6 +344,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       skillDirs,
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
+      ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
       getBlobReader: () => {
         if (currentAgent === null) {
           throw new Error("blob reader requested before agent init");
@@ -433,6 +434,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
             // Compaction governor self-delivers after compact so the loop re-enters.
             currentAgent?.deliver(buildCompactionContinuationMessage());
           },
+          { providerName: config.providerName, model: config.model },
         );
         directorHolder.instance = d;
         return d;

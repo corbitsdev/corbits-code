@@ -688,6 +688,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     permissionGate,
     skillDirs,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+    ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,

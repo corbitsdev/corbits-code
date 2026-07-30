@@ -22,6 +22,7 @@ import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import type { GoalGovernor } from "./goal.js";
 import { evidenceFromTurns } from "./goal-evaluator.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
 
@@ -330,6 +331,16 @@ class ChatDirectorImpl extends DefaultDirector {
   private startedAt = Date.now();
   private readonly compaction: CompactionGovernor;
   private goal: GoalGovernor | undefined;
+  private readonly modelFamilyPolicy: ModelFamilyPolicy;
+  // Consecutive assistant turns that contain tool calls and no text. Reset on
+  // any turn with text and on every fresh user message — a weak model that
+  // spins in place on one thread of tool calls still converges to the pause,
+  // regardless of what it calls in between (same reset discipline as the
+  // idle/declined nudge budgets above).
+  private toolOnlyStreak = 0;
+  private toolOnlyNudgeFired = false;
+  private pendingToolOnlyNudge = false;
+  private pausedForToolOnly = false;
 
   constructor(
     systemPrompt: string,
@@ -341,6 +352,7 @@ class ChatDirectorImpl extends DefaultDirector {
     workflowCoordinator?: WorkflowCoordinator,
     onTasksChange?: (tasks: Task[]) => void,
     requestContinuation?: () => void,
+    modelFamilyPolicy?: ModelFamilyPolicy,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
@@ -352,6 +364,7 @@ class ChatDirectorImpl extends DefaultDirector {
     this.workflowCoordinator = workflowCoordinator;
     this.onTasksChange = onTasksChange;
     this.compaction = createCompactionGovernor(requestContinuation);
+    this.modelFamilyPolicy = modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
@@ -385,6 +398,41 @@ class ChatDirectorImpl extends DefaultDirector {
       "Director reached a terminal decision on {path} with open tasks: {openTasks}",
       { path, openTasks: this.openTaskIds() },
     );
+  }
+
+  /**
+   * Rewrites the infer action in a fall-through batch once pending tool
+   * calls have resolved: pause wins over a still-armed nudge (the streak
+   * only grows past pauseAt after nudgeAt), and each rewrite is one-shot —
+   * cleared as soon as it is actually applied to an infer.
+   */
+  private applyToolOnlyLoopProtection(
+    actions: ReactorAction[],
+    capabilities: ReactorCapabilities,
+  ): ReactorAction[] | null {
+    if (!this.pausedForToolOnly && !this.pendingToolOnlyNudge) return null;
+    const inferIndex = actions.findIndex((a) => a.type === "infer");
+    if (inferIndex === -1) return null;
+
+    if (this.pausedForToolOnly) {
+      const pauseMessage =
+        `Auto-paused after ${this.toolOnlyStreak} consecutive tool-only turns with no explanation. ` +
+        "Send a message to resume.";
+      return [
+        capabilities.checkpoint("tool-only-loop-paused"),
+        capabilities.reply(pauseMessage),
+      ];
+    }
+
+    this.pendingToolOnlyNudge = false;
+    const rewritten = [...actions];
+    const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
+    rewritten[inferIndex] = inferWithNudge(
+      capabilities,
+      this.modelFamilyPolicy.wrapUpNudgeText,
+      existing.options,
+    );
+    return rewritten;
   }
 
   private withCurrentTools(
@@ -465,6 +513,10 @@ class ChatDirectorImpl extends DefaultDirector {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
       this.inferenceRecoveries = 0;
+      this.toolOnlyStreak = 0;
+      this.toolOnlyNudgeFired = false;
+      this.pendingToolOnlyNudge = false;
+      this.pausedForToolOnly = false;
     }
     if (event.type === "inference.done") this.inferenceRecoveries = 0;
 
@@ -514,6 +566,31 @@ class ChatDirectorImpl extends DefaultDirector {
         (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
+
+      // Main-session loop protection: a run of tool-only turns (tool calls,
+      // no narration) is the shape of a runaway session an operator would
+      // otherwise have to notice and cancel by hand. A dismissed
+      // ask_operator counts toward this streak like any other tool-only turn
+      // (handled separately below; declined-tool early returns do not reset
+      // the streak because only text turns and fresh messages do).
+      if (hasToolCalls && !hasText) {
+        this.toolOnlyStreak++;
+      } else {
+        this.toolOnlyStreak = 0;
+        this.toolOnlyNudgeFired = false;
+        this.pendingToolOnlyNudge = false;
+        this.pausedForToolOnly = false;
+      }
+      if (this.toolOnlyStreak >= this.modelFamilyPolicy.toolOnlyTurnPauseAt) {
+        this.pausedForToolOnly = true;
+      } else if (
+        this.toolOnlyStreak === this.modelFamilyPolicy.toolOnlyTurnNudgeAt &&
+        !this.toolOnlyNudgeFired
+      ) {
+        this.toolOnlyNudgeFired = true;
+        this.pendingToolOnlyNudge = true;
+      }
+
       // Attribute main-loop tokens to an active goal for soft token budgets.
       if (this.goal !== undefined) {
         const u = event.usage;
@@ -608,6 +685,18 @@ class ChatDirectorImpl extends DefaultDirector {
     const compacted = this.compaction.interceptActions(event, baseActions, capabilities);
     if (compacted !== null) return compacted;
 
+    // Loop protection takes precedence over workflow/open-task/goal
+    // continuation nudges below: those exist to keep a session moving,
+    // which is exactly the behavior the pause is guarding against. A tool
+    // call turn (like the one that triggered this) must still execute
+    // before any nudge or pause can land — a bare user turn on top of
+    // pending tool_calls is a provider-invalid conversation — so this only
+    // rewrites an `infer` action once pending tools have resolved and one
+    // is actually present in the batch (mirrors the sub-agent report-forced
+    // wiring in src/subagent/index.ts).
+    const toolOnlyRewrite = this.applyToolOnlyLoopProtection(baseActions, capabilities);
+    if (toolOnlyRewrite !== null) return toolOnlyRewrite;
+
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
       const actions = Array.isArray(base) ? base : [base];
@@ -687,6 +776,7 @@ export function createChatDirector(
   workflowCoordinator?: WorkflowCoordinator,
   onTasksChange?: (tasks: Task[]) => void,
   requestContinuation?: () => void,
+  provider?: { providerName: string; model?: string },
 ): ChatDirector {
   return new ChatDirectorImpl(
     systemPrompt,
@@ -698,6 +788,7 @@ export function createChatDirector(
     workflowCoordinator,
     onTasksChange,
     requestContinuation,
+    provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
   );
 }
 
