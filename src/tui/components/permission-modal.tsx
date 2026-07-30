@@ -346,6 +346,11 @@ export function PermissionModal({
           </Box>
         ) : null}
       </Box>
+      {request.notice !== undefined && (
+        <Box marginTop={1}>
+          <Text color={color("muted")}>{sanitizeForPrompt(request.notice)}</Text>
+        </Box>
+      )}
       <Box marginTop={1} flexDirection="column">
         {choices.map((choice, i) => {
           const isReject = choice.outcome.allow === false;

@@ -287,6 +287,31 @@ describe("buildRequests", () => {
     expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual(["npm i && curl x"]);
   });
 
+  test("a 4-segment chain (threshold-1) keeps the exact-command scope and no notice", () => {
+    const cmd = ["a", "b", "c", "d"].join(" && ");
+    const reqs = buildRequests(shellCall(cmd));
+    expect(reqs[0]?.scopes.map((s) => s.pattern)).toEqual([cmd]);
+    expect(reqs[0]?.notice).toBeUndefined();
+  });
+
+  test("a 5-segment chain (threshold) offers no scopes and shows the mega-chain notice", () => {
+    const cmd = ["a", "b", "c", "d", "e"].join(" && ");
+    const reqs = buildRequests(shellCall(cmd));
+    expect(reqs[0]?.scopes).toEqual([]);
+    expect(reqs[0]?.notice).toBe(
+      "Long chains are approved once only — split the command for reusable approvals.",
+    );
+  });
+
+  test("a 6-segment chain (threshold+1) also offers no scopes", () => {
+    const cmd = ["a", "b", "c", "d", "e", "f"].join(" && ");
+    const reqs = buildRequests(shellCall(cmd));
+    expect(reqs[0]?.scopes).toEqual([]);
+    expect(reqs[0]?.notice).toBe(
+      "Long chains are approved once only — split the command for reusable approvals.",
+    );
+  });
+
   test("full-line shell comments never become approval subjects", () => {
     expect(buildRequests(shellCall("# worktree"))).toEqual([]);
     expect(buildRequests(shellCall("  # heading  "))).toEqual([]);
@@ -1607,6 +1632,34 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(1);
     // A different chain still needs its own decision.
     expect((await gate.evaluate(shellCall(other))).allowed).toBe(true);
+    expect(asked).toBe(2);
+  });
+
+  // A mega-chain (>= MEGA_CHAIN_SEGMENT_THRESHOLD segments) never mints a
+  // grant, even if a persist scope somehow arrives back from requestApproval
+  // (defense in depth alongside buildRequests offering no scopes at all).
+  test("a mega-chain never mints a grant and re-prompts every time", async () => {
+    const full = "a && b && c && d && e";
+    let asked = 0;
+    const persisted: Approval[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (req) => {
+        asked++;
+        return {
+          allow: true,
+          persist: { id: "exact", label: "Always allow this exact command", pattern: req.subject, grant: "project" },
+        };
+      },
+      persist: (a) => persisted.push(a),
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(asked).toBe(1);
+    expect(persisted).toEqual([]);
+    // No grant was minted, so the same chain prompts again.
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(2);
   });
 

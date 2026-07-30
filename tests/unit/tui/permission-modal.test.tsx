@@ -278,6 +278,31 @@ test("the verbatim command is shown even when no persistable scopes exist", () =
   expect(frame).toContain("cat~/.aws/credentials&&echodone");
 });
 
+test("the mega-chain notice renders as a muted line when scopes are withheld", () => {
+  const megaChain: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: "a && b && c && d && e",
+    scopes: [],
+    notice: "Long chains are approved once only — split the command for reusable approvals.",
+  };
+  const { lastFrame } = render(<PermissionModal request={megaChain} onResolve={() => {}} />);
+  const frame = (lastFrame() ?? "").replace(/[│]/g, "").replace(/\s+/g, " ");
+  expect(frame).toContain("Long chains are approved once only — split the command for reusable approvals.");
+});
+
+test("no notice line renders when the request carries none (e.g. secret-path scopes:[])", () => {
+  const secretPath: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: "cat ~/.aws/credentials",
+    scopes: [],
+  };
+  const { lastFrame } = render(<PermissionModal request={secretPath} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("approved once only");
+});
+
 test("PermissionModal shows reject, accept-once, and broad-scope options", () => {
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";

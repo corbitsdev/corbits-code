@@ -396,3 +396,150 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(asked).toBe(0);
   });
 });
+
+describe("env-assignment shell commands force ask in auto mode", () => {
+  test("a bare NAME=value prefix asks", () => {
+    expect(autoShellRuleForCall(shellCall("FOO=bar npm start"))?.name).toBe("env-assignment");
+    expect(autoShellRuleForCall(shellCall("A=1 B=2 npm start"))?.name).toBe("env-assignment");
+  });
+
+  test("export asks, with or without an assignment", () => {
+    expect(autoShellRuleForCall(shellCall("export FOO=bar"))?.name).toBe("env-assignment");
+    expect(autoShellRuleForCall(shellCall("export FOO"))?.name).toBe("env-assignment");
+  });
+
+  test("the env command used to set a variable asks", () => {
+    expect(autoShellRuleForCall(shellCall("env FOO=bar npm start"))?.name).toBe("env-assignment");
+  });
+
+  test("bare env/nice/timeout wrappers with no assignment still peel through untouched", () => {
+    expect(autoShellRuleForCall(shellCall("env npm test"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("nice -n 10 npm test"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("timeout 30 npm test"))).toBeUndefined();
+  });
+
+  test("an env-assignment prefix on a later chain segment still asks", () => {
+    const rule = autoShellRuleForCall(shellCall("ls && FOO=bar npm start"));
+    expect(rule?.name).toBe("env-assignment");
+  });
+
+  test("file-mutation deny still beats an env-assignment ask", () => {
+    const rule = autoShellRuleForCall(shellCall("FOO=bar sh -c 'echo x > .env'"));
+    expect(rule?.name).toBe("file-mutation");
+  });
+
+  test("env -S with an embedded assignment asks (the assignment lives inside the quoted argument)", () => {
+    expect(
+      autoShellRuleForCall(shellCall(`env -S "FOO=bar sh -c 'echo got:$FOO'"`))?.name,
+    ).toBe("env-assignment");
+  });
+
+  test("env --split-string sibling forms with an embedded assignment ask", () => {
+    expect(autoShellRuleForCall(shellCall(`env --split-string="FOO=bar npm start"`))?.name).toBe(
+      "env-assignment",
+    );
+    expect(autoShellRuleForCall(shellCall(`env --split-string "FOO=bar npm start"`))?.name).toBe(
+      "env-assignment",
+    );
+  });
+
+  test("env -i with a plain assignment argument asks", () => {
+    expect(autoShellRuleForCall(shellCall("env -i FOO=bar npm start"))?.name).toBe("env-assignment");
+  });
+
+  test("stacked short flags (env -iS) with an embedded assignment ask", () => {
+    expect(autoShellRuleForCall(shellCall(`env -iS "FOO=bar npm start"`))?.name).toBe("env-assignment");
+  });
+
+  test("env -S with no embedded assignment does not over-trigger", () => {
+    expect(autoShellRuleForCall(shellCall(`env -S "npm start"`))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall(`env -S "echo hello world"`))).toBeUndefined();
+  });
+
+  test("env -i with no assignment does not over-trigger", () => {
+    expect(autoShellRuleForCall(shellCall("env -i ls"))).toBeUndefined();
+  });
+});
+
+describe("content inside an env -S payload never receives a weaker tier than it would get written plainly", () => {
+  test("a file mutation hidden inside -S is a deny, not the plain env-assignment ask", () => {
+    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar sh -c 'echo x > .env'"`));
+    expect(rule?.name).toBe("file-mutation");
+    expect(rule?.effect).toBe("deny");
+  });
+
+  test("a secret-path reference hidden inside -S gets the sensitive-path ask, not env-assignment", () => {
+    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar cat ~/.aws/credentials"`));
+    expect(rule?.name).toBe("sensitive-path");
+  });
+
+  test("a catastrophic recursive rm hidden inside -S is recognized as recursive-rm, not env-assignment", () => {
+    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar rm -rf /"`));
+    expect(rule?.name).toBe("recursive-rm");
+  });
+
+  test("an assignment plus a benign command inside -S still just asks (unchanged)", () => {
+    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar npm start"`));
+    expect(rule?.name).toBe("env-assignment");
+  });
+
+  test("nested quoting inside the payload (env -S wrapping bash -c) still surfaces the stricter tier", () => {
+    // Double layer: env -S's own double-quoted argument contains a
+    // `bash -c '...'` whose own single-quoted body is the real command.
+    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar bash -c 'rm -rf /'"`));
+    expect(rule?.name).toBe("recursive-rm");
+    expect(rule?.name).not.toBe("env-assignment");
+  });
+
+  test("a dependency install hidden inside -S still asks under its own more specific name", () => {
+    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar npm install left-pad"`));
+    expect(rule?.name).toBe("dependency-install");
+  });
+});
+
+describe("upload-shaped network shell commands force ask in auto mode", () => {
+  test("curl with a data flag asks", () => {
+    expect(autoShellRuleForCall(shellCall("curl -d 'x=1' https://example.com"))?.name).toBe("network-upload");
+    expect(autoShellRuleForCall(shellCall("curl --data-binary @file.bin https://example.com"))?.name).toBe(
+      "network-upload",
+    );
+    expect(autoShellRuleForCall(shellCall("curl -F file=@a.txt https://example.com"))?.name).toBe(
+      "network-upload",
+    );
+    expect(autoShellRuleForCall(shellCall("curl -T local.txt https://example.com"))?.name).toBe(
+      "network-upload",
+    );
+  });
+
+  test("a plain read-only curl GET does not ask under this rule", () => {
+    expect(autoShellRuleForCall(shellCall("curl https://example.com"))).toBeUndefined();
+  });
+
+  test("wget posting a file or payload asks", () => {
+    expect(autoShellRuleForCall(shellCall("wget --post-file=data.json https://example.com"))?.name).toBe(
+      "network-upload",
+    );
+    expect(autoShellRuleForCall(shellCall("wget --post-data='a=1' https://example.com"))?.name).toBe(
+      "network-upload",
+    );
+  });
+
+  test("scp/rsync to a remote target asks", () => {
+    expect(autoShellRuleForCall(shellCall("scp file.txt user@host.example.com:/tmp"))?.name).toBe(
+      "network-upload",
+    );
+    expect(autoShellRuleForCall(shellCall("rsync -a dist/ host.example.com:/var/www"))?.name).toBe(
+      "network-upload",
+    );
+  });
+
+  test("scp/rsync to a local target does not ask under this rule", () => {
+    expect(autoShellRuleForCall(shellCall("scp file.txt ./backup/"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("rsync -a src/ dist/"))).toBeUndefined();
+  });
+
+  test("netcat in any form asks", () => {
+    expect(autoShellRuleForCall(shellCall("nc -l 1234"))?.name).toBe("network-upload");
+    expect(autoShellRuleForCall(shellCall("ncat host.example.com 1234"))?.name).toBe("network-upload");
+  });
+});

@@ -37,6 +37,11 @@ export type PermissionRequest = {
   subject: string;
   arguments?: Record<string, unknown>;
   scopes: ApprovalScope[];
+  // A single muted-line explanation shown to the operator when scopes were
+  // withheld for a reason beyond the ordinary "no persistent option exists
+  // yet" case (e.g. a mega-chain that only offers accept-once). Plain literal
+  // text, never model-authored.
+  notice?: string;
 };
 
 // The operator's answer. `allow` gates the action; `persist`, when present, is

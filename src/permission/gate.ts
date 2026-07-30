@@ -7,6 +7,7 @@ import {
   isAutoAllowedShellSegment,
   callTargetsRestricted,
   commandTargetsRestricted,
+  MEGA_CHAIN_SEGMENT_THRESHOLD,
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
@@ -311,6 +312,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
         // Secret-path shell must never mint a stored grant — even an exact match
         // would be misleading because future secret-path shell always re-asks.
+        // A mega-chain (see MEGA_CHAIN_SEGMENT_THRESHOLD) is accept-once only:
+        // no scope is offered for it (buildRequests already returns none), and
+        // this check is the belt to that suspenders — the gate itself refuses
+        // to mint a grant for one even if a persist scope somehow arrived.
+        const isMegaChain = segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD;
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
         const outcome = await requestApproval(requestForOperator);
         if (!outcome.allow) {
@@ -323,7 +329,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
           };
         }
-        if (!anySecret) {
+        if (!anySecret && !isMegaChain) {
           mintGrant(request.tool, outcome);
         }
         continue;
