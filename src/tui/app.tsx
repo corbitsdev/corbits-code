@@ -428,6 +428,11 @@ export type AppProps = {
   initialAuto?: boolean;
   onToggleAuto?: (value: boolean) => void;
   onSubAgentProviderChange?: (provider: SubAgentProvider) => void;
+  // Live catalog + runtime settings for task tier resolution (OAuth / mid-session edits).
+  onSubAgentRuntimeResolutionChange?: (args: {
+    catalog: readonly import("../config/index.js").ProviderCatalogEntry[];
+    settings: Settings;
+  }) => void;
   onAgentProfilesChange?: (profiles: AgentProfile[]) => void;
   onStartWorkflow?: (name: string) => string;
   onToggleCapability?: (name: CapabilityName) => void;
@@ -529,6 +534,7 @@ export function App({
   initialAuto = true,
   onToggleAuto,
   onSubAgentProviderChange,
+  onSubAgentRuntimeResolutionChange,
   onAgentProfilesChange,
   onStartWorkflow,
   onToggleCapability,
@@ -687,6 +693,9 @@ export function App({
     onMessage: setCommandMessage,
     ...(initialTiers !== undefined ? { initialTiers } : {}),
     ...(onSubAgentProviderChange !== undefined ? { onSelectionChange: onSubAgentProviderChange } : {}),
+    ...(onSubAgentRuntimeResolutionChange !== undefined
+      ? { onRuntimeResolutionChange: onSubAgentRuntimeResolutionChange }
+      : {}),
   });
   const {
     provider,
