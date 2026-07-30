@@ -1,16 +1,22 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { SETTINGS_DIR_NAME } from "../branding.js";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { type } from "arktype";
+import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
 
 /**
  * Global trust for path-origin plugins (`settings.pluginPaths` / add-by-path).
  * Unlike project trust, this is not keyed by working directory: explicit path
  * consent is user-global, matching where pluginPaths already lives.
  */
-export type PathTrustStore = {
-  trustedPluginPaths: string[];
-};
+const PathTrustStoreSchema = type({
+  trustedPluginPaths: "string[]",
+});
+
+export type PathTrustStore = typeof PathTrustStoreSchema.infer;
 
 const emptyStore = (): PathTrustStore => ({
   trustedPluginPaths: [],
@@ -20,28 +26,53 @@ export function pathTrustPath(home: string = homedir()): string {
   return join(home, SETTINGS_DIR_NAME, "trust", "path-plugins.json");
 }
 
-export async function pathTrustStoreExists(home: string = homedir()): Promise<boolean> {
+/**
+ * Read the store and report why it is empty when it is: a missing file means
+ * the one-shot migration has not run yet, while an unreadable or malformed
+ * file must not be mistaken for "already migrated" — that would silently lock
+ * every path plugin into metadata-only forever.
+ */
+export async function readPathTrustStore(
+  home: string = homedir(),
+): Promise<{ state: "missing" | "invalid" | "valid"; store: PathTrustStore }> {
+  const path = pathTrustPath(home);
+  let raw: string;
   try {
-    await access(pathTrustPath(home));
-    return true;
-  } catch {
-    return false;
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { state: "missing", store: emptyStore() };
+    }
+    logger.warn`path trust store unreadable at ${path}: ${String(err)}`;
+    return { state: "invalid", store: emptyStore() };
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    logger.warn`path trust store is not valid JSON at ${path}: ${String(err)}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  const validated = PathTrustStoreSchema(parsed);
+  if (validated instanceof type.errors) {
+    logger.warn`path trust store has an invalid shape at ${path}: ${validated.summary}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  // Grants are recorded as absolute paths; a relative entry would resolve
+  // against whatever process.cwd() happens to be, so drop it here.
+  const paths: string[] = [];
+  for (const p of validated.trustedPluginPaths) {
+    if (!isAbsolute(p)) {
+      logger.warn`ignoring non-absolute path trust entry: ${p}`;
+      continue;
+    }
+    paths.push(resolve(p));
+  }
+  return { state: "valid", store: { trustedPluginPaths: paths } };
 }
 
 export async function loadPathTrust(home: string = homedir()): Promise<PathTrustStore> {
-  try {
-    const raw = await readFile(pathTrustPath(home), "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed === null || typeof parsed !== "object") return emptyStore();
-    const o = parsed as Record<string, unknown>;
-    const paths = Array.isArray(o.trustedPluginPaths)
-      ? o.trustedPluginPaths.filter((p): p is string => typeof p === "string").map((p) => resolve(p))
-      : [];
-    return { trustedPluginPaths: paths };
-  } catch {
-    return emptyStore();
-  }
+  return (await readPathTrustStore(home)).store;
 }
 
 async function savePathTrust(store: PathTrustStore, home: string = homedir()): Promise<void> {
@@ -51,8 +82,18 @@ async function savePathTrust(store: PathTrustStore, home: string = homedir()): P
 }
 
 export function isPathPluginTrusted(store: PathTrustStore, pluginPath: string): boolean {
-  const abs = resolve(pluginPath);
-  return store.trustedPluginPaths.includes(abs);
+  if (!isAbsolute(pluginPath)) return false;
+  return store.trustedPluginPaths.includes(resolve(pluginPath));
+}
+
+// Grants are always for a caller-resolved absolute path; resolving a relative
+// one here (against process.cwd()) would trust a different directory than the
+// user consented to.
+function requireAbsolute(pluginPath: string): string {
+  if (!isAbsolute(pluginPath)) {
+    throw new Error(`path trust requires an absolute path, got: ${pluginPath}`);
+  }
+  return resolve(pluginPath);
 }
 
 export async function trustPathPlugin(
@@ -60,7 +101,7 @@ export async function trustPathPlugin(
   home: string = homedir(),
 ): Promise<PathTrustStore> {
   const store = await loadPathTrust(home);
-  const abs = resolve(pluginPath);
+  const abs = requireAbsolute(pluginPath);
   if (!store.trustedPluginPaths.includes(abs)) {
     const next: PathTrustStore = {
       trustedPluginPaths: [...store.trustedPluginPaths, abs],
@@ -81,7 +122,7 @@ export async function trustPathPlugins(
   let changed = false;
   const next = [...store.trustedPluginPaths];
   for (const p of pluginPaths) {
-    const abs = resolve(p);
+    const abs = requireAbsolute(p);
     if (!known.has(abs)) {
       known.add(abs);
       next.push(abs);
@@ -110,8 +151,9 @@ export async function migratePathTrustFromPluginPaths(
   resolveMembers: (registeredPath: string) => Promise<string[]>,
   home: string = homedir(),
 ): Promise<PathTrustStore> {
-  if (await pathTrustStoreExists(home)) {
-    return loadPathTrust(home);
+  const existing = await readPathTrustStore(home);
+  if (existing.state === "valid") {
+    return existing.store;
   }
   if (pluginPaths.length === 0) {
     return emptyStore();

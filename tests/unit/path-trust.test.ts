@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,10 +7,15 @@ import {
   loadPathTrust,
   migratePathTrustFromPluginPaths,
   pathTrustPath,
-  pathTrustStoreExists,
+  readPathTrustStore,
   trustPathPlugin,
   trustPathPlugins,
 } from "../../src/trust/path-trust.js";
+
+async function writeStoreFile(home: string, content: string): Promise<void> {
+  await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+  await writeFile(pathTrustPath(home), content, "utf8");
+}
 
 async function scratch(): Promise<{ home: string; cleanup: () => Promise<void> }> {
   const home = await mkdtemp(join(tmpdir(), "corbits-path-trust-"));
@@ -77,7 +82,7 @@ describe("path-trust (global)", () => {
     const { home, cleanup } = await scratch();
     try {
       const plugin = join(home, "shared", "plugin");
-      expect(await pathTrustStoreExists(home)).toBe(false);
+      expect((await readPathTrustStore(home)).state).toBe("missing");
 
       const first = await migratePathTrustFromPluginPaths(
         [plugin],
@@ -85,7 +90,7 @@ describe("path-trust (global)", () => {
         home,
       );
       expect(isPathPluginTrusted(first, plugin)).toBe(true);
-      expect(await pathTrustStoreExists(home)).toBe(true);
+      expect((await readPathTrustStore(home)).state).toBe("valid");
 
       // Second boot with extra path must NOT auto-grant the newcomer.
       const extra = join(home, "shared", "newcomer");
@@ -106,7 +111,7 @@ describe("path-trust (global)", () => {
     try {
       const store = await migratePathTrustFromPluginPaths([], async () => [], home);
       expect(store.trustedPluginPaths).toEqual([]);
-      expect(await pathTrustStoreExists(home)).toBe(false);
+      expect((await readPathTrustStore(home)).state).toBe("missing");
     } finally {
       await cleanup();
     }
@@ -122,7 +127,7 @@ describe("path-trust (global)", () => {
         home,
       );
       expect(store.trustedPluginPaths).toEqual([]);
-      expect(await pathTrustStoreExists(home)).toBe(true);
+      expect((await readPathTrustStore(home)).state).toBe("valid");
       // Second pass must not re-invoke resolveMembers into a grant.
       let resolveCalls = 0;
       await migratePathTrustFromPluginPaths(
@@ -134,6 +139,60 @@ describe("path-trust (global)", () => {
         home,
       );
       expect(resolveCalls).toBe(0);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("a zero-byte store file is invalid and migration re-seeds it", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      await writeStoreFile(home, "");
+      expect((await readPathTrustStore(home)).state).toBe("invalid");
+
+      const plugin = join(home, "shared", "plugin");
+      const store = await migratePathTrustFromPluginPaths(
+        [plugin],
+        async () => [plugin],
+        home,
+      );
+      expect(isPathPluginTrusted(store, plugin)).toBe(true);
+      expect((await readPathTrustStore(home)).state).toBe("valid");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("a corrupt store file is invalid, loads empty, and migration re-seeds it", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      await writeStoreFile(home, "{not json");
+      expect((await readPathTrustStore(home)).state).toBe("invalid");
+      expect((await loadPathTrust(home)).trustedPluginPaths).toEqual([]);
+
+      const plugin = join(home, "shared", "plugin");
+      const store = await migratePathTrustFromPluginPaths(
+        [plugin],
+        async () => [plugin],
+        home,
+      );
+      expect(isPathPluginTrusted(store, plugin)).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("non-absolute stored entries are rejected at load", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      const abs = join(home, "plugins", "ok");
+      await writeStoreFile(
+        home,
+        JSON.stringify({ trustedPluginPaths: [abs, "relative/plugin", "~/tilde-plugin"] }),
+      );
+      const store = await loadPathTrust(home);
+      expect(store.trustedPluginPaths).toEqual([abs]);
+      expect(isPathPluginTrusted(store, "relative/plugin")).toBe(false);
     } finally {
       await cleanup();
     }
