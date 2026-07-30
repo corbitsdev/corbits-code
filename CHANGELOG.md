@@ -20,13 +20,13 @@ Patch release: permission-approval hardening and plugin trust fixes.
 
 ### Fixed
 
-- **Permission prompts no longer race the tool timeout** — by default the per-tool wall-clock budget freezes while an approval modal is open, so a late approve still runs the tool. Settings → Tools → “Wait for approval” can turn this off (budget keeps ticking; timeout dismisses the prompt). Ghost modals for already-timed-out tools are dismissed via the budget signal ([#261](https://github.com/corbitsdev/corbits-code/pull/261)).
-- **Path-added plugins keep working across project directories** — trust for `pluginPaths` plugins now lives in a global store instead of being keyed to the directory you first approved them in. Trust can be revoked from `/plugins`, store writes are atomic, and a corrupt store recovers instead of silently disabling plugins ([#257](https://github.com/corbitsdev/corbits-code/pull/257)).
-- **Install docs and package metadata match the repo** — README, CLA links, and `bin` now point at corbits-code and the `dist/corbits` binary ([#259](https://github.com/corbitsdev/corbits-code/pull/259)).
+- Tool timeout freezes while a permission prompt is open; toggle via Settings → Tools ([#261](https://github.com/corbitsdev/corbits-code/pull/261)).
+- Path-added plugin trust is global, revocable from `/plugins`, and survives directory changes ([#257](https://github.com/corbitsdev/corbits-code/pull/257)).
+- Install docs and package metadata point at corbits-code and the `dist/corbits` binary ([#259](https://github.com/corbitsdev/corbits-code/pull/259)).
 
 ### Changed
 
-- **Chained shell commands are approved as one decision** — a command like `npm i && ./deploy.sh` now shows a single approval prompt enumerating every segment instead of one prompt per segment. Accepting approves the whole chain; rejecting any part rejects it all. Persisted grants for multi-segment chains are exact-match only, so a broad grant such as `npm *` never covers a chain. The approval modal strips terminal control and bidi/zero-width spoofing characters and always shows the verbatim command ([#258](https://github.com/corbitsdev/corbits-code/pull/258)).
+- Chained shell commands prompt once for the whole chain; multi-segment grants are exact-match only and the modal strips spoofing characters ([#258](https://github.com/corbitsdev/corbits-code/pull/258)).
 
 ## [0.2.83] - 2026-07-27
 
