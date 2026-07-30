@@ -529,6 +529,9 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   parentSessionId?: string;
 };
 
+/** Typed spawn intent — optional on `task`; omit Intent section when unset. */
+export type TaskIntent = "explore" | "implement" | "review" | "plan" | "general";
+
 export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
@@ -543,6 +546,14 @@ export type RunSubAgentParams = {
   // the dispatch brief as a suggested manage_tasks seed — the child's list is
   // still its own; the parent does not share a checklist.
   goals?: readonly string[];
+  /** Spawn intent for the brief (no tool filtering here — that is a later task). */
+  intent?: TaskIntent;
+  /** Concrete done checks preferred over free-form prompt alone. */
+  successCriteria?: readonly string[];
+  /** Explicit out-of-scope / forbidden actions. */
+  doNot?: readonly string[];
+  /** What the parent most needs in Findings. */
+  reportFocus?: string;
   signal?: AbortSignal;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
@@ -605,12 +616,17 @@ export function appendActivitySummary(reply: string, toolNames: readonly string[
 // Build the user message handed to a sub-agent. Separates durable context from
 // the actionable goal so workers follow the brief instead of treating one
 // free-form blob as optional color. Optional goals seed a checklist hint
-// (manage_tasks on the child owns the real list).
+// (manage_tasks on the child owns the real list). Typed spawn fields
+// (intent / success_criteria / do_not / report_focus) are rendered only when set.
 export type DispatchBrief = {
   description: string;
   prompt: string;
   context?: string;
   goals?: readonly string[];
+  intent?: TaskIntent;
+  successCriteria?: readonly string[];
+  doNot?: readonly string[];
+  reportFocus?: string;
 };
 
 export function buildDispatchBrief(brief: DispatchBrief): string {
@@ -623,6 +639,26 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
   if (brief.context !== undefined && brief.context.trim().length > 0) {
     parts.push("", "## Context", brief.context.trim());
   }
+  // Omit Intent when unset for back-compat (do not default-render "general").
+  if (brief.intent !== undefined) {
+    parts.push("", "## Intent", brief.intent);
+  }
+  // Prefer success_criteria as the done-definition; goals stay as checklist seed.
+  if (brief.successCriteria !== undefined && brief.successCriteria.length > 0) {
+    parts.push(
+      "",
+      "## Success criteria",
+      "Treat these as the done-definition — when all are met (or blocked), stop tools and emit the report envelope:",
+      ...brief.successCriteria.map((c, i) => `${i + 1}. ${c}`),
+    );
+  }
+  if (brief.doNot !== undefined && brief.doNot.length > 0) {
+    parts.push(
+      "",
+      "## Do not",
+      ...brief.doNot.map((d, i) => `${i + 1}. ${d}`),
+    );
+  }
   if (brief.goals !== undefined && brief.goals.length > 0) {
     parts.push(
       "",
@@ -631,11 +667,13 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
       ...brief.goals.map((g, i) => `${i + 1}. ${g}`),
     );
   }
-  parts.push(
-    "",
-    "## Report shape",
+  const reportLines = [
     "When finished, reply with the ## Summary / ## Findings / ## Blockers / ## Paths envelope from your system prompt. Stay inside this brief.",
-  );
+  ];
+  if (brief.reportFocus !== undefined && brief.reportFocus.trim().length > 0) {
+    reportLines.push(`Focus Findings on: ${brief.reportFocus.trim()}`);
+  }
+  parts.push("", "## Report shape", ...reportLines);
   return parts.join("\n");
 }
 
@@ -1040,6 +1078,14 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       prompt: params.prompt,
       ...(params.context !== undefined ? { context: params.context } : {}),
       ...(params.goals !== undefined && params.goals.length > 0 ? { goals: params.goals } : {}),
+      ...(params.intent !== undefined ? { intent: params.intent } : {}),
+      ...(params.successCriteria !== undefined && params.successCriteria.length > 0
+        ? { successCriteria: params.successCriteria }
+        : {}),
+      ...(params.doNot !== undefined && params.doNot.length > 0 ? { doNot: params.doNot } : {}),
+      ...(params.reportFocus !== undefined && params.reportFocus.trim().length > 0
+        ? { reportFocus: params.reportFocus }
+        : {}),
     });
     const ensureNotAborted = (): void => {
       // Re-read .aborted after await — control-flow narrowing would wrongly
@@ -1220,12 +1266,16 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
   }
 }
 
-const TaskToolArgs = type({
+export const TaskToolArgs = type({
   description: "string",
   prompt: "string",
   "context?": "string",
   "agent?": "string",
   "goals?": "string[]",
+  "intent?": "'explore' | 'implement' | 'review' | 'plan' | 'general'",
+  "success_criteria?": "string[]",
+  "do_not?": "string[]",
+  "report_focus?": "string",
   "maxTurns?": "number",
   "tier?": "'fast' | 'standard' | 'clever'",
 });
@@ -1234,7 +1284,7 @@ const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal and what to report; goals = optional ordered checklist seeds for the child's own manage_tasks list.",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).",
   inputSchema: {
     type: "object",
     properties: {
@@ -1257,6 +1307,27 @@ export const taskToolDefinition: ToolDefinition = {
         items: { type: "string" },
         description:
           "Optional ordered checklist seeds for the child's own manage_tasks list. Does not affect your manage_tasks list.",
+      },
+      intent: {
+        type: "string",
+        enum: ["explore", "implement", "review", "plan", "general"],
+        description:
+          "Optional spawn intent (explore | implement | review | plan | general). Rendered in the dispatch brief when set; omit for max back-compat.",
+      },
+      success_criteria: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Optional concrete done checks. Preferred over free-form prompt alone as the leaf's completion gate.",
+      },
+      do_not: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional explicit out-of-scope or forbidden actions for the leaf.",
+      },
+      report_focus: {
+        type: "string",
+        description: "Optional hint for what the parent most needs in Findings.",
       },
       agent: {
         type: "string",
@@ -1337,6 +1408,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         prompt: rawPrompt,
         agent: agentId,
         goals: rawGoals,
+        intent: rawIntent,
+        success_criteria: rawSuccessCriteria,
+        do_not: rawDoNot,
+        report_focus: rawReportFocus,
         maxTurns: rawMaxTurns,
         tier: rawTaskTier,
       } = parsed;
@@ -1347,6 +1422,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         rawGoals
           ?.map((g) => g.trim())
           .filter((g) => g.length > 0) ?? [];
+      const intent = rawIntent as TaskIntent | undefined;
+      const successCriteria =
+        rawSuccessCriteria
+          ?.map((c) => c.trim())
+          .filter((c) => c.length > 0) ?? [];
+      const doNot =
+        rawDoNot
+          ?.map((d) => d.trim())
+          .filter((d) => d.length > 0) ?? [];
+      const reportFocus = rawReportFocus?.trim();
       if (description.length === 0 || prompt.length === 0) {
         return taskToolResult(call.id, "Error: task requires a non-empty description and prompt.");
       }
@@ -1527,6 +1612,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         prompt,
         ...(context !== undefined && context.length > 0 ? { context } : {}),
         ...(goals.length > 0 ? { goals } : {}),
+        ...(intent !== undefined ? { intent } : {}),
+        ...(successCriteria.length > 0 ? { successCriteria } : {}),
+        ...(doNot.length > 0 ? { doNot } : {}),
+        ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
       });
       const agentLabel = agentId !== undefined && agentId.length > 0 ? agentId : "worker";
       const session =
@@ -1607,6 +1696,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(context !== undefined && context.length > 0 ? { context } : {}),
           prompt,
           ...(goals.length > 0 ? { goals } : {}),
+          ...(intent !== undefined ? { intent } : {}),
+          ...(successCriteria.length > 0 ? { successCriteria } : {}),
+          ...(doNot.length > 0 ? { doNot } : {}),
+          ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
           signal: childCtl.signal,
           ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
           ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),

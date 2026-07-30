@@ -11,6 +11,7 @@ import {
   buildEnvironmentContext,
   buildGuidelines,
   buildHarnessFacts,
+  buildSubAgentReportContract,
   buildSubAgentSystemPrompt,
 } from "./agent/prompts.js";
 
@@ -66,6 +67,17 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(guidelines).toContain("grep or search_files");
   expect(guidelines).toContain("ask_operator only when permission blocks you");
   expect(guidelines).toContain("load the style and philosophy skills");
+});
+
+test("orchestrator guidelines teach the typed task spawn contract", () => {
+  const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
+  expect(guidelines).toContain("Orchestration:");
+  expect(guidelines).toContain("success_criteria");
+  expect(guidelines).toContain("do_not");
+  expect(guidelines).toContain("report_focus");
+  expect(guidelines).toContain("intent");
+  const single = buildGuidelines({ sessionMode: "single" });
+  expect(single).not.toContain("success_criteria");
 });
 
 test("chat system prompt satisfies system prompt quality markers", () => {
@@ -222,6 +234,15 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
   expect(prompt).toContain("parent session's permission gate");
   expect(prompt).not.toContain("without asking for approval");
   expect(prompt).not.toContain("ask_operator");
+});
+
+test("sub-agent report contract treats Success criteria as completion gate", () => {
+  const contract = buildSubAgentReportContract();
+  expect(contract).toContain("Success criteria");
+  expect(contract).toContain("done-definition");
+  expect(contract).toContain("stop calling tools");
+  expect(contract).toContain("Do not");
+  expect(contract).toContain("Intent / Do not");
 });
 
 test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {

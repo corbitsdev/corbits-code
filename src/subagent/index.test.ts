@@ -4,6 +4,7 @@ import { CodexAuthError } from "../auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import {
+  buildDispatchBrief,
   createTaskTool,
   createSubAgentRunController,
   createSubAgentSessionStore,
@@ -28,8 +29,10 @@ import {
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
+  TaskToolArgs,
   type RunSubAgentParams,
 } from "./index.js";
+import { type } from "arktype";
 
 
 
@@ -1062,5 +1065,170 @@ describe("createTaskTool", () => {
     expect(String(result.content)).toContain("gate.ts");
     expect(String(result.content)).not.toBe("task aborted");
     expect(String(result.content)).not.toContain("task aborted");
+  });
+
+  test("forwards intent, success_criteria, do_not, and report_focus to run", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, {
+      description: "typed-contract",
+      prompt: "Implement the feature",
+      intent: "implement",
+      success_criteria: ["tests pass", "typecheck green"],
+      do_not: ["commit", "refactor unrelated"],
+      report_focus: "files changed and test counts",
+      goals: ["seed step one"],
+    });
+
+    expect(captured?.intent).toBe("implement");
+    expect(captured?.successCriteria).toEqual(["tests pass", "typecheck green"]);
+    expect(captured?.doNot).toEqual(["commit", "refactor unrelated"]);
+    expect(captured?.reportFocus).toBe("files changed and test counts");
+    expect(captured?.goals).toEqual(["seed step one"]);
+  });
+
+  test("omits typed spawn fields when not provided (back-compat)", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, { description: "legacy", prompt: "Do the work" });
+
+    expect(captured?.intent).toBeUndefined();
+    expect(captured?.successCriteria).toBeUndefined();
+    expect(captured?.doNot).toBeUndefined();
+    expect(captured?.reportFocus).toBeUndefined();
+    expect(captured?.goals).toBeUndefined();
+  });
+
+  test("rejects invalid intent via schema", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async () => "done",
+    });
+    const out = await callTask(tool, {
+      description: "bad-intent",
+      prompt: "x",
+      intent: "ship-it",
+    });
+    expect(out).toContain("Error:");
+  });
+});
+
+describe("TaskToolArgs schema", () => {
+  test("accepts optional typed spawn fields", () => {
+    const parsed = TaskToolArgs({
+      description: "job",
+      prompt: "do it",
+      intent: "explore",
+      success_criteria: ["mapped callers"],
+      do_not: ["edit files"],
+      report_focus: "call graph",
+    });
+    expect(parsed instanceof type.errors).toBe(false);
+    if (parsed instanceof type.errors) throw new Error(parsed.summary);
+    expect(parsed.intent).toBe("explore");
+    expect(parsed.success_criteria).toEqual(["mapped callers"]);
+    expect(parsed.do_not).toEqual(["edit files"]);
+    expect(parsed.report_focus).toBe("call graph");
+  });
+
+  test("accepts legacy description+prompt only", () => {
+    const parsed = TaskToolArgs({ description: "job", prompt: "do it" });
+    expect(parsed instanceof type.errors).toBe(false);
+  });
+
+  test("rejects unknown intent", () => {
+    const parsed = TaskToolArgs({
+      description: "job",
+      prompt: "do it",
+      intent: "ship-it",
+    });
+    expect(parsed instanceof type.errors).toBe(true);
+  });
+
+  test("accepts every intent enum value", () => {
+    for (const intent of ["explore", "implement", "review", "plan", "general"] as const) {
+      const parsed = TaskToolArgs({ description: "j", prompt: "p", intent });
+      expect(parsed instanceof type.errors).toBe(false);
+    }
+  });
+});
+
+describe("buildDispatchBrief typed spawn contract", () => {
+  test("renders Intent, Success criteria, Do not, and report_focus only when set", () => {
+    const full = buildDispatchBrief({
+      description: "1a",
+      prompt: "Implement typed spawn",
+      context: "repo conventions",
+      intent: "implement",
+      successCriteria: ["typecheck green", "tests pass"],
+      doNot: ["tool filtering", "director thrash"],
+      goals: ["extend schema", "add tests"],
+      reportFocus: "files and pass counts",
+    });
+    expect(full).toContain("## Intent\nimplement");
+    expect(full).toContain("## Success criteria");
+    expect(full).toContain("1. typecheck green");
+    expect(full).toContain("2. tests pass");
+    expect(full).toContain("## Do not");
+    expect(full).toContain("1. tool filtering");
+    expect(full).toContain("## Suggested checklist");
+    expect(full).toContain("1. extend schema");
+    expect(full).toContain("## Report shape");
+    expect(full).toContain("Focus Findings on: files and pass counts");
+    // Success criteria section precedes Suggested checklist.
+    expect(full.indexOf("## Success criteria")).toBeLessThan(full.indexOf("## Suggested checklist"));
+  });
+
+  test("omits Intent / Success criteria / Do not / report_focus when unset (back-compat)", () => {
+    const legacy = buildDispatchBrief({
+      description: "legacy",
+      prompt: "Do the work",
+      goals: ["step one"],
+    });
+    expect(legacy).toContain("# Dispatch brief: legacy");
+    expect(legacy).toContain("## Goal\nDo the work");
+    expect(legacy).toContain("## Suggested checklist");
+    expect(legacy).toContain("1. step one");
+    expect(legacy).toContain("## Report shape");
+    expect(legacy).not.toContain("## Intent");
+    expect(legacy).not.toContain("## Success criteria");
+    expect(legacy).not.toContain("## Do not");
+    expect(legacy).not.toContain("Focus Findings on:");
+  });
+
+  test("keeps goals as checklist when success_criteria is also set", () => {
+    const both = buildDispatchBrief({
+      description: "both",
+      prompt: "goal text",
+      successCriteria: ["done check"],
+      goals: ["manage_tasks seed"],
+    });
+    expect(both).toContain("## Success criteria");
+    expect(both).toContain("1. done check");
+    expect(both).toContain("## Suggested checklist");
+    expect(both).toContain("1. manage_tasks seed");
   });
 });
