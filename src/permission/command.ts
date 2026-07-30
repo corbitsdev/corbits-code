@@ -1,4 +1,5 @@
 import type { ApprovalScope } from "./types.js";
+import { escapeGlobLiteral } from "./matcher.js";
 
 // Split a shell command into the individual commands it chains together, so each
 // can be classified for security. The operator still approves the full command
@@ -296,7 +297,7 @@ export function deriveCommandScopes(command: string): ApprovalScope[] {
   // a persisted "(cd *" would match any subshell starting with cd, far broader
   // than what the operator saw. Offer only the exact command.
   if (command.startsWith("(")) {
-    return [{ id: "exact", label: "Always allow this exact command", pattern: command }];
+    return [{ id: "exact", label: "Always allow this exact command", pattern: escapeGlobLiteral(command) }];
   }
 
   const scopes: ApprovalScope[] = [];
@@ -308,7 +309,10 @@ export function deriveCommandScopes(command: string): ApprovalScope[] {
     scopes.push({ id: `prefix-${n}`, label: `Always allow ${pattern}`, pattern });
   }
 
-  const exact = tokens.join(" ");
+  // Escape token text only — glob metacharacters typed into a real command
+  // (e.g. the shell-expanded `*` in `rm -rf build/*`) must persist as a
+  // literal match, never as a wildcard the grant did not actually grant.
+  const exact = tokens.map(escapeGlobLiteral).join(" ");
   if (!scopes.some((s) => s.pattern === exact)) {
     scopes.push({ id: "exact", label: `Always allow this exact command`, pattern: exact });
   }

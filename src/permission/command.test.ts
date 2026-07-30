@@ -1,6 +1,31 @@
 import { test, expect, describe } from "bun:test";
 
-import { splitChainedCommand } from "./command.js";
+import { splitChainedCommand, deriveCommandScopes } from "./command.js";
+import { matchesPattern } from "./matcher.js";
+
+describe("deriveCommandScopes exact-scope escaping", () => {
+  // The "exact command" scope must persist a grant that matches only the
+  // literal command the operator saw. A raw glob character in the command
+  // (e.g. the shell-expanded `*` in `rm -rf build/*`) must not survive into
+  // the stored pattern unescaped, or the grant becomes a wildcard that later
+  // matches unrelated commands like `rm -rf build/../../etc`.
+  test("escapes glob metacharacters in the exact-command scope", () => {
+    const scopes = deriveCommandScopes("rm -rf build/*");
+    const exact = scopes.find((s) => s.id === "exact");
+    expect(exact).toBeDefined();
+    const pattern = exact?.pattern;
+    if (pattern === null || pattern === undefined) throw new Error("expected a pattern");
+    expect(matchesPattern("rm -rf build/*", pattern)).toBe(true);
+    expect(matchesPattern("rm -rf build/../../etc", pattern)).toBe(false);
+  });
+
+  test("keeps the intentional prefix-N wildcard unescaped", () => {
+    const scopes = deriveCommandScopes("git commit -m foo");
+    const prefix = scopes.find((s) => s.id === "prefix-2");
+    expect(prefix).toBeDefined();
+    expect(prefix?.pattern).toBe("git commit *");
+  });
+});
 
 describe("splitChainedCommand heredocs", () => {
   // Regression: a heredoc marker followed by trailing text (a redirect) drove
