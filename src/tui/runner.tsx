@@ -17,6 +17,7 @@ import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from
 import {
   globalSettingsPath,
   loadLocalSettings,
+  loadGlobalSettingsWriteBase,
   loadSettings,
   localSettingsPath,
   markTelemetryNoticeShown,
@@ -1349,8 +1350,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       waitForApproval={liveToolWatchdog.waitForApproval !== false}
       onChangeWaitForApproval={async (value) => {
         liveToolWatchdog.waitForApproval = value;
-        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
-        const base: Settings = current ?? { providers: {} };
+        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+        if (base === null) return;
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           tools: { ...base.tools, waitForApproval: value },

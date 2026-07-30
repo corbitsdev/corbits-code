@@ -24,6 +24,7 @@ import {
   validateTaskMaxTurns,
   toolWatchdogFromSettings,
   resolveWaitForApproval,
+  loadGlobalSettingsWriteBase,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -360,6 +361,29 @@ describe("loaders", () => {
       expect(resolveWaitForApproval(loaded)).toBe(false);
       expect(resolveWaitForApproval(undefined)).toBe(true);
       expect(resolveWaitForApproval({ providers: {} })).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadGlobalSettingsWriteBase distinguishes absent from unreadable", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      // Absent file: a fresh minimal base is a safe write target.
+      expect(await loadGlobalSettingsWriteBase(path)).toEqual({ providers: {} });
+
+      // Readable file: its contents are the base.
+      await saveGlobalSettings(path, firepass);
+      expect(await loadGlobalSettingsWriteBase(path)).toEqual(firepass);
+
+      // Unreadable file: null so the caller skips the write instead of
+      // overwriting the whole settings file with a minimal base.
+      await writeFile(path, "{ not json");
+      expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
+
+      await writeFile(path, JSON.stringify({ providers: "wrong-shape" }));
+      expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

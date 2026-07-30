@@ -578,6 +578,18 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   } as LocalSettings;
 }
 
+// Resolve the base for a read-modify-write of the global settings file.
+// An absent file yields a fresh minimal base; an unreadable or invalid file
+// yields null so the caller skips the write — falling back to a minimal base
+// there would overwrite the whole file to flip one key.
+export async function loadGlobalSettingsWriteBase(path: string): Promise<Settings | null> {
+  try {
+    return (await loadSettings(path)) ?? { providers: {} };
+  } catch {
+    return null;
+  }
+}
+
 // Upsert one provider onto existing settings without dropping plugins,
 // pluginPaths, sessionMode, shell, tools, or any other non-provider field.
 // Used by first-run onboarding (and any similar single-provider write).
