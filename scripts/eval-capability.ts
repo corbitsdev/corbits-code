@@ -29,6 +29,8 @@ import {
   expandMatrix,
   makeResultKey,
   evaluateSoftBudget,
+  httpFixtureEnv,
+  withEnv,
   type CaseResult,
   type EvalCase,
   type EvalRunReport,
@@ -449,8 +451,13 @@ async function runCase(
     }
 
     const agentStarted = Date.now();
+    // runExec runs the agent in-process (no child, unlike verify.sh below), so
+    // the fixture origin must reach it via process.env directly for the
+    // eval-only SSRF exception in src/tools/ssrf-guard.ts to activate.
     const execResult = await withTimeout(
-      runExec(config),
+      httpFixture !== null
+        ? withEnv(httpFixtureEnv(httpFixture), () => runExec(config))
+        : runExec(config),
       opts.agentTimeoutMs,
       `agent (${caseDef.id})`,
     );
@@ -485,10 +492,7 @@ async function runCase(
       );
     }
 
-    const verifyEnv: Record<string, string> =
-      httpFixture !== null
-        ? { EVAL_HTTP_URL: httpFixture.url, EVAL_HTTP_TOKEN: httpFixture.token }
-        : {};
+    const verifyEnv: Record<string, string> = httpFixture !== null ? httpFixtureEnv(httpFixture) : {};
     const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs, verifyEnv);
     if (verify.output.trim().length > 0) {
       console.log(verify.output.trimEnd());

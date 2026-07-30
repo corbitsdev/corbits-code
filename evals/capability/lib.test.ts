@@ -16,6 +16,8 @@ import {
   evaluateSoftBudget,
   computeCellAggregates,
   baitReproduces,
+  httpFixtureEnv,
+  withEnv,
   type CaseResult,
   type EvalCase,
 } from "./lib.js";
@@ -489,6 +491,33 @@ describe("loadEvalCases (integration with tmp dir)", () => {
       expect(cases[0]!.id).toBe("simple-health");
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("withEnv / httpFixtureEnv", () => {
+  test("makes the fixture origin visible to in-process code the way ssrf-guard reads it", async () => {
+    const fixture = { url: "http://127.0.0.1:54321/", token: "tok" };
+    expect(process.env.EVAL_HTTP_URL).toBeUndefined();
+    let seenDuring: string | undefined;
+    await withEnv(httpFixtureEnv(fixture), async () => {
+      seenDuring = process.env.EVAL_HTTP_URL;
+    });
+    expect(seenDuring).toBe(fixture.url);
+    expect(process.env.EVAL_HTTP_URL).toBeUndefined();
+  });
+
+  test("restores prior value on throw", async () => {
+    process.env.EVAL_HTTP_URL = "http://pre-existing/";
+    try {
+      await expect(
+        withEnv({ EVAL_HTTP_URL: "http://127.0.0.1:1/" }, async () => {
+          throw new Error("boom");
+        }),
+      ).rejects.toThrow("boom");
+      expect(process.env.EVAL_HTTP_URL).toBe("http://pre-existing/");
+    } finally {
+      delete process.env.EVAL_HTTP_URL;
     }
   });
 });
