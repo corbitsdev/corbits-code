@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import type { ToolCall } from "@intx/types/runtime";
-import { isAutoAllowedShellCall } from "./classify.js";
+import { isAutoAllowedShellCall, isAutoAllowedShellSegment } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { createPermissionGate } from "./gate.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
@@ -84,6 +84,16 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
 
   test("allows an in-workspace flag-glued path", () => {
     expect(isAutoAllowedShellCall(shellCall("grep --file=patterns.txt src"), "/repo")).toBe(true);
+  });
+});
+
+describe("isAutoAllowedShellSegment — command substitution", () => {
+  test("does not auto-allow a segment containing backtick command substitution", () => {
+    expect(isAutoAllowedShellSegment("echo `rm -rf ./build`")).toBe(false);
+  });
+
+  test("does not auto-allow a segment containing $() command substitution", () => {
+    expect(isAutoAllowedShellSegment("echo $(rm -rf ./build)")).toBe(false);
   });
 });
 

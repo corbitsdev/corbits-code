@@ -459,12 +459,13 @@ describe("gate authorizes shell chains as one block with per-segment security", 
     expect(asked).toBe(0);
   });
 
-  test("auto-safe body with stranded do/done does not re-prompt for keywords", async () => {
+  test("body containing variable substitution still re-prompts (dangerous-metacharacter gate)", async () => {
     let asked = 0;
     const prompted: string[] = [];
-    // Multi-line for-loop: head is still consequential, body is auto-safe, keywords no-op.
-    // After the operator approves once, a second evaluation with a head grant must not
-    // re-prompt solely for do/done.
+    // Multi-line for-loop: head is consequential, keywords are no-ops, but the
+    // body carries a `$` (variable expansion) — the same dangerous-metacharacter
+    // gate isAutoAllowedShellCommand applies to a whole command also applies per
+    // segment, so `cat "$f"` never auto-allows and every evaluation re-prompts.
     const script = 'for f in a b; do\ncat "$f"\ndone';
     const gate = createPermissionGate({
       approvals: [],
@@ -484,11 +485,9 @@ describe("gate authorizes shell chains as one block with per-segment security", 
     expect(asked).toBe(1);
     expect(prompted).toEqual([script]);
 
-    // The persisted head grant covers the only consequential segment; the body
-    // is auto-safe and the stranded keywords are no-ops, so no second prompt.
     const second = await gate.evaluate(shellCall(script));
     expect(second.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked).toBe(2);
   });
 
   test("dangerous body in a for-loop still prompts once for the full block", async () => {

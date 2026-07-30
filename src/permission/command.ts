@@ -237,11 +237,15 @@ export function isShellNoOp(segment: string): boolean {
 
 
 // Split a single command segment into whitespace-separated tokens, treating a
-// quoted run as one token.
+// quoted run as one token. Backtick is not treated as a quote delimiter here:
+// unlike '...' and "...", a backtick pair is command substitution, not
+// literal text — stripping it would hide the substituted command from every
+// caller that inspects tokens (classify's dangerous-flag and path checks),
+// letting it slip past as if it were quoted argument text.
 export function tokenize(command: string): string[] {
   const tokens: string[] = [];
   let current = "";
-  let quote: '"' | "'" | "`" | null = null;
+  let quote: '"' | "'" | null = null;
 
   const push = (): void => {
     if (current.length > 0) tokens.push(current);
@@ -254,7 +258,7 @@ export function tokenize(command: string): string[] {
       else current += ch;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === "`") {
+    if (ch === '"' || ch === "'") {
       quote = ch;
       continue;
     }
