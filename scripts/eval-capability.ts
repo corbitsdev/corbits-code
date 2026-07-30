@@ -31,11 +31,14 @@ import {
   evaluateSoftBudget,
   httpFixtureEnv,
   withEnv,
+  detectProviderFallback,
+  formatProviderFallback,
   type CaseResult,
   type EvalCase,
   type EvalRunReport,
   type EvalVariant,
   type EvalTokenUsage,
+  type ProviderFallbackInfo,
 } from "../evals/capability/lib.js";
 import {
   deriveBehaviorMetrics,
@@ -64,6 +67,11 @@ type CliOptions = {
   /** Runs per case×variant cell (gate runs use 5; freeze runs use 3). */
   repeats: number;
   dryRun: boolean;
+  /**
+   * Allow a run/comparison to proceed when the resolved provider/model
+   * differs from what was requested, instead of hard-failing.
+   */
+  allowProviderFallback: boolean;
 };
 
 function printUsage(): void {
@@ -82,6 +90,8 @@ function printUsage(): void {
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
   --dry-run             List cases × variants only
+  --allow-provider-fallback  Allow resolved provider/model to differ from
+                             what was requested (default: hard-fail)
   -h, --help            Show help
 `);
 }
@@ -92,6 +102,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     skipPermissions: true,
     repeats: 1,
     dryRun: false,
+    allowProviderFallback: false,
     agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 600_000),
     verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
   };
@@ -162,6 +173,9 @@ function parseArgs(argv: readonly string[]): CliOptions {
       }
       case "--dry-run":
         opts.dryRun = true;
+        break;
+      case "--allow-provider-fallback":
+        opts.allowProviderFallback = true;
         break;
       default:
         throw new Error(`Unknown argument: ${a}`);
@@ -399,6 +413,7 @@ function failResult(
     error,
     repeat,
     behaviors: null,
+    providerFallback: null,
     ...partial,
   };
 }
@@ -414,6 +429,7 @@ async function runCase(
   let workdir: string | null = null;
   let capturePath: string | null = null;
   let httpFixture: HTTPFixture | null = null;
+  let providerFallback: ProviderFallbackInfo | null = null;
   try {
     const prepared = await prepareWorkdir(caseDef);
     workdir = prepared.workdir;
@@ -479,6 +495,22 @@ async function runCase(
       console.log(`agent error: ${execResult.error}`);
     }
 
+    const resolvedProvider = execResult.provider ?? config.providerName ?? labels.provider;
+    const resolvedModel = execResult.model ?? config.model ?? labels.model;
+    providerFallback = detectProviderFallback({
+      requestedProvider: variant.provider,
+      requestedModel: variant.model,
+      resolvedProvider,
+      resolvedModel,
+    });
+    if (providerFallback !== null) {
+      const message = formatProviderFallback(providerFallback);
+      if (!opts.allowProviderFallback) {
+        throw new Error(`${message} (pass --allow-provider-fallback to allow this)`);
+      }
+      console.warn(`[eval] ${message}`);
+    }
+
     const behaviors = await readCapturedBehaviors(capturePath);
     if (behaviors === null) {
       console.log("behaviors: capture missing (no turn stream recorded)");
@@ -528,8 +560,8 @@ async function runCase(
       tier: caseDef.tier,
       title: caseDef.title,
       variantId: variant.id,
-      provider: execResult.provider ?? config.providerName ?? labels.provider,
-      model: execResult.model ?? config.model ?? labels.model,
+      provider: resolvedProvider,
+      model: resolvedModel,
       passed,
       agentExitCode,
       verifyExitCode: verify.exitCode,
@@ -547,12 +579,15 @@ async function runCase(
       error,
       repeat,
       behaviors,
+      providerFallback,
       textPreview: preview,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`case ${caseDef.id} (${variant.id}) failed: ${message}`);
-    return failResult(caseDef, variant, labels, opts, started, repeat, message);
+    return failResult(caseDef, variant, labels, opts, started, repeat, message, {
+      providerFallback,
+    });
   } finally {
     if (httpFixture !== null) {
       await httpFixture.close().catch(() => undefined);
@@ -678,7 +713,9 @@ async function main(): Promise<number> {
   if (opts.baselinePath !== undefined) {
     const raw: unknown = JSON.parse(await readFile(resolve(opts.baselinePath), "utf8"));
     const baseline = parseEvalRunReport(raw);
-    const cmp = compareToBaseline(results, baseline, selected);
+    const cmp = compareToBaseline(results, baseline, selected, {
+      allowProviderFallback: opts.allowProviderFallback,
+    });
     console.log("\n=== Baseline compare (aggregates)");
     for (const d of cmp.deltas) {
       const rate = (r: number | null): string => (r === null ? "n/a" : r.toFixed(2));

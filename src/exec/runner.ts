@@ -68,7 +68,6 @@ import type {
 } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
 import { discoverSkills } from "../extensions/skills.js";
-import { collectWebPlugins, resolveWebProviderFromPlugins } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
   discoverRepoPlugins,
@@ -247,19 +246,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const executablePlugins = () => pluginModules.filter((m) => m.metadataOnly !== true);
     const pluginConfig = config.settings?.plugins ?? {};
 
-    const webPluginCandidates = collectWebPlugins(executablePlugins());
     const toolPluginCandidates = collectToolPlugins(executablePlugins());
-    const [activeWeb, extraToolPlugins] = await Promise.all([
-      resolveWebProviderFromPlugins({
-        candidates: webPluginCandidates,
-        pluginConfig,
-        webOverride: config.settings?.web,
-      }),
-      resolveToolPlugins({
-        candidates: toolPluginCandidates,
-        pluginConfig,
-      }),
-    ]);
+    const extraToolPlugins = await resolveToolPlugins({
+      candidates: toolPluginCandidates,
+      pluginConfig,
+    });
 
     const skillDirs = executablePlugins()
       .filter(
@@ -381,7 +372,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
         catalog: () => config.providers,
         profiles: () => liveAgentProfiles,
       },
-      ...(activeWeb?.provider !== undefined ? { webProvider: activeWeb.provider } : {}),
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     });
     toolset = agentToolset;

@@ -284,11 +284,11 @@ test("the mega-chain notice renders as a muted line when scopes are withheld", (
     action: "Run shell command",
     subject: "a && b && c && d && e",
     scopes: [],
-    notice: "Long chains are approved once only — split the command for reusable approvals.",
+    notice: "Chains of 5+ steps are approved once only — split into shorter commands for reusable approvals.",
   };
   const { lastFrame } = render(<PermissionModal request={megaChain} onResolve={() => {}} />);
   const frame = (lastFrame() ?? "").replace(/[│]/g, "").replace(/\s+/g, " ");
-  expect(frame).toContain("Long chains are approved once only — split the command for reusable approvals.");
+  expect(frame).toContain("Chains of 5+ steps are approved once only — split into shorter commands for reusable approvals.");
 });
 
 test("no notice line renders when the request carries none (e.g. secret-path scopes:[])", () => {

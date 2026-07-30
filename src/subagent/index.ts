@@ -41,10 +41,11 @@ import {
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
+import { createWebFetchTool } from "../tools/web-fetch.js";
+import { createWebSearchTool } from "../tools/web-search.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
-import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
@@ -758,11 +759,12 @@ export function buildSubAgentPrimarySource(
 export type SubAgentSandboxDeps = {
   permissionGate: PermissionGate;
   inheritMcpTools?: () => readonly AgentTool[];
-  webProvider?: WebProvider;
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
   /** Parent session blob store for bounded tool-output:// reads in workers. */
   getBlobReader?: () => BlobReader | undefined;
+  /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
+  shellEnv?: Record<string, string>;
 };
 
 export type NestedDispatchDeps = SubAgentSandboxDeps & {
@@ -833,6 +835,17 @@ export type RunSubAgentParams = {
    */
   deadlineMs?: number;
 } & SubAgentSandboxDeps;
+
+// Web tools are always-on core built-ins in the main session (see
+// src/agent/tools.ts); the sub-agent discipline block tells every worker to
+// reach for web_fetch/web_search instead of curl/wget, so the tools must
+// actually be installed here too. Read-only-network, so no capability filter
+// special-case: they pass through applyCapabilityFilter by name like any
+// other tool (an "explore" intent that wants a read-only leaf can still
+// exclude them explicitly via capabilities.tools).
+export function coreSubAgentWebTools(): AgentTool[] {
+  return [createWebFetchTool(), createWebSearchTool()];
+}
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
   const nameSet = new Set(capabilities.tools);
@@ -1061,8 +1074,8 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     plugins: buildCorePosixToolPlugins({
       cwd: params.cwd,
       permissionGate,
-      ...(params.webProvider !== undefined ? { webProvider: params.webProvider } : {}),
       ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
+      ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
       extraToolPlugins: [
         ...(params.extraToolPlugins ?? []),
@@ -1098,6 +1111,8 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     ...tool,
     definition: advertiseEditFileLineRange(advertiseShellGuardTimeout(tool.definition, shellDefaultMs)),
   }));
+
+  tools = [...tools, ...coreSubAgentWebTools()];
 
   const inherited = params.inheritMcpTools?.() ?? [];
   if (inherited.length > 0) {
@@ -1140,8 +1155,8 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       createTaskTool({
         permissionGate: nd.permissionGate,
         ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
-        ...(nd.webProvider !== undefined ? { webProvider: nd.webProvider } : {}),
         ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
+        ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
         ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
         cwd: params.cwd,
         getWorkdirBase: nd.getWorkdirBase,
@@ -1918,8 +1933,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const sandbox: SubAgentSandboxDeps = {
         permissionGate: deps.permissionGate,
         ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
-        ...(deps.webProvider !== undefined ? { webProvider: deps.webProvider } : {}),
         ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+        ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
         ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
         ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
       };

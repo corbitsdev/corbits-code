@@ -149,3 +149,48 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
   expect(arr.some((a) => a.type === "infer")).toBe(true);
   expect(continuations).toBe(0);
 });
+
+// ---------------------------------------------------------------------------
+// Model-family policy: a grok provider must tighten the tool-only-loop pause
+// threshold (10 turns) below the default (20), matching resolveModelFamilyPolicy.
+// ---------------------------------------------------------------------------
+
+function toolOnlyInferenceDone(callId: string): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      content: [{ type: "tool_call", id: callId, name: "read_file", arguments: { path: "x.ts" } }],
+      model: "test-model",
+      timestamp: 0,
+    },
+    usage,
+    source,
+  };
+}
+
+async function runToolOnlyStreak(director: ReturnType<typeof createChatDirector>, turns: number) {
+  let lastActions: ReactorAction[] = [];
+  for (let i = 0; i < turns; i++) {
+    await director.decide(toolOnlyInferenceDone(`call-${i}`), state, makeCapabilities());
+    const result = await director.decide(toolDoneTurn(`call-${i}`), state, makeCapabilities());
+    lastActions = Array.isArray(result) ? result : [result];
+  }
+  return lastActions;
+}
+
+test("a grok provider pauses the session after 10 tool-only turns, tighter than the default 20", async () => {
+  const grokDirector = createChatDirector(
+    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    { providerName: "xai", model: "grok-4" },
+  );
+  const grokActions = await runToolOnlyStreak(grokDirector, 10);
+  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
+
+  const defaultDirector = createChatDirector(
+    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    { providerName: "openai", model: "gpt-4" },
+  );
+  const defaultActions = await runToolOnlyStreak(defaultDirector, 10);
+  expect(defaultActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+});

@@ -299,7 +299,7 @@ describe("buildRequests", () => {
     const reqs = buildRequests(shellCall(cmd));
     expect(reqs[0]?.scopes).toEqual([]);
     expect(reqs[0]?.notice).toBe(
-      "Long chains are approved once only — split the command for reusable approvals.",
+      "Chains of 5+ steps are approved once only — split into shorter commands for reusable approvals.",
     );
   });
 
@@ -308,7 +308,7 @@ describe("buildRequests", () => {
     const reqs = buildRequests(shellCall(cmd));
     expect(reqs[0]?.scopes).toEqual([]);
     expect(reqs[0]?.notice).toBe(
-      "Long chains are approved once only — split the command for reusable approvals.",
+      "Chains of 5+ steps are approved once only — split into shorter commands for reusable approvals.",
     );
   });
 

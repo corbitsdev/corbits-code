@@ -394,7 +394,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     }),
   ]);
   if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
-  const webProvider = activeWeb?.provider;
 
   // /plugins UI backend: discovered plugin descriptors plus live, persisted
   // config (enabled flag, credentials, web override, extra paths) written to the
@@ -693,7 +692,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     getGoalGovernor: () => goalGovernorRef.current,
-    ...(webProvider !== undefined ? { webProvider } : {}),
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
@@ -819,6 +817,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         () => {
           enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
+        { providerName: config.providerName, model: config.model },
       );
       d.setGoalGovernor(goalGovernor);
       directorHolder.instance = d;

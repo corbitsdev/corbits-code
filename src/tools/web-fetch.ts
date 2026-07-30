@@ -141,7 +141,10 @@ export async function runWebFetch(
       response = await fetchOnce(currentUrl, userAgent, format, timeoutMs);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        return { ok: false, error: `Request to ${currentUrl} timed out after ${timeoutMs / 1000}s.` };
+        return {
+          ok: false,
+          error: `Request to ${currentUrl} timed out after ${timeoutMs / 1000}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
+        };
       }
       return { ok: false, error: `Failed to fetch ${currentUrl}: ${err instanceof Error ? err.message : String(err)}` };
     }

@@ -259,7 +259,7 @@ function stringArg(call: ToolCall, key: string): string {
 export const MEGA_CHAIN_SEGMENT_THRESHOLD = 5;
 
 export const MEGA_CHAIN_NOTICE =
-  "Long chains are approved once only — split the command for reusable approvals.";
+  `Chains of ${MEGA_CHAIN_SEGMENT_THRESHOLD}+ steps are approved once only — split into shorter commands for reusable approvals.`;
 
 // Approval scopes for a shell command the operator may persist. Multi-segment
 // chains only offer the exact full string — a prefix like `npm *` would also

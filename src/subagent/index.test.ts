@@ -5,6 +5,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import {
   buildDispatchBrief,
+  coreSubAgentWebTools,
   createTaskTool,
   createSubAgentRunController,
   createSubAgentSessionStore,
@@ -1325,6 +1326,30 @@ describe("createTaskTool", () => {
 
     expect(captured?.permissionGate).toBe(testPermissionGate);
     expect(captured?.inheritMcpTools?.()).toEqual(inherited);
+  });
+
+  test("forwards shellEnv to runSubAgent so worker shell spawns get project env", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      shellEnv: { FOO: "bar" },
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    await callTask(tool, { description: "Env parity", prompt: "check env" });
+
+    expect(captured?.shellEnv).toEqual({ FOO: "bar" });
+  });
+
+  test("sub-agent toolset includes web_fetch and web_search", () => {
+    const names = coreSubAgentWebTools().map((t) => t.definition.name);
+    expect(names).toEqual(["web_fetch", "web_search"]);
   });
 
   test("forwards a dedicated child abort signal linked to the parent tool signal", async () => {

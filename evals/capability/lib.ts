@@ -72,6 +72,19 @@ export type EvalVariant = {
   model?: string;
 };
 
+/**
+ * Recorded when the resolved provider/model for a run cell differs from what
+ * was requested (matrix cell or CLI flags) — e.g. a silent fallback/default
+ * kicked in. Present on results even when the run was allowed to proceed via
+ * --allow-provider-fallback, so the mismatch stays visible downstream.
+ */
+export type ProviderFallbackInfo = {
+  requestedProvider: string | null;
+  requestedModel: string | null;
+  resolvedProvider: string;
+  resolvedModel: string;
+};
+
 export type CaseResult = {
   /** Stable key for baseline compare: variantId::caseId. */
   resultKey: string;
@@ -102,6 +115,8 @@ export type CaseResult = {
   repeat: number;
   /** Behavior metrics derived from the turn stream; null when capture failed. */
   behaviors: BehaviorMetrics | null;
+  /** Set when the resolved provider/model differed from what was requested. */
+  providerFallback: ProviderFallbackInfo | null;
   textPreview?: string;
 };
 
@@ -116,6 +131,9 @@ export type CellAggregate = {
   resultKey: string;
   id: string;
   variantId: string;
+  /** Resolved provider/model actually used (from the cell's first repeat). */
+  provider: string;
+  model: string;
   repeats: number;
   passCount: number;
   passRate: number;
@@ -328,6 +346,36 @@ export async function withEnv<T>(vars: Record<string, string>, fn: () => Promise
   }
 }
 
+/**
+ * Compares the requested (matrix cell / CLI flag) provider and model against
+ * what the run actually resolved to. Returns null when they match (or when
+ * nothing specific was requested for that axis).
+ */
+export function detectProviderFallback(args: {
+  requestedProvider?: string;
+  requestedModel?: string;
+  resolvedProvider: string;
+  resolvedModel: string;
+}): ProviderFallbackInfo | null {
+  const providerMismatch =
+    args.requestedProvider !== undefined && args.requestedProvider !== args.resolvedProvider;
+  const modelMismatch =
+    args.requestedModel !== undefined && args.requestedModel !== args.resolvedModel;
+  if (!providerMismatch && !modelMismatch) return null;
+  return {
+    requestedProvider: args.requestedProvider ?? null,
+    requestedModel: args.requestedModel ?? null,
+    resolvedProvider: args.resolvedProvider,
+    resolvedModel: args.resolvedModel,
+  };
+}
+
+export function formatProviderFallback(info: ProviderFallbackInfo): string {
+  const requested = `${info.requestedProvider ?? "(default)"}/${info.requestedModel ?? "(default)"}`;
+  const resolved = `${info.resolvedProvider}/${info.resolvedModel}`;
+  return `provider/model mismatch: requested ${requested} but resolved to ${resolved}`;
+}
+
 export function defaultVariantId(provider?: string, model?: string): string {
   const p = provider ?? "default";
   const m = model ?? "default";
@@ -538,7 +586,21 @@ function parseCaseResult(raw: unknown): CaseResult {
         ? raw.repeat
         : 0,
     behaviors: parseBehaviorMetrics(raw.behaviors),
+    providerFallback: parseProviderFallback(raw.providerFallback),
     ...(typeof raw.textPreview === "string" ? { textPreview: raw.textPreview } : {}),
+  };
+}
+
+function parseProviderFallback(raw: unknown): ProviderFallbackInfo | null {
+  if (!isRecord(raw)) return null;
+  const resolvedProvider = raw.resolvedProvider;
+  const resolvedModel = raw.resolvedModel;
+  if (typeof resolvedProvider !== "string" || typeof resolvedModel !== "string") return null;
+  return {
+    requestedProvider: typeof raw.requestedProvider === "string" ? raw.requestedProvider : null,
+    requestedModel: typeof raw.requestedModel === "string" ? raw.requestedModel : null,
+    resolvedProvider,
+    resolvedModel,
   };
 }
 
@@ -583,6 +645,8 @@ export function computeCellAggregates(results: readonly CaseResult[]): CellAggre
       resultKey,
       id: first.id,
       variantId: first.variantId,
+      provider: first.provider,
+      model: first.model,
       repeats: group.length,
       passCount,
       passRate: passCount / group.length,
@@ -694,6 +758,7 @@ export function compareToBaseline(
   current: readonly CaseResult[],
   baseline: EvalRunReport,
   cases: readonly EvalCase[] = [],
+  options: { allowProviderFallback?: boolean } = {},
 ): BaselineCompare {
   const currentAggregates = computeCellAggregates(current);
   const prevByKey = new Map(baseline.aggregates.map((a) => [a.resultKey, a]));
@@ -730,6 +795,16 @@ export function compareToBaseline(
       });
       added++;
       continue;
+    }
+    if (
+      options.allowProviderFallback !== true
+      && (prev.provider !== cur.provider || prev.model !== cur.model)
+    ) {
+      throw new Error(
+        `cannot compare baseline for ${cur.resultKey}: baseline ran on ` +
+          `${prev.provider}/${prev.model} but current run resolved to ` +
+          `${cur.provider}/${cur.model} — pass --allow-provider-fallback to compare anyway`,
+      );
     }
     let status: BaselineDelta["status"];
     if (prev.passRate === cur.passRate) {

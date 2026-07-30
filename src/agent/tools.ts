@@ -18,7 +18,6 @@ import {
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
-import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
@@ -86,8 +85,6 @@ export type AgentToolsetArgs = {
   projectTrust?: ProjectTrustStore;
   /** Interactive MCP trust grant; omit for headless fail-closed. */
   requestMcpTrust?: (server: MCPServerConfig) => Promise<boolean>;
-  // Pre-resolved web provider. When omitted, the built-in local provider is used.
-  webProvider?: WebProvider;
   // Pre-resolved tool plugins (enabled + consented kind:"tool" plugins). Their
   // tools are appended to the posix toolset.
   extraToolPlugins?: ToolPlugin[];
@@ -168,7 +165,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     mcpServersSource = "none",
     projectTrust,
     requestMcpTrust,
-    webProvider,
     extraToolPlugins = [],
     skillDirs = [],
     shellTimeout,
@@ -190,7 +186,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     plugins: buildCorePosixToolPlugins({
       cwd,
       permissionGate,
-      ...(webProvider !== undefined ? { webProvider } : {}),
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       extraToolPlugins,
       ...(sessionBlobReader !== undefined
@@ -220,8 +215,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             provider: args.subAgent.provider,
             permissionGate,
             inheritMcpTools: () => inheritedMcpTools,
-            ...(webProvider !== undefined ? { webProvider } : {}),
             ...(shellTimeout !== undefined ? { shellTimeout } : {}),
+            ...(shellEnv !== undefined ? { shellEnv } : {}),
             ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
             ...(args.subAgent.onEvent !== undefined ? { onEvent: args.subAgent.onEvent } : {}),
             ...(args.subAgent.onProgress !== undefined

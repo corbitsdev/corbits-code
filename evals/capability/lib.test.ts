@@ -18,6 +18,8 @@ import {
   baitReproduces,
   httpFixtureEnv,
   withEnv,
+  detectProviderFallback,
+  formatProviderFallback,
   type CaseResult,
   type EvalCase,
 } from "./lib.js";
@@ -64,6 +66,7 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
     error: over.error ?? null,
     repeat: over.repeat ?? 0,
     behaviors: over.behaviors ?? null,
+    providerFallback: over.providerFallback ?? null,
   };
 }
 
@@ -421,6 +424,99 @@ describe("compareToBaseline", () => {
   });
 });
 
+describe("detectProviderFallback", () => {
+  test("null when resolved matches requested", () => {
+    expect(
+      detectProviderFallback({
+        requestedProvider: "xai",
+        requestedModel: "grok-4.5",
+        resolvedProvider: "xai",
+        resolvedModel: "grok-4.5",
+      }),
+    ).toBeNull();
+  });
+
+  test("null when nothing specific was requested", () => {
+    expect(
+      detectProviderFallback({
+        resolvedProvider: "xai",
+        resolvedModel: "grok-4.5",
+      }),
+    ).toBeNull();
+  });
+
+  test("flags a model mismatch even when provider matches", () => {
+    const info = detectProviderFallback({
+      requestedProvider: "xai",
+      requestedModel: "grok-4.5",
+      resolvedProvider: "xai",
+      resolvedModel: "grok-4.0",
+    });
+    expect(info).toEqual({
+      requestedProvider: "xai",
+      requestedModel: "grok-4.5",
+      resolvedProvider: "xai",
+      resolvedModel: "grok-4.0",
+    });
+  });
+
+  test("flags a provider mismatch", () => {
+    const info = detectProviderFallback({
+      requestedProvider: "xai",
+      resolvedProvider: "openai",
+      resolvedModel: "gpt-4.1",
+    });
+    expect(info?.requestedProvider).toBe("xai");
+    expect(info?.resolvedProvider).toBe("openai");
+  });
+
+  test("formatProviderFallback names both requested and resolved", () => {
+    const info = detectProviderFallback({
+      requestedProvider: "xai",
+      requestedModel: "grok-4.5",
+      resolvedProvider: "openai",
+      resolvedModel: "gpt-4.1",
+    });
+    expect(info).not.toBeNull();
+    const message = formatProviderFallback(info!);
+    expect(message).toContain("xai/grok-4.5");
+    expect(message).toContain("openai/gpt-4.1");
+  });
+});
+
+describe("compareToBaseline provider/model guard", () => {
+  test("refuses to compare cells that resolved to different models", () => {
+    const baseline = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok-4.5",
+      cases: [
+        sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" }),
+      ],
+    });
+    const current = [
+      sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.0" }),
+    ];
+    expect(() => compareToBaseline(current, baseline)).toThrow(/different resolved model|cannot compare baseline/);
+  });
+
+  test("allows the comparison when --allow-provider-fallback is set", () => {
+    const baseline = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok-4.5",
+      cases: [
+        sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" }),
+      ],
+    });
+    const current = [
+      sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.0" }),
+    ];
+    const cmp = compareToBaseline(current, baseline, [], { allowProviderFallback: true });
+    expect(cmp.deltas).toHaveLength(1);
+  });
+});
+
 describe("baitReproduces", () => {
   test("null when the metric was never captured", () => {
     const cell = computeCellAggregates([sampleResult({ behaviors: null })])[0]!;
@@ -445,6 +541,30 @@ describe("parseEvalRunReport", () => {
     expect(report.cases[1]!.repeat).toBe(1);
     expect(report.aggregates).toHaveLength(1);
     expect(report.aggregates[0]!.behaviorStats.shellCommandCount?.median).toBe(3);
+  });
+
+  test("round-trips providerFallback stamping on a case result", () => {
+    const report = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [
+        sampleResult({
+          providerFallback: {
+            requestedProvider: "xai",
+            requestedModel: "grok-4.5",
+            resolvedProvider: "xai",
+            resolvedModel: "grok-4.0",
+          },
+        }),
+      ],
+    });
+    expect(report.cases[0]!.providerFallback).toEqual({
+      requestedProvider: "xai",
+      requestedModel: "grok-4.5",
+      resolvedProvider: "xai",
+      resolvedModel: "grok-4.0",
+    });
   });
 
   test("legacy reports default repeat 0 and null behaviors", () => {

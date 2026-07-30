@@ -21,18 +21,12 @@ import {
   readFileGuardPlugin,
   type ReadFileGuardPluginOptions,
 } from "../plugins/read-file-guard-plugin.js";
-import type { WebProvider } from "../web/types.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 
 export type CorePosixToolPluginsArgs = {
   cwd: string;
   permissionGate: PermissionGate;
-  // Kept for signature parity with callers that still resolve a discovered
-  // "web"-kind plugin (e.g. sub-agent toolset assembly); no longer consumed
-  // here since web_search/web_fetch are now always-on built-ins (see
-  // src/tools/web-fetch.ts, src/tools/web-search.ts) rather than plugin-backed.
-  webProvider?: WebProvider;
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
   readFileGuard?: ReadFileGuardPluginOptions;
