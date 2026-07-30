@@ -20,7 +20,6 @@ tmp/
 worktree
 worktrees
 dispatch/
-evals/capability/results/
+evals/capability/results/*
+!evals/capability/results/baseline-0286.json
 local-harness-bench/
-
-evals/capability/results/

@@ -5,8 +5,27 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  isNumericBehaviorMetric,
+  parseBehaviorMetrics,
+  BEHAVIOR_METRIC_DIRECTIONS,
+  NUMERIC_BEHAVIOR_METRICS,
+  type BehaviorMetrics,
+  type NumericBehaviorMetric,
+} from "./behaviors.js";
 
-export type EvalTier = "simple" | "complex";
+export type EvalTier = "simple" | "complex" | "bait";
+
+/**
+ * A bait declaration marks a case that exists to reproduce a known
+ * misbehavior. The case misbehaves when the aggregate median of `metric`
+ * exceeds `threshold`; baseline comparison flags a bait whose baseline no
+ * longer reproduces (honesty check) instead of letting it silently pass.
+ */
+export type EvalBait = {
+  metric: NumericBehaviorMetric;
+  threshold: number;
+};
 
 export type EvalCase = {
   id: string;
@@ -20,6 +39,12 @@ export type EvalCase = {
   verify: string;
   /** Absolute path to the case directory on disk. */
   caseDir: string;
+  bait?: EvalBait;
+  /**
+   * When true the runner starts a hermetic local HTTP server (127.0.0.1,
+   * ephemeral port) for the case and substitutes `{{HTTP_URL}}` in the prompt.
+   */
+  httpFixture?: boolean;
 };
 
 /** Token counters from the product run sink (mirrors TokenUsage shape). */
@@ -73,18 +98,43 @@ export type CaseResult = {
   overBudget: boolean | null;
   skipPermissions: boolean;
   error: string | null;
+  /** 0-based repeat index within the case×variant cell. */
+  repeat: number;
+  /** Behavior metrics derived from the turn stream; null when capture failed. */
+  behaviors: BehaviorMetrics | null;
   textPreview?: string;
 };
 
+export type MetricStats = {
+  min: number;
+  median: number;
+  max: number;
+};
+
+/** Per case×variant cell aggregate across repeats. */
+export type CellAggregate = {
+  resultKey: string;
+  id: string;
+  variantId: string;
+  repeats: number;
+  passCount: number;
+  passRate: number;
+  /** min/median/max per numeric behavior metric, over repeats with behaviors. */
+  behaviorStats: Partial<Record<NumericBehaviorMetric, MetricStats>>;
+};
+
 export type EvalRunReport = {
-  version: 2;
+  version: 3;
   startedAt: string;
   finishedAt: string;
   /** Primary / first variant (kept for human scanning). */
   provider: string;
   model: string;
+  /** Repeats per case×variant cell. */
+  repeats: number;
   variants: EvalVariant[];
   cases: CaseResult[];
+  aggregates: CellAggregate[];
   totals: EvalRunTotals;
 };
 
@@ -98,20 +148,27 @@ export type EvalRunTotals = {
   tokenUsage: EvalTokenUsage;
 };
 
+export type BehaviorVerdict = {
+  metric: NumericBehaviorMetric;
+  baselineMedian: number;
+  currentMedian: number;
+  /** Directional verdict; "neutral" for informational metrics or no change. */
+  verdict: "improve" | "regress" | "neutral";
+};
+
 export type BaselineDelta = {
   resultKey: string;
   id: string;
   variantId: string;
-  previous: boolean | null;
-  current: boolean;
+  /** null when the cell is new relative to the baseline. */
+  previousPassRate: number | null;
+  currentPassRate: number;
+  /** Any pass-rate change is significant. */
   status: "improved" | "regressed" | "unchanged" | "new";
-  /** Optional efficiency delta vs baseline when both runs tracked tokens/turns. */
-  metrics?: {
-    durationMsDelta: number | null;
-    turnsUsedDelta: number | null;
-    toolCallCountDelta: number | null;
-    tokenOutputDelta: number | null;
-  };
+  /** Behavior-metric verdicts on medians, present when both runs captured behaviors. */
+  behaviorVerdicts: BehaviorVerdict[];
+  /** Set when the case is a bait whose baseline does not reproduce its misbehavior. */
+  baitNotReproducing?: string;
 };
 
 export type BaselineCompare = {
@@ -120,6 +177,9 @@ export type BaselineCompare = {
   regressed: number;
   unchanged: number;
   added: number;
+  behaviorImproved: number;
+  behaviorRegressed: number;
+  baitFlags: number;
 };
 
 const CASE_FILE = "case.json";
@@ -141,8 +201,8 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
   if (typeof id !== "string" || id.length === 0) {
     throw new Error(`case.json missing id (${caseDir})`);
   }
-  if (tier !== "simple" && tier !== "complex") {
-    throw new Error(`case ${id}: tier must be simple|complex`);
+  if (tier !== "simple" && tier !== "complex" && tier !== "bait") {
+    throw new Error(`case ${id}: tier must be simple|complex|bait`);
   }
   if (typeof title !== "string" || title.length === 0) {
     throw new Error(`case ${id}: missing title`);
@@ -158,6 +218,8 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
     typeof raw.maxTurns === "number" && Number.isFinite(raw.maxTurns) && raw.maxTurns > 0
       ? Math.floor(raw.maxTurns)
       : undefined;
+  const bait = parseBait(raw.bait, id);
+  const httpFixture = raw.httpFixture === true ? true : undefined;
   return {
     id,
     tier,
@@ -167,7 +229,27 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
     verify,
     caseDir,
     ...(maxTurns !== undefined ? { maxTurns } : {}),
+    ...(bait !== undefined ? { bait } : {}),
+    ...(httpFixture !== undefined ? { httpFixture } : {}),
   };
+}
+
+function parseBait(raw: unknown, caseId: string): EvalBait | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isRecord(raw)) {
+    throw new Error(`case ${caseId}: bait must be an object`);
+  }
+  const metric = raw.metric;
+  const threshold = raw.threshold;
+  if (typeof metric !== "string" || !isNumericBehaviorMetric(metric)) {
+    throw new Error(
+      `case ${caseId}: bait.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`,
+    );
+  }
+  if (typeof threshold !== "number" || !Number.isFinite(threshold) || threshold < 0) {
+    throw new Error(`case ${caseId}: bait.threshold must be a non-negative number`);
+  }
+  return { metric, threshold };
 }
 
 /** Load every case under `casesRoot` (one subdirectory per case with case.json). */
@@ -421,11 +503,70 @@ function parseCaseResult(raw: unknown): CaseResult {
     overBudget: typeof raw.overBudget === "boolean" ? raw.overBudget : null,
     skipPermissions: Boolean(raw.skipPermissions ?? true),
     error: typeof raw.error === "string" ? raw.error : raw.error === null ? null : null,
+    repeat:
+      typeof raw.repeat === "number" && Number.isInteger(raw.repeat) && raw.repeat >= 0
+        ? raw.repeat
+        : 0,
+    behaviors: parseBehaviorMetrics(raw.behaviors),
     ...(typeof raw.textPreview === "string" ? { textPreview: raw.textPreview } : {}),
   };
 }
 
-/** Validate a results JSON document (v1 or v2). */
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+function metricStats(values: readonly number[]): MetricStats {
+  return {
+    min: Math.min(...values),
+    median: median(values),
+    max: Math.max(...values),
+  };
+}
+
+/**
+ * Group case results by resultKey (one group per case×variant cell across
+ * repeats) and compute pass-rate plus behavior-metric min/median/max.
+ * Behavior stats only cover repeats whose behaviors were captured.
+ */
+export function computeCellAggregates(results: readonly CaseResult[]): CellAggregate[] {
+  const groups = new Map<string, CaseResult[]>();
+  for (const r of results) {
+    const group = groups.get(r.resultKey);
+    if (group === undefined) groups.set(r.resultKey, [r]);
+    else group.push(r);
+  }
+  const aggregates: CellAggregate[] = [];
+  for (const [resultKey, group] of groups) {
+    const first = group[0]!;
+    const passCount = group.filter((r) => r.passed).length;
+    const behaviorStats: Partial<Record<NumericBehaviorMetric, MetricStats>> = {};
+    for (const metric of NUMERIC_BEHAVIOR_METRICS) {
+      const values = group
+        .map((r) => r.behaviors?.[metric])
+        .filter((v): v is number => typeof v === "number");
+      if (values.length > 0) behaviorStats[metric] = metricStats(values);
+    }
+    aggregates.push({
+      resultKey,
+      id: first.id,
+      variantId: first.variantId,
+      repeats: group.length,
+      passCount,
+      passRate: passCount / group.length,
+      behaviorStats,
+    });
+  }
+  aggregates.sort((a, b) => a.resultKey.localeCompare(b.resultKey));
+  return aggregates;
+}
+
+/**
+ * Validate a results JSON document (accepts v1–v3; aggregates are always
+ * recomputed from cases so stored aggregates cannot drift from the data).
+ */
 export function parseEvalRunReport(raw: unknown): EvalRunReport {
   if (!isRecord(raw)) throw new Error("report must be an object");
   if (!Array.isArray(raw.cases)) throw new Error("report.cases must be an array");
@@ -464,35 +605,86 @@ export function parseEvalRunReport(raw: unknown): EvalRunReport {
           tokenUsage: parseTokenUsage(raw.totals.tokenUsage) ?? emptyTokenUsage(),
         }
       : summarizeRun(cases);
+  const repeats =
+    typeof raw.repeats === "number" && Number.isInteger(raw.repeats) && raw.repeats > 0
+      ? raw.repeats
+      : Math.max(1, ...cases.map((c) => c.repeat + 1));
   return {
-    version: 2,
+    version: 3,
     startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
     finishedAt: typeof raw.finishedAt === "string" ? raw.finishedAt : "",
     provider,
     model,
+    repeats,
     variants,
     cases,
+    aggregates: computeCellAggregates(cases),
     totals,
   };
 }
 
+function behaviorVerdicts(
+  prev: CellAggregate,
+  cur: CellAggregate,
+): BehaviorVerdict[] {
+  const verdicts: BehaviorVerdict[] = [];
+  for (const metric of NUMERIC_BEHAVIOR_METRICS) {
+    const prevStats = prev.behaviorStats[metric];
+    const curStats = cur.behaviorStats[metric];
+    if (prevStats === undefined || curStats === undefined) continue;
+    const direction = BEHAVIOR_METRIC_DIRECTIONS[metric];
+    let verdict: BehaviorVerdict["verdict"] = "neutral";
+    if (direction === "lower" && curStats.median !== prevStats.median) {
+      verdict = curStats.median < prevStats.median ? "improve" : "regress";
+    }
+    verdicts.push({
+      metric,
+      baselineMedian: prevStats.median,
+      currentMedian: curStats.median,
+      verdict,
+    });
+  }
+  return verdicts;
+}
+
+/** Median of the bait metric shows the misbehavior when it exceeds the threshold. */
+export function baitReproduces(aggregate: CellAggregate, bait: EvalBait): boolean | null {
+  const stats = aggregate.behaviorStats[bait.metric];
+  if (stats === undefined) return null;
+  return stats.median > bait.threshold;
+}
+
+/**
+ * Compare per-cell aggregates against a baseline report. Any pass-rate change
+ * is significant; behavior metrics compare medians per metric direction.
+ * `cases` supplies bait declarations for the honesty check: a bait whose
+ * baseline aggregate does not exceed its misbehavior threshold is flagged.
+ */
 export function compareToBaseline(
   current: readonly CaseResult[],
   baseline: EvalRunReport,
+  cases: readonly EvalCase[] = [],
 ): BaselineCompare {
-  const prevByKey = new Map(baseline.cases.map((c) => [c.resultKey, c]));
-  // Also index v1-style id-only for partial matches when variant missing.
-  const prevById = new Map(baseline.cases.map((c) => [c.id, c]));
+  const currentAggregates = computeCellAggregates(current);
+  const prevByKey = new Map(baseline.aggregates.map((a) => [a.resultKey, a]));
+  // v1-style id-only fallback when the baseline had a single default variant.
+  const prevById = new Map(baseline.aggregates.map((a) => [a.id, a]));
+  const baitById = new Map<string, EvalBait>();
+  for (const c of cases) {
+    if (c.bait !== undefined) baitById.set(c.id, c.bait);
+  }
   const deltas: BaselineDelta[] = [];
   let improved = 0;
   let regressed = 0;
   let unchanged = 0;
   let added = 0;
+  let behaviorImproved = 0;
+  let behaviorRegressed = 0;
+  let baitFlags = 0;
 
-  for (const cur of current) {
+  for (const cur of currentAggregates) {
     const prev = prevByKey.get(cur.resultKey) ?? (
-      // Fallback: same case id when baseline had a single default variant.
-      baseline.cases.length > 0 && baseline.variants.length <= 1
+      baseline.aggregates.length > 0 && baseline.variants.length <= 1
         ? prevById.get(cur.id)
         : undefined
     );
@@ -501,44 +693,56 @@ export function compareToBaseline(
         resultKey: cur.resultKey,
         id: cur.id,
         variantId: cur.variantId,
-        previous: null,
-        current: cur.passed,
+        previousPassRate: null,
+        currentPassRate: cur.passRate,
         status: "new",
+        behaviorVerdicts: [],
       });
       added++;
       continue;
     }
     let status: BaselineDelta["status"];
-    if (prev.passed === cur.passed) {
+    if (prev.passRate === cur.passRate) {
       status = "unchanged";
       unchanged++;
-    } else if (!prev.passed && cur.passed) {
+    } else if (cur.passRate > prev.passRate) {
       status = "improved";
       improved++;
     } else {
       status = "regressed";
       regressed++;
     }
-    const numDelta = (a: number | null, b: number | null): number | null =>
-      a !== null && b !== null ? b - a : null;
+    const verdicts = behaviorVerdicts(prev, cur);
+    behaviorImproved += verdicts.filter((v) => v.verdict === "improve").length;
+    behaviorRegressed += verdicts.filter((v) => v.verdict === "regress").length;
+    const bait = baitById.get(cur.id);
+    let baitNotReproducing: string | undefined;
+    if (bait !== undefined && baitReproduces(prev, bait) === false) {
+      baitNotReproducing =
+        `bait metric ${bait.metric} median did not exceed ${bait.threshold} on baseline — `
+        + "the case no longer reproduces its misbehavior";
+      baitFlags++;
+    }
     deltas.push({
       resultKey: cur.resultKey,
       id: cur.id,
       variantId: cur.variantId,
-      previous: prev.passed,
-      current: cur.passed,
+      previousPassRate: prev.passRate,
+      currentPassRate: cur.passRate,
       status,
-      metrics: {
-        durationMsDelta: numDelta(prev.durationMs, cur.durationMs),
-        turnsUsedDelta: numDelta(prev.turnsUsed, cur.turnsUsed),
-        toolCallCountDelta: numDelta(prev.toolCallCount, cur.toolCallCount),
-        tokenOutputDelta: numDelta(
-          prev.tokenUsage?.output ?? null,
-          cur.tokenUsage?.output ?? null,
-        ),
-      },
+      behaviorVerdicts: verdicts,
+      ...(baitNotReproducing !== undefined ? { baitNotReproducing } : {}),
     });
   }
 
-  return { deltas, improved, regressed, unchanged, added };
+  return {
+    deltas,
+    improved,
+    regressed,
+    unchanged,
+    added,
+    behaviorImproved,
+    behaviorRegressed,
+    baitFlags,
+  };
 }

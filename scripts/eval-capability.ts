@@ -8,17 +8,21 @@
  */
 
 import { cp, mkdir, chmod, writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { loadConfig } from "../src/config/index.js";
 import { runExec } from "../src/exec/runner.js";
+import { SETTINGS_DIR_NAME } from "../src/branding.js";
 import {
   loadEvalCases,
   filterCases,
   resolveFixturePath,
   compareToBaseline,
+  computeCellAggregates,
   parseEvalRunReport,
   summarizeRun,
   parseMatrix,
@@ -31,6 +35,11 @@ import {
   type EvalVariant,
   type EvalTokenUsage,
 } from "../evals/capability/lib.js";
+import {
+  deriveBehaviorMetrics,
+  parseCapturedRunSummary,
+  type BehaviorMetrics,
+} from "../evals/capability/behaviors.js";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CASES_ROOT = join(REPO_ROOT, "evals", "capability", "cases");
@@ -50,6 +59,8 @@ type CliOptions = {
   agentTimeoutMs: number;
   /** Wall-clock limit for verify.sh (ms). */
   verifyTimeoutMs: number;
+  /** Runs per case×variant cell (gate runs use 5; freeze runs use 3). */
+  repeats: number;
   dryRun: boolean;
 };
 
@@ -67,6 +78,7 @@ function printUsage(): void {
   --max-turns <n>       Soft turn budget (case fails if turnsUsed exceeds; not a hard kill)
   --agent-timeout-ms <n> Wall-clock limit for runExec (default 600000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
+  --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
   --dry-run             List cases × variants only
   -h, --help            Show help
 `);
@@ -76,6 +88,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
   const opts: CliOptions = {
     caseSelector: "all",
     skipPermissions: true,
+    repeats: 1,
     dryRun: false,
     agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 600_000),
     verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
@@ -139,6 +152,12 @@ function parseArgs(argv: readonly string[]): CliOptions {
         opts.verifyTimeoutMs = Math.floor(n);
         break;
       }
+      case "--repeats": {
+        const n = Number(next());
+        if (!Number.isInteger(n) || n <= 0) throw new Error("--repeats must be a positive integer");
+        opts.repeats = n;
+        break;
+      }
       case "--dry-run":
         opts.dryRun = true;
         break;
@@ -154,11 +173,12 @@ function runCommand(
   args: readonly string[],
   cwd: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, [...args], {
       cwd,
-      env: process.env,
+      env: { ...process.env, ...extraEnv },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const out: Buffer[] = [];
@@ -217,22 +237,98 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
-async function prepareWorkdir(caseDef: EvalCase): Promise<string> {
+async function prepareWorkdir(caseDef: EvalCase): Promise<{ workdir: string; capturePath: string }> {
   const fixtureAbs = resolveFixturePath(REPO_ROOT, caseDef.fixture);
   const work = await mkdtemp(join(tmpdir(), `corbits-eval-${caseDef.id}-`));
   await cp(fixtureAbs, work, { recursive: true });
-  return work;
+  // Sibling of the workdir so the agent and verify.sh never see the capture.
+  const capturePath = `${work}-run-summary.json`;
+  await installRunCaptureHook(work, capturePath);
+  return { workdir: work, capturePath };
+}
+
+/**
+ * Drop a post-run lifecycle hook into the workdir so the product path hands us
+ * the full turn stream (tool calls + assistant content) for behavior metrics.
+ * The hook writes the postRun payload verbatim and swallows other kinds.
+ */
+async function installRunCaptureHook(workdir: string, capturePath: string): Promise<void> {
+  const hooksDir = join(workdir, SETTINGS_DIR_NAME, "hooks");
+  await mkdir(hooksDir, { recursive: true });
+  const script = [
+    "#!/bin/sh",
+    'if [ "$1" = "postRun" ]; then',
+    `  cat > ${JSON.stringify(capturePath)}`,
+    "else",
+    "  cat > /dev/null",
+    "fi",
+    "",
+  ].join("\n");
+  const hookPath = join(hooksDir, "eval-run-capture.sh");
+  await writeFile(hookPath, script, "utf8");
+  await chmod(hookPath, 0o755);
+}
+
+async function readCapturedBehaviors(capturePath: string): Promise<BehaviorMetrics | null> {
+  try {
+    const raw: unknown = JSON.parse(await readFile(capturePath, "utf8"));
+    return deriveBehaviorMetrics(parseCapturedRunSummary(raw));
+  } catch {
+    return null;
+  }
+}
+
+type HTTPFixture = {
+  url: string;
+  token: string;
+  close: () => Promise<void>;
+};
+
+/**
+ * Hermetic local page for web-fetch cases: 127.0.0.1 on an ephemeral port,
+ * serving a small HTML page with a per-run token. Started and stopped per
+ * case run; never left running.
+ */
+function startHTTPFixture(): Promise<HTTPFixture> {
+  const token = randomBytes(8).toString("hex");
+  const html =
+    "<html><head><title>Release info</title></head>"
+    + `<body><h1>Release info</h1><p>build code: <code>${token}</code></p></body></html>`;
+  return new Promise((resolvePromise, reject) => {
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(html);
+    });
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("HTTP fixture failed to bind"));
+        return;
+      }
+      resolvePromise({
+        url: `http://127.0.0.1:${address.port}/`,
+        token,
+        close: () =>
+          new Promise<void>((resolveClose) => {
+            server.close(() => resolveClose());
+            server.closeAllConnections();
+          }),
+      });
+    });
+  });
 }
 
 async function runVerify(
   caseDef: EvalCase,
   workdir: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<{ exitCode: number; output: string; durationMs: number; timedOut: boolean }> {
   const verifyPath = join(caseDef.caseDir, caseDef.verify);
   await chmod(verifyPath, 0o755).catch(() => undefined);
   const started = Date.now();
-  const result = await runCommand("bash", [verifyPath], workdir, timeoutMs);
+  const result = await runCommand("bash", [verifyPath], workdir, timeoutMs, extraEnv);
   const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
   return {
     exitCode: result.exitCode,
@@ -271,6 +367,7 @@ function failResult(
   labels: { provider: string; model: string },
   opts: CliOptions,
   started: number,
+  repeat: number,
   error: string,
   partial?: Partial<CaseResult>,
 ): CaseResult {
@@ -298,6 +395,8 @@ function failResult(
     overBudget: null,
     skipPermissions: opts.skipPermissions,
     error,
+    repeat,
+    behaviors: null,
     ...partial,
   };
 }
@@ -306,15 +405,30 @@ async function runCase(
   caseDef: EvalCase,
   variant: EvalVariant,
   opts: CliOptions,
+  repeat: number,
 ): Promise<CaseResult> {
   const started = Date.now();
   const labels = await resolveVariantLabels(variant, opts);
   let workdir: string | null = null;
+  let capturePath: string | null = null;
+  let httpFixture: HTTPFixture | null = null;
   try {
-    workdir = await prepareWorkdir(caseDef);
-    console.log(`\n=== ${variant.id} × ${caseDef.id} (${caseDef.tier}) — ${caseDef.title}`);
+    const prepared = await prepareWorkdir(caseDef);
+    workdir = prepared.workdir;
+    capturePath = prepared.capturePath;
+    console.log(
+      `\n=== ${variant.id} × ${caseDef.id} (${caseDef.tier})`
+        + ` [repeat ${repeat + 1}/${opts.repeats}] — ${caseDef.title}`,
+    );
     console.log(`provider/model: ${labels.provider} / ${labels.model}`);
     console.log(`workdir: ${workdir}`);
+
+    let prompt = caseDef.prompt;
+    if (caseDef.httpFixture === true) {
+      httpFixture = await startHTTPFixture();
+      prompt = prompt.replaceAll("{{HTTP_URL}}", httpFixture.url);
+      console.log(`http fixture: ${httpFixture.url}`);
+    }
 
     const argv: string[] = ["exec", "--cwd", workdir];
     if (variant.provider !== undefined) argv.push("--provider", variant.provider);
@@ -327,7 +441,7 @@ async function runCase(
     // maxTurns is a soft post-run budget (case fails if exceeded). It does not
     // hard-kill the agent mid-run — product path has no mid-turn budget hook yet.
 
-    argv.push(caseDef.prompt);
+    argv.push(prompt);
 
     const config = await loadConfig(argv, { allowUnconfigured: false });
     if (!config.configured) {
@@ -358,7 +472,24 @@ async function runCase(
       console.log(`agent error: ${execResult.error}`);
     }
 
-    const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs);
+    const behaviors = await readCapturedBehaviors(capturePath);
+    if (behaviors === null) {
+      console.log("behaviors: capture missing (no turn stream recorded)");
+    } else {
+      console.log(
+        `behaviors: shell=${behaviors.shellCommandCount} env=${behaviors.envAssignmentCommandCount}`
+          + ` net=${behaviors.networkCommandCount} web_fetch=${behaviors.webFetchToolCallCount}`
+          + ` shellEdit=${behaviors.editViaShellCount} repeats=${behaviors.repeatedSearchCount}`
+          + ` toolOnlyStreak=${behaviors.longestToolOnlyStreak}`
+          + ` maxTurnMs=${behaviors.maxTurnDurationMs}`,
+      );
+    }
+
+    const verifyEnv: Record<string, string> =
+      httpFixture !== null
+        ? { EVAL_HTTP_URL: httpFixture.url, EVAL_HTTP_TOKEN: httpFixture.token }
+        : {};
+    const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs, verifyEnv);
     if (verify.output.trim().length > 0) {
       console.log(verify.output.trimEnd());
     }
@@ -410,15 +541,23 @@ async function runCase(
       overBudget,
       skipPermissions: opts.skipPermissions,
       error,
+      repeat,
+      behaviors,
       textPreview: preview,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`case ${caseDef.id} (${variant.id}) failed: ${message}`);
-    return failResult(caseDef, variant, labels, opts, started, message);
+    return failResult(caseDef, variant, labels, opts, started, repeat, message);
   } finally {
+    if (httpFixture !== null) {
+      await httpFixture.close().catch(() => undefined);
+    }
     if (workdir !== null) {
       await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
+    }
+    if (capturePath !== null) {
+      await rm(capturePath, { force: true }).catch(() => undefined);
     }
   }
 }
@@ -458,10 +597,12 @@ async function main(): Promise<number> {
     );
   }
 
+  console.log(`Repeats per cell: ${opts.repeats}`);
+
   if (opts.dryRun) {
     console.log("dry-run: no inference");
     for (const { caseDef, variant } of plan) {
-      console.log(`  would run: ${variant.id} × ${caseDef.id}`);
+      console.log(`  would run: ${variant.id} × ${caseDef.id} × ${opts.repeats} repeat(s)`);
     }
     return 0;
   }
@@ -470,8 +611,10 @@ async function main(): Promise<number> {
   const results: CaseResult[] = [];
 
   for (const { caseDef, variant } of plan) {
-    const result = await runCase(caseDef, variant, opts);
-    results.push(result);
+    for (let repeat = 0; repeat < opts.repeats; repeat++) {
+      const result = await runCase(caseDef, variant, opts, repeat);
+      results.push(result);
+    }
   }
 
   const finishedAt = new Date().toISOString();
@@ -479,14 +622,17 @@ async function main(): Promise<number> {
   const primary = variants[0]!;
   const labels = await resolveVariantLabels(primary, opts);
 
+  const aggregates = computeCellAggregates(results);
   const report: EvalRunReport = {
-    version: 2,
+    version: 3,
     startedAt,
     finishedAt,
     provider: labels.provider,
     model: labels.model,
+    repeats: opts.repeats,
     variants,
     cases: results,
+    aggregates,
     totals,
   };
 
@@ -498,9 +644,22 @@ async function main(): Promise<number> {
   for (const r of results) {
     const mark = r.passed ? "PASS" : "FAIL";
     console.log(
-      `  ${mark}  ${r.variantId} × ${r.id}  ${formatMetricsLine(r)}` +
+      `  ${mark}  ${r.variantId} × ${r.id} #${r.repeat + 1}  ${formatMetricsLine(r)}` +
         `${r.error ? `  (${r.error})` : ""}`,
     );
+  }
+
+  if (opts.repeats > 1) {
+    console.log("\n=== Aggregates (per cell)");
+    for (const cell of aggregates) {
+      const statBits = Object.entries(cell.behaviorStats)
+        .filter(([, s]) => s.max > 0)
+        .map(([metric, s]) => `${metric}=${s.min}/${s.median}/${s.max}`);
+      console.log(
+        `  ${cell.resultKey}  pass ${cell.passCount}/${cell.repeats}` +
+          (statBits.length > 0 ? `  ${statBits.join(" ")}` : ""),
+      );
+    }
   }
 
   if (opts.outPath !== undefined) {
@@ -515,26 +674,27 @@ async function main(): Promise<number> {
   if (opts.baselinePath !== undefined) {
     const raw: unknown = JSON.parse(await readFile(resolve(opts.baselinePath), "utf8"));
     const baseline = parseEvalRunReport(raw);
-    const cmp = compareToBaseline(results, baseline);
-    console.log("\n=== Baseline compare");
+    const cmp = compareToBaseline(results, baseline, selected);
+    console.log("\n=== Baseline compare (aggregates)");
     for (const d of cmp.deltas) {
-      const metricBits: string[] = [];
-      if (d.metrics?.durationMsDelta !== null && d.metrics?.durationMsDelta !== undefined) {
-        metricBits.push(`Δms=${d.metrics.durationMsDelta}`);
-      }
-      if (d.metrics?.turnsUsedDelta !== null && d.metrics?.turnsUsedDelta !== undefined) {
-        metricBits.push(`Δturns=${d.metrics.turnsUsedDelta}`);
-      }
-      if (d.metrics?.tokenOutputDelta !== null && d.metrics?.tokenOutputDelta !== undefined) {
-        metricBits.push(`Δtok.out=${d.metrics.tokenOutputDelta}`);
-      }
+      const rate = (r: number | null): string => (r === null ? "n/a" : r.toFixed(2));
       console.log(
-        `  ${d.status.padEnd(10)} ${d.resultKey}  prev=${d.previous === null ? "n/a" : d.previous}  now=${d.current}` +
-          (metricBits.length > 0 ? `  ${metricBits.join(" ")}` : ""),
+        `  ${d.status.padEnd(10)} ${d.resultKey}  passRate ${rate(d.previousPassRate)} -> ${rate(d.currentPassRate)}`,
       );
+      for (const v of d.behaviorVerdicts) {
+        if (v.verdict === "neutral" && v.baselineMedian === v.currentMedian) continue;
+        console.log(
+          `      ${v.verdict.padEnd(8)} ${v.metric}  median ${v.baselineMedian} -> ${v.currentMedian}`,
+        );
+      }
+      if (d.baitNotReproducing !== undefined) {
+        console.log(`      BAIT FLAG  ${d.baitNotReproducing}`);
+      }
     }
     console.log(
-      `improved=${cmp.improved} regressed=${cmp.regressed} unchanged=${cmp.unchanged} new=${cmp.added}`,
+      `pass: improved=${cmp.improved} regressed=${cmp.regressed} unchanged=${cmp.unchanged} new=${cmp.added}  ` +
+        `behavior: improved=${cmp.behaviorImproved} regressed=${cmp.behaviorRegressed}  ` +
+        `baitFlags=${cmp.baitFlags}`,
     );
     if (cmp.regressed > 0) exitCode = 1;
   }

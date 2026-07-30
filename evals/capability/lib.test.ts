@@ -14,9 +14,12 @@ import {
   defaultVariantId,
   emptyTokenUsage,
   evaluateSoftBudget,
+  computeCellAggregates,
+  baitReproduces,
   type CaseResult,
   type EvalCase,
 } from "./lib.js";
+import type { BehaviorMetrics } from "./behaviors.js";
 
 function sampleCase(over: Partial<EvalCase> = {}): EvalCase {
   return {
@@ -57,6 +60,25 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
     overBudget: over.overBudget ?? false,
     skipPermissions: over.skipPermissions ?? true,
     error: over.error ?? null,
+    repeat: over.repeat ?? 0,
+    behaviors: over.behaviors ?? null,
+  };
+}
+
+function sampleBehaviors(over: Partial<BehaviorMetrics> = {}): BehaviorMetrics {
+  return {
+    shellCommandCount: 0,
+    envAssignmentCommandCount: 0,
+    chainSegmentCount: 0,
+    maxChainSegmentsPerCommand: 0,
+    networkCommandCount: 0,
+    webFetchToolCallCount: 0,
+    editViaShellCount: 0,
+    repeatedSearchCount: 0,
+    longestToolOnlyStreak: 0,
+    maxTurnDurationMs: 0,
+    toolCallsByName: {},
+    ...over,
   };
 }
 
@@ -75,6 +97,56 @@ describe("parseCaseJson", () => {
     expect(c.id).toBe("simple-health");
     expect(c.verify).toBe("verify.sh");
     expect(c.maxTurns).toBeUndefined();
+  });
+
+  test("parses a bait case with http fixture", () => {
+    const c = parseCaseJson(
+      {
+        id: "web-bait",
+        tier: "bait",
+        title: "Web bait",
+        fixture: "tests/fixtures/web-note",
+        prompt: "fetch {{HTTP_URL}}",
+        httpFixture: true,
+        bait: { metric: "networkCommandCount", threshold: 0 },
+      },
+      "/cases/web-bait",
+    );
+    expect(c.tier).toBe("bait");
+    expect(c.httpFixture).toBe(true);
+    expect(c.bait).toEqual({ metric: "networkCommandCount", threshold: 0 });
+  });
+
+  test("rejects an unknown bait metric", () => {
+    expect(() =>
+      parseCaseJson(
+        {
+          id: "x",
+          tier: "bait",
+          title: "t",
+          fixture: "f",
+          prompt: "p",
+          bait: { metric: "notAMetric", threshold: 0 },
+        },
+        "/c",
+      ),
+    ).toThrow(/bait\.metric/);
+  });
+
+  test("rejects a negative bait threshold", () => {
+    expect(() =>
+      parseCaseJson(
+        {
+          id: "x",
+          tier: "bait",
+          title: "t",
+          fixture: "f",
+          prompt: "p",
+          bait: { metric: "repeatedSearchCount", threshold: -1 },
+        },
+        "/c",
+      ),
+    ).toThrow(/bait\.threshold/);
   });
 
   test("rejects bad tier", () => {
@@ -198,20 +270,52 @@ describe("evaluateSoftBudget", () => {
   });
 });
 
+describe("computeCellAggregates", () => {
+  test("aggregates repeats per cell with pass rate and behavior stats", () => {
+    const results = [
+      sampleResult({ repeat: 0, passed: true, behaviors: sampleBehaviors({ repeatedSearchCount: 1 }) }),
+      sampleResult({ repeat: 1, passed: false, behaviors: sampleBehaviors({ repeatedSearchCount: 3 }) }),
+      sampleResult({ repeat: 2, passed: true, behaviors: sampleBehaviors({ repeatedSearchCount: 2 }) }),
+    ];
+    const cells = computeCellAggregates(results);
+    expect(cells).toHaveLength(1);
+    const cell = cells[0]!;
+    expect(cell.repeats).toBe(3);
+    expect(cell.passCount).toBe(2);
+    expect(cell.passRate).toBeCloseTo(2 / 3);
+    expect(cell.behaviorStats.repeatedSearchCount).toEqual({ min: 1, median: 2, max: 3 });
+  });
+
+  test("skips behavior stats when no repeat captured behaviors", () => {
+    const cells = computeCellAggregates([sampleResult({ behaviors: null })]);
+    expect(cells[0]!.behaviorStats.repeatedSearchCount).toBeUndefined();
+  });
+
+  test("even repeat count uses midpoint median", () => {
+    const cells = computeCellAggregates([
+      sampleResult({ repeat: 0, behaviors: sampleBehaviors({ shellCommandCount: 2 }) }),
+      sampleResult({ repeat: 1, behaviors: sampleBehaviors({ shellCommandCount: 4 }) }),
+    ]);
+    expect(cells[0]!.behaviorStats.shellCommandCount?.median).toBe(3);
+  });
+});
+
 describe("compareToBaseline", () => {
-  test("detects improve/regress/new by resultKey", () => {
+  test("any pass-rate change is significant (improve/regress/new)", () => {
     const baseline = parseEvalRunReport({
-      version: 2,
+      version: 3,
       provider: "xai",
       model: "grok",
       variants: [{ id: "xai/grok", provider: "xai", model: "grok" }],
       cases: [
-        sampleResult({ id: "simple-health", variantId: "xai/grok", passed: false }),
+        sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 0, passed: false }),
+        sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 1, passed: true }),
         sampleResult({ id: "complex-jwt", variantId: "xai/grok", passed: true }),
       ],
     });
     const current = [
-      sampleResult({ id: "simple-health", variantId: "xai/grok", passed: true }),
+      sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 0, passed: true }),
+      sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 1, passed: true }),
       sampleResult({ id: "complex-jwt", variantId: "xai/grok", passed: false }),
       sampleResult({ id: "new-case", variantId: "xai/grok", passed: true }),
     ];
@@ -219,36 +323,139 @@ describe("compareToBaseline", () => {
     expect(cmp.improved).toBe(1);
     expect(cmp.regressed).toBe(1);
     expect(cmp.added).toBe(1);
+    const health = cmp.deltas.find((d) => d.id === "simple-health");
+    expect(health?.previousPassRate).toBeCloseTo(0.5);
+    expect(health?.currentPassRate).toBe(1);
+    expect(health?.status).toBe("improved");
   });
 
-  test("includes metric deltas when both tracked", () => {
+  test("behavior medians produce improve/regress verdicts for lower-is-better metrics", () => {
     const baseline = parseEvalRunReport({
-      version: 2,
+      version: 3,
       provider: "xai",
       model: "grok",
       cases: [
         sampleResult({
-          id: "simple-health",
           variantId: "xai/grok",
-          durationMs: 1000,
-          turnsUsed: 5,
-          tokenUsage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+          behaviors: sampleBehaviors({ repeatedSearchCount: 4, networkCommandCount: 0, shellCommandCount: 2 }),
         }),
       ],
     });
     const current = [
       sampleResult({
-        id: "simple-health",
         variantId: "xai/grok",
-        durationMs: 800,
-        turnsUsed: 3,
-        tokenUsage: { input: 90, output: 30, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        behaviors: sampleBehaviors({ repeatedSearchCount: 1, networkCommandCount: 2, shellCommandCount: 9 }),
       }),
     ];
     const cmp = compareToBaseline(current, baseline);
-    expect(cmp.deltas[0]!.metrics?.durationMsDelta).toBe(-200);
-    expect(cmp.deltas[0]!.metrics?.turnsUsedDelta).toBe(-2);
-    expect(cmp.deltas[0]!.metrics?.tokenOutputDelta).toBe(-10);
+    const verdicts = cmp.deltas[0]!.behaviorVerdicts;
+    const byMetric = new Map(verdicts.map((v) => [v.metric, v.verdict]));
+    expect(byMetric.get("repeatedSearchCount")).toBe("improve");
+    expect(byMetric.get("networkCommandCount")).toBe("regress");
+    // Informational metric never produces a directional verdict.
+    expect(byMetric.get("shellCommandCount")).toBe("neutral");
+    expect(cmp.behaviorImproved).toBe(1);
+    expect(cmp.behaviorRegressed).toBe(1);
+  });
+
+  test("flags a bait case whose baseline no longer reproduces its misbehavior", () => {
+    const baitCase = sampleCase({
+      id: "env-bait",
+      tier: "bait",
+      bait: { metric: "envAssignmentCommandCount", threshold: 0 },
+    });
+    const cleanBaseline = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [
+        sampleResult({
+          id: "env-bait",
+          variantId: "xai/grok",
+          behaviors: sampleBehaviors({ envAssignmentCommandCount: 0 }),
+        }),
+      ],
+    });
+    const current = [
+      sampleResult({
+        id: "env-bait",
+        variantId: "xai/grok",
+        behaviors: sampleBehaviors({ envAssignmentCommandCount: 0 }),
+      }),
+    ];
+    const cmp = compareToBaseline(current, cleanBaseline, [baitCase]);
+    expect(cmp.baitFlags).toBe(1);
+    expect(cmp.deltas[0]!.baitNotReproducing).toMatch(/envAssignmentCommandCount/);
+  });
+
+  test("does not flag a bait case that reproduces on baseline", () => {
+    const baitCase = sampleCase({
+      id: "env-bait",
+      tier: "bait",
+      bait: { metric: "envAssignmentCommandCount", threshold: 0 },
+    });
+    const baseline = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [
+        sampleResult({
+          id: "env-bait",
+          variantId: "xai/grok",
+          behaviors: sampleBehaviors({ envAssignmentCommandCount: 2 }),
+        }),
+      ],
+    });
+    const current = [
+      sampleResult({
+        id: "env-bait",
+        variantId: "xai/grok",
+        behaviors: sampleBehaviors({ envAssignmentCommandCount: 0 }),
+      }),
+    ];
+    const cmp = compareToBaseline(current, baseline, [baitCase]);
+    expect(cmp.baitFlags).toBe(0);
+    expect(cmp.deltas[0]!.baitNotReproducing).toBeUndefined();
+  });
+});
+
+describe("baitReproduces", () => {
+  test("null when the metric was never captured", () => {
+    const cell = computeCellAggregates([sampleResult({ behaviors: null })])[0]!;
+    expect(baitReproduces(cell, { metric: "repeatedSearchCount", threshold: 0 })).toBeNull();
+  });
+});
+
+describe("parseEvalRunReport", () => {
+  test("round-trips repeat index and behaviors and recomputes aggregates", () => {
+    const report = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      repeats: 2,
+      cases: [
+        sampleResult({ repeat: 0, behaviors: sampleBehaviors({ shellCommandCount: 2 }) }),
+        sampleResult({ repeat: 1, behaviors: sampleBehaviors({ shellCommandCount: 4 }) }),
+      ],
+    });
+    expect(report.repeats).toBe(2);
+    expect(report.cases[0]!.behaviors?.shellCommandCount).toBe(2);
+    expect(report.cases[1]!.repeat).toBe(1);
+    expect(report.aggregates).toHaveLength(1);
+    expect(report.aggregates[0]!.behaviorStats.shellCommandCount?.median).toBe(3);
+  });
+
+  test("legacy reports default repeat 0 and null behaviors", () => {
+    const report = parseEvalRunReport({
+      version: 2,
+      provider: "xai",
+      model: "grok",
+      cases: [{ id: "simple-health", passed: true }],
+    });
+    expect(report.repeats).toBe(1);
+    expect(report.cases[0]!.repeat).toBe(0);
+    expect(report.cases[0]!.behaviors).toBeNull();
+    expect(report.aggregates[0]!.passRate).toBe(1);
   });
 });
 
