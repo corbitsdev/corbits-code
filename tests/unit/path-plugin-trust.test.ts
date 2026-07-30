@@ -11,6 +11,7 @@ import {
 import {
   isPathPluginTrusted,
   loadPathTrust,
+  revokePathPlugin,
   trustPathPlugin,
   trustPathPlugins,
 } from "../../src/trust/path-trust.js";
@@ -213,6 +214,27 @@ describe("path plugin trust across working directories", () => {
         expect(m.metadataOnly).toBeUndefined();
         expect(m.commandPlugin).toBeDefined();
       }
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("revoked grant no longer loads code on subsequent discovery", async () => {
+    const base = await mkdtemp(join(tmpdir(), "corbits-revoke-load-"));
+    const home = join(base, "home");
+    try {
+      await mkdir(home, { recursive: true });
+      const plugin = join(base, "p");
+      const marker = join(base, "MARKER2");
+      await writeCommandPlugin(plugin, "p", marker);
+      await trustPathPlugin(plugin, home);
+      await revokePathPlugin(plugin, home);
+      const store = await loadPathTrust(home);
+      const mods = await loadPluginsFromPaths([plugin], base, {
+        isPluginTrusted: (p) => isPathPluginTrusted(store, p),
+      });
+      expect(mods.find((m) => m.manifest?.id === "p")?.metadataOnly).toBe(true);
+      expect(await Bun.file(marker).exists()).toBe(false);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
