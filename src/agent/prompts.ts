@@ -141,6 +141,41 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
   ].join("\n");
 }
 
+// Shared across every provider family and both chat/sub-agent entry points —
+// appended exactly once per built prompt. Prohibition form throughout: these
+// are the failure modes observed across shipped agents (OpenCode, Codex CLI,
+// Gemini CLI, Claude Code, Warp, Aider, Cline), not general advice.
+export function buildPromptDisciplineBlock(): string {
+  return [
+    "Prompt discipline:",
+    "",
+    "Tools over shell:",
+    "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.",
+    "- Never use echo or shell output to talk to the user — that is what your reply is for.",
+    "",
+    "Environment:",
+    "- Never set, export, or prefix environment variables in a command — the harness owns the environment; recurring needs belong in project settings, one-off needs are a stated blocker, not a workaround.",
+    "",
+    "Web:",
+    "- Never use curl or wget for a URL — use web_fetch.",
+    "- Never hand-roll a web query — use web_search.",
+    "",
+    "Command shape:",
+    "- Never chain unrelated operations into one run_shell call — one logical operation per call, no multi-line scripts; a pipeline that performs one job is one operation.",
+    "- Every command must be legible to the operator reviewing it before it runs.",
+    "",
+    "Turn semantics:",
+    "- A reply with no tool calls is the final answer — never leave work implied and unstated.",
+    "- Never repeat a search or read whose results you already have.",
+    "- Never retry a failed approach a fourth time — after three failures, stop, restate the task, list assumptions, and change approach.",
+    "- Never issue independent reads or searches one at a time when they can run in parallel — batch them.",
+    "",
+    "TTY output:",
+    "- Never format terminal output as a wide table — use ordered bullets instead.",
+    "- Keep headers short and bold, bullets to one line, and wrap paths, commands, and identifiers in backticks.",
+  ].join("\n");
+}
+
 const TOOL_SUMMARIES: Record<string, string> = {
   read_file:
     "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell)",
@@ -225,6 +260,7 @@ function baseSection(baseOverride: string | undefined, sessionMode: SessionMode)
         "## Session mode",
         buildHarnessFacts({ sessionMode: "single" }),
         buildGuidelines({ sessionMode: "single" }),
+        buildPromptDisciplineBlock(),
       ]);
     }
     return joinSections([
@@ -232,12 +268,14 @@ function baseSection(baseOverride: string | undefined, sessionMode: SessionMode)
       "## Session mode",
       buildHarnessFacts({ sessionMode: "orchestrator" }),
       buildGuidelines({ sessionMode: "orchestrator" }),
+      buildPromptDisciplineBlock(),
     ]);
   }
   return joinSections([
     buildChatRole(sessionMode),
     buildHarnessFacts({ sessionMode }),
     buildGuidelines({ sessionMode }),
+    buildPromptDisciplineBlock(),
   ]);
 }
 
@@ -335,6 +373,7 @@ export function buildGrokLeafAntiThrashNote(): string {
     "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
     "- If the next call would only re-open paths you already read, write the report instead.",
     "- Leave the last turn for the report envelope; do not spend the budget on one more search or micro-edit.",
+    "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
   ].join("\n");
 }
 
@@ -356,6 +395,7 @@ export function buildSubAgentSystemPrompt(
           `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
           buildHarnessFacts({ dynamicTools: false, subAgent: true }),
           buildGuidelines({ subAgent: true }),
+          buildPromptDisciplineBlock(),
           buildSubAgentReportContract(),
         ]);
   const toolListForPrompt =
