@@ -262,6 +262,36 @@ describe("tool execution watchdog", () => {
     budget.dispose();
   });
 
+  test("pause ceiling resumes a frozen budget with no prompt on screen", async () => {
+    // A gate queued behind an overlay (or emitted with no listener) never
+    // resumes the budget; the ceiling bounds how long the clock stays frozen.
+    const parent = new AbortController();
+    const budget = withPauseableTimeout(parent.signal, 50, 40);
+    budget.pause();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(budget.signal.aborted).toBe(false);
+    // Ceiling fires at 40ms, remaining ~50ms budget then expires on its own.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(budget.signal.aborted).toBe(true);
+    budget.dispose();
+  });
+
+  test("resume before the pause ceiling clears the ceiling timer", async () => {
+    const parent = new AbortController();
+    const budget = withPauseableTimeout(parent.signal, 100, 30);
+    budget.pause();
+    await new Promise((r) => setTimeout(r, 10));
+    budget.resume();
+    budget.pause();
+    // A fresh pause restarts the ceiling; forced resume must not double-fire.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(budget.signal.aborted).toBe(false);
+    budget.resume();
+    await new Promise((r) => setTimeout(r, 130));
+    expect(budget.signal.aborted).toBe(true);
+    budget.dispose();
+  });
+
   test("nested watchdog pause freezes the enclosing budget too", async () => {
     // task tool: outer watchdog wraps the parent `task` call; each child tool
     // call opens its own nested watchdog. A permission prompt during the child

@@ -32,9 +32,7 @@ import {
   type ProviderTier,
 } from "../config/settings.js";
 import type { ToolWatchdogConfig } from "./tool-execution-watchdog.js";
-import {
-  getToolApprovalBudget,
-} from "./tool-execution-watchdog.js";
+import { createGateRequestApproval } from "./request-approval.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
@@ -109,7 +107,7 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
 import { App } from "./app.js";
-import type { OperatorGateEvent, PermissionGateEvent } from "./hooks/use-gates.js";
+import type { OperatorGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -301,36 +299,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     rootsProvider: createWorktreeRootsProvider(config.cwd),
     providerName: config.providerName,
     model: config.model,
-    requestApproval: (request) =>
-      new Promise((resolve) => {
+    requestApproval: createGateRequestApproval({
+      emitGate: (event) => emitter.emit("permission.gate", event),
+      goalTimeout: () => {
         const snap = goalGovernorRef.current?.get() ?? null;
-        // Freeze the tool wall-clock budget while the operator decides (when
-        // waitForApproval is on). Always attach the budget signal so a timeout
-        // with waitForApproval off dismisses the modal instead of leaving a ghost.
-        // Capture the handle here: finish() runs on the UI thread outside the
-        // tool ALS, so helpers that re-lookup ALS would no-op on resume.
-        const budget = getToolApprovalBudget();
-        if (budget?.waitForApproval) budget.pause();
-        let settled = false;
-        const finish = (outcome: Parameters<PermissionGateEvent["resolve"]>[0]) => {
-          if (settled) return;
-          settled = true;
-          if (budget?.waitForApproval) budget.resume();
-          resolve(outcome);
-        };
-        const event: PermissionGateEvent = {
-          request,
-          resolve: finish,
-          ...(isGoalApprovalTimeoutActive(snap?.status)
-            ? {
-                timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
-                timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
-              }
-            : {}),
-          ...(budget !== undefined ? { signal: budget.signal } : {}),
-        };
-        emitter.emit("permission.gate", event);
-      }),
+        return isGoalApprovalTimeoutActive(snap?.status)
+          ? {
+              timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+              timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
+            }
+          : undefined;
+      },
+    }),
     persist: (approval: Approval, scope: GrantScope) => {
       // Route each persisted grant to the store its scope selects. Session
       // grants never reach here — the gate keeps those in memory only.

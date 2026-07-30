@@ -27,6 +27,14 @@ export const MAX_TOOL_EXECUTION_TIMEOUT_MS = 1_800_000;
  */
 export const TOOL_EXECUTION_SALVAGE_GRACE_MS = 5_000;
 
+/**
+ * Upper bound on how long a paused budget may stay frozen. A permission prompt
+ * that never becomes visible (overlay open, gate listener gone) never resumes
+ * the budget; after this ceiling the clock resumes on its own so a frozen
+ * budget cannot hang a tool run indefinitely.
+ */
+export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
+
 const BUDGET_EXPIRED = Symbol("tool-execution-budget-expired");
 
 export function resolveToolExecutionTimeoutMs(config?: ToolWatchdogConfig): number {
@@ -70,11 +78,16 @@ export type PauseableTimeout = {
  * a permission prompt is open). Pause/resume are refcounted so nested pauses
  * (multi-segment shell approvals) stay correct.
  */
-export function withPauseableTimeout(signal: AbortSignal, timeoutMs: number): PauseableTimeout {
+export function withPauseableTimeout(
+  signal: AbortSignal,
+  timeoutMs: number,
+  pauseCeilingMs: number = MAX_TOOL_APPROVAL_PAUSE_MS,
+): PauseableTimeout {
   const controller = new AbortController();
   let remaining = Math.max(1, Math.floor(timeoutMs));
   let startedAt: number | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let ceilingTimer: ReturnType<typeof setTimeout> | null = null;
   let pauseDepth = 0;
   let disposed = false;
 
@@ -82,6 +95,13 @@ export function withPauseableTimeout(signal: AbortSignal, timeoutMs: number): Pa
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
+    }
+  };
+
+  const clearCeilingTimer = (): void => {
+    if (ceilingTimer !== null) {
+      clearTimeout(ceilingTimer);
+      ceilingTimer = null;
     }
   };
 
@@ -112,13 +132,24 @@ export function withPauseableTimeout(signal: AbortSignal, timeoutMs: number): Pa
       startedAt = null;
     }
     clearTimer();
+    // Ceiling on the freeze: an invisible or orphaned prompt never calls
+    // resume, so force the clock back on after pauseCeilingMs. Outstanding
+    // resume() calls after a forced resume are no-ops (depth guard below).
+    ceilingTimer = setTimeout(() => {
+      ceilingTimer = null;
+      pauseDepth = 0;
+      arm();
+    }, pauseCeilingMs);
   };
 
   const resume = (): void => {
     if (disposed || controller.signal.aborted) return;
     if (pauseDepth === 0) return;
     pauseDepth -= 1;
-    if (pauseDepth === 0) arm();
+    if (pauseDepth === 0) {
+      clearCeilingTimer();
+      arm();
+    }
   };
 
   const onParentAbort = () => controller.abort();
@@ -131,6 +162,7 @@ export function withPauseableTimeout(signal: AbortSignal, timeoutMs: number): Pa
     dispose: () => {
       disposed = true;
       clearTimer();
+      clearCeilingTimer();
       signal.removeEventListener("abort", onParentAbort);
     },
     pause,

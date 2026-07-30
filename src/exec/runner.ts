@@ -99,6 +99,7 @@ import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setAgentSourceUnlessClosed } from "../tui/agent-source-sync.js";
+import { getToolApprovalBudget } from "../tui/tool-execution-watchdog.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
@@ -768,6 +769,17 @@ async function promptPermission(
   interactive: boolean,
 ): Promise<ApprovalOutcome> {
   if (!interactive) return { allow: false };
+  // Same freeze-while-deciding contract as the TUI gate: the tool wall-clock
+  // budget must not run down while the operator reads the prompt.
+  const budget = getToolApprovalBudget();
+  if (budget === undefined) {
+    // Every exec tool call runs under the watchdog ALS; an absent store means
+    // the gate fired outside a tool run or the ALS context was lost.
+    logger.warn("permission prompt reached with no tool budget in ALS for {tool}", {
+      tool: request.tool,
+    });
+  }
+  if (budget?.waitForApproval) budget.pause();
   const summary = `${request.tool}: ${request.subject}`;
   stderr.write(`\nPermission required: ${summary}\n`);
   const scopes = request.scopes;
@@ -789,5 +801,6 @@ async function promptPermission(
     };
   } finally {
     rl.close();
+    if (budget?.waitForApproval) budget.resume();
   }
 }
