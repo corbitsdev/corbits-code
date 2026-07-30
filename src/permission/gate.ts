@@ -291,11 +291,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         continue;
       }
 
-      const restrictedSubject =
+      const alreadyApproved =
         // Path-arg tools already drop to ask via callTargetsRestricted; grants
         // match on the path subject the same as before.
         isApproved(request.tool, request.subject, approvals, activeProviderModel);
-      if (restrictedSubject) {
+      if (alreadyApproved) {
         continue;
       }
 
