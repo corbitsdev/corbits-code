@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output, stderr } from "node:process";
 import { isAbsolute, join, resolve } from "node:path";
-import { access } from "node:fs/promises";
 import {
   createAgent,
   defineAgent,
@@ -75,7 +74,7 @@ import {
   discoverRepoPlugins,
   discoverUserPlugins,
   discoverClaudeInstalledPlugins,
-  expandPluginPath,
+  expandExistingPluginMembers,
   loadPluginsFromPaths,
   dedupePluginModules,
 } from "../plugins/loader.js";
@@ -222,20 +221,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // One-shot migration only when the path-trust file does not exist yet.
     let pathTrust = await migratePathTrustFromPluginPaths(
       config.settings?.pluginPaths ?? [],
-      async (p) => {
-        const abs = isAbsolute(p) ? p : resolve(config.cwd, p);
-        const members = await expandPluginPath(abs);
-        const existing: string[] = [];
-        for (const m of members) {
-          try {
-            await access(m);
-            existing.push(m);
-          } catch {
-            // skip missing
-          }
-        }
-        return existing;
-      },
+      (p) => expandExistingPluginMembers(p, config.cwd),
     );
     const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
     const claudePlugins =

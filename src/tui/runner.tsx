@@ -1,5 +1,4 @@
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
-import { access } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import { render } from "ink";
 import {
@@ -41,7 +40,7 @@ import { createInferenceDependencies } from "../provider/inference-dependencies.
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, expandPluginPath, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules, type PluginOrigin } from "../plugins/loader.js";
+import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, expandExistingPluginMembers, expandPluginPath, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules, type PluginOrigin } from "../plugins/loader.js";
 import {
   isPluginTrusted,
   loadProjectTrust,
@@ -182,20 +181,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // does not exist yet (legacy per-cwd grants). Later boots load the store as-is.
   let pathTrust: PathTrustStore = await migratePathTrustFromPluginPaths(
     config.settings?.pluginPaths ?? [],
-    async (p) => {
-      const abs = isAbsolute(p) ? p : resolvePath(config.cwd, p);
-      const members = await expandPluginPath(abs);
-      const existing: string[] = [];
-      for (const m of members) {
-        try {
-          await access(m);
-          existing.push(m);
-        } catch {
-          // skip missing paths — do not pre-trust future RCE surfaces
-        }
-      }
-      return existing;
-    },
+    (p) => expandExistingPluginMembers(p, config.cwd),
   );
   const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);

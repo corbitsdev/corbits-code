@@ -260,6 +260,20 @@ export async function expandPluginPath(path: string): Promise<string[]> {
   return [path];
 }
 
+// Resolve a registered pluginPaths entry to the member plugin directories that
+// exist on disk: relative entries resolve against cwd, marketplace roots expand
+// to their members. Missing paths are dropped so trust decisions made from this
+// list never pre-grant a directory that could appear later with other content.
+export async function expandExistingPluginMembers(
+  registeredPath: string,
+  cwd: string,
+): Promise<string[]> {
+  const abs = isAbsolute(registeredPath) ? registeredPath : resolve(cwd, registeredPath);
+  const members = await expandPluginPath(abs);
+  const existing = await Promise.all(members.map((m) => pathExists(m)));
+  return members.filter((_, i) => existing[i]);
+}
+
 // Scan a plugins root directory and return all loaded plugin modules.
 // `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
 // When `isTrusted` is set and origin requires trust, untrusted paths load
