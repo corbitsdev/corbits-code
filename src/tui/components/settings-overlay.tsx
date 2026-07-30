@@ -22,11 +22,17 @@ export type SettingsOverlayProps = {
   onChangeSessionMode: (mode: SessionMode, scope: "global" | "local") => void;
   telemetryEnabled: boolean;
   onChangeTelemetryEnabled: (enabled: boolean) => void;
+  /**
+   * When true (default), freeze each tool's wall-clock budget while its
+   * permission prompt is open. When false, the budget keeps ticking.
+   */
+  waitForApproval: boolean;
+  onChangeWaitForApproval: (value: boolean) => void;
   onClose: () => void;
   maxHeight?: number;
 };
 
-const TABS = ["Permissions", "Compaction", "Session", "Sub-agents", "Telemetry"] as const;
+const TABS = ["Permissions", "Compaction", "Session", "Sub-agents", "Tools", "Telemetry"] as const;
 type Tab = (typeof TABS)[number];
 
 const COMPACTION_OPTIONS: { value: CompactionMode; label: string; description: string }[] = [
@@ -331,6 +337,80 @@ function SubAgentsTab({
   );
 }
 
+const WAIT_FOR_APPROVAL_OPTIONS: { value: boolean; label: string; description: string }[] = [
+  {
+    value: true,
+    label: "On (default)",
+    description:
+      "While a permission prompt is open, freeze that tool's wall-clock budget so a late approve " +
+      "still runs the tool. The agent waits for your decision instead of timing out under the modal.",
+  },
+  {
+    value: false,
+    label: "Off",
+    description:
+      "The tool budget keeps ticking during the permission prompt. If it expires first, the tool is " +
+      "skipped and the prompt is dismissed automatically.",
+  },
+];
+
+function ToolsTab({
+  waitForApproval,
+  onChangeWaitForApproval,
+}: {
+  waitForApproval: boolean;
+  onChangeWaitForApproval: (value: boolean) => void;
+}): ReactNode {
+  const currentIndex = WAIT_FOR_APPROVAL_OPTIONS.findIndex((o) => o.value === waitForApproval);
+  const [selected, setSelected] = useState(currentIndex >= 0 ? currentIndex : 0);
+
+  useInput((_input, key) => {
+    if (key.upArrow) {
+      setSelected((s) => (s > 0 ? s - 1 : WAIT_FOR_APPROVAL_OPTIONS.length - 1));
+    } else if (key.downArrow) {
+      setSelected((s) => (s < WAIT_FOR_APPROVAL_OPTIONS.length - 1 ? s + 1 : 0));
+    } else if (key.return || _input === " ") {
+      const opt = WAIT_FOR_APPROVAL_OPTIONS[selected];
+      if (opt !== undefined) onChangeWaitForApproval(opt.value);
+    }
+  });
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={color("muted")} bold>
+        Wait for approval
+      </Text>
+      <Text color={color("muted")}>
+        Controls whether a parked permission prompt counts against the per-tool timeout. Takes effect
+        on the next tool call; also saved to ~/.corbits/settings.json.
+      </Text>
+      <Box flexDirection="column" marginTop={1}>
+        {WAIT_FOR_APPROVAL_OPTIONS.map((opt, index) => {
+          const isSelected = index === selected;
+          const isActive = opt.value === waitForApproval;
+          return (
+            <Box key={opt.label} flexDirection="column" marginBottom={1}>
+              <Box>
+                <Text color={isSelected ? color("brand") : color("muted")} bold={isSelected}>
+                  {isSelected ? "› " : "  "}
+                </Text>
+                <Text bold={isSelected || isActive} {...(isActive ? { color: color("success") } : {})}>
+                  {opt.label}
+                </Text>
+                {isActive && <Text color={color("success")}>{" "}(active)</Text>}
+              </Box>
+              <Box marginLeft={4}>
+                <Text color={color("muted")}>{opt.description}</Text>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+      <Text color={color("muted")}>↑↓ navigate · Enter or Space to select</Text>
+    </Box>
+  );
+}
+
 const TELEMETRY_OPTIONS: { value: boolean; label: string; description: string }[] = [
   {
     value: true,
@@ -413,6 +493,8 @@ export function SettingsOverlay({
   onChangeSessionMode,
   telemetryEnabled,
   onChangeTelemetryEnabled,
+  waitForApproval,
+  onChangeWaitForApproval,
   onClose,
   maxHeight,
 }: SettingsOverlayProps): ReactNode {
@@ -466,6 +548,12 @@ export function SettingsOverlay({
           current={maxConcurrentSubAgents}
           onChange={onChangeMaxConcurrentSubAgents}
           sessionMode={sessionMode}
+        />
+      )}
+      {activeTab === "Tools" && (
+        <ToolsTab
+          waitForApproval={waitForApproval}
+          onChangeWaitForApproval={onChangeWaitForApproval}
         />
       )}
       {activeTab === "Telemetry" && (

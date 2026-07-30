@@ -23,6 +23,7 @@ import {
   clampSubAgentMaxTurns,
   validateTaskMaxTurns,
   toolWatchdogFromSettings,
+  loadGlobalSettingsWriteBase,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -341,19 +342,54 @@ describe("loaders", () => {
       const path = join(dir, ".corbits", "settings.json");
       const withTools: Settings = {
         ...firepass,
-        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000 },
+        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000, waitForApproval: false },
       };
       await saveGlobalSettings(path, withTools);
       const loaded = await loadSettings(path);
-      expect(loaded?.tools).toEqual({ timeoutMs: 120_000, maxTimeoutMs: 600_000 });
+      expect(loaded?.tools).toEqual({
+        timeoutMs: 120_000,
+        maxTimeoutMs: 600_000,
+        waitForApproval: false,
+      });
       expect(loaded).toEqual(withTools);
       expect(toolWatchdogFromSettings(loaded)).toEqual({
         defaultMs: 120_000,
         maxMs: 600_000,
+        waitForApproval: false,
       });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("loadGlobalSettingsWriteBase distinguishes absent from unreadable", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      // Absent file: a fresh minimal base is a safe write target.
+      expect(await loadGlobalSettingsWriteBase(path)).toEqual({ providers: {} });
+
+      // Readable file: its contents are the base.
+      await saveGlobalSettings(path, firepass);
+      expect(await loadGlobalSettingsWriteBase(path)).toEqual(firepass);
+
+      // Unreadable file: null so the caller skips the write instead of
+      // overwriting the whole settings file with a minimal base.
+      await writeFile(path, "{ not json");
+      expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
+
+      await writeFile(path, JSON.stringify({ providers: "wrong-shape" }));
+      expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("toolWatchdogFromSettings maps waitForApproval alone", () => {
+    expect(toolWatchdogFromSettings({ providers: {}, tools: { waitForApproval: true } })).toEqual({
+      waitForApproval: true,
+    });
+    expect(toolWatchdogFromSettings({ providers: {} })).toBeUndefined();
   });
 });
 

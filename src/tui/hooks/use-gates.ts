@@ -26,6 +26,12 @@ export type PermissionGateEvent = {
   timeoutMs?: number;
   /** Override the agent-facing deny message on timeout. */
   timeoutMessage?: string;
+  /**
+   * Tool-execution budget signal. When aborted (watchdog timeout or parent
+   * cancel), this permission entry is auto-denied even if it is not the head
+   * of the queue — so the modal cannot outlive a tool that already finished.
+   */
+  signal?: AbortSignal;
 };
 
 export type ActiveApproval =
@@ -74,6 +80,8 @@ type PermissionQueueEntry = {
   timer: ReturnType<typeof setTimeout> | null;
   timeoutMs?: number;
   timeoutMessage?: string;
+  /** Detach budget-abort listener when the entry settles. */
+  detachAbort: (() => void) | null;
 };
 
 type GateQueueEntry = PlanQueueEntry | OperatorQueueEntry | PermissionQueueEntry;
@@ -98,6 +106,12 @@ function clearEntryTimer(entry: GateQueueEntry): void {
   if (entry.kind !== "permission" || entry.timer === null) return;
   clearTimeout(entry.timer);
   entry.timer = null;
+}
+
+function detachEntryAbort(entry: GateQueueEntry): void {
+  if (entry.kind !== "permission") return;
+  entry.detachAbort?.();
+  entry.detachAbort = null;
 }
 
 export function useGates({
@@ -137,18 +151,32 @@ export function useGates({
     }, timeoutMs);
   }
 
+  /**
+   * Remove a queue entry by id (even if not head). Used when a tool budget
+   * aborts while its permission prompt is still waiting behind another gate.
+   */
+  function removeEntry(id: number, kind: GateQueueEntry["kind"]): GateQueueEntry | null {
+    const index = queue.current.findIndex((e) => e.id === id && e.kind === kind);
+    if (index === -1) return null;
+    const [entry] = queue.current.splice(index, 1);
+    if (entry === undefined) return null;
+    clearEntryTimer(entry);
+    detachEntryAbort(entry);
+    if (entry.kind === "permission") {
+      setPermissionQueueDepth((depth) => Math.max(0, depth - 1));
+    }
+    setGatePendingRef.current(false);
+    if (index === 0) {
+      activeId.current = null;
+      updateVisibleEntry();
+    }
+    return entry;
+  }
+
   function settleHead(id: number, kind: GateQueueEntry["kind"]): GateQueueEntry | null {
     const head = queue.current[0];
     if (head === undefined || head.id !== id || head.kind !== kind) return null;
-    queue.current.shift();
-    activeId.current = null;
-    clearEntryTimer(head);
-    if (head.kind === "permission") {
-      setPermissionQueueDepth((depth) => depth - 1);
-    }
-    setGatePendingRef.current(false);
-    updateVisibleEntry();
-    return head;
+    return removeEntry(id, kind);
   }
 
   function settlePlan(id: number, approved: boolean): void {
@@ -162,7 +190,9 @@ export function useGates({
   }
 
   function settlePermission(id: number, outcome: ApprovalOutcome): void {
-    const entry = settleHead(id, "permission");
+    // Prefer head settle for the normal modal path; fall back to by-id so a
+    // budget abort can dismiss a non-head permission still in the queue.
+    const entry = settleHead(id, "permission") ?? removeEntry(id, "permission");
     if (entry?.kind === "permission") entry.resolve(outcome);
   }
 
@@ -180,7 +210,10 @@ export function useGates({
     activeId.current = null;
     setActiveApproval(null);
     setPermissionQueueDepth(0);
-    for (const entry of remaining) clearEntryTimer(entry);
+    for (const entry of remaining) {
+      clearEntryTimer(entry);
+      detachEntryAbort(entry);
+    }
     for (const entry of remaining) {
       setGatePendingRef.current(false);
       switch (entry.kind) {
@@ -212,16 +245,44 @@ export function useGates({
     const onOperator = ({ question, options, resolve }: OperatorGateEvent) => {
       enqueue({ id: nextId.current++, kind: "operator", question, options, resolve });
     };
-    const onPermission = ({ request, resolve, timeoutMs, timeoutMessage }: PermissionGateEvent) => {
-      enqueue({
-        id: nextId.current++,
+    const onPermission = ({
+      request,
+      resolve,
+      timeoutMs,
+      timeoutMessage,
+      signal,
+    }: PermissionGateEvent) => {
+      const id = nextId.current++;
+      const entry: PermissionQueueEntry = {
+        id,
         kind: "permission",
         request,
         resolve,
         timer: null,
+        detachAbort: null,
         ...(timeoutMs !== undefined && timeoutMs > 0 ? { timeoutMs } : {}),
         ...(timeoutMessage !== undefined ? { timeoutMessage } : {}),
-      });
+      };
+      if (signal !== undefined) {
+        const onAbort = (): void => {
+          settlePermission(id, {
+            allow: false,
+            message: "tool timed out or was cancelled while waiting for approval",
+          });
+        };
+        if (signal.aborted) {
+          // Already dead — still enqueue then settle so gatePending balances.
+          enqueue(entry);
+          settlePermission(id, {
+            allow: false,
+            message: "tool timed out or was cancelled while waiting for approval",
+          });
+          return;
+        }
+        signal.addEventListener("abort", onAbort, { once: true });
+        entry.detachAbort = () => signal.removeEventListener("abort", onAbort);
+      }
+      enqueue(entry);
     };
 
     eventEmitter.on("plan.gate", onPlan);

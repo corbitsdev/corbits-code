@@ -17,6 +17,7 @@ import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from
 import {
   globalSettingsPath,
   loadLocalSettings,
+  loadGlobalSettingsWriteBase,
   loadSettings,
   localSettingsPath,
   markTelemetryNoticeShown,
@@ -31,6 +32,8 @@ import {
   type PluginConfig,
   type ProviderTier,
 } from "../config/settings.js";
+import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
+import { createGateRequestApproval } from "./request-approval.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
@@ -114,7 +117,7 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
 import { App } from "./app.js";
-import type { OperatorGateEvent, PermissionGateEvent } from "./hooks/use-gates.js";
+import type { OperatorGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -316,21 +319,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     rootsProvider: createWorktreeRootsProvider(config.cwd),
     providerName: config.providerName,
     model: config.model,
-    requestApproval: (request) =>
-      new Promise((resolve) => {
+    requestApproval: createGateRequestApproval({
+      emitGate: (event) => emitter.emit("permission.gate", event),
+      goalTimeout: () => {
         const snap = goalGovernorRef.current?.get() ?? null;
-        const event: PermissionGateEvent = {
-          request,
-          resolve,
-          ...(isGoalApprovalTimeoutActive(snap?.status)
-            ? {
-                timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
-                timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
-              }
-            : {}),
-        };
-        emitter.emit("permission.gate", event);
-      }),
+        return isGoalApprovalTimeoutActive(snap?.status)
+          ? {
+              timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+              timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
+            }
+          : undefined;
+      },
+    }),
     persist: (approval: Approval, scope: GrantScope) => {
       // Route each persisted grant to the store its scope selects. Session
       // grants never reach here — the gate keeps those in memory only.
@@ -648,7 +648,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
-  const toolWatchdog = toolWatchdogFromSettings(config.settings);
+  // Mutable so Settings → waitForApproval takes effect on the next tool call
+  // without rebuilding the toolset.
+  const liveToolWatchdog: ToolWatchdogConfig = {
+    ...(toolWatchdogFromSettings(config.settings) ?? {}),
+  };
   const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
   if (liveSessionMode === undefined) {
@@ -676,7 +680,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     permissionGate,
     skillDirs,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-    ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
+    toolWatchdog: liveToolWatchdog,
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
     getGoalGovernor: () => goalGovernorRef.current,
@@ -1401,11 +1405,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       }}
       onChangeMaxConcurrentSubAgents={async (limit) => {
         configureSubAgentConcurrency(limit);
-        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
-        const base: Settings = current ?? { providers: {} };
+        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+        if (base === null) return;
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           maxConcurrentSubAgents: limit,
+        });
+      }}
+      waitForApproval={resolveWaitForApproval(liveToolWatchdog)}
+      onChangeWaitForApproval={async (value) => {
+        liveToolWatchdog.waitForApproval = value;
+        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+        if (base === null) return;
+        await saveGlobalSettings(config.globalSettingsPath, {
+          ...base,
+          tools: { ...base.tools, waitForApproval: value },
         });
       }}
       initialSessionMode={liveSessionMode}

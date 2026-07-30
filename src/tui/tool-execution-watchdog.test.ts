@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
+  getToolApprovalBudget,
   isUsableToolExecuteResult,
   preferExecuteSalvageAfterAbort,
   resolveToolExecutionTimeoutMs,
+  resolveWaitForApproval,
   runWithToolExecutionWatchdog,
+  withPauseableTimeout,
   withTimeout,
 } from "./tool-execution-watchdog.js";
 import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.js";
@@ -58,7 +61,7 @@ describe("tool execution watchdog", () => {
         await new Promise((r) => setTimeout(r, TEST_SALVAGE_GRACE_MS + 100));
         return { callId: "2", content: "late" };
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     expect(result.isError).toBe(true);
     expect(result.content).toBe(formatToolExecutionTimeoutMessage("slow", 30));
@@ -86,7 +89,7 @@ describe("tool execution watchdog", () => {
         await new Promise((r) => setTimeout(r, 10));
         return salvage;
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     // Let execute attach its abort listener, then cancel.
     await new Promise((r) => setTimeout(r, 5));
@@ -119,7 +122,7 @@ describe("tool execution watchdog", () => {
         await new Promise((r) => setTimeout(r, 20));
         return salvage;
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     expect(result.isError).not.toBe(true);
     expect(result.content).toContain("Deadline salvage");
@@ -137,7 +140,7 @@ describe("tool execution watchdog", () => {
         await new Promise(() => {});
         return { callId: "5", content: "ok" };
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     parent.abort();
     const afterAbort = await Promise.race([
@@ -174,5 +177,167 @@ describe("tool execution watchdog", () => {
     });
     const got = await preferExecuteSalvageAfterAbort(promise, 30);
     expect(got).toBeUndefined();
+  });
+
+  test("resolveWaitForApproval defaults true", () => {
+    expect(resolveWaitForApproval(undefined)).toBe(true);
+    expect(resolveWaitForApproval({})).toBe(true);
+    expect(resolveWaitForApproval({ waitForApproval: false })).toBe(false);
+  });
+
+  test("withPauseableTimeout freezes remaining budget while paused", async () => {
+    const parent = new AbortController();
+    const budget = withPauseableTimeout(parent.signal, 80);
+    budget.pause();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(budget.signal.aborted).toBe(false);
+    budget.resume();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(budget.signal.aborted).toBe(true);
+    budget.dispose();
+  });
+
+  test("pausing the ALS budget freezes the active run during approval", async () => {
+    const result = await runWithToolExecutionWatchdog(
+      { id: "pause", name: "parked", arguments: {} },
+      new AbortController().signal,
+      60,
+      async () => {
+        const budget = getToolApprovalBudget();
+        expect(budget).toBeDefined();
+        budget!.pause();
+        // Longer than the budget — would time out if not paused.
+        await new Promise((r) => setTimeout(r, 120));
+        budget!.resume();
+        return { callId: "pause", content: "approved-late" };
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("approved-late");
+  });
+
+  test("budget resume works from outside ALS (UI settle path)", async () => {
+    // requestApproval's finish() runs on the React UI thread, not under the
+    // tool ALS. Resume must use a captured handle, not ALS re-lookup.
+    const result = await runWithToolExecutionWatchdog(
+      { id: "ui", name: "parked", arguments: {} },
+      new AbortController().signal,
+      80,
+      async () => {
+        const budget = getToolApprovalBudget();
+        expect(budget).toBeDefined();
+        budget!.pause();
+        // Simulate UI thread: resume via captured methods outside this ALS tick.
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            budget!.resume();
+            resolve();
+          }, 120);
+        });
+        // After resume, remaining budget (~80ms) should still cover a short run.
+        await new Promise((r) => setTimeout(r, 20));
+        return { callId: "ui", content: "approved-from-ui" };
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("approved-from-ui");
+  });
+
+  test("no approval budget is visible outside a watchdog run", () => {
+    // The gate must capture the handle inside the tool run; outside the ALS
+    // there is nothing to pause or resume.
+    expect(getToolApprovalBudget()).toBeUndefined();
+  });
+
+  test("pause ceiling resumes a frozen budget with no prompt on screen", async () => {
+    // A gate queued behind an overlay (or emitted with no listener) never
+    // resumes the budget; the ceiling bounds how long the clock stays frozen.
+    const parent = new AbortController();
+    const budget = withPauseableTimeout(parent.signal, 50, 40);
+    budget.pause();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(budget.signal.aborted).toBe(false);
+    // Ceiling fires at 40ms, remaining ~50ms budget then expires on its own.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(budget.signal.aborted).toBe(true);
+    budget.dispose();
+  });
+
+  test("resume before the pause ceiling clears the ceiling timer", async () => {
+    const parent = new AbortController();
+    const budget = withPauseableTimeout(parent.signal, 100, 30);
+    budget.pause();
+    await new Promise((r) => setTimeout(r, 10));
+    budget.resume();
+    budget.pause();
+    // A fresh pause restarts the ceiling; forced resume must not double-fire.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(budget.signal.aborted).toBe(false);
+    budget.resume();
+    await new Promise((r) => setTimeout(r, 130));
+    expect(budget.signal.aborted).toBe(true);
+    budget.dispose();
+  });
+
+  test("nested watchdog pause freezes the enclosing budget too", async () => {
+    // task tool: outer watchdog wraps the parent `task` call; each child tool
+    // call opens its own nested watchdog. A permission prompt during the child
+    // captures the innermost budget — pausing it must also freeze the parent
+    // budget, or the parent keeps ticking under the modal.
+    const result = await runWithToolExecutionWatchdog(
+      { id: "outer", name: "task", arguments: {} },
+      new AbortController().signal,
+      60,
+      async (outerSignal) => {
+        const outerBudget = getToolApprovalBudget();
+        const inner = await runWithToolExecutionWatchdog(
+          { id: "inner", name: "child", arguments: {} },
+          outerSignal,
+          500,
+          async () => {
+            const budget = getToolApprovalBudget();
+            expect(budget).toBeDefined();
+            budget!.pause();
+            // Longer than the outer budget — outer must be frozen too.
+            await new Promise((r) => setTimeout(r, 120));
+            budget!.resume();
+            return { callId: "inner", content: "child-ok" };
+          },
+          { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+        );
+        // The parent budget must have been frozen during the child's pause —
+        // salvage grace could still return the body even if it expired.
+        expect(outerBudget?.signal.aborted).toBe(false);
+        return inner;
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("child-ok");
+  });
+
+  test("waitForApproval false lets budget expire while execute is parked", async () => {
+    const result = await runWithToolExecutionWatchdog(
+      { id: "tick", name: "parked", arguments: {} },
+      new AbortController().signal,
+      40,
+      async (signal) => {
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            resolve();
+            return;
+          }
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        // Hang past salvage grace so synthetic timeout wins.
+        await new Promise((r) => setTimeout(r, TEST_SALVAGE_GRACE_MS + 100));
+        return { callId: "tick", content: "late" };
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: false },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(formatToolExecutionTimeoutMessage("parked", 40));
   });
 });

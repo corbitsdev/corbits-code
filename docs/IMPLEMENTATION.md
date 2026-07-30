@@ -198,6 +198,19 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `maxConcurrentSubAgents` (integer ≥ 0, default **10**) caps how many `task`-tool sub-agent loops may run at once; **0** disables sub-agents entirely. Change it in **Settings → Sub-agents** or in this file. Applies only when `sessionMode` is **orchestrator**.
 
+  Optional `tools` block for the outer per-tool wall-clock budget:
+
+  ```json
+  "tools": {
+    "timeoutMs": 660000,
+    "maxTimeoutMs": 1800000,
+    "waitForApproval": true
+  }
+  ```
+
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()` (defaults ~11 min / 30 min).
+  - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
+
   Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for leaf sub-agents (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Applies when `sessionMode` is **orchestrator**.
 
   Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Corbits Code prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.corbits/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) resolve `sessionMode` the same way from global + per-repo settings (default orchestrator when unset). Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
@@ -206,6 +219,18 @@ Provider and model configuration lives in JSON settings files. The global file h
 - Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
+
+### `tools.*` Settings
+
+All `tools.*` keys live in the global settings file only — there is no per-repo override in `.corbits/settings.json` (unlike `sessionMode`).
+
+| Key | Default | Effect |
+|---|---|---|
+| `tools.timeoutMs` | 660000 (~11 min) | Default outer wall-clock budget per tool `run()` |
+| `tools.maxTimeoutMs` | 1800000 (30 min) | Cap on the outer budget |
+| `tools.waitForApproval` | `true` | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
+
+The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.
 
 ### Resolution Precedence
 

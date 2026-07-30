@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Fixed
+
+- **Permission prompts no longer race the tool timeout** — by default the per-tool wall-clock budget freezes while an approval modal is open, so a late approve still runs the tool. Settings → Tools → “Wait for approval” can turn this off (budget keeps ticking; timeout dismisses the prompt). Ghost modals for already-timed-out tools are dismissed via the budget signal.
+
 ### Planned
 
 - What's-new banner on interactive start after upgrade (CL-4604)
