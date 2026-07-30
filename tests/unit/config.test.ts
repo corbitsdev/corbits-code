@@ -1,5 +1,6 @@
-import { test, expect } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { test, expect, mock } from "bun:test";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import * as nodeOs from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
@@ -101,4 +102,59 @@ test("global settings round-trip the telemetry block", async () => {
   }
 });
 
+// Regression: an OAuth-profile provider (xai/<profile>) is never written to
+// settings.json — home-level auth stores are the source of truth, and
+// loadConfig merges them into the catalog it hands to resolveProvider (see
+// "OAuth profiles live in home-level auth stores" in src/config/index.ts).
+// A caller that wants that merge to happen (the eval runner's per-case
+// probe, same as any interactive run) must pass neither --config nor a
+// globalSettingsPath override — either one narrows resolution to a
+// controlled provider set and skips OAuth entirely. This proves loadConfig
+// picks an OAuth-ish catalog provider that exists in no settings file at
+// all, using a synthetic profile written straight to the home-level auth
+// store loadConfig actually reads.
+test("loadConfig resolves an OAuth-profile provider absent from any settings file", async () => {
+  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-home-"));
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-cwd-"));
+  try {
+    await mkdir(join(fakeHome, ".corbits"), { recursive: true });
+    await writeFile(
+      join(fakeHome, ".corbits", "xai-auth.json"),
+      JSON.stringify({
+        profiles: {
+          synthetic: {
+            name: "synthetic",
+            tokens: { access: "test-access-token", refresh: "test-refresh", expiresAt: Date.now() + 3_600_000 },
+            createdAt: Date.now(),
+          },
+        },
+      }),
+    );
 
+    // Bun's os.homedir() does not observe process.env.HOME changed after
+    // startup (unlike Node's documented behavior), and loadConfig's OAuth
+    // profile merge always reads the real homedir() with no override
+    // parameter — so the only way to point it at a synthetic auth store
+    // without touching the real one is to stub node:os for the duration of
+    // this call.
+    mock.module("node:os", () => ({ ...nodeOs, homedir: () => fakeHome }));
+    try {
+      const { impl } = offlineFetch();
+      const config = await loadConfig(
+        ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
+        { pricing: { fetchImpl: impl } },
+      );
+
+      expect(config.configured).toBe(true);
+      if (config.configured) {
+        expect(config.providerName).toBe("xai/synthetic");
+        expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+      }
+    } finally {
+      mock.module("node:os", () => nodeOs);
+    }
+  } finally {
+    await rm(fakeHome, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

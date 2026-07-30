@@ -33,6 +33,7 @@ import {
   withEnv,
   detectProviderFallback,
   formatProviderFallback,
+  resolveRequestedProviderModel,
   type CaseResult,
   type EvalCase,
   type EvalRunReport,
@@ -448,9 +449,19 @@ async function runCase(
       console.log(`http fixture: ${httpFixture.url}`);
     }
 
+    // Force the run's resolved provider/model (from the catalog/OAuth-aware
+    // loadConfig probe above) explicitly into this case's argv rather than
+    // leaving it to ambient default resolution inside the fixture workdir.
+    // The workdir is a throwaway copy with no project-local .corbits/settings.json
+    // of its own, so ambient resolution there can silently land on a different
+    // provider than the one the run actually resolved at plan time (e.g. this
+    // repo's local settings pin an OAuth-profile provider that the isolated
+    // fixture copy has no way to see) — exactly the substitution this eval
+    // exists to catch, not commit.
+    const requested = resolveRequestedProviderModel(variant, labels);
     const argv: string[] = ["exec", "--cwd", workdir];
-    if (variant.provider !== undefined) argv.push("--provider", variant.provider);
-    if (variant.model !== undefined) argv.push("--model", variant.model);
+    if (requested.provider !== undefined) argv.push("--provider", requested.provider);
+    if (requested.model !== undefined) argv.push("--model", requested.model);
     if (opts.configPath !== undefined) argv.push("--config", opts.configPath);
     if (opts.skipPermissions) argv.push("--dangerously-skip-permissions");
     argv.push("--force");
@@ -498,8 +509,8 @@ async function runCase(
     const resolvedProvider = execResult.provider ?? config.providerName ?? labels.provider;
     const resolvedModel = execResult.model ?? config.model ?? labels.model;
     providerFallback = detectProviderFallback({
-      requestedProvider: variant.provider,
-      requestedModel: variant.model,
+      requestedProvider: requested.provider,
+      requestedModel: requested.model,
       resolvedProvider,
       resolvedModel,
     });

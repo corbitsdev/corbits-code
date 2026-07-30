@@ -347,6 +347,38 @@ export async function withEnv<T>(vars: Record<string, string>, fn: () => Promise
 }
 
 /**
+ * The provider/model actually requested for a cell: the matrix variant's own
+ * override when it carries one, otherwise the run's resolved primary labels
+ * (from `resolveVariantLabels` — the same catalog/OAuth-aware `loadConfig`
+ * resolution that populates the report's top-level `provider`/`model`).
+ *
+ * The default (unlabeled, single-variant) matrix cell never sets its own
+ * provider/model — it exists purely to key the results by "default:default" —
+ * and a run given no explicit `--provider`/`--model` flags at all has nothing
+ * in `opts` either; both leave the caller with only ambient default
+ * resolution (e.g. a project's local .corbits/settings.json) to fall back on.
+ * Comparing a cell's resolved provider/model against the variant/opts fields
+ * alone misses this entirely — it silently skips the mismatch check on every
+ * ambient-default run, which is exactly how a per-case fixture workdir
+ * lacking that local settings file can resolve to a different provider than
+ * the run believed it was configured for. `labels` is what the run actually
+ * resolved at plan time, so it is the correct requested baseline regardless
+ * of variant labeling or whether explicit flags were passed. The "(default)"
+ * placeholder `resolveVariantLabels` returns when nothing could be resolved
+ * at all is not a real request and is treated as absent.
+ */
+export function resolveRequestedProviderModel(
+  variant: { provider?: string; model?: string },
+  labels: { provider?: string; model?: string },
+): { provider?: string; model?: string } {
+  const requested = (v?: string): string | undefined => (v === undefined || v === "(default)" ? undefined : v);
+  return {
+    provider: variant.provider ?? requested(labels.provider),
+    model: variant.model ?? requested(labels.model),
+  };
+}
+
+/**
  * Compares the requested (matrix cell / CLI flag) provider and model against
  * what the run actually resolved to. Returns null when they match (or when
  * nothing specific was requested for that axis).
