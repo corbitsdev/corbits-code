@@ -180,6 +180,11 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
   if (commandReferencesSensitivePath(trimmed)) return false;
+  // Same metacharacter gate as isAutoAllowedShellCommand: this classifier also
+  // runs standalone per pipeline/chain segment (see isAutoAllowedShellSegment),
+  // so a segment carrying its own command substitution or redirect must not
+  // slip through just because it never passed through the full-command check.
+  if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
   // Quote-aware so a dangerous flag cannot hide behind quotes the shell strips
   // (e.g. find . '-delete'). A naive whitespace split leaves the quotes on the
   // token, defeating the anchored flag checks below.
