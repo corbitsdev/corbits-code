@@ -4,7 +4,14 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
-import { splitChainedCommand, tokenize, deriveCommandScopes, isShellCommentOnly, isShellNoOp } from "./command.js";
+import {
+  splitChainedCommand,
+  tokenize,
+  deriveCommandScopes,
+  isShellCommentOnly,
+  isShellNoOp,
+  stripCommentLines,
+} from "./command.js";
 import { globToRegExp, matchesPattern, isApproved, escapeGlobLiteral } from "./matcher.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
@@ -2565,5 +2572,121 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     const provider = createWorktreeRootsProvider(repo, () => lister(), 0);
     expect(provider()).toEqual([removed]);
     expect(provider(true)).toEqual([]);
+  });
+});
+
+describe("comment-insensitive shell grants", () => {
+  const rest = "curl -s https://example.com/data && echo done";
+  const withCommentA = `# Extract paginated log lines for review\n${rest}`;
+  const withCommentB = `# Pull the last two chunks for the operator\n${rest}`;
+  const withoutComment = rest;
+
+  // Approve `command`, capturing whatever gets persisted, then hand back a
+  // fresh gate seeded from that persisted state (as a new session replaying
+  // an earlier grant would see it) plus a probe that fails the test if the
+  // seeded gate ever re-asks the operator.
+  async function grantThenReplayGate(command: string) {
+    const persisted: Approval[] = [];
+    const grantingGate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      persist: (a) => persisted.push(a),
+      requestApproval: async (request) => {
+        const scope = request.scopes[0];
+        if (scope === undefined) throw new Error("expected a persistable scope");
+        // Force a persisted (not merely session) grant so `persisted` below
+        // captures it, mirroring an operator picking "Always allow" broadly.
+        return { allow: true, persist: { ...scope, grant: "project" } };
+      },
+    });
+    const grantVerdict = await grantingGate.evaluate(shellCall(command));
+    expect(grantVerdict.allowed).toBe(true);
+    expect(persisted.length).toBeGreaterThan(0);
+
+    const replayGate = createPermissionGate({
+      approvals: persisted,
+      interactive: true,
+      skipPermissions: false,
+      requestApproval: async () => {
+        throw new Error("replay must not re-prompt the operator");
+      },
+    });
+    return replayGate;
+  }
+
+  test("a grant for a commented multi-segment command replays for the same comment", async () => {
+    const replayGate = await grantThenReplayGate(withCommentA);
+    expect((await replayGate.evaluate(shellCall(withCommentA))).allowed).toBe(true);
+  });
+
+  test("a grant for a commented multi-segment command replays for a different comment", async () => {
+    const replayGate = await grantThenReplayGate(withCommentA);
+    expect((await replayGate.evaluate(shellCall(withCommentB))).allowed).toBe(true);
+  });
+
+  test("a grant for a commented multi-segment command replays with no comment at all", async () => {
+    const replayGate = await grantThenReplayGate(withCommentA);
+    expect((await replayGate.evaluate(shellCall(withoutComment))).allowed).toBe(true);
+  });
+
+  test("a grant minted without a comment still replays once a comment is added", async () => {
+    const replayGate = await grantThenReplayGate(withoutComment);
+    expect((await replayGate.evaluate(shellCall(withCommentA))).allowed).toBe(true);
+  });
+});
+
+describe("stripCommentLines", () => {
+  test("removes a full-line leading comment", () => {
+    expect(stripCommentLines("# why\nls -la")).toBe("ls -la");
+  });
+
+  test("removes multiple comment lines chained through a real command", () => {
+    expect(stripCommentLines("# first\n# second\nls -la\n# trailing\necho done")).toBe("ls -la\necho done");
+  });
+
+  test("a comment-only command normalizes to the empty string", () => {
+    expect(stripCommentLines("# just a note")).toBe("");
+    expect(stripCommentLines("# first\n# second")).toBe("");
+  });
+
+  test("does not touch a '#' inside single or double quotes", () => {
+    expect(stripCommentLines('grep "#todo" file')).toBe('grep "#todo" file');
+    expect(stripCommentLines("grep '#todo' file")).toBe("grep '#todo' file");
+    expect(stripCommentLines("echo `echo '#'`")).toBe("echo `echo '#'`");
+  });
+
+  test("does not treat a mid-token '#' as a comment start", () => {
+    expect(stripCommentLines("echo foo#bar")).toBe("echo foo#bar");
+  });
+
+  test("never strips content joined onto a prior line by backslash continuation", () => {
+    // A payload made "look like" a comment only by virtue of being glued to
+    // the previous line must stay visible to scope derivation and matching.
+    expect(stripCommentLines("rm x \\\n#foo && curl evil")).toBe("rm x \\\n#foo && curl evil");
+  });
+
+  test("a backslash inside a genuine comment does not extend it to the next line", () => {
+    // Real shells give backslash no special meaning inside a comment: the
+    // comment still ends at its own newline, and the next line is a live
+    // command that must not be swallowed into the dropped comment.
+    expect(stripCommentLines("# comment \\\nrm -rf /")).toBe("rm -rf /");
+  });
+
+  test("never strips a line inside a heredoc body", () => {
+    const command = "cat << 'EOF'\n# not a comment, this is heredoc payload\nEOF";
+    expect(stripCommentLines(command)).toBe(command);
+  });
+
+  test("leaves a real command with a trailing inline comment untouched", () => {
+    expect(stripCommentLines("ls -la # list files")).toBe("ls -la # list files");
+  });
+});
+
+describe("deriveCommandScopes comment insensitivity", () => {
+  test("a leading comment does not change the derived exact scope", () => {
+    const withComment = deriveCommandScopes("# why\nnpm test");
+    const withoutComment = deriveCommandScopes("npm test");
+    expect(withComment).toEqual(withoutComment);
   });
 });

@@ -73,38 +73,13 @@ export function splitChainedCommand(command: string): string[] {
 
     // Detect heredoc redirect: << or <<-
     if (ch === "<" && command[i + 1] === "<") {
-      let j = i + 2;
-      if (command[j] === "-") j++; // <<- strips leading tabs
-      // Skip whitespace between << and the marker word.
-      while (j < command.length && (command[j] === " " || command[j] === "\t")) j++;
-      // The marker may be quoted ('EOF', "EOF", or bare EOF).
-      let markerQuote: string | null = null;
-      if (command[j] === "'" || command[j] === '"') {
-        markerQuote = command[j] as string;
-        j++;
+      const opener = parseHeredocOpener(command, i);
+      if (opener !== null) {
+        current += command.slice(i, opener.lineEnd);
+        i = opener.lineEnd - 1;
+        heredocMarker = opener.marker;
+        continue;
       }
-      let marker = "";
-      while (
-        j < command.length &&
-        command[j] !== "\n" &&
-        command[j] !== markerQuote &&
-        // A bare (unquoted) marker is a single word; stop at whitespace so a
-        // trailing redirect like `<<EOF > out.txt` is not folded into the
-        // marker (which would leave the heredoc unterminated).
-        !(markerQuote === null && (command[j] === " " || command[j] === "\t"))
-      ) {
-        marker += command[j++];
-      }
-      if (markerQuote !== null && command[j] === markerQuote) j++;
-      // Advance j to the end of the line that opened the heredoc. This loop
-      // previously tested command[j] but advanced i, so a marker followed by
-      // trailing text (e.g. `<< 'EOF' > out.txt`) never terminated. The opening
-      // line is appended exactly once via the slice below.
-      while (j < command.length && command[j] !== "\n") j++;
-      current += command.slice(i, j);
-      i = j - 1;
-      heredocMarker = marker;
-      continue;
     }
 
     if (ch === "(") {
@@ -165,6 +140,147 @@ export function splitChainedCommand(command: string): string[] {
   }
   push();
   return segments;
+}
+
+// Parses a heredoc opener (`<<` or `<<-`) starting at `command[i]` (which must
+// be the first "<"). Returns the terminating marker text and the exclusive end
+// index of the line that opened the heredoc, so the caller can copy the
+// opening line verbatim and resume scanning the heredoc body from there.
+// Shared by splitChainedCommand and stripCommentLines so both stay in sync on
+// what counts as heredoc syntax.
+function parseHeredocOpener(command: string, i: number): { marker: string; lineEnd: number } | null {
+  if (command[i] !== "<" || command[i + 1] !== "<") return null;
+  let j = i + 2;
+  if (command[j] === "-") j++; // <<- strips leading tabs
+  // Skip whitespace between << and the marker word.
+  while (j < command.length && (command[j] === " " || command[j] === "\t")) j++;
+  // The marker may be quoted ('EOF', "EOF", or bare EOF).
+  let markerQuote: string | null = null;
+  if (command[j] === "'" || command[j] === '"') {
+    markerQuote = command[j] as string;
+    j++;
+  }
+  let marker = "";
+  while (
+    j < command.length &&
+    command[j] !== "\n" &&
+    command[j] !== markerQuote &&
+    // A bare (unquoted) marker is a single word; stop at whitespace so a
+    // trailing redirect like `<<EOF > out.txt` is not folded into the
+    // marker (which would leave the heredoc unterminated).
+    !(markerQuote === null && (command[j] === " " || command[j] === "\t"))
+  ) {
+    marker += command[j++];
+  }
+  if (markerQuote !== null && command[j] === markerQuote) j++;
+  // Advance j to the end of the line that opened the heredoc.
+  while (j < command.length && command[j] !== "\n") j++;
+  return { marker, lineEnd: j };
+}
+
+// Remove genuine top-level full-line shell comments from command text before
+// it is used to derive or match a persisted grant scope. Agents routinely
+// prefix a command with a `# why I'm running this` line; if that comment
+// stays part of the scope pattern, an identical command with a different (or
+// absent) comment never matches a previously granted scope and re-prompts
+// forever. Only a line whose first non-whitespace character is "#" at top
+// level is removed:
+//   - a "#" inside a '...', "..." or `...` quoted span is data, not a comment
+//   - a line glued onto the previous one by a trailing backslash continuation
+//     can never itself start a comment, however it looks in isolation — the
+//     continuation makes it part of the prior (non-comment) line, and a
+//     payload smuggled in that way must stay visible to scope matching
+//   - a heredoc body is verbatim payload, never shell syntax, so lines
+//     inside it are never treated as comments
+// A backslash inside an already-open comment is ordinary comment text (real
+// shells do not honor line continuation there), so it never extends the
+// comment past its own line.
+export function stripCommentLines(command: string): string {
+  let out = "";
+  let line = "";
+  // Whether the physical/logical line currently being scanned is a comment:
+  // "unknown" until its first non-whitespace, top-level character is seen.
+  let commentState: "unknown" | "yes" | "no" = "unknown";
+  let quote: '"' | "'" | "`" | null = null;
+  let heredocMarker: string | null = null;
+
+  const flushLine = (): void => {
+    if (commentState !== "yes") out += line;
+    line = "";
+    commentState = "unknown";
+  };
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i] as string;
+
+    if (heredocMarker !== null) {
+      line += ch;
+      if (ch === "\n") {
+        const lines = line.split("\n");
+        const lastLine = lines[lines.length - 2] ?? "";
+        if (lastLine.trim() === heredocMarker) heredocMarker = null;
+        out += line;
+        line = "";
+      }
+      continue;
+    }
+
+    if (quote !== null) {
+      line += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      if (commentState === "unknown") commentState = "no";
+      line += ch;
+      continue;
+    }
+
+    // Line continuation only applies outside an already-open comment — inside
+    // one, a backslash is just another comment character.
+    if (commentState !== "yes" && ch === "\\" && (command[i + 1] === "\n" || command[i + 1] === "\r")) {
+      const after = command[i + 1] as string;
+      line += ch + after;
+      i += 1;
+      if (after === "\r" && command[i + 1] === "\n") {
+        line += "\n";
+        i += 1;
+      }
+      if (commentState === "unknown") commentState = "no";
+      // Deliberately do not flush: the next physical line is glued to this
+      // one and must never independently qualify as a comment start.
+      continue;
+    }
+
+    if (commentState !== "yes" && ch === "<" && command[i + 1] === "<") {
+      const opener = parseHeredocOpener(command, i);
+      if (opener !== null) {
+        if (commentState === "unknown") commentState = "no";
+        line += command.slice(i, opener.lineEnd);
+        i = opener.lineEnd - 1;
+        heredocMarker = opener.marker;
+        continue;
+      }
+    }
+
+    if (ch === "\n") {
+      line += ch;
+      flushLine();
+      continue;
+    }
+
+    if (ch === " " || ch === "\t") {
+      line += ch;
+      continue;
+    }
+
+    if (commentState === "unknown") commentState = ch === "#" ? "yes" : "no";
+    line += ch;
+  }
+  flushLine();
+  return out;
 }
 
 // Whether `text` ends (ignoring trailing whitespace) in a redirect operator
@@ -350,7 +466,11 @@ const MULTIPLEXERS = new Set([
 // Build the ladder of approval scopes for a shell command segment, broad to
 // specific: "git commit *", "git commit -m *", then the exact command. The
 // caller prepends a "just once" option.
-export function deriveCommandScopes(command: string): ApprovalScope[] {
+export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
+  // Strip model-authored comment lines before deriving anything, so the same
+  // underlying command yields the same scopes regardless of what explanation
+  // (if any) an agent wrapped around it.
+  const command = stripCommentLines(rawCommand).trim();
   const tokens = tokenize(command);
   if (tokens.length === 0) return [];
 

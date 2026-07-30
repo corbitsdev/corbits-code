@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
 import { PermissionModal } from "../../../src/tui/components/permission-modal.js";
+import { deriveCommandScopes } from "../../../src/permission/command.js";
 import type { ApprovalOutcome, PermissionRequest } from "../../../src/permission/types.js";
 
 const request: PermissionRequest = {
@@ -187,6 +188,29 @@ test("persistent Allow options remain distinguishable after truncation", async (
   expect(uniqueLines.size).toBe(lines.length);
   expect(frame).toContain("this session");
   expect(frame).toContain("all projects");
+});
+
+test("persistent Allow labels for a commented command stay distinct from its comment text", () => {
+  // deriveCommandScopes strips the comment before deriving scopes, so the
+  // persistent Allow options render the bare command — never sharing text
+  // with the (arbitrary, model-authored) comment prefix that wrapped it.
+  const commented = "# helper note explaining why this runs\nnpm test";
+  const request: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: commented,
+    scopes: deriveCommandScopes(commented),
+  };
+  const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  const allowLines = (frame.split("\n") as string[]).filter((l) => l.includes("Allow npm test"));
+  // Three persistent options (session/project/global) all render the bare
+  // command — the comment shown in the verbatim block above never leaks into
+  // the Allow option labels or hints themselves.
+  expect(allowLines.length).toBe(3);
+  for (const line of allowLines) {
+    expect(line).not.toContain("helper note explaining why this runs");
+  }
 });
 
 test("a leading '#' line in the command renders as literal text, not a markdown heading", () => {

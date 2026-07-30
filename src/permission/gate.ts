@@ -12,7 +12,7 @@ import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { isApproved, escapeGlobLiteral } from "./matcher.js";
-import { splitChainedCommand, tokenize, isShellCommentOnly } from "./command.js";
+import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
 import {
@@ -45,7 +45,11 @@ function hasExactFullCommandGrant(
   approvals: readonly Approval[],
   activeProviderModel: string | undefined,
 ): boolean {
-  const normalized = fullCommand.trim();
+  // Comment-insensitive: a model-authored "# why" line prepended to an
+  // otherwise-identical command must still replay against a grant minted
+  // for that command (see mintGrant, which normalizes the same way before
+  // storing a run_shell pattern).
+  const normalized = stripCommentLines(fullCommand).trim();
   return approvals.some(
     (a) =>
       a.tool === tool &&
@@ -170,10 +174,17 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   const mintGrant = (tool: string, outcome: ApprovalOutcome): void => {
     if (!outcome.persist || outcome.persist.pattern === null) return;
     const grant: GrantScope = outcome.persist.grant ?? "session";
+    // A run_shell pattern may still carry a model-authored comment line (the
+    // multi-segment "exact full command" scope persists the command
+    // verbatim). Strip it here, at the single place a grant comes into
+    // existence, so every stored run_shell pattern is already in the same
+    // normalized space hasExactFullCommandGrant matches against.
+    const pattern =
+      tool === "run_shell" ? stripCommentLines(outcome.persist.pattern).trim() : outcome.persist.pattern;
     const approval: Approval =
       grant === "provider-model" && activeProviderModel !== undefined
-        ? { tool, pattern: outcome.persist.pattern, providerModel: activeProviderModel }
-        : { tool, pattern: outcome.persist.pattern };
+        ? { tool, pattern, providerModel: activeProviderModel }
+        : { tool, pattern };
     approvals.push(approval);
     if (grant === "session") {
       sessionGrants.push(approval);
@@ -377,8 +388,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // argument. Reject anything that is not a single real command, and store
     // the grant as the escaped literal — never as a glob — so it can only
     // ever match the exact command the operator approved.
-    if (tool === "run_shell" && !isSingleShellCommand(pattern)) return;
-    const approval: Approval = { tool, pattern: escapeGlobLiteral(pattern) };
+    const normalizedPattern = tool === "run_shell" ? stripCommentLines(pattern).trim() : pattern;
+    if (tool === "run_shell" && !isSingleShellCommand(normalizedPattern)) return;
+    const approval: Approval = { tool, pattern: escapeGlobLiteral(normalizedPattern) };
     approvals.push(approval);
     sessionGrants.push(approval);
   };
