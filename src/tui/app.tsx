@@ -489,11 +489,11 @@ export type AppProps = {
   /** Persists the settings Telemetry on|off toggle to global settings. */
   onChangeTelemetryEnabled?: (enabled: boolean) => void;
   /**
-   * When true (default), freeze each tool's wall-clock budget while its
-   * permission prompt is open. When false, the budget keeps ticking and a
-   * timeout dismisses the prompt.
+   * When true, freeze each tool's wall-clock budget while its permission
+   * prompt is open. When false, the budget keeps ticking and a timeout
+   * dismisses the prompt. Resolved by the runner from settings.
    */
-  waitForApproval?: boolean;
+  waitForApproval: boolean;
   /** Persists the wait-for-approval toggle to global settings (tools.waitForApproval). */
   onChangeWaitForApproval?: (value: boolean) => Promise<void>;
   /** Fired once, on the first interactively submitted prompt of the session.
@@ -554,7 +554,7 @@ export function App({
   telemetryNotice,
   telemetryEnabled = false,
   onChangeTelemetryEnabled,
-  waitForApproval: waitForApprovalProp = true,
+  waitForApproval: waitForApprovalProp,
   onChangeWaitForApproval,
   onFirstUserMessage,
 }: AppProps): ReactNode {

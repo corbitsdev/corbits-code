@@ -184,20 +184,6 @@ export function getToolApprovalBudget(): ToolApprovalBudget | undefined {
   return toolApprovalBudgetAls.getStore();
 }
 
-/** Freeze the active tool budget (no-op when waitForApproval is off or no budget). */
-export function pauseToolApprovalBudget(): void {
-  const budget = toolApprovalBudgetAls.getStore();
-  if (budget === undefined || !budget.waitForApproval) return;
-  budget.pause();
-}
-
-/** Resume the active tool budget after a permission prompt settles. */
-export function resumeToolApprovalBudget(): void {
-  const budget = toolApprovalBudgetAls.getStore();
-  if (budget === undefined || !budget.waitForApproval) return;
-  budget.resume();
-}
-
 function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
   return new Promise((resolve) => {
     if (signal.aborted) {
@@ -264,10 +250,10 @@ export type ToolExecutionWatchdogOptions = {
   /** Override the post-abort salvage grace (tests); defaults to TOOL_EXECUTION_SALVAGE_GRACE_MS. */
   salvageGraceMs?: number;
   /**
-   * When true (default), the budget freezes during permission prompts via
-   * pauseToolApprovalBudget / resumeToolApprovalBudget.
+   * When true, the budget freezes during permission prompts. Callers resolve
+   * the setting (resolveWaitForApproval); there is no default here.
    */
-  waitForApproval?: boolean;
+  waitForApproval: boolean;
 };
 
 /**
@@ -284,10 +270,10 @@ export async function runWithToolExecutionWatchdog(
   parentSignal: AbortSignal,
   timeoutMs: number,
   execute: (signal: AbortSignal) => Promise<ToolResult>,
-  options?: ToolExecutionWatchdogOptions,
+  options: ToolExecutionWatchdogOptions,
 ): Promise<ToolResult> {
-  const salvageGraceMs = options?.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
-  const waitForApproval = options?.waitForApproval !== false;
+  const salvageGraceMs = options.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
+  const waitForApproval = options.waitForApproval;
   const budget = waitForApproval
     ? withPauseableTimeout(parentSignal, timeoutMs)
     : {

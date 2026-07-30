@@ -23,7 +23,6 @@ import {
   clampSubAgentMaxTurns,
   validateTaskMaxTurns,
   toolWatchdogFromSettings,
-  resolveWaitForApproval,
   loadGlobalSettingsWriteBase,
 } from "./config/settings.js";
 
@@ -358,9 +357,6 @@ describe("loaders", () => {
         maxMs: 600_000,
         waitForApproval: false,
       });
-      expect(resolveWaitForApproval(loaded)).toBe(false);
-      expect(resolveWaitForApproval(undefined)).toBe(true);
-      expect(resolveWaitForApproval({ providers: {} })).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

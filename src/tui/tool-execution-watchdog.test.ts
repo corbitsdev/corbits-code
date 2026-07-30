@@ -4,11 +4,9 @@ import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
   getToolApprovalBudget,
   isUsableToolExecuteResult,
-  pauseToolApprovalBudget,
   preferExecuteSalvageAfterAbort,
   resolveToolExecutionTimeoutMs,
   resolveWaitForApproval,
-  resumeToolApprovalBudget,
   runWithToolExecutionWatchdog,
   withPauseableTimeout,
   withTimeout,
@@ -63,7 +61,7 @@ describe("tool execution watchdog", () => {
         await new Promise((r) => setTimeout(r, TEST_SALVAGE_GRACE_MS + 100));
         return { callId: "2", content: "late" };
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     expect(result.isError).toBe(true);
     expect(result.content).toBe(formatToolExecutionTimeoutMessage("slow", 30));
@@ -91,7 +89,7 @@ describe("tool execution watchdog", () => {
         await new Promise((r) => setTimeout(r, 10));
         return salvage;
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     // Let execute attach its abort listener, then cancel.
     await new Promise((r) => setTimeout(r, 5));
@@ -124,7 +122,7 @@ describe("tool execution watchdog", () => {
         await new Promise((r) => setTimeout(r, 20));
         return salvage;
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     expect(result.isError).not.toBe(true);
     expect(result.content).toContain("Deadline salvage");
@@ -142,7 +140,7 @@ describe("tool execution watchdog", () => {
         await new Promise(() => {});
         return { callId: "5", content: "ok" };
       },
-      { salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
     parent.abort();
     const afterAbort = await Promise.race([
@@ -199,23 +197,22 @@ describe("tool execution watchdog", () => {
     budget.dispose();
   });
 
-  test("pauseToolApprovalBudget freezes the active run budget during approval", async () => {
-    let sawPause = false;
+  test("pausing the ALS budget freezes the active run during approval", async () => {
     const result = await runWithToolExecutionWatchdog(
       { id: "pause", name: "parked", arguments: {} },
       new AbortController().signal,
       60,
       async () => {
-        pauseToolApprovalBudget();
-        sawPause = true;
+        const budget = getToolApprovalBudget();
+        expect(budget).toBeDefined();
+        budget!.pause();
         // Longer than the budget — would time out if not paused.
         await new Promise((r) => setTimeout(r, 120));
-        resumeToolApprovalBudget();
+        budget!.resume();
         return { callId: "pause", content: "approved-late" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
     );
-    expect(sawPause).toBe(true);
     expect(result.isError).not.toBe(true);
     expect(result.content).toBe("approved-late");
   });
@@ -248,18 +245,10 @@ describe("tool execution watchdog", () => {
     expect(result.content).toBe("approved-from-ui");
   });
 
-  test("ALS re-lookup resume outside tool context is a no-op (regression guard)", async () => {
-    const parent = new AbortController();
-    const budget = withPauseableTimeout(parent.signal, 60);
-    budget.pause();
-    // Outside ALS: helpers must not throw and must not resume a foreign budget.
-    resumeToolApprovalBudget();
-    await new Promise((r) => setTimeout(r, 100));
-    expect(budget.signal.aborted).toBe(false);
-    budget.resume();
-    await new Promise((r) => setTimeout(r, 80));
-    expect(budget.signal.aborted).toBe(true);
-    budget.dispose();
+  test("no approval budget is visible outside a watchdog run", () => {
+    // The gate must capture the handle inside the tool run; outside the ALS
+    // there is nothing to pause or resume.
+    expect(getToolApprovalBudget()).toBeUndefined();
   });
 
   test("pause ceiling resumes a frozen budget with no prompt on screen", async () => {

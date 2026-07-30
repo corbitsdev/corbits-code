@@ -155,11 +155,6 @@ export function toolWatchdogFromSettings(
   };
 }
 
-/** Default true: freeze the tool budget while a permission prompt is open. */
-export function resolveWaitForApproval(settings?: Settings | null): boolean {
-  return settings?.tools?.waitForApproval !== false;
-}
-
 export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
 
 export function clampMaxConcurrentSubAgents(value: number): number {

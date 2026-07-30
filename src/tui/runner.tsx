@@ -32,7 +32,7 @@ import {
   type PluginConfig,
   type ProviderTier,
 } from "../config/settings.js";
-import type { ToolWatchdogConfig } from "./tool-execution-watchdog.js";
+import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { createGateRequestApproval } from "./request-approval.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
@@ -1347,7 +1347,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           maxConcurrentSubAgents: limit,
         });
       }}
-      waitForApproval={liveToolWatchdog.waitForApproval !== false}
+      waitForApproval={resolveWaitForApproval(liveToolWatchdog)}
       onChangeWaitForApproval={async (value) => {
         liveToolWatchdog.waitForApproval = value;
         const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);

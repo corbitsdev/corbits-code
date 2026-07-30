@@ -220,6 +220,18 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 
+### `tools.*` Settings
+
+All `tools.*` keys live in the global settings file only — there is no per-repo override in `.corbits/settings.json` (unlike `sessionMode`).
+
+| Key | Default | Effect |
+|---|---|---|
+| `tools.timeoutMs` | 660000 (~11 min) | Default outer wall-clock budget per tool `run()` |
+| `tools.maxTimeoutMs` | 1800000 (30 min) | Cap on the outer budget |
+| `tools.waitForApproval` | `true` | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
+
+The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.
+
 ### Resolution Precedence
 
 `loadConfig` resolves the active provider down to `{ apiKey, baseURL, model, providerName }` (the same struct the runtime consumes). Per field, highest wins:
