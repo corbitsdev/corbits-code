@@ -69,6 +69,17 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(guidelines).toContain("load the style and philosophy skills");
 });
 
+test("orchestrator guidelines teach the typed task spawn contract", () => {
+  const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
+  expect(guidelines).toContain("Orchestration:");
+  expect(guidelines).toContain("success_criteria");
+  expect(guidelines).toContain("do_not");
+  expect(guidelines).toContain("report_focus");
+  expect(guidelines).toContain("intent");
+  const single = buildGuidelines({ sessionMode: "single" });
+  expect(single).not.toContain("success_criteria");
+});
+
 test("chat system prompt satisfies system prompt quality markers", () => {
   const prompt = buildChatSystemPrompt();
   for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {

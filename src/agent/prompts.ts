@@ -132,6 +132,7 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
           "",
           "Orchestration:",
           "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
+          "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so leaves finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
           "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, cap 100). If a worker hits its turn budget, re-dispatch with continuation context and a higher maxTurns when finishing the work is still valuable.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
@@ -155,7 +156,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
   task:
-    "spawn a sub-agent for a self-contained job (not a checklist item); optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens in description and prompt so they do not duplicate work",
+    "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
   search_agents:
     "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks:
