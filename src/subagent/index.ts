@@ -30,7 +30,7 @@ import type {
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
-import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
+import { buildBifrostSource, buildOpenAISource, runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
@@ -1356,8 +1356,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let orchestrator = false;
       let tier: ProviderTier | undefined;
       let profileMaxTurns: number | undefined;
-      const settings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+      const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
+      // OAuth providers live in the live catalog, not settings.json. Overlay so
+      // tier/inference resolution can target Codex/xAI the same way the TUI does.
+      const settings =
+        catalog !== undefined
+          ? runtimeSettingsWithCatalog(diskSettings, catalog)
+          : diskSettings;
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
 
       // Rebuild provider from a resolved provider/model assignment. Shared by

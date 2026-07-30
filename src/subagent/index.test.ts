@@ -647,6 +647,102 @@ describe("createTaskTool", () => {
     expect(out).toContain("not configured");
   });
 
+  test("task tier targeting OAuth provider resolves via live catalog", async () => {
+    let captured: RunSubAgentParams | undefined;
+    // Disk settings omit OAuth providers (they are never persisted) but tiers
+    // still name them. The live catalog supplies the missing provider entry.
+    const diskSettings = {
+      providers: {
+        "codex/home": {
+          baseURL: "https://chatgpt.com/backend-api",
+          apiKey: "codex-token",
+          models: ["gpt-5.3-codex"],
+        },
+      },
+      tiers: {
+        clever: { provider: "xai/work", model: "grok-4" },
+        standard: { provider: "xai/work", model: "grok-3" },
+        fast: { provider: "xai/work", model: "grok-3-mini" },
+      },
+    };
+    const catalog = [
+      {
+        name: "codex/home",
+        baseURL: "https://chatgpt.com/backend-api",
+        apiKey: "codex-token",
+        models: ["gpt-5.3-codex"],
+        codexProfile: "home",
+      },
+      {
+        name: "xai/work",
+        baseURL: "https://api.x.ai/v1",
+        apiKey: "xai-token",
+        models: ["grok-4", "grok-3", "grok-3-mini"],
+        xaiProfile: "work",
+      },
+    ];
+    const parentProvider = {
+      providerName: "codex/home",
+      baseURL: "https://chatgpt.com/backend-api",
+      apiKey: "codex-token",
+      model: "gpt-5.3-codex",
+    };
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider: parentProvider,
+      settings: diskSettings,
+      catalog,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+    await callTask(tool, {
+      description: "oauth-tier",
+      prompt: "x",
+      tier: "clever",
+    });
+    expect(captured?.provider.providerName).toBe("xai/work");
+    expect(captured?.provider.model).toBe("grok-4");
+    expect(captured?.provider.apiKey).toBe("xai-token");
+    expect(captured?.tier).toBe("clever");
+  });
+
+  test("task tier targeting OAuth fails closed when catalog lacks the provider", async () => {
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      settings: {
+        providers: {
+          "api-only": { baseURL: "http://api", apiKey: "k", models: ["m"] },
+        },
+        tiers: {
+          clever: { provider: "xai/missing", model: "grok-4" },
+        },
+      },
+      catalog: [
+        {
+          name: "api-only",
+          baseURL: "http://api",
+          apiKey: "k",
+          models: ["m"],
+        },
+      ],
+      run: async () => "done",
+    });
+    const out = await callTask(tool, {
+      description: "missing-oauth",
+      prompt: "x",
+      tier: "clever",
+    });
+    expect(out).toContain("Error:");
+    expect(out).toContain("not configured");
+  });
+
   test("rejects task maxTurns above the cap", async () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,

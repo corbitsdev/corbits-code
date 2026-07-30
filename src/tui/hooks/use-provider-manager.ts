@@ -1,7 +1,7 @@
 import type { Agent } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
 import { useState } from "react";
-import { providerCatalogToSettings, type ProviderCatalogEntry } from "../../config/index.js";
+import { providerCatalogToSettings, runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../../config/index.js";
 import {
   loadSettings,
   localSettingsPath,
@@ -97,7 +97,23 @@ function localSelection(
   };
 }
 
-function settingsWithTiers(
+// Runtime settings for source/tier resolution: include OAuth catalog entries so
+// tiers can target Codex/xAI. Never write this object to disk.
+function runtimeSettingsWithTiers(
+  catalog: readonly ProviderCatalogEntry[],
+  defaultProvider: string | undefined,
+  baseSettings: Settings | undefined,
+  nextTiers: Partial<Record<ProviderTier, TierConfig>>,
+): Settings {
+  return {
+    ...runtimeSettingsWithCatalog(baseSettings, catalog),
+    ...(defaultProvider !== undefined ? { defaultProvider } : {}),
+    tiers: nextTiers,
+  };
+}
+
+// Disk settings: OAuth entries are stripped so tokens never land in settings.json.
+function persistSettingsWithTiers(
   catalog: readonly ProviderCatalogEntry[],
   defaultProvider: string | undefined,
   baseSettings: Settings | undefined,
@@ -167,7 +183,7 @@ export function useProviderManager({
     effort: ReasoningEffort | undefined;
     tierState: Partial<Record<ProviderTier, TierConfig>>;
   }): void => {
-    const settings = settingsWithTiers(args.catalog, globalDefaultProvider, initialSettings, args.tierState);
+    const settings = runtimeSettingsWithTiers(args.catalog, globalDefaultProvider, initialSettings, args.tierState);
     const bundle = buildMainSessionSources({
       settings,
       catalog: args.catalog,
@@ -295,7 +311,7 @@ export function useProviderManager({
       }
       let settings: Settings;
       try {
-        settings = settingsWithTiers(catalog, defaultProvider, base, tiers);
+        settings = persistSettingsWithTiers(catalog, defaultProvider, base, tiers);
       } catch (err) {
         onMessage(
           `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -368,7 +384,8 @@ export function useProviderManager({
       }
       persistGlobalSettings(
         globalSettingsPath,
-        settingsWithTiers(providerCatalog, globalDefaultProvider, base, nextTiers),
+        persistSettingsWithTiers(providerCatalog, globalDefaultProvider, base, nextTiers),
+
         onMessage,
         successMessage,
         failPrefix,

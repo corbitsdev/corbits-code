@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 
@@ -513,6 +513,41 @@ describe("buildProviderCatalog", () => {
         oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
       },
     });
+  });
+
+  test("runtimeSettingsWithCatalog overlays OAuth catalog entries for tier resolution", () => {
+    const disk = {
+      providers: {
+        openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk", models: ["gpt-4o"] },
+      },
+      tiers: {
+        clever: { provider: "xai/work", model: "grok-4" },
+      },
+    };
+    const catalog = [
+      {
+        name: "openai",
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "sk",
+        models: ["gpt-4o"],
+      },
+      {
+        name: "xai/work",
+        baseURL: "https://api.x.ai/v1",
+        apiKey: "xai-token",
+        models: ["grok-4"],
+        xaiProfile: "work",
+      },
+    ];
+    const runtime = runtimeSettingsWithCatalog(disk, catalog);
+    expect(runtime.providers["xai/work"]).toEqual({
+      baseURL: "https://api.x.ai/v1",
+      apiKey: "xai-token",
+      models: ["grok-4"],
+    });
+    expect(runtime.tiers).toEqual(disk.tiers);
+    // Disk persist path still strips OAuth.
+    expect(providerCatalogToSettings(catalog, "openai", disk).providers["xai/work"]).toBeUndefined();
   });
 
   test("normalizes provider catalog URLs when converting back to settings", () => {
