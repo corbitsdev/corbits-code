@@ -19,8 +19,7 @@ Optionally, compile a standalone binary and put it on your PATH:
 
 ```sh
 bun run build:bin   # produces dist/corbits
-export PATH="$PWD/dist:$PATH"
-# or: ln -s "$PWD/dist/corbits" ~/.local/bin/corbits
+ln -s "$PWD/dist/corbits" ~/.local/bin/corbits
 ```
 
 After pulling new changes, re-run `bun run build:bin` to refresh the binary.
