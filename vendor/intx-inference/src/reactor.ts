@@ -859,7 +859,14 @@ export function createReactor(config: ReactorConfig): Reactor {
 
     resetCycleAccumulators();
 
-    if (afterCheckpoint !== undefined) {
+    // Fire only for commits the director actually asked to checkpoint.
+    // A hasWork-only commit (e.g. the auto-commit after execute_tools with
+    // addToHistory) is internal durability plumbing, not a checkpoint the
+    // caller requested — without this guard, a director that checkpoints
+    // in a later decide() call (as opposed to pairing checkpoint with the
+    // action that produced the work) gets afterCheckpoint invoked twice
+    // for what is, from the director's perspective, a single checkpoint.
+    if (afterCheckpoint !== undefined && hasOverride) {
       try {
         await afterCheckpoint();
       } catch (cause) {
