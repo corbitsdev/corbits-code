@@ -274,4 +274,38 @@ describe("path-trust (global)", () => {
       await cleanup();
     }
   });
+
+  test("trustPathPlugin normalizes trailing slash and dot segments", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      const p = join(home, "plugins", "x");
+      const store = await trustPathPlugin(`${p}/`, home);
+      expect(isPathPluginTrusted(store, p)).toBe(true);
+      const store2 = await trustPathPlugin(join(home, "plugins", "y", "..", "x2"), home);
+      expect(isPathPluginTrusted(store2, join(home, "plugins", "x2"))).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("relative pluginPaths entries are dropped at migration, not resolved against cwd", async () => {
+    const { home, cleanup } = await scratch();
+    try {
+      const hostileCwd = join(home, "..", "hostile-repo");
+      const plugin = join(hostileCwd, "vendor-plugins", "p");
+
+      // A relative entry must never mint a grant, regardless of what
+      // resolveMembers would hand back for it — the migration itself is the
+      // layer responsible for dropping relative entries.
+      const store = await migratePathTrustFromPluginPaths(
+        ["vendor-plugins/p"],
+        async () => [plugin],
+        home,
+      );
+      expect(isPathPluginTrusted(store, plugin)).toBe(false);
+      expect(store.trustedPluginPaths).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
 });

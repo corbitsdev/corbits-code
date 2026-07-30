@@ -195,8 +195,20 @@ export async function migratePathTrustFromPluginPaths(
   if (pluginPaths.length === 0) {
     return emptyStore();
   }
-  const members: string[] = [];
+  // A relative pluginPaths entry has no fixed meaning until resolved against
+  // some cwd; minting a grant for it here would trust whatever directory the
+  // user happened to launch from first, permanently. Drop it, matching the
+  // same rule readPathTrustStore enforces on load.
+  const absolutePaths: string[] = [];
   for (const p of pluginPaths) {
+    if (!isAbsolute(p)) {
+      logger.warn`skipping relative pluginPaths entry during path-trust migration: ${p}`;
+      continue;
+    }
+    absolutePaths.push(p);
+  }
+  const members: string[] = [];
+  for (const p of absolutePaths) {
     members.push(...(await resolveMembers(p)));
   }
   if (members.length === 0) {
