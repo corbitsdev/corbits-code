@@ -268,9 +268,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // on a clean exit; it also gates straggler snapshot writes (see
   // persistRunSnapshot) from resurrecting a closed record.
   let finalized = false;
+  // Bound after the cycle recorder exists (it needs the session workdir); the
+  // crash guard is declared first so it covers every fallible step below.
+  let flushPartialOnCrash: () => Promise<void> = async () => {};
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
+    await flushPartialOnCrash().catch(() => undefined);
     const message = err instanceof Error ? err.message : String(err);
     await saveState(config.cwd, sessionId, {
       status: "failed",
@@ -1095,6 +1099,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // keeps the in-flight cycle's text so an errored or interrupted turn leaves
   // its partial output in partial.jsonl instead of vanishing.
   const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
+  flushPartialOnCrash = () => cycleRecorder.flush("crashed");
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
     runSink.sink(event);
     cycleRecorder.handleEvent(event);
@@ -1569,6 +1574,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
 
   await waitUntilExit();
+  // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
+  // downstream delivers its terminal event once the app is gone.
+  await cycleRecorder.flush("exit");
   mcpConnectController.abort();
   disableMouseReporting();
   exitAltScreen();

@@ -1383,7 +1383,13 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     // it with the same reason the catch block would use so a beaten-to-it
     // flush doesn't mislabel a repetition/deadline abort as a generic error.
     resolveErrorFlushReason: () =>
-      repetition.hit !== null ? "repetition" : runController.deadlineHit() ? "deadline" : "inference-error",
+      repetition.hit !== null
+        ? "repetition"
+        : runController.deadlineHit()
+          ? "deadline"
+          : runController.signal.aborted
+            ? "cancelled"
+            : "inference-error",
   });
   // Holder object rather than a let: the value is written inside the stream
   // sink closure, and flow analysis would otherwise narrow a let to null at
