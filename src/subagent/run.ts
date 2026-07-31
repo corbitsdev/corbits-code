@@ -1,0 +1,696 @@
+/**
+ * Sub-agent run lifecycle: provider types, sandbox deps, and runSubAgent.
+ */
+
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+
+import {
+  createAgent,
+  defineAgent,
+  defineTool,
+  createDirectorRegistry,
+  defineDirector,
+  fromToolRunner,
+  stringTool,
+} from "@intx/agent";
+import type { AgentTool } from "@intx/agent";
+import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
+import { createOptimizedContextStore } from "../session/optimized-context-store.js";
+import { type } from "arktype";
+import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import type { ReactorEmittedEvent } from "@intx/inference";
+import type { BlobReader } from "@intx/types/runtime";
+
+import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
+import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
+import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
+import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
+import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import {
+  advertiseShellGuardTimeout,
+  type ShellTimeoutConfig,
+} from "../plugins/shell-guard-plugin.js";
+import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
+import { createWebFetchTool } from "../tools/web-fetch.js";
+import { createWebSearchTool } from "../tools/web-search.js";
+import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
+import type { PermissionGate } from "../permission/gate.js";
+
+import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { shouldApplyGrokAntiThrash } from "./provider-family.js";
+import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
+
+import { createPruningCompactor } from "../session/compactor.js";
+import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
+import { createModelSummarizer } from "../session/summarizer.js";
+import { gatherEnvironment } from "../agent/environment.js";
+import { generateSessionId } from "../session/index.js";
+import { consumeStream } from "../session/stream-consumer.js";
+import { withSubAgentSlot } from "./concurrency.js";
+import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
+import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
+import type { Settings, ProviderTier } from "../config/settings.js";
+import {
+  resolveDefaultSubAgentMaxTurns,
+  toolWatchdogFromSettings,
+} from "../config/settings.js";
+import { resolveToolExecutionTimeoutMs } from "../tui/tool-execution-watchdog.js";
+import { createSearchAgentsTool } from "../agent/agent-search.js";
+import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
+import type { SubAgentSessionStore } from "./session-store.js";
+import { ID_PREFIX } from "../branding.js";
+import {
+  appendActivitySummary,
+  buildDispatchBrief,
+  formatSubAgentReport,
+  parseSubAgentReport,
+  subAgentToolName,
+  type TaskIntent,
+} from "./report.js";
+import {
+  DEFAULT_SUBAGENT_REPEAT_LIMIT,
+  forcedStopReport,
+  partialTextFromEvent,
+  preferCompletedSubAgentReply,
+  resolveSubAgentCatchOutcome,
+  resolveSubAgentDeadlineMs,
+} from "./stop-policy.js";
+import { SubAgentDirector } from "./nudge-director.js";
+import {
+  abortError,
+  createSubAgentSpawnRegistryPlugin,
+  disposeSubAgentSession,
+  isSubAgentCancelError,
+} from "./dispose.js";
+import { createTaskTool } from "./task-tool.js";
+
+export type SubAgentProvider = {
+  providerName: string;
+  baseURL: string;
+  apiKey?: string;
+  keyless?: boolean;
+  model: string;
+  // Subagents inherit the parent's reasoning effort so a /agent selection
+  // applies to delegated work, not just the top-level loop.
+  reasoningEffort?: ReasoningEffort;
+  // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the generic
+  // (no-tier) dispatch path builds a plain openai-compatible source and the
+  // gateway never receives the x-bf-vk header.
+  bifrostVirtualKey?: boolean;
+};
+
+// The source used when no profile tier resolves. Exported for tests: the
+// parent's provider may need a non-default adapter (Bifrost virtual keys,
+// Codex or xAI OAuth profiles speak the Responses API and reject plain Chat
+// Completions requests with HTTP 426), so the catalog entry's markers pick
+// the adapter exactly as the tiered path does.
+export function buildSubAgentPrimarySource(
+  provider: SubAgentProvider,
+  catalog?: readonly ProviderCatalogEntry[],
+  settings?: Settings,
+) {
+  if (catalog !== undefined) {
+    const source = buildInferenceSourceForRef(
+      { provider: provider.providerName, model: provider.model },
+      {
+        sessionId: generateSessionId(),
+        catalog,
+        ...(provider.reasoningEffort !== undefined
+          ? { reasoningEffort: provider.reasoningEffort }
+          : {}),
+      },
+      settings,
+    );
+    if (source !== null) return { sources: [source], defaultSource: source.id };
+  }
+  const build = provider.bifrostVirtualKey === true ? buildBifrostSource : buildOpenAISource;
+  const primarySource = build({
+    id: provider.providerName,
+    baseURL: provider.baseURL,
+    ...(provider.apiKey !== undefined ? { apiKey: provider.apiKey } : {}),
+    model: provider.model,
+    ...(provider.reasoningEffort !== undefined
+      ? { reasoningEffort: provider.reasoningEffort }
+      : {}),
+  });
+  return { sources: [primarySource], defaultSource: primarySource.id };
+}
+
+// Dependencies an orchestrator sub-agent needs to spawn further workers via
+// `task`. Nested dispatch always sets allowOrchestrator: false so the
+// recursion bottoms out at one hop of orchestration.
+export type SubAgentSandboxDeps = {
+  permissionGate: PermissionGate;
+  inheritMcpTools?: () => readonly AgentTool[];
+  shellTimeout?: ShellTimeoutConfig;
+  extraToolPlugins?: ToolPlugin[];
+  /** Parent session blob store for bounded tool-output:// reads in workers. */
+  getBlobReader?: () => BlobReader | undefined;
+  /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
+  shellEnv?: Record<string, string>;
+};
+
+export type NestedDispatchDeps = SubAgentSandboxDeps & {
+  getWorkdirBase: () => string;
+  provider: SubAgentProvider | (() => SubAgentProvider);
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  // Fired on each tool_call.end so the parent can surface live activity without
+  // replaying the full sub-agent event stream into the chat transcript.
+  onProgress?: (info: { description: string; toolName: string }) => void;
+  sessions?: SubAgentSessionStore;
+  settings?: Settings | (() => Settings | undefined);
+  catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  profiles?: AgentProfile[] | (() => AgentProfile[]);
+  // The orchestrator's own session id, so workers it dispatches record as
+  // nested (one-hop) sessions the Agents strip can indent under it.
+  parentSessionId?: string;
+};
+
+/** Typed spawn intent — optional on `task`; omit Intent section when unset. */
+export type RunSubAgentParams = {
+  cwd: string;
+  workdirBase: string;
+  provider: SubAgentProvider;
+  tier?: ProviderTier;
+  settings?: Settings;
+  catalog?: readonly ProviderCatalogEntry[];
+  description: string;
+  context?: string;
+  prompt: string;
+  // Optional ordered goals the parent wants the worker to track. Surfaced in
+  // the dispatch brief as a suggested manage_tasks seed — the child's list is
+  // still its own; the parent does not share a checklist.
+  goals?: readonly string[];
+  /** Spawn intent for the brief (no tool filtering here — that is a later task). */
+  intent?: TaskIntent;
+  /** Concrete done checks preferred over free-form prompt alone. */
+  successCriteria?: readonly string[];
+  /** Explicit out-of-scope / forbidden actions. */
+  doNot?: readonly string[];
+  /** What the parent most needs in Findings. */
+  reportFocus?: string;
+  signal?: AbortSignal;
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  onProgress?: (info: { description: string; toolName: string }) => void;
+  capabilities?: CapabilityFilter;
+  systemPromptRole?: string;
+  // When true, the assembled system prompt grants this sub-agent permission
+  // to call `task` to spawn further agents (orchestrator exception to the
+  // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.
+  // Requires nestedDispatch so the task tool can actually be installed —
+  // advertising permission without the tool is a hard break.
+  orchestrator?: boolean;
+  // Present only when orchestrator is true. Installs task + search_agents so
+  // the orchestrator can actually dispatch workers.
+  nestedDispatch?: NestedDispatchDeps;
+  // Set when this dispatch is a nested worker spawned by an orchestrator that
+  // already holds a concurrency slot. The nested run reuses the parent's slot
+  // (reentrant) instead of acquiring its own, which would deadlock the pool.
+  nested?: boolean;
+  /** Inference-turn budget for this worker only (not the parent session limit). */
+  maxTurns?: number;
+  /**
+   * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
+   * there is no default leaf death clock; omit to bound the run with maxTurns
+   * and operator cancel alone.
+   */
+  deadlineMs?: number;
+} & SubAgentSandboxDeps;
+
+// Web tools are always-on core built-ins in the main session (see
+// src/agent/tools.ts); the sub-agent discipline block tells every worker to
+// reach for web_fetch/web_search instead of curl/wget, so the tools must
+// actually be installed here too. Read-only-network, so no capability filter
+// special-case: they pass through applyCapabilityFilter by name like any
+// other tool (an "explore" intent that wants a read-only leaf can still
+// exclude them explicitly via capabilities.tools).
+export function coreSubAgentWebTools(): AgentTool[] {
+  return [createWebFetchTool(), createWebSearchTool()];
+}
+
+function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
+  const nameSet = new Set(capabilities.tools);
+  if (capabilities.mode === "exclude") {
+    return tools.filter((t) => !nameSet.has(t.definition.name));
+  }
+  return tools.filter((t) => nameSet.has(t.definition.name));
+}
+
+export type SubAgentRunController = {
+  signal: AbortSignal;
+  deadlineHit: () => boolean;
+  dispose: () => void;
+};
+
+/**
+ * Combines an optional caller cancel signal with an optional opt-in wall-clock
+ * deadline into one abort signal. The run has a single signal to check while
+ * still being able to tell a genuine cancel apart from the deadline firing
+ * (deadlineHit()) when picking a forcedStopReport reason. When deadlineMs is
+ * omitted, no timer is armed — maxTurns + cancel remain the only bounds.
+ */
+export function createSubAgentRunController(
+  parentSignal: AbortSignal | undefined,
+  deadlineMs?: number,
+): SubAgentRunController {
+  const controller = new AbortController();
+  let hit = false;
+  const onParentAbort = (): void => {
+    if (!controller.signal.aborted) controller.abort(parentSignal?.reason);
+  };
+  if (parentSignal?.aborted === true) {
+    controller.abort(parentSignal.reason);
+  } else {
+    parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (deadlineMs !== undefined && deadlineMs > 0) {
+    timer = setTimeout(() => {
+      // Only mark deadline if we are the abort source. A parent cancel that
+      // already aborted must not be relabeled as a deadline hit when the timer
+      // fires later (e.g. during stream drain before dispose).
+      if (controller.signal.aborted) return;
+      hit = true;
+      controller.abort(new Error(`sub-agent deadline of ${deadlineMs}ms exceeded`));
+    }, deadlineMs);
+  }
+  return {
+    signal: controller.signal,
+    deadlineHit: () => hit,
+    dispose: (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", onParentAbort);
+    },
+  };
+}
+
+// Spin up an isolated, autonomous agent loop against the same working tree,
+// hand it one task, and return its final report. The sub-agent shares the
+// dispatcher's cwd so its edits land in the real repo, but gets its own posix
+// tool instances and its own git-backed context store so the two loops never
+// trample each other's state.
+export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
+  return withSubAgentSlot(() => runSubAgentInner(params), {
+    reentrant: params.nested === true,
+  });
+}
+
+async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
+  await seedPricingMetadataFromCache({
+    cachePath: defaultPricingCachePath(),
+  });
+
+  const permissionGate = params.permissionGate;
+  const spawnRegistry = createSubAgentSpawnRegistryPlugin();
+  // Child tools resolve spills against the child's own store first, then the
+  // parent's (CL-4323): parent tool-output:// URIs handed in the brief must
+  // remain readable after spawn, and the child's own spills stay local.
+  let childBlobReader: BlobReader | undefined;
+  const sessionBlobReader = createCompositeBlobReader(
+    () => childBlobReader,
+    params.getBlobReader,
+  );
+  const posixTools = createPosixTools({
+    cwd: params.cwd,
+    blobReader: sessionBlobReader,
+    plugins: buildCorePosixToolPlugins({
+      cwd: params.cwd,
+      permissionGate,
+      ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
+      ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
+      readFileGuard: { blobReader: sessionBlobReader },
+      extraToolPlugins: [
+        ...(params.extraToolPlugins ?? []),
+        spawnRegistry.plugin,
+      ],
+    }),
+  });
+
+  let agent: Awaited<ReturnType<typeof createAgent>> | null = null;
+  let streamPromise: Promise<void> | undefined;
+  let closeOnAbort: (() => void) | undefined;
+  // Declared before try (same reasoning as closeOnAbort above): assigned once
+  // requestContinuation/modelFamilyPolicy exist inside the try, but must be
+  // visible to the finally block, which is a sibling scope, not a child.
+  let stallWatchdog: ReturnType<typeof setInterval> | undefined;
+  // Combines the caller's cancel signal with an optional opt-in wall-clock
+  // deadline so a leaf that hits the deadline can still return a salvage report
+  // rather than racing the outer per-tool-call watchdog (which would discard the
+  // run wholesale). When deadlineMs is omitted, no timer is armed — maxTurns +
+  // cancel remain the only bounds. Declared before try so finally can dispose.
+  const resolvedDeadlineMs =
+    params.deadlineMs !== undefined
+      ? resolveSubAgentDeadlineMs(
+          params.deadlineMs,
+          resolveToolExecutionTimeoutMs(toolWatchdogFromSettings(params.settings)),
+        )
+      : undefined;
+  const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
+
+  try {
+  const shellDefaultMs = params.shellTimeout?.defaultMs;
+  let tools = fromToolRunner(posixTools).map((tool) => ({
+    ...tool,
+    definition: advertiseEditFileLineRange(advertiseShellGuardTimeout(tool.definition, shellDefaultMs)),
+  }));
+
+  tools = [...tools, ...coreSubAgentWebTools()];
+
+  const inherited = params.inheritMcpTools?.() ?? [];
+  if (inherited.length > 0) {
+    tools = [...tools, ...inherited];
+  }
+
+  if (params.capabilities !== undefined) {
+    tools = applyCapabilityFilter(tools, params.capabilities);
+  }
+
+  // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
+  // checklist. The handler is local to this loop; parent and child never share
+  // a list (the parent TUI tracks only the parent's manage_tasks calls).
+  tools = [
+    ...tools,
+    stringTool({
+      definition: manageTasksDefinition,
+      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+        const parsed = parseManageTasksArgs(rawArgs);
+        if (parsed === null) {
+          return "Error: manage_tasks requires action ('create' or 'update').";
+        }
+        return "Tasks updated.";
+      },
+    }),
+  ];
+
+  // Orchestrators need task + search_agents installed, not just mentioned in
+  // the prompt. Nested dispatch always forbids further orchestration so the
+  // tree bottoms out after one hop.
+  if (params.orchestrator === true) {
+    if (params.nestedDispatch === undefined) {
+      throw new Error(
+        "runSubAgent: orchestrator=true requires nestedDispatch so the task tool can be installed",
+      );
+    }
+    const nd = params.nestedDispatch;
+    tools = [
+      ...tools,
+      createTaskTool({
+        permissionGate: nd.permissionGate,
+        ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
+        ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
+        ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
+        ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
+        cwd: params.cwd,
+        getWorkdirBase: nd.getWorkdirBase,
+        provider: nd.provider,
+        allowOrchestrator: false,
+        // Nested workers inherit this composite so they can re-read both the
+        // orchestrator's spills and the original parent's.
+        getBlobReader: () => sessionBlobReader,
+        ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
+        ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
+        ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),
+        ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
+        ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
+        ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
+        ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
+      }),
+      ...(nd.profiles !== undefined
+        ? [
+            createSearchAgentsTool(() => {
+              const profiles = nd.profiles;
+              return typeof profiles === "function" ? profiles() : (profiles ?? []);
+            }),
+          ]
+        : []),
+    ];
+  }
+
+  const environment = await gatherEnvironment(params.cwd);
+  const extensions =
+    params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
+  const toolNames = tools.map((t) => t.definition.name);
+  const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
+    orchestrator: params.orchestrator === true,
+    toolNames,
+    grokAntiThrash: shouldApplyGrokAntiThrash({
+      providerName: params.provider.providerName,
+      model: params.provider.model,
+      orchestrator: params.orchestrator === true,
+    }),
+  });
+
+
+  let agentHandle: Awaited<ReturnType<typeof createAgent>> | null = null;
+  const requestContinuation = (): void => {
+    try {
+      agentHandle?.deliver({
+        ref: { uid: 0, mailbox: "system" },
+        headers: {
+          from: "user@local",
+          to: ["agent@local"],
+          date: new Date().toISOString(),
+          messageId: `compact-continue-${Date.now()}@local`,
+        },
+        flags: [],
+        content: "",
+        signatureStatus: "missing",
+      });
+    } catch {
+      // Agent may be closing; a dropped continuation is harmless.
+    }
+  };
+
+  const maxTurns =
+    params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
+
+  const modelFamilyPolicy = resolveModelFamilyPolicy({
+    providerName: params.provider.providerName,
+    model: params.provider.model,
+    orchestrator: params.orchestrator === true,
+  });
+
+  const directorDef = defineDirector({
+    id: `${ID_PREFIX}/subagent`,
+    configSchema: type({}),
+    factory: (_config, _env, agentCtx) =>
+      new SubAgentDirector(
+        agentCtx.systemPrompt,
+        [...agentCtx.toolDefinitions],
+        requestContinuation,
+        maxTurns,
+        DEFAULT_SUBAGENT_REPEAT_LIMIT,
+        modelFamilyPolicy.subAgentStallTimeoutMs,
+      ),
+  });
+
+  // Directors are pure decide(event, ...) functions with no timer of their
+  // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
+  // external nudge to even get a decide() call. Ping the same continuation
+  // channel compaction uses at the stall interval; the director only acts on
+  // a ping if nothing happened since the last one.
+  stallWatchdog = setInterval(() => requestContinuation(), modelFamilyPolicy.subAgentStallTimeoutMs);
+  if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
+
+  const toolsFactory = defineTool({
+    id: `${ID_PREFIX}/subagent-tools`,
+    // Without the watchdog config, child tool calls run under default budgets
+    // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
+    factory: () => createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings)),
+  });
+
+  const workdir = join(params.workdirBase, "subagents", generateSessionId());
+  await mkdir(workdir, { recursive: true });
+
+  const def = defineAgent({
+    id: `${ID_PREFIX}/subagent`,
+    systemPrompt,
+    tools: [toolsFactory],
+    capabilities: [],
+    director: directorDef.build({}),
+    inference: {
+      sources: [{ provider: params.provider.providerName, model: params.provider.model }],
+    },
+  });
+
+  const storage = await createOptimizedContextStore(workdir);
+
+  const head = { provider: params.provider.providerName, model: params.provider.model };
+  const bundle =
+    params.tier !== undefined && params.settings !== undefined && params.catalog !== undefined
+      ? buildSubagentSources({
+          settings: params.settings,
+          catalog: params.catalog,
+          tier: params.tier,
+          head,
+          ...(params.provider.reasoningEffort !== undefined
+            ? { reasoningEffort: params.provider.reasoningEffort }
+            : {}),
+        })
+      : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
+  const inferenceDeps = await createInferenceDependencies();
+  const subagentSource =
+    bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
+  agent = await createAgent(def, {
+    sources: bundle.sources,
+    defaultSource: bundle.defaultSource,
+    storage,
+    workdir,
+    // contextTransforms ride deps: the published @intx/agent forwards deps
+    // into reactor assembly verbatim, and the vendored assembly picks the
+    // transforms up from there.
+    deps: {
+      ...inferenceDeps,
+      contextTransforms: [
+        createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+      ],
+    },
+    audit: noopAuditStore(),
+    authorize: permissiveAuthorize(),
+    directors: createDirectorRegistry({
+      factories: [directorDef.factory],
+      defaultId: `${ID_PREFIX}/subagent`,
+    }),
+    compactors: {
+      "pruning-compactor": createPruningCompactor({
+        keepRecentTurns: 6,
+        summaryMaxChars: 2500,
+        stripResultContent: true,
+        // A structured model summary keeps sub-agent context useful across a
+        // compaction; the deterministic stub remains the fallback on failure.
+        ...(subagentSource !== undefined
+          ? { summarize: createModelSummarizer({ getSource: () => subagentSource, deps: inferenceDeps }) }
+          : {}),
+      }),
+    },
+  });
+  // Tools were built before the agent; bind the child's store now so own spills
+  // resolve without dropping the parent fallback.
+  childBlobReader = agent.blobReader;
+  agentHandle = agent;
+
+  // Collect tool activity for the parent-facing report, and optionally forward
+  // progress without dumping the full sub-agent event stream into the chat
+  // transcript (which would interleave sub-agent text with the parent turn).
+  const toolNamesUsed: string[] = [];
+  let lastPartialText = "";
+  const streamSink = (event: ReactorEmittedEvent): void => {
+    const name = subAgentToolName(event);
+    if (name !== null) {
+      toolNamesUsed.push(name);
+      params.onProgress?.({ description: params.description, toolName: name });
+    }
+    const partial = partialTextFromEvent(event);
+    if (partial !== null) lastPartialText = partial;
+    params.onEvent?.(event);
+  };
+  streamPromise = consumeStream(agent.stream(), streamSink);
+
+  // Aborting the send signal only rejects the promise; the child reactor keeps
+  // running until close() (same hard-stop rule as the parent in runner.tsx).
+  closeOnAbort = (): void => {
+    void (async () => {
+      try {
+        await agent?.close();
+      } catch {
+        // close is idempotent; ignore races with disposeSubAgentSession.
+      }
+      try {
+        await posixTools.dispose();
+      } catch {
+        // ignore
+      }
+    })();
+  };
+  if (runController.signal.aborted) {
+    closeOnAbort();
+  } else {
+    runController.signal.addEventListener("abort", closeOnAbort, { once: true });
+  }
+
+    const fullPrompt = buildDispatchBrief({
+      description: params.description,
+      prompt: params.prompt,
+      ...(params.context !== undefined ? { context: params.context } : {}),
+      ...(params.goals !== undefined && params.goals.length > 0 ? { goals: params.goals } : {}),
+      ...(params.intent !== undefined ? { intent: params.intent } : {}),
+      ...(params.successCriteria !== undefined && params.successCriteria.length > 0
+        ? { successCriteria: params.successCriteria }
+        : {}),
+      ...(params.doNot !== undefined && params.doNot.length > 0 ? { doNot: params.doNot } : {}),
+      ...(params.reportFocus !== undefined && params.reportFocus.trim().length > 0
+        ? { reportFocus: params.reportFocus }
+        : {}),
+    });
+    const ensureNotAborted = (): void => {
+      // Re-read .aborted after await — control-flow narrowing would wrongly
+      // treat a pre-send check as permanent.
+      if (runController.signal.aborted) throw abortError(runController.signal);
+    };
+    try {
+      ensureNotAborted();
+      const sendOpts = { signal: runController.signal };
+      const fresh = await refreshInferenceSourceBundle(
+        bundle.sources,
+        bundle.defaultSource,
+        params.catalog,
+      );
+      agent.setSources(fresh.sources, fresh.defaultSource);
+      const result = await agent.send(fullPrompt, sendOpts);
+      // A successful non-empty reply must not be clobbered by a late cancel that
+      // races the completion window — keep the completed report. Empty replies
+      // still honor abort so we salvage (or rethrow) rather than fabricating
+      // a "no textual result" success over a cancelled run.
+      if (preferCompletedSubAgentReply(result.reply) === "honor-abort") {
+        ensureNotAborted();
+      }
+      const reply =
+        result.reply.trim().length > 0
+          ? result.reply.trim()
+          : "Sub-agent finished without a textual result.";
+      // Normalize into the structured envelope so the parent always gets a
+      // consistent shape even when the model rambling-returns free-form prose.
+      const report = formatSubAgentReport(parseSubAgentReport(reply));
+      return appendActivitySummary(report, toolNamesUsed);
+    } catch (err) {
+      if (isSubAgentCancelError(err, runController.signal)) {
+        // Drain stream events so tool.start / inference.done that already
+        // left the reactor are reflected before we decide bare vs salvage.
+        if (streamPromise !== undefined) {
+          await streamPromise.catch(() => {});
+        }
+        // Deadline always salvages (even with zero output). Cancel after any
+        // tools or assistant prose salvages so the parent keeps partial work;
+        // pre-progress cancel still surfaces as a bare AbortError.
+        const hadProgress =
+          toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
+        const outcome = resolveSubAgentCatchOutcome({
+          deadlineHit: runController.deadlineHit(),
+          hadProgress,
+        });
+        if (outcome !== "rethrow") {
+          const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
+          return appendActivitySummary(
+            forcedStopReport(reason, lastPartialText),
+            toolNamesUsed,
+          );
+        }
+      }
+      throw err;
+    }
+  } finally {
+    if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
+    runController.dispose();
+    await disposeSubAgentSession({
+      signal: runController.signal,
+      ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
+      agent,
+      ...(streamPromise !== undefined ? { streamPromise } : {}),
+      posixTools,
+    });
+  }
+}
