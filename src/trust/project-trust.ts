@@ -2,7 +2,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { type } from "arktype";
 import { getLogger } from "@intx/log";
 import type { MCPServerConfig } from "../config/settings.js";
 import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
@@ -17,14 +16,6 @@ export function originRequiresTrust(origin: PluginOrigin): boolean {
   return origin === "project" || origin === "path";
 }
 
-// Own schema (not shared with path-trust): project records also carry MCP
-// fingerprints and an optional repo stamp for fail-closed key mismatch.
-const ProjectTrustStoreSchema = type({
-  trustedPluginPaths: "string[]",
-  trustedMcpFingerprints: "string[]",
-  "repo?": "string",
-});
-
 export type ProjectTrustStore = {
   /** Absolute plugin directory paths the user has trusted for this project. */
   trustedPluginPaths: string[];
@@ -36,6 +27,37 @@ const emptyStore = (): ProjectTrustStore => ({
   trustedPluginPaths: [],
   trustedMcpFingerprints: [],
 });
+
+/**
+ * Coerce a trust-store array field: missing → [], mixed types keep only strings,
+ * non-array → invalid (null). Hand-edited partial files must not wipe consent.
+ */
+function coerceStringArrayField(
+  value: unknown,
+  field: string,
+  path: string,
+): string[] | null {
+  if (value === undefined) {
+    logger.warn`project trust store missing ${field} at ${path}; defaulting to []`;
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const strings: string[] = [];
+  let dropped = 0;
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      strings.push(entry);
+    } else {
+      dropped += 1;
+    }
+  }
+  if (dropped > 0) {
+    logger.warn`project trust store dropping ${dropped} non-string entr${dropped === 1 ? "y" : "ies"} from ${field} at ${path}`;
+  }
+  return strings;
+}
 
 // SECURITY: project trust records must NOT live inside the repo they authorize —
 // a hostile repo could otherwise ship its own `.corbits/trust.json` and
@@ -77,22 +99,45 @@ export async function readProjectTrustStore(
     logger.warn`project trust store is not valid JSON at ${path}: ${String(err)}`;
     return { state: "invalid", store: emptyStore() };
   }
-  const validated = ProjectTrustStoreSchema(parsed);
-  if (validated instanceof type.errors) {
-    logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
+  // Non-object JSON (arrays, null, primitives) cannot be a trust record.
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    logger.warn`project trust store has an invalid shape at ${path}: expected object`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  const record = parsed as Record<string, unknown>;
+  // Coerce array fields instead of hard-rejecting: a hand-edited partial file
+  // (only one list present) or a mixed-type array must keep valid string grants.
+  const trustedPluginPaths = coerceStringArrayField(
+    record.trustedPluginPaths,
+    "trustedPluginPaths",
+    path,
+  );
+  const trustedMcpFingerprints = coerceStringArrayField(
+    record.trustedMcpFingerprints,
+    "trustedMcpFingerprints",
+    path,
+  );
+  if (trustedPluginPaths === null || trustedMcpFingerprints === null) {
+    logger.warn`project trust store has an invalid shape at ${path}: array fields must be arrays when present`;
     return { state: "invalid", store: emptyStore() };
   }
   // Guard against a stale/copied record keyed to a different repo path: the
   // file records the repo it was written for and must match this cwd.
-  if (validated.repo !== undefined && resolve(validated.repo) !== resolve(cwd)) {
-    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
-    return { state: "invalid", store: emptyStore() };
+  if (record.repo !== undefined) {
+    if (typeof record.repo !== "string") {
+      logger.warn`project trust store has an invalid shape at ${path}: repo must be a string when present`;
+      return { state: "invalid", store: emptyStore() };
+    }
+    if (resolve(record.repo) !== resolve(cwd)) {
+      logger.warn`project trust store repo mismatch at ${path}: recorded ${record.repo}, expected ${resolve(cwd)}`;
+      return { state: "invalid", store: emptyStore() };
+    }
   }
   return {
     state: "valid",
     store: {
-      trustedPluginPaths: validated.trustedPluginPaths.map((p) => resolve(p)),
-      trustedMcpFingerprints: [...validated.trustedMcpFingerprints],
+      trustedPluginPaths: trustedPluginPaths.map((p) => resolve(p)),
+      trustedMcpFingerprints: [...trustedMcpFingerprints],
     },
   };
 }

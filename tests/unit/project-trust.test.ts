@@ -164,6 +164,53 @@ describe("project-trust", () => {
     }
   });
 
+  test("readProjectTrustStore: partial file with only trustedPluginPaths stays valid", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginPath = join(cwd, "plugins", "kept");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginPath],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
+      expect(result.store.trustedMcpFingerprints).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: mixed-type array keeps string entries", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginPath = join(cwd, "plugins", "good");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginPath, 42, null, { bad: true }],
+          trustedMcpFingerprints: ["abc123", false, "def456"],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
+      expect(result.store.trustedMcpFingerprints).toEqual(["abc123", "def456"]);
+    } finally {
+      await cleanup();
+    }
+  });
+
   test("readProjectTrustStore: valid file is valid with resolved absolute paths", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {
