@@ -279,4 +279,20 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(runShellAuthzBlockReason(`env --argv0=name find /`)).toMatch(openEnded);
     expect(expandShellSubjects(`env --argv0 name find /`).subjects).toContain("find /");
   });
+
+  test("G13: empty/whitespace -S payload with trailing utility is hard-denied", () => {
+    // Runtime still executes the trailing utility; do not opaque-drop it.
+    expect(runShellAuthzBlockReason(`env -S " " find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S "   " rm -rf /`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`env -S" " find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env --split-string= find /`)).toMatch(openEnded);
+  });
+
+  test("G14: end-of-options marker before utility inside -S is hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "-- find /"`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S "-- rm -rf /"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`env -S -- find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S - find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S "-- cat"`)).toMatch(stdinHang);
+  });
 });

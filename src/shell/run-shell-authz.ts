@@ -491,13 +491,21 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
 // After extracting an -S / --split-string payload, fold any trailing utility
 // tokens (`env -S FOO=bar find /` → `FOO=bar find /`) so hard-deny sees the
 // real program, not just the assignment fragment that -S consumed.
+// Empty/opaque payloads with a trailing utility still execute that utility
+// (`env -S " " find /`), so prefer the trailing tokens over opaque-dropping them.
 function finishEnvSplitPayload(
   payload: string,
   tokens: string[],
   restStart: number,
 ): PeelOutcome {
-  if (isOpaquePayload(payload)) return { kind: "opaque" };
   const rest = tokens.slice(restStart);
+  if (isOpaquePayload(payload)) {
+    if (rest.length === 0) return { kind: "opaque" };
+    if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
+    const command = rejoinTokens(rest);
+    if (command === null) return { kind: "opaque" };
+    return { kind: "inner", command };
+  }
   if (rest.length === 0) return { kind: "inner", command: payload };
   if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
   const command = rejoinTokens([payload, ...rest]);
@@ -701,6 +709,34 @@ export type ShellExpandResult = {
 //
 // Chain splitting is quote-aware (`splitChainedCommand`) so a pipe inside a
 // `bash -c '…|…'` payload is not mistaken for an outer pipeline boundary.
+// Drop env/shell end-of-options markers so command-position hard-deny still
+// sees the real program in subjects like `env -S "-- find /"` or `env -S -- find /`.
+// Assignments before the marker are preserved (`FOO=1 -- find /` → `FOO=1 find /`).
+function dropLeadingEndOfOptionsTokens(tokens: string[]): string[] {
+  let i = 0;
+  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  const head = tokens.slice(0, i);
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
+  return head.concat(tokens.slice(i));
+}
+
+function stripEndOfOptionsCommand(command: string): string {
+  const tokens = tokenize(command);
+  const next = dropLeadingEndOfOptionsTokens(tokens);
+  if (next.length === tokens.length) {
+    let same = true;
+    for (let i = 0; i < tokens.length; i++) {
+      if (next[i] !== tokens[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return command;
+  }
+  if (next.length === 0) return command;
+  return rejoinTokens(next) ?? next.join(" ");
+}
+
 export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH): ShellExpandResult {
   const subjects: string[] = [];
   const seen = new Set<string>();
@@ -711,6 +747,13 @@ export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH):
     if (trimmed.length === 0 || seen.has(trimmed)) return;
     seen.add(trimmed);
     subjects.push(trimmed);
+    // Surface end-of-options-stripped forms so command-position matchers hit
+    // `find` in subjects that still carry a leading `--` / `-` from env -S.
+    const stripped = stripEndOfOptionsCommand(trimmed);
+    if (stripped !== trimmed && !seen.has(stripped)) {
+      seen.add(stripped);
+      subjects.push(stripped);
+    }
     if (depth >= maxDepth) return;
 
     for (const segment of splitChainedCommand(trimmed)) {
@@ -728,7 +771,9 @@ function segmentRmArgs(segment: string): string[] | undefined {
   const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   if (programBasename(tokens[i] ?? "") !== "rm") return undefined;
   return tokens.slice(i + 1);
 }
