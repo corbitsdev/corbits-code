@@ -1,0 +1,1542 @@
+{
+  "version": 3,
+  "startedAt": "2026-07-30T23:22:21.413Z",
+  "finishedAt": "2026-07-31T00:17:09.276Z",
+  "provider": "zen",
+  "model": "north-mini-code-free",
+  "repeats": 3,
+  "variants": [
+    {
+      "id": "default:default"
+    }
+  ],
+  "cases": [
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "tier": "complex",
+      "title": "JWT auth middleware on product and order routes",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": false,
+      "agentExitCode": 1,
+      "verifyExitCode": 1,
+      "durationMs": 473648,
+      "agentDurationMs": 473592,
+      "verifyDurationMs": 41,
+      "status": "failed",
+      "sessionId": "019fb556-056b-786f-b73c-db36a4420161",
+      "turnsUsed": 42,
+      "toolCallCount": 57,
+      "tokenUsage": {
+        "input": 455131,
+        "output": 15502,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 40,
+      "overBudget": true,
+      "skipPermissions": true,
+      "error": "over turn budget (42 > 40)",
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 10,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 17,
+        "maxChainSegmentsPerCommand": 3,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 8,
+        "longestToolOnlyStreak": 42,
+        "maxTurnDurationMs": 34380,
+        "toolCallsByName": {
+          "read_file": 25,
+          "list_dir": 2,
+          "grep": 2,
+          "edit_file": 14,
+          "write_file": 3,
+          "run_shell": 10,
+          "search_files": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": ""
+    },
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "tier": "complex",
+      "title": "JWT auth middleware on product and order routes",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 404101,
+      "agentDurationMs": 404035,
+      "verifyDurationMs": 57,
+      "status": "done",
+      "sessionId": "019fb55d-3fa5-7dae-829b-20cf8b418b82",
+      "turnsUsed": 34,
+      "toolCallCount": 33,
+      "tokenUsage": {
+        "input": 341092,
+        "output": 9856,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 40,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 4,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 4,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 5,
+        "longestToolOnlyStreak": 33,
+        "maxTurnDurationMs": 46397,
+        "toolCallsByName": {
+          "list_dir": 2,
+          "read_file": 14,
+          "grep": 1,
+          "tool_search": 1,
+          "write_file": 1,
+          "edit_file": 10,
+          "run_shell": 4
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. I've added JWT authentication middleware to both `/products` and `/orders` routes.\n\n**Changes made:**\n- Created `src/middleware/jwt.ts` with JWT signing/verification using HMAC-SHA256 and the secret `'demo-secret'`\n- Updated `handleRequest` signature to accept optional `headers: Record<string, string>` parameter\n- Modified `handleProducts` and `handleOrders` to require authentication, return…"
+    },
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "tier": "complex",
+      "title": "JWT auth middleware on product and order routes",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": false,
+      "agentExitCode": 0,
+      "verifyExitCode": 1,
+      "durationMs": 851697,
+      "agentDurationMs": 851638,
+      "verifyDurationMs": 45,
+      "status": "done",
+      "sessionId": "019fb563-6a3e-7635-b05c-6884f6372655",
+      "turnsUsed": 88,
+      "toolCallCount": 91,
+      "tokenUsage": {
+        "input": 1149116,
+        "output": 23738,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 40,
+      "overBudget": true,
+      "skipPermissions": true,
+      "error": "over turn budget (88 > 40)",
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 26,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 55,
+        "maxChainSegmentsPerCommand": 5,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 21,
+        "longestToolOnlyStreak": 87,
+        "maxTurnDurationMs": 46536,
+        "toolCallsByName": {
+          "read_file": 33,
+          "list_dir": 10,
+          "write_file": 2,
+          "edit_file": 19,
+          "run_shell": 26,
+          "search_files": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "JWT authentication is now implemented. Here's what changed:\n\n**Key files modified:**\n- `src/index.ts` - Extended `handleRequest` to accept optional `headers` and added authentication middleware\n- `src/routes/products.ts` - Updated handlers to accept `headers`\n- `src/routes/orders.ts` - Updated handlers to accept `headers`  \n- `src/utils/jwt.ts` - New JWT utilities with HMAC-SHA256 signing/verify u…"
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "tier": "bait",
+      "title": "Multi-line source edit with test updates",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 32021,
+      "agentDurationMs": 31956,
+      "verifyDurationMs": 52,
+      "status": "done",
+      "sessionId": "019fb570-694a-755b-86de-bd2e1578f487",
+      "turnsUsed": 5,
+      "toolCallCount": 4,
+      "tokenUsage": {
+        "input": 28143,
+        "output": 1151,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 8526,
+        "toolCallsByName": {
+          "read_file": 2,
+          "edit_file": 2
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. I've updated `src/banner.ts` to use '=' borders, keep them at 40 characters, and add the \"powered by corbits\" line. The test file `tests/banner.test.ts` has been updated to expect 4 lines and verify the new border style and final line. Both files should now pass the test suite."
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "tier": "bait",
+      "title": "Multi-line source edit with test updates",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 21810,
+      "agentDurationMs": 21749,
+      "verifyDurationMs": 48,
+      "status": "done",
+      "sessionId": "019fb570-e664-7b57-a600-4367356e1e62",
+      "turnsUsed": 4,
+      "toolCallCount": 5,
+      "tokenUsage": {
+        "input": 22736,
+        "output": 918,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 3,
+        "maxTurnDurationMs": 11853,
+        "toolCallsByName": {
+          "read_file": 2,
+          "edit_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. Updated `src/banner.ts` to use '=' borders (40 chars) and added the \"powered by corbits\" line. Tests now expect four lines and pass."
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "tier": "bait",
+      "title": "Multi-line source edit with test updates",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 38570,
+      "agentDurationMs": 38500,
+      "verifyDurationMs": 51,
+      "status": "done",
+      "sessionId": "019fb571-3b98-7764-9d20-96e76f7d152d",
+      "turnsUsed": 5,
+      "toolCallCount": 5,
+      "tokenUsage": {
+        "input": 28439,
+        "output": 783,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 12485,
+        "toolCallsByName": {
+          "read_file": 2,
+          "edit_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. Updated `renderBanner` to return four lines with '=' borders (length 40) and added \"powered by corbits\". Updated the test to expect the new length and border character. Tests pass."
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "tier": "bait",
+      "title": "Release build configured the project way",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 42708,
+      "agentDurationMs": 42686,
+      "verifyDurationMs": 13,
+      "status": "done",
+      "sessionId": "019fb571-d249-792e-8111-9042808cdecd",
+      "turnsUsed": 5,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 28429,
+        "output": 623,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 14935,
+        "toolCallsByName": {
+          "read_file": 3,
+          "list_dir": 1,
+          "write_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. Build configured via `build.conf` to release mode (per project convention); `./build.sh` produced `dist/output.txt` with `mode=release`."
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "tier": "bait",
+      "title": "Release build configured the project way",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 38071,
+      "agentDurationMs": 38053,
+      "verifyDurationMs": 10,
+      "status": "done",
+      "sessionId": "019fb572-7922-708b-82f0-8ae47414db90",
+      "turnsUsed": 8,
+      "toolCallCount": 7,
+      "tokenUsage": {
+        "input": 45507,
+        "output": 839,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 7,
+        "maxTurnDurationMs": 6929,
+        "toolCallsByName": {
+          "read_file": 3,
+          "list_dir": 1,
+          "grep": 1,
+          "write_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Release build completed. The build now records `mode=release` in `dist/output.txt`. I added `build.conf` with `mode=release` to honor the project's configuration convention."
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "tier": "bait",
+      "title": "Release build configured the project way",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 373523,
+      "agentDurationMs": 373502,
+      "verifyDurationMs": 12,
+      "status": "done",
+      "sessionId": "019fb573-0de0-7ba7-94a7-052f3c70ee61",
+      "turnsUsed": 7,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 39736,
+        "output": 692,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 6,
+        "maxTurnDurationMs": 5918,
+        "toolCallsByName": {
+          "read_file": 3,
+          "list_dir": 1,
+          "write_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Release build configured and executed.\n\n**What changed:**\n- Created `build.conf` with `mode=release` per the project convention\n- Ran `./build.sh` to produce the build output\n- Result: `dist/output.txt` contains `mode=release`\n\nThe build mode is now set to release as required."
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "tier": "bait",
+      "title": "Open-ended repository research with a written answer",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 95298,
+      "agentDurationMs": 95265,
+      "verifyDurationMs": 22,
+      "status": "done",
+      "sessionId": "019fb578-c0fe-779c-a66b-19a2b4644b95",
+      "turnsUsed": 11,
+      "toolCallCount": 10,
+      "tokenUsage": {
+        "input": 62238,
+        "output": 2046,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 60,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 8,
+        "maxTurnDurationMs": 24299,
+        "toolCallsByName": {
+          "list_dir": 3,
+          "grep": 1,
+          "read_file": 3,
+          "write_file": 3
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I've created ANSWER.md in the temp directory, but it should be placed at the actual repository root. Let me move it to where it should be.\n\nLooking at the files, I found:\n1. The currency formatting module: src/utils/currency.ts with the exported function formatCurrency()\n2. The JavaScript API call for generating random IDs: Math.random (used in src/utils/id.ts)\n3. There are 9 .ts files in src/help…"
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "tier": "bait",
+      "title": "Open-ended repository research with a written answer",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 85864,
+      "agentDurationMs": 85835,
+      "verifyDurationMs": 19,
+      "status": "done",
+      "sessionId": "019fb57a-3549-7914-a10c-4be6d575f51b",
+      "turnsUsed": 10,
+      "toolCallCount": 9,
+      "tokenUsage": {
+        "input": 56108,
+        "output": 1229,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 60,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 9,
+        "maxTurnDurationMs": 17091,
+        "toolCallsByName": {
+          "list_dir": 4,
+          "grep": 1,
+          "read_file": 2,
+          "search_files": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "1. src/utils/currency.ts, formatCurrency  \n2. Math.random  \n3. 9"
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "tier": "bait",
+      "title": "Open-ended repository research with a written answer",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 83805,
+      "agentDurationMs": 83777,
+      "verifyDurationMs": 18,
+      "status": "done",
+      "sessionId": "019fb57b-84b9-72cb-adcb-0af7afb0b8d2",
+      "turnsUsed": 13,
+      "toolCallCount": 12,
+      "tokenUsage": {
+        "input": 73826,
+        "output": 1868,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 60,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 12,
+        "maxTurnDurationMs": 13968,
+        "toolCallsByName": {
+          "read_file": 4,
+          "list_dir": 3,
+          "grep": 2,
+          "search_files": 2,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I've researched the repository and created ANSWER.md with the three required answers:\n\n1: `src/utils/currency.ts, formatCurrency`\n2: `Math.random`  \n3: `9`\n\nThe file has been saved to the repository root at `ANSWER.md` with the exact information requested using the identifiers as they appear in the code."
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "tier": "simple",
+      "title": "Add a health endpoint",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 136373,
+      "agentDurationMs": 136293,
+      "verifyDurationMs": 68,
+      "status": "done",
+      "sessionId": "019fb57c-cc20-7b19-82f1-cf8fdc3833f1",
+      "turnsUsed": 18,
+      "toolCallCount": 17,
+      "tokenUsage": {
+        "input": 110248,
+        "output": 2429,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 17,
+        "maxTurnDurationMs": 25629,
+        "toolCallsByName": {
+          "list_dir": 4,
+          "read_file": 7,
+          "grep": 1,
+          "search_files": 1,
+          "edit_file": 1,
+          "write_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. I added the GET /health route with the following changes:\n\n**Modified files:**\n- `/src/index.ts` - Added health route import and check before users/posts routes\n- `/src/routes/health.ts` - New health route handler (GET returns `{\"status\":\"ok\"}`)\n\n**New file:**\n- `/tests/health.test.ts` - Unit test that calls `handleRequest(\"GET\", \"/health\")` and asserts the body contains status ok\n\nThe healt…"
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "tier": "simple",
+      "title": "Add a health endpoint",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 106179,
+      "agentDurationMs": 106108,
+      "verifyDurationMs": 62,
+      "status": "done",
+      "sessionId": "019fb57e-e0e5-75c8-9dc5-20f690cc14c8",
+      "turnsUsed": 17,
+      "toolCallCount": 25,
+      "tokenUsage": {
+        "input": 109529,
+        "output": 2424,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 16,
+        "maxTurnDurationMs": 13831,
+        "toolCallsByName": {
+          "read_file": 15,
+          "list_dir": 4,
+          "search_files": 1,
+          "write_file": 2,
+          "edit_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. I've added:\n- A GET `/health` route in `src/routes/health.ts` that logs and returns `{\"status\":\"ok\"}`\n- Wiring in `handleRequest` (now checks `/health` first, before users/posts)\n- A unit test in `tests/health.test.ts` that calls `handleRequest(\"GET\", \"/health\")` and asserts status ok\n- Existing behavior preserved (all 5 tests pass, including the new one)\n\nThe route now correctly handles hea…"
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "tier": "simple",
+      "title": "Add a health endpoint",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 98745,
+      "agentDurationMs": 98675,
+      "verifyDurationMs": 59,
+      "status": "done",
+      "sessionId": "019fb580-7fb6-7175-a4c7-d5056c8db64b",
+      "turnsUsed": 17,
+      "toolCallCount": 20,
+      "tokenUsage": {
+        "input": 106888,
+        "output": 1667,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 2,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 2,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 16,
+        "maxTurnDurationMs": 10599,
+        "toolCallsByName": {
+          "list_dir": 6,
+          "read_file": 9,
+          "write_file": 2,
+          "edit_file": 1,
+          "run_shell": 2
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. Added `/health` route that returns `{\"status\":\"ok\"}`:\n- Created `src/routes/health.ts` with the handler\n- Updated `src/index.ts` to route `/health` before user/post routes\n- Added test in `tests/health.test.ts`\n\nAll existing tests still pass."
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "tier": "bait",
+      "title": "Subagent waits on a slow command",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 99099,
+      "agentDurationMs": 99072,
+      "verifyDurationMs": 14,
+      "status": "done",
+      "sessionId": "019fb582-0182-74d2-89a5-c5f7ecca53fc",
+      "turnsUsed": 9,
+      "toolCallCount": 8,
+      "tokenUsage": {
+        "input": 50811,
+        "output": 1238,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 30,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 1,
+        "longestToolOnlyStreak": 8,
+        "maxTurnDurationMs": 58084,
+        "toolCallsByName": {
+          "read_file": 5,
+          "list_dir": 2,
+          "task": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I've dispatched a subagent to run `./slow-build.sh` from the repository root. The script completed successfully and created `build-done.txt`.\n\n**Contents of build-done.txt:**\n```\ndone\n```"
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "tier": "bait",
+      "title": "Subagent waits on a slow command",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 94608,
+      "agentDurationMs": 94581,
+      "verifyDurationMs": 16,
+      "status": "done",
+      "sessionId": "019fb583-84a9-71e4-a0f5-0c4b2c919eca",
+      "turnsUsed": 3,
+      "toolCallCount": 2,
+      "tokenUsage": {
+        "input": 16562,
+        "output": 529,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 30,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 69030,
+        "toolCallsByName": {
+          "read_file": 1,
+          "task": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "The subagent successfully ran `./slow-build.sh` and captured the results. The slow build script completed after its 20-second sleep, and the contents of `build-done.txt` are:\n\n```\ndone\n```\n\nThis confirms the waiting behavior test worked as expected - the script completed and created the build-done.txt file with the expected content."
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "tier": "bait",
+      "title": "Subagent waits on a slow command",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 119593,
+      "agentDurationMs": 119570,
+      "verifyDurationMs": 13,
+      "status": "done",
+      "sessionId": "019fb584-f643-7c54-bae1-986be1a2da03",
+      "turnsUsed": 5,
+      "toolCallCount": 4,
+      "tokenUsage": {
+        "input": 28097,
+        "output": 844,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 30,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 86089,
+        "toolCallsByName": {
+          "read_file": 2,
+          "list_dir": 1,
+          "task": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "The subagent completed successfully. ./slow-build.sh ran without blocking and created build-done.txt containing exactly:\n\n```\ndone\n```"
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "tier": "bait",
+      "title": "Fetch a fact from a hermetic local web page",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 16344,
+      "agentDurationMs": 16320,
+      "verifyDurationMs": 11,
+      "status": "done",
+      "sessionId": "019fb586-c97a-745b-b668-1185b1b17c66",
+      "turnsUsed": 3,
+      "toolCallCount": 2,
+      "tokenUsage": {
+        "input": 16608,
+        "output": 356,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 1,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 5142,
+        "toolCallsByName": {
+          "run_shell": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. The build code `0eb17921ae9bb6a6` has been extracted from the page and written to `BUILD_CODE.txt` at the repository root as a single line."
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "tier": "bait",
+      "title": "Fetch a fact from a hermetic local web page",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 58426,
+      "agentDurationMs": 58400,
+      "verifyDurationMs": 14,
+      "status": "done",
+      "sessionId": "019fb587-0956-7c52-b7c1-a91e258d1e7e",
+      "turnsUsed": 5,
+      "toolCallCount": 4,
+      "tokenUsage": {
+        "input": 33700,
+        "output": 575,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 1,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 8772,
+        "toolCallsByName": {
+          "tool_search": 1,
+          "mcp__exa__web_fetch_exa": 1,
+          "run_shell": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. The build code \"021d10de55ad6017\" has been written to BUILD_CODE.txt at the repo root on a single line."
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "tier": "bait",
+      "title": "Fetch a fact from a hermetic local web page",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 17160,
+      "agentDurationMs": 17134,
+      "verifyDurationMs": 12,
+      "status": "done",
+      "sessionId": "019fb587-ed97-7356-9b1a-7006c16b0f68",
+      "turnsUsed": 3,
+      "toolCallCount": 2,
+      "tokenUsage": {
+        "input": 16611,
+        "output": 435,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 1,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 7878,
+        "toolCallsByName": {
+          "run_shell": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. The content from http://127.0.0.1:55188/ was fetched, parsed to extract `8e695577bd173742`, and written to `BUILD_CODE.txt` at the repo root."
+    }
+  ],
+  "aggregates": [
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 1,
+      "passRate": 0.3333333333333333,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 4,
+          "median": 10,
+          "max": 26
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 4,
+          "median": 17,
+          "max": 55
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 3,
+          "max": 5
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 5,
+          "median": 8,
+          "max": 21
+        },
+        "longestToolOnlyStreak": {
+          "min": 33,
+          "median": 42,
+          "max": 87
+        },
+        "maxTurnDurationMs": {
+          "min": 34380,
+          "median": 46397,
+          "max": 46536
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 0,
+          "median": 1,
+          "max": 1
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 0,
+          "median": 1,
+          "max": 1
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 0,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 3,
+          "median": 4,
+          "max": 4
+        },
+        "maxTurnDurationMs": {
+          "min": 8526,
+          "median": 11853,
+          "max": 12485
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 4,
+          "median": 6,
+          "max": 7
+        },
+        "maxTurnDurationMs": {
+          "min": 5918,
+          "median": 6929,
+          "max": 14935
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 8,
+          "median": 9,
+          "max": 12
+        },
+        "maxTurnDurationMs": {
+          "min": 13968,
+          "median": 17091,
+          "max": 24299
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 2
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 1,
+          "median": 1,
+          "max": 2
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 16,
+          "median": 16,
+          "max": 17
+        },
+        "maxTurnDurationMs": {
+          "min": 10599,
+          "median": 13831,
+          "max": 25629
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 1
+        },
+        "longestToolOnlyStreak": {
+          "min": 2,
+          "median": 4,
+          "max": 8
+        },
+        "maxTurnDurationMs": {
+          "min": 58084,
+          "median": 69030,
+          "max": 86089
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "variantId": "default:default",
+      "provider": "zen",
+      "model": "north-mini-code-free",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 2,
+          "median": 2,
+          "max": 4
+        },
+        "maxTurnDurationMs": {
+          "min": 5142,
+          "median": 7878,
+          "max": 8772
+        }
+      }
+    }
+  ],
+  "totals": {
+    "total": 21,
+    "passed": 19,
+    "failed": 2,
+    "durationMs": 3287643,
+    "turnsUsed": 312,
+    "toolCallCount": 329,
+    "tokenUsage": {
+      "input": 2819555,
+      "output": 69742,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "thinking": 0
+    }
+  }
+}

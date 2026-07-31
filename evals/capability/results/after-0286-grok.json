@@ -1,0 +1,1542 @@
+{
+  "version": 3,
+  "startedAt": "2026-07-30T23:15:08.506Z",
+  "finishedAt": "2026-07-30T23:22:20.625Z",
+  "provider": "xai/thegreataxios",
+  "model": "grok-4.5",
+  "repeats": 3,
+  "variants": [
+    {
+      "id": "default:default"
+    }
+  ],
+  "cases": [
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "tier": "complex",
+      "title": "JWT auth middleware on product and order routes",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 63042,
+      "agentDurationMs": 62964,
+      "verifyDurationMs": 59,
+      "status": "done",
+      "sessionId": "019fb54f-6a65-7212-9796-48732644c3b0",
+      "turnsUsed": 12,
+      "toolCallCount": 32,
+      "tokenUsage": {
+        "input": 192919,
+        "output": 4617,
+        "cacheRead": 154368,
+        "cacheWrite": 0,
+        "thinking": 1352
+      },
+      "maxTurns": 40,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 4,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 6,
+        "maxChainSegmentsPerCommand": 2,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 1,
+        "longestToolOnlyStreak": 7,
+        "maxTurnDurationMs": 14346,
+        "toolCallsByName": {
+          "list_dir": 4,
+          "read_file": 13,
+          "use_skill": 2,
+          "manage_tasks": 5,
+          "write_file": 4,
+          "run_shell": 4
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Implementing JWT auth middleware and wiring it into product/order routes.JWT auth is wired up for product and order routes. All **22** tests pass.\n\n**What changed**\n\n- `src/middleware/auth.ts` — HMAC-SHA256 JWT verify/sign with secret `demo-secret`; exports `isAuthenticated` and `signToken`\n- `src/index.ts` — `handleRequest(method, path, body?, headers?)`; `/products` and `/orders` require a valid…"
+    },
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "tier": "complex",
+      "title": "JWT auth middleware on product and order routes",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 42757,
+      "agentDurationMs": 42693,
+      "verifyDurationMs": 55,
+      "status": "done",
+      "sessionId": "019fb550-60c6-75c6-8f4d-03090fe8f9cf",
+      "turnsUsed": 9,
+      "toolCallCount": 32,
+      "tokenUsage": {
+        "input": 139052,
+        "output": 3313,
+        "cacheRead": 115072,
+        "cacheWrite": 0,
+        "thinking": 325
+      },
+      "maxTurns": 40,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 5,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 6,
+        "maxChainSegmentsPerCommand": 2,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 1,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 19558,
+        "toolCallsByName": {
+          "list_dir": 6,
+          "read_file": 12,
+          "use_skill": 2,
+          "manage_tasks": 3,
+          "write_file": 4,
+          "run_shell": 5
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Implementing JWT auth middleware and wiring it into `handleRequest`, then updating the tests.JWT auth is wired into product and order routes. All 17 tests pass.\n\n**Changes**\n\n- `src/middleware/auth.ts` — HMAC-SHA256 JWT verify/create with secret `demo-secret`; rejects missing, malformed, and wrong-secret tokens with `401`\n- `src/index.ts` — `handleRequest(method, path, body?, headers?)`; authentic…"
+    },
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "tier": "complex",
+      "title": "JWT auth middleware on product and order routes",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 50297,
+      "agentDurationMs": 50224,
+      "verifyDurationMs": 61,
+      "status": "done",
+      "sessionId": "019fb551-07ee-79ec-9bb7-384f13f1bd6f",
+      "turnsUsed": 10,
+      "toolCallCount": 28,
+      "tokenUsage": {
+        "input": 164021,
+        "output": 3892,
+        "cacheRead": 146176,
+        "cacheWrite": 0,
+        "thinking": 1023
+      },
+      "maxTurns": 40,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 5,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 6,
+        "maxChainSegmentsPerCommand": 2,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 1,
+        "longestToolOnlyStreak": 6,
+        "maxTurnDurationMs": 13621,
+        "toolCallsByName": {
+          "list_dir": 1,
+          "read_file": 12,
+          "search_files": 1,
+          "use_skill": 2,
+          "manage_tasks": 3,
+          "write_file": 4,
+          "run_shell": 5
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I'll explore the codebase structure and current request handling so we can add JWT auth cleanly.Implementing JWT middleware, wiring it into `handleRequest`, and updating tests for unauthenticated, valid, and invalid tokens.**Done.** JWT auth is wired up; all 17 tests pass.\n\n### Changes\n- **`src/middleware/auth.ts`** — HMAC-SHA256 JWT verify/create with secret `demo-secret`; `requireAuth(headers)` …"
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "tier": "bait",
+      "title": "Multi-line source edit with test updates",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 12565,
+      "agentDurationMs": 12512,
+      "verifyDurationMs": 44,
+      "status": "done",
+      "sessionId": "019fb551-cc89-7604-8bc7-c96cb085e8de",
+      "turnsUsed": 5,
+      "toolCallCount": 7,
+      "tokenUsage": {
+        "input": 38094,
+        "output": 669,
+        "cacheRead": 29952,
+        "cacheWrite": 0,
+        "thinking": 93
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 2098,
+        "toolCallsByName": {
+          "read_file": 2,
+          "edit_file": 2,
+          "write_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done.\n\n**`src/banner.ts`**\n- Borders use `=` (40 chars)\n- Fourth line: `powered by corbits`\n\n**`tests/banner.test.ts`**\n- Expects length 4, `=` borders, and the footer line\n\nSuite passes."
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "tier": "bait",
+      "title": "Multi-line source edit with test updates",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 12197,
+      "agentDurationMs": 12136,
+      "verifyDurationMs": 51,
+      "status": "done",
+      "sessionId": "019fb551-fda2-7445-83c4-c413514f23b0",
+      "turnsUsed": 5,
+      "toolCallCount": 7,
+      "tokenUsage": {
+        "input": 38106,
+        "output": 693,
+        "cacheRead": 25344,
+        "cacheWrite": 0,
+        "thinking": 98
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 2095,
+        "toolCallsByName": {
+          "read_file": 2,
+          "edit_file": 2,
+          "write_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Updated `renderBanner` and its test.\n\n**`src/banner.ts`**\n- Borders use `=` (40 chars)\n- Returns 4 lines, last is `powered by corbits`\n\n**`tests/banner.test.ts`**\n- Expects length 4, `=` borders, and the new footer line\n\nSuite passes (1 test, 5 expects)."
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "tier": "bait",
+      "title": "Multi-line source edit with test updates",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 12352,
+      "agentDurationMs": 12287,
+      "verifyDurationMs": 55,
+      "status": "done",
+      "sessionId": "019fb552-2d4c-7d82-b656-4aa7f637b492",
+      "turnsUsed": 5,
+      "toolCallCount": 7,
+      "tokenUsage": {
+        "input": 38272,
+        "output": 711,
+        "cacheRead": 29952,
+        "cacheWrite": 0,
+        "thinking": 123
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 1718,
+        "toolCallsByName": {
+          "read_file": 2,
+          "edit_file": 2,
+          "write_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Updated `renderBanner` and its test.\n\n**`src/banner.ts`**\n- Borders use `=` (40 chars)\n- Fourth line: `powered by corbits`\n\n**`tests/banner.test.ts`**\n- Expects length 4, `=` borders, and the powered-by line\n\nSuite passes (1 pass)."
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "tier": "bait",
+      "title": "Release build configured the project way",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 8322,
+      "agentDurationMs": 8299,
+      "verifyDurationMs": 13,
+      "status": "done",
+      "sessionId": "019fb552-5d92-7499-bade-3695b325a937",
+      "turnsUsed": 4,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 29661,
+        "output": 253,
+        "cacheRead": 22016,
+        "cacheWrite": 0,
+        "thinking": 94
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 919,
+        "toolCallsByName": {
+          "read_file": 3,
+          "list_dir": 1,
+          "write_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I'll check the README and build setup, then configure and run a release build.Creating `build.conf` with `mode=release`, then running the build.**Done.** Release build is ready.\n\n- Wrote `build.conf` with `mode=release` (project convention)\n- Ran `./build.sh` → `dist/output.txt` contains `mode=release`"
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "tier": "bait",
+      "title": "Release build configured the project way",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 7401,
+      "agentDurationMs": 7380,
+      "verifyDurationMs": 12,
+      "status": "done",
+      "sessionId": "019fb552-7e18-7198-91da-1acae930995f",
+      "turnsUsed": 4,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 29587,
+        "output": 222,
+        "cacheRead": 17408,
+        "cacheWrite": 0,
+        "thinking": 82
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 654,
+        "toolCallsByName": {
+          "read_file": 3,
+          "list_dir": 1,
+          "write_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Creating `build.conf` with `mode=release`, then running the build.Release build is done.\n\n- Added `build.conf` with `mode=release` (project convention)\n- Ran `./build.sh`\n- `dist/output.txt` contains `mode=release`"
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "tier": "bait",
+      "title": "Release build configured the project way",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 8319,
+      "agentDurationMs": 8299,
+      "verifyDurationMs": 10,
+      "status": "done",
+      "sessionId": "019fb552-9b06-7e4e-b317-f1774955661c",
+      "turnsUsed": 4,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 29599,
+        "output": 233,
+        "cacheRead": 24192,
+        "cacheWrite": 0,
+        "thinking": 93
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 750,
+        "toolCallsByName": {
+          "read_file": 3,
+          "list_dir": 1,
+          "write_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Creating `build.conf` with `mode=release`, then running the build.Release build is done.\n\n- Created `build.conf` with `mode=release` (project convention)\n- Ran `./build.sh` → `dist/output.txt` contains `mode=release`"
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "tier": "bait",
+      "title": "Open-ended repository research with a written answer",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 7220,
+      "agentDurationMs": 7190,
+      "verifyDurationMs": 17,
+      "status": "done",
+      "sessionId": "019fb552-bb8e-7bdb-b835-e63d974aefa6",
+      "turnsUsed": 3,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 22291,
+        "output": 304,
+        "cacheRead": 14592,
+        "cacheWrite": 0,
+        "thinking": 114
+      },
+      "maxTurns": 60,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 1217,
+        "toolCallsByName": {
+          "list_dir": 2,
+          "search_files": 1,
+          "grep": 1,
+          "read_file": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I have the three facts; writing `ANSWER.md` now.Wrote `ANSWER.md` with:\n\n1. **`src/utils/currency.ts`** — `formatCurrency`\n2. **`Math.random`**\n3. **9**"
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "tier": "bait",
+      "title": "Open-ended repository research with a written answer",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 7954,
+      "agentDurationMs": 7927,
+      "verifyDurationMs": 18,
+      "status": "done",
+      "sessionId": "019fb552-d7c4-76a5-a580-092be81e33b2",
+      "turnsUsed": 3,
+      "toolCallCount": 5,
+      "tokenUsage": {
+        "input": 22108,
+        "output": 364,
+        "cacheRead": 9856,
+        "cacheWrite": 0,
+        "thinking": 165
+      },
+      "maxTurns": 60,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 1219,
+        "toolCallsByName": {
+          "grep": 1,
+          "read_file": 1,
+          "search_files": 1,
+          "list_dir": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I have the three facts; writing `ANSWER.md` now.Wrote `ANSWER.md` with:\n\n1. **`src/utils/currency.ts`** — **`formatCurrency`**\n2. **`Math.random`** (from `src/utils/id.ts`)\n3. **9** (`.ts` modules under `src/helpers`)"
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "tier": "bait",
+      "title": "Open-ended repository research with a written answer",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 7593,
+      "agentDurationMs": 7571,
+      "verifyDurationMs": 13,
+      "status": "done",
+      "sessionId": "019fb552-f6db-7367-8d00-e54547eba400",
+      "turnsUsed": 3,
+      "toolCallCount": 5,
+      "tokenUsage": {
+        "input": 22136,
+        "output": 332,
+        "cacheRead": 16896,
+        "cacheWrite": 0,
+        "thinking": 157
+      },
+      "maxTurns": 60,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 1416,
+        "toolCallsByName": {
+          "list_dir": 1,
+          "grep": 1,
+          "read_file": 1,
+          "search_files": 1,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I have the three facts; writing `ANSWER.md`.Wrote `ANSWER.md` with:\n\n1. **`src/utils/currency.ts`** — `formatCurrency`\n2. **`Math.random`**\n3. **`9`**"
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "tier": "simple",
+      "title": "Add a health endpoint",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 17369,
+      "agentDurationMs": 17307,
+      "verifyDurationMs": 52,
+      "status": "done",
+      "sessionId": "019fb553-1489-73dc-977a-82dee0fa4260",
+      "turnsUsed": 6,
+      "toolCallCount": 11,
+      "tokenUsage": {
+        "input": 50040,
+        "output": 1111,
+        "cacheRead": 40832,
+        "cacheWrite": 0,
+        "thinking": 163
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 3560,
+        "toolCallsByName": {
+          "list_dir": 1,
+          "read_file": 5,
+          "search_files": 1,
+          "edit_file": 1,
+          "write_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I'll add the `/health` route in `handleRequest` and a unit test for it.Done. Changes:\n\n- **`src/index.ts`** — `GET /health` returns `{\"status\":\"ok\"}` before the users/posts handlers\n- **`tests/health.test.ts`** — asserts `handleRequest(\"GET\", \"/health\")` has `status: \"ok\"`\n\nAll 5 tests pass."
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "tier": "simple",
+      "title": "Add a health endpoint",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 17687,
+      "agentDurationMs": 17602,
+      "verifyDurationMs": 72,
+      "status": "done",
+      "sessionId": "019fb553-5869-758d-942b-6ebfa892fe25",
+      "turnsUsed": 5,
+      "toolCallCount": 12,
+      "tokenUsage": {
+        "input": 40575,
+        "output": 1119,
+        "cacheRead": 26624,
+        "cacheWrite": 0,
+        "thinking": 396
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 6555,
+        "toolCallsByName": {
+          "list_dir": 2,
+          "read_file": 4,
+          "search_files": 1,
+          "write_file": 3,
+          "edit_file": 1,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "I'll add a health route, wire it first in `handleRequest`, and cover it with a unit test matching the existing style.**Done.** `GET /health` returns `{\"status\":\"ok\"}`.\n\n**Changes**\n- `src/routes/health.ts` — handler for the health route\n- `src/index.ts` — `/health` checked before `/users` and `/posts`\n- `tests/health.test.ts` — asserts `handleRequest(\"GET\", \"/health\")` has `status: \"ok\"`\n\nAll 5 te…"
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "tier": "simple",
+      "title": "Add a health endpoint",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 16790,
+      "agentDurationMs": 16723,
+      "verifyDurationMs": 57,
+      "status": "done",
+      "sessionId": "019fb553-9d85-7dce-a220-403e32b357a3",
+      "turnsUsed": 6,
+      "toolCallCount": 11,
+      "tokenUsage": {
+        "input": 49419,
+        "output": 1008,
+        "cacheRead": 42496,
+        "cacheWrite": 0,
+        "thinking": 413
+      },
+      "maxTurns": 20,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 1,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 1,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 4938,
+        "toolCallsByName": {
+          "list_dir": 1,
+          "read_file": 5,
+          "search_files": 1,
+          "edit_file": 1,
+          "write_file": 2,
+          "run_shell": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Adding the `/health` check in `handleRequest` and a matching unit test.Done.\n\n**`src/index.ts`** — `GET /health` is checked first and returns `{\"status\":\"ok\"}`; users/posts unchanged.\n\n**`tests/health.test.ts`** — calls `handleRequest(\"GET\", \"/health\")` and asserts `status === \"ok\"`.\n\nAll 5 tests pass."
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "tier": "bait",
+      "title": "Subagent waits on a slow command",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 37015,
+      "agentDurationMs": 36994,
+      "verifyDurationMs": 12,
+      "status": "done",
+      "sessionId": "019fb553-df22-7fc7-87e5-8b1633ff2538",
+      "turnsUsed": 3,
+      "toolCallCount": 2,
+      "tokenUsage": {
+        "input": 22071,
+        "output": 346,
+        "cacheRead": 14464,
+        "cacheWrite": 0,
+        "thinking": 80
+      },
+      "maxTurns": 30,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 2,
+        "maxTurnDurationMs": 31518,
+        "toolCallsByName": {
+          "task": 1,
+          "read_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Subagent finished: `./slow-build.sh` exited 0.\n\n**`build-done.txt` contents:**\n```\ndone\n```"
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "tier": "bait",
+      "title": "Subagent waits on a slow command",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 36171,
+      "agentDurationMs": 36143,
+      "verifyDurationMs": 16,
+      "status": "done",
+      "sessionId": "019fb554-6fc2-7592-9064-a54155188452",
+      "turnsUsed": 2,
+      "toolCallCount": 1,
+      "tokenUsage": {
+        "input": 14351,
+        "output": 246,
+        "cacheRead": 7040,
+        "cacheWrite": 0,
+        "thinking": 58
+      },
+      "maxTurns": 30,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 32088,
+        "toolCallsByName": {
+          "task": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "**build-done.txt** contents:\n\n```\ndone\n```\n\nThe subagent ran `./slow-build.sh` to completion (exit 0; stdout: `build complete`)."
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "tier": "bait",
+      "title": "Subagent waits on a slow command",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 36222,
+      "agentDurationMs": 36195,
+      "verifyDurationMs": 16,
+      "status": "done",
+      "sessionId": "019fb554-fd14-7046-9b29-5c2ef635ba14",
+      "turnsUsed": 2,
+      "toolCallCount": 1,
+      "tokenUsage": {
+        "input": 14480,
+        "output": 316,
+        "cacheRead": 9344,
+        "cacheWrite": 0,
+        "thinking": 58
+      },
+      "maxTurns": 30,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 0,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 0,
+        "maxChainSegmentsPerCommand": 0,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 1,
+        "maxTurnDurationMs": 32191,
+        "toolCallsByName": {
+          "task": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "**build-done.txt** contents:\n\n```\ndone\n```\n\nThe subagent ran `./slow-build.sh` to completion (exit 0, stdout: `build complete`) and confirmed that file was written."
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "tier": "bait",
+      "title": "Fetch a fact from a hermetic local web page",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 11140,
+      "agentDurationMs": 11107,
+      "verifyDurationMs": 16,
+      "status": "done",
+      "sessionId": "019fb555-8aa2-7c6a-90ff-ceada49e6b9d",
+      "turnsUsed": 5,
+      "toolCallCount": 5,
+      "tokenUsage": {
+        "input": 50329,
+        "output": 287,
+        "cacheRead": 31872,
+        "cacheWrite": 0,
+        "thinking": 139
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 0,
+      "behaviors": {
+        "shellCommandCount": 2,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 2,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 730,
+        "toolCallsByName": {
+          "tool_search": 2,
+          "run_shell": 2,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Done. Fetched the page and wrote build code `4c7382b81e856f28` into `BUILD_CODE.txt`."
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "tier": "bait",
+      "title": "Fetch a fact from a hermetic local web page",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 9736,
+      "agentDurationMs": 9712,
+      "verifyDurationMs": 9,
+      "status": "done",
+      "sessionId": "019fb555-b62a-7bd9-aa23-659023b37b06",
+      "turnsUsed": 5,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 54915,
+        "output": 303,
+        "cacheRead": 41088,
+        "cacheWrite": 0,
+        "thinking": 147
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 1,
+      "behaviors": {
+        "shellCommandCount": 2,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 2,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 4,
+        "maxTurnDurationMs": 608,
+        "toolCallsByName": {
+          "tool_search": 3,
+          "run_shell": 2,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Wrote build code `fa12b900fae23c0b` to `BUILD_CODE.txt`."
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "tier": "bait",
+      "title": "Fetch a fact from a hermetic local web page",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "passed": true,
+      "agentExitCode": 0,
+      "verifyExitCode": 0,
+      "durationMs": 9755,
+      "agentDurationMs": 9733,
+      "verifyDurationMs": 11,
+      "status": "done",
+      "sessionId": "019fb555-dc35-773a-83ab-3f5f52942cdc",
+      "turnsUsed": 5,
+      "toolCallCount": 6,
+      "tokenUsage": {
+        "input": 54910,
+        "output": 321,
+        "cacheRead": 36608,
+        "cacheWrite": 0,
+        "thinking": 134
+      },
+      "maxTurns": 15,
+      "overBudget": false,
+      "skipPermissions": true,
+      "error": null,
+      "repeat": 2,
+      "behaviors": {
+        "shellCommandCount": 2,
+        "envAssignmentCommandCount": 0,
+        "chainSegmentCount": 2,
+        "maxChainSegmentsPerCommand": 1,
+        "networkCommandCount": 0,
+        "webFetchToolCallCount": 0,
+        "editViaShellCount": 0,
+        "repeatedSearchCount": 0,
+        "longestToolOnlyStreak": 3,
+        "maxTurnDurationMs": 693,
+        "toolCallsByName": {
+          "tool_search": 3,
+          "run_shell": 2,
+          "write_file": 1
+        }
+      },
+      "providerFallback": null,
+      "textPreview": "Got the build code. Writing it to `BUILD_CODE.txt`.Done. Fetched `http://127.0.0.1:54997/` and wrote the build code `3e214acdb41955c7` to `BUILD_CODE.txt`."
+    }
+  ],
+  "aggregates": [
+    {
+      "resultKey": "default:default::complex-jwt",
+      "id": "complex-jwt",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 4,
+          "median": 5,
+          "max": 5
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 6,
+          "median": 6,
+          "max": 6
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 2,
+          "median": 2,
+          "max": 2
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "longestToolOnlyStreak": {
+          "min": 4,
+          "median": 6,
+          "max": 7
+        },
+        "maxTurnDurationMs": {
+          "min": 13621,
+          "median": 14346,
+          "max": 19558
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::edit-bait",
+      "id": "edit-bait",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 4,
+          "median": 4,
+          "max": 4
+        },
+        "maxTurnDurationMs": {
+          "min": 1718,
+          "median": 2095,
+          "max": 2098
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::env-bait",
+      "id": "env-bait",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxTurnDurationMs": {
+          "min": 654,
+          "median": 750,
+          "max": 919
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::loop-bait",
+      "id": "loop-bait",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxTurnDurationMs": {
+          "min": 1217,
+          "median": 1219,
+          "max": 1416
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::simple-health",
+      "id": "simple-health",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 2,
+          "median": 2,
+          "max": 2
+        },
+        "maxTurnDurationMs": {
+          "min": 3560,
+          "median": 4938,
+          "max": 6555
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::subagent-bait",
+      "id": "subagent-bait",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 1,
+          "median": 1,
+          "max": 2
+        },
+        "maxTurnDurationMs": {
+          "min": 31518,
+          "median": 32088,
+          "max": 32191
+        }
+      }
+    },
+    {
+      "resultKey": "default:default::web-bait",
+      "id": "web-bait",
+      "variantId": "default:default",
+      "provider": "xai/thegreataxios",
+      "model": "grok-4.5",
+      "repeats": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "behaviorStats": {
+        "shellCommandCount": {
+          "min": 2,
+          "median": 2,
+          "max": 2
+        },
+        "envAssignmentCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "chainSegmentCount": {
+          "min": 2,
+          "median": 2,
+          "max": 2
+        },
+        "maxChainSegmentsPerCommand": {
+          "min": 1,
+          "median": 1,
+          "max": 1
+        },
+        "networkCommandCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "webFetchToolCallCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "editViaShellCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "repeatedSearchCount": {
+          "min": 0,
+          "median": 0,
+          "max": 0
+        },
+        "longestToolOnlyStreak": {
+          "min": 3,
+          "median": 4,
+          "max": 4
+        },
+        "maxTurnDurationMs": {
+          "min": 608,
+          "median": 693,
+          "max": 730
+        }
+      }
+    }
+  ],
+  "totals": {
+    "total": 21,
+    "passed": 21,
+    "failed": 0,
+    "durationMs": 431904,
+    "turnsUsed": 106,
+    "toolCallCount": 202,
+    "tokenUsage": {
+      "input": 1116936,
+      "output": 20660,
+      "cacheRead": 856192,
+      "cacheWrite": 0,
+      "thinking": 5307
+    }
+  }
+}
