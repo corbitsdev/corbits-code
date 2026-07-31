@@ -2,8 +2,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { type } from "arktype";
+import { getLogger } from "@intx/log";
 import type { MCPServerConfig } from "../config/settings.js";
-import { SETTINGS_DIR_NAME } from "../branding.js";
+import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
 
 /** Where a plugin was discovered from. */
 export type PluginOrigin = "repo" | "user" | "project" | "path";
@@ -12,6 +16,14 @@ export type PluginOrigin = "repo" | "user" | "project" | "path";
 export function originRequiresTrust(origin: PluginOrigin): boolean {
   return origin === "project" || origin === "path";
 }
+
+// Own schema (not shared with path-trust): project records also carry MCP
+// fingerprints and an optional repo stamp for fail-closed key mismatch.
+const ProjectTrustStoreSchema = type({
+  trustedPluginPaths: "string[]",
+  trustedMcpFingerprints: "string[]",
+  "repo?": "string",
+});
 
 export type ProjectTrustStore = {
   /** Absolute plugin directory paths the user has trusted for this project. */
@@ -37,25 +49,56 @@ export function projectTrustPath(cwd: string, home: string = homedir()): string 
   return join(home, SETTINGS_DIR_NAME, "trust", `${key}.json`);
 }
 
-export async function loadProjectTrust(cwd: string, home: string = homedir()): Promise<ProjectTrustStore> {
+/**
+ * Read the project trust store and report why it is empty when it is: a missing
+ * file is normal (no grants yet), while an unreadable, malformed, wrong-shape,
+ * or repo-mismatched file must not be mistaken for "no grants" without a log —
+ * that would silently reset consent.
+ */
+export async function readProjectTrustStore(
+  cwd: string,
+  home: string = homedir(),
+): Promise<{ state: "missing" | "invalid" | "valid"; store: ProjectTrustStore }> {
+  const path = projectTrustPath(cwd, home);
+  let raw: string;
   try {
-    const raw = await readFile(projectTrustPath(cwd, home), "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed === null || typeof parsed !== "object") return emptyStore();
-    const o = parsed as Record<string, unknown>;
-    // Guard against a stale/copied record keyed to a different repo path: the
-    // file records the repo it was written for and must match this cwd.
-    if (typeof o.repo === "string" && resolve(o.repo) !== resolve(cwd)) return emptyStore();
-    const paths = Array.isArray(o.trustedPluginPaths)
-      ? o.trustedPluginPaths.filter((p): p is string => typeof p === "string").map((p) => resolve(p))
-      : [];
-    const fps = Array.isArray(o.trustedMcpFingerprints)
-      ? o.trustedMcpFingerprints.filter((f): f is string => typeof f === "string")
-      : [];
-    return { trustedPluginPaths: paths, trustedMcpFingerprints: fps };
-  } catch {
-    return emptyStore();
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { state: "missing", store: emptyStore() };
+    }
+    logger.warn`project trust store unreadable at ${path}: ${String(err)}`;
+    return { state: "invalid", store: emptyStore() };
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    logger.warn`project trust store is not valid JSON at ${path}: ${String(err)}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  const validated = ProjectTrustStoreSchema(parsed);
+  if (validated instanceof type.errors) {
+    logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  // Guard against a stale/copied record keyed to a different repo path: the
+  // file records the repo it was written for and must match this cwd.
+  if (validated.repo !== undefined && resolve(validated.repo) !== resolve(cwd)) {
+    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  return {
+    state: "valid",
+    store: {
+      trustedPluginPaths: validated.trustedPluginPaths.map((p) => resolve(p)),
+      trustedMcpFingerprints: [...validated.trustedMcpFingerprints],
+    },
+  };
+}
+
+export async function loadProjectTrust(cwd: string, home: string = homedir()): Promise<ProjectTrustStore> {
+  return (await readProjectTrustStore(cwd, home)).store;
 }
 
 async function saveProjectTrust(cwd: string, store: ProjectTrustStore, home: string = homedir()): Promise<void> {
