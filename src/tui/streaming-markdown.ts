@@ -1,4 +1,5 @@
 import type { StyledLine } from "./view/lines.js";
+import { looksLikeTableRow, isTableSeparator } from "./markdown-parser.js";
 
 type ScanState = {
   width: number;
@@ -28,6 +29,10 @@ type ScanState = {
 // sync with fence parity: a boundary is only taken when no fenced block is open,
 // which keeps a code block (and its incremental highlighting) whole in the tail.
 const FENCE_RE = /^\s*(```+|~~~+)/;
+// Table freeze uses looksLikeTableRow / isTableSeparator from markdown-parser
+// (not open-table state): never carve on a table-looking line so the whole open
+// table stays in the re-rendered tail and shares one column-width set.
+
 // When a single paragraph grows without blank-line boundaries, still carve stable
 // prefix at completed newlines so streaming re-highlight stays bounded.
 const MAX_TAIL_CHARS = 480;
@@ -46,12 +51,13 @@ function preferBoundary(state: ScanState, at: number, skip: 0 | 1): void {
 // callback (a full markdown parse + wrap) is expensive and the transcript
 // drains up to ten times a second, so re-rendering the whole accumulated block
 // each drain makes long replies progressively laggier. parseMarkdown is
-// line-based and its only cross-line state is fence parity, so any blank line
-// outside a fence is a safe split point: lines before it are rendered once and
-// cached, and only the trailing paragraph is re-rendered per drain. When no
-// blank line appears, completed newlines past MAX_TAIL_CHARS are also safe
-// (still outside fences). A width change or non-append content mutation resets
-// the cache.
+// line-based and its only cross-line state is fence parity and open tables, so
+// any blank line outside a fence is a safe split point: lines before it are
+// rendered once and cached, and only the trailing paragraph is re-rendered per
+// drain. Table-looking lines never take a MAX_TAIL carve (they must stay with
+// later rows for whole-table column widths). When no blank line appears,
+// completed newlines past MAX_TAIL_CHARS outside fences are also safe. A width
+// change or non-append content mutation resets the cache.
 export function createIncrementalMarkdown(
   render: (content: string, width: number) => StyledLine[],
 ): (content: string, width: number) => StyledLine[] {
@@ -84,15 +90,24 @@ export function createIncrementalMarkdown(
     let lineStart = state.scanPos;
     for (let i = content.indexOf("\n", lineStart); i !== -1; i = content.indexOf("\n", lineStart)) {
       if (i === lineStart) {
+        // Blank line ends a pipe table and is a safe freeze point outside fences.
         if (!state.fenceOpen) preferBoundary(state, lineStart, 1);
       } else {
-        if (FENCE_RE.test(content.slice(lineStart, i))) {
+        const line = content.slice(lineStart, i);
+        if (FENCE_RE.test(line)) {
           state.fenceOpen = !state.fenceOpen;
-        } else if (!state.fenceOpen && content.length - state.tailStart > MAX_TAIL_CHARS) {
-          // Same geometry as a blank-line cut: region ends before this line's
-          // trailing newline, then skip it so stable+tail never invents an
-          // extra empty row the whole-parse path does not have.
-          preferBoundary(state, i, 1);
+        } else if (!state.fenceOpen) {
+          // Do not carve on table rows/separators — keep the open table in the tail.
+          if (
+            !looksLikeTableRow(line)
+            && !isTableSeparator(line)
+            && content.length - state.tailStart > MAX_TAIL_CHARS
+          ) {
+            // Same geometry as a blank-line cut: region ends before this line's
+            // trailing newline, then skip it so stable+tail never invents an
+            // extra empty row the whole-parse path does not have.
+            preferBoundary(state, i, 1);
+          }
         }
       }
       lineStart = i + 1;

@@ -147,6 +147,21 @@ describe("block elements", () => {
       expect(lineCounts[i]).toBeGreaterThanOrEqual(lineCounts[i - 1]!);
     }
   });
+
+  test("blank lines inside a fenced block keep a continuous gutter", () => {
+    const lines = parseMarkdown("```ts\nconst a = 1;\n\nconst b = 2;\n```");
+    // Cap, body, blank, body, foot — every non-cap/foot body row (incl. blank)
+    // carries the gutter so the frame does not fragment.
+    const gutterLines = lines.filter((line) => line.some((s) => s.text.includes("▏")));
+    expect(gutterLines.length).toBeGreaterThanOrEqual(3);
+    // The blank body line is not an empty segment array — it still paints ▏.
+    const blankBody = lines.find(
+      (line) => line.length === 1 && line[0]?.text === "▏ " && line[0]?.codeFence === true,
+    );
+    expect(blankBody).toBeDefined();
+    expect(lines[0]?.some((s) => s.text.includes("╭"))).toBe(true);
+    expect(lines[lines.length - 1]?.some((s) => s.text.includes("╰"))).toBe(true);
+  });
 });
 
 describe("bullets", () => {
@@ -421,6 +436,29 @@ describe("multi-line", () => {
     const texts = lines.map(allText);
     expect(texts.some((t) => t.startsWith("Suggestion: "))).toBe(true);
     expect(texts.some((t) => t.startsWith("Status: "))).toBe(true);
+  });
+
+  test("wide multi-row table shares one column-width set and never exceeds width", () => {
+    const header = "| Option | Tradeoff | Notes |\n| --- | --- | --- |\n";
+    const rows = Array.from({ length: 10 }, (_, i) =>
+      `| ${i + 1}. Inline / native scrollback | Leave alt-screen; use terminal scrollback for history | Detail ${i + 1} |\n`,
+    ).join("");
+    const lines = parseMarkdown(header + rows, 80);
+    const texts = lines.map(allText);
+    for (const t of texts) {
+      expect(t.length).toBeLessThanOrEqual(80);
+    }
+    expect(texts.some((t) => t.includes("|") && !t.includes("│") && !t.includes("─"))).toBe(false);
+
+    const gridRows = texts.filter((t) => t.includes("│"));
+    const patterns = new Set(
+      gridRows.map((t) => {
+        const pos: number[] = [];
+        for (let i = 0; i < t.length; i++) if (t[i] === "│") pos.push(i);
+        return pos.join(",");
+      }),
+    );
+    expect(patterns.size).toBe(1);
   });
 });
 

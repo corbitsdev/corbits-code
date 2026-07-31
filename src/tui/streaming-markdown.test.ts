@@ -33,6 +33,65 @@ describe("createIncrementalMarkdown", () => {
     ]);
   });
 
+  test("never splits inside a pipe table (whole-table column widths)", () => {
+    // Long multi-row table past MAX_TAIL_CHARS: a mid-table freeze would
+    // re-measure later rows as a new table (staggered │) or raw pipe prose.
+    const header = "| Option | Tradeoff | Notes |\n| --- | --- | --- |\n";
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      `| ${i + 1}. Inline / native scrollback option name here | Leave alt-screen; use terminal scrollback for history and long outputs that wrap badly | Detail about option ${i + 1} and why it matters for the TUI |\n`,
+    ).join("");
+    const full = header + rows + "\nAfter the table.";
+    const incremental = createIncrementalMarkdown(render);
+    let content = "";
+    let last: StyledLine[] = [];
+    for (let i = 0; i < full.length; i++) {
+      content += full[i]!;
+      if (i % 40 === 0 || i === full.length - 1) {
+        last = incremental(content, 100);
+      }
+    }
+    expect(last).toEqual(render(full, 100));
+
+    const texts = last.map((line) => line.map((s) => s.text).join(""));
+    // No raw pipe-markdown row that abandoned the grid mid-table.
+    const rawPipe = texts.filter((t) => t.includes("|") && !t.includes("│") && !t.includes("─"));
+    expect(rawPipe).toEqual([]);
+
+    const gridRows = texts.filter((t) => t.includes("│"));
+    const patterns = new Set(
+      gridRows.map((t) => {
+        const pos: number[] = [];
+        for (let i = 0; i < t.length; i++) if (t[i] === "│") pos.push(i);
+        return pos.join(",");
+      }),
+    );
+    // One shared column-width set for the whole table.
+    expect(patterns.size).toBe(1);
+  });
+
+  test("keeps a streaming table in the re-rendered tail until it ends", () => {
+    const header = "| A | B |\n| --- | --- |\n";
+    const row = "| long cell content that pads past the carve budget intentionally xx | yy |\n";
+    // Build past MAX_TAIL without a blank line so the only safe freeze is after
+    // the table closes with non-table prose.
+    const pad = Array.from({ length: 20 }, (_, i) => `pad line ${i} xxxxxxxxxx`).join("\n");
+    const table = header + row.repeat(8);
+    const calls: string[] = [];
+    const counting = (content: string, width: number): StyledLine[] => {
+      calls.push(content);
+      return render(content, width);
+    };
+    const incremental = createIncrementalMarkdown(counting);
+    const growing = `${pad}\n${table}`;
+    incremental(growing, 80);
+    calls.length = 0;
+    incremental(`${growing}| last | row |\n`, 80);
+    // Table still open: the re-render must include table rows, not a tiny tail.
+    expect(calls.length).toBe(1);
+    expect(calls[0]!).toContain("| A | B |");
+    expect(calls[0]!).toContain("| last | row |");
+  });
+
   test("handles consecutive blank lines and leading newlines", () => {
     streamedEqualsWhole(["\nA\n\n", "\nB\n\n\n", "C"]);
   });
