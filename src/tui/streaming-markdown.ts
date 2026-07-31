@@ -1,4 +1,5 @@
 import type { StyledLine } from "./view/lines.js";
+import { looksLikeTableRow, isTableSeparator } from "./markdown-parser.js";
 
 type ScanState = {
   width: number;
@@ -29,17 +30,9 @@ type ScanState = {
 // sync with fence parity: a boundary is only taken when no fenced block is open,
 // which keeps a code block (and its incremental highlighting) whole in the tail.
 const FENCE_RE = /^\s*(```+|~~~+)/;
-// Keep in lockstep with markdown-parser.ts looksLikeTableRow / isTableSeparator:
-// tables measure column widths from the whole block, so a stable/tail cut mid-
-// table freezes early rows at one width set and re-parses later rows as a new
-// table (staggered dividers) or as raw pipe prose.
-const TABLE_SEP_RE = /^\s*\|?(?:\s*:?-{1,}:?\s*\|)+\s*:?-{1,}:?\s*\|?\s*$/;
-
-function looksLikeTableRow(line: string): boolean {
-  const stripped = line.replace(/\\\|/g, "");
-  if (/\|\|/.test(stripped)) return false;
-  return /^\s*\|/.test(stripped) || / \| /.test(stripped);
-}
+// Table open-state uses looksLikeTableRow / isTableSeparator from markdown-parser
+// so freeze decisions stay aligned with full parse (tables measure column widths
+// from the whole block; a mid-table cut freezes early rows at one width set).
 
 // When a single paragraph grows without blank-line boundaries, still carve stable
 // prefix at completed newlines so streaming re-highlight stays bounded.
@@ -107,7 +100,7 @@ export function createIncrementalMarkdown(
           state.fenceOpen = !state.fenceOpen;
           state.tableOpen = false;
         } else if (!state.fenceOpen) {
-          if (looksLikeTableRow(line) || TABLE_SEP_RE.test(line)) {
+          if (looksLikeTableRow(line) || isTableSeparator(line)) {
             // Stay open across every row so column widths are measured once.
             state.tableOpen = true;
           } else {
