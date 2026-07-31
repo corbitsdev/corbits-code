@@ -463,6 +463,8 @@ const ENV_VALUE_FLAGS = new Set([
   "--argv0",
   "-f",
   "--file",
+  // Darwin / FreeBSD: -P altpath for utility lookup.
+  "-P",
 ]);
 
 function isEnvValueEqualsFlag(t: string): boolean {
@@ -488,6 +490,75 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
   return null;
 }
 
+// env -S re-parses its payload: quotes, `\_` as an argument separator (not a
+// literal underscore), then more env flags/assignments before the utility.
+// Expand separators so a later tokenize sees real argv boundaries.
+function expandEnvSplitSeparators(payload: string): string {
+  let out = "";
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < payload.length; i++) {
+    const c = payload[i]!;
+    if (quote === "'") {
+      out += c;
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (quote === '"') {
+      if (c === "\\" && i + 1 < payload.length) {
+        const n = payload[i + 1]!;
+        if (n === "_") {
+          // Double-quoted `\_` is still env's arg separator on BSD/GNU env.
+          out += " ";
+          i++;
+          continue;
+        }
+        out += c + n;
+        i++;
+        continue;
+      }
+      out += c;
+      if (c === '"') quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      out += c;
+      continue;
+    }
+    if (c === "\\" && i + 1 < payload.length) {
+      const n = payload[i + 1]!;
+      if (n === "_") {
+        out += " ";
+        i++;
+        continue;
+      }
+      out += c + n;
+      i++;
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+// After folding the -S payload with any trailing utility tokens, re-parse the
+// result the way env does: expand `\_`, tokenize (dequote), skip env flags /
+// assignments / end-of-options, and land on the real program hard-deny matchers
+// expect (`env -S -v find /` → `find /`, `env -S "rm '-rf' '/'"` → `rm -rf /`).
+function peelEnvSplitUtility(command: string): PeelOutcome {
+  const expanded = expandEnvSplitSeparators(command);
+  if (isOpaquePayload(expanded)) return { kind: "opaque" };
+  const tokens = tokenize(expanded);
+  let i = 0;
+  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
+  i = skipEnvFlagsAndAssignments(tokens, i);
+  if (i >= tokens.length) return { kind: "opaque" };
+  const utility = rejoinTokens(tokens.slice(i));
+  if (utility === null) return { kind: "opaque" };
+  return { kind: "inner", command: utility };
+}
+
 // After extracting an -S / --split-string payload, fold any trailing utility
 // tokens (`env -S FOO=bar find /` → `FOO=bar find /`) so hard-deny sees the
 // real program, not just the assignment fragment that -S consumed.
@@ -499,18 +570,19 @@ function finishEnvSplitPayload(
   restStart: number,
 ): PeelOutcome {
   const rest = tokens.slice(restStart);
+  let raw: string | null;
   if (isOpaquePayload(payload)) {
     if (rest.length === 0) return { kind: "opaque" };
     if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
-    const command = rejoinTokens(rest);
-    if (command === null) return { kind: "opaque" };
-    return { kind: "inner", command };
+    raw = rejoinTokens(rest);
+  } else if (rest.length === 0) {
+    raw = payload;
+  } else {
+    if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
+    raw = rejoinTokens([payload, ...rest]);
   }
-  if (rest.length === 0) return { kind: "inner", command: payload };
-  if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
-  const command = rejoinTokens([payload, ...rest]);
-  if (command === null) return { kind: "opaque" };
-  return { kind: "inner", command };
+  if (raw === null) return { kind: "opaque" };
+  return peelEnvSplitUtility(raw);
 }
 
 // Peel env's -S / --split-string payload as its own shell subject. Unlike the
@@ -768,7 +840,8 @@ export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH):
 }
 
 function segmentRmArgs(segment: string): string[] | undefined {
-  const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
+  // Quote-aware: env -S payloads often carry quoted flags (`rm '-rf' '/'`).
+  const tokens = tokenize(segment);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;

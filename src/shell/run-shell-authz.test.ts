@@ -295,4 +295,27 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(runShellAuthzBlockReason(`env -S - find /`)).toMatch(openEnded);
     expect(runShellAuthzBlockReason(`env -S "-- cat"`)).toMatch(stdinHang);
   });
+
+  test("G15: env flags inside -S payload are skipped to the utility", () => {
+    expect(runShellAuthzBlockReason(`env -S -v find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S-v find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S '-i find /'`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S -v rm -rf /`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`env -S -v cat`)).toMatch(stdinHang);
+  });
+
+  test("G16: env -S quoted rm flags still hard-deny catastrophic targets", () => {
+    expect(runShellAuthzBlockReason(`env -S "rm '-rf' '/'"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`env -S 'rm "-rf" "/"'`)).toMatch(destructive);
+  });
+
+  test("G17: env -S backslash-underscore is an argv separator", () => {
+    // Outside env's own quotes, `\_` separates argv (`rm\_-rf\_/` → rm -rf /).
+    expect(runShellAuthzBlockReason(`env -S "rm\\_-rf\\_/"`)).toMatch(destructive);
+  });
+
+  test("G18: Darwin -P altpath is a value flag so -S still peels", () => {
+    expect(runShellAuthzBlockReason(`env -P /usr/bin -S "find /"`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -P /bin -S "rm -rf /"`)).toMatch(destructive);
+  });
 });
