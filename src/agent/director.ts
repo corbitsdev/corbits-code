@@ -416,7 +416,7 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (this.pausedForToolOnly) {
       const pauseMessage =
-        `Auto-paused after ${this.toolOnlyStreak} consecutive tool-only turns with no explanation. ` +
+        `Auto-paused: the model ran ${this.toolOnlyStreak} steps in a row without explaining its progress. ` +
         "Send a message to resume.";
       return [
         capabilities.checkpoint("tool-only-loop-paused"),

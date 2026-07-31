@@ -913,7 +913,7 @@ describe("SubAgentDirector stall management", () => {
     const reply = actions.find((a) => a.type === "reply");
     expect(reply).toBeDefined();
     if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
-    expect(reply.content).toContain("Stopped: no activity for two consecutive stall checks.");
+    expect(reply.content).toContain("Stopped after a long silence with no tool activity.");
     expect(actions.some((a) => a.type === "infer")).toBe(false);
   });
 

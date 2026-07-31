@@ -343,7 +343,7 @@ export function forcedStopReport(
             : reason === "deadline"
               ? "Stopped: wall-clock deadline reached before finishing."
               : reason === "stalled"
-                ? "Stopped: no activity for two consecutive stall checks."
+                ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
                 : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
