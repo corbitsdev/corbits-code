@@ -29,6 +29,12 @@ export const DEFAULT_REPETITION_CONFIG: RepetitionConfig = {
 /** Cap on retained cycle text; older text is dropped from the front. */
 export const CYCLE_TEXT_CAP_CHARS = 262_144;
 
+// Each detection pass scans the full probe tail; running it on every delta
+// would put O(probeChars) work on each streamed token. Checking once per this
+// many appended chars keeps detection latency in the tens of tokens while
+// cutting the cost by two orders of magnitude.
+export const REPETITION_CHECK_INTERVAL_CHARS = 256;
+
 export type RepetitionHit = {
   /** The normalized window that repeats. */
   window: string;
@@ -45,11 +51,16 @@ export function appendCycleText(
   return joined.length > cap ? joined.slice(joined.length - cap) : joined;
 }
 
-// Counters inside a loop ("0/1.0 done" vs "1/1.0 done") flip between
-// iterations; mapping every digit run to one symbol makes those iterations
-// compare equal. Whitespace runs collapse for the same reason.
+// Whitespace runs collapse so wrapping and indentation differences do not
+// break periodicity. Digits are deliberately NOT normalized: tables, numbered
+// lists, and checklists stream rows that differ only in digits, and mapping
+// digits to one symbol makes healthy structured output read as a loop. A real
+// loop with an oscillating counter ("0/1.0 done" then "1/1.0 done") stays
+// byte-periodic anyway — the period just spans the oscillation. The cost is
+// that a loop driven by a strictly monotonic counter escapes, but that shape
+// is indistinguishable from a legitimate numbered list.
 function normalize(text: string): string {
-  return text.replace(/\d+/g, "#").replace(/\s+/g, " ");
+  return text.replace(/\s+/g, " ");
 }
 
 function prefixFunction(s: string): Int32Array {

@@ -10,8 +10,10 @@ const LOOP_SENTENCE =
   "next: dig footer/chrome and module structure for plan. 0/1.0 done. 1 remaining. 1h left. 0 errors. ";
 
 describe("detectRepetition", () => {
-  test("flags a looped status sentence with flipping counters", () => {
-    const iterations = Array.from({ length: 10 }, (_, i) =>
+  test("flags a looped status sentence with an oscillating counter", () => {
+    // Counters that flip between values keep the raw text periodic — the
+    // period just spans one full oscillation (two sentences here).
+    const iterations = Array.from({ length: 20 }, (_, i) =>
       LOOP_SENTENCE.replace("0/1.0", `${i % 2}/1.0`),
     );
     const text = `some earlier legitimate prose about the task. ${iterations.join("")}`;
@@ -19,6 +21,23 @@ describe("detectRepetition", () => {
     expect(hit).not.toBeNull();
     expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_REPETITION_CONFIG.repeatThreshold);
     expect(hit?.window).toContain("dig footer/chrome");
+  });
+
+  test("does not flag a markdown table whose rows differ only in numbers", () => {
+    const rows = Array.from(
+      { length: 12 },
+      (_, i) => `| 202${i} | ${i * 10} requests | ${i} errors |\n`,
+    ).join("");
+    const text = `Here is the yearly summary table:\n\n| Year | Volume | Errors |\n|---|---|---|\n${rows}`;
+    expect(detectRepetition(text)).toBeNull();
+  });
+
+  test("does not flag a numbered list with same-shaped items differing only in digits", () => {
+    const items = Array.from(
+      { length: 10 },
+      (_, i) => `${i + 1}. Ran batch ${i + 1} and verified ${i * 3} records migrated\n`,
+    ).join("");
+    expect(detectRepetition(`Migration progress:\n${items}`)).toBeNull();
   });
 
   test("does not flag ordinary prose", () => {

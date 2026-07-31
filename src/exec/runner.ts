@@ -655,6 +655,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
       runError = runSink.getRunError();
       sinkStatus = runSink.getStatus();
     } finally {
+      // close() tears down stream consumers before an aborted cycle's
+      // inference.error is delivered; flush the dead cycle's text first so a
+      // failed or interrupted send leaves its partial output on disk. A clean
+      // send already reset the buffer on inference.done, making this a no-op.
+      await cycleRecorder.flush(sendCompleted ? "cancelled" : "send-failed");
       await activeAgent.close().catch(() => undefined);
       await streamPromise.catch(() => undefined);
     }

@@ -61,7 +61,12 @@ import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { withSubAgentSlot } from "./concurrency.js";
-import { appendCycleText, detectRepetition, type RepetitionHit } from "./repetition.js";
+import {
+  appendCycleText,
+  detectRepetition,
+  REPETITION_CHECK_INTERVAL_CHARS,
+  type RepetitionHit,
+} from "./repetition.js";
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
@@ -1375,20 +1380,26 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // cycle text so the looped tail survives the abort as the salvage payload.
   const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
   let repetitionHit: RepetitionHit | null = null;
+  let charsSinceRepetitionCheck = 0;
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);
     if (name !== null) {
       toolNamesUsed.push(name);
       params.onProgress?.({ description: params.description, toolName: name });
     }
+    const textBefore = cycleRecorder.text().length;
     cycleRecorder.handleEvent(event);
     if (event.type === "inference.text.delta" && repetitionHit === null) {
-      const hit = detectRepetition(cycleRecorder.text());
-      if (hit !== null) {
-        repetitionHit = hit;
-        runController.abort(
-          new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
-        );
+      charsSinceRepetitionCheck += cycleRecorder.text().length - textBefore;
+      if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
+        charsSinceRepetitionCheck = 0;
+        const hit = detectRepetition(cycleRecorder.text());
+        if (hit !== null) {
+          repetitionHit = hit;
+          runController.abort(
+            new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
+          );
+        }
       }
     }
     const partial = partialTextFromEvent(event);
@@ -1465,6 +1476,20 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       return appendActivitySummary(report, toolNamesUsed);
     } catch (err) {
       if (isSubAgentCancelError(err, runController.signal)) {
+        // Capture and persist the dead cycle's text BEFORE draining the
+        // stream: the aborted cycle's inference.error can arrive during the
+        // drain and auto-flush the recorder, which would zero the buffer and
+        // stamp the record with the generic error reason instead of ours.
+        // Repetition and deadline are already known here; a parent cancel is
+        // labeled cancelled even if the outcome below resolves to rethrow.
+        const abortedCycleText = cycleRecorder.text();
+        await cycleRecorder.flush(
+          repetitionHit !== null
+            ? "repetition"
+            : runController.deadlineHit()
+              ? "deadline"
+              : "cancelled",
+        );
         // Drain stream events so tool.start / inference.done that already
         // left the reactor are reflected before we decide bare vs salvage.
         if (streamPromise !== undefined) {
@@ -1480,16 +1505,6 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
           hadProgress,
           repetitionHit: repetitionHit !== null,
         });
-        // The cycle that died never reached inference.done, so its text exists
-        // only in the recorder. Persist it before building the report.
-        const abortedCycleText = cycleRecorder.text();
-        await cycleRecorder.flush(
-          outcome === "salvage-repetition"
-            ? "repetition"
-            : outcome === "salvage-deadline"
-              ? "deadline"
-              : "cancelled",
-        );
         if (outcome !== "rethrow") {
           const reason =
             outcome === "salvage-repetition"

@@ -28,8 +28,9 @@ export type CycleTextRecorder = {
 };
 
 export function createCycleTextRecorder(
-  // Resolved per flush: the TUI rotates its session context dir in place, and
-  // a partial must land in the directory of the session that produced it.
+  // Resolved per flush because the TUI rotates its session context dir in
+  // place. Callers that rotate must flush before repointing the dir — the
+  // recorder cannot tell which session a stale buffer belongs to.
   resolveContextDir: () => string,
   appendToken: (text: string, token: string) => string = (text, token) => text + token,
 ): CycleTextRecorder {

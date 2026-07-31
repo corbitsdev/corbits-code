@@ -1262,6 +1262,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const interrupt = (): void => {
     void enqueueOp(async () => {
       try {
+        // close() tears down stream consumers before the aborted cycle's
+        // inference.error is delivered, so the recorder never sees a terminal
+        // event for the dead cycle — flush its text here or it is lost (and
+        // would contaminate the rebuilt agent's next cycle).
+        await cycleRecorder.flush("interrupted");
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
@@ -1290,6 +1295,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
+        // Flush before workdir is repointed so a dead cycle's partial lands in
+        // the session that produced it, not the fresh one.
+        await cycleRecorder.flush("interrupted");
         await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
         startedAt = Date.now();
