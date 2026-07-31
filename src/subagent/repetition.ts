@@ -26,9 +26,6 @@ export const DEFAULT_REPETITION_CONFIG: RepetitionConfig = {
   probeChars: 8192,
 };
 
-/** Cap on retained cycle text; older text is dropped from the front. */
-export const CYCLE_TEXT_CAP_CHARS = 262_144;
-
 // Each detection pass scans the full probe tail; running it on every delta
 // would put O(probeChars) work on each streamed token. Checking once per this
 // many appended chars keeps detection latency in the tens of tokens while
@@ -40,16 +37,6 @@ export type RepetitionHit = {
   window: string;
   repeats: number;
 };
-
-/** Append a streamed token to the cycle buffer, keeping only the tail. */
-export function appendCycleText(
-  text: string,
-  token: string,
-  cap: number = CYCLE_TEXT_CAP_CHARS,
-): string {
-  const joined = text + token;
-  return joined.length > cap ? joined.slice(joined.length - cap) : joined;
-}
 
 // Whitespace runs collapse so wrapping and indentation differences do not
 // break periodicity. Digits are deliberately NOT normalized: tables, numbered
