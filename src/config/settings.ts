@@ -494,6 +494,64 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   return true;
 }
 
+// Drop keys whose value is undefined so JSON omit + optional Settings fields stay
+// aligned. Value transforms (normalize, clamp, enum checks) happen before this —
+// the helper only filters undefined, it does not validate.
+function pickDefined<T extends Record<string, unknown>>(
+  fields: T,
+): { [K in keyof T as undefined extends T[K] ? (T[K] extends undefined ? never : K) : K]: Exclude<T[K], undefined> } {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out as {
+    [K in keyof T as undefined extends T[K] ? (T[K] extends undefined ? never : K) : K]: Exclude<T[K], undefined>;
+  };
+}
+
+// Every optional Settings key must appear here so a new type field without a
+// load-path assignment fails at compile time instead of silently dropping on
+// the next load/save cycle.
+type OptionalSettingsFields = {
+  [K in Exclude<keyof Settings, "providers">]: Settings[K] | undefined;
+};
+
+type OptionalLocalSettingsFields = {
+  [K in keyof LocalSettings]: LocalSettings[K] | undefined;
+};
+
+/** Optional global settings keys the load path is required to consider. */
+export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
+  "defaultProvider",
+  "mcpServers",
+  "tiers",
+  "workflowProfiles",
+  "plugins",
+  "pluginPaths",
+  "discoverClaudePlugins",
+  "web",
+  "hiddenCommands",
+  "onboarded",
+  "compactionMode",
+  "maxConcurrentSubAgents",
+  "subagentMaxTurns",
+  "sessionMode",
+  "agentModelFallback",
+  "shell",
+  "tools",
+  "telemetry",
+] as const satisfies readonly (keyof OptionalSettingsFields)[];
+
+/** Optional local settings keys the load path is required to consider. */
+export const LOCAL_SETTINGS_OPTIONAL_KEYS = [
+  "provider",
+  "model",
+  "reasoningEffort",
+  "mcpServers",
+  "sessionMode",
+  "env",
+] as const satisfies readonly (keyof OptionalLocalSettingsFields)[];
+
 export async function loadSettings(path: string): Promise<Settings | null> {
   let raw: string;
   try {
@@ -523,37 +581,42 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .corbits/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
     );
   }
+  // Transforms (normalize/clamp/enum) first; pickDefined only drops undefined.
+  const optional: OptionalSettingsFields = {
+    defaultProvider: s.defaultProvider as string | undefined,
+    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+    tiers: s.tiers as Settings["tiers"] | undefined,
+    workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] | undefined,
+    plugins: s.plugins as Settings["plugins"] | undefined,
+    pluginPaths: s.pluginPaths as string[] | undefined,
+    discoverClaudePlugins: s.discoverClaudePlugins === true ? true : undefined,
+    web: s.web as string | undefined,
+    hiddenCommands: s.hiddenCommands as string[] | undefined,
+    onboarded: s.onboarded !== undefined ? Boolean(s.onboarded) : undefined,
+    compactionMode:
+      s.compactionMode === "llm" || s.compactionMode === "pruning" ? s.compactionMode : undefined,
+    maxConcurrentSubAgents:
+      s.maxConcurrentSubAgents !== undefined
+        ? clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number)
+        : undefined,
+    subagentMaxTurns:
+      s.subagentMaxTurns !== undefined
+        ? clampSubAgentMaxTurns(s.subagentMaxTurns as number)
+        : undefined,
+    sessionMode:
+      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+    agentModelFallback:
+      s.agentModelFallback === "active" || s.agentModelFallback === "none"
+        ? s.agentModelFallback
+        : undefined,
+    shell: s.shell as Settings["shell"] | undefined,
+    tools: s.tools as Settings["tools"] | undefined,
+    telemetry: s.telemetry as Settings["telemetry"] | undefined,
+  };
   return {
     providers: s.providers as Settings["providers"],
-    ...(s.defaultProvider !== undefined ? { defaultProvider: s.defaultProvider as string } : {}),
-    ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
-    ...(s.tiers !== undefined ? { tiers: s.tiers as Settings["tiers"] } : {}),
-    ...(s.workflowProfiles !== undefined ? { workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] } : {}),
-    ...(s.plugins !== undefined ? { plugins: s.plugins as Settings["plugins"] } : {}),
-    ...(s.pluginPaths !== undefined ? { pluginPaths: s.pluginPaths as string[] } : {}),
-    ...(s.discoverClaudePlugins === true ? { discoverClaudePlugins: true } : {}),
-    ...(s.web !== undefined ? { web: s.web as string } : {}),
-    ...(s.hiddenCommands !== undefined ? { hiddenCommands: s.hiddenCommands as string[] } : {}),
-    ...(s.onboarded !== undefined ? { onboarded: Boolean(s.onboarded) } : {}),
-    ...(s.compactionMode === "llm" || s.compactionMode === "pruning"
-      ? { compactionMode: s.compactionMode }
-      : {}),
-    ...(s.maxConcurrentSubAgents !== undefined
-      ? { maxConcurrentSubAgents: clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number) }
-      : {}),
-    ...(s.subagentMaxTurns !== undefined
-      ? { subagentMaxTurns: clampSubAgentMaxTurns(s.subagentMaxTurns as number) }
-      : {}),
-    ...(s.sessionMode === "single" || s.sessionMode === "orchestrator"
-      ? { sessionMode: s.sessionMode }
-      : {}),
-    ...(s.agentModelFallback === "active" || s.agentModelFallback === "none"
-      ? { agentModelFallback: s.agentModelFallback }
-      : {}),
-    ...(s.shell !== undefined ? { shell: s.shell as Settings["shell"] } : {}),
-    ...(s.tools !== undefined ? { tools: s.tools as Settings["tools"] } : {}),
-    ...(s.telemetry !== undefined ? { telemetry: s.telemetry as Settings["telemetry"] } : {}),
-  } as Settings;
+    ...pickDefined(optional),
+  };
 }
 
 export async function loadLocalSettings(path: string): Promise<LocalSettings | null> {
@@ -572,19 +635,20 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   }
   if (!isLocalSettings(parsed)) {
     throw new Error(
-      `Invalid local settings in ${path}: only "provider", "model", "reasoningEffort", "mcpServers", and "sessionMode" are allowed (no credentials).`,
+      `Invalid local settings in ${path}: only "provider", "model", "reasoningEffort", "mcpServers", "sessionMode", and "env" are allowed (no credentials).`,
     );
   }
   const s = parsed as Record<string, unknown>;
-  return {
-    ...(s.provider !== undefined ? { provider: s.provider as string } : {}),
-    ...(s.model !== undefined ? { model: s.model as string } : {}),
-    ...(s.reasoningEffort !== undefined ? { reasoningEffort: s.reasoningEffort as ReasoningEffort } : {}),
-    ...(s.mcpServers !== undefined ? { mcpServers: normalizeMcpServers(s.mcpServers) } : {}),
-    ...(s.sessionMode === "single" || s.sessionMode === "orchestrator"
-      ? { sessionMode: s.sessionMode }
-      : {}),
-  } as LocalSettings;
+  const optional: OptionalLocalSettingsFields = {
+    provider: s.provider as string | undefined,
+    model: s.model as string | undefined,
+    reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
+    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+    sessionMode:
+      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+    env: s.env as Record<string, string> | undefined,
+  };
+  return pickDefined(optional);
 }
 
 // Resolve the base for a read-modify-write of the global settings file.
