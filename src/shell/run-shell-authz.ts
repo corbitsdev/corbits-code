@@ -448,7 +448,86 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
   return { kind: "inner", command };
 }
 
-// Peel one layer of transparent prefix / shell -c / xargs from a single segment.
+// Peel env's -S / --split-string payload as its own shell subject. Unlike the
+// auto-mode assignment ask (which only cares about NAME=value inside the
+// payload), every consumer of expandShellSubjects — hard-deny included — must
+// see every payload so `env -S "rm -rf /"` is blocked the same way as the
+// plain form. Uninspectable payloads are opaque rather than silently dropped.
+function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
+  let i = start;
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (t === "--") return { kind: "none" };
+    if (t.startsWith("--split-string=")) {
+      const payload = t.slice("--split-string=".length);
+      if (isOpaquePayload(payload)) return { kind: "opaque" };
+      return { kind: "inner", command: payload };
+    }
+    if (t === "-S" || t === "--split-string") {
+      const payload = tokens[i + 1];
+      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      return { kind: "inner", command: payload };
+    }
+    // Clustered short flags (`-iS`, `-Si`, `-0S`, …) — `S` still takes the
+    // next token as its split-string payload.
+    if (/^-[A-Za-z0-9]*S[A-Za-z0-9]*$/.test(t)) {
+      const payload = tokens[i + 1];
+      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      return { kind: "inner", command: payload };
+    }
+    if (t.startsWith("-") && t !== "-") {
+      i++;
+      continue;
+    }
+    // Bare NAME=value or the utility — not a split-string form at this layer.
+    if (ENV_ASSIGNMENT.test(t)) {
+      i++;
+      continue;
+    }
+    return { kind: "none" };
+  }
+  return { kind: "none" };
+}
+
+// Skip env's own flags and NAME=value arguments so a transparent
+// `env -i FOO=bar cmd` peel lands on `cmd`, not on the `-i` flag token.
+function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
+  let i = start;
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (t === "--") return i + 1;
+    if (ENV_ASSIGNMENT.test(t)) {
+      i++;
+      continue;
+    }
+    // Flags that consume the following token as a value.
+    if (
+      t === "-u" ||
+      t === "--unset" ||
+      t === "-C" ||
+      t === "--chdir" ||
+      t === "-f" ||
+      t === "--file"
+    ) {
+      i++;
+      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+      continue;
+    }
+    if (t.startsWith("--unset=") || t.startsWith("--chdir=") || t.startsWith("--file=")) {
+      i++;
+      continue;
+    }
+    if (t.startsWith("-") && t !== "-") {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+// Peel one layer of transparent prefix / shell -c / xargs / env -S from a
+// single segment.
 function peelOnce(segment: string): PeelOutcome {
   const tokens = tokenize(segment);
   let i = 0;
@@ -458,9 +537,13 @@ function peelOnce(segment: string): PeelOutcome {
   while (i < tokens.length) {
     const base = programBasename(tokens[i]!);
     if (base === "env") {
+      // Prefer split-string peel: the whole payload is one quoted argument
+      // that env re-splits itself, so the transparent-prefix path below
+      // would only rejoin `-S '…'` and leave the real command invisible.
+      const splitPeel = peelEnvSplitString(tokens, i + 1);
+      if (splitPeel.kind !== "none") return splitPeel;
       strippedPrefix = true;
-      i++;
-      while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+      i = skipEnvFlagsAndAssignments(tokens, i + 1);
       continue;
     }
     if (base === "timeout") {
@@ -530,10 +613,11 @@ export type ShellExpandResult = {
   opaque: boolean;
 };
 
-// Expand a shell command into subjects the auto-shell policy and recursive-rm
-// checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs utility tails, and
-// transparent prefixes (env/nice/timeout/…), recursing with a depth cap so
-// nested wrappers cannot hide a dangerous payload.
+// Expand a shell command into subjects the auto-shell policy, hard-deny, and
+// recursive-rm checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs
+// utility tails, env -S/--split-string payloads, and transparent prefixes
+// (env/nice/timeout/…), recursing with a depth cap so nested wrappers cannot
+// hide a dangerous payload.
 //
 // Chain splitting is quote-aware (`splitChainedCommand`) so a pipe inside a
 // `bash -c '…|…'` payload is not mistaken for an outer pipeline boundary.
@@ -591,12 +675,26 @@ function isCatastrophicRm(segment: string): boolean {
   return targets.length === 0 || targets.some(isDangerousTarget);
 }
 
-function isDestructive(command: string): boolean {
+// Scan expanded subjects for blocked patterns / catastrophic rm. Callers may
+// pass a pre-normalized form so path-qualified binaries (`/usr/bin/sudo`) still
+// match command-position patterns.
+function isDestructiveExpanded(command: string): boolean {
   const { subjects } = expandShellSubjects(command);
   return subjects.some((subject) => {
     if (BLOCKED_PATTERNS.some((pattern) => pattern.test(subject))) return true;
     return subject.split(CHAIN).some(isCatastrophicRm);
   });
+}
+
+// Hard-deny must expand the *raw* command so `env -S "…"` stays peelable —
+// normalizeCommand strips bare `env` as a transparent wrapper, which would
+// turn the command into `-S "…"` and hide the payload. Also expand the
+// normalized form so path-stripped BLOCKED_PATTERNS (`/usr/bin/sudo` → `sudo`)
+// still fire.
+function isDestructive(command: string): boolean {
+  if (isDestructiveExpanded(command)) return true;
+  const normalized = normalizeCommand(command);
+  return normalized !== command && isDestructiveExpanded(normalized);
 }
 
 function isOpenEndedSearch(command: string): boolean {
@@ -617,20 +715,22 @@ function openEndedSearchReason(command: string): string | undefined {
 export function runShellAuthzSegmentBlockReason(segment: string): string | undefined {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return undefined;
-  const normalized = normalizeCommand(trimmed);
-  if (isDestructive(normalized)) {
+  // Pass the raw segment: isDestructive expands both raw and normalized forms.
+  if (isDestructive(trimmed)) {
     return `Destructive command blocked by policy: ${trimmed}`;
   }
   return openEndedSearchReason(trimmed);
 }
 
 export function runShellAuthzBlockReason(command: string): string | undefined {
-  const normalized = normalizeCommand(command);
-  if (isDestructive(normalized)) {
+  // Destructive check expands raw + normalized (see isDestructive). Other
+  // checks still run on the path/wrapper-stripped form.
+  if (isDestructive(command)) {
     return `Destructive command blocked by policy: ${command}`;
   }
   const openEnded = openEndedSearchReason(command);
   if (openEnded !== undefined) return openEnded;
+  const normalized = normalizeCommand(command);
   if (isNeverTerminating(normalized)) {
     return (
       `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +

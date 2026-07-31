@@ -73,3 +73,132 @@ describe("recursive rm detection", () => {
     expect(runShellAuthzBlockReason("bash -c 'rm -rf node_modules'")).toBeUndefined();
   });
 });
+
+// Hard-deny must see inside env -S / --split-string the same way expandShellSubjects
+// peels bash -c and xargs. Auto-mode already classified these; authz previously left
+// the payload inside one quoted token and allowed catastrophic rm past the gate.
+describe("authz hard-deny peels env -S / --split-string payloads", () => {
+  const destructive = /Destructive command blocked/;
+
+  test("D1: env -S with assignment-bearing catastrophic rm is blocked", () => {
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar rm -rf /"`)).toMatch(destructive);
+    expect(commandHasRecursiveRm(`env -S "FOO=bar rm -rf /"`)).toBe(true);
+  });
+
+  test("D2: env --split-string=PAYLOAD form is blocked", () => {
+    expect(runShellAuthzBlockReason(`env --split-string="FOO=bar rm -rf /"`)).toMatch(destructive);
+  });
+
+  test("D3: env --split-string separate-arg form is blocked", () => {
+    expect(runShellAuthzBlockReason(`env --split-string "FOO=bar rm -rf /"`)).toMatch(destructive);
+  });
+
+  test("D4: clustered short flags with S (-iS) are blocked", () => {
+    expect(runShellAuthzBlockReason(`env -iS "FOO=bar rm -rf /"`)).toMatch(destructive);
+  });
+
+  test("D5: nested bash -c inside env -S is blocked", () => {
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar bash -c 'rm -rf /'"`)).toMatch(destructive);
+  });
+
+  test("D6: nested sh -c with mixed quotes inside env -S is blocked", () => {
+    // tokenize() has no backslash escapes — nest by alternating quote styles.
+    expect(runShellAuthzBlockReason(`env -S 'FOO=bar sh -c "rm -rf ~"'`)).toMatch(destructive);
+  });
+
+  test("D7: path-qualified /usr/bin/env -S is blocked", () => {
+    expect(runShellAuthzBlockReason(`/usr/bin/env -S "FOO=bar rm -rf /"`)).toMatch(destructive);
+  });
+
+  test("D8: env -S without assignment still peels catastrophic rm", () => {
+    // Peel-all, not assignment-only: the payload must not stay invisible just
+    // because it lacks a leading NAME=value.
+    expect(runShellAuthzBlockReason(`env -S "rm -rf /"`)).toMatch(destructive);
+    expect(commandHasRecursiveRm(`env -S "rm -rf /"`)).toBe(true);
+  });
+
+  test("D9: outer shell assignment plus inner env -S is blocked", () => {
+    expect(runShellAuthzBlockReason(`FOO=1 env -S "BAR=2 rm -rf /"`)).toMatch(destructive);
+  });
+
+  test("D10: catastrophic env -S in a chain still blocks the whole command", () => {
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar rm -rf /" && echo ok`)).toMatch(destructive);
+  });
+
+  test("D11: xargs feeding env -S peels through to catastrophic rm", () => {
+    expect(runShellAuthzBlockReason(`echo x | xargs -I{} env -S "FOO=bar rm -rf /"`)).toMatch(
+      destructive,
+    );
+  });
+
+  test("B1: non-catastrophic recursive rm inside env -S is not hard-denied", () => {
+    // Gate may still ask (recursive-rm); authz hard-deny is intentionally narrower.
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar rm -rf node_modules"`)).toBeUndefined();
+    expect(commandHasRecursiveRm(`env -S "FOO=bar rm -rf node_modules"`)).toBe(true);
+  });
+
+  test("B2: benign env -S with assignment is not hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar npm start"`)).toBeUndefined();
+  });
+
+  test("B3: env -S without assignment and no install pattern is not hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "npm start"`)).toBeUndefined();
+  });
+
+  test("B4: fully benign env -S is not hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "echo hello world"`)).toBeUndefined();
+  });
+
+  test("B5: non-S env FOO=bar form still hard-blocks catastrophic rm", () => {
+    expect(runShellAuthzBlockReason("env FOO=bar rm -rf /")).toMatch(destructive);
+  });
+
+  test("B6: bare bash -c catastrophic rm still hard-blocks (regression)", () => {
+    expect(runShellAuthzBlockReason("bash -c 'rm -rf /'")).toMatch(destructive);
+  });
+
+  test("N1: nested env -S payloads are blocked within peel depth", () => {
+    // Alternating quotes so naive tokenize keeps each -S payload intact.
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar env -S 'BAZ=1 rm -rf /'"`)).toMatch(
+      destructive,
+    );
+  });
+
+  test("N2: deep nested env -S does not hang under the peel depth cap", () => {
+    // Two-deep alternating quotes peels fully (covers recursion). A long
+    // unpeelable nest must still return without hanging or throwing — the
+    // depth cap / seen-set are the backstop, not perfect quote reconstruction.
+    const twoDeep = `env -S "A=1 env -S 'B=2 rm -rf /'"`;
+    expect(runShellAuthzBlockReason(twoDeep)).toMatch(destructive);
+
+    // Pathological depth: many nested env -S tokens without valid quote
+    // nesting. Must not loop forever.
+    const deep = "env -S ".repeat(8) + `"rm -rf /"`;
+    expect(() => runShellAuthzBlockReason(deep)).not.toThrow();
+  });
+
+  test("Q1: single-quoted env -S payload is blocked", () => {
+    expect(runShellAuthzBlockReason(`env -S 'FOO=bar rm -rf /'`)).toMatch(destructive);
+  });
+
+  test("Q2: file-mutation inside env -S is not an authz hard-deny", () => {
+    // Auto may deny (file-mutation); authz only blocks catastrophic / blocked patterns.
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar sh -c 'echo x > .env'"`)).toBeUndefined();
+  });
+
+  test("Q3: sensitive-path inside env -S is not an authz hard-deny", () => {
+    expect(runShellAuthzBlockReason(`env -S "FOO=bar cat ~/.aws/credentials"`)).toBeUndefined();
+  });
+
+  test("Q4: embedded apostrophe in nested shell -c still reaches catastrophic rm", () => {
+    // Outer single quotes hold a double-quoted -c body that itself contains `'`.
+    const cmd = `env -S 'FOO=bar sh -c "don't; rm -rf /"'`;
+    expect(commandHasRecursiveRm(cmd)).toBe(true);
+    expect(runShellAuthzBlockReason(cmd)).toMatch(destructive);
+  });
+
+  test("Q5: opaque or empty env -S payload does not invent a hard-deny", () => {
+    expect(runShellAuthzBlockReason(`env -S "$CMD"`)).toBeUndefined();
+    expect(runShellAuthzBlockReason(`env -S ""`)).toBeUndefined();
+  });
+});
