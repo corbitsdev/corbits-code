@@ -71,16 +71,19 @@ export {
   type SubAgentSpawnSnapshot,
 } from "./dispose.js";
 
+export type {
+  NestedDispatchDeps,
+  RunSubAgentParams,
+  SubAgentProvider,
+  SubAgentSandboxDeps,
+} from "./types.js";
+
 export {
   buildSubAgentPrimarySource,
   coreSubAgentWebTools,
   createSubAgentRunController,
   runSubAgent,
-  type NestedDispatchDeps,
-  type RunSubAgentParams,
-  type SubAgentProvider,
   type SubAgentRunController,
-  type SubAgentSandboxDeps,
 } from "./run.js";
 
 export {

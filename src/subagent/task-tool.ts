@@ -30,13 +30,12 @@ import {
 } from "./report.js";
 import { appendSubAgentParentHints } from "./stop-policy.js";
 import { isSubAgentCancelError } from "./dispose.js";
-import {
-  runSubAgent,
-  type NestedDispatchDeps,
-  type RunSubAgentParams,
-  type SubAgentProvider,
-  type SubAgentSandboxDeps,
-} from "./run.js";
+import type {
+  NestedDispatchDeps,
+  RunSubAgentParams,
+  SubAgentProvider,
+  SubAgentSandboxDeps,
+} from "./types.js";
 
 export const TaskToolArgs = type({
   description: "string",
@@ -133,8 +132,9 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // spawned after the change, not just the value captured at startup. A plain
   // value is also accepted for callers with no live switching.
   provider: SubAgentProvider | (() => SubAgentProvider);
-  // Injectable for tests; defaults to the real runSubAgent.
-  run?: (params: RunSubAgentParams) => Promise<string>;
+  // Required runner — inject runSubAgent in production, a mock in tests.
+  // Keeping this required (no default import of run) breaks the run↔task-tool cycle.
+  run: (params: RunSubAgentParams) => Promise<string>;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
   // When set, each spawn is recorded as an inspectable session (identity,
@@ -165,7 +165,7 @@ function taskToolResult(callId: string, content: string): ToolResult {
 }
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
-  const run = deps.run ?? runSubAgent;
+  const run = deps.run;
   return tool({
     definition: taskToolDefinition,
     handler: async (call, signal): Promise<ToolResult> => {

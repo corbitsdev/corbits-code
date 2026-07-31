@@ -49,7 +49,13 @@ test("task tool definition requires description and prompt", () => {
 });
 
 test("handler rejects empty description or prompt", async () => {
-  const tool = createTaskTool({ permissionGate: testPermissionGate, cwd: "/repo", getWorkdirBase: () => "/repo/.ctx", provider });
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async () => "should not run",
+  });
   expect(await callHandler(tool, { description: "", prompt: "do it" })).toContain("Error:");
   expect(await callHandler(tool, { description: "label", prompt: "  " })).toContain("Error:");
 });

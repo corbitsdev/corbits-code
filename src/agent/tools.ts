@@ -38,6 +38,7 @@ import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import {
   createTaskTool,
+  runSubAgent,
   type SubAgentProvider,
   type SubAgentSessionStore,
 } from "../subagent/index.js";
@@ -215,6 +216,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             provider: args.subAgent.provider,
             permissionGate,
             inheritMcpTools: () => inheritedMcpTools,
+            run: runSubAgent,
             ...(shellTimeout !== undefined ? { shellTimeout } : {}),
             ...(shellEnv !== undefined ? { shellEnv } : {}),
             ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),

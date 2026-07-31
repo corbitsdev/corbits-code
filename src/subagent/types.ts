@@ -1,0 +1,114 @@
+/**
+ * Shared sub-agent types used by both run.ts and task-tool.ts.
+ * Kept separate so task-tool does not import run (breaks the ESM cycle).
+ */
+
+import type { AgentTool } from "@intx/agent";
+import type { ReactorEmittedEvent } from "@intx/inference";
+import type { BlobReader } from "@intx/types/runtime";
+import type { ToolPlugin } from "@intx/tools-posix";
+
+import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
+import type { ProviderCatalogEntry } from "../config/index.js";
+import type { Settings, ProviderTier } from "../config/settings.js";
+import type { ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
+import type { PermissionGate } from "../permission/gate.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { SubAgentSessionStore } from "./session-store.js";
+import type { TaskIntent } from "./report.js";
+
+export type SubAgentProvider = {
+  providerName: string;
+  baseURL: string;
+  apiKey?: string;
+  keyless?: boolean;
+  model: string;
+  // Subagents inherit the parent's reasoning effort so a /agent selection
+  // applies to delegated work, not just the top-level loop.
+  reasoningEffort?: ReasoningEffort;
+  // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the generic
+  // (no-tier) dispatch path builds a plain openai-compatible source and the
+  // gateway never receives the x-bf-vk header.
+  bifrostVirtualKey?: boolean;
+};
+
+// Dependencies an orchestrator sub-agent needs to spawn further workers via
+// `task`. Nested dispatch always sets allowOrchestrator: false so the
+// recursion bottoms out at one hop of orchestration.
+export type SubAgentSandboxDeps = {
+  permissionGate: PermissionGate;
+  inheritMcpTools?: () => readonly AgentTool[];
+  shellTimeout?: ShellTimeoutConfig;
+  extraToolPlugins?: ToolPlugin[];
+  /** Parent session blob store for bounded tool-output:// reads in workers. */
+  getBlobReader?: () => BlobReader | undefined;
+  /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
+  shellEnv?: Record<string, string>;
+};
+
+export type NestedDispatchDeps = SubAgentSandboxDeps & {
+  getWorkdirBase: () => string;
+  provider: SubAgentProvider | (() => SubAgentProvider);
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  // Fired on each tool_call.end so the parent can surface live activity without
+  // replaying the full sub-agent event stream into the chat transcript.
+  onProgress?: (info: { description: string; toolName: string }) => void;
+  sessions?: SubAgentSessionStore;
+  settings?: Settings | (() => Settings | undefined);
+  catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  profiles?: AgentProfile[] | (() => AgentProfile[]);
+  // The orchestrator's own session id, so workers it dispatches record as
+  // nested (one-hop) sessions the Agents strip can indent under it.
+  parentSessionId?: string;
+};
+
+/** Typed spawn intent — optional on `task`; omit Intent section when unset. */
+export type RunSubAgentParams = {
+  cwd: string;
+  workdirBase: string;
+  provider: SubAgentProvider;
+  tier?: ProviderTier;
+  settings?: Settings;
+  catalog?: readonly ProviderCatalogEntry[];
+  description: string;
+  context?: string;
+  prompt: string;
+  // Optional ordered goals the parent wants the worker to track. Surfaced in
+  // the dispatch brief as a suggested manage_tasks seed — the child's list is
+  // still its own; the parent does not share a checklist.
+  goals?: readonly string[];
+  /** Spawn intent for the brief (no tool filtering here — that is a later task). */
+  intent?: TaskIntent;
+  /** Concrete done checks preferred over free-form prompt alone. */
+  successCriteria?: readonly string[];
+  /** Explicit out-of-scope / forbidden actions. */
+  doNot?: readonly string[];
+  /** What the parent most needs in Findings. */
+  reportFocus?: string;
+  signal?: AbortSignal;
+  onEvent?: (event: ReactorEmittedEvent) => void;
+  onProgress?: (info: { description: string; toolName: string }) => void;
+  capabilities?: CapabilityFilter;
+  systemPromptRole?: string;
+  // When true, the assembled system prompt grants this sub-agent permission
+  // to call `task` to spawn further agents (orchestrator exception to the
+  // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.
+  // Requires nestedDispatch so the task tool can actually be installed —
+  // advertising permission without the tool is a hard break.
+  orchestrator?: boolean;
+  // Present only when orchestrator is true. Installs task + search_agents so
+  // the orchestrator can actually dispatch workers.
+  nestedDispatch?: NestedDispatchDeps;
+  // Set when this dispatch is a nested worker spawned by an orchestrator that
+  // already holds a concurrency slot. The nested run reuses the parent's slot
+  // (reentrant) instead of acquiring its own, which would deadlock the pool.
+  nested?: boolean;
+  /** Inference-turn budget for this worker only (not the parent session limit). */
+  maxTurns?: number;
+  /**
+   * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
+   * there is no default leaf death clock; omit to bound the run with maxTurns
+   * and operator cancel alone.
+   */
+  deadlineMs?: number;
+} & SubAgentSandboxDeps;
