@@ -1379,7 +1379,10 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // degenerate loop is aborted from the stream side. The recorder keeps the
   // cycle text so the looped tail survives the abort as the salvage payload.
   const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
-  let repetitionHit: RepetitionHit | null = null;
+  // Holder object rather than a let: the value is written inside the stream
+  // sink closure, and flow analysis would otherwise narrow a let to null at
+  // the later catch-site reads.
+  const repetition: { hit: RepetitionHit | null } = { hit: null };
   let charsSinceRepetitionCheck = 0;
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);
@@ -1387,15 +1390,18 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       toolNamesUsed.push(name);
       params.onProgress?.({ description: params.description, toolName: name });
     }
-    const textBefore = cycleRecorder.text().length;
     cycleRecorder.handleEvent(event);
-    if (event.type === "inference.text.delta" && repetitionHit === null) {
-      charsSinceRepetitionCheck += cycleRecorder.text().length - textBefore;
+    if (event.type === "inference.text.delta" && repetition.hit === null) {
+      // Count the raw token, not the buffer growth: once the buffer is pinned
+      // at its cap, appends no longer change its length and a growth-based
+      // counter would disarm detection for the rest of the turn.
+      const token = (event.data as { token?: unknown }).token;
+      charsSinceRepetitionCheck += typeof token === "string" ? token.length : 0;
       if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
         charsSinceRepetitionCheck = 0;
         const hit = detectRepetition(cycleRecorder.text());
         if (hit !== null) {
-          repetitionHit = hit;
+          repetition.hit = hit;
           runController.abort(
             new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
           );
@@ -1484,7 +1490,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         // labeled cancelled even if the outcome below resolves to rethrow.
         const abortedCycleText = cycleRecorder.text();
         await cycleRecorder.flush(
-          repetitionHit !== null
+          repetition.hit !== null
             ? "repetition"
             : runController.deadlineHit()
               ? "deadline"
@@ -1503,7 +1509,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         const outcome = resolveSubAgentCatchOutcome({
           deadlineHit: runController.deadlineHit(),
           hadProgress,
-          repetitionHit: repetitionHit !== null,
+          repetitionHit: repetition.hit !== null,
         });
         if (outcome !== "rethrow") {
           const reason =
@@ -1512,8 +1518,14 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
               : outcome === "salvage-deadline"
                 ? "deadline"
                 : "cancelled";
-          const partial =
+          const tail =
             lastPartialText.trim().length > 0 ? lastPartialText : abortedCycleText.slice(-2000);
+          // Lead with the detected window so the parent sees the loop unit
+          // itself, not just an arbitrary tail that happens to contain it.
+          const partial =
+            repetition.hit !== null
+              ? `Looped window (repeated ${repetition.hit.repeats}x): ${repetition.hit.window.slice(0, 300)}\n\n${tail}`
+              : tail;
           return appendActivitySummary(forcedStopReport(reason, partial), toolNamesUsed);
         }
       }

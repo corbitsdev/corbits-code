@@ -655,13 +655,23 @@ export async function runExec(config: Config): Promise<ExecResult> {
       runError = runSink.getRunError();
       sinkStatus = runSink.getStatus();
     } finally {
-      // close() tears down stream consumers before an aborted cycle's
-      // inference.error is delivered; flush the dead cycle's text first so a
-      // failed or interrupted send leaves its partial output on disk. A clean
-      // send already reset the buffer on inference.done, making this a no-op.
-      await cycleRecorder.flush(sendCompleted ? "cancelled" : "send-failed");
-      await activeAgent.close().catch(() => undefined);
-      await streamPromise.catch(() => undefined);
+      if (sendCompleted && runSink.getRunError() === undefined) {
+        // Successful send: the final cycle's inference.done is queued on the
+        // stream but may not have reached the sink yet (send resolves on the
+        // connector reply). Drain first so the done event resets the buffer,
+        // then flush — a no-op on success, a real record only if a cycle died
+        // without a terminal event.
+        await activeAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
+        await cycleRecorder.flush("cancelled");
+      } else {
+        // Failed or aborted send: close() tears down stream consumers before
+        // the dead cycle's inference.error is delivered, so flush the buffered
+        // text before closing or it is lost.
+        await cycleRecorder.flush(sendCompleted ? "cancelled" : "send-failed");
+        await activeAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
+      }
     }
 
     textOut = textChunks.join("");

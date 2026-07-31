@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   appendCycleText,
+  CYCLE_TEXT_CAP_CHARS,
   detectRepetition,
   DEFAULT_REPETITION_CONFIG,
+  REPETITION_CHECK_INTERVAL_CHARS,
 } from "./repetition.js";
 
 const LOOP_SENTENCE =
@@ -67,6 +69,29 @@ describe("detectRepetition", () => {
   test("returns null for text shorter than one full window set", () => {
     expect(detectRepetition("short")).toBeNull();
     expect(detectRepetition("")).toBeNull();
+  });
+});
+
+describe("repetition check accounting at the cycle-text cap", () => {
+  test("token-based accounting keeps checking after the buffer is capped", () => {
+    // Mirrors the sub-agent streamSink: the counter must accumulate raw token
+    // length, because at the cap the buffer length stops growing and a
+    // growth-based counter would disarm detection for the rest of the turn.
+    let text = "x".repeat(CYCLE_TEXT_CAP_CHARS);
+    let charsSinceCheck = 0;
+    let checks = 0;
+    let hit = null;
+    for (let i = 0; i < 200; i++) {
+      text = appendCycleText(text, LOOP_SENTENCE);
+      charsSinceCheck += LOOP_SENTENCE.length;
+      if (charsSinceCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
+        charsSinceCheck = 0;
+        checks++;
+        hit = hit ?? detectRepetition(text);
+      }
+    }
+    expect(checks).toBeGreaterThan(0);
+    expect(hit).not.toBeNull();
   });
 });
 
