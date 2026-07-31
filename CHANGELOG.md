@@ -14,6 +14,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)
 - Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
 
+## [0.2.86] - 2026-07-30
+
+Patch release: agents use the core tools. Every behavior change validated by a before/after eval matrix on grok-4.5 — pass rate 19/21 → 21/21, total turns 312 → 106, input tokens 2.8M → 1.1M, zero sub-agent churn on the stall fixture.
+
+### New Features
+
+- Built-in `web_fetch` (native fetch, markdown output, SSRF guards) and `web_search` (keyless hosted providers) replace the plugin-only web tools ([CL-4838]).
+- Per-project `settings.env` supplies shell environment as configuration instead of commands.
+- Model-family policy drives the directors: main sessions get a wrap-up nudge and a loud auto-pause on runaway tool-only loops; silent sub-agents get a continuation nudge then a clean stop; grok thresholds tightened ([CL-4839]).
+- A shared prompt discipline block steers every model to dedicated tools, single-purpose commands, and finishing behavior ([CL-4837]).
+- The capability eval is now a behavior gate: bait cases, behavior metrics, repeat runs, provider pinning with loud mismatch failure, and honest baseline comparison ([CL-4836]).
+
+### Security
+
+- Command substitution inside double quotes stays visible to grant replay ([CL-4825]).
+- Persisted grants no longer key on model-authored comment lines ([CL-4827]).
+- Chains of five or more segments are approved once only; env assignments (including `env -S` smuggling, scanned deny-first) and upload-shaped network commands now ask ([CL-4833]).
+
+### Fixed
+
+- Sub-agents receive the web tools and project env the prompt promises them; the family policy reaches interactive sessions; approval and error copy states thresholds and next steps.
+
 ## [0.2.85] - 2026-07-29
 
 Patch release: shell permission hardening, sub-agent dispatch controls, and a live TUI test suite.
