@@ -497,16 +497,19 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
 // Drop keys whose value is undefined so JSON omit + optional Settings fields stay
 // aligned. Value transforms (normalize, clamp, enum checks) happen before this —
 // the helper only filters undefined, it does not validate.
-function pickDefined<T extends Record<string, unknown>>(
-  fields: T,
-): { [K in keyof T as undefined extends T[K] ? (T[K] extends undefined ? never : K) : K]: Exclude<T[K], undefined> } {
+type DefinedFields<T> = {
+  [K in keyof T as undefined extends T[K] ? (T[K] extends undefined ? never : K) : K]: Exclude<
+    T[K],
+    undefined
+  >;
+};
+
+function pickDefined<T extends Record<string, unknown>>(fields: T): DefinedFields<T> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
     if (value !== undefined) out[key] = value;
   }
-  return out as {
-    [K in keyof T as undefined extends T[K] ? (T[K] extends undefined ? never : K) : K]: Exclude<T[K], undefined>;
-  };
+  return out as DefinedFields<T>;
 }
 
 // Every optional Settings key must appear here so a new type field without a

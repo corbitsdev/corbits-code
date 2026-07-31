@@ -43,7 +43,7 @@ import { createInferenceDependencies } from "../provider/inference-dependencies.
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { discoverRepoPlugins, discoverUserPlugins, discoverClaudeInstalledPlugins, expandExistingPluginMembers, expandPluginPath, loadPluginEntry, loadPluginsFromPaths, dedupePluginModules, type PluginOrigin } from "../plugins/loader.js";
+import { expandExistingPluginMembers, expandPluginPath, loadPluginEntry, type PluginOrigin } from "../plugins/loader.js";
 import {
   isPluginTrusted,
   loadProjectTrust,
@@ -60,7 +60,6 @@ import {
   type PathTrustStore,
 } from "../trust/path-trust.js";
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
-import { discoverSkills } from "../extensions/skills.js";
 import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
@@ -83,10 +82,7 @@ import { createChatDirector } from "../agent/director.js";
 import { createGoalGovernor } from "../agent/goal.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
-import { buildChatSystemPrompt } from "../agent/prompts.js";
-import { gatherEnvironment } from "../agent/environment.js";
-import { loadAgentContextExtensions, loadSystemPromptOverrides } from "../agent/context-extensions.js";
-import { buildMainSessionSources, buildInferenceSourceForRef, tierProviderRefs } from "../config/inference-sources.js";
+import { buildInferenceSourceForRef, tierProviderRefs } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -103,16 +99,6 @@ import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../w
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
-import {
-  loadApprovals,
-  loadProjectApprovals,
-  loadGlobalApprovals,
-  loadProviderModelApprovals,
-  saveProjectApproval,
-  saveGlobalApproval,
-  saveProviderModelApproval,
-} from "../permission/store.js";
-import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
@@ -132,7 +118,16 @@ import { loadState, saveState, type ConnectedMcpServer, type RunState } from "..
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";
-import { createPruningCompactor } from "../session/compactor.js";
+import {
+  buildSessionSourcesFromConfig,
+  buildSubAgentProvider,
+  createApprovalPersist,
+  createSessionPruningCompactor,
+  discoverSessionPlugins,
+  loadSeededApprovals,
+  loadSessionChatPrompt,
+  skillDirsFromEnabledPlugins,
+} from "../session/runtime-assembly.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -192,18 +187,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   );
   const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
-  const claudePlugins =
-    config.settings?.discoverClaudePlugins === true
-      ? await discoverClaudeInstalledPlugins(config.cwd)
-      : [];
-  const pluginModules = dedupePluginModules([
-    ...(await discoverRepoPlugins(config.cwd)),
-    ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isProjectPluginTrusted })),
-    ...claudePlugins,
-    ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd, {
-      isPluginTrusted: isRegisteredPathTrusted,
-    })),
-  ]);
+  const pluginModules = await discoverSessionPlugins({
+    cwd: config.cwd,
+    ...(config.settings?.pluginPaths !== undefined
+      ? { pluginPaths: config.settings.pluginPaths }
+      : {}),
+    ...(config.settings?.discoverClaudePlugins !== undefined
+      ? { discoverClaudePlugins: config.settings.discoverClaudePlugins }
+      : {}),
+    isProjectPluginTrusted,
+    isRegisteredPathTrusted,
+  });
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
@@ -295,24 +289,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   };
 
   const activeProviderModel = `${config.providerName}:${config.model}`;
-  const sessionApprovals = await loadApprovals(config.cwd, sessionId);
-  const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
-    loadProjectApprovals(config.cwd),
-    loadGlobalApprovals(),
-    loadProviderModelApprovals(),
-  ]);
   // Goal governor is created after liveSource (evaluator closure); the gate
   // holds a ref so requestApproval can arm a timeout once a goal is active.
   const goalGovernorRef: { current: ReturnType<typeof createGoalGovernor> | null } = {
     current: null,
   };
 
-  const seededApprovals: Approval[] = [
-    ...sessionApprovals,
-    ...projectApprovals,
-    ...globalApprovals,
-    ...providerModelApprovals,
-  ];
+  const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
   const permissionGate = createPermissionGate({
     approvals: seededApprovals,
     cwd: config.cwd,
@@ -331,17 +314,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           : undefined;
       },
     }),
-    persist: (approval: Approval, scope: GrantScope) => {
-      // Route each persisted grant to the store its scope selects. Session
-      // grants never reach here — the gate keeps those in memory only.
-      if (scope === "project") {
-        void saveProjectApproval(config.cwd, approval);
-      } else if (scope === "global") {
-        void saveGlobalApproval(approval);
-      } else if (scope === "provider-model") {
-        void saveProviderModelApproval(activeProviderModel, approval);
-      }
-    },
+    persist: createApprovalPersist(config.cwd, activeProviderModel),
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
@@ -354,16 +327,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // or reasoning effort) reaches subagents spawned afterward. Seeded from config
   // and updated by the App through onSubAgentProviderChange.
   const liveSubAgentProvider: { current: SubAgentProvider } = {
-    current: {
-      providerName: config.providerName,
-      baseURL: config.baseURL,
-      apiKey: config.apiKey,
-      model: config.model,
-      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      ...(config.providers.find((p) => p.name === config.providerName)?.bifrostVirtualKey === true
-        ? { bifrostVirtualKey: true }
-        : {}),
-    },
+    current: buildSubAgentProvider(config),
   };
   // Live catalog + runtime settings so task(tier=…) sees mid-session OAuth
   // login and tier edits (config.providers / config.settings are load-time only).
@@ -645,9 +609,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Skill directories from enabled plugins, in addition to project-local
   // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
-  const skillDirs = executablePlugins()
-    .filter((m) => m.dir !== undefined && m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
-    .map((m) => m.dir!);
+  const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginConfig);
 
   // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
   const activePlugins = executablePlugins()
@@ -739,27 +701,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   });
 
-  // These four loads have no data dependency on one another; they only converge
-  // at buildChatSystemPrompt below. Running them concurrently means first paint
-  // waits on the slowest, not the sum, of their I/O latencies.
-  const [agentExtensions, overrides, environment, skills] = await Promise.all([
-    loadAgentContextExtensions(config.cwd),
-    loadSystemPromptOverrides(config.cwd),
-    gatherEnvironment(config.cwd),
-    discoverSkills(config.cwd, skillDirs),
-  ]);
-  const extensions = [
-    ...agentExtensions,
-    ...(config.systemPromptExtensions ?? []),
-    ...overrides.append,
-  ];
-  const systemPrompt = buildChatSystemPrompt(
-    extensions.length > 0 ? extensions : undefined,
-    environment,
-    overrides.base,
-    skills,
-    liveSessionMode,
-  );
+  const { systemPrompt, skills } = await loadSessionChatPrompt({
+    cwd: config.cwd,
+    skillDirs,
+    ...(config.systemPromptExtensions !== undefined
+      ? { systemPromptExtensions: config.systemPromptExtensions }
+      : {}),
+    sessionMode: liveSessionMode,
+  });
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
@@ -861,14 +810,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
     });
   const buildSessionSources = (): { sources: InferenceSource[]; defaultSource: string } =>
-    buildMainSessionSources({
-      settings: config.settings,
-      catalog: config.providers,
-      activeProvider: config.providerName,
-      activeModel: config.model,
-      ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
-      sessionId,
-    });
+    buildSessionSourcesFromConfig(config, sessionId);
 
   const initialBundle = buildSessionSources();
   let liveSources = initialBundle.sources;
@@ -1028,10 +970,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       authorize: permissiveAuthorize(),
       directors: createDirectorRegistry({ factories: [chatDirectorDef.factory], defaultId: `${ID_PREFIX}/chat` }),
       compactors: {
-        "pruning-compactor": createPruningCompactor({
-          keepRecentTurns: 6,
-          summaryMaxChars: 2500,
-          ...(liveCompactionMode !== "pruning" ? { summarize: summarizeForCompaction } : { stripResultContent: true }),
+        "pruning-compactor": createSessionPruningCompactor({
+          compactionMode: liveCompactionMode,
+          summarize: summarizeForCompaction,
         }),
       },
     });

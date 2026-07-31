@@ -44,39 +44,16 @@ import { resolveSessionMode, type SessionMode } from "../config/session-mode.js"
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createChatDirector } from "../agent/director.js";
-import { buildChatSystemPrompt } from "../agent/prompts.js";
-import { gatherEnvironment } from "../agent/environment.js";
-import { loadAgentContextExtensions, loadSystemPromptOverrides } from "../agent/context-extensions.js";
-import { buildMainSessionSources } from "../config/inference-sources.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
-import {
-  loadApprovals,
-  loadProjectApprovals,
-  loadGlobalApprovals,
-  loadProviderModelApprovals,
-  saveProjectApproval,
-  saveGlobalApproval,
-  saveProviderModelApproval,
-} from "../permission/store.js";
 import type {
-  Approval,
   ApprovalOutcome,
-  GrantScope,
   PermissionRequest,
 } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
-import { discoverSkills } from "../extensions/skills.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
-import {
-  discoverRepoPlugins,
-  discoverUserPlugins,
-  discoverClaudeInstalledPlugins,
-  expandExistingPluginMembers,
-  loadPluginsFromPaths,
-  dedupePluginModules,
-} from "../plugins/loader.js";
+import { expandExistingPluginMembers } from "../plugins/loader.js";
 import { isPluginTrusted, loadProjectTrust } from "../trust/project-trust.js";
 import {
   isPathPluginTrusted,
@@ -98,7 +75,16 @@ import {
   discoverLifecycleHooks,
   hookDirectories,
 } from "../session/hooks.js";
-import { createPruningCompactor } from "../session/compactor.js";
+import {
+  buildSessionSourcesFromConfig,
+  buildSubAgentProvider,
+  createApprovalPersist,
+  createSessionPruningCompactor,
+  discoverSessionPlugins,
+  loadSeededApprovals,
+  loadSessionChatPrompt,
+  skillDirsFromEnabledPlugins,
+} from "../session/runtime-assembly.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -230,18 +216,17 @@ export async function runExec(config: Config): Promise<ExecResult> {
       { onMigrated: reportPathTrustMigration },
     );
     const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
-    const claudePlugins =
-      config.settings?.discoverClaudePlugins === true
-        ? await discoverClaudeInstalledPlugins(config.cwd)
-        : [];
-    const pluginModules = dedupePluginModules([
-      ...(await discoverRepoPlugins(config.cwd)),
-      ...(await discoverUserPlugins(config.cwd, { isPluginTrusted: isProjectPluginTrusted })),
-      ...claudePlugins,
-      ...(await loadPluginsFromPaths(config.settings?.pluginPaths ?? [], config.cwd, {
-        isPluginTrusted: isRegisteredPathTrusted,
-      })),
-    ]);
+    const pluginModules = await discoverSessionPlugins({
+      cwd: config.cwd,
+      ...(config.settings?.pluginPaths !== undefined
+        ? { pluginPaths: config.settings.pluginPaths }
+        : {}),
+      ...(config.settings?.discoverClaudePlugins !== undefined
+        ? { discoverClaudePlugins: config.settings.discoverClaudePlugins }
+        : {}),
+      isProjectPluginTrusted,
+      isRegisteredPathTrusted,
+    });
     // Metadata-only (untrusted) modules stay out of executable plugins.
     const executablePlugins = () => pluginModules.filter((m) => m.metadataOnly !== true);
     const pluginConfig = config.settings?.plugins ?? {};
@@ -252,14 +237,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       pluginConfig,
     });
 
-    const skillDirs = executablePlugins()
-      .filter(
-        (m) =>
-          m.dir !== undefined &&
-          m.manifest?.id !== undefined &&
-          pluginConfig[m.manifest.id]?.enabled === true,
-      )
-      .map((m) => m.dir!);
+    const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginConfig);
 
     const profilesDir = join(config.cwd, ".agents", "agents");
     const liveAgentProfiles = await loadAgentProfiles(profilesDir);
@@ -274,18 +252,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     }
 
     const activeProviderModel = `${config.providerName}:${config.model}`;
-    const sessionApprovals = await loadApprovals(config.cwd, sessionId);
-    const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
-      loadProjectApprovals(config.cwd),
-      loadGlobalApprovals(),
-      loadProviderModelApprovals(),
-    ]);
-    const seededApprovals: Approval[] = [
-      ...sessionApprovals,
-      ...projectApprovals,
-      ...globalApprovals,
-      ...providerModelApprovals,
-    ];
+    const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
 
     const interactive = input.isTTY === true && output.isTTY === true;
 
@@ -297,31 +264,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model: config.model,
       requestApproval: (request: PermissionRequest): Promise<ApprovalOutcome> =>
         promptPermission(request, interactive),
-      persist: (approval: Approval, scope: GrantScope) => {
-        if (scope === "project") void saveProjectApproval(config.cwd, approval);
-        else if (scope === "global") void saveGlobalApproval(approval);
-        else if (scope === "provider-model") {
-          void saveProviderModelApproval(activeProviderModel, approval);
-        }
-      },
+      persist: createApprovalPersist(config.cwd, activeProviderModel),
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
     });
 
     const liveSubAgentProvider: { current: SubAgentProvider } = {
-      current: {
-        providerName: config.providerName,
-        baseURL: config.baseURL,
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.reasoningEffort !== undefined
-          ? { reasoningEffort: config.reasoningEffort }
-          : {}),
-        ...(config.providers.find((p) => p.name === config.providerName)?.bifrostVirtualKey === true
-          ? { bifrostVirtualKey: true }
-          : {}),
-      },
+      current: buildSubAgentProvider(config),
     };
     const subAgentSessions = createSubAgentSessionStore();
     const shellTimeout = shellTimeoutFromSettings(config.settings);
@@ -376,24 +326,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
     toolset = agentToolset;
 
-    const [agentExtensions, overrides, environment, skills] = await Promise.all([
-      loadAgentContextExtensions(config.cwd),
-      loadSystemPromptOverrides(config.cwd),
-      gatherEnvironment(config.cwd),
-      discoverSkills(config.cwd, skillDirs),
-    ]);
-    const extensions = [
-      ...agentExtensions,
-      ...(config.systemPromptExtensions ?? []),
-      ...overrides.append,
-    ];
-    const systemPrompt = buildChatSystemPrompt(
-      extensions.length > 0 ? extensions : undefined,
-      environment,
-      overrides.base,
-      skills,
+    const { systemPrompt } = await loadSessionChatPrompt({
+      cwd: config.cwd,
+      skillDirs,
+      ...(config.systemPromptExtensions !== undefined
+        ? { systemPromptExtensions: config.systemPromptExtensions }
+        : {}),
       sessionMode,
-    );
+    });
 
     const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(sessionMode);
     const activatedToolNames = createActivatedToolTracker();
@@ -465,16 +405,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       });
 
     const buildSessionSources = (): { sources: InferenceSource[]; defaultSource: string } =>
-      buildMainSessionSources({
-        settings: config.settings,
-        catalog: config.providers,
-        activeProvider: config.providerName,
-        activeModel: config.model,
-        ...(config.reasoningEffort !== undefined
-          ? { reasoningEffort: config.reasoningEffort }
-          : {}),
-        sessionId,
-      });
+      buildSessionSourcesFromConfig(config, sessionId);
 
     const initialBundle = buildSessionSources();
     let liveSources = initialBundle.sources;
@@ -558,12 +489,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
           defaultId: `${ID_PREFIX}/chat`,
         }),
         compactors: {
-          "pruning-compactor": createPruningCompactor({
-            keepRecentTurns: 6,
-            summaryMaxChars: 2500,
-            ...(liveCompactionMode !== "pruning"
-              ? { summarize: summarizeForCompaction }
-              : { stripResultContent: true }),
+          "pruning-compactor": createSessionPruningCompactor({
+            compactionMode: liveCompactionMode,
+            summarize: summarizeForCompaction,
           }),
         },
       });
