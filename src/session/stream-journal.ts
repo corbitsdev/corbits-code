@@ -25,6 +25,17 @@ export type CycleTextRecorder = {
   text: () => string;
   /** Write the buffer to partial.jsonl with a reason, then reset it. */
   flush: (reason: string) => Promise<void>;
+  /** Text of the most recent non-empty flush, for callers racing the auto-flush. */
+  lastFlushedText: () => string;
+};
+
+export type CycleTextRecorderOpts = {
+  /**
+   * Reason stamped by the inference.error auto-flush. Callers that abort a
+   * cycle themselves (repetition, deadline) resolve the real cause here — the
+   * error event can beat the caller's own flush to the buffer.
+   */
+  resolveErrorFlushReason?: () => string;
 };
 
 export function createCycleTextRecorder(
@@ -33,13 +44,16 @@ export function createCycleTextRecorder(
   // recorder cannot tell which session a stale buffer belongs to.
   resolveContextDir: () => string,
   appendToken: (text: string, token: string) => string = (text, token) => text + token,
+  opts: CycleTextRecorderOpts = {},
 ): CycleTextRecorder {
   let cycleText = "";
+  let lastFlushed = "";
 
   const flush = async (reason: string): Promise<void> => {
     const text = cycleText;
     cycleText = "";
     if (text.trim().length === 0) return;
+    lastFlushed = text;
     const record = JSON.stringify({ reason, chars: text.length, text });
     try {
       await appendFile(join(resolveContextDir(), PARTIAL_FILE), `${record}\n`, "utf8");
@@ -62,9 +76,9 @@ export function createCycleTextRecorder(
       return;
     }
     if (event.type === "inference.error") {
-      void flush("inference-error");
+      void flush(opts.resolveErrorFlushReason?.() ?? "inference-error");
     }
   };
 
-  return { handleEvent, text: () => cycleText, flush };
+  return { handleEvent, text: () => cycleText, flush, lastFlushedText: () => lastFlushed };
 }

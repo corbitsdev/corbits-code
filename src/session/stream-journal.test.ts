@@ -78,4 +78,38 @@ describe("createCycleTextRecorder", () => {
     recorder.handleEvent(delta("abcdefgh"));
     expect(recorder.text()).toBe("defgh");
   });
+
+  test("an inference.error auto-flush uses resolveErrorFlushReason for the record's reason", async () => {
+    const recorder = createCycleTextRecorder(() => dir, undefined, {
+      resolveErrorFlushReason: () => "deadline",
+    });
+    recorder.handleEvent(delta("partial before deadline"));
+    recorder.handleEvent({
+      type: "inference.error",
+      data: { error: { category: "aborted", message: "aborted" } },
+    } as unknown as ReactorEmittedEvent);
+
+    await Bun.sleep(20);
+    const records = await readPartialRecords();
+    expect(records[0]?.reason).toBe("deadline");
+    expect(records[0]?.text).toBe("partial before deadline");
+  });
+
+  test("lastFlushedText returns the most recent non-empty flush and the buffer resets", async () => {
+    const recorder = createCycleTextRecorder(() => dir);
+    expect(recorder.lastFlushedText()).toBe("");
+
+    recorder.handleEvent(delta("first flush text"));
+    await recorder.flush("cancelled");
+    expect(recorder.lastFlushedText()).toBe("first flush text");
+    expect(recorder.text()).toBe("");
+
+    // A subsequent empty flush must not clobber the last non-empty flush.
+    await recorder.flush("cancelled");
+    expect(recorder.lastFlushedText()).toBe("first flush text");
+
+    recorder.handleEvent(delta("second flush text"));
+    await recorder.flush("deadline");
+    expect(recorder.lastFlushedText()).toBe("second flush text");
+  });
 });

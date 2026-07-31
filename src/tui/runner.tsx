@@ -1265,10 +1265,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // close() tears down stream consumers before the aborted cycle's
         // inference.error is delivered, so the recorder never sees a terminal
         // event for the dead cycle — flush its text here or it is lost (and
-        // would contaminate the rebuilt agent's next cycle).
+        // would contaminate the rebuilt agent's next cycle). The second flush
+        // catches stray deltas the pump delivers while the stream settles.
         await cycleRecorder.flush("interrupted");
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
+        await cycleRecorder.flush("interrupted");
         currentAgent = await buildAgent();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
         workflowController.reattach();
@@ -1295,8 +1297,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
-        // Flush before workdir is repointed so a dead cycle's partial lands in
-        // the session that produced it, not the fresh one.
+        // Tear the old agent down and flush the recorder before workdir is
+        // repointed: the pump can deliver stray deltas into the recorder until
+        // the stream settles, and a dead cycle's partial must land in the
+        // session that produced it, not the fresh one.
+        await cycleRecorder.flush("interrupted");
+        await currentAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
         await cycleRecorder.flush("interrupted");
         await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
@@ -1307,8 +1314,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         await initSessionDir(config.cwd, sessionId);
         permissionGate.reset();
         runSink.reset();
-        await currentAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
         await persistRunSnapshot("running");

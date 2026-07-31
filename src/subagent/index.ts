@@ -1378,7 +1378,13 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // (inference.done) never fire while a model loops inside one turn, so a
   // degenerate loop is aborted from the stream side. The recorder keeps the
   // cycle text so the looped tail survives the abort as the salvage payload.
-  const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
+  const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText, {
+    // The inference.error auto-flush races the catch block's own flush; stamp
+    // it with the same reason the catch block would use so a beaten-to-it
+    // flush doesn't mislabel a repetition/deadline abort as a generic error.
+    resolveErrorFlushReason: () =>
+      repetition.hit !== null ? "repetition" : runController.deadlineHit() ? "deadline" : "inference-error",
+  });
   // Holder object rather than a let: the value is written inside the stream
   // sink closure, and flow analysis would otherwise narrow a let to null at
   // the later catch-site reads.
@@ -1488,7 +1494,8 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         // stamp the record with the generic error reason instead of ours.
         // Repetition and deadline are already known here; a parent cancel is
         // labeled cancelled even if the outcome below resolves to rethrow.
-        const abortedCycleText = cycleRecorder.text();
+        const buffered = cycleRecorder.text();
+        const abortedCycleText = buffered.length > 0 ? buffered : cycleRecorder.lastFlushedText();
         await cycleRecorder.flush(
           repetition.hit !== null
             ? "repetition"
