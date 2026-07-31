@@ -73,3 +73,46 @@ describe("recursive rm detection", () => {
     expect(runShellAuthzBlockReason("bash -c 'rm -rf node_modules'")).toBeUndefined();
   });
 });
+
+describe("stdin-blocking with quote-aware tokenizeSegment", () => {
+  test("unquoted readers with no file operand are blocked", () => {
+    expect(runShellAuthzBlockReason("cat")).toMatch(/standard input/);
+    expect(runShellAuthzBlockReason("grep pattern")).toMatch(/standard input/);
+    expect(runShellAuthzBlockReason("tail -n 50")).toMatch(/standard input/);
+  });
+
+  test("unquoted readers with a file operand are allowed", () => {
+    expect(runShellAuthzBlockReason("cat foo")).toBeUndefined();
+    expect(runShellAuthzBlockReason("grep pat file")).toBeUndefined();
+    expect(runShellAuthzBlockReason("tail -n 50 file.log")).toBeUndefined();
+  });
+
+  test("quoted path with spaces counts as one file operand", () => {
+    // Naive whitespace split would see `"my` and `file.txt"` as two tokens and
+    // still allow; quote-aware tokenize keeps one operand either way. The
+    // important case is the single-file form must not hang.
+    expect(runShellAuthzBlockReason('cat "my file.txt"')).toBeUndefined();
+    expect(runShellAuthzBlockReason("cat 'my file.txt'")).toBeUndefined();
+  });
+
+  test("quoted grep pattern with spaces is one operand (still needs a file)", () => {
+    // Naive split of `grep 'a b'` yields tokens ["grep", "'a", "b'"] — two
+    // operands — and wrongly allows a command that would hang on stdin.
+    expect(runShellAuthzBlockReason("grep 'a b'")).toMatch(/standard input/);
+    expect(runShellAuthzBlockReason('grep "a b"')).toMatch(/standard input/);
+    expect(runShellAuthzBlockReason("grep 'a b' file")).toBeUndefined();
+    expect(runShellAuthzBlockReason('grep "a b" file')).toBeUndefined();
+  });
+
+  test("env assignment prefixes still strip before operand counting", () => {
+    expect(runShellAuthzBlockReason('FOO=1 cat "x y"')).toBeUndefined();
+    expect(runShellAuthzBlockReason("FOO=1 cat")).toMatch(/standard input/);
+    expect(runShellAuthzBlockReason("FOO=1 BAR=2 grep 'a b'")).toMatch(/standard input/);
+    expect(runShellAuthzBlockReason("FOO=1 grep 'a b' file")).toBeUndefined();
+  });
+
+  test("pipeline heads still apply; downstream stages do not", () => {
+    expect(runShellAuthzBlockReason("echo hi | cat")).toBeUndefined();
+    expect(runShellAuthzBlockReason("git log --oneline | tail -20")).toBeUndefined();
+  });
+});
