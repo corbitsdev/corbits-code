@@ -448,33 +448,108 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
   return { kind: "inner", command };
 }
 
+// Env short options that are boolean (no value) and may cluster with -S.
+// Used to tell clustered `-Si` (S takes the next argv) from glued `-Sfind`
+// (payload is the rest of the same token).
+const ENV_BOOL_SHORT = new Set(["i", "0", "v"]);
+
+// After extracting an -S / --split-string payload, fold any trailing utility
+// tokens (`env -S FOO=bar find /` → `FOO=bar find /`) so hard-deny sees the
+// real program, not just the assignment fragment that -S consumed.
+function finishEnvSplitPayload(
+  payload: string,
+  tokens: string[],
+  restStart: number,
+): PeelOutcome {
+  if (isOpaquePayload(payload)) return { kind: "opaque" };
+  const rest = tokens.slice(restStart);
+  if (rest.length === 0) return { kind: "inner", command: payload };
+  if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
+  const command = rejoinTokens([payload, ...rest]);
+  if (command === null) return { kind: "opaque" };
+  return { kind: "inner", command };
+}
+
 // Peel env's -S / --split-string payload as its own shell subject. Unlike the
 // auto-mode assignment ask (which only cares about NAME=value inside the
 // payload), every consumer of expandShellSubjects — hard-deny included — must
 // see every payload so `env -S "rm -rf /"` is blocked the same way as the
 // plain form. Uninspectable payloads are opaque rather than silently dropped.
+//
+// Forms covered:
+//   -S PAYLOAD / --split-string PAYLOAD
+//   --split-string=PAYLOAD
+//   glued -SPAYLOAD / --split-stringPAYLOAD (no `=`, one shell token)
+//   clustered short flags with S (`-iS`, `-Si`) taking the next token
+//   trailing utility after the -S argument (`env -S FOO=bar find /`)
 function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
     const t = tokens[i]!;
     if (t === "--") return { kind: "none" };
+
+    // --split-string=PAYLOAD
     if (t.startsWith("--split-string=")) {
-      const payload = t.slice("--split-string=".length);
-      if (isOpaquePayload(payload)) return { kind: "opaque" };
-      return { kind: "inner", command: payload };
+      return finishEnvSplitPayload(t.slice("--split-string=".length), tokens, i + 1);
     }
+    // Glued long form without `=`: --split-string"find /" → one token.
+    if (t.startsWith("--split-string") && t !== "--split-string") {
+      return finishEnvSplitPayload(t.slice("--split-string".length), tokens, i + 1);
+    }
+    // Separate-arg forms: -S PAYLOAD / --split-string PAYLOAD
     if (t === "-S" || t === "--split-string") {
       const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
-      return { kind: "inner", command: payload };
+      if (payload === undefined) return { kind: "opaque" };
+      return finishEnvSplitPayload(payload, tokens, i + 2);
     }
-    // Clustered short flags (`-iS`, `-Si`, `-0S`, …) — `S` still takes the
-    // next token as its split-string payload.
-    if (/^-[A-Za-z0-9]*S[A-Za-z0-9]*$/.test(t)) {
-      const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
-      return { kind: "inner", command: payload };
+
+    // Short-option cluster that contains S.
+    //   -Sfind / -S"find /"  → glued payload after S (same token)
+    //   -iS / -0S            → S at end of cluster; next token is payload
+    //   -Si / -Sv            → S then only boolean shorts; next token is payload
+    //   -Sifind              → S then non-bool remainder; treat as glued payload
+    if (t.startsWith("-") && t !== "-" && t.includes("S") && !t.startsWith("--")) {
+      const sIdx = t.indexOf("S", 1);
+      if (sIdx >= 1) {
+        const afterS = t.slice(sIdx + 1);
+        const onlyBoolAfter =
+          afterS.length === 0 || [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
+        if (onlyBoolAfter) {
+          // Clustered flags; S consumes the following argv token.
+          const payload = tokens[i + 1];
+          if (payload === undefined) return { kind: "opaque" };
+          return finishEnvSplitPayload(payload, tokens, i + 2);
+        }
+        // Glued payload in the same token (e.g. -Sfind, -S"find /").
+        return finishEnvSplitPayload(afterS, tokens, i + 1);
+      }
     }
+
+    // Value-taking env flags: skip the flag and its value so
+    // `env -u HOME -S "find /"` reaches the -S form intentionally.
+    if (
+      t === "-u" ||
+      t === "--unset" ||
+      t === "-C" ||
+      t === "--chdir" ||
+      t === "--argv0" ||
+      t === "-f" ||
+      t === "--file"
+    ) {
+      i++;
+      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
+      continue;
+    }
+    if (
+      t.startsWith("--unset=") ||
+      t.startsWith("--chdir=") ||
+      t.startsWith("--argv0=") ||
+      t.startsWith("--file=")
+    ) {
+      i++;
+      continue;
+    }
+
     if (t.startsWith("-") && t !== "-") {
       i++;
       continue;
@@ -701,8 +776,24 @@ function isOpenEndedSearch(command: string): boolean {
   return OPEN_ENDED_SEARCH_PATTERNS.some((pattern) => pattern.test(command));
 }
 
+// Open-ended / never-terminating / stdin hard-deny must scan expanded subjects
+// so `env -S "find /"`, `bash -c 'watch ls'`, and similar wrappers cannot hide
+// the real program inside a quoted payload. Normalize each subject so path-
+// qualified binaries still match command-position patterns.
+function subjectsHit(
+  command: string,
+  pred: (normalizedSubject: string) => boolean,
+): boolean {
+  const { subjects } = expandShellSubjects(command);
+  if (subjects.some((subject) => pred(normalizeCommand(subject)))) return true;
+  const normalized = normalizeCommand(command);
+  if (normalized === command) return false;
+  const { subjects: normalizedSubjects } = expandShellSubjects(normalized);
+  return normalizedSubjects.some((subject) => pred(normalizeCommand(subject)));
+}
+
 function openEndedSearchReason(command: string): string | undefined {
-  if (!isOpenEndedSearch(normalizeCommand(command))) return undefined;
+  if (!subjectsHit(command, isOpenEndedSearch)) return undefined;
   return (
     `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
     `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +
@@ -711,7 +802,8 @@ function openEndedSearchReason(command: string): string | undefined {
 }
 
 // Pipeline segments are judged in isolation for open-ended/destructive rules only.
-// Stdin and never-terminating checks apply to the full command string.
+// Stdin and never-terminating checks apply across expanded subjects so wrapper
+// payloads (env -S, bash -c, …) are visible.
 export function runShellAuthzSegmentBlockReason(segment: string): string | undefined {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return undefined;
@@ -723,22 +815,21 @@ export function runShellAuthzSegmentBlockReason(segment: string): string | undef
 }
 
 export function runShellAuthzBlockReason(command: string): string | undefined {
-  // Destructive check expands raw + normalized (see isDestructive). Other
-  // checks still run on the path/wrapper-stripped form.
+  // Destructive / open-ended / never-terminating / stdin all expand subjects so
+  // env -S and shell -c payloads cannot hide a blocked program.
   if (isDestructive(command)) {
     return `Destructive command blocked by policy: ${command}`;
   }
   const openEnded = openEndedSearchReason(command);
   if (openEnded !== undefined) return openEnded;
-  const normalized = normalizeCommand(command);
-  if (isNeverTerminating(normalized)) {
+  if (subjectsHit(command, isNeverTerminating)) {
     return (
       `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
       `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
       `alternative (e.g. tail -n 50 file). Command: ${command}`
     );
   }
-  if (blocksOnStdin(normalized)) {
+  if (subjectsHit(command, blocksOnStdin)) {
     return (
       `Command reads standard input with no file operand and would hang, since stdin is ` +
       `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +

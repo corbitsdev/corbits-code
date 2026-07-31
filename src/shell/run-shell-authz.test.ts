@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   commandHasRecursiveRm,
+  expandShellSubjects,
   runShellAuthzBlockReason,
   segmentHasRecursiveRm,
 } from "./run-shell-authz.js";
@@ -200,5 +201,75 @@ describe("authz hard-deny peels env -S / --split-string payloads", () => {
   test("Q5: opaque or empty env -S payload does not invent a hard-deny", () => {
     expect(runShellAuthzBlockReason(`env -S "$CMD"`)).toBeUndefined();
     expect(runShellAuthzBlockReason(`env -S ""`)).toBeUndefined();
+  });
+});
+
+// Security-review peel gaps: glued -S forms, trailing utility after the -S
+// argument, value-flag soup before -S, and open-ended / never-terminating /
+// stdin hard-deny through expanded subjects (not just catastrophic rm).
+describe("authz hard-deny peels glued and trailing env -S forms", () => {
+  const openEnded = /Open-ended shell search blocked/;
+  const neverTerm = /Never-terminating command blocked/;
+  const stdinHang = /reads standard input/;
+  const destructive = /Destructive command blocked/;
+
+  test("G1: open-ended find inside quoted -S is hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "find /"`)).toMatch(openEnded);
+    expect(expandShellSubjects(`env -S "find /"`).subjects).toContain("find /");
+  });
+
+  test("G2: never-terminating watch inside quoted -S is hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "watch ls"`)).toMatch(neverTerm);
+    expect(expandShellSubjects(`env -S "watch ls"`).subjects).toContain("watch ls");
+  });
+
+  test("G3: bare cat inside quoted -S is hard-denied as stdin hang", () => {
+    expect(runShellAuthzBlockReason(`env -S "cat"`)).toMatch(stdinHang);
+    expect(expandShellSubjects(`env -S "cat"`).subjects).toContain("cat");
+  });
+
+  test("G4: glued -S\"find /\" peels and hard-denies", () => {
+    expect(runShellAuthzBlockReason(`env -S"find /"`)).toMatch(openEnded);
+    expect(expandShellSubjects(`env -S"find /"`).subjects.some((s) => /\bfind\b/.test(s))).toBe(
+      true,
+    );
+  });
+
+  test("G5: glued -Sfind peels and hard-denies", () => {
+    expect(runShellAuthzBlockReason(`env -Sfind`)).toMatch(openEnded);
+    expect(expandShellSubjects(`env -Sfind`).subjects.some((s) => s === "find" || s.startsWith("find "))).toBe(
+      true,
+    );
+  });
+
+  test("G6: trailing utility after -S arg is visible (env -S FOO=bar find /)", () => {
+    const cmd = `env -S FOO=bar find /`;
+    expect(runShellAuthzBlockReason(cmd)).toMatch(openEnded);
+    const subjects = expandShellSubjects(cmd).subjects;
+    expect(subjects.some((s) => /\bfind\b/.test(s) && s.includes("/"))).toBe(true);
+  });
+
+  test("G7: soft-allow non-catastrophic rm inside -S is not hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "rm -rf node_modules"`)).toBeUndefined();
+    expect(commandHasRecursiveRm(`env -S "rm -rf node_modules"`)).toBe(true);
+  });
+
+  test("G8: soft-deny catastrophic rm inside -S is hard-denied", () => {
+    expect(runShellAuthzBlockReason(`env -S "rm -rf /"`)).toMatch(destructive);
+  });
+
+  test("G9: flag soup before -S still peels (env -i -u HOME -S)", () => {
+    expect(runShellAuthzBlockReason(`env -i -u HOME -S "find /"`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`/usr/bin/env -S "find /"`)).toMatch(openEnded);
+  });
+
+  test("G10: glued --split-string without equals peels when one token", () => {
+    // tokenize keeps --split-string"find /" as one token without `=`.
+    expect(runShellAuthzBlockReason(`env --split-string"find /"`)).toMatch(openEnded);
+  });
+
+  test("G11: clustered -iS with next-token payload still peels", () => {
+    expect(runShellAuthzBlockReason(`env -iS "find /"`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -Si "find /"`)).toMatch(openEnded);
   });
 });
