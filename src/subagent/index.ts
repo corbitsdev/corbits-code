@@ -87,6 +87,15 @@ import {
   type ThrashConfig,
   type ThrashState,
 } from "./thrash.js";
+import {
+  appendActivitySummary,
+  buildDispatchBrief,
+  demoteNestedReportHeadings,
+  formatSubAgentReport,
+  parseSubAgentReport,
+  subAgentToolName,
+  type TaskIntent,
+} from "./report.js";
 
 export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
@@ -101,6 +110,17 @@ export {
   type ThrashState,
   type ThrashStopReason,
 } from "./thrash.js";
+export {
+  appendActivitySummary,
+  buildDispatchBrief,
+  demoteNestedReportHeadings,
+  formatSubAgentReport,
+  parseSubAgentReport,
+  subAgentToolName,
+  type DispatchBrief,
+  type SubAgentReport,
+  type TaskIntent,
+} from "./report.js";
 
 export { DEFAULT_SUBAGENT_MAX_TURNS } from "../config/settings.js";
 
@@ -373,12 +393,6 @@ export function forcedStopReport(
     blockers,
     paths: "",
   });
-}
-
-/** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
-export function demoteNestedReportHeadings(text: string): string {
-  // Match parseSubAgentReport: flexible whitespace + case-insensitive section names.
-  return text.replace(/^##\s+(Summary|Findings|Blockers|Paths)\b/gim, "### $1");
 }
 
 /** True when the worker returned a turn-budget salvage report for the parent. */
@@ -784,8 +798,6 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
 };
 
 /** Typed spawn intent — optional on `task`; omit Intent section when unset. */
-export type TaskIntent = "explore" | "implement" | "review" | "plan" | "general";
-
 export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
@@ -853,145 +865,6 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
     return tools.filter((t) => !nameSet.has(t.definition.name));
   }
   return tools.filter((t) => nameSet.has(t.definition.name));
-}
-
-// Extract the tool name from a sub-agent stream event. tool.start carries the
-// call name at execution time; counting starts only (not ends) keeps the
-// activity summary at one entry per invocation.
-export function subAgentToolName(event: ReactorEmittedEvent): string | null {
-  if (event.type !== "tool.start") return null;
-  const call = (event as { data?: { call?: { name?: unknown } } }).data?.call;
-  if (typeof call?.name === "string" && call.name.length > 0) return call.name;
-  return null;
-}
-
-// Append a short activity footer so the parent model (and the operator reading
-// the tool result) can see what the sub-agent actually did. Without this the
-// only signal is the free-form reply, which models often omit tool details from.
-export function appendActivitySummary(reply: string, toolNames: readonly string[]): string {
-  if (toolNames.length === 0) return reply;
-  const counts = new Map<string, number>();
-  for (const name of toolNames) {
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  const parts = [...counts.entries()].map(([name, n]) => (n > 1 ? `${name}×${n}` : name));
-  return `${reply}\n\n[tools: ${parts.join(", ")}]`;
-}
-
-// Build the user message handed to a sub-agent. Separates durable context from
-// the actionable goal so workers follow the brief instead of treating one
-// free-form blob as optional color. Optional goals seed a checklist hint
-// (manage_tasks on the child owns the real list). Typed spawn fields
-// (intent / success_criteria / do_not / report_focus) are rendered only when set.
-export type DispatchBrief = {
-  description: string;
-  prompt: string;
-  context?: string;
-  goals?: readonly string[];
-  intent?: TaskIntent;
-  successCriteria?: readonly string[];
-  doNot?: readonly string[];
-  reportFocus?: string;
-};
-
-export function buildDispatchBrief(brief: DispatchBrief): string {
-  const parts: string[] = [
-    `# Dispatch brief: ${brief.description}`,
-    "",
-    "## Goal",
-    brief.prompt,
-  ];
-  if (brief.context !== undefined && brief.context.trim().length > 0) {
-    parts.push("", "## Context", brief.context.trim());
-  }
-  // Omit Intent when unset for back-compat (do not default-render "general").
-  if (brief.intent !== undefined) {
-    parts.push("", "## Intent", brief.intent);
-  }
-  // Prefer success_criteria as the done-definition; goals stay as checklist seed.
-  if (brief.successCriteria !== undefined && brief.successCriteria.length > 0) {
-    parts.push(
-      "",
-      "## Success criteria",
-      "Treat these as the done-definition — when all are met (or blocked), stop tools and emit the report envelope:",
-      ...brief.successCriteria.map((c, i) => `${i + 1}. ${c}`),
-    );
-  }
-  if (brief.doNot !== undefined && brief.doNot.length > 0) {
-    parts.push(
-      "",
-      "## Do not",
-      ...brief.doNot.map((d, i) => `${i + 1}. ${d}`),
-    );
-  }
-  if (brief.goals !== undefined && brief.goals.length > 0) {
-    parts.push(
-      "",
-      "## Suggested checklist",
-      "Seed these into manage_tasks if the job is multi-step, then work them in order:",
-      ...brief.goals.map((g, i) => `${i + 1}. ${g}`),
-    );
-  }
-  const reportLines = [
-    "When finished, reply with the ## Summary / ## Findings / ## Blockers / ## Paths envelope from your system prompt. Stay inside this brief.",
-  ];
-  if (brief.reportFocus !== undefined && brief.reportFocus.trim().length > 0) {
-    reportLines.push(`Focus Findings on: ${brief.reportFocus.trim()}`);
-  }
-  parts.push("", "## Report shape", ...reportLines);
-  return parts.join("\n");
-}
-
-// Normalize a worker's final text into the structured report envelope. Missing
-// sections fall back so a partial or free-form reply still returns something
-// useful to the parent instead of a raw dump.
-export type SubAgentReport = {
-  summary: string;
-  findings: string;
-  blockers: string;
-  paths: string;
-};
-
-export function parseSubAgentReport(reply: string): SubAgentReport {
-  const text = reply.trim();
-  const sections: Record<string, string> = {};
-  const headingRe = /^##\s+(Summary|Findings|Blockers|Paths)\s*$/gim;
-  const matches = [...text.matchAll(headingRe)];
-  if (matches.length === 0) {
-    return {
-      summary: text.length > 0 ? text : "Sub-agent finished without a textual result.",
-      findings: "",
-      blockers: "",
-      paths: "",
-    };
-  }
-  for (let i = 0; i < matches.length; i++) {
-    const m = matches[i]!;
-    const name = m[1]!.toLowerCase();
-    const start = (m.index ?? 0) + m[0].length;
-    const end = i + 1 < matches.length ? (matches[i + 1]!.index ?? text.length) : text.length;
-    sections[name] = text.slice(start, end).trim();
-  }
-  return {
-    summary: sections.summary ?? "",
-    findings: sections.findings ?? "",
-    blockers: sections.blockers ?? "",
-    paths: sections.paths ?? "",
-  };
-}
-
-export function formatSubAgentReport(report: SubAgentReport): string {
-  const lines: string[] = ["## Summary", report.summary.length > 0 ? report.summary : "(no summary)"];
-  if (report.findings.length > 0) {
-    lines.push("", "## Findings", report.findings);
-  }
-  if (report.blockers.length > 0) {
-    lines.push("", "## Blockers", report.blockers);
-  }
-  if (report.paths.length > 0) {
-    lines.push("", "## Paths", report.paths);
-  }
-  return lines.join("\n");
 }
 
 export type SubAgentRunController = {
