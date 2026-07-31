@@ -272,4 +272,11 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(runShellAuthzBlockReason(`env -iS "find /"`)).toMatch(openEnded);
     expect(runShellAuthzBlockReason(`env -Si "find /"`)).toMatch(openEnded);
   });
+
+  test("G12: transparent env --argv0 peels past the value to open-ended find", () => {
+    // Shared value-flag walker must skip --argv0 NAME so hard-deny sees `find /`.
+    expect(runShellAuthzBlockReason(`env --argv0 name find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env --argv0=name find /`)).toMatch(openEnded);
+    expect(expandShellSubjects(`env --argv0 name find /`).subjects).toContain("find /");
+  });
 });

@@ -453,6 +453,41 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
 // (payload is the rest of the same token).
 const ENV_BOOL_SHORT = new Set(["i", "0", "v"]);
 
+// Env flags that consume the following argv token as a value. Shared by the
+// -S peel walker and the transparent-prefix skip so they cannot drift.
+const ENV_VALUE_FLAGS = new Set([
+  "-u",
+  "--unset",
+  "-C",
+  "--chdir",
+  "--argv0",
+  "-f",
+  "--file",
+]);
+
+function isEnvValueEqualsFlag(t: string): boolean {
+  return (
+    t.startsWith("--unset=")
+    || t.startsWith("--chdir=")
+    || t.startsWith("--argv0=")
+    || t.startsWith("--file=")
+  );
+}
+
+// Advance past one env value-taking flag (+ its value when separate). Returns
+// the index after the flag/value, or null when `tokens[i]` is not such a flag.
+function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
+  const t = tokens[i];
+  if (t === undefined) return null;
+  if (ENV_VALUE_FLAGS.has(t)) {
+    let j = i + 1;
+    if (j < tokens.length && !tokens[j]!.startsWith("-")) j++;
+    return j;
+  }
+  if (isEnvValueEqualsFlag(t)) return i + 1;
+  return null;
+}
+
 // After extracting an -S / --split-string payload, fold any trailing utility
 // tokens (`env -S FOO=bar find /` → `FOO=bar find /`) so hard-deny sees the
 // real program, not just the assignment fragment that -S consumed.
@@ -525,28 +560,10 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
       }
     }
 
-    // Value-taking env flags: skip the flag and its value so
-    // `env -u HOME -S "find /"` reaches the -S form intentionally.
-    if (
-      t === "-u" ||
-      t === "--unset" ||
-      t === "-C" ||
-      t === "--chdir" ||
-      t === "--argv0" ||
-      t === "-f" ||
-      t === "--file"
-    ) {
-      i++;
-      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
-      continue;
-    }
-    if (
-      t.startsWith("--unset=") ||
-      t.startsWith("--chdir=") ||
-      t.startsWith("--argv0=") ||
-      t.startsWith("--file=")
-    ) {
-      i++;
+    // Value-taking env flags: skip so `env -u HOME -S "find /"` reaches -S.
+    const afterValue = advancePastEnvValueFlag(tokens, i);
+    if (afterValue !== null) {
+      i = afterValue;
       continue;
     }
 
@@ -575,21 +592,9 @@ function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
       i++;
       continue;
     }
-    // Flags that consume the following token as a value.
-    if (
-      t === "-u" ||
-      t === "--unset" ||
-      t === "-C" ||
-      t === "--chdir" ||
-      t === "-f" ||
-      t === "--file"
-    ) {
-      i++;
-      if (i < tokens.length && !tokens[i]!.startsWith("-")) i++;
-      continue;
-    }
-    if (t.startsWith("--unset=") || t.startsWith("--chdir=") || t.startsWith("--file=")) {
-      i++;
+    const afterValue = advancePastEnvValueFlag(tokens, i);
+    if (afterValue !== null) {
+      i = afterValue;
       continue;
     }
     if (t.startsWith("-") && t !== "-") {
