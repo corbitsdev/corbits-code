@@ -193,8 +193,10 @@ const CODE_GUTTER = "▏ ";
 
 type FencedBlock = { lines: StyledSegment[][]; consumed: number };
 
+// Always paint the gutter, including on blank body lines. Skipping empty lines
+// left disconnected bar fragments (a floating language cap, gaps mid-block, a
+// dangling foot) instead of one continuous container.
 function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
-  if (line.length === 0) return line;
   return [{ text: CODE_GUTTER, code: true, dim: true, codeFence: true }, ...line];
 }
 
