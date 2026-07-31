@@ -114,6 +114,8 @@ import {
 } from "../permission/store.js";
 import type { Approval, GrantScope } from "../permission/types.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { createCycleTextRecorder } from "../session/stream-journal.js";
+import { appendCycleText } from "../subagent/repetition.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
 import { App } from "./app.js";
@@ -1089,8 +1091,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     await writeRunSnapshot(status, extra);
   };
 
+  // Cycles persist to the context store only on inference.done; the recorder
+  // keeps the in-flight cycle's text so an errored or interrupted turn leaves
+  // its partial output in partial.jsonl instead of vanishing.
+  const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
     runSink.sink(event);
+    cycleRecorder.handleEvent(event);
     if (event.type === "reactor.done") {
       void persistRunSnapshot("running");
     }

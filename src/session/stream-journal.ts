@@ -28,7 +28,9 @@ export type CycleTextRecorder = {
 };
 
 export function createCycleTextRecorder(
-  contextDir: string,
+  // Resolved per flush: the TUI rotates its session context dir in place, and
+  // a partial must land in the directory of the session that produced it.
+  resolveContextDir: () => string,
   appendToken: (text: string, token: string) => string = (text, token) => text + token,
 ): CycleTextRecorder {
   let cycleText = "";
@@ -39,7 +41,7 @@ export function createCycleTextRecorder(
     if (text.trim().length === 0) return;
     const record = JSON.stringify({ reason, chars: text.length, text });
     try {
-      await appendFile(join(contextDir, PARTIAL_FILE), `${record}\n`, "utf8");
+      await appendFile(join(resolveContextDir(), PARTIAL_FILE), `${record}\n`, "utf8");
     } catch (err) {
       getLogger([LOG_NAMESPACE_ROOT, "session", "partial"]).warn(
         "failed to write partial stream output: {error}",

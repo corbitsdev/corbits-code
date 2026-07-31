@@ -31,7 +31,7 @@ async function readPartialRecords(): Promise<Array<{ reason: string; text: strin
 
 describe("createCycleTextRecorder", () => {
   test("buffers deltas and writes nothing on the happy path", async () => {
-    const recorder = createCycleTextRecorder(dir);
+    const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("hello "));
     recorder.handleEvent(delta("world"));
     expect(recorder.text()).toBe("hello world");
@@ -42,7 +42,7 @@ describe("createCycleTextRecorder", () => {
   });
 
   test("flush writes the buffer with a reason and resets", async () => {
-    const recorder = createCycleTextRecorder(dir);
+    const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("looping output"));
     await recorder.flush("repetition");
 
@@ -54,13 +54,13 @@ describe("createCycleTextRecorder", () => {
   });
 
   test("flush with an empty buffer writes nothing", async () => {
-    const recorder = createCycleTextRecorder(dir);
+    const recorder = createCycleTextRecorder(() => dir);
     await recorder.flush("cancelled");
     await expect(readFile(join(dir, PARTIAL_FILE), "utf8")).rejects.toThrow();
   });
 
   test("an inference.error event flushes the buffer", async () => {
-    const recorder = createCycleTextRecorder(dir);
+    const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("partial before failure"));
     recorder.handleEvent({
       type: "inference.error",
@@ -74,7 +74,7 @@ describe("createCycleTextRecorder", () => {
   });
 
   test("uses the injected append function for capping", () => {
-    const recorder = createCycleTextRecorder(dir, (text, token) => (text + token).slice(-5));
+    const recorder = createCycleTextRecorder(() => dir, (text, token) => (text + token).slice(-5));
     recorder.handleEvent(delta("abcdefgh"));
     expect(recorder.text()).toBe("defgh");
   });

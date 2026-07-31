@@ -1373,7 +1373,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // (inference.done) never fire while a model loops inside one turn, so a
   // degenerate loop is aborted from the stream side. The recorder keeps the
   // cycle text so the looped tail survives the abort as the salvage payload.
-  const cycleRecorder = createCycleTextRecorder(workdir, appendCycleText);
+  const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
   let repetitionHit: RepetitionHit | null = null;
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);

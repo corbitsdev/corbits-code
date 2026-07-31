@@ -84,6 +84,8 @@ import {
   reportPathTrustMigration,
 } from "../trust/path-trust.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { createCycleTextRecorder } from "../session/stream-journal.js";
+import { appendCycleText } from "../subagent/repetition.js";
 import {
   generateSessionId,
   initSessionDir,
@@ -602,8 +604,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     }
 
     const textChunks: string[] = [];
+    // Cycles persist to the context store only on inference.done; the recorder
+    // keeps the in-flight cycle's text so an errored or aborted turn leaves
+    // its partial output in partial.jsonl instead of vanishing.
+    const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText);
     const sink = (event: ReactorEmittedEvent): void => {
       runSink.sink(event);
+      cycleRecorder.handleEvent(event);
       if (event.type === "inference.text.delta") {
         const token = (event.data as { token?: string }).token;
         if (typeof token === "string" && token.length > 0) {
