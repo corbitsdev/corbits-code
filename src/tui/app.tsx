@@ -26,8 +26,7 @@ import {
 import type { StyledLine } from "./view/index.js";
 import { StatusBar } from "./components/status-bar.js";
 import { useGitBranch } from "./git-branch.js";
-import { buildCostSummary, formatCostCommandOutput, formatStatusBarSegments } from "../cost/cost-summary.js";
-import { getActivePricingCache } from "../cost/cost-visibility.js";
+import { formatStatusBarSegments } from "../cost/cost-summary.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
 import { ChatInput } from "./components/chat-input.js";
 import {
@@ -128,7 +127,6 @@ import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
 import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
-import { goalKickoffUserMessage } from "../agent/goal.js";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { createPathRestriction, type PathRestriction } from "../permission/path-restriction.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
@@ -142,6 +140,7 @@ import { setConfiguredTiers } from "./commands/built-in.js";
 import { useImageAttach } from "./hooks/use-image-attach.js";
 import { useDrainLogic } from "./hooks/use-drain-logic.js";
 import { useMessagePipeline } from "./hooks/use-message-pipeline.js";
+import { useCommandContext } from "./hooks/use-command-context.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
@@ -1360,54 +1359,18 @@ export function App({
     requestStopRef,
   });
 
-  const getCostSummary = () => {
-    const activeProvider = providerCatalog.find((p) => p.name === provider);
-    return buildCostSummary({
-      modelId: modelRef.current,
-      baseURL: activeProvider?.baseURL,
-      providerFree: activeProvider?.free,
-      pricingCache: getActivePricingCache(),
-      totalCost: state.totalCost,
-      formattedCost: state.formattedCost,
-      inputTokens: state.inputTokens,
-      outputTokens: state.outputTokens,
-      cacheReadTokens: state.cacheReadTokens,
-      contextTokens: state.contextTokens,
-    });
-  };
-  // commandContext below is memoized, so it would otherwise capture a stale
-  // getCostSummary closure (provider/state from an old render). Routing the
-  // call through a ref updated every render keeps the memoized context reading
-  // live values, matching the signalClear/startNewSessionRef pattern.
-  const getCostSummaryRef = useRef(getCostSummary);
-  getCostSummaryRef.current = getCostSummary;
-
-  const commandContext = useMemo(() => ({
-    signalClear: () => startNewSessionRef.current(),
-    getMCPServers: () => mcpStatus.servers,
-    getCostSummary: () => getCostSummaryRef.current(),
-    ...(onStartWorkflow !== undefined ? { startWorkflow: onStartWorkflow } : {}),
-    ...(onRenameSession !== undefined ? { renameSession: onRenameSession } : {}),
-    ...(goalApi !== undefined
-      ? {
-          goal: {
-            get: goalApi.get,
-            set: goalApi.set,
-            pause: goalApi.pause,
-            resume: goalApi.resume,
-            clear: goalApi.clear,
-            kickoff: (condition: string, phase: "set" | "resume" = "set") => {
-              // Start a turn immediately so the agent works without a second prompt.
-              // Set path forces clarify-first for vague goals; resume continues.
-              sendMessageRef.current({
-                text: goalKickoffUserMessage(condition, phase),
-                attachments: [],
-              });
-            },
-          },
-        }
-      : {}),
-  }), [mcpStatus.servers, onStartWorkflow, onRenameSession, goalApi]);
+  const { getCostSummary, commandContext } = useCommandContext({
+    provider,
+    providerCatalog,
+    modelRef,
+    state,
+    mcpServers: mcpStatus.servers,
+    startNewSessionRef,
+    onStartWorkflow,
+    onRenameSession,
+    goalApi,
+    sendMessageRef,
+  });
 
   // Watchdog: if the run stays in the awaiting-response gap beyond STALL_TIMEOUT_MS
   // with no new content, abort the in-flight request and surface a message so the
