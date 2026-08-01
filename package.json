@@ -1,5 +1,5 @@
 {
-  "name": "corbits",
+  "name": "@corbits/code",
   "version": "0.2.86",
   "description": "Single-process coding agent CLI built on the Interchange runtime (Bun + TypeScript)",
   "private": true,
