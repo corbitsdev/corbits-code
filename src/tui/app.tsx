@@ -35,9 +35,8 @@ import { SubAgentSessionView } from "./components/subagent-session-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
 import { ModalStack } from "./components/modal-stack.js";
-import { PermissionsManager } from "./components/permissions-manager.js";
-import { SettingsOverlay, type CompactionMode } from "./components/settings-overlay.js";
-import { PluginsManager, type PluginsAdmin } from "./components/plugins-manager.js";
+import type { CompactionMode } from "./components/settings-overlay.js";
+import type { PluginsAdmin } from "./components/plugins-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
 import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
@@ -63,13 +62,9 @@ import { useMouseScroll } from "./hooks/use-mouse-scroll.js";
 import { useMCPStatus } from "./hooks/use-mcp-status.js";
 import { removeAgentProfile, upsertAgentProfile } from "./agent-profiles.js";
 import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
-import { CodexLoginModal } from "./components/codex-login-modal.js";
-import { LoginProviderPicker } from "./components/login-provider-picker.js";
 import { writeClipboard } from "./util/clipboard.js";
 import { copyTargets, transcriptMarkdown, type CopyTarget } from "./copy.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
-import { startCodexLogin } from "../auth/codex/login.js";
-import { startXaiLogin } from "../auth/xai/login.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { fetchCodexUsage, formatCodexUsage } from "../auth/codex/usage.js";
@@ -95,6 +90,7 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveAtMentions } from "./mention-resolution.js";
 import { STALL_TIMEOUT_MS, shouldAbortForStall, applyStallRecovery } from "./stall-watchdog.js";
 import { QuotaErrorBanner, GatewayRetryBanner } from "./components/retry-banners.js";
+import { OverlayStack } from "./components/overlay-stack.js";
 import {
   resolveGoalChrome,
   goalChromeRowCount,
@@ -1283,89 +1279,58 @@ export function App({
           width={columns}
         />
       </Box>
-      {permissionsOpen && (
-        <PermissionsManager
-          entries={permissionEntries}
-          onRevoke={handleRevokePermission}
-          onClose={() => setPermissionsOpen(false)}
-          maxHeight={permissionsOverlayRows}
-        />
-      )}
-      {settingsOpen && (
-        <SettingsOverlay
-          permissionEntries={permissionEntries}
-          onRevokePermission={handleRevokePermission}
-          compactionMode={compactionMode}
-          onChangeCompactionMode={(mode) => {
-            setCompactionMode(mode);
-            void onChangeCompactionMode?.(mode);
-          }}
-          maxConcurrentSubAgents={maxConcurrentSubAgents}
-          onChangeMaxConcurrentSubAgents={(limit) => {
-            setMaxConcurrentSubAgents(limit);
-            void onChangeMaxConcurrentSubAgents?.(limit);
-          }}
-          sessionMode={sessionMode}
-          {...(savedGlobalSessionMode !== undefined
-            ? { savedGlobalSessionMode }
-            : {})}
-          {...(savedLocalSessionMode !== undefined
-            ? { savedLocalSessionMode }
-            : {})}
-          onChangeSessionMode={(mode, scope) => {
-            if (scope === "global") setSavedGlobalSessionMode(mode);
-            else setSavedLocalSessionMode(mode);
-            void onChangeSessionMode?.(mode, scope);
-          }}
-          telemetryEnabled={liveTelemetryEnabled}
-          onChangeTelemetryEnabled={(enabled) => {
-            setLiveTelemetryEnabled(enabled);
-            onChangeTelemetryEnabled?.(enabled);
-          }}
-          waitForApproval={waitForApproval}
-          onChangeWaitForApproval={(value) => {
-            setWaitForApproval(value);
-            void onChangeWaitForApproval?.(value);
-          }}
-          onClose={() => setSettingsOpen(false)}
-          maxHeight={permissionsOverlayRows}
-        />
-      )}
-      {pluginsOpen && pluginsAdmin !== undefined && (
-        <PluginsManager admin={pluginsAdmin} onClose={() => setPluginsOpen(false)} cwd={cwd} />
-      )}
-      {loginModal === "choose" && (
-        <LoginProviderPicker
-          onSelect={(provider) => setLoginModal(provider)}
-          onClose={() => setLoginModal(null)}
-        />
-      )}
-      {(loginModal === "codex" || loginModal === "xai") && (
-        <CodexLoginModal
-          profiles={loginModal === "xai" ? xaiProfileNames : codexProfileNames}
-          activeProfile={provider}
-          providerPrefix={loginModal === "xai" ? "xai/" : "codex/"}
-          title={loginModal === "xai" ? "xAI Login" : "Codex Login"}
-          subtitle={loginModal === "xai" ? "Sign in with a SuperGrok or X Premium+ subscription" : "Sign in with a ChatGPT Plus/Pro subscription"}
-          providerLabel={loginModal === "xai" ? "xAI" : "Codex"}
-          onStartLogin={(name) => {
-            const controller = new AbortController();
-            const start = loginModal === "xai" ? startXaiLogin : startCodexLogin;
-            return start({ profile: name, signal: controller.signal }).then((handle) => ({
-              authorizeUrl: handle.authorizeUrl,
-              completed: handle.completed,
-              cancel: () => {
-                controller.abort();
-                handle.cancel();
-              },
-            }));
-          }}
-          autoLoginProfile={autoLoginProfile}
-          onSwitchProfile={loginModal === "xai" ? switchToXaiProfile : switchToCodexProfile}
-          onRemoveProfile={loginModal === "xai" ? removeXaiProfileEverywhere : removeCodexProfileEverywhere}
-          onClose={() => { setLoginModal(null); setAutoLoginProfile(undefined); }}
-        />
-      )}
+      <OverlayStack
+        permissionsOpen={permissionsOpen}
+        permissionEntries={permissionEntries}
+        onRevokePermission={handleRevokePermission}
+        onClosePermissions={() => setPermissionsOpen(false)}
+        permissionsOverlayRows={permissionsOverlayRows}
+        settingsOpen={settingsOpen}
+        compactionMode={compactionMode}
+        onChangeCompactionMode={(mode) => {
+          setCompactionMode(mode);
+          void onChangeCompactionMode?.(mode);
+        }}
+        maxConcurrentSubAgents={maxConcurrentSubAgents}
+        onChangeMaxConcurrentSubAgents={(limit) => {
+          setMaxConcurrentSubAgents(limit);
+          void onChangeMaxConcurrentSubAgents?.(limit);
+        }}
+        sessionMode={sessionMode}
+        {...(savedGlobalSessionMode !== undefined ? { savedGlobalSessionMode } : {})}
+        {...(savedLocalSessionMode !== undefined ? { savedLocalSessionMode } : {})}
+        onChangeSessionMode={(mode, scope) => {
+          if (scope === "global") setSavedGlobalSessionMode(mode);
+          else setSavedLocalSessionMode(mode);
+          void onChangeSessionMode?.(mode, scope);
+        }}
+        telemetryEnabled={liveTelemetryEnabled}
+        onChangeTelemetryEnabled={(enabled) => {
+          setLiveTelemetryEnabled(enabled);
+          onChangeTelemetryEnabled?.(enabled);
+        }}
+        waitForApproval={waitForApproval}
+        onChangeWaitForApproval={(value) => {
+          setWaitForApproval(value);
+          void onChangeWaitForApproval?.(value);
+        }}
+        onCloseSettings={() => setSettingsOpen(false)}
+        pluginsOpen={pluginsOpen}
+        pluginsAdmin={pluginsAdmin}
+        onClosePlugins={() => setPluginsOpen(false)}
+        cwd={cwd}
+        loginModal={loginModal}
+        onSelectLoginProvider={(provider) => setLoginModal(provider)}
+        onCloseLoginModal={() => { setLoginModal(null); setAutoLoginProfile(undefined); }}
+        xaiProfileNames={xaiProfileNames}
+        codexProfileNames={codexProfileNames}
+        activeProvider={provider}
+        autoLoginProfile={autoLoginProfile}
+        switchToXaiProfile={switchToXaiProfile}
+        switchToCodexProfile={switchToCodexProfile}
+        removeXaiProfileEverywhere={removeXaiProfileEverywhere}
+        removeCodexProfileEverywhere={removeCodexProfileEverywhere}
+      />
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
         <Box paddingX={1}>
