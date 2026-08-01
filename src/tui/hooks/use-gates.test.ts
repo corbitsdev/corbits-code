@@ -187,4 +187,74 @@ describe("useGates queue reconciliation", () => {
     await new Promise((r) => setTimeout(r, 0));
     unmount();
   });
+
+  test("a secret-path request stays queued after a covering grant mints", async () => {
+    const emitter = new EventEmitter();
+    const controllerRef: { current: GateController | null } = { current: null };
+    const element = () => createElement(Harness, { emitter, controllerRef });
+    const { rerender, unmount } = render(element());
+
+    const outcomes: ApprovalOutcome[] = [];
+    enqueuePermission(emitter, request({ subject: "cat .env" })).then((o) => outcomes.push(o));
+    rerender(element());
+
+    grant(emitter, { tool: "run_shell", pattern: "cat *" });
+    rerender(element());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender(element());
+
+    expect(controllerRef.current!.permissionQueueDepth).toBe(1);
+    expect(outcomes).toHaveLength(0);
+
+    controllerRef.current!.resetGates();
+    await new Promise((r) => setTimeout(r, 0));
+    unmount();
+  });
+
+  test("a restricted-path request stays queued after a covering grant mints", async () => {
+    const emitter = new EventEmitter();
+    const controllerRef: { current: GateController | null } = { current: null };
+    const element = () => createElement(Harness, { emitter, controllerRef });
+    const { rerender, unmount } = render(element());
+
+    const outcomes: ApprovalOutcome[] = [];
+    enqueuePermission(emitter, request({ subject: "cat ../../etc/passwd" })).then((o) =>
+      outcomes.push(o),
+    );
+    rerender(element());
+
+    grant(emitter, { tool: "run_shell", pattern: "cat *" });
+    rerender(element());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender(element());
+
+    expect(controllerRef.current!.permissionQueueDepth).toBe(1);
+    expect(outcomes).toHaveLength(0);
+
+    controllerRef.current!.resetGates();
+    await new Promise((r) => setTimeout(r, 0));
+    unmount();
+  });
+
+  test("a plain covered request still auto-drains despite the new guards", async () => {
+    const emitter = new EventEmitter();
+    const controllerRef: { current: GateController | null } = { current: null };
+    const element = () => createElement(Harness, { emitter, controllerRef });
+    const { rerender, unmount } = render(element());
+
+    const outcomes: ApprovalOutcome[] = [];
+    enqueuePermission(emitter, request({ subject: "cat README.md" })).then((o) => outcomes.push(o));
+    rerender(element());
+
+    grant(emitter, { tool: "run_shell", pattern: "cat *" });
+    rerender(element());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender(element());
+
+    expect(controllerRef.current!.permissionQueueDepth).toBe(0);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.allow).toBe(true);
+
+    unmount();
+  });
 });
