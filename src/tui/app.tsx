@@ -87,7 +87,6 @@ import {
   extraChromeRowCount,
 } from "./chrome-geometry.js";
 import type { OutboundUserMessage } from "./message-types.js";
-export type { OutboundUserMessage } from "./message-types.js";
 
 const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
   active: false,
