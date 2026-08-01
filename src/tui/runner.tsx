@@ -100,6 +100,7 @@ import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.
 import { scrubSecrets } from "../web/secret-scrub.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { enterAltScreen } from "../util/alt-screen.js";
 import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
 import { App } from "./app.js";
@@ -260,9 +261,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // on a clean exit; it also gates straggler snapshot writes (see
   // persistRunSnapshot) from resurrecting a closed record.
   let finalized = false;
+  // Bound after the cycle recorder exists (it needs the session workdir); the
+  // crash guard is declared first so it covers every fallible step below.
+  let flushPartialOnCrash: () => Promise<void> = async () => {};
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
+    await flushPartialOnCrash().catch(() => undefined);
     const message = err instanceof Error ? err.message : String(err);
     await saveState(config.cwd, sessionId, {
       status: "failed",
@@ -1030,8 +1035,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     await writeRunSnapshot(status, extra);
   };
 
+  // Cycles persist to the context store only on inference.done; the recorder
+  // keeps the in-flight cycle's text so an errored or interrupted turn leaves
+  // its partial output in partial.jsonl instead of vanishing.
+  const cycleRecorder = createCycleTextRecorder(() => workdir);
+  flushPartialOnCrash = () => cycleRecorder.dispose("crashed").then(() => undefined);
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
     runSink.sink(event);
+    cycleRecorder.handleEvent(event);
     if (event.type === "reactor.done") {
       void persistRunSnapshot("running");
     }
@@ -1196,9 +1207,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const interrupt = (): void => {
     void enqueueOp(async () => {
       try {
+        // close() tears down stream consumers before the aborted cycle's
+        // inference.error is delivered, so the recorder never sees a terminal
+        // event for the dead cycle — dispose closes it against stray deltas
+        // and salvages the buffer before that teardown, so it is never lost
+        // or misattributed to the rebuilt agent's next cycle.
+        await cycleRecorder.dispose("interrupted");
         await currentAgent.close().catch(() => undefined);
         await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
+        cycleRecorder.reset();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
         workflowController.reattach();
         fatalBuildError = null;
@@ -1224,6 +1242,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
+        // Tear the old agent down and dispose the recorder before workdir is
+        // repointed: the pump can deliver stray deltas until the stream
+        // settles, and a dead cycle's partial must land in the session that
+        // produced it, not the fresh one.
+        await cycleRecorder.dispose("rotation");
+        await currentAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
         await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
         startedAt = Date.now();
@@ -1233,9 +1258,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         await initSessionDir(config.cwd, sessionId);
         permissionGate.reset();
         runSink.reset();
-        await currentAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
         currentAgent = await buildAgent();
+        cycleRecorder.reset();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
         await persistRunSnapshot("running");
         // A fresh session drops any active workflow and goal.
@@ -1490,6 +1514,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
 
   await waitUntilExit();
+  // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
+  // downstream delivers its terminal event once the app is gone.
+  await cycleRecorder.dispose("exit");
   mcpConnectController.abort();
   disableMouseReporting();
   exitAltScreen();

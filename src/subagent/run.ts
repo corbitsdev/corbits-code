@@ -45,7 +45,13 @@ import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { withSubAgentSlot } from "./concurrency.js";
+import {
+  detectRepetition,
+  REPETITION_CHECK_INTERVAL_CHARS,
+  type RepetitionHit,
+} from "./repetition.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
@@ -148,6 +154,8 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
 export type SubAgentRunController = {
   signal: AbortSignal;
   deadlineHit: () => boolean;
+  /** Abort the run from inside (e.g. repetition detection), distinct from parent cancel and deadline. */
+  abort: (reason: Error) => void;
   dispose: () => void;
 };
 
@@ -186,6 +194,9 @@ export function createSubAgentRunController(
   return {
     signal: controller.signal,
     deadlineHit: () => hit,
+    abort: (reason: Error): void => {
+      if (!controller.signal.aborted) controller.abort(reason);
+    },
     dispose: (): void => {
       if (timer !== undefined) clearTimeout(timer);
       parentSignal?.removeEventListener("abort", onParentAbort);
@@ -486,11 +497,39 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // transcript (which would interleave sub-agent text with the parent turn).
   const toolNamesUsed: string[] = [];
   let lastPartialText = "";
+  // Watch the streamed text of the in-flight cycle: turn-level stop checks
+  // (inference.done) never fire while a model loops inside one turn, so a
+  // degenerate loop is aborted from the stream side. The recorder keeps the
+  // cycle text so the looped tail survives the abort as the salvage payload.
+  const cycleRecorder = createCycleTextRecorder(() => workdir);
+  // Holder object rather than a let: the value is written inside the stream
+  // sink closure, and flow analysis would otherwise narrow a let to null at
+  // the later catch-site reads.
+  const repetition: { hit: RepetitionHit | null } = { hit: null };
+  let charsSinceRepetitionCheck = 0;
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);
     if (name !== null) {
       toolNamesUsed.push(name);
       params.onProgress?.({ description: params.description, toolName: name });
+    }
+    cycleRecorder.handleEvent(event);
+    if (event.type === "inference.text.delta" && repetition.hit === null) {
+      // Count the raw token, not the buffer growth: once the buffer is pinned
+      // at its cap, appends no longer change its length and a growth-based
+      // counter would disarm detection for the rest of the turn.
+      const token = (event.data as { token?: unknown }).token;
+      charsSinceRepetitionCheck += typeof token === "string" ? token.length : 0;
+      if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
+        charsSinceRepetitionCheck = 0;
+        const hit = detectRepetition(cycleRecorder.text());
+        if (hit !== null) {
+          repetition.hit = hit;
+          runController.abort(
+            new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
+          );
+        }
+      }
     }
     const partial = partialTextFromEvent(event);
     if (partial !== null) lastPartialText = partial;
@@ -566,11 +605,21 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       return appendActivitySummary(report, toolNamesUsed);
     } catch (err) {
       if (isSubAgentCancelError(err, runController.signal)) {
-        // Drain stream events so tool.start / inference.done that already
-        // left the reactor are reflected before we decide bare vs salvage.
-        if (streamPromise !== undefined) {
-          await streamPromise.catch(() => {});
-        }
+        // Close the recorder against the dead cycle before its inference.error
+        // arrives: closing at entry stops that auto-flush from mislabeling this
+        // salvage with the generic error reason. Draining first lets the sink's
+        // own bookkeeping (lastPartialText) catch late tool.start / inference.done
+        // events before bare-vs-salvage is decided.
+        // Repetition and deadline are already known here; a parent cancel is
+        // labeled cancelled even if the outcome below resolves to rethrow.
+        const abortedCycleText = await cycleRecorder.dispose(
+          repetition.hit !== null
+            ? "repetition"
+            : runController.deadlineHit()
+              ? "deadline"
+              : "cancelled",
+          { drain: streamPromise },
+        );
         // Deadline always salvages (even with zero output). Cancel after any
         // tools or assistant prose salvages so the parent keeps partial work;
         // pre-progress cancel still surfaces as a bare AbortError.
@@ -579,13 +628,24 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         const outcome = resolveSubAgentCatchOutcome({
           deadlineHit: runController.deadlineHit(),
           hadProgress,
+          repetitionHit: repetition.hit !== null,
         });
         if (outcome !== "rethrow") {
-          const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
-          return appendActivitySummary(
-            forcedStopReport(reason, lastPartialText),
-            toolNamesUsed,
-          );
+          const reason =
+            outcome === "salvage-repetition"
+              ? "repetition"
+              : outcome === "salvage-deadline"
+                ? "deadline"
+                : "cancelled";
+          const tail =
+            lastPartialText.trim().length > 0 ? lastPartialText : abortedCycleText.slice(-2000);
+          // Lead with the detected window so the parent sees the loop unit
+          // itself, not just an arbitrary tail that happens to contain it.
+          const partial =
+            repetition.hit !== null
+              ? `Looped window (repeated ${repetition.hit.repeats}x): ${repetition.hit.window.slice(0, 300)}\n\n${tail}`
+              : tail;
+          return appendActivitySummary(forcedStopReport(reason, partial), toolNamesUsed);
         }
       }
       throw err;

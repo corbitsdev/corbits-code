@@ -61,6 +61,7 @@ import {
   reportPathTrustMigration,
 } from "../trust/path-trust.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { createCycleTextRecorder } from "../session/stream-journal.js";
 import {
   generateSessionId,
   initSessionDir,
@@ -530,8 +531,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     }
 
     const textChunks: string[] = [];
+    // Cycles persist to the context store only on inference.done; the recorder
+    // keeps the in-flight cycle's text so an errored or aborted turn leaves
+    // its partial output in partial.jsonl instead of vanishing.
+    const cycleRecorder = createCycleTextRecorder(() => workdir);
     const sink = (event: ReactorEmittedEvent): void => {
       runSink.sink(event);
+      cycleRecorder.handleEvent(event);
       if (event.type === "inference.text.delta") {
         const token = (event.data as { token?: string }).token;
         if (typeof token === "string" && token.length > 0) {
@@ -576,8 +582,26 @@ export async function runExec(config: Config): Promise<ExecResult> {
       runError = runSink.getRunError();
       sinkStatus = runSink.getStatus();
     } finally {
-      await activeAgent.close().catch(() => undefined);
-      await streamPromise.catch(() => undefined);
+      if (sendCompleted && runSink.getRunError() === undefined) {
+        // Successful send: the final cycle's inference.done is queued on the
+        // stream but may not have reached the sink yet (send resolves on the
+        // connector reply). Drain BEFORE disposing so the done event resets
+        // the buffer — dispose snapshots at entry and would otherwise write
+        // the entire successful reply as a spurious partial. After the drain,
+        // dispose is a no-op on success and a real record only if a cycle
+        // died without a terminal event.
+        await activeAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
+        await cycleRecorder.dispose("cancelled");
+      } else {
+        // Failed or aborted send: close() tears down stream consumers before
+        // the dead cycle's inference.error is delivered, so dispose (which
+        // snapshots the buffer at entry) runs before closing or the text is
+        // lost.
+        await cycleRecorder.dispose(sendCompleted ? "cancelled" : "send-failed");
+        await activeAgent.close().catch(() => undefined);
+        await streamPromise.catch(() => undefined);
+      }
     }
 
     textOut = textChunks.join("");

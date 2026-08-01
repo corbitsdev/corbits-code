@@ -54,7 +54,11 @@ export function preferCompletedSubAgentReply(reply: string): "keep-reply" | "hon
   return reply.trim().length > 0 ? "keep-reply" : "honor-abort";
 }
 
-export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "rethrow";
+export type SubAgentCatchOutcome =
+  | "salvage-repetition"
+  | "salvage-deadline"
+  | "salvage-cancelled"
+  | "rethrow";
 
 /**
  * Decide what a cancelled/aborted sub-agent run should return to the parent.
@@ -67,7 +71,12 @@ export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "r
 export function resolveSubAgentCatchOutcome(input: {
   deadlineHit: boolean;
   hadProgress: boolean;
+  repetitionHit?: boolean;
 }): SubAgentCatchOutcome {
+  // Repetition wins: it is our own abort, so it can never also be a deadline
+  // (the deadline timer refuses to mark an already-aborted run), and it always
+  // salvages — the looped tail is exactly what the parent needs to see.
+  if (input.repetitionHit === true) return "salvage-repetition";
   if (input.deadlineHit) return "salvage-deadline";
   if (input.hadProgress) return "salvage-cancelled";
   return "rethrow";
@@ -238,7 +247,8 @@ export function forcedStopReport(
     | "cancelled"
     | "deadline"
     | "thrash"
-    | "stalled",
+    | "stalled"
+    | "repetition",
   partialText: string,
 ): string {
   const summary =
@@ -254,7 +264,9 @@ export function forcedStopReport(
               ? "Stopped: wall-clock deadline reached before finishing."
               : reason === "stalled"
                 ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
-                : "Turn budget reached before finishing.";
+                : reason === "repetition"
+                  ? "Stopped: degenerate repetition in streamed output (same window looping mid-turn)."
+                  : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
@@ -268,7 +280,9 @@ export function forcedStopReport(
               ? "Leaf wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
               : reason === "stalled"
                 ? "Leaf went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
-                : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
+                : reason === "repetition"
+                  ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will likely loop again — tighten the brief or switch models."
+                  : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (never-acted planning envelopes; cancel after a
@@ -309,6 +323,12 @@ export function isThrashSubAgentReport(report: string): boolean {
   return parsed.summary.includes("progressive thrash");
 }
 
+/** True when the worker returned a streamed-repetition salvage report. */
+export function isRepetitionSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.includes("degenerate repetition");
+}
+
 const TURN_BUDGET_PARENT_HINT =
   "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
 
@@ -320,6 +340,9 @@ const DEADLINE_PARENT_HINT =
 
 const THRASH_PARENT_HINT =
   "[Sub-agent stopped for progressive thrash (re-read pressure). Do not only raise maxTurns — re-dispatch with a narrower scope, success_criteria, and do_not; continue from Findings.]";
+
+const REPETITION_PARENT_HINT =
+  "[Sub-agent aborted after its streamed output degenerated into a loop. Do not re-dispatch the identical brief — it will likely loop again; tighten the brief or use a different model tier.]";
 
 export function appendTurnBudgetParentHint(report: string): string {
   if (!isTurnBudgetSubAgentReport(report)) return report;
@@ -341,11 +364,18 @@ export function appendThrashParentHint(report: string): string {
   return `${THRASH_PARENT_HINT}\n\n${report}`;
 }
 
-/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline. */
+export function appendRepetitionParentHint(report: string): string {
+  if (!isRepetitionSubAgentReport(report)) return report;
+  return `${REPETITION_PARENT_HINT}\n\n${report}`;
+}
+
+/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline / repetition. */
 export function appendSubAgentParentHints(report: string): string {
   return appendDeadlineParentHint(
     appendNeverActedParentHint(
-      appendTurnBudgetParentHint(appendThrashParentHint(report)),
+      appendTurnBudgetParentHint(
+        appendThrashParentHint(appendRepetitionParentHint(report)),
+      ),
     ),
   );
 }

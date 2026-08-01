@@ -193,8 +193,10 @@ const CODE_GUTTER = "▏ ";
 
 type FencedBlock = { lines: StyledSegment[][]; consumed: number };
 
+// Always paint the gutter, including on blank body lines. Skipping empty lines
+// left disconnected bar fragments (a floating language cap, gaps mid-block, a
+// dangling foot) instead of one continuous container.
 function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
-  if (line.length === 0) return line;
   return [{ text: CODE_GUTTER, code: true, dim: true, codeFence: true }, ...line];
 }
 
@@ -565,13 +567,14 @@ function renderKeyValue(cells: StyledSegment[][][]): StyledSegment[][] {
 // A table row is either a bordered GFM row (leading pipe) or a borderless row
 // whose cells are split by a spaced pipe. Escaped pipes (\|) are literal content
 // and a `||` is a logical-or operator, so neither counts as a cell separator.
-function looksLikeTableRow(line: string): boolean {
+// Exported so streaming-markdown open-table freeze uses the same heuristics.
+export function looksLikeTableRow(line: string): boolean {
   const stripped = line.replace(/\\\|/g, "");
   if (/\|\|/.test(stripped)) return false;
   return /^\s*\|/.test(stripped) || / \| /.test(stripped);
 }
 
-function isTableSeparator(line: string): boolean {
+export function isTableSeparator(line: string): boolean {
   return /^\s*\|?(?:\s*:?-{1,}:?\s*\|)+\s*:?-{1,}:?\s*\|?\s*$/.test(line);
 }
 
