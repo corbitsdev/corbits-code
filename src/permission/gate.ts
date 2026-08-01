@@ -1,5 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
-import type { Approval, ApprovalOutcome, GrantScope, RequestApproval } from "./types.js";
+import type { Approval, ApprovalOutcome, GrantScope, PermissionRequest, RequestApproval } from "./types.js";
 import {
   classifyTool,
   buildRequests,
@@ -12,7 +12,7 @@ import {
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
-import { isApproved, escapeGlobLiteral } from "./matcher.js";
+import { isApproved, matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
@@ -45,6 +45,7 @@ function hasExactFullCommandGrant(
   fullCommand: string,
   approvals: readonly Approval[],
   activeProviderModel: string | undefined,
+  requestCwd: string | undefined,
 ): boolean {
   // Comment-insensitive: a model-authored "# why" line prepended to an
   // otherwise-identical command must still replay against a grant minted
@@ -55,8 +56,38 @@ function hasExactFullCommandGrant(
     (a) =>
       a.tool === tool &&
       a.pattern === normalized &&
-      (a.providerModel === undefined || a.providerModel === activeProviderModel),
+      (a.providerModel === undefined || a.providerModel === activeProviderModel) &&
+      (a.cwd === undefined || a.cwd === requestCwd),
   );
+}
+
+// Pure reconciliation check used to re-evaluate the TUI's pending approval
+// queue against a single newly-minted grant (see PermissionGateOptions.onGrant).
+// A queued request is covered only when this one grant, by itself, would have
+// let it skip the prompt — mirrors the matching evaluate() itself applies, so
+// reconciliation never auto-approves something evaluate() would still ask for.
+export function isRequestCoveredByGrant(
+  request: PermissionRequest,
+  approval: Approval,
+  activeProviderModel: string | undefined,
+): boolean {
+  if (request.tool !== approval.tool) return false;
+  if (approval.cwd !== undefined && approval.cwd !== request.cwd) return false;
+  if (
+    approval.providerModel !== undefined &&
+    approval.providerModel !== activeProviderModel
+  ) {
+    return false;
+  }
+  if (request.tool !== "run_shell") {
+    return matchesPattern(request.subject, approval.pattern);
+  }
+  const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
+  if (segments.length === 0) return false;
+  if (segments.length > 1) {
+    return approval.pattern === stripCommentLines(request.subject).trim();
+  }
+  return matchesPattern(segments[0]!, approval.pattern);
 }
 
 // In auto mode these non-shell built-in tools auto-allow without an operator
@@ -117,6 +148,12 @@ export type PermissionGateOptions = {
   // Tiers learned from connected MCP servers (tools/list annotations). Tests may
   // inject a shared registry; production gates create one when omitted.
   mcpTiers?: McpToolPermissionRegistry;
+  // Fires synchronously right after a grant is minted (in-memory list already
+  // updated), before evaluate() moves on to the next request. Callers use this
+  // to re-evaluate any requests already queued behind the one just answered —
+  // see isRequestCoveredByGrant — so a scope-widening grant drains the rest of
+  // the queue instead of re-prompting for coverage it already grants.
+  onGrant?: (approval: Approval) => void;
 };
 
 export type PermissionGate = {
@@ -185,13 +222,16 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     const approval: Approval =
       grant === "provider-model" && activeProviderModel !== undefined
         ? { tool, pattern, providerModel: activeProviderModel }
-        : { tool, pattern };
+        : grant === "project"
+          ? { tool, pattern, cwd: resolvedCwd }
+          : { tool, pattern };
     approvals.push(approval);
     if (grant === "session") {
       sessionGrants.push(approval);
     } else {
       persist?.(approval, grant);
     }
+    options.onGrant?.(approval);
   };
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
@@ -233,7 +273,8 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       // blanket-allowed; fall through to the operator prompt below.
     }
 
-    for (const request of buildRequests(call)) {
+    for (const rawRequest of buildRequests(call)) {
+      const request: typeof rawRequest = { ...rawRequest, cwd: resolvedCwd };
       // Shell: security still splits the chain, but the operator sees (and
       // accepts/rejects) the full command once. Any unapproved segment fails the
       // whole block. Execution always runs the full string the model asked for.
@@ -256,7 +297,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           !fullReferencesSecret &&
           !commandTargetsRestricted(fullCommand, isRestricted) &&
           segments.length > 1 &&
-          hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel)
+          hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel, resolvedCwd)
         ) {
           continue;
         }
@@ -290,7 +331,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             needsOperator = true;
             continue;
           }
-          if (isApproved(request.tool, segment, approvals, activeProviderModel)) {
+          if (isApproved(request.tool, segment, approvals, activeProviderModel, resolvedCwd)) {
             continue;
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
@@ -338,7 +379,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       const alreadyApproved =
         // Path-arg tools already drop to ask via callTargetsRestricted; grants
         // match on the path subject the same as before.
-        isApproved(request.tool, request.subject, approvals, activeProviderModel);
+        isApproved(request.tool, request.subject, approvals, activeProviderModel, resolvedCwd);
       if (alreadyApproved) {
         continue;
       }

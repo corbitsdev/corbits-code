@@ -779,7 +779,7 @@ describe("createPermissionGate", () => {
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
     expect((await gate.evaluate(shellCall("npm run build"))).allowed).toBe(true);
     expect(asked).toBe(1);
-    expect(persisted).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+    expect(persisted).toEqual([{ tool: "run_shell", pattern: "npm *", cwd: process.cwd() }]);
   });
 
   test("a declined request blocks the call", async () => {
@@ -1484,7 +1484,7 @@ describe("createPermissionGate", () => {
     // Evaluate same command again — now pre-approved, persist should not fire again.
     await gate.evaluate(shellCall("curl x"));
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toEqual({ tool: "run_shell", pattern: "curl x" });
+    expect(persisted[0]).toEqual({ tool: "run_shell", pattern: "curl x", cwd: process.cwd() });
   });
 
   test("persist never fires when pattern is null (one-time approval)", async () => {
@@ -1626,7 +1626,7 @@ describe("createPermissionGate", () => {
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
-    expect(persisted).toEqual([{ tool: "run_shell", pattern: full }]);
+    expect(persisted).toEqual([{ tool: "run_shell", pattern: full, cwd: process.cwd() }]);
     // Same full block is covered by the exact grant.
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
     expect(asked).toBe(1);
@@ -1769,7 +1769,7 @@ describe("scoped grants", () => {
       model: "gpt-5",
     });
     await gate.evaluate(shellCall("npm test"));
-    expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *" });
+    expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *", cwd: process.cwd() });
   });
 });
 

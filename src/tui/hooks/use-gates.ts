@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { EventEmitter } from "node:events";
-import type { ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
+import type { Approval, ApprovalOutcome, PermissionRequest } from "../../permission/types.js";
 import type { OperatorResult } from "../../agent/tools.js";
 import type { PlanStep } from "../use-stream.js";
 import { goalApprovalTimeoutMessage } from "../../permission/goal-approval-timeout.js";
+import { isRequestCoveredByGrant } from "../../permission/gate.js";
 
 export type PlanGateEvent = {
   plan: PlanStep[];
@@ -51,10 +52,18 @@ export type GateController = {
   resetGates: () => void;
 };
 
+// Fired synchronously by the permission gate right after a grant is minted
+// (see PermissionGateOptions.onGrant) so the queue can drop any already-queued
+// requests the new grant now covers, before the next prompt renders.
+export type PermissionGrantEvent = { approval: Approval };
+
 export type UseGatesArgs = {
   eventEmitter: EventEmitter;
   setGatePending: (pending: boolean) => void;
   activationBlocked?: boolean;
+  // The active inference provider+model, e.g. "anthropic:claude-opus". Used to
+  // honor provider-model-scoped grants during queue reconciliation.
+  activeProviderModel?: string;
 };
 
 type PlanQueueEntry = {
@@ -118,6 +127,7 @@ export function useGates({
   eventEmitter,
   setGatePending,
   activationBlocked = false,
+  activeProviderModel,
 }: UseGatesArgs): GateController {
   const [activeApproval, setActiveApproval] = useState<ActiveApproval | null>(null);
   const [permissionQueueDepth, setPermissionQueueDepth] = useState(0);
@@ -126,8 +136,10 @@ export function useGates({
   const activeId = useRef<number | null>(null);
   const activationBlockedRef = useRef(activationBlocked);
   const setGatePendingRef = useRef(setGatePending);
+  const activeProviderModelRef = useRef(activeProviderModel);
   activationBlockedRef.current = activationBlocked;
   setGatePendingRef.current = setGatePending;
+  activeProviderModelRef.current = activeProviderModel;
 
   function updateVisibleEntry(): void {
     const head = queue.current[0];
@@ -194,6 +206,20 @@ export function useGates({
     // budget abort can dismiss a non-head permission still in the queue.
     const entry = settleHead(id, "permission") ?? removeEntry(id, "permission");
     if (entry?.kind === "permission") entry.resolve(outcome);
+  }
+
+  // Re-evaluate every still-queued permission entry against a newly-minted
+  // grant. Requests it now covers are auto-approved and removed without
+  // rendering a prompt for them. Runs against a snapshot of the queue so
+  // settling entries mid-loop never skips or double-visits one.
+  function reconcileQueue(approval: Approval): void {
+    const snapshot = queue.current.filter(
+      (entry): entry is PermissionQueueEntry => entry.kind === "permission",
+    );
+    for (const entry of snapshot) {
+      if (!isRequestCoveredByGrant(entry.request, approval, activeProviderModelRef.current)) continue;
+      settlePermission(entry.id, { allow: true });
+    }
   }
 
   function enqueue(entry: GateQueueEntry): void {
@@ -285,13 +311,19 @@ export function useGates({
       enqueue(entry);
     };
 
+    const onGrant = ({ approval }: PermissionGrantEvent) => {
+      reconcileQueue(approval);
+    };
+
     eventEmitter.on("plan.gate", onPlan);
     eventEmitter.on("operator.gate", onOperator);
     eventEmitter.on("permission.gate", onPermission);
+    eventEmitter.on("permission.grant", onGrant);
     return () => {
       eventEmitter.off("plan.gate", onPlan);
       eventEmitter.off("operator.gate", onOperator);
       eventEmitter.off("permission.gate", onPermission);
+      eventEmitter.off("permission.grant", onGrant);
       drainQueue();
     };
     // Queue operations are ref-backed; listeners should only change with their emitter.
