@@ -1,7 +1,7 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import type { Agent } from "@intx/agent";
 import type { InboundMessage } from "@intx/types/runtime";
-import type { OutboundUserMessage } from "../app.js";
+import type { OutboundUserMessage } from "../message-types.js";
 import { resolveAtMentions } from "../mention-resolution.js";
 import type { AgentStreamView } from "../use-stream.js";
 import { classifyAgentSendFailure, shouldSettleUiAfterSendFailure } from "../session-chrome.js";

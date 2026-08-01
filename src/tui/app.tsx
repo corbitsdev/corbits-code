@@ -65,7 +65,7 @@ import { writeFile, mkdir, unlink } from "node:fs/promises";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
-import { formatAttachmentSummary, type PendingImageAttachment } from "./image-attachments.js";
+import { formatAttachmentSummary } from "./image-attachments.js";
 import { setConfiguredTiers } from "./commands/built-in.js";
 import { useImageAttach } from "./hooks/use-image-attach.js";
 import { useAgentsStrip } from "./hooks/use-agents-strip.js";
@@ -86,11 +86,8 @@ import {
   pluginChromeRowCount,
   extraChromeRowCount,
 } from "./chrome-geometry.js";
-
-export type OutboundUserMessage = {
-  text: string;
-  attachments: PendingImageAttachment[];
-};
+import type { OutboundUserMessage } from "./message-types.js";
+export type { OutboundUserMessage } from "./message-types.js";
 
 const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
   active: false,

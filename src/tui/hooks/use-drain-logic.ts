@@ -3,7 +3,7 @@ import type { EventEmitter } from "node:events";
 import type { AgentStreamView } from "../use-stream.js";
 import type { SubAgentSessionStore } from "../../subagent/index.js";
 import type { Task } from "../../agent/tasks.js";
-import type { OutboundUserMessage } from "../app.js";
+import type { OutboundUserMessage } from "../message-types.js";
 
 export type UseDrainLogicArgs = {
   eventEmitter: EventEmitter;

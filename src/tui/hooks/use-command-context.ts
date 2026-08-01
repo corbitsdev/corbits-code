@@ -5,7 +5,7 @@ import { goalKickoffUserMessage, type GoalResumeOpts, type GoalSetOpts, type Goa
 import type { ProviderCatalogEntry } from "../../config/index.js";
 import type { AgentStreamView } from "../use-stream.js";
 import type { CommandContext } from "../commands/registry.js";
-import type { OutboundUserMessage } from "../app.js";
+import type { OutboundUserMessage } from "../message-types.js";
 
 export type UseCommandContextArgs = {
   provider: string;

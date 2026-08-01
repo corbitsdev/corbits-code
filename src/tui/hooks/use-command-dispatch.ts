@@ -7,7 +7,7 @@ import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 import type { Settings, ProviderTier, TierConfig } from "../../config/settings.js";
 import { tierDefinitionAt } from "../../config/settings.js";
 import type { LoginModal } from "./use-provider-auth.js";
-import type { OutboundUserMessage } from "../app.js";
+import type { OutboundUserMessage } from "../message-types.js";
 import { codexProfileFromProviderName } from "../../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../../config/xai-providers.js";
 import { fetchCodexUsage, formatCodexUsage } from "../../auth/codex/usage.js";
