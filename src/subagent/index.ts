@@ -112,3 +112,12 @@ export {
   taskToolDefinition,
   type TaskToolDeps,
 } from "./task-tool.js";
+
+export {
+  cleanupSubAgentWorktree,
+  createSubAgentWorktree,
+  WorktreeError,
+  type SubAgentWorktree,
+  type WorktreeCleanupResult,
+  type WorktreeExec,
+} from "./worktree.js";

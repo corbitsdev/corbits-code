@@ -60,6 +60,9 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // The orchestrator's own session id, so workers it dispatches record as
   // nested (one-hop) sessions the Agents strip can indent under it.
   parentSessionId?: string;
+  // Forwarded from the outer TaskToolDeps so nested workers get the same
+  // worktree-isolation behavior as their orchestrator.
+  useWorktree?: boolean;
 };
 
 /** Typed spawn intent — optional on `task`; omit Intent section when unset. */

@@ -126,6 +126,9 @@ export type AgentToolsetArgs = {
     settings?: Settings | (() => Settings | undefined);
     catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
     profiles?: AgentProfile[] | (() => AgentProfile[]);
+    // Opt-in: dispatch each sub-agent into its own git worktree instead of
+    // sharing this session's cwd. See src/subagent/worktree.ts.
+    useWorktree?: boolean;
   };
 };
 
@@ -229,6 +232,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             ...(args.subAgent.catalog !== undefined ? { catalog: args.subAgent.catalog } : {}),
             ...(args.subAgent.profiles !== undefined ? { profiles: args.subAgent.profiles } : {}),
             ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
+            ...(args.subAgent.useWorktree !== undefined
+              ? { useWorktree: args.subAgent.useWorktree }
+              : {}),
           }),
           ...(args.subAgent.profiles !== undefined
             ? [

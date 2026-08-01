@@ -36,6 +36,9 @@ import {
   TURN_BUDGET_STOP_AFTER_DISPATCHES,
 } from "./brief-dispatch.js";
 import { isSubAgentCancelError } from "./dispose.js";
+import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
+import { generateSessionId } from "../session/index.js";
+import { join } from "node:path";
 import type {
   NestedDispatchDeps,
   RunSubAgentParams,
@@ -163,6 +166,13 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
    * outer tool-execution watchdog so a salvage report can return first.
    */
   deadlineMs?: number;
+  /**
+   * Opt-in: isolate each spawn in its own git worktree branched from the
+   * dispatcher's HEAD instead of sharing deps.cwd. Fails closed (see
+   * worktree.ts) when deps.cwd is not a git repository or worktree creation
+   * fails. Omit (default) to keep today's shared-cwd dispatch.
+   */
+  useWorktree?: boolean;
 };
 
 function taskToolResult(callId: string, content: string): ToolResult {
@@ -458,6 +468,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.catalog !== undefined ? { catalog: deps.catalog } : {}),
             ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
             ...(session !== undefined ? { parentSessionId: session.id } : {}),
+            ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
           }
         : undefined;
       // Per-spawn controller so strip cancel and parent stop share one abort
@@ -478,10 +489,42 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         });
       }
 
+      let worktreeCwd: string | undefined;
+      if (deps.useWorktree === true) {
+        const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
+        try {
+          const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
+          worktreeCwd = worktree.path;
+        } catch (err) {
+          // Admit already happened and the strip session may be "running" —
+          // release the ledger slot and fail the session so a worktree setup
+          // error never burns turn-budget budget or leaves a ghost row.
+          const message =
+            err instanceof WorktreeError
+              ? err.message
+              : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+          briefLedger.release(fingerprint);
+          if (session !== undefined) deps.sessions?.fail(session.id, message);
+          signal.removeEventListener("abort", onParentAbort);
+          return taskToolResult(call.id, `Error: ${message}`);
+        }
+      }
+      // Cleanup runs once the sub-agent's report is ready, regardless of
+      // outcome, so a cancelled or failed run's worktree is still reclaimed
+      // (or preserved with a notice) rather than leaked.
+      const finishWithWorktree = async (result: ToolResult): Promise<ToolResult> => {
+        if (worktreeCwd === undefined) return result;
+        const cleanup = await cleanupSubAgentWorktree(deps.cwd, worktreeCwd);
+        if (cleanup.status === "preserved") {
+          return { ...result, content: `${result.content}\n\n${cleanup.notice}` };
+        }
+        return result;
+      };
+
       try {
         const params: RunSubAgentParams = {
           ...sandbox,
-          cwd: deps.cwd,
+          cwd: worktreeCwd ?? deps.cwd,
           workdirBase: deps.getWorkdirBase(),
           provider,
           ...(tier !== undefined ? { tier } : {}),
@@ -529,15 +572,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ) {
             deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          const reported = appendSubAgentParentHints(result, hintOptions);
-          return taskToolResult(
-            call.id,
-            `Sub-agent "${description}" reported:\n\n${reported}`,
+const reported = appendSubAgentParentHints(result, hintOptions);
+          return finishWithWorktree(
+            taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
           );
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
         const reported = appendSubAgentParentHints(result, hintOptions);
-        return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
+        return finishWithWorktree(
+          taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
+        );
 
 
       } catch (err) {
@@ -553,7 +597,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ) {
             deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          return taskToolResult(call.id, cancelledSubAgentMessage(description));
+          return finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
         }
         // Run never produced a body — undo the admit so turn-budget retry budget
         // is not burned by auth/provider crashes.
@@ -567,7 +611,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         // fail() prefixes "Error:" on the transcript report entry — pass bare text.
         const failReason = authMessage ?? sessionError;
         if (session !== undefined) deps.sessions?.fail(session.id, failReason);
-        return taskToolResult(call.id, message);
+        return finishWithWorktree(taskToolResult(call.id, message));
       } finally {
         signal.removeEventListener("abort", onParentAbort);
       }
