@@ -582,6 +582,26 @@ describe("sub-agent stop helpers", () => {
     ).toBe("rethrow");
   });
 
+  test("resolveSubAgentCatchOutcome salvages a repetition abort even with zero progress", () => {
+    expect(
+      resolveSubAgentCatchOutcome({
+        deadlineHit: false,
+        hadProgress: false,
+        repetitionHit: true,
+      }),
+    ).toBe("salvage-repetition");
+  });
+
+  test("repetition forced stop reports the loop and warns against identical re-dispatch", () => {
+    const report = forcedStopReport("repetition", "dig footer/chrome... 0/1.0 done. 1 remaining.");
+    const parsed = parseSubAgentReport(report);
+    expect(parsed.summary).toContain("degenerate repetition");
+    expect(parsed.findings).toContain("dig footer/chrome");
+    expect(parsed.blockers).toContain("tighten the brief");
+    const hinted = appendSubAgentParentHints(report);
+    expect(hinted).toContain("Do not re-dispatch the identical brief");
+  });
+
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {
     const text = partialTextFromEvent({
       type: "inference.done",
