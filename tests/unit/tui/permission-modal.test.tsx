@@ -235,7 +235,11 @@ test("a huge chain caps the segment list and keeps the decision buttons visible"
   const frame = lastFrame() ?? "";
   const segmentLines = (frame.split("\n") as string[]).filter((line) => /\d+\. echo /.test(line));
   expect(segmentLines.length).toBeLessThanOrEqual(20);
-  expect(frame).toMatch(/… \d+ more segments/);
+  // The terminal-height-aware body scroll windows this down to a handful of
+  // visible segments with a scroll indicator, well before the old absolute
+  // 12-segment display cap would even apply.
+  expect(frame).toMatch(/↓ \d+ more below/);
+  expect(frame).toContain("PageUp/PageDown to scroll");
   expect(frame).toContain("Reject");
   expect(frame).toContain("Accept once");
 });
@@ -262,7 +266,7 @@ test("a many-line command caps the segment list and keeps the choice chrome in f
   const lines = frame.split("\n") as string[];
   expect(lines.length).toBeLessThan(50);
   expect(frame).toContain("rm -rf / #hidden");
-  expect(frame).toMatch(/… \d+ more segments/);
+  expect(frame).toMatch(/↓ \d+ more below/);
   expect(frame).toContain("Reject");
   expect(frame).toContain("Accept once");
 });
@@ -480,4 +484,51 @@ test("a multi-line quoted commit message collapses to <message, N lines>", () =>
   const frame = lastFrame() ?? "";
   expect(frame).toContain("git commit -m <message, 3 lines>");
   expect(frame).not.toContain("line two");
+});
+
+test("a body taller than the terminal keeps the choices visible and pages with PageUp/PageDown", async () => {
+  const chain = Array.from({ length: 40 }, (_, i) => `echo line${i}`).join(" && ");
+  const req: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: chain,
+    scopes: [{ id: "exact", label: "x", pattern: chain }],
+  };
+  const { lastFrame, stdin } = render(
+    <PermissionModal request={req} onResolve={() => {}} terminalRows={20} />,
+  );
+  await tick();
+  const initial = lastFrame() ?? "";
+  // The selection and every choice stay visible even though the body is
+  // nowhere near tall enough to fit all 40 segments.
+  expect(initial).toContain("Reject");
+  expect(initial).toContain("Accept once");
+  expect(initial).toContain("Allow these 40 echo commands — all projects");
+  expect(initial).toContain("1. echo line0");
+  expect(initial).not.toContain("echo line39");
+  expect(initial).toMatch(/↓ \d+ more below/);
+
+  stdin.write("\x1B[6~"); // PageDown
+  await tick();
+  const afterPageDown = lastFrame() ?? "";
+  expect(afterPageDown).not.toContain("1. echo line0");
+  expect(afterPageDown).toMatch(/↑ \d+ more above/);
+  // Choices remain reachable after paging the body.
+  expect(afterPageDown).toContain("Reject");
+  expect(afterPageDown).toContain("Allow these 40 echo commands — all projects");
+
+  stdin.write("\x1B[5~"); // PageUp back to the top
+  await tick();
+  const afterPageUp = lastFrame() ?? "";
+  expect(afterPageUp).toContain("1. echo line0");
+});
+
+test("a short prompt has no scroll indicator or forced scroll affordance", () => {
+  const { lastFrame } = render(
+    <PermissionModal request={shellRequest("npm test")} onResolve={() => {}} terminalRows={24} />,
+  );
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("PageUp/PageDown to scroll");
+  expect(frame).not.toMatch(/more below/);
+  expect(frame).not.toMatch(/more above/);
 });
