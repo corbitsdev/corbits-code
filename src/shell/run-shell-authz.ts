@@ -448,7 +448,239 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
   return { kind: "inner", command };
 }
 
-// Peel one layer of transparent prefix / shell -c / xargs from a single segment.
+// Env short options that are boolean (no value) and may cluster with -S.
+// Used to tell clustered `-Si` (S takes the next argv) from glued `-Sfind`
+// (payload is the rest of the same token).
+const ENV_BOOL_SHORT = new Set(["i", "0", "v"]);
+
+// Env flags that consume the following argv token as a value. Shared by the
+// -S peel walker and the transparent-prefix skip so they cannot drift.
+const ENV_VALUE_FLAGS = new Set([
+  "-u",
+  "--unset",
+  "-C",
+  "--chdir",
+  "--argv0",
+  "-f",
+  "--file",
+  // Darwin / FreeBSD: -P altpath for utility lookup.
+  "-P",
+]);
+
+function isEnvValueEqualsFlag(t: string): boolean {
+  return (
+    t.startsWith("--unset=")
+    || t.startsWith("--chdir=")
+    || t.startsWith("--argv0=")
+    || t.startsWith("--file=")
+  );
+}
+
+// Advance past one env value-taking flag (+ its value when separate). Returns
+// the index after the flag/value, or null when `tokens[i]` is not such a flag.
+function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
+  const t = tokens[i];
+  if (t === undefined) return null;
+  if (ENV_VALUE_FLAGS.has(t)) {
+    let j = i + 1;
+    if (j < tokens.length && !tokens[j]!.startsWith("-")) j++;
+    return j;
+  }
+  if (isEnvValueEqualsFlag(t)) return i + 1;
+  return null;
+}
+
+// env -S re-parses its payload: quotes, `\_` as an argument separator (not a
+// literal underscore), then more env flags/assignments before the utility.
+// Expand separators so a later tokenize sees real argv boundaries.
+//
+// Only `\_` is modeled. GNU env's -S grammar has a wider escape set (\\, \",
+// \n, \#, ...) whose expansion differs across implementations; passing an
+// unmodeled escape through garbles the subjects the hard-deny matchers see,
+// so any other backslash makes the payload uninspectable (null → opaque →
+// ask) instead of silently mis-parsed.
+function expandEnvSplitSeparators(payload: string): string | null {
+  let out = "";
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < payload.length; i++) {
+    const c = payload[i]!;
+    if (quote === "'") {
+      out += c;
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === "\\") {
+      const n = payload[i + 1];
+      if (n === "_") {
+        // `\_` is env's arg separator outside and inside double quotes.
+        out += " ";
+        i++;
+        continue;
+      }
+      return null;
+    }
+    if (quote === '"') {
+      out += c;
+      if (c === '"') quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      out += c;
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+// After folding the -S payload with any trailing utility tokens, re-parse the
+// result the way env does: expand `\_`, tokenize (dequote), skip env flags /
+// assignments / end-of-options, and land on the real program hard-deny matchers
+// expect (`env -S -v find /` → `find /`, `env -S "rm '-rf' '/'"` → `rm -rf /`).
+function peelEnvSplitUtility(command: string): PeelOutcome {
+  const expanded = expandEnvSplitSeparators(command);
+  if (expanded === null || isOpaquePayload(expanded)) return { kind: "opaque" };
+  const tokens = tokenize(expanded);
+  let i = 0;
+  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
+  i = skipEnvFlagsAndAssignments(tokens, i);
+  if (i >= tokens.length) return { kind: "opaque" };
+  const utility = rejoinTokens(tokens.slice(i));
+  if (utility === null) return { kind: "opaque" };
+  return { kind: "inner", command: utility };
+}
+
+// After extracting an -S / --split-string payload, fold any trailing utility
+// tokens (`env -S FOO=bar find /` → `FOO=bar find /`) so hard-deny sees the
+// real program, not just the assignment fragment that -S consumed.
+// Empty/opaque payloads with a trailing utility still execute that utility
+// (`env -S " " find /`), so prefer the trailing tokens over opaque-dropping them.
+function finishEnvSplitPayload(
+  payload: string,
+  tokens: string[],
+  restStart: number,
+): PeelOutcome {
+  const rest = tokens.slice(restStart);
+  let raw: string | null;
+  if (isOpaquePayload(payload)) {
+    if (rest.length === 0) return { kind: "opaque" };
+    if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
+    raw = rejoinTokens(rest);
+  } else if (rest.length === 0) {
+    raw = payload;
+  } else {
+    if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
+    raw = rejoinTokens([payload, ...rest]);
+  }
+  if (raw === null) return { kind: "opaque" };
+  return peelEnvSplitUtility(raw);
+}
+
+// Peel env's -S / --split-string payload as its own shell subject. Unlike the
+// auto-mode assignment ask (which only cares about NAME=value inside the
+// payload), every consumer of expandShellSubjects — hard-deny included — must
+// see every payload so `env -S "rm -rf /"` is blocked the same way as the
+// plain form. Uninspectable payloads are opaque rather than silently dropped.
+//
+// Forms covered:
+//   -S PAYLOAD / --split-string PAYLOAD
+//   --split-string=PAYLOAD
+//   glued -SPAYLOAD / --split-stringPAYLOAD (no `=`, one shell token)
+//   clustered short flags with S (`-iS`, `-Si`) taking the next token
+//   trailing utility after the -S argument (`env -S FOO=bar find /`)
+function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
+  let i = start;
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (t === "--") return { kind: "none" };
+
+    // --split-string=PAYLOAD
+    if (t.startsWith("--split-string=")) {
+      return finishEnvSplitPayload(t.slice("--split-string=".length), tokens, i + 1);
+    }
+    // Glued long form without `=`: --split-string"find /" → one token.
+    if (t.startsWith("--split-string") && t !== "--split-string") {
+      return finishEnvSplitPayload(t.slice("--split-string".length), tokens, i + 1);
+    }
+    // Separate-arg forms: -S PAYLOAD / --split-string PAYLOAD
+    if (t === "-S" || t === "--split-string") {
+      const payload = tokens[i + 1];
+      if (payload === undefined) return { kind: "opaque" };
+      return finishEnvSplitPayload(payload, tokens, i + 2);
+    }
+
+    // Short-option cluster that contains S.
+    //   -Sfind / -S"find /"  → glued payload after S (same token)
+    //   -iS / -0S            → S at end of cluster; next token is payload
+    //   -Si / -Sv            → S then only boolean shorts; next token is payload
+    //   -Sifind              → S then non-bool remainder; treat as glued payload
+    if (t.startsWith("-") && t !== "-" && t.includes("S") && !t.startsWith("--")) {
+      const sIdx = t.indexOf("S", 1);
+      if (sIdx >= 1) {
+        const afterS = t.slice(sIdx + 1);
+        const onlyBoolAfter =
+          afterS.length === 0 || [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
+        if (onlyBoolAfter) {
+          // Clustered flags; S consumes the following argv token.
+          const payload = tokens[i + 1];
+          if (payload === undefined) return { kind: "opaque" };
+          return finishEnvSplitPayload(payload, tokens, i + 2);
+        }
+        // Glued payload in the same token (e.g. -Sfind, -S"find /").
+        return finishEnvSplitPayload(afterS, tokens, i + 1);
+      }
+    }
+
+    // Value-taking env flags: skip so `env -u HOME -S "find /"` reaches -S.
+    const afterValue = advancePastEnvValueFlag(tokens, i);
+    if (afterValue !== null) {
+      i = afterValue;
+      continue;
+    }
+
+    if (t.startsWith("-") && t !== "-") {
+      i++;
+      continue;
+    }
+    // Bare NAME=value or the utility — not a split-string form at this layer.
+    if (ENV_ASSIGNMENT.test(t)) {
+      i++;
+      continue;
+    }
+    return { kind: "none" };
+  }
+  return { kind: "none" };
+}
+
+// Skip env's own flags and NAME=value arguments so a transparent
+// `env -i FOO=bar cmd` peel lands on `cmd`, not on the `-i` flag token.
+function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
+  let i = start;
+  while (i < tokens.length) {
+    const t = tokens[i]!;
+    if (t === "--") return i + 1;
+    if (ENV_ASSIGNMENT.test(t)) {
+      i++;
+      continue;
+    }
+    const afterValue = advancePastEnvValueFlag(tokens, i);
+    if (afterValue !== null) {
+      i = afterValue;
+      continue;
+    }
+    if (t.startsWith("-") && t !== "-") {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+// Peel one layer of transparent prefix / shell -c / xargs / env -S from a
+// single segment.
 function peelOnce(segment: string): PeelOutcome {
   const tokens = tokenize(segment);
   let i = 0;
@@ -458,9 +690,13 @@ function peelOnce(segment: string): PeelOutcome {
   while (i < tokens.length) {
     const base = programBasename(tokens[i]!);
     if (base === "env") {
+      // Prefer split-string peel: the whole payload is one quoted argument
+      // that env re-splits itself, so the transparent-prefix path below
+      // would only rejoin `-S '…'` and leave the real command invisible.
+      const splitPeel = peelEnvSplitString(tokens, i + 1);
+      if (splitPeel.kind !== "none") return splitPeel;
       strippedPrefix = true;
-      i++;
-      while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+      i = skipEnvFlagsAndAssignments(tokens, i + 1);
       continue;
     }
     if (base === "timeout") {
@@ -530,13 +766,42 @@ export type ShellExpandResult = {
   opaque: boolean;
 };
 
-// Expand a shell command into subjects the auto-shell policy and recursive-rm
-// checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs utility tails, and
-// transparent prefixes (env/nice/timeout/…), recursing with a depth cap so
-// nested wrappers cannot hide a dangerous payload.
+// Expand a shell command into subjects the auto-shell policy, hard-deny, and
+// recursive-rm checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs
+// utility tails, env -S/--split-string payloads, and transparent prefixes
+// (env/nice/timeout/…), recursing with a depth cap so nested wrappers cannot
+// hide a dangerous payload.
 //
 // Chain splitting is quote-aware (`splitChainedCommand`) so a pipe inside a
 // `bash -c '…|…'` payload is not mistaken for an outer pipeline boundary.
+// Drop env/shell end-of-options markers so command-position hard-deny still
+// sees the real program in subjects like `env -S "-- find /"` or `env -S -- find /`.
+// Assignments before the marker are preserved (`FOO=1 -- find /` → `FOO=1 find /`).
+function dropLeadingEndOfOptionsTokens(tokens: string[]): string[] {
+  let i = 0;
+  while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  const head = tokens.slice(0, i);
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
+  return head.concat(tokens.slice(i));
+}
+
+function stripEndOfOptionsCommand(command: string): string {
+  const tokens = tokenize(command);
+  const next = dropLeadingEndOfOptionsTokens(tokens);
+  if (next.length === tokens.length) {
+    let same = true;
+    for (let i = 0; i < tokens.length; i++) {
+      if (next[i] !== tokens[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return command;
+  }
+  if (next.length === 0) return command;
+  return rejoinTokens(next) ?? next.join(" ");
+}
+
 export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH): ShellExpandResult {
   const subjects: string[] = [];
   const seen = new Set<string>();
@@ -547,6 +812,13 @@ export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH):
     if (trimmed.length === 0 || seen.has(trimmed)) return;
     seen.add(trimmed);
     subjects.push(trimmed);
+    // Surface end-of-options-stripped forms so command-position matchers hit
+    // `find` in subjects that still carry a leading `--` / `-` from env -S.
+    const stripped = stripEndOfOptionsCommand(trimmed);
+    if (stripped !== trimmed && !seen.has(stripped)) {
+      seen.add(stripped);
+      subjects.push(stripped);
+    }
     if (depth >= maxDepth) return;
 
     for (const segment of splitChainedCommand(trimmed)) {
@@ -561,10 +833,13 @@ export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH):
 }
 
 function segmentRmArgs(segment: string): string[] | undefined {
-  const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
+  // Quote-aware: env -S payloads often carry quoted flags (`rm '-rf' '/'`).
+  const tokens = tokenize(segment);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;
+  while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
   if (programBasename(tokens[i] ?? "") !== "rm") return undefined;
   return tokens.slice(i + 1);
 }
@@ -591,7 +866,10 @@ function isCatastrophicRm(segment: string): boolean {
   return targets.length === 0 || targets.some(isDangerousTarget);
 }
 
-function isDestructive(command: string): boolean {
+// Scan expanded subjects for blocked patterns / catastrophic rm. Callers may
+// pass a pre-normalized form so path-qualified binaries (`/usr/bin/sudo`) still
+// match command-position patterns.
+function isDestructiveExpanded(command: string): boolean {
   const { subjects } = expandShellSubjects(command);
   return subjects.some((subject) => {
     if (BLOCKED_PATTERNS.some((pattern) => pattern.test(subject))) return true;
@@ -599,12 +877,39 @@ function isDestructive(command: string): boolean {
   });
 }
 
+// Hard-deny must expand the *raw* command so `env -S "…"` stays peelable —
+// normalizeCommand strips bare `env` as a transparent wrapper, which would
+// turn the command into `-S "…"` and hide the payload. Also expand the
+// normalized form so path-stripped BLOCKED_PATTERNS (`/usr/bin/sudo` → `sudo`)
+// still fire.
+function isDestructive(command: string): boolean {
+  if (isDestructiveExpanded(command)) return true;
+  const normalized = normalizeCommand(command);
+  return normalized !== command && isDestructiveExpanded(normalized);
+}
+
 function isOpenEndedSearch(command: string): boolean {
   return OPEN_ENDED_SEARCH_PATTERNS.some((pattern) => pattern.test(command));
 }
 
+// Open-ended / never-terminating / stdin hard-deny must scan expanded subjects
+// so `env -S "find /"`, `bash -c 'watch ls'`, and similar wrappers cannot hide
+// the real program inside a quoted payload. Normalize each subject so path-
+// qualified binaries still match command-position patterns.
+function subjectsHit(
+  command: string,
+  pred: (normalizedSubject: string) => boolean,
+): boolean {
+  const { subjects } = expandShellSubjects(command);
+  if (subjects.some((subject) => pred(normalizeCommand(subject)))) return true;
+  const normalized = normalizeCommand(command);
+  if (normalized === command) return false;
+  const { subjects: normalizedSubjects } = expandShellSubjects(normalized);
+  return normalizedSubjects.some((subject) => pred(normalizeCommand(subject)));
+}
+
 function openEndedSearchReason(command: string): string | undefined {
-  if (!isOpenEndedSearch(normalizeCommand(command))) return undefined;
+  if (!subjectsHit(command, isOpenEndedSearch)) return undefined;
   return (
     `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
     `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +
@@ -613,32 +918,34 @@ function openEndedSearchReason(command: string): string | undefined {
 }
 
 // Pipeline segments are judged in isolation for open-ended/destructive rules only.
-// Stdin and never-terminating checks apply to the full command string.
+// Stdin and never-terminating checks apply across expanded subjects so wrapper
+// payloads (env -S, bash -c, …) are visible.
 export function runShellAuthzSegmentBlockReason(segment: string): string | undefined {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return undefined;
-  const normalized = normalizeCommand(trimmed);
-  if (isDestructive(normalized)) {
+  // Pass the raw segment: isDestructive expands both raw and normalized forms.
+  if (isDestructive(trimmed)) {
     return `Destructive command blocked by policy: ${trimmed}`;
   }
   return openEndedSearchReason(trimmed);
 }
 
 export function runShellAuthzBlockReason(command: string): string | undefined {
-  const normalized = normalizeCommand(command);
-  if (isDestructive(normalized)) {
+  // Destructive / open-ended / never-terminating / stdin all expand subjects so
+  // env -S and shell -c payloads cannot hide a blocked program.
+  if (isDestructive(command)) {
     return `Destructive command blocked by policy: ${command}`;
   }
   const openEnded = openEndedSearchReason(command);
   if (openEnded !== undefined) return openEnded;
-  if (isNeverTerminating(normalized)) {
+  if (subjectsHit(command, isNeverTerminating)) {
     return (
       `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
       `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
       `alternative (e.g. tail -n 50 file). Command: ${command}`
     );
   }
-  if (blocksOnStdin(normalized)) {
+  if (subjectsHit(command, blocksOnStdin)) {
     return (
       `Command reads standard input with no file operand and would hang, since stdin is ` +
       `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +

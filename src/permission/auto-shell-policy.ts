@@ -161,113 +161,53 @@ function payloadStartsWithAssignment(payload: string): boolean {
   return /^\s*(?:\w+=\S*\s+)*\w+=/.test(payload);
 }
 
-// Strip every leading NAME=value token from a split-string payload (the same
-// prefix payloadStartsWithAssignment requires be present), leaving the real
-// command text env would actually execute.
-function stripLeadingAssignments(payload: string): string {
-  return payload.replace(/^\s*(?:\w+=\S*\s+)*/, "");
-}
-
-// Tokens that survive rejoining without quotes; anything else must be
-// re-quoted so a payload token that originally carried its own quotes is not
-// re-split when the rejoined command is tokenized again by a downstream
-// caller (matchAutoShellRule, expandShellSubjects). Mirrors the equivalent
-// safeguard in the shell-wrapper peeler, kept local since that peeler lives
-// outside this module's remit.
-const SAFE_REJOIN_TOKEN = /^[A-Za-z0-9_@%+=:,./-]+$/;
-
-function quoteRemainderToken(token: string): string {
-  if (SAFE_REJOIN_TOKEN.test(token)) return token;
-  if (!token.includes("'")) return `'${token}'`;
-  if (!token.includes('"')) return `"${token}"`;
-  return token;
-}
-
-// `env -S "FOO=bar cmd"` (and `--split-string`) fold the entire payload into
-// one shell-quoted argument that env re-splits itself at exec time. A plain
-// text scan can never see the embedded assignment: stripQuoted deliberately
-// blanks out quoted spans (so an unrelated quoted string can't spoof a rule),
-// and that quoted span is exactly where the assignment lives here. So this
-// walks env's own flags with tokenize() instead — which keeps a quoted
-// argument as a single token — and inspects that token's own leading word.
-// Also covers `-i`/`--ignore-environment` ahead of a bare NAME=value argument
-// (`env -i FOO=bar cmd`) and stacked short flags (`env -iS ...`).
-//
-// Returns the payload's own inner command (with the leading assignment(s)
-// stripped) so the caller can run that text through the exact same rule
-// pipeline every other subject gets — content hidden inside an -S payload
-// must never receive a weaker classification than it would get written
-// plainly. Returns undefined when the segment is not an env-assignment split
-// form at all.
-function envSplitAssignmentRemainder(segment: string): string | undefined {
+// Thin ask detection for env forms whose assignment is invisible to the plain
+// ENV_ASSIGNMENT_ASK_RULE regexes: `env -S "FOO=bar …"` (assignment lives
+// inside a quoted argument that stripQuoted blanks out) and `env -i FOO=bar
+// cmd` (`-i` sits between `env` and the assignment). Payload *content*
+// scanning no longer lives here — expandShellSubjects peels -S payloads and
+// transparent env prefixes, so every rule sees inside them the same way.
+function segmentHasEnvAssignmentAsk(segment: string): boolean {
   const tokens = tokenize(segment);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT_TOKEN.test(tokens[i] ?? "")) i++;
   const envToken = tokens[i];
-  if (envToken === undefined || envToken.replace(/^.*\//, "") !== "env") return undefined;
+  if (envToken === undefined || envToken.replace(/^.*\//, "") !== "env") return false;
   i++;
   while (i < tokens.length) {
     const t = tokens[i]!;
-    if (t === "--") return undefined;
+    if (t === "--") return false;
     if (t.startsWith("--split-string=")) {
-      const payload = t.slice("--split-string=".length);
-      return payloadStartsWithAssignment(payload) ? stripLeadingAssignments(payload) : undefined;
+      return payloadStartsWithAssignment(t.slice("--split-string=".length));
     }
     if (t === "-S" || t === "--split-string") {
       const payload = tokens[i + 1];
-      return payload !== undefined && payloadStartsWithAssignment(payload)
-        ? stripLeadingAssignments(payload)
-        : undefined;
+      return payload !== undefined && payloadStartsWithAssignment(payload);
     }
-    // Clustered short flags (`-iS`, `-Si`, `-0S`, …) — `S` still takes the
-    // next token as its split-string payload.
+    // Clustered short flags (`-iS`, `-Si`, …) — `S` still takes the next
+    // token as its split-string payload.
     if (/^-[A-Za-z0-9]*S[A-Za-z0-9]*$/.test(t)) {
       const payload = tokens[i + 1];
-      return payload !== undefined && payloadStartsWithAssignment(payload)
-        ? stripLeadingAssignments(payload)
-        : undefined;
+      return payload !== undefined && payloadStartsWithAssignment(payload);
     }
     if (t.startsWith("-") && t !== "-") {
       i++;
       continue;
     }
     // A bare NAME=value argument to env itself (`env -i FOO=bar cmd`).
-    if (!ENV_ASSIGNMENT_TOKEN.test(t)) return undefined;
-    let j = i;
-    while (j < tokens.length && ENV_ASSIGNMENT_TOKEN.test(tokens[j] ?? "")) j++;
-    return tokens.slice(j).map(quoteRemainderToken).join(" ");
+    return ENV_ASSIGNMENT_TOKEN.test(t);
   }
-  return undefined;
+  return false;
 }
 
-const ENV_SPLIT_EXTRACT_DEPTH = 4;
-
-// Every subject reachable by peeling an `env -S`/`--split-string` payload out
-// of a command — the one wrapper shape expandShellSubjects cannot see
-// through, since the whole inner command is folded into a single quoted
-// argument (see envSplitAssignmentRemainder) — together with whatever
-// expandShellSubjects can further peel from each extracted remainder (a
-// nested `sh -c`, xargs, or env wrapper). Recurses with a depth cap so a
-// chain of nested `env -S` payloads cannot loop forever. `found` is true
-// whenever at least one segment was an env-assignment split form, regardless
-// of what (if anything) its payload's own content matches.
-function collectEnvSplitSubjects(
-  command: string,
-  depth: number = ENV_SPLIT_EXTRACT_DEPTH,
-): { subjects: string[]; found: boolean } {
-  const subjects: string[] = [];
-  let found = false;
-  for (const segment of splitChainedCommand(command)) {
-    const remainder = envSplitAssignmentRemainder(segment);
-    if (remainder === undefined) continue;
-    found = true;
-    subjects.push(...expandShellSubjects(remainder).subjects);
-    if (depth > 0) {
-      const nested = collectEnvSplitSubjects(remainder, depth - 1);
-      subjects.push(...nested.subjects);
-    }
+function commandHasEnvAssignmentAsk(command: string): boolean {
+  // Walk every expanded subject so a nested `bash -c 'env -S "FOO=bar …"'`
+  // still surfaces the assignment ask after the outer wrapper is peeled.
+  const { subjects } = expandShellSubjects(command);
+  for (const subject of subjects) {
+    if (splitChainedCommand(subject).some(segmentHasEnvAssignmentAsk)) return true;
   }
-  return { subjects, found };
+  return false;
 }
 
 const WORKTREE_ASK_RULE: AutoShellRule = {
@@ -347,49 +287,42 @@ export function autoShellRuleForCall(
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
 
-  // Peel bash/sh/zsh -c, xargs, and transparent prefixes so rules see the real
-  // payload. `stripQuoted` alone would delete a quoted -c body and miss every rule.
+  // Peel bash/sh/zsh -c, xargs, env -S/--split-string, and transparent
+  // prefixes so rules see the real payload. `stripQuoted` alone would delete
+  // a quoted -c body and miss every rule. Content inside an -S payload is
+  // scanned here exactly as if written plainly — never a weaker tier.
   const { subjects, opaque } = expandShellSubjects(command);
 
   if (commandHasRecursiveRm(command)) return RECURSIVE_RM_ASK_RULE;
-
-  // `env -S`/`--split-string` hides its whole payload inside a single quoted
-  // argument that expandShellSubjects cannot peel (see
-  // envSplitAssignmentRemainder), so its content is otherwise invisible to
-  // every check below. Extract it and fold it into the same subject list
-  // everything else scans, so file-mutation, recursive-rm, sensitive-path,
-  // and workspace-containment all see inside it exactly as if it had been
-  // written plainly — content inside an -S payload must never receive a
-  // weaker classification than that. `envSplit.found` only supplies the
-  // fallback plain "env-assignment" ask below, once nothing stricter matched.
-  const envSplit = collectEnvSplitSubjects(command);
-  if (envSplit.subjects.some((subject) => commandHasRecursiveRm(subject))) return RECURSIVE_RM_ASK_RULE;
-  const allSubjects = [...subjects, ...envSplit.subjects];
 
   // Deny rules (file-mutation) beat every ask: `bash -c 'echo x > .env'` must
   // stay hard-denied in auto, not demoted because a secret path or opaque flag
   // is also present.
   let matched: AutoShellRule | undefined;
-  for (const subject of allSubjects) {
+  for (const subject of subjects) {
     matched = preferRule(matched, matchAutoShellRule(subject));
   }
   if (matched?.effect === "deny") return matched;
 
-  if (envSplit.found) matched = preferRule(matched, ENV_ASSIGNMENT_ASK_RULE);
+  // Thin fallback for env forms whose assignment is invisible to the plain
+  // regexes (quoted -S payload, or flags between `env` and NAME=value).
+  if (commandHasEnvAssignmentAsk(command)) {
+    matched = preferRule(matched, ENV_ASSIGNMENT_ASK_RULE);
+  }
 
-  for (const subject of allSubjects) {
+  for (const subject of subjects) {
     if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
   }
 
   // Containment: a command whose path arguments resolve outside the workspace
   // (including through a symlink) must ask rather than auto-run, the same way
   // path-arg tool calls already do. Checked per expanded subject so a wrapped
-  // payload (bash -c, xargs) is judged on its real target, not the wrapper.
-  for (const subject of allSubjects) {
+  // payload (bash -c, xargs, env -S) is judged on its real target, not the wrapper.
+  for (const subject of subjects) {
     if (commandTargetsRestricted(subject, isRestricted)) return OUTSIDE_WORKSPACE_ASK_RULE;
   }
 
-  for (const subject of allSubjects) {
+  for (const subject of subjects) {
     if (safeWorktreeCommand(subject) === false) return WORKTREE_ASK_RULE;
   }
 
