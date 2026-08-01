@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { applyStallRecovery, shouldAbortForStall } from "../../../src/tui/app.js";
+import { applyStallRecovery, shouldAbortForStall } from "../../../src/tui/stall-watchdog.js";
 import { INFERENCE_ABORT_INTERNAL_RECOVERY } from "../../../src/inference-abort.js";
 
 const base = {
