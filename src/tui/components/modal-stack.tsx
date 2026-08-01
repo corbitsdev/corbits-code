@@ -79,6 +79,9 @@ export type ModalStackProps = {
   permissionQueueDepth?: number;
   queuedApprovals?: readonly QueuedApprovalSummary[];
   onResolvePermission: (id: number, outcome: ApprovalOutcome) => void;
+  /** Terminal height, so approval bodies taller than it scroll instead of
+   * pushing the choices off screen. */
+  terminalRows?: number;
 
 
   width?: number;
@@ -120,6 +123,7 @@ export function ModalStack({
   queuedApprovals,
   onResolvePermission,
   width,
+  terminalRows,
 }: ModalStackProps): ReactNode {
 
   return (
@@ -167,6 +171,7 @@ export function ModalStack({
           options={activeApproval.options}
           onSelect={(result) => onSelectOperator(activeApproval.id, result)}
           {...(width !== undefined ? { width } : {})}
+          {...(terminalRows !== undefined ? { terminalRows } : {})}
         />
       )}
       {activeApproval?.kind === "permission" && (
@@ -175,6 +180,7 @@ export function ModalStack({
           request={activeApproval.request}
           {...(permissionQueueDepth !== undefined ? { permissionQueueDepth } : {})}
           {...(queuedApprovals !== undefined ? { queuedApprovals } : {})}
+          {...(terminalRows !== undefined ? { terminalRows } : {})}
           {...(activeApproval.timeoutMs !== null ? { goalTimeoutMs: activeApproval.timeoutMs } : {})}
           onResolve={(outcome) => onResolvePermission(activeApproval.id, outcome)}
           {...(width !== undefined ? { width } : {})}

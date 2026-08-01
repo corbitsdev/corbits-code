@@ -1130,6 +1130,7 @@ export function App({
           onResolvePermission={gates.resolvePermission}
 
           width={columns}
+          {...(rows !== undefined ? { terminalRows: rows } : {})}
         />
       </Box>
       <OverlayStack

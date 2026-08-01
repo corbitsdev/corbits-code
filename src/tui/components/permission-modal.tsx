@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { ApprovalOutcome, ApprovalScope, GrantScope, PermissionRequest } from "../../permission/types.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
@@ -61,6 +61,16 @@ function agentTagColor(label: string): string {
 
 const MAX_RENDERED_QUEUE_ENTRIES = 5;
 
+// A body window shorter than this reads as broken (no room to show anything
+// meaningful plus its scroll indicators), so it is the floor regardless of
+// how little the terminal reports.
+const MIN_BODY_ROWS = 3;
+const FALLBACK_TERMINAL_ROWS = 24;
+
+function maxRowOffset(rowCount: number, visibleRows: number): number {
+  return Math.max(0, rowCount - visibleRows);
+}
+
 export type PermissionModalProps = {
   request: PermissionRequest;
   /** Permission gates still queued, including this modal. */
@@ -74,6 +84,9 @@ export type PermissionModalProps = {
   goalTimeoutMs?: number | null;
   onResolve: (outcome: ApprovalOutcome) => void;
   width?: number;
+  /** Terminal height, so a request body taller than it scrolls instead of
+   * pushing the choices off screen. Defaults to a conservative fallback. */
+  terminalRows?: number;
 };
 
 
@@ -211,6 +224,7 @@ export function PermissionModal({
   goalTimeoutMs = null,
   onResolve,
   width = 80,
+  terminalRows = FALLBACK_TERMINAL_ROWS,
 }: PermissionModalProps): ReactNode {
   const queuedBehind = Math.max(0, permissionQueueDepth - 1);
   // Everything behind the currently visible entry, distinguished by agent.
@@ -251,6 +265,105 @@ export function PermissionModal({
       ? Math.max(1, Math.round(goalTimeoutMs / 1000))
       : null;
 
+  // The request body (segment list / summary / notice) is the one part of
+  // this modal that can grow arbitrarily — a long shell chain, an expanded
+  // heredoc payload, a dense plan-review notice. Everything else (header,
+  // agent line, queued-behind list, choices, footer) is bounded, so only the
+  // body scrolls: the focused choice and the full action list stay reachable
+  // below it no matter how tall the body gets.
+  const bodyRows: ReactNode[] = [];
+  if (collapsedSegments.length > 0) {
+    collapsedSegments.forEach((segment, i) => {
+      bodyRows.push(
+        <Text key={`seg-${i}`} color={color("text")} wrap="wrap">
+          {collapsedSegments.length > 1 ? `${i + 1}. ${segment.display}` : segment.display}
+        </Text>,
+      );
+      if (expanded) {
+        segment.payloads.forEach((payload, pi) => {
+          const lines = payload.lines.slice(0, MAX_RENDERED_LINES);
+          const hiddenLines = payload.lines.length - lines.length;
+          lines.forEach((line, li) => {
+            bodyRows.push(
+              <Text key={`seg-${i}-payload-${pi}-${li}`} color={color("muted")} wrap="wrap">
+                {"   "}
+                {clampForDisplay(sanitizeForPrompt(line))}
+              </Text>,
+            );
+          });
+          if (hiddenLines > 0) {
+            bodyRows.push(
+              <Text key={`seg-${i}-payload-${pi}-hidden`} color={color("muted")}>
+                {`   … ${hiddenLines} more lines`}
+              </Text>,
+            );
+          }
+        });
+      }
+    });
+    if (hiddenSegmentCount > 0) {
+      bodyRows.push(
+        <Text key="hidden-segments" color={color("muted")}>{`… ${hiddenSegmentCount} more segments`}</Text>,
+      );
+    }
+    if (collapsedSegments.length > 1) {
+      bodyRows.push(
+        <Text key="chain-note" color={color("muted")}>
+          One decision covers every segment — rejecting any blocks the whole command.
+        </Text>,
+      );
+    }
+  } else if (summary.length > 0) {
+    bodyRows.push(
+      <Text key="summary" color={color("text")} wrap="wrap">{summary}</Text>,
+    );
+  }
+  if (request.notice !== undefined) {
+    bodyRows.push(
+      <Text key="notice" color={color("muted")}>{sanitizeForPrompt(request.notice)}</Text>,
+    );
+  }
+
+  // Rows fixed above and below the scrollable body — border, padding, header
+  // lines, the queued-behind list (kept short and always visible), choices,
+  // and the footer. What's left is the body's viewport.
+  const fixedRowsAboveBody =
+    2 /* border */ +
+    2 /* paddingY */ +
+    1 /* "Approval needed" */ +
+    (request.agentLabel !== undefined ? 1 : 0) +
+    (goalTimeoutSecs !== null ? 1 : 0) +
+    1 /* marginTop before the info box */ +
+    1 /* action line */ +
+    shownQueued.length +
+    (hiddenQueuedCount > 0 ? 1 : 0) +
+    1 /* marginTop before the body */;
+  const fixedRowsBelowBody =
+    1 /* marginTop before choices */ +
+    choices.length +
+    1 /* marginTop before footer */ +
+    1 /* footer line */;
+  const availableBodyRows = Math.max(
+    MIN_BODY_ROWS,
+    terminalRows - fixedRowsAboveBody - fixedRowsBelowBody,
+  );
+  const bodyScrollable = bodyRows.length > availableBodyRows;
+  // Reserve one row for the scroll indicator only when actually scrolling, so
+  // a short prompt still fits on one screen with no forced scroll affordance.
+  const bodyViewportRows = bodyScrollable
+    ? Math.max(1, availableBodyRows - 1)
+    : availableBodyRows;
+  const bodyMaxOffset = maxRowOffset(bodyRows.length, bodyViewportRows);
+  // Local, top-pinned scroll state — unlike the transcript's useScroll (which
+  // pins to the newest/bottom line), an approval body should open showing its
+  // start, with PageDown revealing the rest.
+  const [bodyScrollOffset, setBodyScrollOffset] = useState(0);
+  const clampedBodyOffset = Math.min(bodyScrollOffset, bodyMaxOffset);
+  const visibleBodyRows = bodyScrollable
+    ? bodyRows.slice(clampedBodyOffset, clampedBodyOffset + bodyViewportRows)
+    : bodyRows;
+  const linesAbove = clampedBodyOffset;
+  const linesBelow = Math.max(0, bodyRows.length - clampedBodyOffset - bodyViewportRows);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -271,6 +384,15 @@ export function PermissionModal({
 
     if (key.ctrl && input === "o") {
       setExpanded((e) => !e);
+      return;
+    }
+
+    if (bodyScrollable && key.pageUp) {
+      setBodyScrollOffset((o) => Math.max(0, o - bodyViewportRows));
+      return;
+    }
+    if (bodyScrollable && key.pageDown) {
+      setBodyScrollOffset((o) => Math.min(bodyMaxOffset, o + bodyViewportRows));
       return;
     }
 
@@ -362,55 +484,30 @@ export function PermissionModal({
             )}
           </Box>
         )}
-        {collapsedSegments.length > 0 ? (
+        {visibleBodyRows.length > 0 && (
           // The command renders exactly once, as this segment list — no
           // separate raw dump. Heredoc/quoted payloads are already collapsed
           // to a placeholder; Ctrl+O reveals their full text below each one.
+          // When the body is taller than the terminal, only a window of it
+          // renders here — PageUp/PageDown scroll it — while the choices and
+          // footer below stay fixed and always visible.
           <Box marginLeft={2} flexDirection="column">
-            {collapsedSegments.map((segment, i) => (
-              <Box key={i} flexDirection="column">
-                <Text color={color("text")} wrap="wrap">
-                  {collapsedSegments.length > 1 ? `${i + 1}. ${segment.display}` : segment.display}
-                </Text>
-                {expanded &&
-                  segment.payloads.map((payload, pi) => {
-                    const lines = payload.lines.slice(0, MAX_RENDERED_LINES);
-                    const hiddenLines = payload.lines.length - lines.length;
-                    return (
-                      <Box key={pi} marginLeft={3} flexDirection="column">
-                        {lines.map((line, li) => (
-                          <Text key={li} color={color("muted")} wrap="wrap">
-                            {clampForDisplay(sanitizeForPrompt(line))}
-                          </Text>
-                        ))}
-                        {hiddenLines > 0 && (
-                          <Text color={color("muted")}>{`… ${hiddenLines} more lines`}</Text>
-                        )}
-                      </Box>
-                    );
-                  })}
-              </Box>
+            {visibleBodyRows.map((row, i) => (
+              <Fragment key={i}>{row}</Fragment>
             ))}
-            {hiddenSegmentCount > 0 && (
-              <Text color={color("muted")}>{`… ${hiddenSegmentCount} more segments`}</Text>
-            )}
-            {collapsedSegments.length > 1 && (
-              <Text color={color("muted")}>
-                One decision covers every segment — rejecting any blocks the whole command.
-              </Text>
-            )}
           </Box>
-        ) : summary.length > 0 ? (
+        )}
+        {bodyScrollable && (
           <Box marginLeft={2}>
-            <Text color={color("text")} wrap="wrap">{summary}</Text>
+            <Text color={color("muted")}>
+              {linesAbove > 0 ? `↑ ${linesAbove} more above` : ""}
+              {linesAbove > 0 && linesBelow > 0 ? "  ·  " : ""}
+              {linesBelow > 0 ? `↓ ${linesBelow} more below` : ""}
+              {"  ·  PageUp/PageDown to scroll"}
+            </Text>
           </Box>
-        ) : null}
+        )}
       </Box>
-      {request.notice !== undefined && (
-        <Box marginTop={1}>
-          <Text color={color("muted")}>{sanitizeForPrompt(request.notice)}</Text>
-        </Box>
-      )}
       <Box marginTop={1} flexDirection="column">
         {choices.map((choice, i) => {
           const isReject = choice.outcome.allow === false;

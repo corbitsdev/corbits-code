@@ -12,7 +12,18 @@ export type OperatorModalProps = {
   options: string[];
   onSelect: (result: OperatorResult) => void;
   width?: number;
+  /** Terminal height, so a long question or option list scrolls/pages instead
+   * of pushing the selection out of view. Defaults to a conservative fallback. */
+  terminalRows?: number;
 };
+
+const FALLBACK_TERMINAL_ROWS = 24;
+const MIN_QUESTION_ROWS = 2;
+const MIN_OPTION_ROWS = 3;
+
+function maxRowOffset(rowCount: number, visibleRows: number): number {
+  return Math.max(0, rowCount - visibleRows);
+}
 
 function segmentProps(seg: StyledSegment): Record<string, unknown> {
   return inkPropsForSegment(seg);
@@ -23,8 +34,7 @@ function segmentProps(seg: StyledSegment): Record<string, unknown> {
 // re-render is pure waste. A small bounded cache turns that into a cache hit.
 const memoizedParseMarkdown = createMemoizedParseMarkdown();
 
-function MarkdownText({ text, width }: { text: string; width: number }): ReactNode {
-  const lines = memoizedParseMarkdown(text, width);
+function renderMarkdownLines(lines: readonly StyledSegment[][]): ReactNode {
   return (
     <Box flexDirection="column">
       {lines.map((line, li) => (
@@ -37,6 +47,7 @@ function MarkdownText({ text, width }: { text: string; width: number }): ReactNo
     </Box>
   );
 }
+
 
 // Two-column layout when all options are short enough to fit side by side.
 // Each column gets half the inner width minus a small gap for the number prefix.
@@ -80,15 +91,19 @@ function renderOptionsGrid(options: string[], selected: number, innerWidth: numb
   return <Box flexDirection="column">{rows}</Box>;
 }
 
-function renderOptionsList(options: string[], selected: number): ReactNode {
+// `startIndex` lets a windowed slice of `options` keep its true 1-based
+// number and highlight against the real `selected` index, not its position
+// within the slice.
+function renderOptionsList(options: string[], selected: number, startIndex = 0): ReactNode {
   return (
     <Box flexDirection="column">
       {options.map((opt, i) => {
-        const active = i === selected;
+        const realIndex = startIndex + i;
+        const active = realIndex === selected;
         return (
-          <Text key={i} wrap="wrap">
+          <Text key={realIndex} wrap="wrap">
             <Text color={active ? color("brand") : color("muted")} bold={active}>{active ? "› " : "  "}</Text>
-            <Text color={color("muted")}>{`${i + 1}. `}</Text>
+            <Text color={color("muted")}>{`${realIndex + 1}. `}</Text>
             <Text color={active ? color("text") : color("muted")} bold={active}>{opt}</Text>
           </Text>
         );
@@ -97,7 +112,13 @@ function renderOptionsList(options: string[], selected: number): ReactNode {
   );
 }
 
-export function OperatorModal({ question, options, onSelect, width = 80 }: OperatorModalProps): ReactNode {
+export function OperatorModal({
+  question,
+  options,
+  onSelect,
+  width = 80,
+  terminalRows = FALLBACK_TERMINAL_ROWS,
+}: OperatorModalProps): ReactNode {
   const [selected, setSelected] = useState(0);
   const [draft, setDraft] = useState("");
   const typing = draft.length > 0;
@@ -108,6 +129,56 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
   const colWidth = Math.floor((innerWidth - 3) / 2);
   const maxOptLen = options.reduce((n, o) => Math.max(n, o.length), 0);
   const useGrid = options.length >= 2 && options.length <= 4 && maxOptLen <= colWidth - 5;
+
+  const questionLines = memoizedParseMarkdown(question, innerWidth);
+  const optionsRowsNeeded = useGrid ? Math.ceil(options.length / 2) : options.length;
+  // border(2) + paddingY(2) + marginBottom after the question(1) + marginTop
+  // before the footer(1) + footer line(1).
+  const reservedChrome = 7;
+  const available = Math.max(
+    MIN_QUESTION_ROWS + MIN_OPTION_ROWS,
+    terminalRows - reservedChrome,
+  );
+
+  let questionRows: number;
+  let optionsRows: number;
+  if (questionLines.length + optionsRowsNeeded <= available) {
+    questionRows = questionLines.length;
+    optionsRows = optionsRowsNeeded;
+  } else {
+    // The selection must stay reachable, so the option list gets priority;
+    // whatever's left goes to the question.
+    optionsRows = Math.min(optionsRowsNeeded, Math.max(MIN_OPTION_ROWS, available - MIN_QUESTION_ROWS));
+    questionRows = Math.max(MIN_QUESTION_ROWS, available - optionsRows);
+  }
+
+  const questionScrollable = questionLines.length > questionRows;
+  const questionMaxOffset = maxRowOffset(questionLines.length, questionRows);
+  const [questionScrollOffset, setQuestionScrollOffset] = useState(0);
+  const clampedQuestionOffset = Math.min(questionScrollOffset, questionMaxOffset);
+  const visibleQuestionLines = questionScrollable
+    ? questionLines.slice(clampedQuestionOffset, clampedQuestionOffset + questionRows)
+    : questionLines;
+  const questionLinesAbove = clampedQuestionOffset;
+  const questionLinesBelow = Math.max(0, questionLines.length - clampedQuestionOffset - questionRows);
+
+  // Only the plain list windows around the selection — grid mode is capped at
+  // 4 options (2 rows), which always fits.
+  const optionsScrollable = !useGrid && options.length > optionsRows;
+  let optionsWindowStart = 0;
+  if (optionsScrollable) {
+    optionsWindowStart = Math.max(
+      0,
+      Math.min(selected - Math.floor(optionsRows / 2), options.length - optionsRows),
+    );
+  }
+  const visibleOptions = optionsScrollable
+    ? options.slice(optionsWindowStart, optionsWindowStart + optionsRows)
+    : options;
+  const optionsAbove = optionsWindowStart;
+  const optionsBelow = optionsScrollable
+    ? options.length - optionsWindowStart - visibleOptions.length
+    : 0;
 
   useInput((input, key) => {
     if (typing) {
@@ -132,6 +203,14 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
 
     if (key.escape || (key.ctrl && input === "c")) {
       onSelect({ kind: "cancel" });
+      return;
+    }
+    if (questionScrollable && key.pageUp) {
+      setQuestionScrollOffset((o) => Math.max(0, o - questionRows));
+      return;
+    }
+    if (questionScrollable && key.pageDown) {
+      setQuestionScrollOffset((o) => Math.min(questionMaxOffset, o + questionRows));
       return;
     }
     if (key.ctrl && (key.upArrow || key.downArrow)) return;
@@ -170,8 +249,16 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
       marginX={1}
       width={Math.max(24, width - 2)}
     >
-      <Box marginBottom={1}>
-        <MarkdownText text={question} width={innerWidth} />
+      <Box marginBottom={1} flexDirection="column">
+        {renderMarkdownLines(visibleQuestionLines)}
+        {questionScrollable && (
+          <Text color={color("muted")}>
+            {questionLinesAbove > 0 ? `↑ ${questionLinesAbove} more above` : ""}
+            {questionLinesAbove > 0 && questionLinesBelow > 0 ? "  ·  " : ""}
+            {questionLinesBelow > 0 ? `↓ ${questionLinesBelow} more below` : ""}
+            {"  ·  PageUp/PageDown to scroll"}
+          </Text>
+        )}
       </Box>
       {typing ? (
         <Box flexDirection="column">
@@ -188,7 +275,14 @@ export function OperatorModal({ question, options, onSelect, width = 80 }: Opera
         <Box flexDirection="column">
           {useGrid
             ? renderOptionsGrid(options, selected, innerWidth)
-            : renderOptionsList(options, selected)}
+            : renderOptionsList(visibleOptions, selected, optionsWindowStart)}
+          {optionsScrollable && (optionsAbove > 0 || optionsBelow > 0) && (
+            <Text color={color("muted")}>
+              {optionsAbove > 0 ? `↑ ${optionsAbove} more above` : ""}
+              {optionsAbove > 0 && optionsBelow > 0 ? "  ·  " : ""}
+              {optionsBelow > 0 ? `↓ ${optionsBelow} more below` : ""}
+            </Text>
+          )}
           <Box marginTop={1}>
             <Text color={color("dim")} wrap="truncate-end">
               {`1-${options.length} select · ↑↓ navigate · Enter choose · type to respond · Esc dismiss`}
