@@ -64,7 +64,8 @@ function hasExactFullCommandGrant(
 // Pure reconciliation check used to re-evaluate the TUI's pending approval
 // queue against a single newly-minted grant (see PermissionGateOptions.onGrant).
 // A queued request is covered only when this one grant, by itself, would have
-// let it skip the prompt — mirrors the matching evaluate() itself applies, so
+// let it skip the prompt AND the request clears the same secret-path and
+// restricted-path guards evaluate() enforces ahead of grant matching — so
 // reconciliation never auto-approves something evaluate() would still ask for.
 export function isRequestCoveredByGrant(
   request: PermissionRequest,
@@ -84,6 +85,10 @@ export function isRequestCoveredByGrant(
   }
   const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
   if (segments.length === 0) return false;
+  const resolvedCwd = request.cwd ?? process.cwd();
+  const isRestricted = createPathRestriction(resolvedCwd, createWorktreeRootsProvider(resolvedCwd)).isRestricted;
+  if (segments.some((segment) => commandReferencesSensitivePath(segment) !== undefined)) return false;
+  if (segments.some((segment) => commandTargetsRestricted(segment, isRestricted))) return false;
   if (segments.length > 1) {
     return approval.pattern === stripCommentLines(request.subject).trim();
   }
