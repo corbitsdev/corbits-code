@@ -36,7 +36,6 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import {
   markOnboarded,
   resolveMaxConcurrentSubAgents,
-  tierDefinitionAt,
   type Settings,
 } from "../config/settings.js";
 import { getLogger } from "@intx/log";
@@ -57,23 +56,20 @@ import { McpAuthPrompt } from "./components/mcp-auth-prompt.js";
 import { writeClipboard } from "./util/clipboard.js";
 import { copyTargets, transcriptMarkdown, type CopyTarget } from "./copy.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
-import { codexProfileFromProviderName } from "../config/codex-providers.js";
-import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { fetchCodexUsage, formatCodexUsage } from "../auth/codex/usage.js";
 import { fetchXaiUsage, formatXaiUsage } from "../auth/xai/usage.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
-import type { CommandResult } from "./commands/registry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
 import { writeFile, mkdir, unlink } from "node:fs/promises";
 import type { LifecycleHookStatus } from "../session/hooks.js";
 import type { WorkflowStatus, WorkflowControllerState } from "./workflow-controller.js";
 import type { CapabilityName } from "../workflows/types.js";
-import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
 import { formatAttachmentSummary, type PendingImageAttachment } from "./image-attachments.js";
 import { setConfiguredTiers } from "./commands/built-in.js";
 import { useImageAttach } from "./hooks/use-image-attach.js";
 import { useAgentsStrip } from "./hooks/use-agents-strip.js";
+import { useCommandDispatch } from "./hooks/use-command-dispatch.js";
 import { useMessagePipeline } from "./hooks/use-message-pipeline.js";
 import { useCommandContext } from "./hooks/use-command-context.js";
 import { useTranscriptLayout } from "./hooks/use-transcript-layout.js";
@@ -970,112 +966,30 @@ export function App({
     (ticks) => activeScroll.scrollDown(ticks * 3),
   );
 
-  const handleCommand = (result: CommandResult) => {
-    if (result.type === "send") {
-      handleSend(result.text);
-      return;
-    }
-    if (result.type === "message") {
-      setCommandMessage(result.text);
-      return;
-    }
-    if (result.type === "tier") {
-      // Resolve strictly against the named tier (no fast→standard→clever
-      // fallback walk) so /fast means "the fast tier's model", not "whatever
-      // resolves." Provider names come from the live catalog so a tier assigned
-      // this session is recognised without a restart.
-      const settings: Settings = {
-        providers: Object.fromEntries(providerCatalog.map((p) => [p.name, p])),
-        tiers,
-      };
-      const leg = tierDefinitionAt(result.tier, settings)?.order[0];
-      if (leg === undefined) {
-        setCommandMessage(`The ${result.tier} tier is not configured. Assign it in /model.`);
-        return;
-      }
-      applySelection(leg.provider, leg.model, reasoningEffort);
-      setCommandMessage(`Switched to ${result.tier} tier (${leg.model}).`);
-      return;
-    }
-    if (result.type === "view") {
-      setTasksExpanded(true);
-      return;
-    }
-    if (result.type === "overlay") {
-      if (result.overlay === "permissions") {
-        refreshPermissions();
-        setPermissionsOpen(true);
-      } else if (result.overlay === "settings") {
-        refreshPermissions();
-        setSettingsOpen(true);
-      } else if (result.overlay === "plugins") {
-        if (pluginsAdmin === undefined) {
-          setCommandMessage("Plugins are not available in this context.");
-        } else {
-          setPluginsOpen(true);
-        }
-      } else {
-        setHelpOpen(true);
-      }
-      return;
-    }
-    if (result.type === "modal" && result.modal === "agent") {
-      setAgentModalOpen(true);
-      refreshAuthState();
-      const codexName = codexProfileFromProviderName(provider);
-      const xaiName = xaiProfileFromProviderName(provider);
-      setAgentModalUsage(null);
-      if (codexName !== undefined) {
-        void fetchCodexUsage(codexName).then(
-          (usage) => {
-            setAgentModalUsage(formatCodexUsage(usage));
-          },
-          () => setAgentModalUsage(null),
-        );
-      } else if (xaiName !== undefined) {
-        const entry = providerCatalog.find((e) => e.name === provider);
-        void fetchXaiUsage(xaiName, entry?.baseURL).then(
-          (usage) => {
-            setAgentModalUsage(formatXaiUsage(usage));
-          },
-          () => setAgentModalUsage(null),
-        );
-      } else {
-        setAgentModalUsage(null);
-      }
-    }
-    if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login" || result.modal === "login")) {
-      if (result.modal === "login") setLoginModal("choose");
-      else setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
-    }
-    if (result.type === "paste-image") {
-      handlePasteImage();
-      return;
-    }
-    if (result.type === "workflow") {
-      if (onStartWorkflow === undefined) {
-        setCommandMessage("Workflows are not available in this context.");
-      } else {
-        const msg = onStartWorkflow(result.name);
-        if (msg.startsWith("Started")) {
-          sendMessage({ text: workflowKickoffUserMessage(result.args), attachments: [] });
-        } else {
-          setCommandMessage(msg);
-        }
-      }
-    }
-  };
-
-  const refreshPermissions = () => {
-    if (permissionsAdmin === undefined) return;
-    void permissionsAdmin.list().then(setPermissionEntries);
-  };
-
-
-  const handleRevokePermission = (entry: ScopedApproval) => {
-    if (permissionsAdmin === undefined) return;
-    void permissionsAdmin.revoke(entry).then(refreshPermissions);
-  };
+  const { handleCommand, refreshPermissions, handleRevokePermission } = useCommandDispatch({
+    handleSend,
+    setCommandMessage,
+    providerCatalog,
+    tiers,
+    applySelection,
+    reasoningEffort,
+    setTasksExpanded,
+    permissionsAdmin,
+    setPermissionEntries,
+    setPermissionsOpen,
+    setSettingsOpen,
+    pluginsAdmin,
+    setPluginsOpen,
+    setHelpOpen,
+    setAgentModalOpen,
+    refreshAuthState,
+    provider,
+    setAgentModalUsage,
+    setLoginModal,
+    handlePasteImage,
+    onStartWorkflow,
+    sendMessage,
+  });
 
   const handleOnboardingComplete = () => {
     setOnboardingDone(true);
