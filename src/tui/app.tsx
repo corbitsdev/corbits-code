@@ -459,6 +459,10 @@ export function App({
     eventEmitter,
     setGatePending: state.setGatePending,
     activationBlocked: approvalActivationBlocked,
+    // Mirrors the permission gate's own activeProviderModel (fixed at gate
+    // creation from initialProvider/initialModel), so queue reconciliation
+    // honors provider-model-scoped grants the same way evaluate() does.
+    activeProviderModel: `${initialProvider}:${initialModel}`,
   });
 
   useEffect(() => {

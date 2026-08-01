@@ -323,6 +323,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,
+    onGrant: (approval) => emitter.emit("permission.grant", { approval }),
   });
 
 

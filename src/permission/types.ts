@@ -10,8 +10,11 @@ export type GrantScope = "session" | "project" | "global" | "provider-model";
 // A single persistable approval: a tool name plus a glob pattern that, when it
 // matches a future call's subject (a shell command or a file path), auto-allows
 // it without asking again. `providerModel`, when set, restricts the approval to
-// the matching active providerName+model.
-export type Approval = { tool: string; pattern: string; providerModel?: string };
+// the matching active providerName+model. `cwd`, when set (project-scoped
+// grants only), restricts the approval to requests originating from that
+// workspace root — a project grant minted in one repo must never auto-allow a
+// queued request from a different repo.
+export type Approval = { tool: string; pattern: string; providerModel?: string; cwd?: string };
 
 // One option offered to the operator at approval time. `pattern` is the glob
 // that gets persisted if the operator picks this scope; `null` means "just this
@@ -37,6 +40,9 @@ export type PermissionRequest = {
   subject: string;
   arguments?: Record<string, unknown>;
   scopes: ApprovalScope[];
+  // The workspace root this request was raised from. Used to confine
+  // project-scoped grant reconciliation to the repo the grant was minted in.
+  cwd?: string;
   // A single muted-line explanation shown to the operator when scopes were
   // withheld for a reason beyond the ordinary "no persistent option exists
   // yet" case (e.g. a mega-chain that only offers accept-once). Plain literal
