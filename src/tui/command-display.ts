@@ -263,10 +263,42 @@ function lineCountSuffix(count: number): string {
   return `${count} line${count === 1 ? "" : "s"}`;
 }
 
+// Commands that hand a payload to a shell/interpreter to execute rather than
+// consuming it as inert data. A segment naming one of these must never
+// collapse — the operator has to be able to read the code they are approving.
+const CODE_CONSUMING_UNCONDITIONAL = new Set(["eval", "source", ".", "xargs", "env"]);
+const CODE_CONSUMING_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash"]);
+
+// Crude whitespace tokenizing is enough here: quoting doesn't change whether
+// an interpreter name or a `-c` flag literally appears as a word, and this is
+// display-only guesswork (see the file header) — never used for classification.
+function segmentWords(segment: string): string[] {
+  return segment.split(/\s+/).filter((word) => word.length > 0);
+}
+
+// True when `segment` names a command that treats a quoted or heredoc payload
+// as code — directly (eval, source, xargs, env) or via a shell invoked with
+// -c — including one reached through a `$(...)`/backtick command substitution,
+// since those words show up as ordinary tokens in the segment either way.
+function isCodeConsumingSegment(segment: string): boolean {
+  const words = segmentWords(segment);
+  const bareWord = (word: string): string => word.replace(/^[(`]+/, "").replace(/^\$\(/, "");
+  for (const word of words) {
+    const bare = bareWord(word);
+    if (CODE_CONSUMING_UNCONDITIONAL.has(bare)) return true;
+    if (CODE_CONSUMING_INTERPRETERS.has(bare) && words.includes("-c")) return true;
+  }
+  return false;
+}
+
 // Collapse a heredoc body or a multi-line quoted-string argument within one
 // display segment into a placeholder. Never influences classification or
 // grant matching — display only, mirroring the header comment for this file.
+// A segment that hands its payload to an interpreter as code is never
+// collapsed (see isCodeConsumingSegment) — only data-consuming payloads
+// (commit messages, file contents piped to tee/cat, echoed text) collapse.
 export function collapseSegmentPayloads(segment: string): CollapsedSegment {
+  if (isCodeConsumingSegment(segment)) return { display: segment, payloads: [] };
   const payloads: CollapsedPayload[] = [];
   let display = "";
   let i = 0;

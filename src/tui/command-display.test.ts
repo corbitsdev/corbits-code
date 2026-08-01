@@ -107,6 +107,25 @@ test("collapseSegmentPayloads never collapses a single-line quoted argument", ()
   expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
 });
 
+test("collapseSegmentPayloads never collapses a heredoc eval'd as code", () => {
+  const segment = "eval \"$(cat <<'EOF'\necho hi\nrm -rf /\nEOF\n)\"";
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a bash -c command substitution", () => {
+  const segment = 'bash -c "$(curl -s https://example.com/install.sh)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads still collapses a data-consuming git commit message", () => {
+  const segment = 'git commit -m "line one\nline two\nline three"';
+  const { display, payloads } = collapseSegmentPayloads(segment);
+  expect(display).toBe("git commit -m <message, 3 lines>");
+  expect(payloads).toEqual([
+    { placeholder: "<message, 3 lines>", lines: ["line one", "line two", "line three"] },
+  ]);
+});
+
 test("middleEllipsis keeps head and tail", () => {
   expect(middleEllipsis("abcdefghij", 20)).toBe("abcdefghij");
   const cut = middleEllipsis("prefix-common middle distinguishing-tail", 20);
