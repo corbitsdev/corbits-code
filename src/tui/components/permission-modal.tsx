@@ -6,8 +6,7 @@ import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
 import { stripTerminalControlSequences } from "../../util/control-char-strip.js";
 import { isShellCommentOnly } from "../../permission/command.js";
-import { groupChainSegmentsForDisplay, middleEllipsis, verbatimCommandLines } from "../command-display.js";
-import type { VerbatimLine } from "../command-display.js";
+import { collapseSegmentPayloads, groupChainSegmentsForDisplay, middleEllipsis } from "../command-display.js";
 import type { QueuedApprovalSummary } from "../hooks/use-gates.js";
 
 // Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
@@ -37,25 +36,6 @@ function sanitizeForPrompt(text: string): string {
   return stripTerminalControlSequences(text)
     .replace(BIDI_AND_ZERO_WIDTH, "")
     .replace(/\r\n|\r|\n/g, "↵");
-}
-
-// The verbatim block renders top-level newlines as real wrapped lines so a
-// genuinely multi-line command reads naturally. Newlines inside quotes and
-// bare CRs stay inline as a visible ↵ marker (see verbatimCommandLines) so an
-// embedded break in a quoted argument still cannot masquerade as a fresh,
-// unmarked line — see the "cannot fake extra lines" regression test. Control
-// sequences and bidi/zero-width characters are stripped exactly as before;
-// only line-break presentation differs from sanitizeForPrompt. Each line is
-// clamped individually and the line count is capped, mirroring the segment
-// cap: many short lines would otherwise pass the character clamp yet still
-// push the Reject/Accept choices off screen.
-function verbatimDisplayLines(text: string): { lines: VerbatimLine[]; hiddenLineCount: number } {
-  const stripped = stripTerminalControlSequences(text).replace(BIDI_AND_ZERO_WIDTH, "");
-  const all = verbatimCommandLines(stripped);
-  const lines = all
-    .slice(0, MAX_RENDERED_LINES)
-    .map((line) => ({ ...line, text: clampForDisplay(line.text) }));
-  return { lines, hiddenLineCount: all.length - lines.length };
 }
 
 // Hints (and, more rarely, labels) for persistent Allow options share a long
@@ -114,6 +94,29 @@ const PERSISTENT_GRANTS: { grant: GrantScope; note: string }[] = [
   { grant: "global", note: "all projects" },
 ];
 
+// When every segment of a multi-command chain shares the same leading word
+// (e.g. all "git"), name the family after it; otherwise fall back to "shell"
+// rather than guessing. Display only — never affects what gets granted.
+function commandFamilyLabel(segments: readonly string[]): string {
+  const firstWords = segments.map((s) => s.trim().split(/\s+/)[0] ?? "");
+  const first = firstWords[0];
+  const allSame = first !== undefined && first.length > 0 && firstWords.every((w) => w === first);
+  return allSame ? first : "shell";
+}
+
+// The single concise noun phrase an "Allow" option grants — a backtick-quoted
+// pattern for a single command, or "these N <family> commands" for a
+// multi-segment chain grant. Never a duplicated ellipsized command mash.
+function grantSubject(request: PermissionRequest, hint: string): string {
+  if (request.tool !== "run_shell") return `\`${hint}\``;
+  const segments = groupChainSegmentsForDisplay(request.subject).filter(
+    (s) => !isShellCommentOnly(s),
+  );
+  if (segments.length <= 1) return `\`${hint}\``;
+  const family = commandFamilyLabel(segments);
+  return `these ${segments.length} ${family} commands`;
+}
+
 function buildChoices(request: PermissionRequest): Choice[] {
   const choices: Choice[] = [
     {
@@ -142,17 +145,18 @@ function buildChoices(request: PermissionRequest): Choice[] {
   if (prefixScope?.pattern) {
     const broadPattern = prefixScope.pattern;
     const broadHint = prefixScope.hint ?? broadPattern;
+    const subject = grantSubject(request, broadHint);
     for (const option of PERSISTENT_GRANTS) {
       choices.push({
-        label: `Allow ${broadPattern}`,
-        hint: `${broadHint} · ${option.note}`,
-        hintStyle: "command",
+        label: `Allow ${subject} — ${option.note}`,
+        hint: "",
+        hintStyle: "note",
         messageable: false,
         outcome: {
           allow: true,
           persist: {
             id: `${option.grant}-broad`,
-            label: `Allow ${broadPattern}`,
+            label: `Allow ${subject}`,
             pattern: broadPattern,
             hint: broadHint,
             grant: option.grant,
@@ -166,17 +170,18 @@ function buildChoices(request: PermissionRequest): Choice[] {
       ?? [...request.scopes].reverse().find((s) => s.pattern !== null);
     if (exactScope?.pattern) {
       const hint = exactScope.hint ?? exactScope.pattern;
+      const subject = grantSubject(request, hint);
       for (const option of PERSISTENT_GRANTS) {
         choices.push({
-          label: `Allow ${hint}`,
-          hint: `${hint} · ${option.note}`,
-          hintStyle: "command",
+          label: `Allow ${subject} — ${option.note}`,
+          hint: "",
+          hintStyle: "note",
           messageable: false,
           outcome: {
             allow: true,
             persist: {
               id: option.grant,
-              label: `Allow ${hint}`,
+              label: `Allow ${subject}`,
               pattern: exactScope.pattern,
               hint,
               grant: option.grant,
@@ -225,13 +230,19 @@ export function PermissionModal({
   const allShellSegments = descriptor.isShell
     ? groupChainSegmentsForDisplay(request.subject).filter((segment) => !isShellCommentOnly(segment))
     : [];
-  const shellSegments = allShellSegments
-    .slice(0, MAX_RENDERED_SEGMENTS)
-    .map((segment) => clampForDisplay(sanitizeForPrompt(segment)));
-  const hiddenSegmentCount = allShellSegments.length - shellSegments.length;
-  const verbatim = descriptor.isShell
-    ? verbatimDisplayLines(request.subject)
-    : { lines: [] as VerbatimLine[], hiddenLineCount: 0 };
+  const cappedSegments = allShellSegments.slice(0, MAX_RENDERED_SEGMENTS);
+  const hiddenSegmentCount = allShellSegments.length - cappedSegments.length;
+  // Collapse heredoc/quoted-string payloads before sanitizing so an embedded
+  // newline is recognized as a payload boundary, not just turned into a ↵
+  // marker — this is what lets the command render once, as one line per
+  // segment, with no separate raw dump underneath.
+  const collapsedSegments = cappedSegments.map((segment) => {
+    const collapsed = collapseSegmentPayloads(segment);
+    return {
+      display: clampForDisplay(sanitizeForPrompt(collapsed.display)),
+      payloads: collapsed.payloads,
+    };
+  });
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
@@ -351,42 +362,45 @@ export function PermissionModal({
             )}
           </Box>
         )}
-        {descriptor.isShell && (
-          // The exact string that will execute, always shown verbatim: the
-          // segment list below is a lossy reconstruction, and the scope hints
-          // that otherwise carry the full command are absent when a request
-          // must not mint grants (secret-path shell).
+        {collapsedSegments.length > 0 ? (
+          // The command renders exactly once, as this segment list — no
+          // separate raw dump. Heredoc/quoted payloads are already collapsed
+          // to a placeholder; Ctrl+O reveals their full text below each one.
           <Box marginLeft={2} flexDirection="column">
-            {verbatim.lines.map((line, i) => (
-              // Full-line comments are shell no-ops: de-emphasize them so the
-              // executable lines carry the visual weight.
-              <Text
-                key={i}
-                color={line.isComment ? color("muted") : toolColor}
-                dimColor={line.isComment}
-                wrap="wrap"
-              >
-                {line.text}
-              </Text>
-            ))}
-            {verbatim.hiddenLineCount > 0 && (
-              <Text color={color("muted")}>{`… ${verbatim.hiddenLineCount} more lines`}</Text>
-            )}
-          </Box>
-        )}
-        {shellSegments.length > 1 ? (
-          <Box marginLeft={2} flexDirection="column">
-            {shellSegments.map((segment, i) => (
-              <Text key={i} color={color("text")} wrap="wrap">{`${i + 1}. ${segment}`}</Text>
+            {collapsedSegments.map((segment, i) => (
+              <Box key={i} flexDirection="column">
+                <Text color={color("text")} wrap="wrap">
+                  {collapsedSegments.length > 1 ? `${i + 1}. ${segment.display}` : segment.display}
+                </Text>
+                {expanded &&
+                  segment.payloads.map((payload, pi) => {
+                    const lines = payload.lines.slice(0, MAX_RENDERED_LINES);
+                    const hiddenLines = payload.lines.length - lines.length;
+                    return (
+                      <Box key={pi} marginLeft={3} flexDirection="column">
+                        {lines.map((line, li) => (
+                          <Text key={li} color={color("muted")} wrap="wrap">
+                            {clampForDisplay(sanitizeForPrompt(line))}
+                          </Text>
+                        ))}
+                        {hiddenLines > 0 && (
+                          <Text color={color("muted")}>{`… ${hiddenLines} more lines`}</Text>
+                        )}
+                      </Box>
+                    );
+                  })}
+              </Box>
             ))}
             {hiddenSegmentCount > 0 && (
               <Text color={color("muted")}>{`… ${hiddenSegmentCount} more segments`}</Text>
             )}
-            <Text color={color("muted")}>
-              One decision covers every segment — rejecting any blocks the whole command.
-            </Text>
+            {collapsedSegments.length > 1 && (
+              <Text color={color("muted")}>
+                One decision covers every segment — rejecting any blocks the whole command.
+              </Text>
+            )}
           </Box>
-        ) : !descriptor.isShell && summary.length > 0 ? (
+        ) : summary.length > 0 ? (
           <Box marginLeft={2}>
             <Text color={color("text")} wrap="wrap">{summary}</Text>
           </Box>
@@ -413,6 +427,11 @@ export function PermissionModal({
           const hintClose = choice.hintStyle === "command" ? "]" : ")";
           const hintColor = choice.hintStyle === "command" ? color("muted") : color("muted");
           const hintDim = choice.hintStyle === "command";
+          // Persistent Allow choices carry their scope in the label itself
+          // (see grantSubject) and set hint to "" — nothing left to show in a
+          // second, dimmer bracket, so the bracket is omitted entirely rather
+          // than rendering an empty "()" pair.
+          const showHint = choice.hint.length > 0 || (active && messageMode);
           return (
             <Text key={i} wrap="wrap">
               <Text color={active ? color("brand") : color("muted")} bold={active}>
@@ -424,19 +443,23 @@ export function PermissionModal({
                   ? sanitizeForPrompt(choice.label)
                   : truncateChoiceText(sanitizeForPrompt(choice.label), width)}
               </Text>
-              {"  "}
-              <Text color={hintColor} dimColor={hintDim}>
-                {hintOpen}
-              </Text>
-              <Text color={hintColor} dimColor={hintDim}>
-                {hintText}
-              </Text>
-              {active && messageMode && (
-                <Text color={color("brand")}>▌</Text>
+              {showHint && (
+                <>
+                  {"  "}
+                  <Text color={hintColor} dimColor={hintDim}>
+                    {hintOpen}
+                  </Text>
+                  <Text color={hintColor} dimColor={hintDim}>
+                    {hintText}
+                  </Text>
+                  {active && messageMode && (
+                    <Text color={color("brand")}>▌</Text>
+                  )}
+                  <Text color={hintColor} dimColor={hintDim}>
+                    {hintClose}
+                  </Text>
+                </>
               )}
-              <Text color={hintColor} dimColor={hintDim}>
-                {hintClose}
-              </Text>
             </Text>
           );
         })}
