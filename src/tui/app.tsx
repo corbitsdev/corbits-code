@@ -87,7 +87,7 @@ import type { SubAgentProvider, SubAgentSessionStore } from "../subagent/index.j
 import { useSpinner } from "./hooks/use-spinner.js";
 import { extraPromptChromeRows } from "./prompt-layout.js";
 import { chromeDividerLine } from "./chrome-zones.js";
-import { shouldAutoRetryQuota } from "./quota-retry.js";
+import { useQuotaRetry } from "./hooks/use-quota-retry.js";
 import { useSessionClock } from "./hooks/use-session-clock.js";
 import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
@@ -133,14 +133,13 @@ import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { createPathRestriction, type PathRestriction } from "../permission/path-restriction.js";
 import { createWorktreeRootsProvider } from "../permission/worktrees.js";
 import {
-  extractPastedImagePaths,
   findImagePathMentions,
   formatAttachmentSummary,
   imageAttachmentFromPath,
-  readClipboardImage,
   type PendingImageAttachment,
 } from "./image-attachments.js";
 import { setConfiguredTiers } from "./commands/built-in.js";
+import { useImageAttach } from "./hooks/use-image-attach.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
@@ -677,7 +676,8 @@ export function App({
   const pendingQueueRef = useRef<OutboundUserMessage[]>([]);
   const tryDrainQueuedMessageRef = useRef<() => void>(() => {});
   const [queuedCount, setQueuedCount] = useState(0);
-  const [pendingImages, setPendingImages] = useState<PendingImageAttachment[]>([]);
+  const { pendingImages, setPendingImages, handlePasteImage, handlePasteText } =
+    useImageAttach({ cwd, setCommandMessage });
 
   const providerManager = useProviderManager({
     initialProvider,
@@ -1536,28 +1536,7 @@ export function App({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status, state.awaitingResponse]);
 
-  // When a quota error is active, poll once per second and auto-resubmit the
-  // last prompt as soon as the provider's retry-after window expires.
-  useEffect(() => {
-    if (state.quotaError === null) return;
-    const interval = setInterval(() => {
-      if (
-        !shouldAutoRetryQuota({
-          quotaError: stateRef.current.quotaError,
-          alreadyFired: quotaAutoRetryFiredRef.current,
-          nowMs: Date.now(),
-          lastSentMessage: lastSentMessageRef.current,
-        })
-      ) {
-        return;
-      }
-      quotaAutoRetryFiredRef.current = true;
-      sendMessageRef.current({ text: lastSentMessageRef.current, attachments: [] });
-    }, 1000);
-    return () => clearInterval(interval);
-  // `state` is a stable mutable object — only `quotaError` drives re-subscription.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.quotaError]);
+  useQuotaRetry({ state, stateRef, lastSentMessageRef, quotaAutoRetryFiredRef, sendMessageRef });
 
   // Drain one queued message when the orchestrator is idle and no sub-agents run.
   useEffect(() => {
@@ -1586,41 +1565,6 @@ export function App({
     if (initialTask.length > 0) sendMessage({ text: initialTask, attachments: [] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const addPendingImage = (attachment: PendingImageAttachment): void => {
-    setPendingImages((prev) => [...prev, attachment]);
-    setCommandMessage(`Attached image: ${attachment.name}`);
-  };
-
-  const handlePasteImage = (): void => {
-    setCommandMessage("Reading clipboard image...");
-    void readClipboardImage().then((result) => {
-      if (!result.ok) {
-        setCommandMessage(`Image paste failed: ${result.reason}`);
-        return;
-      }
-      addPendingImage(result.attachment);
-    });
-  };
-
-  const handlePasteText = (text: string): boolean => {
-    const paths = extractPastedImagePaths(text, cwd);
-    if (paths.length === 0) return false;
-    setCommandMessage(`Attaching ${paths.length} image${paths.length === 1 ? "" : "s"}...`);
-    void Promise.all(paths.map((path) => imageAttachmentFromPath(path))).then((results) => {
-      const attached = results.filter((result): result is { ok: true; attachment: PendingImageAttachment } => result.ok);
-      const failed = results.length - attached.length;
-      if (attached.length > 0) {
-        setPendingImages((prev) => [...prev, ...attached.map((result) => result.attachment)]);
-      }
-      setCommandMessage(
-        failed > 0
-          ? `Attached ${attached.length} image${attached.length === 1 ? "" : "s"}; ${failed} failed.`
-          : `Attached ${attached.length} image${attached.length === 1 ? "" : "s"}.`,
-      );
-    });
-    return true;
-  };
 
   const prepareOutboundMessage = async (
     message: string,
