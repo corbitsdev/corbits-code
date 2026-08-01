@@ -2743,3 +2743,67 @@ describe("deriveCommandScopes comment insensitivity", () => {
     expect(withComment).toEqual(withoutComment);
   });
 });
+
+describe("sub-agent identity on permission requests", () => {
+  test("a request raised outside any sub-agent carries no agentLabel", async () => {
+    let seen: PermissionRequest | undefined;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        seen = request;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      cwd: "/repo",
+    });
+    await gate.evaluate(shellCall("npm test"));
+    expect(seen?.agentLabel).toBeUndefined();
+    expect(seen?.cwd).toBe("/repo");
+  });
+
+  test("a request raised from a sub-agent's own tool call carries its identity", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    let seen: PermissionRequest | undefined;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        seen = request;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      cwd: "/repo",
+    });
+    await runWithSubAgentIdentity({ description: "Fix flaky test", cwd: "/repo" }, () =>
+      gate.evaluate(shellCall("npm test")),
+    );
+    expect(seen?.agentLabel).toBe("Fix flaky test");
+    expect(seen?.cwd).toBe("/repo");
+  });
+
+  test("identity does not leak across concurrent calls without an active ALS scope", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const seen: (PermissionRequest | undefined)[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        seen.push(request);
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      cwd: "/repo",
+    });
+    await Promise.all([
+      runWithSubAgentIdentity({ description: "Worker A", cwd: "/repo" }, () =>
+        gate.evaluate(shellCall("npm run a")),
+      ),
+      gate.evaluate(shellCall("npm run b")),
+    ]);
+    const withA = seen.find((r) => r?.subject === "npm run a");
+    const withoutLabel = seen.find((r) => r?.subject === "npm run b");
+    expect(withA?.agentLabel).toBe("Worker A");
+    expect(withoutLabel?.agentLabel).toBeUndefined();
+  });
+});

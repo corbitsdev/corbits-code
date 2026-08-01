@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { LifecycleHookStatus } from "../../session/hooks.js";
 import type { ApprovalOutcome } from "../../permission/types.js";
 import type { PlanStep } from "../use-stream.js";
-import type { ActiveApproval } from "../hooks/use-gates.js";
+import type { ActiveApproval, QueuedApprovalSummary } from "../hooks/use-gates.js";
 import { HookPanel } from "./hook-panel.js";
 import { HelpOverlay } from "./help-overlay.js";
 import { AgentModal, toAgentProviders, type AgentProvider, type ProviderFormSubmission } from "./agent-modal.js";
@@ -77,6 +77,7 @@ export type ModalStackProps = {
   onReject: (id: number) => void;
   onSelectOperator: (id: number, result: OperatorResult) => void;
   permissionQueueDepth?: number;
+  queuedApprovals?: readonly QueuedApprovalSummary[];
   onResolvePermission: (id: number, outcome: ApprovalOutcome) => void;
 
 
@@ -116,6 +117,7 @@ export function ModalStack({
   onReject,
   onSelectOperator,
   permissionQueueDepth,
+  queuedApprovals,
   onResolvePermission,
   width,
 }: ModalStackProps): ReactNode {
@@ -172,6 +174,7 @@ export function ModalStack({
           key={activeApproval.id}
           request={activeApproval.request}
           {...(permissionQueueDepth !== undefined ? { permissionQueueDepth } : {})}
+          {...(queuedApprovals !== undefined ? { queuedApprovals } : {})}
           {...(activeApproval.timeoutMs !== null ? { goalTimeoutMs: activeApproval.timeoutMs } : {})}
           onResolve={(outcome) => onResolvePermission(activeApproval.id, outcome)}
           {...(width !== undefined ? { width } : {})}

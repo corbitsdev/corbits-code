@@ -1126,6 +1126,7 @@ export function App({
           onReject={gates.reject}
           onSelectOperator={gates.selectOperator}
           permissionQueueDepth={gates.permissionQueueDepth}
+          queuedApprovals={gates.queuedApprovals}
           onResolvePermission={gates.resolvePermission}
 
           width={columns}

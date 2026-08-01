@@ -16,6 +16,7 @@ import { isApproved, matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
+import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import {
   createMcpToolPermissionRegistry,
   registerMcpClientTools,
@@ -326,8 +327,17 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       // blanket-allowed; fall through to the operator prompt below.
     }
 
+    // A sub-agent's own tool calls run under its identity in ALS (see
+    // identity-context.ts, wired from subagent/run.ts). When present, the
+    // prompt is attributed to that sub-agent instead of the top-level session.
+    const subAgentIdentity = getSubAgentIdentity();
+    const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
     for (const rawRequest of buildRequests(call)) {
-      const request: typeof rawRequest = { ...rawRequest, cwd: resolvedCwd };
+      const request: typeof rawRequest = {
+        ...rawRequest,
+        cwd: effectiveCwd,
+        ...(subAgentIdentity !== undefined ? { agentLabel: subAgentIdentity.description } : {}),
+      };
       // Shell: security still splits the chain, but the operator sees (and
       // accepts/rejects) the full command once. Any unapproved segment fails the
       // whole block. Execution always runs the full string the model asked for.
@@ -365,7 +375,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           !fullReferencesSecret &&
           !commandTargetsRestricted(fullCommand, isRestricted) &&
           segments.length > 1 &&
-          hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel, resolvedCwd)
+          hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel, effectiveCwd)
         ) {
           continue;
         }
@@ -385,7 +395,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             needsOperator = true;
             continue;
           }
-          if (isApproved(request.tool, segment, approvals, activeProviderModel, resolvedCwd)) {
+          if (isApproved(request.tool, segment, approvals, activeProviderModel, effectiveCwd)) {
             continue;
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
@@ -433,7 +443,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       const alreadyApproved =
         // Path-arg tools already drop to ask via callTargetsRestricted; grants
         // match on the path subject the same as before.
-        isApproved(request.tool, request.subject, approvals, activeProviderModel, resolvedCwd);
+        isApproved(request.tool, request.subject, approvals, activeProviderModel, effectiveCwd);
       if (alreadyApproved) {
         continue;
       }
