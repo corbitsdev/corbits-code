@@ -205,11 +205,12 @@ export function createSubAgentRunController(
   };
 }
 
-// Spin up an isolated, autonomous agent loop against the same working tree,
-// hand it one task, and return its final report. The sub-agent shares the
-// dispatcher's cwd so its edits land in the real repo, but gets its own posix
-// tool instances and its own git-backed context store so the two loops never
-// trample each other's state.
+// Spin up an isolated, autonomous agent loop, hand it one task, and return
+// its final report. `params.cwd` is either the dispatcher's own cwd (shared
+// mode) or a worktree snapshotted from the dispatcher's last commit
+// (isolated mode, see task-tool.ts's useWorktree) — either way this loop
+// gets its own posix tool instances and its own git-backed context store so
+// the two loops never trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   return withSubAgentSlot(() => runSubAgentInner(params), {
     reentrant: params.nested === true,
