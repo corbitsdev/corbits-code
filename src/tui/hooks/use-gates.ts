@@ -40,10 +40,17 @@ export type ActiveApproval =
   | { id: number; kind: "operator"; question: string; options: string[] }
   | { id: number; kind: "permission"; request: PermissionRequest; timeoutMs: number | null };
 
+// One line per queued (not just visible) permission request, so the modal can
+// show that other approvals are waiting and which agent each belongs to —
+// distinct agentLabel values render as visually distinct entries.
+export type QueuedApprovalSummary = { id: number; tool: string; agentLabel?: string };
+
 export type GateController = {
   activeApproval: ActiveApproval | null;
   /** Permission gates still queued, including the visible modal. */
   permissionQueueDepth: number;
+  /** Summary of every queued (not just visible) permission request. */
+  queuedApprovals: readonly QueuedApprovalSummary[];
   gateOpen: boolean;
   approve: (id: number) => void;
   reject: (id: number) => void;
@@ -132,7 +139,20 @@ export function useGates({
 }: UseGatesArgs): GateController {
   const [activeApproval, setActiveApproval] = useState<ActiveApproval | null>(null);
   const [permissionQueueDepth, setPermissionQueueDepth] = useState(0);
+  const [queuedApprovals, setQueuedApprovals] = useState<readonly QueuedApprovalSummary[]>([]);
   const queue = useRef<GateQueueEntry[]>([]);
+
+  function syncQueuedApprovals(): void {
+    setQueuedApprovals(
+      queue.current
+        .filter((e): e is PermissionQueueEntry => e.kind === "permission")
+        .map((e) => ({
+          id: e.id,
+          tool: e.request.tool,
+          ...(e.request.agentLabel !== undefined ? { agentLabel: e.request.agentLabel } : {}),
+        })),
+    );
+  }
   const nextId = useRef(1);
   const activeId = useRef<number | null>(null);
   const activationBlockedRef = useRef(activationBlocked);
@@ -175,6 +195,7 @@ export function useGates({
     detachEntryAbort(entry);
     if (entry.kind === "permission") {
       setPermissionQueueDepth((depth) => Math.max(0, depth - 1));
+      syncQueuedApprovals();
     }
     setGatePendingRef.current(false);
     if (index === 0) {
@@ -225,6 +246,7 @@ export function useGates({
     queue.current.push(entry);
     if (entry.kind === "permission") {
       setPermissionQueueDepth((depth) => depth + 1);
+      syncQueuedApprovals();
     }
     setGatePendingRef.current(true);
     if (queue.current.length === 1) updateVisibleEntry();
@@ -235,6 +257,7 @@ export function useGates({
     activeId.current = null;
     setActiveApproval(null);
     setPermissionQueueDepth(0);
+    setQueuedApprovals([]);
     for (const entry of remaining) {
       clearEntryTimer(entry);
       detachEntryAbort(entry);
@@ -332,6 +355,7 @@ export function useGates({
   return {
     activeApproval,
     permissionQueueDepth,
+    queuedApprovals,
     gateOpen: activeApproval !== null,
     approve: (id) => settlePlan(id, true),
     reject: (id) => settlePlan(id, false),

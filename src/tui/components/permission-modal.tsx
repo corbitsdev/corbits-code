@@ -8,6 +8,7 @@ import { stripTerminalControlSequences } from "../../util/control-char-strip.js"
 import { isShellCommentOnly } from "../../permission/command.js";
 import { groupChainSegmentsForDisplay, middleEllipsis, verbatimCommandLines } from "../command-display.js";
 import type { VerbatimLine } from "../command-display.js";
+import type { QueuedApprovalSummary } from "../hooks/use-gates.js";
 
 // Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
 // command — Trojan Source — and zero-width characters hide payload boundaries,
@@ -68,10 +69,24 @@ function truncateChoiceText(text: string, width: number): string {
   return middleEllipsis(text, budget);
 }
 
+// Deterministic color per agent label so queued approvals from different
+// sub-agents read as visually distinct without a shared color registry.
+const AGENT_TAG_ROLES = ["accent", "success", "warning", "syntaxKeyword", "syntaxFunction", "syntaxType"] as const;
+
+function agentTagColor(label: string): string {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0;
+  return color(AGENT_TAG_ROLES[hash % AGENT_TAG_ROLES.length]!);
+}
+
+const MAX_RENDERED_QUEUE_ENTRIES = 5;
+
 export type PermissionModalProps = {
   request: PermissionRequest;
   /** Permission gates still queued, including this modal. */
   permissionQueueDepth?: number;
+  /** Summary of every queued permission request, for the "queued behind" list. */
+  queuedApprovals?: readonly QueuedApprovalSummary[];
   /**
    * When set (goal mode), show that the request auto-skips after this many ms
    * if the operator does not answer.
@@ -187,11 +202,16 @@ function descriptorArgs(request: PermissionRequest): Record<string, unknown> {
 export function PermissionModal({
   request,
   permissionQueueDepth = 1,
+  queuedApprovals = [],
   goalTimeoutMs = null,
   onResolve,
   width = 80,
 }: PermissionModalProps): ReactNode {
   const queuedBehind = Math.max(0, permissionQueueDepth - 1);
+  // Everything behind the currently visible entry, distinguished by agent.
+  const otherQueued = queuedApprovals.slice(1);
+  const shownQueued = otherQueued.slice(0, MAX_RENDERED_QUEUE_ENTRIES);
+  const hiddenQueuedCount = otherQueued.length - shownQueued.length;
   const choices = buildChoices(request);
   const [selected, setSelected] = useState(0);
   const [message, setMessage] = useState("");
@@ -286,6 +306,14 @@ export function PermissionModal({
       width={Math.max(24, width - 2)}
     >
       <Text bold color={toolColor}>Approval needed</Text>
+      {request.agentLabel !== undefined && (
+        <Text>
+          <Text color={agentTagColor(request.agentLabel)} bold>{`⏺ ${request.agentLabel}`}</Text>
+          {request.cwd !== undefined && (
+            <Text color={color("muted")}>{`  ${request.cwd}`}</Text>
+          )}
+        </Text>
+      )}
       {goalTimeoutSecs !== null && (
         <Text color={color("muted")}>
           {`Goal mode · auto-skip in ~${goalTimeoutSecs}s if no response`}
@@ -305,6 +333,24 @@ export function PermissionModal({
             ? ` · +${queuedBehind} more approval${queuedBehind === 1 ? "" : "s"} queued`
             : ""}
         </Text>
+        {shownQueued.length > 0 && (
+          <Box marginLeft={2} flexDirection="column">
+            {shownQueued.map((entry) => (
+              <Text key={entry.id} color={color("muted")}>
+                {"· "}
+                {entry.agentLabel !== undefined ? (
+                  <Text color={agentTagColor(entry.agentLabel)}>{entry.agentLabel}</Text>
+                ) : (
+                  <Text color={color("muted")}>session</Text>
+                )}
+                {` — ${entry.tool}`}
+              </Text>
+            ))}
+            {hiddenQueuedCount > 0 && (
+              <Text color={color("muted")}>{`… ${hiddenQueuedCount} more waiting`}</Text>
+            )}
+          </Box>
+        )}
         {descriptor.isShell && (
           // The exact string that will execute, always shown verbatim: the
           // segment list below is a lossy reconstruction, and the scope hints

@@ -87,6 +87,7 @@ import {
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
 import type { RunSubAgentParams, SubAgentProvider } from "./types.js";
+import { runWithSubAgentIdentity } from "./identity-context.js";
 
 export type {
   NestedDispatchDeps,
@@ -415,11 +416,21 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   stallWatchdog = setInterval(() => requestContinuation(), modelFamilyPolicy.subAgentStallTimeoutMs);
   if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
+  // Every tool call this sub-agent makes runs under its own identity in ALS
+  // (description + cwd), so the permission gate can attribute an approval
+  // prompt to the sub-agent that raised it (see identity-context.ts).
+  const subAgentIdentity = { description: params.description, cwd: params.cwd };
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/subagent-tools`,
     // Without the watchdog config, child tool calls run under default budgets
     // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
-    factory: () => createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings)),
+    factory: () => {
+      const runner = createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings));
+      return {
+        ...runner,
+        run: (call, signal) => runWithSubAgentIdentity(subAgentIdentity, () => runner.run(call, signal)),
+      };
+    },
   });
 
   const workdir = join(params.workdirBase, "subagents", generateSessionId());

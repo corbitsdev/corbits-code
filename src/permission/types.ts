@@ -43,6 +43,10 @@ export type PermissionRequest = {
   // The workspace root this request was raised from. Used to confine
   // project-scoped grant reconciliation to the repo the grant was minted in.
   cwd?: string;
+  // The requesting sub-agent's label (its dispatch description), when this
+  // request originated from a sub-agent's own tool call rather than the
+  // top-level session. Undefined for top-level requests.
+  agentLabel?: string;
   // A single muted-line explanation shown to the operator when scopes were
   // withheld for a reason beyond the ordinary "no persistent option exists
   // yet" case (e.g. a mega-chain that only offers accept-once). Plain literal
