@@ -338,6 +338,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
         ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
         ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
         ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
+        ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
       }),
       ...(nd.profiles !== undefined
         ? [
