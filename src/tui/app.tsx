@@ -23,10 +23,6 @@ import { TaskView } from "./components/task-view.js";
 import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
 import {
-  goalShowsAcceptancePanel,
-  goalShowsWorkPrimary,
-} from "../agent/goal.js";
-import {
   activeStripSessions,
   AgentsStrip,
   agentsStripRowCount,
@@ -55,7 +51,6 @@ import {
 import { getLogger } from "@intx/log";
 import type { SubAgentProvider, SubAgentSessionStore } from "../subagent/index.js";
 import { useSpinner } from "./hooks/use-spinner.js";
-import { extraPromptChromeRows } from "./prompt-layout.js";
 import { chromeDividerLine } from "./chrome-zones.js";
 import { useQuotaRetry } from "./hooks/use-quota-retry.js";
 import { useSessionClock } from "./hooks/use-session-clock.js";
@@ -100,6 +95,13 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveAtMentions } from "./mention-resolution.js";
 import { STALL_TIMEOUT_MS, shouldAbortForStall, applyStallRecovery } from "./stall-watchdog.js";
 import { QuotaErrorBanner, GatewayRetryBanner } from "./components/retry-banners.js";
+import {
+  resolveGoalChrome,
+  goalChromeRowCount,
+  taskChromeRowCount,
+  pluginChromeRowCount,
+  extraChromeRowCount,
+} from "./chrome-geometry.js";
 
 export type OutboundUserMessage = {
   text: string;
@@ -530,16 +532,7 @@ export function App({
     return subAgentSessions.get(enteredSessionId);
   }, [enteredSessionId, subAgentSessions, sessionsTick]);
 
-  // Goal chrome follows lifecycle phase:
-  // planning / reviewing / completed → Acceptance panel
-  // implementing → Work primary (Acceptance compact; header shows phase)
-  const goalActive =
-    goalSnapshot !== null &&
-    goalSnapshot.status !== "inactive" &&
-    goalSnapshot.status !== "cleared";
-  const goalPhase = goalActive ? goalSnapshot!.phase : null;
-  const showAcceptance = goalPhase !== null && goalShowsAcceptancePanel(goalPhase);
-  const workPrimary = goalPhase !== null && goalShowsWorkPrimary(goalPhase);
+  const { goalActive, goalPhase, showAcceptance, workPrimary } = resolveGoalChrome({ goalSnapshot });
   // Default-expand Work when entering implementing; Ctrl+T can still collapse.
   const wasWorkPrimary = useRef(false);
   useEffect(() => {
@@ -549,29 +542,17 @@ export function App({
     wasWorkPrimary.current = workPrimary;
   }, [workPrimary]);
   const workExpanded = tasksExpanded;
-  const goalChromeRows = !goalActive
-    ? 0
-    : showAcceptance
-      ? (goalSnapshot!.criteria.length === 0
-          ? 2
-          : goalSnapshot!.criteria.length + 2) + 2
-      : 3; // compact phase strip during implementing
-  // The task strip renders above the in-flight indicator: one line when compact,
-  // the full checklist plus its heading when expanded. +1 is the marginTop wrapper.
-  const taskChromeRows =
-    !hasActiveTasks(state.tasks)
-      ? 0
-      : (workExpanded ? state.tasks.length + 1 : 1) + 1;
-
-  // The plugins overlay renders outside the modal-stack accounting (like the
-  // permissions overlay), so reserve rows for its box: chrome + one row per
-  // plugin + the selected plugin's credential rows.
-  const pluginChromeRows = (() => {
-    if (!pluginsOpen || pluginsAdmin === undefined) return 0;
-    const list = pluginsAdmin.list();
-    const widestCreds = list.reduce((n, p) => Math.max(n, p.credentials.length), 0);
-    return 6 + list.length + widestCreds + 2;
-  })();
+  const goalChromeRows = goalChromeRowCount({
+    goalActive,
+    showAcceptance,
+    criteriaCount: goalSnapshot?.criteria.length ?? 0,
+  });
+  const taskChromeRows = taskChromeRowCount({
+    hasActiveTasks: hasActiveTasks(state.tasks),
+    taskCount: state.tasks.length,
+    workExpanded,
+  });
+  const pluginChromeRows = pluginChromeRowCount({ pluginsOpen, pluginsAdmin });
 
   // Agents strip (session store) + live progress fallback for chrome height.
   // Prefer the session store list once anything has been spawned this session.
@@ -620,16 +601,19 @@ export function App({
     : 0;
   const subAgentChromeRows = agentsStripRows;
 
-  const extraChromeRows =
-    (mcpStatus.needsAuth.length > 0 ? 1 : 0) +
-    (commandMessage !== null ? 1 : 0) +
-    goalChromeRows +
-    taskChromeRows +
-    pluginChromeRows +
-    (state.quotaError !== null ? 1 : 0) +
-    (state.inferenceRetry !== null ? 1 : 0) +
-    subAgentChromeRows +
-    extraPromptChromeRows(inputValue, columns ?? 80, rows ?? 24);
+  const extraChromeRows = extraChromeRowCount({
+    mcpNeedsAuthCount: mcpStatus.needsAuth.length,
+    commandMessagePresent: commandMessage !== null,
+    goalChromeRows,
+    taskChromeRows,
+    pluginChromeRows,
+    quotaErrorPresent: state.quotaError !== null,
+    inferenceRetryPresent: state.inferenceRetry !== null,
+    subAgentChromeRows,
+    inputValue,
+    columns,
+    rows,
+  });
 
   const activePermission = gates.activeApproval?.kind === "permission"
     ? gates.activeApproval.request
