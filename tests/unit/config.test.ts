@@ -102,6 +102,91 @@ test("global settings round-trip the telemetry block", async () => {
   }
 });
 
+// Guard: a new optional Settings field forgotten in the load reconstruction
+// must fail this test (or the compile-time OptionalSettingsFields map), not
+// silently vanish on the next load/save cycle.
+test("loadSettings cannot silently drop a known optional key", async () => {
+  const {
+    loadSettings,
+    loadLocalSettings,
+    GLOBAL_SETTINGS_OPTIONAL_KEYS,
+    LOCAL_SETTINGS_OPTIONAL_KEYS,
+  } = await import("../../src/config/settings.js");
+  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-nodrop-"));
+  try {
+    const globalPath = join(cwd, "global.json");
+    const fixture = {
+      providers: {
+        p: { baseURL: "http://localhost:1", apiKey: "k", models: ["m"] },
+      },
+      defaultProvider: "p",
+      mcpServers: [{ name: "s", command: "echo" }],
+      tiers: { fast: { provider: "p", model: "m" } },
+      workflowProfiles: { default: { implement: "m" } },
+      plugins: { "plug-a": { enabled: true } },
+      pluginPaths: ["/tmp/plugin"],
+      discoverClaudePlugins: true,
+      web: "plug-a",
+      hiddenCommands: ["/help"],
+      onboarded: true,
+      compactionMode: "pruning" as const,
+      maxConcurrentSubAgents: 3,
+      subagentMaxTurns: 20,
+      sessionMode: "orchestrator" as const,
+      agentModelFallback: "none" as const,
+      shell: { timeoutMs: 1000, maxTimeoutMs: 5000 },
+      tools: { timeoutMs: 2000, waitForApproval: false },
+      telemetry: { enabled: false, installationId: "id", noticeShown: true },
+    };
+    await writeFile(globalPath, JSON.stringify(fixture));
+    const loaded = await loadSettings(globalPath);
+    expect(loaded).not.toBeNull();
+    for (const key of GLOBAL_SETTINGS_OPTIONAL_KEYS) {
+      expect(loaded).toHaveProperty(key);
+      expect((loaded as Record<string, unknown>)[key]).not.toBeUndefined();
+    }
+    // Undefined optionals stay absent (not { foo: undefined }).
+    const minimalPath = join(cwd, "minimal.json");
+    await writeFile(minimalPath, JSON.stringify({ providers: {} }));
+    const minimal = await loadSettings(minimalPath);
+    expect(minimal).toEqual({ providers: {} });
+    expect(Object.prototype.hasOwnProperty.call(minimal, "telemetry")).toBe(false);
+
+    // Transforms still apply: discoverClaudePlugins only survives when true.
+    const falseDiscoverPath = join(cwd, "false-discover.json");
+    await writeFile(
+      falseDiscoverPath,
+      JSON.stringify({ providers: {}, discoverClaudePlugins: false }),
+    );
+    const falseDiscover = await loadSettings(falseDiscoverPath);
+    expect(falseDiscover).toEqual({ providers: {} });
+    expect(Object.prototype.hasOwnProperty.call(falseDiscover, "discoverClaudePlugins")).toBe(
+      false,
+    );
+
+    // Local settings — including env, which the old hand-spread path dropped.
+    const localPath = join(cwd, "local.json");
+    const localFixture = {
+      provider: "p",
+      model: "m",
+      reasoningEffort: "high" as const,
+      mcpServers: [{ name: "s", command: "echo" }],
+      sessionMode: "single" as const,
+      env: { FOO: "bar" },
+    };
+    await writeFile(localPath, JSON.stringify(localFixture));
+    const local = await loadLocalSettings(localPath);
+    expect(local).not.toBeNull();
+    for (const key of LOCAL_SETTINGS_OPTIONAL_KEYS) {
+      expect(local).toHaveProperty(key);
+      expect((local as Record<string, unknown>)[key]).not.toBeUndefined();
+    }
+    expect(local?.env).toEqual({ FOO: "bar" });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 // Regression: an OAuth-profile provider (xai/<profile>) is never written to
 // settings.json — home-level auth stores are the source of truth, and
 // loadConfig merges them into the catalog it hands to resolveProvider (see

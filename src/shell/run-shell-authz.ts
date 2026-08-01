@@ -195,8 +195,12 @@ function pipelineHeads(command: string): string[] {
   return heads;
 }
 
+// Quote-aware tokenization for stdin-operand counting only — not security
+// classification (classifiers use other paths). A naive whitespace split
+// miscounts operands when a pattern or path contains spaces inside quotes
+// (e.g. `grep 'a b'` has one operand, not two).
 function tokenizeSegment(segment: string): string[] {
-  const tokens = segment.trim().split(/\s+/).filter((t) => t.length > 0);
+  const tokens = tokenize(segment);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
   while (i < tokens.length && RM_WRAPPER.test(tokens[i]!)) i++;

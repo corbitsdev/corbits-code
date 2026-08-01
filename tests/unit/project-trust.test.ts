@@ -10,6 +10,7 @@ import {
   mcpServerFingerprint,
   originRequiresTrust,
   projectTrustPath,
+  readProjectTrustStore,
   trustMcpServer,
   trustPlugin,
 } from "../../src/trust/project-trust.js";
@@ -106,8 +107,132 @@ describe("project-trust", () => {
           trustedPluginPaths: [],
         }),
       );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store.trustedMcpFingerprints).toEqual([]);
       const store = await loadProjectTrust(cwd, home);
       expect(store.trustedMcpFingerprints).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: missing file is missing with empty store", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("missing");
+      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: corrupt JSON is invalid with empty store", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(path, "{ not json", "utf8");
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: wrong shape is invalid", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: "nope",
+          trustedMcpFingerprints: [],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: partial file with only trustedPluginPaths stays valid", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginPath = join(cwd, "plugins", "kept");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginPath],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
+      expect(result.store.trustedMcpFingerprints).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: mixed-type array keeps string entries", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginPath = join(cwd, "plugins", "good");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginPath, 42, null, { bad: true }],
+          trustedMcpFingerprints: ["abc123", false, "def456"],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
+      expect(result.store.trustedMcpFingerprints).toEqual(["abc123", "def456"]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: valid file is valid with resolved absolute paths", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginRel = join(cwd, "plugins", "good");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginRel],
+          trustedMcpFingerprints: ["abc123"],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([join(cwd, "plugins", "good")]);
+      expect(result.store.trustedMcpFingerprints).toEqual(["abc123"]);
+      // loadProjectTrust remains store-only for callers.
+      const storeOnly = await loadProjectTrust(cwd, home);
+      expect(storeOnly).toEqual(result.store);
     } finally {
       await cleanup();
     }

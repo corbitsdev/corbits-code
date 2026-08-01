@@ -1,0 +1,248 @@
+// Shared runtime assembly used by the exec and TUI runners.
+//
+// Only near-verbatim blocks live here. Gate / toolset / director construction
+// bind runner-specific state and stay in each runner.
+
+import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
+import type { Compactor } from "@intx/types/runtime";
+
+import { buildChatSystemPrompt } from "../agent/prompts.js";
+import { gatherEnvironment } from "../agent/environment.js";
+import {
+  loadAgentContextExtensions,
+  loadSystemPromptOverrides,
+} from "../agent/context-extensions.js";
+import type { ProviderCatalogEntry } from "../config/index.js";
+import { buildMainSessionSources } from "../config/inference-sources.js";
+import type { SessionMode } from "../config/session-mode.js";
+import type { PluginConfig, Settings } from "../config/settings.js";
+import { discoverSkills, type SkillSummary } from "../extensions/skills.js";
+import {
+  dedupePluginModules,
+  discoverClaudeInstalledPlugins,
+  discoverRepoPlugins,
+  discoverUserPlugins,
+  loadPluginsFromPaths,
+  type PluginModule,
+} from "../plugins/loader.js";
+import {
+  loadApprovals,
+  loadGlobalApprovals,
+  loadProjectApprovals,
+  loadProviderModelApprovals,
+  saveGlobalApproval,
+  saveProjectApproval,
+  saveProviderModelApproval,
+} from "../permission/store.js";
+import type { Approval, GrantScope } from "../permission/types.js";
+import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { SubAgentProvider } from "../subagent/index.js";
+import { createPruningCompactor } from "./compactor.js";
+
+// ---------------------------------------------------------------------------
+// 1. Sub-agent provider literal
+// ---------------------------------------------------------------------------
+
+export type SubAgentProviderConfig = {
+  providerName: string;
+  baseURL: string;
+  apiKey?: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+  providers: readonly Pick<ProviderCatalogEntry, "name" | "bifrostVirtualKey">[];
+};
+
+/** Build the live sub-agent provider seed shared by exec and TUI. */
+export function buildSubAgentProvider(config: SubAgentProviderConfig): SubAgentProvider {
+  return {
+    providerName: config.providerName,
+    baseURL: config.baseURL,
+    model: config.model,
+    ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
+    ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
+    ...(config.providers.find((p) => p.name === config.providerName)?.bifrostVirtualKey === true
+      ? { bifrostVirtualKey: true }
+      : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2. Permission approvals + persist callback
+// ---------------------------------------------------------------------------
+
+/** Session → project → global → provider-model merge order (first match wins in gate). */
+export async function loadSeededApprovals(cwd: string, sessionId: string): Promise<Approval[]> {
+  const sessionApprovals = await loadApprovals(cwd, sessionId);
+  const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
+    loadProjectApprovals(cwd),
+    loadGlobalApprovals(),
+    loadProviderModelApprovals(),
+  ]);
+  return [
+    ...sessionApprovals,
+    ...projectApprovals,
+    ...globalApprovals,
+    ...providerModelApprovals,
+  ];
+}
+
+/**
+ * Route a gate-persisted grant to the store its scope selects.
+ * Session grants never reach here — the gate keeps those in memory only.
+ */
+export function createApprovalPersist(
+  cwd: string,
+  activeProviderModel: string,
+): (approval: Approval, scope: GrantScope) => void {
+  return (approval: Approval, scope: GrantScope) => {
+    if (scope === "project") void saveProjectApproval(cwd, approval);
+    else if (scope === "global") void saveGlobalApproval(approval);
+    else if (scope === "provider-model") {
+      void saveProviderModelApproval(activeProviderModel, approval);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3. Plugin resolution
+// ---------------------------------------------------------------------------
+
+export type DiscoverSessionPluginsArgs = {
+  cwd: string;
+  pluginPaths?: readonly string[];
+  discoverClaudePlugins?: boolean;
+  isProjectPluginTrusted: (pluginPath: string) => boolean;
+  isRegisteredPathTrusted: (pluginPath: string) => boolean;
+};
+
+/** Discover + dedupe plugins from repo, user, optional Claude, and registered paths. */
+export async function discoverSessionPlugins(
+  args: DiscoverSessionPluginsArgs,
+): Promise<PluginModule[]> {
+  const claudePlugins =
+    args.discoverClaudePlugins === true
+      ? await discoverClaudeInstalledPlugins(args.cwd)
+      : [];
+  return dedupePluginModules([
+    ...(await discoverRepoPlugins(args.cwd)),
+    ...(await discoverUserPlugins(args.cwd, {
+      isPluginTrusted: args.isProjectPluginTrusted,
+    })),
+    ...claudePlugins,
+    ...(await loadPluginsFromPaths([...(args.pluginPaths ?? [])], args.cwd, {
+      isPluginTrusted: args.isRegisteredPathTrusted,
+    })),
+  ]);
+}
+
+/** Skill directories from plugins that are both executable and enabled in settings. */
+export function skillDirsFromEnabledPlugins(
+  modules: readonly PluginModule[],
+  pluginConfig: Record<string, PluginConfig | undefined>,
+): string[] {
+  return modules
+    .filter(
+      (m) =>
+        m.dir !== undefined &&
+        m.manifest?.id !== undefined &&
+        pluginConfig[m.manifest.id]?.enabled === true,
+    )
+    .map((m) => m.dir!);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Context-extensions + skills → system prompt
+// ---------------------------------------------------------------------------
+
+export type SessionChatPromptArgs = {
+  cwd: string;
+  skillDirs: readonly string[];
+  systemPromptExtensions?: readonly string[];
+  sessionMode: SessionMode;
+};
+
+export type SessionChatPrompt = {
+  systemPrompt: string;
+  skills: SkillSummary[];
+};
+
+/** Load AGENTS.md / SYSTEM.md / env / skills and build the main chat system prompt. */
+export async function loadSessionChatPrompt(
+  args: SessionChatPromptArgs,
+): Promise<SessionChatPrompt> {
+  const [agentExtensions, overrides, environment, skills] = await Promise.all([
+    loadAgentContextExtensions(args.cwd),
+    loadSystemPromptOverrides(args.cwd),
+    gatherEnvironment(args.cwd),
+    discoverSkills(args.cwd, [...args.skillDirs]),
+  ]);
+  const extensions = [
+    ...agentExtensions,
+    ...(args.systemPromptExtensions ?? []),
+    ...overrides.append,
+  ];
+  return {
+    systemPrompt: buildChatSystemPrompt(
+      extensions.length > 0 ? extensions : undefined,
+      environment,
+      overrides.base,
+      skills,
+      args.sessionMode,
+    ),
+    skills,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 5. Main-session inference sources
+// ---------------------------------------------------------------------------
+
+export type MainSessionSourceConfig = {
+  settings?: Settings;
+  providers: readonly ProviderCatalogEntry[];
+  providerName: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
+/** Wrap buildMainSessionSources with the common runner config field names. */
+export function buildSessionSourcesFromConfig(
+  config: MainSessionSourceConfig,
+  sessionId: string,
+): { sources: InferenceSource[]; defaultSource: string } {
+  return buildMainSessionSources({
+    settings: config.settings,
+    catalog: config.providers,
+    activeProvider: config.providerName,
+    activeModel: config.model,
+    ...(config.reasoningEffort !== undefined
+      ? { reasoningEffort: config.reasoningEffort }
+      : {}),
+    sessionId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 6. Pruning-compactor config
+// ---------------------------------------------------------------------------
+
+const SESSION_COMPACTOR_KEEP_RECENT = 6;
+const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
+
+export type SessionPruningCompactorArgs = {
+  compactionMode: "llm" | "pruning";
+  summarize: (turns: ConversationTurn[]) => Promise<string>;
+};
+
+/** Shared pruning-compactor defaults for the main session agent. */
+export function createSessionPruningCompactor(
+  args: SessionPruningCompactorArgs,
+): Compactor {
+  return createPruningCompactor({
+    keepRecentTurns: SESSION_COMPACTOR_KEEP_RECENT,
+    summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
+    ...(args.compactionMode !== "pruning"
+      ? { summarize: args.summarize }
+      : { stripResultContent: true }),
+  });
+}
