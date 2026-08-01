@@ -213,6 +213,17 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
   const stdinHang = /reads standard input/;
   const destructive = /Destructive command blocked/;
 
+  test("unmodeled -S backslash escapes make the payload opaque, never garbled", () => {
+    // GNU env's -S escape grammar (\\, \", \n, \#, ...) is wider than the \_
+    // separator this parser models. A pass-through would produce garbled
+    // subjects that miss the hard-deny matchers; opaque routes to ask instead.
+    expect(expandShellSubjects(`env -S "rm \\-rf \\/"`).opaque).toBe(true);
+    expect(expandShellSubjects(`env -S 'x' && env -S "rm -rf \\"/\\""`).opaque).toBe(true);
+    expect(runShellAuthzBlockReason(`env -S "rm \\-rf /"`)).toBeUndefined();
+    // The modeled separator still expands rather than going opaque.
+    expect(expandShellSubjects(`env -S "find\\_/"`).opaque).toBe(false);
+  });
+
   test("G1: open-ended find inside quoted -S is hard-denied", () => {
     expect(runShellAuthzBlockReason(`env -S "find /"`)).toMatch(openEnded);
     expect(expandShellSubjects(`env -S "find /"`).subjects).toContain("find /");

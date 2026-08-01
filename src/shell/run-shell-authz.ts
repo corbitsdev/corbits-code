@@ -493,7 +493,13 @@ function advancePastEnvValueFlag(tokens: string[], i: number): number | null {
 // env -S re-parses its payload: quotes, `\_` as an argument separator (not a
 // literal underscore), then more env flags/assignments before the utility.
 // Expand separators so a later tokenize sees real argv boundaries.
-function expandEnvSplitSeparators(payload: string): string {
+//
+// Only `\_` is modeled. GNU env's -S grammar has a wider escape set (\\, \",
+// \n, \#, ...) whose expansion differs across implementations; passing an
+// unmodeled escape through garbles the subjects the hard-deny matchers see,
+// so any other backslash makes the payload uninspectable (null → opaque →
+// ask) instead of silently mis-parsed.
+function expandEnvSplitSeparators(payload: string): string | null {
   let out = "";
   let quote: "'" | '"' | null = null;
   for (let i = 0; i < payload.length; i++) {
@@ -503,19 +509,17 @@ function expandEnvSplitSeparators(payload: string): string {
       if (c === "'") quote = null;
       continue;
     }
-    if (quote === '"') {
-      if (c === "\\" && i + 1 < payload.length) {
-        const n = payload[i + 1]!;
-        if (n === "_") {
-          // Double-quoted `\_` is still env's arg separator on BSD/GNU env.
-          out += " ";
-          i++;
-          continue;
-        }
-        out += c + n;
+    if (c === "\\") {
+      const n = payload[i + 1];
+      if (n === "_") {
+        // `\_` is env's arg separator outside and inside double quotes.
+        out += " ";
         i++;
         continue;
       }
+      return null;
+    }
+    if (quote === '"') {
       out += c;
       if (c === '"') quote = null;
       continue;
@@ -523,17 +527,6 @@ function expandEnvSplitSeparators(payload: string): string {
     if (c === "'" || c === '"') {
       quote = c;
       out += c;
-      continue;
-    }
-    if (c === "\\" && i + 1 < payload.length) {
-      const n = payload[i + 1]!;
-      if (n === "_") {
-        out += " ";
-        i++;
-        continue;
-      }
-      out += c + n;
-      i++;
       continue;
     }
     out += c;
@@ -547,7 +540,7 @@ function expandEnvSplitSeparators(payload: string): string {
 // expect (`env -S -v find /` → `find /`, `env -S "rm '-rf' '/'"` → `rm -rf /`).
 function peelEnvSplitUtility(command: string): PeelOutcome {
   const expanded = expandEnvSplitSeparators(command);
-  if (isOpaquePayload(expanded)) return { kind: "opaque" };
+  if (expanded === null || isOpaquePayload(expanded)) return { kind: "opaque" };
   const tokens = tokenize(expanded);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
