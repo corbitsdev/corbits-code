@@ -22,15 +22,7 @@ import {
 import { TaskView } from "./components/task-view.js";
 import { GoalView } from "./components/goal-view.js";
 import { hasActiveTasks } from "../agent/tasks.js";
-import {
-  activeStripSessions,
-  AgentsStrip,
-  agentsStripRowCount,
-  computeAgentsStripWindow,
-  DEFAULT_STRIP_MAX_VISIBLE,
-  mergeInFlightSubAgents,
-  shouldShowAgentsStrip,
-} from "./components/agents-strip.js";
+import { AgentsStrip } from "./components/agents-strip.js";
 import { SubAgentSessionView } from "./components/subagent-session-view.js";
 import { ExitConfirm } from "./components/exit-confirm.js";
 import { AgentModal, toAgentProviders, type ProviderFormSubmission } from "./components/agent-modal.js";
@@ -81,7 +73,7 @@ import { workflowKickoffUserMessage } from "../workflows/kickoff.js";
 import { formatAttachmentSummary, type PendingImageAttachment } from "./image-attachments.js";
 import { setConfiguredTiers } from "./commands/built-in.js";
 import { useImageAttach } from "./hooks/use-image-attach.js";
-import { useDrainLogic } from "./hooks/use-drain-logic.js";
+import { useAgentsStrip } from "./hooks/use-agents-strip.js";
 import { useMessagePipeline } from "./hooks/use-message-pipeline.js";
 import { useCommandContext } from "./hooks/use-command-context.js";
 import { useTranscriptLayout } from "./hooks/use-transcript-layout.js";
@@ -494,39 +486,36 @@ export function App({
     return () => { eventEmitter.off("goal", onGoal); };
   }, [eventEmitter]);
 
-  // The strip reflects only active work: an agent leaves the visible list the
-  // moment it reaches a terminal state. Completed sessions stay in the store
-  // for later inspection but no longer occupy the strip.
-  const agentSessions = useMemo(() => {
-    void sessionsTick;
-    const merged = mergeInFlightSubAgents(
-      subAgentSessions?.listForStrip() ?? [],
-      state.subAgents,
-    );
-    return activeStripSessions(merged);
-  }, [subAgentSessions, sessionsTick, state.subAgents]);
-
-  // Ctrl+E browses the full strip surface (running + recent completed). The
-  // chrome strip filters to running only; nav must still reach finished sessions
-  // for inspection — otherwise a just-finished child vanishes from Ctrl+E while
-  // the live-progress fallback can still paint a ghost "doing" row.
-  const browseSessions = useMemo(() => {
-    void sessionsTick;
-    return subAgentSessions?.listForStrip() ?? [];
-  }, [subAgentSessions, sessionsTick]);
-
-  // A running agent can reach a terminal state while agents-nav is open, which
-  // shortens the strip list under the persisted selection index. Clamp at read
-  // time so the highlight lands on a real row instead of drifting out of range.
-  const agentsNavList = agentsNavOpen ? browseSessions : agentSessions;
-  const agentsNavIndexClamped =
-    agentsNavList.length === 0 ? 0 : Math.min(agentsNavIndex, agentsNavList.length - 1);
-
-  const enteredSession = useMemo(() => {
-    void sessionsTick;
-    if (enteredSessionId === null || subAgentSessions === undefined) return undefined;
-    return subAgentSessions.get(enteredSessionId);
-  }, [enteredSessionId, subAgentSessions, sessionsTick]);
+  const {
+    agentSessions,
+    browseSessions,
+    agentsNavList,
+    agentsNavIndexClamped,
+    enteredSession,
+    activeSubAgents,
+    activeSubAgentsRef,
+    queuedCount,
+    setQueuedCount,
+    hasRunningSubAgentSessions,
+    steerOnEnter,
+    agentsStripVisible,
+    agentsStripScrollWindow,
+    agentsStripRows,
+  } = useAgentsStrip({
+    eventEmitter,
+    subAgentSessions,
+    sessionsTick,
+    setSessionsTick,
+    state,
+    stateRef,
+    sendMessageRef,
+    pendingQueueRef,
+    tryDrainQueuedMessageRef,
+    agentsNavOpen,
+    agentsNavIndex,
+    enteredSessionId,
+  });
+  const subAgentChromeRows = agentsStripRows;
 
   const { goalActive, goalPhase, showAcceptance, workPrimary } = resolveGoalChrome({ goalSnapshot });
   // Default-expand Work when entering implementing; Ctrl+T can still collapse.
@@ -549,53 +538,6 @@ export function App({
     workExpanded,
   });
   const pluginChromeRows = pluginChromeRowCount({ pluginsOpen, pluginsAdmin });
-
-  // Agents strip (session store) + live progress fallback for chrome height.
-  // Prefer the session store list once anything has been spawned this session.
-  const activeSubAgents = useMemo(
-    () => state.subAgents.filter((a) => a.status !== "done" && a.status !== "cancelled"),
-    [state.subAgents],
-  );
-  const activeSubAgentsRef = useRef(activeSubAgents);
-  activeSubAgentsRef.current = activeSubAgents;
-  const { queuedCount, setQueuedCount, hasRunningSubAgentSessions } = useDrainLogic({
-    eventEmitter,
-    subAgentSessions,
-    setSessionsTick,
-    stateRef,
-    activeSubAgentsRef,
-    sendMessageRef,
-    pendingQueueRef,
-    tryDrainQueuedMessageRef,
-  });
-  const steerOnEnter =
-    state.isProcessing && activeSubAgents.length === 0 && !hasRunningSubAgentSessions();
-  // The strip caps rendered rows so retained history never crowds out the
-  // transcript; +1 accounts for the surrounding marginTop wrapper. When nav is
-  // open the list may include completed sessions, so size against browseSessions.
-  const agentsStripVisible = shouldShowAgentsStrip({
-    chromeSessions: agentSessions,
-    browseSessions,
-    agentsNavOpen,
-  });
-  const agentsStripScrollWindow =
-    agentsNavOpen && browseSessions.length > DEFAULT_STRIP_MAX_VISIBLE
-      ? computeAgentsStripWindow(
-          browseSessions.length,
-          agentsNavIndexClamped,
-          DEFAULT_STRIP_MAX_VISIBLE,
-        )
-      : undefined;
-  const agentsStripRows = agentsStripVisible
-    ? agentsNavOpen && browseSessions.length > 0
-      ? agentsStripRowCount(
-          browseSessions.length,
-          DEFAULT_STRIP_MAX_VISIBLE,
-          agentsStripScrollWindow,
-        ) + 1
-      : agentsStripRowCount(agentSessions.length, DEFAULT_STRIP_MAX_VISIBLE) + 1
-    : 0;
-  const subAgentChromeRows = agentsStripRows;
 
   const extraChromeRows = extraChromeRowCount({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
