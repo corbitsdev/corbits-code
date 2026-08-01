@@ -62,7 +62,10 @@ export async function cleanupSubAgentWorktree(
 ): Promise<WorktreeCleanupResult> {
   let dirty: boolean;
   try {
-    const { stdout } = await exec(["status", "--porcelain"], { cwd: path });
+    // --ignored counts gitignored-but-present files (e.g. dist/, logs) as
+    // content worth preserving — a worktree holding only ignored output is
+    // not "clean" just because git status ignores it by default.
+    const { stdout } = await exec(["status", "--porcelain", "--ignored"], { cwd: path });
     dirty = stdout.trim().length > 0;
   } catch {
     // Cannot inspect the worktree's status — preserve it rather than risk
