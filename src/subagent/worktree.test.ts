@@ -64,9 +64,21 @@ describe("cleanupSubAgentWorktree", () => {
     const result = await cleanupSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec);
     expect(result).toEqual({ status: "removed", path: "/repo/.worktrees/abc" });
     expect(calls).toEqual([
-      ["status", "--porcelain"],
+      ["status", "--porcelain", "--ignored"],
       ["worktree", "remove", "/repo/.worktrees/abc"],
     ]);
+  });
+
+  test("preserves a worktree containing only gitignored output", async () => {
+    const { exec, calls } = recordingExec({
+      status: { stdout: "!! dist/output.txt\n" },
+    });
+    const result = await cleanupSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec);
+    expect(result.status).toBe("preserved");
+    if (result.status === "preserved") {
+      expect(result.notice).toContain("uncommitted changes");
+    }
+    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
   });
 
   test("preserves a dirty worktree instead of removing it", async () => {
