@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { appendCycleText, CYCLE_TEXT_CAP_CHARS } from "../session/stream-journal.js";
 import {
-  appendCycleText,
-  CYCLE_TEXT_CAP_CHARS,
   detectRepetition,
   DEFAULT_REPETITION_CONFIG,
   REPETITION_CHECK_INTERVAL_CHARS,

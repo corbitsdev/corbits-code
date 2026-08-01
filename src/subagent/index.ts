@@ -62,7 +62,6 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { withSubAgentSlot } from "./concurrency.js";
 import {
-  appendCycleText,
   detectRepetition,
   REPETITION_CHECK_INTERVAL_CHARS,
   type RepetitionHit,
@@ -1378,19 +1377,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   // (inference.done) never fire while a model loops inside one turn, so a
   // degenerate loop is aborted from the stream side. The recorder keeps the
   // cycle text so the looped tail survives the abort as the salvage payload.
-  const cycleRecorder = createCycleTextRecorder(() => workdir, appendCycleText, {
-    // The inference.error auto-flush races the catch block's own flush; stamp
-    // it with the same reason the catch block would use so a beaten-to-it
-    // flush doesn't mislabel a repetition/deadline abort as a generic error.
-    resolveErrorFlushReason: () =>
-      repetition.hit !== null
-        ? "repetition"
-        : runController.deadlineHit()
-          ? "deadline"
-          : runController.signal.aborted
-            ? "cancelled"
-            : "inference-error",
-  });
+  const cycleRecorder = createCycleTextRecorder(() => workdir);
   // Holder object rather than a let: the value is written inside the stream
   // sink closure, and flow analysis would otherwise narrow a let to null at
   // the later catch-site reads.
@@ -1494,26 +1481,21 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
       return appendActivitySummary(report, toolNamesUsed);
     } catch (err) {
       if (isSubAgentCancelError(err, runController.signal)) {
-        // Capture and persist the dead cycle's text BEFORE draining the
-        // stream: the aborted cycle's inference.error can arrive during the
-        // drain and auto-flush the recorder, which would zero the buffer and
-        // stamp the record with the generic error reason instead of ours.
+        // Close the recorder against the dead cycle before its inference.error
+        // arrives: closing at entry stops that auto-flush from mislabeling this
+        // salvage with the generic error reason. Draining first lets the sink's
+        // own bookkeeping (lastPartialText) catch late tool.start / inference.done
+        // events before bare-vs-salvage is decided.
         // Repetition and deadline are already known here; a parent cancel is
         // labeled cancelled even if the outcome below resolves to rethrow.
-        const buffered = cycleRecorder.text();
-        const abortedCycleText = buffered.length > 0 ? buffered : cycleRecorder.lastFlushedText();
-        await cycleRecorder.flush(
+        const abortedCycleText = await cycleRecorder.dispose(
           repetition.hit !== null
             ? "repetition"
             : runController.deadlineHit()
               ? "deadline"
               : "cancelled",
+          { drain: streamPromise },
         );
-        // Drain stream events so tool.start / inference.done that already
-        // left the reactor are reflected before we decide bare vs salvage.
-        if (streamPromise !== undefined) {
-          await streamPromise.catch(() => {});
-        }
         // Deadline always salvages (even with zero output). Cancel after any
         // tools or assistant prose salvages so the parent keeps partial work;
         // pre-progress cancel still surfaces as a bare AbortError.
