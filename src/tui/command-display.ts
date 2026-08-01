@@ -231,6 +231,98 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   return lines.filter((line, i) => line.text.trim().length > 0 || i === 0);
 }
 
+export type CollapsedPayload = { placeholder: string; lines: string[] };
+
+export type CollapsedSegment = {
+  // The segment with each qualifying payload (a heredoc body, or a quoted
+  // string spanning multiple lines) replaced by a short "<label, N lines>"
+  // placeholder. A segment returned by groupChainSegmentsForDisplay is
+  // already boundary-resolved, so any newline still inside it comes from one
+  // of these two sources — never a chain boundary — which is what lets the
+  // collapsed segment always render as a single line.
+  display: string;
+  // The full text of each collapsed payload, in placeholder order, shown when
+  // the operator expands via Ctrl+O.
+  payloads: CollapsedPayload[];
+};
+
+// Picks a short, human label for a collapsed quoted payload by looking at the
+// flag token immediately before it (`-m`/`--message`/`-F` read as a commit
+// message; anything else is generic "text"). Display-only guesswork — never
+// used for classification or matching.
+function payloadLabel(segment: string, quoteStart: number): string {
+  let k = quoteStart - 1;
+  while (k >= 0 && (segment[k] === " " || segment[k] === "=")) k--;
+  const end = k + 1;
+  while (k >= 0 && segment[k] !== " " && segment[k] !== "=") k--;
+  const token = segment.slice(k + 1, end);
+  return token === "-m" || token === "--message" || token === "-F" ? "message" : "text";
+}
+
+function lineCountSuffix(count: number): string {
+  return `${count} line${count === 1 ? "" : "s"}`;
+}
+
+// Collapse a heredoc body or a multi-line quoted-string argument within one
+// display segment into a placeholder. Never influences classification or
+// grant matching — display only, mirroring the header comment for this file.
+export function collapseSegmentPayloads(segment: string): CollapsedSegment {
+  const payloads: CollapsedPayload[] = [];
+  let display = "";
+  let i = 0;
+  while (i < segment.length) {
+    const ch = segment[i] as string;
+
+    if (ch === "<" && segment[i + 1] === "<") {
+      const marker = parseHeredocMarker(segment, i);
+      if (marker !== null) {
+        let j = i;
+        while (j < segment.length && segment[j] !== "\n") j++;
+        display += segment.slice(i, j);
+        i = j + 1;
+        const bodyLines: string[] = [];
+        while (i < segment.length) {
+          let lineEnd = segment.indexOf("\n", i);
+          if (lineEnd === -1) lineEnd = segment.length;
+          const line = segment.slice(i, lineEnd);
+          if (line.trim() === marker) {
+            i = lineEnd + 1;
+            break;
+          }
+          bodyLines.push(line);
+          i = lineEnd + 1;
+        }
+        const placeholder = `<heredoc, ${lineCountSuffix(bodyLines.length)}>`;
+        display += ` ${placeholder}`;
+        payloads.push({ placeholder, lines: bodyLines });
+        continue;
+      }
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      let j = i + 1;
+      while (j < segment.length && segment[j] !== quote) j++;
+      const content = segment.slice(i + 1, j);
+      if (content.includes("\n")) {
+        const lines = content.split("\n");
+        const placeholder = `<${payloadLabel(segment, i)}, ${lineCountSuffix(lines.length)}>`;
+        display += placeholder;
+        payloads.push({ placeholder, lines });
+        i = j < segment.length ? j + 1 : j;
+        continue;
+      }
+      display += segment.slice(i, j < segment.length ? j + 1 : j);
+      i = j < segment.length ? j + 1 : j;
+      continue;
+    }
+
+    display += ch;
+    i++;
+  }
+  return { display, payloads };
+}
+
 // Truncate to `max` characters keeping both the head and tail, so a set of
 // strings that share a long common prefix (e.g. persistent Allow options that
 // differ only in their trailing grant note) stay visually distinguishable

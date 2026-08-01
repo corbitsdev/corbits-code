@@ -107,19 +107,16 @@ test("a pipe chain followed by a chain operator is one segment plus a separate t
   expect(frame).not.toMatch(/\d+\. head -20/);
 });
 
-test("the verbatim command renders as a wrapped multi-line block for a real multi-line command", () => {
+test("a real multi-line command renders as two numbered segments, not one dense line", () => {
   const { lastFrame } = render(
     <PermissionModal request={shellRequest("echo one\necho two")} onResolve={() => {}} />,
   );
   const frame = lastFrame() ?? "";
   const lines = (frame.split("\n") as string[]).map((l) => l.replace(/^[│\s]+|[│\s]+$/g, ""));
-  expect(lines.some((l) => l === "echo one")).toBe(true);
-  // A top-level LF is a real command separator: it renders as an actual
-  // fresh line with no ↵ marker (the marker is reserved for suspicious
-  // breaks — quoted newlines and bare CRs).
-  expect(lines.some((l) => l === "echo two")).toBe(true);
-  // The verbatim block itself is no longer a single dense line with the
-  // command collapsed onto it via the marker.
+  // A top-level LF is a real command separator: each command gets its own
+  // numbered segment, not a single line joined by a ↵ marker.
+  expect(lines.some((l) => l === "1. echo one")).toBe(true);
+  expect(lines.some((l) => l === "2. echo two")).toBe(true);
   expect(lines).not.toContain("echo one↵echo two");
 });
 
@@ -132,7 +129,7 @@ test("a background & chain is enumerated like the security splitter sees it", ()
   expect(frame).toContain("2. rm -rf /tmp/scratch");
 });
 
-test("a comment+pipe command renders one inline segment, a separated comment line, and distinct scope options", () => {
+test("a comment+pipe command renders one inline segment (comment omitted, no raw dump) with distinct scope options", () => {
   const command =
     "# Extract history lines for the two latest sessions only\ngrep -E 'aaa11111|bbb22222' /path/to/example.jsonl | cut -c1-500";
   const withScopes: PermissionRequest = {
@@ -145,11 +142,12 @@ test("a comment+pipe command renders one inline segment, a separated comment lin
   };
   const { lastFrame } = render(<PermissionModal request={withScopes} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
-  const lines = (frame.split("\n") as string[]).map((l) => l.replace(/^[│\s]+|[│\s]+$/g, ""));
 
-  // (b) The comment renders on its own line, not glued to the command with a marker.
-  expect(lines.some((l) => l === "# Extract history lines for the two latest sessions only")).toBe(true);
-  expect(frame).not.toContain("only↵grep");
+  // The command renders exactly once, as the segment list — no separate raw
+  // dump repeating it. A full-line comment is a shell no-op, so it is
+  // dropped rather than shown a second time alongside the segment.
+  expect(frame).not.toContain("# Extract history lines for the two latest sessions only");
+  expect(frame).toContain("grep -E 'aaa11111|bbb22222' /path/to/example.jsonl | cut -c1-500");
 
   // The pipe chain is a single command: no enumerated segment list at all
   // (grouping yields one display segment, and single segments are not numbered),
@@ -203,10 +201,10 @@ test("persistent Allow labels for a commented command stay distinct from its com
   };
   const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
-  const allowLines = (frame.split("\n") as string[]).filter((l) => l.includes("Allow npm test"));
+  const allowLines = (frame.split("\n") as string[]).filter((l) => l.includes("Allow `npm test`"));
   // Three persistent options (session/project/global) all render the bare
-  // command — the comment shown in the verbatim block above never leaks into
-  // the Allow option labels or hints themselves.
+  // command — the comment (dropped from the segment list entirely) never
+  // leaks into the Allow option labels or hints themselves.
   expect(allowLines.length).toBe(3);
   for (const line of allowLines) {
     expect(line).not.toContain("helper note explaining why this runs");
@@ -254,19 +252,22 @@ test("an enormous single command is truncated for display", () => {
   expect(Date.now() - start).toBeLessThan(5_000);
 });
 
-test("a many-line command caps the verbatim block and keeps the choice chrome in frame", () => {
+test("a many-line command caps the segment list and keeps the choice chrome in frame", () => {
+  // Each bare line is its own chain-boundary segment (a top-level newline is
+  // a command separator), so this is a 101-segment chain — capped the same
+  // way any other huge chain is, with no separate raw dump underneath.
   const flood = `rm -rf / #hidden\n${Array.from({ length: 100 }, () => "x").join("\n")}`;
   const { lastFrame } = render(<PermissionModal request={shellRequest(flood)} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
   const lines = frame.split("\n") as string[];
   expect(lines.length).toBeLessThan(50);
   expect(frame).toContain("rm -rf / #hidden");
-  expect(frame).toMatch(/… \d+ more lines/);
+  expect(frame).toMatch(/… \d+ more segments/);
   expect(frame).toContain("Reject");
   expect(frame).toContain("Accept once");
 });
 
-test("the verbatim command is shown even when no persistable scopes exist", () => {
+test("the command is shown even when no persistable scopes exist", () => {
   const secretPath: PermissionRequest = {
     tool: "run_shell",
     action: "Run shell command",
@@ -275,7 +276,8 @@ test("the verbatim command is shown even when no persistable scopes exist", () =
   };
   const { lastFrame } = render(<PermissionModal request={secretPath} onResolve={() => {}} />);
   const frame = (lastFrame() ?? "").replace(/[\s│]/g, "");
-  expect(frame).toContain("cat~/.aws/credentials&&echodone");
+  expect(frame).toContain("1.cat~/.aws/credentials");
+  expect(frame).toContain("2.echodone");
 });
 
 test("the mega-chain notice renders as a muted line when scopes are withheld", () => {
@@ -312,7 +314,7 @@ test("PermissionModal shows reject, accept-once, and broad-scope options", () =>
   expect(frame).toContain("Accept once");
   // Broad prefix scope options (3, 4, 5)
   expect(frame).toContain("npm *");
-  expect(frame).toContain("Allow npm *");
+  expect(frame).toContain("Allow `npm *`");
   // No exact-command auto-accept labels when prefix scope is present
   expect(frame).not.toContain("Auto-accept this session");
   expect(frame).not.toContain("Auto-accept for this provider/model");
@@ -420,4 +422,62 @@ test("Escape rejects", async () => {
   stdin.write("");
   await tick();
   expect(outcome).toEqual({ allow: false });
+});
+
+test("a heredoc payload collapses to a line-count placeholder, not a second raw dump", () => {
+  const command =
+    "git add -A && git commit -F - <<'EOF'\nfix: something\n\nlonger body line\nEOF\n && git status && git log -1";
+  const req: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: command,
+    scopes: [{ id: "exact", label: "x", pattern: command }],
+  };
+  const { lastFrame } = render(<PermissionModal request={req} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  // The command renders once — as the segment list — with the heredoc body
+  // collapsed to a placeholder, not repeated a second time inline.
+  expect(frame).toContain("1. git add -A");
+  expect(frame).toContain("2. git commit -F - <<'EOF' <heredoc, 3 lines>");
+  expect(frame).toContain("3. git status");
+  expect(frame).toContain("4. git log -1");
+  expect(frame).not.toContain("longer body line");
+  expect(frame).not.toContain("fix: something");
+  // The scope options lead with the scope and name the grant subject once —
+  // never a duplicated ellipsized command mash.
+  expect(frame).toContain("Allow these 4 git commands — this session");
+  expect(frame).toContain("Allow these 4 git commands — persisted per repo");
+  expect(frame).toContain("Allow these 4 git commands — all projects");
+});
+
+test("Ctrl+O reveals a collapsed heredoc payload's full text", async () => {
+  const command = "git commit -F - <<'EOF'\nfix: something\n\nlonger body line\nEOF";
+  const req: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: command,
+    scopes: [{ id: "exact", label: "x", pattern: command }],
+  };
+  const { lastFrame, stdin } = render(<PermissionModal request={req} onResolve={() => {}} />);
+  await tick();
+  expect(lastFrame() ?? "").not.toContain("longer body line");
+  stdin.write("\x0F"); // Ctrl+O
+  await tick();
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("fix: something");
+  expect(frame).toContain("longer body line");
+});
+
+test("a multi-line quoted commit message collapses to <message, N lines>", () => {
+  const command = 'git commit -m "line one\nline two\nline three"';
+  const req: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: command,
+    scopes: [{ id: "exact", label: "x", pattern: command }],
+  };
+  const { lastFrame } = render(<PermissionModal request={req} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("git commit -m <message, 3 lines>");
+  expect(frame).not.toContain("line two");
 });
