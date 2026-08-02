@@ -16,7 +16,7 @@ import { globToRegExp, matchesPattern, isApproved, escapeGlobLiteral } from "./m
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
-import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktrees.js";
+import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktree-roots.js";
 import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";

@@ -15,7 +15,7 @@ import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { isApproved, matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
-import { createWorktreeRootsProvider, type RootsProvider } from "./worktrees.js";
+import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import {
   createMcpToolPermissionRegistry,
   registerMcpClientTools,
@@ -61,12 +61,56 @@ function hasExactFullCommandGrant(
   );
 }
 
+// One shell segment's forced-ask guard: a secret-path reference or a
+// restricted target, either of which forces an operator decision no matter
+// what a grant would otherwise cover. Shared by evaluate() (which also needs
+// to know *which* guard tripped, to drive the anySecret behavior below) and
+// preGrantGuardReason (which only needs to know whether one tripped).
+type SegmentGuard = { kind: "secret" | "restricted" };
+
+function segmentGuard(segment: string, isRestricted: (path: string, isWrite: boolean) => boolean): SegmentGuard | undefined {
+  if (commandReferencesSensitivePath(segment) !== undefined) return { kind: "secret" };
+  if (commandTargetsRestricted(segment, isRestricted)) return { kind: "restricted" };
+  return undefined;
+}
+
+// Every guard a run_shell request must clear BEFORE it is ever matched
+// against a grant — hard-deny and forced-ask checks that no grant, however
+// broad, is allowed to bypass. This is the single place that sequence is
+// owned: both evaluate() and isRequestCoveredByGrant call it (directly or
+// via segmentGuard), so a guard added here automatically applies to fresh
+// requests and to reconciliation of already-queued ones alike. Returns the
+// deny/ask reason if any guard trips, or undefined when the request is clear
+// to proceed to grant evaluation. Non-shell tools have no pre-grant guard
+// sequence today, so this always returns undefined for them.
+export function preGrantGuardReason(
+  request: PermissionRequest,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
+): string | undefined {
+  if (request.tool !== "run_shell") return undefined;
+  const fullCommand = request.subject;
+  const segments = splitChainedCommand(fullCommand).filter((s) => !isShellCommentOnly(s));
+  if (segments.length === 0) return "empty command";
+  const blockReason = runShellAuthzBlockReason(fullCommand);
+  if (blockReason !== undefined) return blockReason;
+  for (const segment of segments) {
+    const guard = segmentGuard(segment, isRestricted);
+    if (guard !== undefined) {
+      return guard.kind === "secret"
+        ? `${segment} references a sensitive path`
+        : `${segment} targets a restricted path`;
+    }
+  }
+  return undefined;
+}
+
 // Pure reconciliation check used to re-evaluate the TUI's pending approval
 // queue against a single newly-minted grant (see PermissionGateOptions.onGrant).
 // A queued request is covered only when this one grant, by itself, would have
-// let it skip the prompt AND the request clears the same secret-path and
-// restricted-path guards evaluate() enforces ahead of grant matching — so
-// reconciliation never auto-approves something evaluate() would still ask for.
+// let it skip the prompt AND the request clears preGrantGuardReason — the same
+// guard sequence evaluate() enforces ahead of grant matching — so
+// reconciliation never auto-approves something evaluate() would still ask for
+// or hard-deny.
 export function isRequestCoveredByGrant(
   request: PermissionRequest,
   approval: Approval,
@@ -83,12 +127,11 @@ export function isRequestCoveredByGrant(
   if (request.tool !== "run_shell") {
     return matchesPattern(request.subject, approval.pattern);
   }
-  const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
-  if (segments.length === 0) return false;
   const resolvedCwd = request.cwd ?? process.cwd();
   const isRestricted = createPathRestriction(resolvedCwd, createWorktreeRootsProvider(resolvedCwd)).isRestricted;
-  if (segments.some((segment) => commandReferencesSensitivePath(segment) !== undefined)) return false;
-  if (segments.some((segment) => commandTargetsRestricted(segment, isRestricted))) return false;
+  if (preGrantGuardReason(request, isRestricted) !== undefined) return false;
+  const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
+  if (segments.length === 0) return false;
   if (segments.length > 1) {
     return approval.pattern === stripCommentLines(request.subject).trim();
   }
@@ -290,6 +333,21 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         );
         if (segments.length === 0) continue;
 
+        // A command authz would hard-deny at execution is stricter than "ask":
+        // the gate must deny the call outright rather than show an Accept
+        // button for a command that can never actually run. Judged against the
+        // full command string with the same predicate authz enforces at
+        // execution time — not per split segment — so a stage that only reads
+        // bounded, already-piped data (e.g. `git show sha:path | rg -n foo`)
+        // is not denied in isolation when the full pipeline is exempt. This
+        // must run before the exact-full-command grant shortcut below — a
+        // stored grant must never let a hard-denied command skip straight
+        // past the check that would otherwise deny it (see preGrantGuardReason).
+        const blockReason = runShellAuthzBlockReason(fullCommand);
+        if (blockReason !== undefined) {
+          return { allowed: false, reason: blockReason };
+        }
+
         const fullReferencesSecret = commandReferencesSensitivePath(fullCommand) !== undefined;
         // Multi-segment: only an exact stored pattern for the full command may
         // short-circuit. Never glob-match the unsplit string — a grant like
@@ -307,32 +365,18 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           continue;
         }
 
-        // A command authz would hard-deny at execution is stricter than "ask":
-        // the gate must deny the call outright rather than show an Accept
-        // button for a command that can never actually run. Judged against the
-        // full command string with the same predicate authz enforces at
-        // execution time — not per split segment — so a stage that only reads
-        // bounded, already-piped data (e.g. `git show sha:path | rg -n foo`)
-        // is not denied in isolation when the full pipeline is exempt.
-        const blockReason = runShellAuthzBlockReason(fullCommand);
-        if (blockReason !== undefined) {
-          return { allowed: false, reason: blockReason };
-        }
-
         let needsOperator = false;
         let anySecret = false;
         for (const segment of segments) {
-          const segmentReferencesSecret = commandReferencesSensitivePath(segment) !== undefined;
-          if (segmentReferencesSecret) {
-            anySecret = true;
-            needsOperator = true;
-            continue;
-          }
-          // A restricted target always requires the operator, whether the
-          // segment would otherwise auto-allow or match a stored grant — a
-          // grant approved for a safe command must never replay for a
-          // restricted one just because the pattern also matches it.
-          if (commandTargetsRestricted(segment, isRestricted)) {
+          // A secret-path reference or restricted target always requires the
+          // operator, whether the segment would otherwise auto-allow or match
+          // a stored grant — a grant approved for a safe command must never
+          // replay for a guarded one just because the pattern also matches it.
+          // segmentGuard is the same guard preGrantGuardReason applies before
+          // isRequestCoveredByGrant lets a queued request skip the prompt.
+          const guard = segmentGuard(segment, isRestricted);
+          if (guard !== undefined) {
+            if (guard.kind === "secret") anySecret = true;
             needsOperator = true;
             continue;
           }
