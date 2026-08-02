@@ -2,7 +2,7 @@ import { readFile, opendir, realpath, stat } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
 import { isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { createPathRestriction, type PathRestriction } from "../permission/path-restriction.js";
-import { createWorktreeRootsProvider } from "../permission/worktrees.js";
+import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
 const MAX_MENTION_TOTAL_BYTES = 400_000;

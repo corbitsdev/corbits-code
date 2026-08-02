@@ -46,7 +46,7 @@ import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/type
 import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { createWorktreeRootsProvider } from "../permission/worktrees.js";
+import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type {
   ApprovalOutcome,
   PermissionRequest,

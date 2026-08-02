@@ -86,7 +86,7 @@ import { buildInferenceSourceForRef, tierProviderRefs } from "../config/inferenc
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { createWorktreeRootsProvider } from "../permission/worktrees.js";
+import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
 import {
   DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,

@@ -2,7 +2,7 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { isToolOutputLike } from "../util/tool-output-uri.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
-import type { RootsProvider } from "../permission/worktrees.js";
+import type { RootsProvider } from "../permission/worktree-roots.js";
 
 export function pathEscapePlugin(cwd: string, rootsProvider: RootsProvider = () => []): ToolPlugin {
   return {

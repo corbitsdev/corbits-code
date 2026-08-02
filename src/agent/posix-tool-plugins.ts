@@ -22,7 +22,7 @@ import {
   type ReadFileGuardPluginOptions,
 } from "../plugins/read-file-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
-import { createWorktreeRootsProvider } from "../permission/worktrees.js";
+import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 
 export type CorePosixToolPluginsArgs = {
   cwd: string;

@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import type { RootsProvider } from "./worktrees.js";
+import type { RootsProvider } from "./worktree-roots.js";
 
 // Paths the agent should not touch without explicit operator approval, even
 // though the read tools are otherwise allow-tier and write/edit auto-allow in
