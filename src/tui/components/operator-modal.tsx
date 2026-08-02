@@ -44,7 +44,6 @@ function renderMarkdownLines(lines: readonly StyledSegment[][]): ReactNode {
   );
 }
 
-
 // Two-column layout when all options are short enough to fit side by side.
 // Each column gets half the inner width minus a small gap for the number prefix.
 function renderOptionsGrid(options: string[], selected: number, innerWidth: number): ReactNode {
