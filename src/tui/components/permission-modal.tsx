@@ -8,6 +8,7 @@ import { stripTerminalControlSequences } from "../../util/control-char-strip.js"
 import { isShellCommentOnly } from "../../permission/command.js";
 import { collapseSegmentPayloads, groupChainSegmentsForDisplay, middleEllipsis } from "../command-display.js";
 import type { QueuedApprovalSummary } from "../hooks/use-gates.js";
+import { FALLBACK_TERMINAL_ROWS, useScrollWindow } from "../hooks/use-scroll-window.js";
 
 // Bidi controls (RLO, embeddings, isolates) visually reorder the rendered
 // command — Trojan Source — and zero-width characters hide payload boundaries,
@@ -65,11 +66,6 @@ const MAX_RENDERED_QUEUE_ENTRIES = 5;
 // meaningful plus its scroll indicators), so it is the floor regardless of
 // how little the terminal reports.
 const MIN_BODY_ROWS = 3;
-const FALLBACK_TERMINAL_ROWS = 24;
-
-function maxRowOffset(rowCount: number, visibleRows: number): number {
-  return Math.max(0, rowCount - visibleRows);
-}
 
 export type PermissionModalProps = {
   request: PermissionRequest;
@@ -353,17 +349,16 @@ export function PermissionModal({
   const bodyViewportRows = bodyScrollable
     ? Math.max(1, availableBodyRows - 1)
     : availableBodyRows;
-  const bodyMaxOffset = maxRowOffset(bodyRows.length, bodyViewportRows);
-  // Local, top-pinned scroll state — unlike the transcript's useScroll (which
-  // pins to the newest/bottom line), an approval body should open showing its
+  // Top-pinned scroll state — unlike the transcript's useScroll (which pins
+  // to the newest/bottom line), an approval body should open showing its
   // start, with PageDown revealing the rest.
-  const [bodyScrollOffset, setBodyScrollOffset] = useState(0);
-  const clampedBodyOffset = Math.min(bodyScrollOffset, bodyMaxOffset);
+  const bodyScroll = useScrollWindow(bodyRows.length, bodyViewportRows);
+  const clampedBodyOffset = bodyScroll.offset;
   const visibleBodyRows = bodyScrollable
     ? bodyRows.slice(clampedBodyOffset, clampedBodyOffset + bodyViewportRows)
     : bodyRows;
-  const linesAbove = clampedBodyOffset;
-  const linesBelow = Math.max(0, bodyRows.length - clampedBodyOffset - bodyViewportRows);
+  const linesAbove = bodyScroll.above;
+  const linesBelow = bodyScroll.below;
 
   useInput((input, key) => {
     if (key.escape) {
@@ -388,11 +383,11 @@ export function PermissionModal({
     }
 
     if (bodyScrollable && key.pageUp) {
-      setBodyScrollOffset((o) => Math.max(0, o - bodyViewportRows));
+      bodyScroll.pageUp();
       return;
     }
     if (bodyScrollable && key.pageDown) {
-      setBodyScrollOffset((o) => Math.min(bodyMaxOffset, o + bodyViewportRows));
+      bodyScroll.pageDown();
       return;
     }
 

@@ -6,6 +6,7 @@ import { createMemoizedParseMarkdown } from "../markdown-parser.js";
 import type { StyledSegment } from "../markdown-parser.js";
 import { color } from "../theme.js";
 import { inkPropsForSegment } from "../styled-segment-props.js";
+import { FALLBACK_TERMINAL_ROWS, useScrollWindow } from "../hooks/use-scroll-window.js";
 
 export type OperatorModalProps = {
   question: string;
@@ -17,13 +18,8 @@ export type OperatorModalProps = {
   terminalRows?: number;
 };
 
-const FALLBACK_TERMINAL_ROWS = 24;
 const MIN_QUESTION_ROWS = 2;
 const MIN_OPTION_ROWS = 3;
-
-function maxRowOffset(rowCount: number, visibleRows: number): number {
-  return Math.max(0, rowCount - visibleRows);
-}
 
 function segmentProps(seg: StyledSegment): Record<string, unknown> {
   return inkPropsForSegment(seg);
@@ -153,14 +149,13 @@ export function OperatorModal({
   }
 
   const questionScrollable = questionLines.length > questionRows;
-  const questionMaxOffset = maxRowOffset(questionLines.length, questionRows);
-  const [questionScrollOffset, setQuestionScrollOffset] = useState(0);
-  const clampedQuestionOffset = Math.min(questionScrollOffset, questionMaxOffset);
+  const questionScroll = useScrollWindow(questionLines.length, questionRows);
+  const clampedQuestionOffset = questionScroll.offset;
   const visibleQuestionLines = questionScrollable
     ? questionLines.slice(clampedQuestionOffset, clampedQuestionOffset + questionRows)
     : questionLines;
-  const questionLinesAbove = clampedQuestionOffset;
-  const questionLinesBelow = Math.max(0, questionLines.length - clampedQuestionOffset - questionRows);
+  const questionLinesAbove = questionScroll.above;
+  const questionLinesBelow = questionScroll.below;
 
   // Only the plain list windows around the selection — grid mode is capped at
   // 4 options (2 rows), which always fits.
@@ -206,11 +201,11 @@ export function OperatorModal({
       return;
     }
     if (questionScrollable && key.pageUp) {
-      setQuestionScrollOffset((o) => Math.max(0, o - questionRows));
+      questionScroll.pageUp();
       return;
     }
     if (questionScrollable && key.pageDown) {
-      setQuestionScrollOffset((o) => Math.min(questionMaxOffset, o + questionRows));
+      questionScroll.pageDown();
       return;
     }
     if (key.ctrl && (key.upArrow || key.downArrow)) return;
