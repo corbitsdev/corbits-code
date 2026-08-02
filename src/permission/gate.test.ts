@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@intx/types/runtime";
@@ -59,7 +60,7 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
         cwd,
       };
       const grant: Approval = { tool: "run_shell", pattern: command };
-      expect(isRequestCoveredByGrant(request, grant, undefined)).toBe(false);
+      expect(isRequestCoveredByGrant(request, grant, undefined, isRestricted)).toBe(false);
     });
 
     test(`${name}: evaluate() never allows outright`, async () => {
@@ -84,6 +85,44 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
     };
     expect(preGrantGuardReason(request, isRestricted)).toBeUndefined();
     const grant: Approval = { tool: "run_shell", pattern: "npm test" };
-    expect(isRequestCoveredByGrant(request, grant, undefined)).toBe(true);
+    expect(isRequestCoveredByGrant(request, grant, undefined, isRestricted)).toBe(true);
+  });
+});
+
+// A sub-agent runs in its own git worktree, so its requests carry that
+// worktree as cwd while the gate's restriction closure stays anchored to the
+// session cwd that built it. The same relative path resolves differently
+// against the two anchors, so coverage must use the gate's anchor: otherwise a
+// path evaluate() called restricted reads as unrestricted at reconciliation
+// time and a broad grant drains it without ever prompting.
+describe("grant coverage anchors path restriction to the gate, not the request", () => {
+  const root = mkdtempSync(join(tmpdir(), "gate-anchor-"));
+  const sessionCwd = join(root, "main");
+  const git = (args: string[], cwd: string) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  mkdirSync(sessionCwd);
+  git(["init", "-q"], sessionCwd);
+  git(["config", "user.email", "t@example.com"], sessionCwd);
+  git(["config", "user.name", "t"], sessionCwd);
+  writeFileSync(join(sessionCwd, "outside-file"), "secret\n");
+  git(["add", "."], sessionCwd);
+  git(["commit", "-qm", "seed"], sessionCwd);
+  const agentCwd = join(sessionCwd, "agent-x");
+  git(["worktree", "add", "-q", "--detach", agentCwd, "HEAD"], sessionCwd);
+
+  const sessionRestricted = createPathRestriction(
+    sessionCwd,
+    createWorktreeRootsProvider(sessionCwd),
+  ).isRestricted;
+
+  test("a sub-agent request reaching outside its worktree stays uncovered", () => {
+    const request: PermissionRequest = {
+      tool: "run_shell",
+      action: "Run",
+      subject: "cat ../outside-file",
+      scopes: [],
+      cwd: agentCwd,
+    };
+    const grant: Approval = { tool: "run_shell", pattern: "cat *" };
+    expect(isRequestCoveredByGrant(request, grant, undefined, sessionRestricted)).toBe(false);
   });
 });

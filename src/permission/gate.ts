@@ -115,6 +115,7 @@ export function isRequestCoveredByGrant(
   request: PermissionRequest,
   approval: Approval,
   activeProviderModel: string | undefined,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
   if (request.tool !== approval.tool) return false;
   if (approval.cwd !== undefined && approval.cwd !== request.cwd) return false;
@@ -127,8 +128,6 @@ export function isRequestCoveredByGrant(
   if (request.tool !== "run_shell") {
     return matchesPattern(request.subject, approval.pattern);
   }
-  const resolvedCwd = request.cwd ?? process.cwd();
-  const isRestricted = createPathRestriction(resolvedCwd, createWorktreeRootsProvider(resolvedCwd)).isRestricted;
   if (preGrantGuardReason(request, isRestricted) !== undefined) return false;
   const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
   if (segments.length === 0) return false;
@@ -201,7 +200,11 @@ export type PermissionGateOptions = {
   // to re-evaluate any requests already queued behind the one just answered —
   // see isRequestCoveredByGrant — so a scope-widening grant drains the rest of
   // the queue instead of re-prompting for coverage it already grants.
-  onGrant?: (approval: Approval) => void;
+  // `covers` answers whether an already-queued request is drained by this
+  // grant. The gate supplies it because only the gate holds the path
+  // restriction anchored to the session cwd; a caller resolving a sub-agent
+  // request's own cwd would clear restrictions the gate still enforces.
+  onGrant?: (approval: Approval, covers: (request: PermissionRequest) => boolean) => void;
 };
 
 export type PermissionGate = {
@@ -279,7 +282,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     } else {
       persist?.(approval, grant);
     }
-    options.onGrant?.(approval);
+    options.onGrant?.(approval, (request) =>
+      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted),
+    );
   };
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
