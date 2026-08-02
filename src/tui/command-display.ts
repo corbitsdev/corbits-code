@@ -285,11 +285,76 @@ const INTERPRETER_CODE_FLAGS: Record<string, readonly string[]> = {
   php: ["-r"],
 };
 
-// Crude whitespace tokenizing is enough here: quoting doesn't change whether
-// an interpreter name or a `-c` flag literally appears as a word, and this is
-// display-only guesswork (see the file header) — never used for classification.
+// Command-position words only: the program name and its flags, never text
+// inside a quoted argument or heredoc body. A naive whitespace split would
+// let a trigger word incidentally appearing inside a quoted payload (a commit
+// message mentioning "source", a heredoc line mentioning "env") falsely mark
+// the segment as code-consuming and suppress collapsing it — this walk skips
+// quoted/heredoc spans entirely so only the actual command and its arguments
+// are considered. Display-only guesswork (see the file header) — never used
+// for classification.
 function segmentWords(segment: string): string[] {
-  return segment.split(/\s+/).filter((word) => word.length > 0);
+  const words: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | "`" | null = null;
+  let heredocMarker: string | null = null;
+
+  const push = (): void => {
+    if (current.length > 0) words.push(current);
+    current = "";
+  };
+
+  let i = 0;
+  while (i < segment.length) {
+    const ch = segment[i] as string;
+
+    if (heredocMarker !== null) {
+      if (ch === "\n") {
+        let lineEnd = segment.indexOf("\n", i + 1);
+        if (lineEnd === -1) lineEnd = segment.length;
+        if (segment.slice(i + 1, lineEnd).trim() === heredocMarker) {
+          heredocMarker = null;
+          i = lineEnd;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      i++;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      push();
+      quote = ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "<" && segment[i + 1] === "<") {
+      const marker = parseHeredocMarker(segment, i);
+      if (marker !== null) {
+        push();
+        heredocMarker = marker;
+        while (i < segment.length && segment[i] !== "\n") i++;
+        continue;
+      }
+    }
+
+    if (ch === " " || ch === "\t" || ch === "\n") {
+      push();
+      i++;
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+  push();
+  return words;
 }
 
 // The POSIX basename of a word naming a program: strips any directory

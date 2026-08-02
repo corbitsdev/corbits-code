@@ -210,3 +210,22 @@ test("collapseSegmentPayloads never collapses a nohup-wrapped bash -c invocation
   expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
 });
 
+test("collapseSegmentPayloads still collapses a commit message containing a trigger word in quoted text", () => {
+  const segment = 'git commit -m "please source of truth\nfor this change"';
+  const { display, payloads } = collapseSegmentPayloads(segment);
+  expect(display).toBe("git commit -m <message, 2 lines>");
+  expect(payloads).toEqual([{ placeholder: "<message, 2 lines>", lines: ["please source of truth", "for this change"] }]);
+});
+
+test("collapseSegmentPayloads still collapses a quoted argument mentioning env in its text", () => {
+  const segment = 'echo "the env for this feature\nis staging"';
+  const { display } = collapseSegmentPayloads(segment);
+  expect(display).toBe("echo <text, 2 lines>");
+});
+
+test("collapseSegmentPayloads still collapses a normal long commit-message heredoc", () => {
+  const segment = "git commit -F <<'EOF'\nsummary line\nmore detail\nEOF\n";
+  const { display, payloads } = collapseSegmentPayloads(segment);
+  expect(display).toBe("git commit -F <<'EOF' <heredoc, 2 lines>");
+  expect(payloads).toEqual([{ placeholder: "<heredoc, 2 lines>", lines: ["summary line", "more detail"] }]);
+});
