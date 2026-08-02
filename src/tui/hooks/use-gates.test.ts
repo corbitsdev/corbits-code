@@ -3,6 +3,9 @@ import { EventEmitter } from "node:events";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
+import { isRequestCoveredByGrant } from "../../permission/gate.js";
+import { createPathRestriction } from "../../permission/path-restriction.js";
+import { createWorktreeRootsProvider } from "../../permission/worktree-roots.js";
 import type { ApprovalOutcome, Approval, PermissionRequest } from "../../permission/types.js";
 import { useGates, type GateController, type PermissionGrantEvent } from "./use-gates.js";
 
@@ -44,8 +47,20 @@ function enqueuePermission(
   });
 }
 
-function grant(emitter: EventEmitter, approval: Approval): void {
-  const event: PermissionGrantEvent = { approval };
+// Mirrors what the gate hands to onGrant: coverage judged with the gate's own
+// path restriction, never one re-derived from the request's cwd.
+function grant(
+  emitter: EventEmitter,
+  approval: Approval,
+  activeProviderModel?: string,
+): void {
+  const cwd = process.cwd();
+  const isRestricted = createPathRestriction(cwd, createWorktreeRootsProvider(cwd)).isRestricted;
+  const event: PermissionGrantEvent = {
+    approval,
+    covers: (request) =>
+      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted),
+  };
   emitter.emit("permission.grant", event);
 }
 
