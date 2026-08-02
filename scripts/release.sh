@@ -15,7 +15,7 @@
 #   5. pushes the release commit and tag only after artifacts exist,
 #   6. creates the GitHub release on corbitsdev/corbits-code with those assets,
 #   7. regenerates the Homebrew formula (per-arch url + sha256) in the
-#      corbitsdev/code tap and pushes it, so `brew install corbits` works.
+#      corbitsdev/homebrew-tap tap and pushes it, so `brew install corbits` works.
 #
 # Every step is idempotent: a stage whose artifact already exists is skipped,
 # so a half-finished release can be completed by re-running with the version.
@@ -24,15 +24,15 @@
 #
 # Requirements: run on a Mac with git, gh (authenticated), bun, jq, ar, tar,
 # and shasum available. `bun build --compile` cross-compiles every target
-# from here; no Linux host is needed. For the tap step, the corbitsdev/code
-# tap must be tapped (brew tap corbitsdev/code) or reachable so it can clone.
+# from here; no Linux host is needed. For the tap step, the corbitsdev/tap
+# tap must be tapped (brew tap corbitsdev/tap) or reachable so it can clone.
 
 set -euo pipefail
 
 # ---- configuration ---------------------------------------------------------
 MAIN_REPO="corbitsdev/corbits-code"         # source repo (releases + tags)
-TAP_REPO="corbitsdev/homebrew-code"         # tap repo (formula)
-TAP_SLUG="corbitsdev/code"                  # `brew tap' name of TAP_REPO
+TAP_REPO="corbitsdev/homebrew-tap"          # tap repo (formula)
+TAP_SLUG="corbitsdev/tap"                   # `brew tap' name of TAP_REPO
 FORMULA="corbits"                           # formula / binary name
 DESC="Single-process coding agent CLI built on the Interchange runtime"
 DOC_FILES=(LICENSE.md README.md GPLv2-AI-Exception.md GPL-2.0.txt)  # shipped with the binary
