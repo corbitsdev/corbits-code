@@ -266,8 +266,24 @@ function lineCountSuffix(count: number): string {
 // Commands that hand a payload to a shell/interpreter to execute rather than
 // consuming it as inert data. A segment naming one of these must never
 // collapse — the operator has to be able to read the code they are approving.
-const CODE_CONSUMING_UNCONDITIONAL = new Set(["eval", "source", ".", "xargs", "env"]);
-const CODE_CONSUMING_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash"]);
+// `ssh` is unconditional too: whatever payload follows the host runs on the
+// remote end regardless of flags, so there is no safe "no -c present" case.
+const CODE_CONSUMING_UNCONDITIONAL = new Set(["eval", "source", ".", "xargs", "env", "ssh"]);
+
+// Each interpreter's own flag(s) for "run this payload as code" — not every
+// interpreter takes `-c`, so this cannot be a single shared flag.
+const INTERPRETER_CODE_FLAGS: Record<string, readonly string[]> = {
+  bash: ["-c"],
+  sh: ["-c"],
+  zsh: ["-c"],
+  dash: ["-c"],
+  python: ["-c"],
+  python3: ["-c"],
+  node: ["-e", "--eval"],
+  ruby: ["-e"],
+  perl: ["-e"],
+  php: ["-r"],
+};
 
 // Crude whitespace tokenizing is enough here: quoting doesn't change whether
 // an interpreter name or a `-c` flag literally appears as a word, and this is
@@ -276,17 +292,30 @@ function segmentWords(segment: string): string[] {
   return segment.split(/\s+/).filter((word) => word.length > 0);
 }
 
+// The POSIX basename of a word naming a program: strips any directory
+// prefix, so `/bin/bash`, `./bash`, and `bash` are all recognized as the
+// same interpreter. Display-only guesswork, same as the rest of this file.
+function programBasename(word: string): string {
+  const slash = word.lastIndexOf("/");
+  return slash === -1 ? word : word.slice(slash + 1);
+}
+
 // True when `segment` names a command that treats a quoted or heredoc payload
-// as code — directly (eval, source, xargs, env) or via a shell invoked with
-// -c — including one reached through a `$(...)`/backtick command substitution,
-// since those words show up as ordinary tokens in the segment either way.
+// as code — directly (eval, source, xargs, env, ssh) or via an interpreter
+// invoked with its code flag — including one reached through a
+// `$(...)`/backtick command substitution, since those words show up as
+// ordinary tokens in the segment either way. Interpreter names are matched by
+// basename so a path-qualified spelling (`/bin/bash -c`, `./sh -c`) is not
+// missed, and wrapper prefixes (env, sudo, nohup, timeout, ...) are handled
+// for free because this scans every word rather than just the first.
 function isCodeConsumingSegment(segment: string): boolean {
   const words = segmentWords(segment);
   const bareWord = (word: string): string => word.replace(/^[(`]+/, "").replace(/^\$\(/, "");
   for (const word of words) {
-    const bare = bareWord(word);
+    const bare = programBasename(bareWord(word));
     if (CODE_CONSUMING_UNCONDITIONAL.has(bare)) return true;
-    if (CODE_CONSUMING_INTERPRETERS.has(bare) && words.includes("-c")) return true;
+    const codeFlags = INTERPRETER_CODE_FLAGS[bare];
+    if (codeFlags !== undefined && codeFlags.some((flag) => words.includes(flag))) return true;
   }
   return false;
 }

