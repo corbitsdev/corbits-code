@@ -490,11 +490,13 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       }
 
       let worktreeCwd: string | undefined;
+      let worktreeStashBaseline: readonly string[] = [];
       if (deps.useWorktree === true) {
         const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
         try {
           const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
           worktreeCwd = worktree.path;
+          worktreeStashBaseline = worktree.stashBaseline;
         } catch (err) {
           // Admit already happened and the strip session may be "running" —
           // release the ledger slot and fail the session so a worktree setup
@@ -514,7 +516,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       // (or preserved with a notice) rather than leaked.
       const finishWithWorktree = async (result: ToolResult): Promise<ToolResult> => {
         if (worktreeCwd === undefined) return result;
-        const cleanup = await cleanupSubAgentWorktree(deps.cwd, worktreeCwd);
+        const cleanup = await cleanupSubAgentWorktree(deps.cwd, worktreeCwd, worktreeStashBaseline);
         if (cleanup.status === "preserved") {
           return { ...result, content: `${result.content}\n\n${cleanup.notice}` };
         }
@@ -582,7 +584,6 @@ const reported = appendSubAgentParentHints(result, hintOptions);
         return finishWithWorktree(
           taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
         );
-
 
       } catch (err) {
         if (

@@ -169,4 +169,45 @@ describe("createTaskTool worktree isolation", () => {
     const { stdout } = await run("git", ["worktree", "list"], { cwd: repo });
     expect(stdout).toContain(worktreePath!);
   });
+
+  test("preserves a worktree the sub-agent left stashed, with a notice naming the stash", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const workdirBase = await mkdtemp(join(tmpdir(), "corbits-workdir-"));
+    tempDirs.push(workdirBase);
+
+    let worktreePath: string | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => workdirBase,
+      provider,
+      useWorktree: true,
+      run: async (params) => {
+        worktreePath = params.cwd;
+        // Simulate the sub-agent stashing mid-task: `git status` reports
+        // clean afterward even though the work is not actually gone — it is
+        // parked in the repo's shared refs/stash.
+        await writeFile(join(params.cwd, "wip.txt"), "half-finished change");
+        await run("git", ["add", "."], { cwd: params.cwd });
+        await run("git", ["stash"], { cwd: params.cwd });
+        return "done";
+      },
+    });
+
+    const result = await callTask(tool, { description: "Stashing job", prompt: "Do the work" });
+
+    expect(result).toContain("done");
+    expect(result).toContain("stash");
+    expect(worktreePath).toBeDefined();
+
+    // The worktree itself is preserved rather than silently removed —
+    // `git status` alone would have called this clean.
+    const { stdout } = await run("git", ["worktree", "list"], { cwd: repo });
+    expect(stdout).toContain(worktreePath!);
+
+    // The stash entry the sub-agent created is still recoverable.
+    const { stdout: stashList } = await run("git", ["stash", "list"], { cwd: repo });
+    expect(stashList).toContain("stash@{0}");
+  });
 });
