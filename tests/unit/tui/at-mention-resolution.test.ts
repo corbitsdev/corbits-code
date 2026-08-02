@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { resolveAtMentions } from "../../../src/tui/app.js";
+import { resolveAtMentions } from "../../../src/tui/mention-resolution.js";
 
 const execFileAsync = promisify(execFile);
 
