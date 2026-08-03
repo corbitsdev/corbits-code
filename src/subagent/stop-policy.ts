@@ -269,11 +269,11 @@ export function forcedStopReport(
                   : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
-      ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
+      ? "Identical tool-call fingerprint repeated consecutively; parent must not re-dispatch the identical brief (it will be refused) — tighten success_criteria/do_not or change approach."
       : reason === "thrash"
-        ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent should re-dispatch with a narrower scope, success_criteria, and do_not rather than more turns alone."
+        ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a narrower scope, success_criteria, and do_not rather than more turns alone."
         : reason === "never-acted"
-          ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
+          ? "Leaf returned planning/prose only (zero tool calls in the run); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a tighter brief, or treat findings as unexecuted."
           : reason === "cancelled"
             ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
             : reason === "deadline"
@@ -281,7 +281,7 @@ export function forcedStopReport(
               : reason === "stalled"
                 ? "Leaf went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
                 : reason === "repetition"
-                  ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will likely loop again — tighten the brief or switch models."
+                  ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will be refused and would likely loop again — change prompt/intent/success_criteria/do_not/agent, not maxTurns or tier alone."
                   : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
@@ -334,7 +334,7 @@ const TURN_BUDGET_PARENT_HINT =
 
 /** After enough same-brief dispatches, stop inviting another maxTurns bump (CL-4343). */
 export const TURN_BUDGET_STOP_PARENT_HINT =
-  "[Sub-agent hit its turn budget again on the same brief (re-dispatch cap). Do not re-dispatch this fingerprint — restate the task, change approach (intent / success_criteria / do_not / prompt), or finish from Findings.]";
+  "[Sub-agent hit its turn budget again on the same brief (re-dispatch cap). Stop raising maxTurns on this fingerprint — restate the task, change approach (intent / success_criteria / do_not / prompt / agent), or finish from Findings. Further identical dispatches are still admitted but will not invite more maxTurns bumps.]";
 
 const NEVER_ACTED_PARENT_HINT =
   "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing. An identical brief will be refused.]";
@@ -346,7 +346,7 @@ const THRASH_PARENT_HINT =
   "[Sub-agent stopped for progressive thrash (re-read pressure). Do not re-dispatch the identical brief (it will be refused) — change scope, success_criteria, and do_not; continue from Findings.]";
 
 const REPETITION_PARENT_HINT =
-  "[Sub-agent aborted after its streamed output degenerated into a loop. Do not re-dispatch the identical brief — it will be refused and would likely loop again; tighten the brief or use a different model tier.]";
+  "[Sub-agent aborted after its streamed output degenerated into a loop. Do not re-dispatch the identical brief — it will be refused and would likely loop again; change prompt, intent, success_criteria, do_not, and/or agent (tier alone does not change the fingerprint).]";
 
 const NO_PROGRESS_PARENT_HINT =
   "[Sub-agent stopped for no-progress (identical tool-call fingerprint). Do not re-dispatch the identical brief (it will be refused) — tighten success_criteria and do_not, or change approach.]";

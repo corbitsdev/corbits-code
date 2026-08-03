@@ -3,8 +3,10 @@
  *
  * Leaf stops already salvage thrash / no-progress / turn-budget / etc. This
  * module tracks how often the *parent* re-spawns the same brief so:
- * - thrash-class salvages hard-block an identical re-dispatch
- * - turn-budget salvage flips from "raise maxTurns" to "stop" after enough tries
+ * - thrash-class salvages hard-block an identical re-dispatch for the rest of
+ *   the parent chat session (sticky until the fingerprint changes)
+ * - turn-budget salvage flips from "raise maxTurns" to "stop" after enough
+ *   same-brief dispatches without a successful complete
  *
  * Session-scoped: one ledger per createTaskTool instance (parent chat tool).
  */
@@ -50,8 +52,9 @@ export type BriefDispatchRecord = {
 };
 
 /**
- * After this many total dispatches of the same brief (original + 2 re-dispatches),
- * turn-budget salvage no longer invites another re-dispatch.
+ * After this many total dispatches of the same brief without a successful
+ * complete (original + 2 re-dispatches), turn-budget salvage no longer invites
+ * another re-dispatch. Successful completes reset the counter.
  */
 export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
 
@@ -133,6 +136,11 @@ export type BriefDispatchLedger = {
     | { ok: false; message: string };
   /** Record the outcome of an admitted run (salvage kind or null on success). */
   recordOutcome: (fingerprint: string, salvage: BriefSalvageKind | null) => void;
+  /**
+   * Undo a prior admit when the run never produced a salvage or success body
+   * (throw / auth fail). Prevents burning turn-budget retry budget on crashes.
+   */
+  release: (fingerprint: string) => void;
 };
 
 export function createBriefDispatchLedger(): BriefDispatchLedger {
@@ -164,15 +172,23 @@ export function createBriefDispatchLedger(): BriefDispatchLedger {
       if (existing === undefined) {
         // admit() always runs first in production; keep defensive for unit tests.
         byFingerprint.set(fingerprint, {
-          dispatchCount: 1,
+          dispatchCount: salvage === null ? 0 : 1,
           ...(salvage !== null ? { lastSalvage: salvage } : {}),
         });
         return;
       }
       if (salvage === null) {
-        // Successful complete clears salvage memory so a later identical brief
-        // (unrelated job reuse) is not blocked by an old thrash.
-        byFingerprint.set(fingerprint, { dispatchCount: existing.dispatchCount });
+        // Successful complete resets the same-brief retry budget. Hard-block
+        // lastSalvage is sticky for the session and must not be cleared by a
+        // concurrent twin that finishes after thrash was already recorded.
+        if (existing.lastSalvage !== undefined && isHardBlockSalvage(existing.lastSalvage)) {
+          byFingerprint.set(fingerprint, {
+            dispatchCount: existing.dispatchCount,
+            lastSalvage: existing.lastSalvage,
+          });
+          return;
+        }
+        byFingerprint.set(fingerprint, { dispatchCount: 0 });
         return;
       }
       byFingerprint.set(fingerprint, {
@@ -180,20 +196,34 @@ export function createBriefDispatchLedger(): BriefDispatchLedger {
         lastSalvage: salvage,
       });
     },
+
+    release(fingerprint) {
+      const existing = byFingerprint.get(fingerprint);
+      if (existing === undefined) return;
+      if (existing.dispatchCount <= 1) {
+        if (existing.lastSalvage !== undefined) {
+          byFingerprint.set(fingerprint, {
+            dispatchCount: 0,
+            lastSalvage: existing.lastSalvage,
+          });
+        } else {
+          byFingerprint.delete(fingerprint);
+        }
+        return;
+      }
+      byFingerprint.set(fingerprint, {
+        dispatchCount: existing.dispatchCount - 1,
+        ...(existing.lastSalvage !== undefined ? { lastSalvage: existing.lastSalvage } : {}),
+      });
+    },
   };
 }
 
 function hardBlockMessage(salvage: HardBlockSalvage, priorDispatches: number): string {
-  const label =
-    salvage === "no-progress"
-      ? "no-progress"
-      : salvage === "never-acted"
-        ? "never-acted"
-        : salvage;
   return (
-    `Error: refused re-dispatch of an identical task brief after a ${label} salvage ` +
+    `Error: refused re-dispatch of an identical task brief after a ${salvage} salvage ` +
     `(already dispatched ${priorDispatches} time${priorDispatches === 1 ? "" : "s"}). ` +
-    `Change the brief (prompt, intent, success_criteria, and/or do_not) before retrying — ` +
+    `Change the brief (prompt, agent, intent, success_criteria, and/or do_not) before retrying — ` +
     `raising maxTurns alone will not unlock this fingerprint. ` +
     `To force a re-run of the same work, alter at least one of those fields so the fingerprint changes.`
   );
