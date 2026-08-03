@@ -269,11 +269,11 @@ export function forcedStopReport(
                   : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
-      ? "Identical tool-call fingerprint repeated consecutively; parent may re-dispatch with a tighter brief or different approach."
+      ? "Identical tool-call fingerprint repeated consecutively; parent must not re-dispatch the identical brief (it will be refused) — tighten success_criteria/do_not or change approach."
       : reason === "thrash"
-        ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent should re-dispatch with a narrower scope, success_criteria, and do_not rather than more turns alone."
+        ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a narrower scope, success_criteria, and do_not rather than more turns alone."
         : reason === "never-acted"
-          ? "Leaf returned planning/prose only (zero tool calls in the run); parent should re-dispatch with a tighter brief or treat findings as unexecuted."
+          ? "Leaf returned planning/prose only (zero tool calls in the run); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a tighter brief, or treat findings as unexecuted."
           : reason === "cancelled"
             ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
             : reason === "deadline"
@@ -281,7 +281,7 @@ export function forcedStopReport(
               : reason === "stalled"
                 ? "Leaf went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
                 : reason === "repetition"
-                  ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will likely loop again — tighten the brief or switch models."
+                  ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will be refused and would likely loop again — change prompt/intent/success_criteria/do_not/agent, not maxTurns or tier alone."
                   : "Leaf turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
@@ -332,21 +332,50 @@ export function isRepetitionSubAgentReport(report: string): boolean {
 const TURN_BUDGET_PARENT_HINT =
   "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
 
+/** After enough same-brief dispatches, stop inviting another maxTurns bump (CL-4343). */
+export const TURN_BUDGET_STOP_PARENT_HINT =
+  "[Sub-agent hit its turn budget again on the same brief (re-dispatch cap). Stop raising maxTurns on this fingerprint — restate the task, change approach (intent / success_criteria / do_not / prompt / agent), or finish from Findings. Further identical dispatches are still admitted but will not invite more maxTurns bumps.]";
+
 const NEVER_ACTED_PARENT_HINT =
-  "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing.]";
+  "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing. An identical brief will be refused.]";
 
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
 
 const THRASH_PARENT_HINT =
-  "[Sub-agent stopped for progressive thrash (re-read pressure). Do not only raise maxTurns — re-dispatch with a narrower scope, success_criteria, and do_not; continue from Findings.]";
+  "[Sub-agent stopped for progressive thrash (re-read pressure). Do not re-dispatch the identical brief (it will be refused) — change scope, success_criteria, and do_not; continue from Findings.]";
 
 const REPETITION_PARENT_HINT =
-  "[Sub-agent aborted after its streamed output degenerated into a loop. Do not re-dispatch the identical brief — it will likely loop again; tighten the brief or use a different model tier.]";
+  "[Sub-agent aborted after its streamed output degenerated into a loop. Do not re-dispatch the identical brief — it will be refused and would likely loop again; change prompt, intent, success_criteria, do_not, and/or agent (tier alone does not change the fingerprint).]";
 
-export function appendTurnBudgetParentHint(report: string): string {
+const NO_PROGRESS_PARENT_HINT =
+  "[Sub-agent stopped for no-progress (identical tool-call fingerprint). Do not re-dispatch the identical brief (it will be refused) — tighten success_criteria and do_not, or change approach.]";
+
+/** Options for parent-hint stacking (session re-dispatch ledger state). */
+export type SubAgentParentHintOptions = {
+  /**
+   * 1-based count of how many times this brief fingerprint has been admitted
+   * this session (including the run that produced `report`). Used to flip the
+   * turn-budget hint after repeated same-brief retries.
+   */
+  dispatchCount?: number;
+  /**
+   * After this many total same-brief dispatches, turn-budget salvage recommends
+   * stopping rather than raising maxTurns. Defaults to 3 (original + 2 retries).
+   */
+  turnBudgetStopAfterDispatches?: number;
+};
+
+export function appendTurnBudgetParentHint(
+  report: string,
+  options: SubAgentParentHintOptions = {},
+): string {
   if (!isTurnBudgetSubAgentReport(report)) return report;
-  return `${TURN_BUDGET_PARENT_HINT}\n\n${report}`;
+  const stopAfter = options.turnBudgetStopAfterDispatches ?? 3;
+  const count = options.dispatchCount ?? 1;
+  const hint =
+    count >= stopAfter ? TURN_BUDGET_STOP_PARENT_HINT : TURN_BUDGET_PARENT_HINT;
+  return `${hint}\n\n${report}`;
 }
 
 export function appendNeverActedParentHint(report: string): string {
@@ -369,12 +398,29 @@ export function appendRepetitionParentHint(report: string): string {
   return `${REPETITION_PARENT_HINT}\n\n${report}`;
 }
 
-/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline / repetition. */
-export function appendSubAgentParentHints(report: string): string {
+/** True when the worker returned a no-progress salvage report. */
+export function isNoProgressSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.includes("no progress");
+}
+
+export function appendNoProgressParentHint(report: string): string {
+  if (!isNoProgressSubAgentReport(report)) return report;
+  return `${NO_PROGRESS_PARENT_HINT}\n\n${report}`;
+}
+
+/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline / repetition / no-progress. */
+export function appendSubAgentParentHints(
+  report: string,
+  options: SubAgentParentHintOptions = {},
+): string {
   return appendDeadlineParentHint(
     appendNeverActedParentHint(
       appendTurnBudgetParentHint(
-        appendThrashParentHint(appendRepetitionParentHint(report)),
+        appendNoProgressParentHint(
+          appendThrashParentHint(appendRepetitionParentHint(report)),
+        ),
+        options,
       ),
     ),
   );

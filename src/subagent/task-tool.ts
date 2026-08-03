@@ -29,6 +29,12 @@ import {
   type TaskIntent,
 } from "./report.js";
 import { appendSubAgentParentHints } from "./stop-policy.js";
+import {
+  classifyBriefSalvage,
+  createBriefDispatchLedger,
+  fingerprintTaskBrief,
+  TURN_BUDGET_STOP_AFTER_DISPATCHES,
+} from "./brief-dispatch.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import type {
   NestedDispatchDeps,
@@ -55,7 +61,7 @@ export const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions and shares your working tree. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns or tier alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
   inputSchema: {
     type: "object",
     properties: {
@@ -166,6 +172,8 @@ function taskToolResult(callId: string, content: string): ToolResult {
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const run = deps.run;
+  // Session-scoped re-dispatch ledger: one per parent task tool instance.
+  const briefLedger = createBriefDispatchLedger();
   return tool({
     definition: taskToolDefinition,
     handler: async (call, signal): Promise<ToolResult> => {
@@ -379,7 +387,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
       });
 
-      const brief = buildDispatchBrief({
+            const brief = buildDispatchBrief({
         description,
         prompt,
         ...(context !== undefined && context.length > 0 ? { context } : {}),
@@ -389,6 +397,21 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         ...(doNot.length > 0 ? { doNot } : {}),
         ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
       });
+      // Parent re-dispatch caps (CL-4343 / CL-5203): admit before session start so
+      // a thrash-class refuse never leaves a ghost "running" Agents-strip row.
+      const fingerprint = fingerprintTaskBrief({
+        prompt,
+        ...(agentId !== undefined && agentId.length > 0 ? { agent: agentId } : {}),
+        ...(intent !== undefined ? { intent } : {}),
+        ...(successCriteria.length > 0 ? { successCriteria } : {}),
+        ...(doNot.length > 0 ? { doNot } : {}),
+      });
+      const admission = briefLedger.admit(fingerprint);
+      if (!admission.ok) {
+        return taskToolResult(call.id, admission.message);
+      }
+      const dispatchCount = admission.dispatchCount;
+
       const agentLabel = agentId !== undefined && agentId.length > 0 ? agentId : "worker";
       const session =
         deps.sessions !== undefined
@@ -493,6 +516,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           childCtl.signal.aborted ||
           (session !== undefined &&
             deps.sessions?.get(session.id)?.status === "cancelled");
+        const salvage = classifyBriefSalvage(result);
+        briefLedger.recordOutcome(fingerprint, salvage);
+        const hintOptions = {
+          dispatchCount,
+          turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
+        };
         if (wasCancelled) {
           if (
             session !== undefined &&
@@ -500,14 +529,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ) {
             deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          const reported = appendSubAgentParentHints(result);
+          const reported = appendSubAgentParentHints(result, hintOptions);
           return taskToolResult(
             call.id,
             `Sub-agent "${description}" reported:\n\n${reported}`,
           );
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
-        const reported = appendSubAgentParentHints(result);
+        const reported = appendSubAgentParentHints(result, hintOptions);
         return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
 
 
@@ -517,6 +546,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           (session !== undefined &&
             deps.sessions?.get(session.id)?.status === "cancelled")
         ) {
+          briefLedger.recordOutcome(fingerprint, "cancelled");
           if (
             session !== undefined &&
             deps.sessions?.get(session.id)?.status === "running"
@@ -525,6 +555,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           }
           return taskToolResult(call.id, cancelledSubAgentMessage(description));
         }
+        // Run never produced a body — undo the admit so turn-budget retry budget
+        // is not burned by auth/provider crashes.
+        briefLedger.release(fingerprint);
         const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
         const message =
           authMessage !== null

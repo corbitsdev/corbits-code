@@ -23,6 +23,11 @@ import {
   appendNeverActedParentHint,
   appendSubAgentParentHints,
   appendThrashParentHint,
+  createBriefDispatchLedger,
+  fingerprintTaskBrief,
+  classifyBriefSalvage,
+  TURN_BUDGET_STOP_AFTER_DISPATCHES,
+  TURN_BUDGET_STOP_PARENT_HINT,
   EMPTY_THRASH_STATE,
   nextThrashState,
   partialTextFromEvent,
@@ -38,6 +43,7 @@ import {
   TaskToolArgs,
   type RunSubAgentParams,
 } from "./index.js";
+
 import { type } from "arktype";
 import type {
   ReactorAction,
@@ -414,7 +420,7 @@ describe("sub-agent stop helpers", () => {
     expect(thrashParsed.findings).toContain("a.ts");
     expect(thrashParsed.blockers).toContain("Re-read pressure");
     expect(appendThrashParentHint(thrashReport)).toContain("progressive thrash");
-    expect(appendSubAgentParentHints(thrashReport)).toContain("narrower scope");
+    expect(appendSubAgentParentHints(thrashReport)).toContain("identical brief");
 
     // Nested agent envelope must not clobber the outer never-acted Summary when
     // runSubAgent re-parses the forced stop (the common planning-only path).
@@ -597,7 +603,8 @@ describe("sub-agent stop helpers", () => {
     const parsed = parseSubAgentReport(report);
     expect(parsed.summary).toContain("degenerate repetition");
     expect(parsed.findings).toContain("dig footer/chrome");
-    expect(parsed.blockers).toContain("tighten the brief");
+        expect(parsed.blockers).toContain("will be refused");
+    expect(parsed.blockers).toContain("not maxTurns or tier alone");
     const hinted = appendSubAgentParentHints(report);
     expect(hinted).toContain("Do not re-dispatch the identical brief");
   });
@@ -1720,5 +1727,244 @@ describe("buildDispatchBrief typed spawn contract", () => {
     expect(both).toContain("1. done check");
     expect(both).toContain("## Suggested checklist");
     expect(both).toContain("1. manage_tasks seed");
+  });
+});
+
+describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
+  test("fingerprint ignores whitespace and omits maxTurns/description", () => {
+    const a = fingerprintTaskBrief({
+      prompt: "  map callers of X  ",
+      intent: "explore",
+      successCriteria: ["list callers"],
+      doNot: ["edit code"],
+    });
+    const b = fingerprintTaskBrief({
+      prompt: "map callers of X",
+      intent: "explore",
+      successCriteria: ["list callers"],
+      doNot: ["edit code"],
+    });
+    expect(a).toBe(b);
+    const changed = fingerprintTaskBrief({
+      prompt: "map callers of X",
+      intent: "implement",
+      successCriteria: ["list callers"],
+      doNot: ["edit code"],
+    });
+    expect(changed).not.toBe(a);
+  });
+
+  test("hard-blocks identical brief after thrash salvage; allows changed brief", () => {
+    const ledger = createBriefDispatchLedger();
+    const fp = fingerprintTaskBrief({ prompt: "fix thrash", intent: "implement" });
+    expect(ledger.admit(fp).ok).toBe(true);
+    ledger.recordOutcome(fp, "thrash");
+    const blocked = ledger.admit(fp);
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) throw new Error("expected block");
+    expect(blocked.message).toContain("refused re-dispatch");
+    expect(blocked.message).toContain("thrash");
+
+    const other = fingerprintTaskBrief({
+      prompt: "fix thrash with narrower scope",
+      intent: "implement",
+      successCriteria: ["one file only"],
+    });
+    expect(ledger.admit(other).ok).toBe(true);
+  });
+
+  test("hard-blocks no-progress, repetition, never-acted; not turn-budget", () => {
+    for (const salvage of ["no-progress", "repetition", "never-acted"] as const) {
+      const ledger = createBriefDispatchLedger();
+      const fp = fingerprintTaskBrief({ prompt: `job ${salvage}` });
+      expect(ledger.admit(fp).ok).toBe(true);
+      ledger.recordOutcome(fp, salvage);
+      expect(ledger.admit(fp).ok).toBe(false);
+    }
+    const ledger = createBriefDispatchLedger();
+    const fp = fingerprintTaskBrief({ prompt: "budget job" });
+    expect(ledger.admit(fp).ok).toBe(true);
+    ledger.recordOutcome(fp, "turn-budget");
+    const second = ledger.admit(fp);
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error("expected admit");
+    expect(second.dispatchCount).toBe(2);
+  });
+
+    test("successful complete resets retry budget; thrash hard-block is sticky", () => {
+    const ledger = createBriefDispatchLedger();
+    const fp = fingerprintTaskBrief({ prompt: "ok job" });
+    expect(ledger.admit(fp).ok).toBe(true);
+    ledger.recordOutcome(fp, "turn-budget");
+    expect(ledger.admit(fp).ok).toBe(true);
+    // Success clears soft salvage and zeros dispatchCount so the next admit is 1.
+    ledger.recordOutcome(fp, null);
+    const afterSuccess = ledger.admit(fp);
+    expect(afterSuccess.ok).toBe(true);
+    if (!afterSuccess.ok) throw new Error("expected admit");
+    expect(afterSuccess.dispatchCount).toBe(1);
+
+    // Thrash is sticky for the session — success on a concurrent twin must not clear it.
+    const thrashFp = fingerprintTaskBrief({ prompt: "thrash sticky" });
+    ledger.admit(thrashFp);
+    ledger.recordOutcome(thrashFp, "thrash");
+    ledger.recordOutcome(thrashFp, null);
+    expect(ledger.admit(thrashFp).ok).toBe(false);
+  });
+
+  test("release undoes admit when run never produces a body", () => {
+    const ledger = createBriefDispatchLedger();
+    const fp = fingerprintTaskBrief({ prompt: "crash job" });
+    expect(ledger.admit(fp).ok).toBe(true);
+    ledger.release(fp);
+    const again = ledger.admit(fp);
+    expect(again.ok).toBe(true);
+    if (!again.ok) throw new Error("expected admit");
+    expect(again.dispatchCount).toBe(1);
+  });
+
+  test("classifyBriefSalvage maps forced-stop envelopes", () => {
+    expect(classifyBriefSalvage(forcedStopReport("thrash", "x"))).toBe("thrash");
+    expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
+    expect(classifyBriefSalvage(forcedStopReport("repetition", "x"))).toBe("repetition");
+    expect(classifyBriefSalvage(forcedStopReport("never-acted", "x"))).toBe("never-acted");
+    expect(classifyBriefSalvage(forcedStopReport("turn-budget", "x"))).toBe("turn-budget");
+    expect(classifyBriefSalvage("## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n")).toBeNull();
+  });
+
+  test("turn-budget parent hint flips after re-dispatch threshold", () => {
+    const report = forcedStopReport("turn-budget", "partial");
+    const first = appendSubAgentParentHints(report, { dispatchCount: 1 });
+    expect(first).toContain("higher maxTurns");
+    expect(first).not.toContain("re-dispatch cap");
+    const third = appendSubAgentParentHints(report, {
+      dispatchCount: TURN_BUDGET_STOP_AFTER_DISPATCHES,
+    });
+    expect(third).toContain("re-dispatch cap");
+    expect(third).toContain(TURN_BUDGET_STOP_PARENT_HINT.slice(1, 40));
+  });
+
+    test("createTaskTool refuses identical re-dispatch after thrash salvage", async () => {
+    const thrash = forcedStopReport("thrash", "Re-read pressure");
+    let runs = 0;
+    const sessions = createSubAgentSessionStore();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      sessions,
+      run: async () => {
+        runs += 1;
+        return thrash;
+      },
+    });
+    const args = {
+      description: "Thrash job",
+      prompt: "do the thrashy work",
+      intent: "implement",
+    };
+    const first = await callTask(tool, args);
+    expect(first).toContain("progressive thrash");
+    expect(first).toContain("identical brief");
+    expect(runs).toBe(1);
+    expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
+
+    const second = await callTask(tool, args);
+    expect(second).toContain("refused re-dispatch");
+    expect(second).toContain("thrash");
+    expect(runs).toBe(1);
+    // Refuse must not leave a ghost running session on the Agents strip.
+    expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
+    expect(sessions.list().filter((s) => s.description === "Thrash job")).toHaveLength(1);
+
+    // maxTurns alone does not unlock
+    const bumped = await callTask(tool, { ...args, maxTurns: 99 });
+    expect(bumped).toContain("refused re-dispatch");
+    expect(runs).toBe(1);
+    expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
+
+    // Changed brief is allowed
+    const third = await callTask(tool, {
+      ...args,
+      prompt: "do the thrashy work with a narrower scope",
+      success_criteria: ["one file"],
+    });
+    expect(third).toContain("progressive thrash");
+    expect(runs).toBe(2);
+  });
+
+  test("createTaskTool flips turn-budget hint on third same-brief dispatch", async () => {
+    const budget = forcedStopReport("turn-budget", "partial work");
+    let runs = 0;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async () => {
+        runs += 1;
+        return budget;
+      },
+    });
+    const args = { description: "Budget job", prompt: "long job" };
+    const r1 = await callTask(tool, args);
+    expect(r1).toContain("higher maxTurns");
+    const r2 = await callTask(tool, { ...args, maxTurns: 50 });
+    expect(r2).toContain("higher maxTurns");
+    const r3 = await callTask(tool, { ...args, maxTurns: 80 });
+    expect(r3).toContain("re-dispatch cap");
+    expect(runs).toBe(3);
+  });
+
+  test("createTaskTool success resets turn-budget retry budget", async () => {
+    const budget = forcedStopReport("turn-budget", "partial");
+    const ok =
+      "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n";
+    let runs = 0;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async () => {
+        runs += 1;
+        // Two budgets, then success, then budget again — post-success should invite maxTurns.
+        if (runs <= 2 || runs === 4) return budget;
+        return ok;
+      },
+    });
+    const args = { description: "Reset job", prompt: "reset budget" };
+    expect(await callTask(tool, args)).toContain("higher maxTurns");
+    expect(await callTask(tool, args)).toContain("higher maxTurns");
+    expect(await callTask(tool, args)).toContain("Done");
+    const afterSuccess = await callTask(tool, args);
+    expect(afterSuccess).toContain("higher maxTurns");
+    expect(afterSuccess).not.toContain("re-dispatch cap");
+    expect(runs).toBe(4);
+  });
+
+  test("createTaskTool auth failure does not burn turn-budget count", async () => {
+    const budget = forcedStopReport("turn-budget", "partial");
+    let runs = 0;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async () => {
+        runs += 1;
+        if (runs === 1) throw new Error("provider down");
+        return budget;
+      },
+    });
+    const args = { description: "Crash then budget", prompt: "count carefully" };
+    const fail = await callTask(tool, args);
+    expect(fail).toContain("failed");
+    // First successful body is still dispatchCount 1 → invites higher maxTurns.
+    const firstBody = await callTask(tool, args);
+    expect(firstBody).toContain("higher maxTurns");
+    expect(firstBody).not.toContain("re-dispatch cap");
+    expect(runs).toBe(2);
   });
 });

@@ -34,6 +34,7 @@ export {
   SUBAGENT_DEADLINE_MARGIN_MS,
   appendDeadlineParentHint,
   appendNeverActedParentHint,
+  appendNoProgressParentHint,
   appendRepetitionParentHint,
   appendSubAgentParentHints,
   appendThrashParentHint,
@@ -43,6 +44,7 @@ export {
   forcedStopReport,
   isDeadlineSubAgentReport,
   isNeverActedSubAgentReport,
+  isNoProgressSubAgentReport,
   isRepetitionSubAgentReport,
   isThrashSubAgentReport,
   isTurnBudgetSubAgentReport,
@@ -53,10 +55,26 @@ export {
   resolveSubAgentDeadlineMs,
   subAgentNoProgress,
   subAgentTurnLimitExceeded,
+  TURN_BUDGET_STOP_PARENT_HINT,
   type SubAgentCatchOutcome,
+  type SubAgentParentHintOptions,
   type SubAgentStopReason,
   type ToolCallStreak,
 } from "./stop-policy.js";
+
+export {
+  TURN_BUDGET_STOP_AFTER_DISPATCHES,
+  classifyBriefSalvage,
+  createBriefDispatchLedger,
+  fingerprintTaskBrief,
+  isHardBlockSalvage,
+  shouldStopTurnBudgetRedispatch,
+  type BriefDispatchLedger,
+  type BriefDispatchRecord,
+  type BriefSalvageKind,
+  type HardBlockSalvage,
+  type TaskBriefFingerprintInput,
+} from "./brief-dispatch.js";
 
 export { DEFAULT_SUBAGENT_MAX_TURNS } from "../config/settings.js";
 
