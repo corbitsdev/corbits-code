@@ -29,6 +29,12 @@ import {
   type TaskIntent,
 } from "./report.js";
 import { appendSubAgentParentHints } from "./stop-policy.js";
+import {
+  classifyBriefSalvage,
+  createBriefDispatchLedger,
+  fingerprintTaskBrief,
+  TURN_BUDGET_STOP_AFTER_DISPATCHES,
+} from "./brief-dispatch.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import type {
   NestedDispatchDeps,
@@ -166,6 +172,8 @@ function taskToolResult(callId: string, content: string): ToolResult {
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const run = deps.run;
+  // Session-scoped re-dispatch ledger: one per parent task tool instance.
+  const briefLedger = createBriefDispatchLedger();
   return tool({
     definition: taskToolDefinition,
     handler: async (call, signal): Promise<ToolResult> => {
@@ -456,6 +464,21 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       }
 
       try {
+        // Parent re-dispatch caps (CL-4343 / CL-5203): admit before run so thrash
+        // salvage blocks identical briefs, and turn-budget can count retries.
+        const fingerprint = fingerprintTaskBrief({
+          prompt,
+          ...(agentId !== undefined && agentId.length > 0 ? { agent: agentId } : {}),
+          ...(intent !== undefined ? { intent } : {}),
+          ...(successCriteria.length > 0 ? { successCriteria } : {}),
+          ...(doNot.length > 0 ? { doNot } : {}),
+        });
+        const admission = briefLedger.admit(fingerprint);
+        if (!admission.ok) {
+          return taskToolResult(call.id, admission.message);
+        }
+        const dispatchCount = admission.dispatchCount;
+
         const params: RunSubAgentParams = {
           ...sandbox,
           cwd: deps.cwd,
@@ -493,6 +516,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           childCtl.signal.aborted ||
           (session !== undefined &&
             deps.sessions?.get(session.id)?.status === "cancelled");
+        const salvage = classifyBriefSalvage(result);
+        briefLedger.recordOutcome(fingerprint, salvage);
+        const hintOptions = {
+          dispatchCount,
+          turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
+        };
         if (wasCancelled) {
           if (
             session !== undefined &&
@@ -500,14 +529,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ) {
             deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
           }
-          const reported = appendSubAgentParentHints(result);
+          const reported = appendSubAgentParentHints(result, hintOptions);
           return taskToolResult(
             call.id,
             `Sub-agent "${description}" reported:\n\n${reported}`,
           );
         }
         if (session !== undefined) deps.sessions?.complete(session.id, result);
-        const reported = appendSubAgentParentHints(result);
+        const reported = appendSubAgentParentHints(result, hintOptions);
         return taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`);
 
 
