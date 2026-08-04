@@ -1,0 +1,65 @@
+[
+  {
+    "type": "response.created",
+    "response": {
+      "id": "resp_fixture_lifecycle",
+      "status": "in_progress",
+      "model": "gpt-fixture-codex"
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "response": {
+      "id": "resp_fixture_lifecycle",
+      "status": "in_progress"
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_fixture_life",
+      "role": "assistant",
+      "content": []
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "item_id": "msg_fixture_life",
+    "output_index": 0,
+    "content_index": 0,
+    "part": { "type": "output_text", "text": "" }
+  },
+  {
+    "type": "response.output_text.done",
+    "item_id": "msg_fixture_life",
+    "output_index": 0,
+    "content_index": 0,
+    "text": ""
+  },
+  {
+    "type": "response.content_part.done",
+    "item_id": "msg_fixture_life",
+    "output_index": 0,
+    "content_index": 0,
+    "part": { "type": "output_text", "text": "" }
+  },
+  {
+    "type": "response.output_item.done",
+    "output_index": 0,
+    "item": {
+      "type": "message",
+      "id": "msg_fixture_life",
+      "role": "assistant",
+      "content": []
+    }
+  },
+  {
+    "type": "response.done",
+    "response": {
+      "id": "resp_fixture_lifecycle",
+      "status": "completed"
+    }
+  }
+]

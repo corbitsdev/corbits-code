@@ -1,0 +1,15 @@
+[
+  {
+    "type": "response.in_progress",
+    "response": {
+      "id": "resp_fixture_error",
+      "status": "in_progress"
+    }
+  },
+  {
+    "type": "error",
+    "code": "rate_limit_exceeded",
+    "message": "fixture stream error (sanitized)",
+    "param": null
+  }
+]
