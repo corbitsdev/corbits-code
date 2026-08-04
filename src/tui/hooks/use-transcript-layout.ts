@@ -39,6 +39,7 @@ export type UseTranscriptLayoutArgs = {
   activePlugins: readonly string[] | undefined;
   cwd: string;
   telemetryNotice: string | undefined;
+  whatsNewMarkdown: string | undefined;
   enteredSession: SubAgentSession | undefined;
 };
 
@@ -67,6 +68,7 @@ export function useTranscriptLayout({
   activePlugins,
   cwd,
   telemetryNotice,
+  whatsNewMarkdown,
   enteredSession,
 }: UseTranscriptLayoutArgs): TranscriptLayoutController {
   // Cleared when layout width or thinking expand change — those affect all blocks.
@@ -136,8 +138,16 @@ export function useTranscriptLayout({
   );
 
   const resourceBanner = useMemo(
-    () => buildResourceBanner(loadedSkills ?? [], activePlugins ?? [], contentWidth, cwd, telemetryNotice),
-    [loadedSkills, activePlugins, contentWidth, cwd, telemetryNotice],
+    () =>
+      buildResourceBanner(
+        loadedSkills ?? [],
+        activePlugins ?? [],
+        contentWidth,
+        cwd,
+        telemetryNotice,
+        whatsNewMarkdown,
+      ),
+    [loadedSkills, activePlugins, contentWidth, cwd, telemetryNotice, whatsNewMarkdown],
   );
 
   const prefixLineCount =
