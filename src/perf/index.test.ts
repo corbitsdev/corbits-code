@@ -243,6 +243,7 @@ describe("sanitizeTags", () => {
       provider_id: "openai",
       model_id: "gpt-5.4",
       transport: "ws",
+      decision: "allow",
       duration_ms: 12.5,
       bytes: 1024,
       payload_bytes: 2048,
@@ -257,6 +258,7 @@ describe("sanitizeTags", () => {
       provider_id: "openai",
       model_id: "gpt-5.4",
       transport: "ws",
+      decision: "allow",
       duration_ms: 12.5,
       bytes: 1024,
       payload_bytes: 2048,
@@ -267,6 +269,12 @@ describe("sanitizeTags", () => {
       subagent_id: "sa_9",
       tool_id: "call-01",
     });
+  });
+
+  test("keeps decision allow/deny and strips free-text decisions", () => {
+    expect(sanitizeTags({ decision: "allow" })).toEqual({ decision: "allow" });
+    expect(sanitizeTags({ decision: "deny" })).toEqual({ decision: "deny" });
+    expect(sanitizeTags({ decision: "maybe" })).toBeUndefined();
   });
 
   test("strips free-text, paths, prompts, and unknown keys", () => {

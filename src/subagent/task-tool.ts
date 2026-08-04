@@ -42,6 +42,8 @@ import {
 import { isSubAgentCancelError } from "./dispose.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { generateSessionId } from "../session/index.js";
+import { end, start } from "../perf/index.js";
+import { currentTurnId } from "../perf/reactor-spans.js";
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,
@@ -524,134 +526,148 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let worktreeCwd: string | undefined;
       let worktreeStashBaseline: readonly string[] | null = [];
       let worktreeHeadAtCreate: string | undefined;
-      if (deps.useWorktree === true) {
-        const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
-        try {
-          const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
-          worktreeCwd = worktree.path;
-          worktreeStashBaseline = worktree.stashBaseline;
-          worktreeHeadAtCreate = worktree.headAtCreate;
-        } catch (err) {
-          // Admit already happened and the strip session may be "running" —
-          // release the ledger slot and fail the session so a worktree setup
-          // error never burns turn-budget budget or leaves a ghost row.
-          const message =
-            err instanceof WorktreeError
-              ? err.message
-              : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
-          briefLedger.release(fingerprint);
-          if (session !== undefined) deps.sessions?.fail(session.id, message);
-          signal.removeEventListener("abort", onParentAbort);
-          return taskToolResult(call.id, `Error: ${message}`);
-        }
-      }
-      // Cleanup runs once the sub-agent's report is ready, regardless of
-      // outcome, so a cancelled or failed run's worktree is still reclaimed
-      // (or preserved with a notice) rather than leaked.
-      const finishWithWorktree = async (result: ToolResult): Promise<ToolResult> => {
-        if (worktreeCwd === undefined) return result;
-        const cleanup = await cleanupSubAgentWorktree(deps.cwd, worktreeCwd, {
-          stashBaseline: worktreeStashBaseline,
-          ...(worktreeHeadAtCreate !== undefined ? { headAtCreate: worktreeHeadAtCreate } : {}),
-        });
-        if (cleanup.status === "preserved") {
-          return { ...result, content: `${result.content}\n\n${cleanup.notice}` };
-        }
-        return result;
-      };
-
+      // Full child wall: worktree setup → run → teardown (CL-5170 exclusive share).
+      const turnId = currentTurnId();
+      const subagentSpanId = start("subagent", {
+        ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+        tags: {
+          subagent_id: call.id,
+          ...(turnId !== null && turnId.length > 0 ? { turn_id: turnId } : {}),
+        },
+      });
       try {
-        const params: RunSubAgentParams = {
-          ...sandbox,
-          cwd: worktreeCwd ?? deps.cwd,
-          workdirBase: deps.getWorkdirBase(),
-          provider,
-          ...(tier !== undefined ? { tier } : {}),
-          ...(settings !== undefined ? { settings } : {}),
-          ...(catalog !== undefined ? { catalog } : {}),
-          description,
-          ...(context !== undefined && context.length > 0 ? { context } : {}),
-          prompt,
-          ...(goals.length > 0 ? { goals } : {}),
-          ...(intent !== undefined ? { intent } : {}),
-          ...(successCriteria.length > 0 ? { successCriteria } : {}),
-          ...(doNot.length > 0 ? { doNot } : {}),
-          ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
-          signal: childCtl.signal,
-          ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
-          ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
-          ...(capabilities !== undefined ? { capabilities } : {}),
-          ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
-          ...(orchestrator
-            ? { orchestrator: true, nestedDispatch: nestedDispatch! }
-            : {}),
-          // Nested workers (installed by an orchestrator that already holds a
-          // slot) reuse the parent slot rather than acquiring their own.
-          ...(deps.allowOrchestrator === false ? { nested: true } : {}),
-          maxTurns: resolvedMaxTurns,
-          ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
-        };
-        const result = await run(params);
-        // Operator cancel may race after run resolves. Keep strip status cancelled
-        // when requested, but never discard a returned body (including salvage).
-        const wasCancelled =
-          childCtl.signal.aborted ||
-          (session !== undefined &&
-            deps.sessions?.get(session.id)?.status === "cancelled");
-        const salvage = classifyBriefSalvage(result);
-        briefLedger.recordOutcome(fingerprint, salvage);
-        const hintOptions = {
-          dispatchCount,
-          turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
-        };
-        if (wasCancelled) {
-          if (
-            session !== undefined &&
-            deps.sessions?.get(session.id)?.status === "running"
-          ) {
-            deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
+        if (deps.useWorktree === true) {
+          const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
+          try {
+            const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
+            worktreeCwd = worktree.path;
+            worktreeStashBaseline = worktree.stashBaseline;
+            worktreeHeadAtCreate = worktree.headAtCreate;
+          } catch (err) {
+            // Admit already happened and the strip session may be "running" —
+            // release the ledger slot and fail the session so a worktree setup
+            // error never burns turn-budget budget or leaves a ghost row.
+            const message =
+              err instanceof WorktreeError
+                ? err.message
+                : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+            briefLedger.release(fingerprint);
+            if (session !== undefined) deps.sessions?.fail(session.id, message);
+            signal.removeEventListener("abort", onParentAbort);
+            return taskToolResult(call.id, `Error: ${message}`);
           }
+        }
+        // Cleanup runs once the sub-agent's report is ready, regardless of
+        // outcome, so a cancelled or failed run's worktree is still reclaimed
+        // (or preserved with a notice) rather than leaked.
+        const finishWithWorktree = async (result: ToolResult): Promise<ToolResult> => {
+          if (worktreeCwd === undefined) return result;
+          const cleanup = await cleanupSubAgentWorktree(deps.cwd, worktreeCwd, {
+            stashBaseline: worktreeStashBaseline,
+            ...(worktreeHeadAtCreate !== undefined ? { headAtCreate: worktreeHeadAtCreate } : {}),
+          });
+          if (cleanup.status === "preserved") {
+            return { ...result, content: `${result.content}\n\n${cleanup.notice}` };
+          }
+          return result;
+        };
+
+        try {
+          const params: RunSubAgentParams = {
+            ...sandbox,
+            cwd: worktreeCwd ?? deps.cwd,
+            workdirBase: deps.getWorkdirBase(),
+            provider,
+            ...(tier !== undefined ? { tier } : {}),
+            ...(settings !== undefined ? { settings } : {}),
+            ...(catalog !== undefined ? { catalog } : {}),
+            description,
+            ...(context !== undefined && context.length > 0 ? { context } : {}),
+            prompt,
+            ...(goals.length > 0 ? { goals } : {}),
+            ...(intent !== undefined ? { intent } : {}),
+            ...(successCriteria.length > 0 ? { successCriteria } : {}),
+            ...(doNot.length > 0 ? { doNot } : {}),
+            ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
+            signal: childCtl.signal,
+            ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
+            ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+            ...(capabilities !== undefined ? { capabilities } : {}),
+            ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
+            ...(orchestrator
+              ? { orchestrator: true, nestedDispatch: nestedDispatch! }
+              : {}),
+            // Nested workers (installed by an orchestrator that already holds a
+            // slot) reuse the parent slot rather than acquiring their own.
+            ...(deps.allowOrchestrator === false ? { nested: true } : {}),
+            maxTurns: resolvedMaxTurns,
+            ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
+          };
+          const result = await run(params);
+          // Operator cancel may race after run resolves. Keep strip status cancelled
+          // when requested, but never discard a returned body (including salvage).
+          const wasCancelled =
+            childCtl.signal.aborted ||
+            (session !== undefined &&
+              deps.sessions?.get(session.id)?.status === "cancelled");
+          const salvage = classifyBriefSalvage(result);
+          briefLedger.recordOutcome(fingerprint, salvage);
+          const hintOptions = {
+            dispatchCount,
+            turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
+          };
+          if (wasCancelled) {
+            if (
+              session !== undefined &&
+              deps.sessions?.get(session.id)?.status === "running"
+            ) {
+              deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
+            }
+            const reported = appendSubAgentParentHints(result, hintOptions);
+            return await finishWithWorktree(
+              taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
+            );
+          }
+          if (session !== undefined) deps.sessions?.complete(session.id, result);
           const reported = appendSubAgentParentHints(result, hintOptions);
-          return finishWithWorktree(
+          return await finishWithWorktree(
             taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
           );
-        }
-        if (session !== undefined) deps.sessions?.complete(session.id, result);
-        const reported = appendSubAgentParentHints(result, hintOptions);
-        return finishWithWorktree(
-          taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
-        );
 
-      } catch (err) {
-        if (
-          isSubAgentCancelError(err, childCtl.signal) ||
-          (session !== undefined &&
-            deps.sessions?.get(session.id)?.status === "cancelled")
-        ) {
-          briefLedger.recordOutcome(fingerprint, "cancelled");
+        } catch (err) {
           if (
-            session !== undefined &&
-            deps.sessions?.get(session.id)?.status === "running"
+            isSubAgentCancelError(err, childCtl.signal) ||
+            (session !== undefined &&
+              deps.sessions?.get(session.id)?.status === "cancelled")
           ) {
-            deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
+            briefLedger.recordOutcome(fingerprint, "cancelled");
+            if (
+              session !== undefined &&
+              deps.sessions?.get(session.id)?.status === "running"
+            ) {
+              deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
+            }
+            return await finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
           }
-          return finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
+          // Run never produced a body — undo the admit so turn-budget retry budget
+          // is not burned by auth/provider crashes.
+          briefLedger.release(fingerprint);
+          const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
+          const message =
+            authMessage !== null
+              ? `Error: ${authMessage}`
+              : `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
+          const sessionError = err instanceof Error ? err.message : String(err);
+          // fail() prefixes "Error:" on the transcript report entry — pass bare text.
+          const failReason = authMessage ?? sessionError;
+          if (session !== undefined) deps.sessions?.fail(session.id, failReason);
+          return await finishWithWorktree(taskToolResult(call.id, message));
+        } finally {
+          signal.removeEventListener("abort", onParentAbort);
         }
-        // Run never produced a body — undo the admit so turn-budget retry budget
-        // is not burned by auth/provider crashes.
-        briefLedger.release(fingerprint);
-        const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);
-        const message =
-          authMessage !== null
-            ? `Error: ${authMessage}`
-            : `Error: sub-agent "${description}" failed: ${err instanceof Error ? err.message : String(err)}`;
-        const sessionError = err instanceof Error ? err.message : String(err);
-        // fail() prefixes "Error:" on the transcript report entry — pass bare text.
-        const failReason = authMessage ?? sessionError;
-        if (session !== undefined) deps.sessions?.fail(session.id, failReason);
-        return finishWithWorktree(taskToolResult(call.id, message));
+
       } finally {
-        signal.removeEventListener("abort", onParentAbort);
+        end(subagentSpanId);
       }
     },
   });

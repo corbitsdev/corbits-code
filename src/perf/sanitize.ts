@@ -8,11 +8,15 @@
 
 export type TransportKind = "http_sse" | "ws";
 
+/** Permission-wait decision enum (allowlisted; never free text). */
+export type DecisionKind = "allow" | "deny";
+
 /** Tag keys that may appear on a span. Everything else is stripped. */
 export const ALLOWED_TAG_KEYS = [
   "provider_id",
   "model_id",
   "transport",
+  "decision",
   "duration_ms",
   "duration_ns",
   "bytes",
@@ -31,6 +35,7 @@ export type PerfTags = Partial<{
   provider_id: string;
   model_id: string;
   transport: TransportKind;
+  decision: DecisionKind;
   duration_ms: number;
   duration_ns: number;
   bytes: number;
@@ -46,6 +51,8 @@ export type PerfTags = Partial<{
 const ALLOWED_KEY_SET: ReadonlySet<string> = new Set(ALLOWED_TAG_KEYS);
 
 const TRANSPORT_VALUES: ReadonlySet<string> = new Set(["http_sse", "ws"]);
+
+const DECISION_VALUES: ReadonlySet<string> = new Set(["allow", "deny"]);
 
 /** Numeric tag keys — only finite numbers are kept. */
 const NUMERIC_KEYS: ReadonlySet<AllowedTagKey> = new Set([
@@ -101,6 +108,14 @@ export function sanitizeTags(tags: Record<string, unknown> | undefined | null): 
     if (allowedKey === "transport") {
       if (typeof value === "string" && TRANSPORT_VALUES.has(value)) {
         out.transport = value as TransportKind;
+        kept += 1;
+      }
+      continue;
+    }
+
+    if (allowedKey === "decision") {
+      if (typeof value === "string" && DECISION_VALUES.has(value)) {
+        out.decision = value as DecisionKind;
         kept += 1;
       }
       continue;

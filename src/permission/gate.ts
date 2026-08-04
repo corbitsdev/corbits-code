@@ -25,6 +25,8 @@ import {
   type McpToolPermissionRegistry,
 } from "../mcp/tool-permissions.js";
 import type { MCPClient } from "../mcp/client.js";
+import { end, start } from "../perf/index.js";
+import { currentTurnId } from "../perf/reactor-spans.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
@@ -459,10 +461,25 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // to mint a grant for one even if a persist scope somehow arrived.
         const isMegaChain = segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD;
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
-        const outcome = await requestApproval(requestForOperator);
-        if (!outcome.allow) {
+        const turnId = currentTurnId();
+        const waitSpanId = start("permission.wait", {
+          ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+          tags: { tool_id: request.tool },
+        });
+        let outcome: ApprovalOutcome | undefined;
+        try {
+          outcome = await requestApproval(requestForOperator);
+        } finally {
+          end(
+            waitSpanId,
+            outcome !== undefined
+              ? { decision: outcome.allow ? "allow" : "deny" }
+              : undefined,
+          );
+        }
+        if (outcome === undefined || !outcome.allow) {
           const suffix =
-            outcome.message !== undefined && outcome.message.length > 0
+            outcome?.message !== undefined && outcome.message.length > 0
               ? ` — ${outcome.message}`
               : "";
           return {
@@ -496,12 +513,31 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         };
       }
 
-      const outcome = await requestApproval(request);
-      if (!outcome.allow) {
-        const suffix = outcome.message !== undefined && outcome.message.length > 0
-          ? ` — ${outcome.message}`
-          : "";
-        return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})${suffix}` };
+      const turnId = currentTurnId();
+      const waitSpanId = start("permission.wait", {
+        ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+        tags: { tool_id: request.tool },
+      });
+      let outcome: ApprovalOutcome | undefined;
+      try {
+        outcome = await requestApproval(request);
+      } finally {
+        end(
+          waitSpanId,
+          outcome !== undefined
+            ? { decision: outcome.allow ? "allow" : "deny" }
+            : undefined,
+        );
+      }
+      if (outcome === undefined || !outcome.allow) {
+        const suffix =
+          outcome?.message !== undefined && outcome.message.length > 0
+            ? ` — ${outcome.message}`
+            : "";
+        return {
+          allowed: false,
+          reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
+        };
       }
       mintGrant(request.tool, outcome);
     }
