@@ -73,6 +73,7 @@ import { useCommandDispatch } from "./hooks/use-command-dispatch.js";
 import { useMessagePipeline } from "./hooks/use-message-pipeline.js";
 import { useCommandContext } from "./hooks/use-command-context.js";
 import { useTranscriptLayout } from "./hooks/use-transcript-layout.js";
+import { enterObserveChrome, leaveObserveChrome } from "./observe-chrome.js";
 import { useProviderAuth } from "./hooks/use-provider-auth.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveAtMentions } from "./mention-resolution.js";
@@ -916,9 +917,10 @@ export function App({
           setAgentsNavOpen(false);
           return;
         }
-        setEnteredSessionId(pick.id);
+        const chrome = enterObserveChrome(pick.id, pick.agentId, pick.description);
+        setEnteredSessionId(chrome.enteredSessionId);
         setAgentsNavOpen(false);
-        setCommandMessage(`Viewing ${pick.agentId}: ${pick.description}`);
+        setCommandMessage(chrome.commandMessage);
       },
       agentsNavCancel: () => setAgentsNavOpen(false),
       agentsNavKill: () => {
@@ -950,8 +952,11 @@ export function App({
         forceRender((n) => n + 1);
       },
       exitEnteredSession: () => {
-        setEnteredSessionId(null);
-        setCommandMessage("Back to parent session");
+        // Clear focus + command chrome together so "Back to parent session"
+        // never sticks on the parent transcript after leave-observe (CL-4869).
+        const chrome = leaveObserveChrome();
+        setEnteredSessionId(chrome.enteredSessionId);
+        setCommandMessage(chrome.commandMessage);
       },
     },
   );
