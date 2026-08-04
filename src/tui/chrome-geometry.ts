@@ -77,6 +77,8 @@ export function extraChromeRowCount(args: {
   quotaErrorPresent: boolean;
   inferenceRetryPresent: boolean;
   subAgentChromeRows: number;
+  /** Progress phase row when live or showing a workflow chip; 0 when hidden. */
+  progressChromeRows: number;
   inputValue: string;
   columns: number | undefined;
   rows: number | undefined;
@@ -90,6 +92,12 @@ export function extraChromeRowCount(args: {
     (args.quotaErrorPresent ? 1 : 0) +
     (args.inferenceRetryPresent ? 1 : 0) +
     args.subAgentChromeRows +
+    args.progressChromeRows +
     extraPromptChromeRows(args.inputValue, args.columns ?? 80, args.rows ?? 24)
   );
+}
+
+/** Task / Work strip is a track header surface — zero rows when no active tracks. */
+export function shouldShowTaskTrack(hasActiveTasks: boolean): boolean {
+  return hasActiveTasks;
 }

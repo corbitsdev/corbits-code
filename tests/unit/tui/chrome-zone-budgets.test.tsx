@@ -13,12 +13,22 @@ function frameRows(frame: string | undefined): number {
   return (frame ?? "").split("\n").length;
 }
 
-test("progress budget matches the rows InFlightIndicator paints", () => {
+test("progress budget matches the rows InFlightIndicator paints when shown", () => {
+  // Idle with nothing to show collapses entirely — no permanent spacer.
   const idle = render(<InFlightIndicator active={false} timingAnchor={null} />);
-  expect(frameRows(idle.lastFrame())).toBe(CHROME_ZONE_ROWS.progress);
+  expect((idle.lastFrame() ?? "").trim()).toBe("");
 
   const active = render(<InFlightIndicator active={true} timingAnchor={Date.now()} />);
   expect(frameRows(active.lastFrame())).toBe(CHROME_ZONE_ROWS.progress);
+
+  const workflowOnly = render(
+    <InFlightIndicator
+      active={false}
+      timingAnchor={null}
+      workflow={{ name: "demo", stepIndex: 0, total: 2, label: "step" }}
+    />,
+  );
+  expect(frameRows(workflowOnly.lastFrame())).toBe(CHROME_ZONE_ROWS.progress);
 });
 
 test("status budget matches the rows StatusBar paints inside App's marginTop wrapper", () => {

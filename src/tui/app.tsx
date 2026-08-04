@@ -86,6 +86,7 @@ import {
   pluginChromeRowCount,
   extraChromeRowCount,
 } from "./chrome-geometry.js";
+import { progressChromeRowCount } from "./chrome-zones.js";
 import type { OutboundUserMessage } from "./message-types.js";
 
 const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
@@ -530,6 +531,16 @@ export function App({
     workExpanded,
   });
   const pluginChromeRows = pluginChromeRowCount({ pluginsOpen, pluginsAdmin });
+  const progressHasWorkflow =
+    (workflowStatus.active && workflowStatus.name !== undefined)
+    || (() => {
+      const last = workflowHistory[workflowHistory.length - 1];
+      return last !== undefined && last.name !== undefined;
+    })();
+  const progressChromeRows = progressChromeRowCount({
+    active: state.isProcessing,
+    hasWorkflow: progressHasWorkflow,
+  });
 
   const extraChromeRows = extraChromeRowCount({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
@@ -540,6 +551,7 @@ export function App({
     quotaErrorPresent: state.quotaError !== null,
     inferenceRetryPresent: state.inferenceRetry !== null,
     subAgentChromeRows,
+    progressChromeRows,
     inputValue,
     columns,
     rows,
