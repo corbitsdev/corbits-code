@@ -1,6 +1,7 @@
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { TokenUsage } from "@intx/types/runtime";
+import { createPerfReactorObserver } from "../perf/reactor-spans.js";
 import {
   createTurnContextCollector,
   type LifecycleHookManager,
@@ -89,9 +90,12 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   let runCompleted = false;
   let runError: string | undefined;
   let turnCollector = createCollector();
+  // Always-on local PerfTrace: not gated by lifecycle hooks.
+  let perfObserver = createPerfReactorObserver();
 
   const sink = (event: ReactorEmittedEvent): void => {
     turnCollector.observe(event);
+    perfObserver.observe(event);
     if (event.type === "reactor.done") {
       runCompleted = true;
       // Terminal success clears any earlier transient inference error.
@@ -126,6 +130,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
       runCompleted = false;
       runError = undefined;
       turnCollector = createCollector();
+      perfObserver.reset();
     },
   };
 }
