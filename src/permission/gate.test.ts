@@ -89,13 +89,11 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
   });
 });
 
-// A sub-agent runs in its own git worktree, so its requests carry that
-// worktree as cwd while the gate's restriction closure stays anchored to the
-// session cwd that built it. The same relative path resolves differently
-// against the two anchors, so coverage must use the gate's anchor: otherwise a
-// path evaluate() called restricted reads as unrestricted at reconciliation
-// time and a broad grant drains it without ever prompting.
-describe("grant coverage anchors path restriction to the gate, not the request", () => {
+// Relative path tokens rebind to the request's process cwd before the gate's
+// restriction closure judges them, so a sub-agent worktree's relative targets
+// match what the shell will open. Absolute paths still pass through the
+// session-anchored restriction (workspace + registered worktree roots).
+describe("grant coverage rebinds relative paths to the request process cwd", () => {
   const root = mkdtempSync(join(tmpdir(), "gate-anchor-"));
   const sessionCwd = join(root, "main");
   const git = (args: string[], cwd: string) => execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -103,7 +101,7 @@ describe("grant coverage anchors path restriction to the gate, not the request",
   git(["init", "-q"], sessionCwd);
   git(["config", "user.email", "t@example.com"], sessionCwd);
   git(["config", "user.name", "t"], sessionCwd);
-  writeFileSync(join(sessionCwd, "outside-file"), "secret\n");
+  writeFileSync(join(sessionCwd, "seed.txt"), "seed\n");
   git(["add", "."], sessionCwd);
   git(["commit", "-qm", "seed"], sessionCwd);
   const agentCwd = join(sessionCwd, "agent-x");
@@ -114,15 +112,29 @@ describe("grant coverage anchors path restriction to the gate, not the request",
     createWorktreeRootsProvider(sessionCwd),
   ).isRestricted;
 
-  test("a sub-agent request reaching outside its worktree stays uncovered", () => {
+  test("a relative path that lands outside the workspace stays uncovered", () => {
+    // agent-x → ../../escape is outside root/main (and outside any worktree root).
     const request: PermissionRequest = {
       tool: "run_shell",
       action: "Run",
-      subject: "cat ../outside-file",
+      subject: "cat ../../escape",
       scopes: [],
       cwd: agentCwd,
     };
     const grant: Approval = { tool: "run_shell", pattern: "cat *" };
     expect(isRequestCoveredByGrant(request, grant, undefined, sessionRestricted)).toBe(false);
+  });
+
+  test("a relative path inside the registered worktree is not forced-restricted", () => {
+    writeFileSync(join(agentCwd, "local.txt"), "ok\n");
+    const request: PermissionRequest = {
+      tool: "run_shell",
+      action: "Run",
+      subject: "cat local.txt",
+      scopes: [],
+      cwd: agentCwd,
+    };
+    const grant: Approval = { tool: "run_shell", pattern: "cat *" };
+    expect(isRequestCoveredByGrant(request, grant, undefined, sessionRestricted)).toBe(true);
   });
 });

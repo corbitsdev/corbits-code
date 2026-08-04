@@ -1,4 +1,5 @@
 import type { ToolCall } from "@intx/types/runtime";
+import { isAbsolute, resolve } from "node:path";
 import type { Approval, ApprovalOutcome, GrantScope, PermissionRequest, RequestApproval } from "./types.js";
 import {
   classifyTool,
@@ -75,6 +76,23 @@ function segmentGuard(segment: string, isRestricted: (path: string, isWrite: boo
   return undefined;
 }
 
+// Relative path tokens in a shell command resolve against the process cwd of the
+// agent that issued the call — not the session cwd that built the gate. Absolute
+// paths pass through unchanged so createPathRestriction still judges them against
+// the session workspace + registered worktree roots. Without this rebinding, a
+// sub-agent in an isolated worktree would have `cat secrets.txt` auto-allowed or
+// restriction-checked as if it opened `$SESSION/secrets.txt` while the shell
+// actually opened `$WORKTREE/secrets.txt`.
+function bindRestrictedToProcessCwd(
+  isRestricted: (path: string, isWrite: boolean) => boolean,
+  processCwd: string,
+): (path: string, isWrite: boolean) => boolean {
+  return (path, isWrite) => {
+    const anchored = isAbsolute(path) ? path : resolve(processCwd, path);
+    return isRestricted(anchored, isWrite);
+  };
+}
+
 // Every guard a run_shell request must clear BEFORE it is ever matched
 // against a grant — hard-deny and forced-ask checks that no grant, however
 // broad, is allowed to bypass. This is the single place that sequence is
@@ -94,8 +112,12 @@ export function preGrantGuardReason(
   if (segments.length === 0) return "empty command";
   const blockReason = runShellAuthzBlockReason(fullCommand);
   if (blockReason !== undefined) return blockReason;
+  // Prefer the request's process cwd when present so reconciliation uses the
+  // same relative-path anchor evaluate() used when the prompt was raised.
+  const restricted =
+    request.cwd !== undefined ? bindRestrictedToProcessCwd(isRestricted, request.cwd) : isRestricted;
   for (const segment of segments) {
-    const guard = segmentGuard(segment, isRestricted);
+    const guard = segmentGuard(segment, restricted);
     if (guard !== undefined) {
       return guard.kind === "secret"
         ? `${segment} references a sensitive path`
@@ -290,10 +312,17 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
     if (skipPermissions) return { allowed: true };
+    // Sub-agent tool calls run under ALS identity (identity-context.ts). The
+    // process cwd is the worktree (or session when no identity is set); every
+    // relative-path judgment below must use it so auto-allow and restriction
+    // match what the shell will open.
+    const subAgentIdentity = getSubAgentIdentity();
+    const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
+    const isRestrictedHere = bindRestrictedToProcessCwd(isRestricted, effectiveCwd);
     // A call targeting a restricted path (outside the workspace, or a write
     // under .agent-state) drops from allow to ask, so it never auto-allows on
     // tier or shell-safety below.
-    const restricted = callTargetsRestricted(call, isRestricted);
+    const restricted = callTargetsRestricted(call, isRestrictedHere);
     const shellCmd =
       call.name === "run_shell" && typeof call.arguments.command === "string"
         ? call.arguments.command
@@ -307,7 +336,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { allowed: true };
     }
-    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, cwd)) {
+    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, effectiveCwd)) {
       return { allowed: true };
     }
     if (auto) {
@@ -317,7 +346,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // operator prompt. Everything else auto-allows. Path-keyed secret
         // reads stay hard-denied by secret-guard; shell that only *mentions*
         // a secret path is ask so an explicit one-time approval can pass it.
-        const shellRule = autoShellRuleForCall(call, isRestricted);
+        const shellRule = autoShellRuleForCall(call, isRestrictedHere);
         if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
         if (shellRule === undefined) return { allowed: true };
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
@@ -327,11 +356,8 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       // blanket-allowed; fall through to the operator prompt below.
     }
 
-    // A sub-agent's own tool calls run under its identity in ALS (see
-    // identity-context.ts, wired from subagent/run.ts). When present, the
-    // prompt is attributed to that sub-agent instead of the top-level session.
-    const subAgentIdentity = getSubAgentIdentity();
-    const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
+    // When present, the prompt is attributed to that sub-agent instead of the
+    // top-level session.
     for (const rawRequest of buildRequests(call)) {
       const request: typeof rawRequest = {
         ...rawRequest,
@@ -373,7 +399,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // restriction check below for the same rule applied within a chain.
         if (
           !fullReferencesSecret &&
-          !commandTargetsRestricted(fullCommand, isRestricted) &&
+          !commandTargetsRestricted(fullCommand, isRestrictedHere) &&
           segments.length > 1 &&
           hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel, effectiveCwd)
         ) {
@@ -389,7 +415,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           // replay for a guarded one just because the pattern also matches it.
           // segmentGuard is the same guard preGrantGuardReason applies before
           // isRequestCoveredByGrant lets a queued request skip the prompt.
-          const guard = segmentGuard(segment, isRestricted);
+          const guard = segmentGuard(segment, isRestrictedHere);
           if (guard !== undefined) {
             if (guard.kind === "secret") anySecret = true;
             needsOperator = true;
@@ -399,7 +425,8 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             continue;
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
-          if (isAutoAllowedShellSegment(segment, cwd)) {
+          // Containment is judged against the process cwd, not the session cwd.
+          if (isAutoAllowedShellSegment(segment, effectiveCwd)) {
             continue;
           }
           needsOperator = true;
