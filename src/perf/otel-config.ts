@@ -205,8 +205,11 @@ function validateStringMap(
  * Precedence:
  * - endpoint: env > settings
  * - headers: env list fully replaces settings when env is set; else settings
- * - serviceName: env > settings > default
- * - resourceAttributes: settings then env (env wins on key conflict)
+ * - serviceName: env OTEL_SERVICE_NAME > settings.serviceName >
+ *   resourceAttributes["service.name"] > default
+ * - resourceAttributes: settings then env (env wins on key conflict); after
+ *   merge, resourceAttributes["service.name"] is always set to the resolved
+ *   serviceName so the two never diverge
  *
  * No endpoint → disabled (ok). Invalid partial/malformed config → not ok.
  */
@@ -289,12 +292,17 @@ export function resolveOtelExportConfig(
     resourceAttributes = { ...resourceAttributes, ...parsed.value };
   }
 
+  // serviceName: env > settings > attrs["service.name"] > default, then always
+  // write resourceAttributes["service.name"] so config.serviceName and attrs stay consistent.
+  const attrServiceName = trimOrEmpty(resourceAttributes["service.name"]);
   const serviceName =
     envServiceNameRaw.length > 0
       ? envServiceNameRaw
       : isNonEmptyString(otel?.serviceName)
         ? otel.serviceName.trim()
-        : DEFAULT_OTEL_SERVICE_NAME;
+        : attrServiceName.length > 0
+          ? attrServiceName
+          : DEFAULT_OTEL_SERVICE_NAME;
 
   if (serviceName.length === 0) {
     return {
@@ -304,10 +312,7 @@ export function resolveOtelExportConfig(
     };
   }
 
-  // Ensure service.name is present in resource attributes (OTEL resource convention).
-  if (resourceAttributes["service.name"] === undefined) {
-    resourceAttributes["service.name"] = serviceName;
-  }
+  resourceAttributes["service.name"] = serviceName;
 
   return {
     ok: true,
@@ -336,9 +341,29 @@ export function requireOtelExportConfig(
   return result.config;
 }
 
+/** Attr keys that look secret-bearing — values redacted in dump views only. */
+const SENSITIVE_ATTR_KEY = /secret|token|key|password|auth/i;
+
+/**
+ * Redact high-risk resource attribute values for dump/log views.
+ * Keys matching /secret|token|key|password|auth/i get a fixed placeholder.
+ * Does not mutate the live export config.
+ */
+export function redactResourceAttributesForDump(
+  attrs: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    out[key] = SENSITIVE_ATTR_KEY.test(key) ? "[redacted]" : value;
+  }
+  return Object.freeze(out);
+}
+
 /**
  * Strip secrets for local dumps and logs.
  * Never pass EnabledOtelExportConfig.headers into dump writers — use this.
+ * Resource attribute values for high-risk keys are redacted; prefer non-secret
+ * labels in resourceAttributes (auth belongs in headers/env).
  */
 export function otelConfigForDump(config: OtelExportConfig): OtelExportConfigDumpView {
   if (!config.enabled) return { enabled: false };
@@ -346,7 +371,7 @@ export function otelConfigForDump(config: OtelExportConfig): OtelExportConfigDum
     enabled: true,
     endpoint: config.endpoint,
     serviceName: config.serviceName,
-    resourceAttributes: config.resourceAttributes,
+    resourceAttributes: redactResourceAttributesForDump(config.resourceAttributes),
     headerNames: Object.freeze(Object.keys(config.headers).sort()),
   };
 }

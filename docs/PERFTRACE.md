@@ -57,7 +57,10 @@ Precedence:
 - **endpoint:** env overrides settings
 - **headers:** when `OTEL_EXPORTER_OTLP_HEADERS` is set, it fully replaces
   settings headers (prefer env so secrets stay out of the settings file)
-- **serviceName:** env > settings > `corbits-code`
+- **serviceName:** env `OTEL_SERVICE_NAME` > settings `serviceName` >
+  `resourceAttributes["service.name"]` > `corbits-code`. After merge,
+  `resourceAttributes["service.name"]` is always set to the resolved name so
+  the two never diverge.
 - **resourceAttributes:** settings merged with env; env wins on key conflict
 - **`otel.enabled: false`:** disables export when only settings provide an
   endpoint; an explicit env endpoint still enables export
@@ -82,6 +85,10 @@ No endpoint and no half-config → export stays disabled (not an error).
 - Header **values** are secrets. Prefer env for them.
 - `otelConfigForDump()` exposes only: enabled flag, endpoint, service name,
   resource attributes, and header **names** — never values.
+- Resource attribute values whose keys match `/secret|token|key|password|auth/i`
+  are replaced with `[redacted]` in the dump view (live export config is
+  unchanged). Prefer non-secret labels in `resourceAttributes`; put auth in
+  headers/env.
 - Local privacy-strict dump writers must call `otelConfigForDump` (or omit OTEL
   config entirely). Never serialize `OtelExportConfig.headers` into session
   artifacts, logs, or crash dumps.
@@ -104,7 +111,8 @@ Cloud / authenticated Phoenix: set the project endpoint and pass the API key as
 a header (exact header name follows Phoenix’s current docs):
 
 ```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT="https://app.phoenix.arize.com/v1/traces"
+# Base URL only — the exporter appends /v1/traces (do not include the path here).
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://app.phoenix.arize.com"
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20<phoenix-api-key>"
 export OTEL_SERVICE_NAME="corbits-code"
 ```

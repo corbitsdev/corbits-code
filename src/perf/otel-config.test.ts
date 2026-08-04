@@ -121,7 +121,7 @@ describe("resolveOtelExportConfig", () => {
     }
   });
 
-  test("service name: env > settings > default", () => {
+  test("service name: env > settings > attrs > default", () => {
     const fromSettings = resolveOtelExportConfig(
       baseSettings({ endpoint: "https://c.example", serviceName: "from-settings" }),
       {},
@@ -135,6 +135,65 @@ describe("resolveOtelExportConfig", () => {
       { [OTEL_ENV.serviceName]: "from-env" },
     );
     expect(fromEnv.ok && fromEnv.config.enabled && fromEnv.config.serviceName).toBe("from-env");
+  });
+
+  test("service.name: attrs used when env and settings serviceName unset", () => {
+    const result = resolveOtelExportConfig(
+      baseSettings({
+        endpoint: "https://c.example",
+        resourceAttributes: { "service.name": "from-attrs" },
+      }),
+      {},
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.config.enabled) {
+      expect(result.config.serviceName).toBe("from-attrs");
+      expect(result.config.resourceAttributes["service.name"]).toBe("from-attrs");
+    }
+  });
+
+  test("service.name: env wins over settings and attrs, always synced to attrs", () => {
+    const result = resolveOtelExportConfig(
+      baseSettings({
+        endpoint: "https://c.example",
+        serviceName: "from-settings",
+        resourceAttributes: { "service.name": "from-attrs" },
+      }),
+      { [OTEL_ENV.serviceName]: "from-env" },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.config.enabled) {
+      expect(result.config.serviceName).toBe("from-env");
+      expect(result.config.resourceAttributes["service.name"]).toBe("from-env");
+    }
+  });
+
+  test("service.name: settings wins over attrs, always synced to attrs", () => {
+    const result = resolveOtelExportConfig(
+      baseSettings({
+        endpoint: "https://c.example",
+        serviceName: "from-settings",
+        resourceAttributes: { "service.name": "from-attrs" },
+      }),
+      {},
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.config.enabled) {
+      expect(result.config.serviceName).toBe("from-settings");
+      expect(result.config.resourceAttributes["service.name"]).toBe("from-settings");
+    }
+  });
+
+  test("service.name: env OTEL_RESOURCE_ATTRIBUTES service.name used when no env/settings name", () => {
+    const result = resolveOtelExportConfig(baseSettings({ endpoint: "https://c.example" }), {
+      [OTEL_ENV.resourceAttributes]: "service.name=from-env-attrs,team=corbits",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.config.enabled) {
+      expect(result.config.serviceName).toBe("from-env-attrs");
+      expect(result.config.resourceAttributes["service.name"]).toBe("from-env-attrs");
+      expect(result.config.resourceAttributes.team).toBe("corbits");
+    }
   });
 
   test("resource attributes merge with env winning on conflict", () => {
@@ -289,5 +348,39 @@ describe("otelConfigForDump", () => {
 
   test("disabled dump view is empty of secrets", () => {
     expect(otelConfigForDump({ enabled: false })).toEqual({ enabled: false });
+  });
+
+  test("redacts high-risk resource attribute values in dump view", () => {
+    const resolved = resolveOtelExportConfig(
+      baseSettings({
+        endpoint: "https://collector.example",
+        resourceAttributes: {
+          "deployment.environment": "prod",
+          "api_key": "should-not-leak",
+          "auth.token": "tok-secret",
+          "db.password": "p@ss",
+          team: "corbits",
+        },
+      }),
+      {},
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok || !resolved.config.enabled) throw new Error("expected enabled config");
+
+    // Live export config keeps raw values for the exporter.
+    expect(resolved.config.resourceAttributes.api_key).toBe("should-not-leak");
+
+    const dump = otelConfigForDump(resolved.config);
+    expect(dump.enabled).toBe(true);
+    if (!dump.enabled) throw new Error("expected enabled dump");
+    expect(dump.resourceAttributes["deployment.environment"]).toBe("prod");
+    expect(dump.resourceAttributes.team).toBe("corbits");
+    expect(dump.resourceAttributes.api_key).toBe("[redacted]");
+    expect(dump.resourceAttributes["auth.token"]).toBe("[redacted]");
+    expect(dump.resourceAttributes["db.password"]).toBe("[redacted]");
+    const serialized = JSON.stringify(dump);
+    expect(serialized).not.toContain("should-not-leak");
+    expect(serialized).not.toContain("tok-secret");
+    expect(serialized).not.toContain("p@ss");
   });
 });
