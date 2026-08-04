@@ -32,8 +32,13 @@ export function contextWindowFor(model: string): number {
 
 // Fraction of the window at which proactive compaction should fire. Kept well
 // below the hard limit so summarization happens while the model still reasons
-// well and before any provider rejects the request.
-const COMPACTION_WINDOW_FRACTION = 0.6;
+// well and before any provider rejects the request. Also the status-bar meter's
+// warning threshold so the color shift matches when compaction starts.
+export const COMPACTION_WINDOW_FRACTION = 0.6;
+
+// Status-bar meter turns danger at this fraction of the window — past
+// compaction and approaching hard overflow at 1.0.
+export const CONTEXT_METER_DANGER_FRACTION = 0.9;
 
 // Token threshold at which the director should compact, sized to the model's
 // real window. `model` may be undefined early in a session (no cycle yet); we

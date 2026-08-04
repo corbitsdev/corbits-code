@@ -30,7 +30,6 @@ import { ModalStack } from "./components/modal-stack.js";
 import type { CompactionMode } from "./components/settings-overlay.js";
 import type { PluginsAdmin } from "./components/plugins-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
-import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import {
@@ -73,6 +72,7 @@ import { useCommandDispatch } from "./hooks/use-command-dispatch.js";
 import { useMessagePipeline } from "./hooks/use-message-pipeline.js";
 import { useCommandContext } from "./hooks/use-command-context.js";
 import { useTranscriptLayout } from "./hooks/use-transcript-layout.js";
+import { enterObserveChrome, leaveObserveChrome } from "./observe-chrome.js";
 import { useProviderAuth } from "./hooks/use-provider-auth.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveAtMentions } from "./mention-resolution.js";
@@ -86,6 +86,11 @@ import {
   pluginChromeRowCount,
   extraChromeRowCount,
 } from "./chrome-geometry.js";
+import { progressChromeRowCount } from "./chrome-zones.js";
+import {
+  InFlightIndicator,
+  resolveInlineWorkflowChip,
+} from "./components/in-flight-indicator.js";
 import type { OutboundUserMessage } from "./message-types.js";
 
 const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
@@ -338,7 +343,6 @@ export function App({
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
-  const [workflowHistory, setWorkflowHistory] = useState<WorkflowStatus[]>([]);
   const [goalSnapshot, setGoalSnapshot] = useState<import("../agent/goal.js").GoalSnapshot | null>(
     () => goalApi?.get() ?? null,
   );
@@ -464,7 +468,6 @@ export function App({
   useEffect(() => {
     const onWorkflow = (state: WorkflowControllerState) => {
       setWorkflowStatus(state.current);
-      setWorkflowHistory(state.history);
     };
     eventEmitter.on("workflow", onWorkflow);
     return () => { eventEmitter.off("workflow", onWorkflow); };
@@ -530,6 +533,11 @@ export function App({
     workExpanded,
   });
   const pluginChromeRows = pluginChromeRowCount({ pluginsOpen, pluginsAdmin });
+  const progressWorkflow = resolveInlineWorkflowChip(workflowStatus);
+  const progressChromeRows = progressChromeRowCount({
+    active: state.isProcessing,
+    hasWorkflow: progressWorkflow !== undefined,
+  });
 
   const extraChromeRows = extraChromeRowCount({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
@@ -540,6 +548,7 @@ export function App({
     quotaErrorPresent: state.quotaError !== null,
     inferenceRetryPresent: state.inferenceRetry !== null,
     subAgentChromeRows,
+    progressChromeRows,
     inputValue,
     columns,
     rows,
@@ -680,7 +689,6 @@ export function App({
     promptCodexRelogin,
     promptXaiRelogin,
     setExpandedTools,
-    setWorkflowHistory,
     setInputValue,
     setSessionStartedAt,
     setEnteredSessionId,
@@ -916,9 +924,10 @@ export function App({
           setAgentsNavOpen(false);
           return;
         }
-        setEnteredSessionId(pick.id);
+        const chrome = enterObserveChrome(pick.id, pick.agentId, pick.description);
+        setEnteredSessionId(chrome.enteredSessionId);
         setAgentsNavOpen(false);
-        setCommandMessage(`Viewing ${pick.agentId}: ${pick.description}`);
+        setCommandMessage(chrome.commandMessage);
       },
       agentsNavCancel: () => setAgentsNavOpen(false),
       agentsNavKill: () => {
@@ -950,8 +959,11 @@ export function App({
         forceRender((n) => n + 1);
       },
       exitEnteredSession: () => {
-        setEnteredSessionId(null);
-        setCommandMessage("Back to parent session");
+        // Clear focus and command toast together so leave-observe never leaves
+        // a sticky toast on the parent transcript.
+        const chrome = leaveObserveChrome();
+        setEnteredSessionId(chrome.enteredSessionId);
+        setCommandMessage(chrome.commandMessage);
       },
     },
   );
@@ -1240,16 +1252,7 @@ export function App({
             timingAnchor={spinnerTiming.anchor}
             toolName={state.currentToolName}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
-            {...(() => {
-              if (workflowStatus.active && workflowStatus.name !== undefined) {
-                return { workflow: { name: workflowStatus.name, stepIndex: workflowStatus.stepIndex, total: workflowStatus.total, label: workflowStatus.label } };
-              }
-              const last = workflowHistory[workflowHistory.length - 1];
-              if (last !== undefined && last.name !== undefined) {
-                return { workflow: { name: last.name, stepIndex: last.total - 1, total: last.total, label: "done" } };
-              }
-              return {};
-            })()}
+            {...(progressWorkflow !== undefined ? { workflow: progressWorkflow } : {})}
           />
           {state.quotaError !== null && (
             <QuotaErrorBanner retryAt={state.quotaError.retryAt} />

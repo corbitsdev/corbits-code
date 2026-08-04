@@ -6,8 +6,6 @@ import {
   isUserFacingJSON,
   describeToolCall,
   humanizeToolName,
-  shellOutcomeGlyph,
-  toolGlyph,
 } from "./tool-formatter.js";
 
 describe("humanizeToolName", () => {
@@ -64,43 +62,17 @@ describe("describeToolCall", () => {
   });
 });
 
-describe("toolGlyph", () => {
-  test("assigns a distinct glyph per known tool type", () => {
-    const known = [
-      "run_shell",
-      "read_file",
-      "write_file",
-      "edit_file",
-      "grep",
-      "search_files",
-      "list_dir",
-      "web_search",
-      "web_fetch",
-      "task",
-      "present",
-    ];
-    const glyphs = known.map(toolGlyph);
-    expect(new Set(glyphs).size).toBe(known.length);
-  });
-
-  test("falls back to the generic bullet for unknown tools", () => {
-    expect(toolGlyph("some_unlisted_tool")).toBe("●");
-  });
-
-  test("describeToolCall carries the same glyph as toolGlyph", () => {
-    expect(describeToolCall("run_shell", '{"command":"npm test"}').glyph).toBe(toolGlyph("run_shell"));
-    expect(describeToolCall("read_file", '{"path":"a"}').glyph).toBe(toolGlyph("read_file"));
-    expect(describeToolCall("present", "{}").glyph).toBe(toolGlyph("present"));
-    expect(describeToolCall("task", '{"agent":"claude"}').glyph).toBe(toolGlyph("task"));
-    expect(describeToolCall("unknown_tool", "{}").glyph).toBe("●");
-  });
-});
-
-describe("shellOutcomeGlyph", () => {
-  test("distinguishes pass and fail with distinct glyphs", () => {
-    expect(shellOutcomeGlyph(false)).not.toBe(shellOutcomeGlyph(true));
-    expect(shellOutcomeGlyph(true)).toBe("✗");
-    expect(shellOutcomeGlyph(false)).toBe("✓");
+describe("describeToolCall has no per-tool glyph field", () => {
+  test("descriptor is text + role only — no glyph zoo to reintroduce", () => {
+    const d = describeToolCall("read_file", '{"path":"a"}');
+    expect(d).toEqual({
+      display: "Read",
+      role: "warning",
+      summary: "a",
+      full: "a",
+      isShell: false,
+    });
+    expect("glyph" in d).toBe(false);
   });
 });
 
@@ -319,5 +291,85 @@ describe("describeToolCall for task tool", () => {
     const result = describeToolCall("task", args);
     expect(result.summary.length).toBeLessThan(long.length + 20);
     expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
+  });
+});
+
+describe("task activity transcript lines", () => {
+  const fullBrief = {
+    agent: "explore",
+    description: "map callers of leaveObserve",
+    prompt: "Find every call site...",
+    intent: "explore",
+    tier: "fast",
+    maxTurns: 40,
+    success_criteria: ["list call sites", "note tests"],
+    do_not: ["edit code", "open PRs"],
+  };
+
+  const reportBody = [
+    'Sub-agent "map callers of leaveObserve" reported:',
+    "",
+    "## Summary",
+    "Found 3 call sites in app.tsx",
+    "",
+    "## Findings",
+    "- app.tsx leaveObserveChrome",
+    "- use-keymap Esc handler",
+    "",
+    "## Blockers",
+    "None",
+    "",
+    "## Paths",
+    "src/tui/app.tsx",
+  ].join("\n");
+
+  test("summarizeToolArgs keeps only the description, not the full spawn brief", () => {
+    const s = summarizeToolArgs("task", JSON.stringify(fullBrief));
+    expect(s.summary).toBe("map callers of leaveObserve");
+    expect(s.summary).not.toContain("prompt");
+    expect(s.summary).not.toContain("intent");
+    expect(s.summary).not.toContain("maxTurns");
+    expect(s.summary).not.toContain("success_criteria");
+    expect(s.full).toBe("map callers of leaveObserve");
+  });
+
+  test("describeToolCall full keeps the untrimmed description for Ctrl+O", () => {
+    const long = "a".repeat(80);
+    const d = describeToolCall(
+      "task",
+      JSON.stringify({ agent: "explorer", description: long, prompt: "secret brief" }),
+    );
+    expect(d.summary.length).toBeLessThan(long.length);
+    expect(d.full).toBe(long);
+    expect(d.full).not.toContain("secret brief");
+    expect(d.display).toBe("Explorer");
+  });
+
+  test("describeToolCall task with empty description stays empty", () => {
+    const d = describeToolCall("task", JSON.stringify({ agent: "worker" }));
+    expect(d.summary).toBe("");
+    expect(d.full).toBe("");
+    expect(d.display).toBe("Worker");
+  });
+
+  test("summarizeToolResult peels the report envelope to the summary line", () => {
+    const r = summarizeToolResult("task", reportBody);
+    expect(r.preview).toBe("Found 3 call sites in app.tsx");
+    expect(r.preview).not.toContain("## Summary");
+    expect(r.preview).not.toContain("## Findings");
+  });
+
+  test("summarizeToolResult marks a cancelled task without raw markdown", () => {
+    const r = summarizeToolResult("task", 'Sub-agent "map callers" cancelled by operator.');
+    expect(r.preview).toBe("cancelled");
+    expect(r.preview).not.toContain("##");
+  });
+
+  test("mergedToolCollapsedPreview curates task call+result into one line", () => {
+    const line = mergedToolCollapsedPreview("task", JSON.stringify(fullBrief), reportBody, false);
+    expect(line).toBe("Explore map callers of leaveObserve — Found 3 call sites in app.tsx");
+    expect(line).not.toContain("prompt");
+    expect(line).not.toContain("maxTurns");
+    expect(line).not.toContain("## Summary");
   });
 });

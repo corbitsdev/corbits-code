@@ -431,7 +431,8 @@ test("an expanded shell command wraps into rows that each fit the width", () => 
     () => true,
   );
   expect(lines.length).toBeGreaterThan(1);
-  for (const line of lines) expect(lineText(line).length).toBeLessThanOrEqual(columns - 2);
+  // Hang-indent uses the full content column (TOOL_INDENT + "$ " + wrapped body).
+  for (const line of lines) expect(lineText(line).length).toBeLessThanOrEqual(columns);
 });
 
 test("a wrapped line becomes one single-row line per visual row", () => {

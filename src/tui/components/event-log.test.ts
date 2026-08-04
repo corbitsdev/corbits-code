@@ -82,6 +82,42 @@ describe("collapsed shell rows", () => {
     expect(lines).toEqual(["  $ ls -la"]);
   });
 
+  test("wrapped shell continuations hang-indent under the dollar prefix", () => {
+    // One long unbroken token forces a hard wrap; hang-indent keeps the
+    // continuation under "$ " rather than flush to the left content edge.
+    const token = "x".repeat(COLUMNS);
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        id: "s-hang",
+        name: "run_shell",
+        arguments: JSON.stringify({ command: token }),
+      },
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toStartWith("  $ ");
+    // TOOL_INDENT (2) + hang matching "$ " (2) = 4 leading spaces on wrap rows.
+    expect(lines[1]).toStartWith("    ");
+    expect(lines[1]).not.toStartWith("  $ ");
+  });
+
+  test("error shell hang-indents under the same dollar prefix (no fail glyph)", () => {
+    // Call-only (no result yet) still paints as `$ `; hang indent matches success path.
+    const token = "y".repeat(COLUMNS);
+    const blocks: ContentBlock[] = [
+      toolCallBlock("s-err", "run_shell", JSON.stringify({ command: token }), "s-err"),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toStartWith("  $ ");
+    expect(lines[0]).not.toMatch(/✗|×|✕/);
+    expect(lines[1]).toStartWith("    ");
+    expect(lines[1]).not.toMatch(/✗|×|✕/);
+  });
+
+
+
   test("pending shell marks the running row and completed shell shows duration", () => {
     const call: ContentBlock = {
       type: "tool_call",
@@ -299,10 +335,11 @@ describe("error tool result output", () => {
     expect(text.length).toBeLessThan(trace.length);
   });
 
-  test("a collapsed shell error row shows a fail glyph derived from the exit code", () => {
+  test("a collapsed shell error row shows plain exit status text, not a fail glyph", () => {
     const text = lineText(buildLines([shellErrorResult(1, "boom")], COLUMNS, false, isExpanded)).join("\n");
-    expect(text).toContain("✗");
     expect(text).toContain("exit 1");
+    expect(text).not.toContain("✗");
+    expect(text).not.toContain("✓");
   });
 
   test("a non-shell collapsed error keeps the plain error prefix without a glyph", () => {
@@ -322,11 +359,11 @@ describe("merged collapsed shell failure", () => {
     ];
   }
 
-  test("shows a fail glyph and the parsed exit summary, not the raw envelope", () => {
+  test("shows the parsed exit summary as plain text, not a fail glyph or raw envelope", () => {
     const text = lineText(buildLines(shellCallAndFailure("false", 1, "boom"), COLUMNS, false, isExpanded)).join("\n");
-    expect(text).toContain("✗");
     expect(text).toContain("exit 1: boom");
     expect(text).not.toContain("exit code 1");
+    expect(text).not.toContain("✗");
   });
 
   test("caps a long error trace to a short summary instead of dumping it", () => {
@@ -473,7 +510,7 @@ describe("flat line buffer", () => {
       },
     ];
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ◇ Read 1 line of package.json"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  Read 1 line of package.json"]);
     expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
   });
 
@@ -544,7 +581,7 @@ describe("flat line buffer", () => {
   test("consecutive file edits collapse into one group", () => {
     const blocks = [0, 1, 2, 3].flatMap(editPair);
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ✐ Edited 4 files"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  Edited 4 files"]);
   });
 
   test("expanded file edits render individually", () => {
@@ -553,7 +590,8 @@ describe("flat line buffer", () => {
     const text = lineText(buildLines(blocks, COLUMNS, false, (block) => expandedIds.has(block.id))).join("\n");
 
     expect(text).toContain("Edited src/file-0.ts");
-    expect(text).toContain("✐ Edit");
+    expect(text).toContain("Edit");
+    expect(text).not.toMatch(/[◇✎✐⌕⌗☰⊛⇣⚑▣]/);
     expect(text).toContain("src/file-1.ts");
     expect(text).toContain("Edited src/file-2.ts");
     expect(text).not.toContain("Edited 3 files");
@@ -784,8 +822,8 @@ describe("flat line buffer", () => {
     expect(lines).toEqual([
       " ● I'll read the config then edit it.",
       "",
-      "  ◇ Read 1 line of package.json",
-      "  ✐ Edited package.json (1 replacement)",
+      "  Read 1 line of package.json",
+      "  Edited package.json (1 replacement)",
     ]);
   });
 
@@ -1331,3 +1369,50 @@ describe("viewport-local expand", () => {
     expect(two.lines.length).toBeLessThan(Math.floor(DEFAULT_MAX_RENDERED_LOG_LINES / 2));
   });
 });
+
+describe("task tool rows", () => {
+  const taskArgs = JSON.stringify({
+    description: "map callers of leaveObserve",
+    prompt: "secret full brief with intent and maxTurns",
+    agent: "explore",
+    intent: "explore",
+    maxTurns: 12,
+  });
+  const reportBody = [
+    "## Summary",
+    "Found 3 call sites in app.tsx",
+    "",
+    "## Findings",
+    "- enterObserveChrome",
+    "- leaveObserveChrome",
+  ].join("\n");
+
+  test("collapsed task row shows curated description, not spawn brief fields", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("t1", "task", taskArgs, "t1"),
+      toolResultBlock("tr1", "t1", "task", reportBody),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    const joined = lines.join("\n");
+    expect(joined).toContain("map callers of leaveObserve");
+    expect(joined).toContain("Found 3 call sites in app.tsx");
+    expect(joined).not.toContain("secret full brief");
+    expect(joined).not.toContain("maxTurns");
+    expect(joined).not.toContain("intent");
+    expect(joined).not.toContain("## Summary");
+  });
+
+  test("expanded task result shows report body without collapsing to preview only", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("t2", "task", taskArgs, "t2"),
+      toolResultBlock("tr2", "t2", "task", reportBody),
+    ];
+    const expanded = new Set(["t2", "tr2"]);
+    const lines = lineText(buildLines(blocks, COLUMNS, false, (b) => expanded.has(b.id)));
+    const joined = lines.join("\n");
+    // Expanded should surface findings, not only the one-line summary preview.
+    expect(joined).toContain("Found 3 call sites in app.tsx");
+    expect(joined).toMatch(/enterObserveChrome|Findings/);
+  });
+});
+

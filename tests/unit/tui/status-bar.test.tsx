@@ -1,7 +1,16 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
 import { homedir } from "node:os";
-import { StatusBar, planStatusBarLayout, truncateMiddle } from "../../../src/tui/components/status-bar.js";
+import {
+  StatusBar,
+  contextMeterTone,
+  planStatusBarLayout,
+  truncateMiddle,
+} from "../../../src/tui/components/status-bar.js";
+import {
+  COMPACTION_WINDOW_FRACTION,
+  CONTEXT_METER_DANGER_FRACTION,
+} from "../../../src/provider/context-window.js";
 
 function renderBar(
   props: {
@@ -9,6 +18,7 @@ function renderBar(
     mcpCount?: number;
     costLabel?: string;
     contextLabel?: string;
+    contextPercentUsed?: number | null;
     model?: string;
     cwd?: string;
     gitBranch?: string | null;
@@ -21,6 +31,7 @@ function renderBar(
       mcpCount={props.mcpCount ?? 0}
       {...(props.costLabel !== undefined ? { costLabel: props.costLabel } : {})}
       {...(props.contextLabel !== undefined ? { contextLabel: props.contextLabel } : {})}
+      {...(props.contextPercentUsed !== undefined ? { contextPercentUsed: props.contextPercentUsed } : {})}
       {...(props.model !== undefined ? { model: props.model } : {})}
       {...(props.cwd !== undefined ? { cwd: props.cwd } : {})}
       {...(props.gitBranch !== undefined ? { gitBranch: props.gitBranch } : {})}
@@ -211,4 +222,51 @@ test("planStatusBarLayout drops the model segment when cwd cannot absorb the ove
     gitBranch: "main",
   });
   expect(layout.modelCwdBranchText).toBeUndefined();
+});
+
+test("contextMeterTone stays normal below the compaction threshold", () => {
+  const warningAt = Math.round(COMPACTION_WINDOW_FRACTION * 100);
+  expect(contextMeterTone(0)).toBe("normal");
+  expect(contextMeterTone(warningAt - 1)).toBe("normal");
+  expect(contextMeterTone(null)).toBe("normal");
+  expect(contextMeterTone(undefined)).toBe("normal");
+});
+
+test("contextMeterTone turns warning at the compaction threshold", () => {
+  const warningAt = Math.round(COMPACTION_WINDOW_FRACTION * 100);
+  const dangerAt = Math.round(CONTEXT_METER_DANGER_FRACTION * 100);
+  expect(contextMeterTone(warningAt)).toBe("warning");
+  expect(contextMeterTone(dangerAt - 1)).toBe("warning");
+});
+
+test("contextMeterTone turns danger near overflow", () => {
+  const dangerAt = Math.round(CONTEXT_METER_DANGER_FRACTION * 100);
+  expect(contextMeterTone(dangerAt)).toBe("danger");
+  expect(contextMeterTone(100)).toBe("danger");
+});
+
+test("StatusBar still drops the context meter first under width pressure", () => {
+  // Same priority order as planStatusBarLayout: context before cost before model.
+  const { lastFrame } = renderBar({
+    costLabel: "$0.42",
+    contextLabel: "Ctx 62%",
+    contextPercentUsed: 62,
+    model: "gpt-5",
+    cwd: "~/some/project/path",
+    gitBranch: "main",
+    columns: 59,
+  });
+  const frame = lastFrame() ?? "";
+  expect(frame).not.toContain("Ctx 62%");
+  expect(frame).toContain("$0.42");
+  expect(frame).toContain("gpt-5");
+});
+
+test("StatusBar renders the context meter when width allows", () => {
+  const { lastFrame } = renderBar({
+    contextLabel: "Ctx 45%",
+    contextPercentUsed: 45,
+    columns: 80,
+  });
+  expect(lastFrame()).toContain("Ctx 45%");
 });

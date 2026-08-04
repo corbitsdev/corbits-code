@@ -19,9 +19,6 @@ export type ToolCallDescriptor = {
   full: string;
   // run_shell is rendered leanly: the command is the headline, not a loud tag.
   isShell: boolean;
-  // Leading marker distinguishing tool type at a glance, independent of the
-  // status colour applied around it.
-  glyph: string;
 };
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -38,42 +35,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   submit_output: "Submit",
   ask_operator: "Ask operator",
 };
-
-// Every tool call used to render with the same "●" bullet, colour alone
-// telling shell/read/write/search apart — a reader had to parse the text to
-// know what happened. A distinct glyph per tool type makes that a pre-attentive
-// signal instead. Symbols are chosen from Unicode blocks with a Narrow/Neutral
-// East Asian width and no default emoji presentation, so they render as a
-// single terminal cell rather than the double-wide glyphs emoji fonts substitute.
-const DEFAULT_TOOL_GLYPH = "●";
-
-const TOOL_GLYPHS: Record<string, string> = {
-  run_shell: "$",
-  read_file: "◇",
-  write_file: "✎",
-  edit_file: "✐",
-  grep: "⌕",
-  search_files: "⌗",
-  list_dir: "☰",
-  web_search: "⊛",
-  web_fetch: "⇣",
-  task: "⚑",
-  present: "▣",
-};
-
-export function toolGlyph(toolName: string): string {
-  return TOOL_GLYPHS[toolName] ?? DEFAULT_TOOL_GLYPH;
-}
-
-// A collapsed shell row's outcome is otherwise buried in text ("exit 1: ...").
-// Pass/fail glyphs mirror the plan-step checkmarks so the outcome reads at a
-// glance without opening the row.
-const SHELL_PASS_GLYPH = "✓";
-const SHELL_FAIL_GLYPH = "✗";
-
-export function shellOutcomeGlyph(isError: boolean): string {
-  return isError ? SHELL_FAIL_GLYPH : SHELL_PASS_GLYPH;
-}
 
 // run_shell prefixes a failed result with "exit code N\n<output>" (see
 // summarizeToolResult's run_shell case); other tool errors, and shell errors
@@ -153,7 +114,6 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       summary: "(invalid spec)",
       full: "",
       isShell: false,
-      glyph: toolGlyph(toolName),
     };
   }
   if (toolName === "run_shell") {
@@ -165,20 +125,25 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       summary: command,
       full: command,
       isShell: true,
-      glyph: toolGlyph(toolName),
     };
   }
   if (toolName === "task") {
     const taskParsed = TaskArgSchema(tryParseObject(rawArgs));
     if (!(taskParsed instanceof type.errors)) {
       const agentName = taskParsed.agent?.trim();
-      const description = taskParsed.description ?? "";
+      const description = (taskParsed.description ?? "").trim();
       const display =
         agentName !== undefined && agentName.length > 0
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
-      const summary = description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "";
-      return { display, role: "accent", summary, full: summary, isShell: false, glyph: toolGlyph(toolName) };
+      // Collapsed row uses the abbreviated description; Ctrl+O uses the full text.
+      return {
+        display,
+        role: "accent",
+        summary: description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "",
+        full: description,
+        isShell: false,
+      };
     }
   }
   const { summary, full } = summarizeToolArgs(toolName, rawArgs);
@@ -188,7 +153,6 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
     summary,
     full,
     isShell: false,
-    glyph: toolGlyph(toolName),
   };
 }
 
@@ -267,6 +231,19 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
         return { summary: p, full: p };
       }
       break;
+    }
+    case "task": {
+      // Spawns carry a large structured brief (prompt, intent, criteria). The
+      // transcript only needs the short description; Ctrl+O still shows the
+      // full description text, not every spawn field.
+      const parsed = TaskArgSchema(obj);
+      if (!(parsed instanceof type.errors)) {
+        const desc = (parsed.description ?? "").trim();
+        if (desc.length > 0) {
+          return { summary: abbreviate(desc, ARG_VALUE_MAX), full: desc };
+        }
+      }
+      return { summary: "", full: "" };
     }
   }
 
@@ -415,6 +392,14 @@ export function mergedToolCollapsedPreview(
     return outcomePreview;
   }
 
+  if (toolName === "task") {
+    // describeToolCall already curates the spawn brief to a short description;
+    // reusing it here keeps the collapsed row free of prompt/intent/criteria dumps.
+    const { display, summary } = describeToolCall(toolName, rawArgs);
+    if (summary.length > 0) return `${display} ${summary} — ${outcomePreview}`;
+    return `${display} — ${outcomePreview}`;
+  }
+
   if (isMcpToolName(toolName)) {
     const label = humanizeToolName(toolName);
     if (argSummary.length > 0) return `${label} ${argSummary} — ${outcomePreview}`;
@@ -437,6 +422,31 @@ function pathFromResult(toolName: string, content: string): string | null {
   const edited = content.match(/replaced \d+ occurrence\(s\) in (.+)$/m);
   if (edited) return edited[1] ?? null;
   return null;
+}
+
+// Task tool results are either "Sub-agent \"desc\" reported:\n\n## Summary\n..."
+// or a cancel notice. Pull a one-line human preview without leaking markdown headers.
+function summarizeTaskResultPreview(content: string): string {
+  const trimmed = content.trim();
+  if (/^Sub-agent ".+" cancelled/i.test(trimmed)) {
+    return "cancelled";
+  }
+  const reported = trimmed.match(/^Sub-agent "([^"]*)" reported:\s*([\s\S]*)$/i);
+  const body = (reported?.[2] ?? trimmed).trim();
+  const summarySection = body.match(/^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\s*$)/im);
+  if (summarySection) {
+    const first = summarySection[1]!
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (first !== undefined && first.length > 0) return abbreviate(first, 64);
+  }
+  const withoutHeadings = body
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !/^##\s+/.test(l));
+  const first = withoutHeadings[0] ?? "";
+  return first.length > 0 ? abbreviate(first, 64) : "(no output)";
 }
 
 const WebSearchItemSchema = type({ "title?": "string", "url?": "string", "snippet?": "string" });
@@ -554,6 +564,12 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
       } else {
         preview = firstLine.length > 0 ? `${firstLine}${more}` : "(no output)";
       }
+      break;
+    }
+    case "task": {
+      // Workers reply with a ## Summary / ## Findings envelope. Collapse to the
+      // summary first line so raw markdown headings never leak into the transcript.
+      preview = summarizeTaskResultPreview(content);
       break;
     }
     case "search_files": {

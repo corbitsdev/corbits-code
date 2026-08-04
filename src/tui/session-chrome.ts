@@ -8,7 +8,11 @@ export type SpinnerLabelInput = {
   streamingType: "text" | "thinking" | "tool" | null;
 };
 
-/** Footer label for the single session spinner (Codex-style one live indicator). */
+/**
+ * Single session-phase label for the footer progress row (one indicator, not
+ * competing spinners). Returns undefined when idle so the progress zone can
+ * collapse entirely.
+ */
 export function resolveSessionSpinnerLabel(input: SpinnerLabelInput): string | undefined {
   if (!input.isProcessing) return undefined;
   if (input.status === "blocked") return "Waiting for approval…";

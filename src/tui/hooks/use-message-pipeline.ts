@@ -15,7 +15,6 @@ import { XaiAuthError } from "../../auth/xai/session.js";
 import type { ScrollController } from "./use-scroll.js";
 import type { GateController } from "./use-gates.js";
 import type { SubAgentSessionStore } from "../../subagent/index.js";
-import type { WorkflowStatus } from "../workflow-controller.js";
 
 export type UseMessagePipelineArgs = {
   cwd: string;
@@ -44,7 +43,6 @@ export type UseMessagePipelineArgs = {
   promptCodexRelogin: (name: string) => void;
   promptXaiRelogin: (name: string) => void;
   setExpandedTools: Dispatch<SetStateAction<ReadonlySet<string>>>;
-  setWorkflowHistory: Dispatch<SetStateAction<WorkflowStatus[]>>;
   setInputValue: Dispatch<SetStateAction<string>>;
   setSessionStartedAt: Dispatch<SetStateAction<number>>;
   setEnteredSessionId: Dispatch<SetStateAction<string | null>>;
@@ -99,7 +97,6 @@ export function useMessagePipeline({
   promptCodexRelogin,
   promptXaiRelogin,
   setExpandedTools,
-  setWorkflowHistory,
   setInputValue,
   setSessionStartedAt,
   setEnteredSessionId,
@@ -228,7 +225,6 @@ export function useMessagePipeline({
     // prior prompt when the quota retry interval is still polling.
     lastSentMessageRef.current = "";
     quotaAutoRetryFiredRef.current = true;
-    setWorkflowHistory([]);
     setInputValue("");
     setSessionStartedAt(Date.now());
     setEnteredSessionId(null);

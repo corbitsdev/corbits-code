@@ -49,6 +49,8 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
 export type StatusBarCostSegments = {
   costLabel?: string;
   contextLabel: string;
+  // Integer 0–100, or null when the window is unknown — drives meter color.
+  contextPercentUsed: number | null;
 };
 
 function formatContextPercent(percent: number | null): string {
@@ -57,11 +59,13 @@ function formatContextPercent(percent: number | null): string {
 
 // Status bar space is tight, so cost is omitted entirely (not shown as $0 or
 // "hidden") when a hide reason applies; context usage always shows since it
-// is meaningful regardless of pricing.
+// is meaningful regardless of pricing. Percent is forwarded so the bar can
+// color the compact meter without re-parsing the label.
 export function formatStatusBarSegments(summary: CostSummary): StatusBarCostSegments {
   return {
     ...(summary.costHiddenReason === null ? { costLabel: summary.formattedCost } : {}),
     contextLabel: `Ctx ${formatContextPercent(summary.contextPercentUsed)}`,
+    contextPercentUsed: summary.contextPercentUsed,
   };
 }
 

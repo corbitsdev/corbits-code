@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   activeStripSessions,
+  agentsStripRowColor,
   agentsStripRowCount,
   computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
   formatSessionLabel,
   mergeInFlightSubAgents,
+  orderStripSessions,
   shouldShowAgentsStrip,
 } from "../../../src/tui/components/agents-strip.js";
 import type { Task } from "../../../src/agent/tasks.js";
@@ -15,6 +17,7 @@ import type {
   SubAgentSessionStatus,
   SubAgentTranscriptEntry,
 } from "../../../src/subagent/session-store.js";
+import { color } from "../../../src/tui/theme.js";
 
 describe("agentsStripRowCount", () => {
   test("no sessions reserves no rows", () => {
@@ -135,6 +138,56 @@ describe("mergeInFlightSubAgents", () => {
     expect(chrome[0]?.currentToolName).toBe("grep");
     expect(chrome[0]?.agentId).toBe("researcher");
   });
+
+  test("keeps nested children adjacent under their parent after merge", () => {
+    const store: SubAgentSession[] = [
+      { ...session("child-b", "running"), parentSessionId: "orch", startedAt: 3 },
+      { ...session("solo", "running"), startedAt: 2 },
+      { ...session("orch", "running"), startedAt: 1 },
+      { ...session("child-a", "running"), parentSessionId: "orch", startedAt: 4 },
+    ];
+    const ordered = mergeInFlightSubAgents(store, []).map((s) => s.id);
+    // Newest root first (solo @2 over orch @1), then orch's children by recency.
+    expect(ordered).toEqual(["solo", "orch", "child-a", "child-b"]);
+  });
+});
+
+describe("orderStripSessions", () => {
+  const session = (
+    id: string,
+    status: SubAgentSessionStatus,
+    startedAt: number,
+    parentSessionId?: string,
+  ): SubAgentSession => ({
+    id,
+    description: id,
+    agentId: "agent",
+    brief: "",
+    status,
+    toolNames: [],
+    currentToolName: null,
+    entries: [],
+    startedAt,
+    ...(parentSessionId !== undefined ? { parentSessionId } : {}),
+  });
+
+  test("groups one-hop children under their parent for tree glyphs", () => {
+    const ordered = orderStripSessions([
+      session("leaf-2", "running", 30, "parent"),
+      session("other", "running", 20),
+      session("parent", "running", 10),
+      session("leaf-1", "done", 40, "parent"),
+    ]);
+    expect(ordered.map((s) => s.id)).toEqual(["other", "parent", "leaf-2", "leaf-1"]);
+  });
+
+  test("treats orphan parentSessionId as a root when parent is absent", () => {
+    const ordered = orderStripSessions([
+      session("orphan", "running", 5, "missing"),
+      session("root", "running", 1),
+    ]);
+    expect(ordered.map((s) => s.id)).toEqual(["orphan", "root"]);
+  });
 });
 
 describe("shouldShowAgentsStrip", () => {
@@ -217,3 +270,17 @@ describe("formatSessionLabel", () => {
     expect(formatSessionLabel(session)).toBe("researcher: researching things — bun test");
   });
 });
+
+describe("agentsStripRowColor", () => {
+  test("status colours survive without glyphs; selection uses text", () => {
+    expect(agentsStripRowColor("running", { selected: false, entered: false })).toBe(color("text"));
+    expect(agentsStripRowColor("done", { selected: false, entered: false })).toBe(color("success"));
+    expect(agentsStripRowColor("failed", { selected: false, entered: false })).toBe(color("danger"));
+    expect(agentsStripRowColor("cancelled", { selected: false, entered: false })).toBe(color("muted"));
+    // Focus overrides status so the cursor/observe row stays readable.
+    expect(agentsStripRowColor("failed", { selected: true, entered: false })).toBe(color("text"));
+    expect(agentsStripRowColor("done", { selected: false, entered: true })).toBe(color("text"));
+  });
+});
+
+

@@ -2,6 +2,8 @@ import { test, expect, describe, afterEach } from "bun:test";
 import {
   contextWindowFor,
   compactionThresholdFor,
+  COMPACTION_WINDOW_FRACTION,
+  CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
 } from "../../src/provider/context-window.js";
 
@@ -34,5 +36,17 @@ describe("compactionThresholdFor", () => {
 
   test("falls back to the default window when the model is unknown", () => {
     expect(compactionThresholdFor(undefined)).toBe(76_800);
+  });
+});
+
+describe("context meter fractions", () => {
+  test("warning aligns with the compaction window fraction", () => {
+    expect(COMPACTION_WINDOW_FRACTION).toBe(0.6);
+  });
+
+  test("danger sits between compaction and hard overflow", () => {
+    expect(CONTEXT_METER_DANGER_FRACTION).toBeGreaterThan(COMPACTION_WINDOW_FRACTION);
+    expect(CONTEXT_METER_DANGER_FRACTION).toBeLessThan(1);
+    expect(CONTEXT_METER_DANGER_FRACTION).toBe(0.9);
   });
 });

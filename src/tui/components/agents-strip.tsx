@@ -71,13 +71,48 @@ export function mergeInFlightSubAgents(
         : {}),
     });
   }
-  return [...byId.values()].sort(stripSessionSort);
+  return orderStripSessions([...byId.values()]);
 }
 
-function stripSessionSort(a: SubAgentSession, b: SubAgentSession): number {
+/** Rank: running first, then most recently started. */
+function stripSessionRank(a: SubAgentSession, b: SubAgentSession): number {
   if (a.status === "running" && b.status !== "running") return -1;
   if (a.status !== "running" && b.status === "running") return 1;
   return b.startedAt - a.startedAt;
+}
+
+/**
+ * Forest order for the strip: each parent, then its one-hop children, so
+ * treeIndent glyphs sit under the orchestrator instead of floating by recency.
+ * Roots and sibling groups use running-first / recency rank.
+ */
+export function orderStripSessions(
+  sessions: readonly SubAgentSession[],
+): SubAgentSession[] {
+  if (sessions.length <= 1) return [...sessions];
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const children = new Map<string, SubAgentSession[]>();
+  const roots: SubAgentSession[] = [];
+  for (const s of sessions) {
+    const parentId = s.parentSessionId;
+    if (parentId !== undefined && byId.has(parentId)) {
+      const list = children.get(parentId);
+      if (list !== undefined) list.push(s);
+      else children.set(parentId, [s]);
+    } else {
+      roots.push(s);
+    }
+  }
+  roots.sort(stripSessionRank);
+  for (const list of children.values()) list.sort(stripSessionRank);
+
+  const out: SubAgentSession[] = [];
+  const visit = (s: SubAgentSession): void => {
+    out.push(s);
+    for (const child of children.get(s.id) ?? []) visit(child);
+  };
+  for (const root of roots) visit(root);
+  return out;
 }
 
 function parseSubAgentTaskTitle(title: string): {
@@ -170,13 +205,6 @@ export function agentsStripRowCount(
   return rows;
 }
 
-const STATUS_GLYPH: Record<SubAgentSessionStatus, string> = {
-  running: "●",
-  done: "✓",
-  failed: "✗",
-  cancelled: "⊘",
-};
-
 export function AgentsStrip({
   sessions,
   selectedId = null,
@@ -233,17 +261,12 @@ export function AgentsStrip({
         const prefix = selected ? "› " : entered ? "· " : "  ";
         const label = formatSessionLabel(session);
         const tree = treeIndent(session, visible, index);
+        // Status is colour + the header summary counts — no decorative ●/✓/✗ zoo.
         return (
-          <Box key={session.id} gap={1} width="100%">
+          <Box key={session.id} width="100%">
             <Text
-              color={statusColor(session.status)}
-              bold={session.status === "running" || selected}
-            >
-              {STATUS_GLYPH[session.status]}
-            </Text>
-            <Text
-              color={selected || entered ? color("text") : color("muted")}
-              bold={selected || entered}
+              color={agentsStripRowColor(session.status, { selected, entered })}
+              bold={session.status === "running" || selected || entered}
               wrap="truncate-end"
             >
               {tree}
@@ -262,10 +285,8 @@ export function AgentsStrip({
   );
 }
 
-// Nested (one-hop) dispatches carry parentSessionId; render them under their
-// orchestrator with a tree glyph. Siblings are not necessarily adjacent (the
-// strip sorts running-first then by recency), so "last" is determined by
-// scanning the remainder of the visible list rather than array position.
+// Nested (one-hop) dispatches carry parentSessionId; orderStripSessions keeps
+// them adjacent under the parent so ├─ / └─ read as a real tree, not recency.
 function treeIndent(
   session: SubAgentSession,
   visible: readonly SubAgentSession[],
@@ -277,6 +298,7 @@ function treeIndent(
     .some((s) => s.parentSessionId === session.parentSessionId);
   return hasLaterSibling ? "├─ " : "└─ ";
 }
+
 
 // The transcript entry backing session.currentToolName, if any — used to
 // build an argument preview. currentToolName is nulled the moment a result
@@ -325,7 +347,12 @@ function summaryCounts(sessions: readonly SubAgentSession[]): string {
   return parts.length > 0 ? parts.join(" · ") : `${sessions.length}`;
 }
 
-function statusColor(status: SubAgentSessionStatus): string {
+/** Row colour for status (no glyphs). Selection/observe focus use text colour. */
+export function agentsStripRowColor(
+  status: SubAgentSessionStatus,
+  opts: { selected: boolean; entered: boolean },
+): string {
+  if (opts.selected || opts.entered) return color("text");
   switch (status) {
     case "running":
       return color("text");
