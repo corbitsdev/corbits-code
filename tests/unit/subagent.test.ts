@@ -60,7 +60,9 @@ test("handler rejects empty description or prompt", async () => {
   expect(await callHandler(tool, { description: "label", prompt: "  " })).toContain("Error:");
 });
 
-test("handler forwards the provider's reasoning effort to the runner", async () => {
+test("generic leaf gets role-default medium even when parent effort is high", async () => {
+  // CL-5162: leaves do not inherit primary high — that multiplies the sol+high
+  // latency cliff across every spawn. Role default (medium) wins over parent.
   let receivedEffort: RunSubAgentParams | undefined;
   const tool = createTaskTool({ permissionGate: testPermissionGate,
     cwd: "/repo",
@@ -74,7 +76,7 @@ test("handler forwards the provider's reasoning effort to the runner", async () 
 
   await callHandler(tool, { description: "task", prompt: "do it" });
 
-  expect(receivedEffort?.provider.reasoningEffort).toBe("high");
+  expect(receivedEffort?.provider.reasoningEffort).toBe("medium");
 });
 
 test("a provider getter is resolved at spawn time, so a live switch reaches subagents", async () => {
@@ -95,7 +97,8 @@ test("a provider getter is resolved at spawn time, so a live switch reaches suba
   await callHandler(tool, { description: "task", prompt: "do it" });
 
   expect(received?.provider.model).toBe("model-b");
-  expect(received?.provider.reasoningEffort).toBe("high");
+  // Live model switch is honored; effort still follows leaf role default.
+  expect(received?.provider.reasoningEffort).toBe("medium");
 });
 
 test("handler forwards trimmed args to the runner and wraps the result", async () => {
@@ -646,11 +649,10 @@ describe("createTaskTool profile resolution", () => {
     expect(result).toContain('Error: agent "p" has incompatible inference');
   });
 
-  test("parent reasoningEffort is inherited when the resolved leg does not declare its own", async () => {
-    // Regression guard for the P0 fix: an agent that pins inference without a
-    // per-leg reasoningEffort still inherits the parent session's effort, so
-    // a /agent effort selection propagates uniformly across pinned and
-    // fall-through dispatch paths.
+  test("leaf role default applies when the resolved leg does not pin effort", async () => {
+    // CL-5162: a profile that pins provider/model without reasoningEffort gets
+    // the leaf role default (medium), not the parent's high — so fleet fanout
+    // stays off the sol+high cliff unless the profile explicitly pins effort.
     let received: RunSubAgentParams | undefined;
     const tool = createTaskTool({ permissionGate: testPermissionGate,
       cwd: "/repo",
@@ -677,6 +679,64 @@ describe("createTaskTool profile resolution", () => {
 
     expect(received?.provider.providerName).toBe("anthropic");
     expect(received?.provider.model).toBe("claude-sonnet-4");
+    expect(received?.provider.reasoningEffort).toBe("medium");
+  });
+
+  test("profile inference pin for effort wins over role default and parent", async () => {
+    let received: RunSubAgentParams | undefined;
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider: { ...provider, reasoningEffort: "high" },
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        {
+          id: "p",
+          systemPromptRole: "You are p.",
+          inference: {
+            mode: "pin",
+            order: [{ provider: "anthropic", model: "claude-sonnet-4", reasoningEffort: "low" }],
+          },
+        },
+      ],
+      run: async (params) => {
+        received = params;
+        return "ran";
+      },
+    });
+
+    await callHandler(tool, { description: "task", prompt: "do it", agent: "p" });
+
+    expect(received?.provider.reasoningEffort).toBe("low");
+  });
+
+  test("orchestrator profile gets high role default when effort is not pinned", async () => {
+    let received: RunSubAgentParams | undefined;
+    const tool = createTaskTool({ permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.ctx",
+      provider: { ...provider, reasoningEffort: "low" },
+      settings: baseSettings as unknown as Parameters<typeof createTaskTool>[0]["settings"],
+      profiles: [
+        {
+          id: "orch",
+          systemPromptRole: "You are orch.",
+          orchestrator: true,
+          inference: {
+            mode: "pin",
+            order: [{ provider: "anthropic", model: "claude-sonnet-4" }],
+          },
+        },
+      ],
+      run: async (params) => {
+        received = params;
+        return "ran";
+      },
+    });
+
+    await callHandler(tool, { description: "task", prompt: "do it", agent: "orch" });
+
+    expect(received?.orchestrator).toBe(true);
     expect(received?.provider.reasoningEffort).toBe("high");
   });
 

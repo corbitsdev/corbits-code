@@ -95,3 +95,98 @@ export function validateEffort(
     error: `Model "${model}" does not support reasoning effort "${effort}" (supported: ${supported.join(", ")}).`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Role-based product defaults (CL-5162)
+//
+// Orchestrators plan and fan out work — higher effort is worth the latency.
+// Task leaves should stay cheaper/faster so multi-agent fleets do not multiply
+// a sol+high cliff across every child. No operator UI: this is the silent
+// product default until a profile/task pin says otherwise.
+// ---------------------------------------------------------------------------
+
+/** Product default effort by agent role (before model clamping). */
+export const ROLE_DEFAULT_EFFORT = {
+  orchestrator: "high",
+  leaf: "medium",
+} as const satisfies Record<"orchestrator" | "leaf", ReasoningEffort>;
+
+/**
+ * Nearest supported effort to `desired` by position on the canonical ladder.
+ * Returns undefined only when `supported` is empty.
+ */
+export function clampEffort(
+  desired: ReasoningEffort,
+  supported: readonly ReasoningEffort[],
+): ReasoningEffort | undefined {
+  if (supported.length === 0) return undefined;
+  if (supported.includes(desired)) return desired;
+  const desiredIdx = REASONING_EFFORTS.indexOf(desired);
+  let best: ReasoningEffort = supported[0]!;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const level of supported) {
+    const dist = Math.abs(REASONING_EFFORTS.indexOf(level) - desiredIdx);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = level;
+    }
+  }
+  return best;
+}
+
+export type ResolveEffortForRoleOpts = {
+  /** True when the spawn is an orchestrator profile (may call task). */
+  orchestrator: boolean;
+  /** Explicit profile inference leg or task-tier pin — highest precedence. */
+  pin?: ReasoningEffort;
+  /** Parent session effort — used only when the role default is not supported. */
+  parentEffort?: ReasoningEffort;
+  model: string;
+  isCodex?: boolean;
+};
+
+/**
+ * Pure cascade used by `resolveEffortForRole`. Exported for unit tests of the
+ * precedence table without depending on per-model supported sets.
+ *
+ * Precedence (first match wins):
+ * 1. Explicit pin
+ * 2. Role default when present in `supported`
+ * 3. Parent effort when present in `supported`
+ * 4. Clamp of role default onto `supported`
+ * 5. undefined when `supported` is empty
+ */
+export function pickEffortFromCascade(opts: {
+  pin?: ReasoningEffort;
+  roleDefault: ReasoningEffort;
+  parentEffort?: ReasoningEffort;
+  supported: readonly ReasoningEffort[];
+}): ReasoningEffort | undefined {
+  if (opts.pin !== undefined) return opts.pin;
+  if (opts.supported.length === 0) return undefined;
+  if (opts.supported.includes(opts.roleDefault)) return opts.roleDefault;
+  if (opts.parentEffort !== undefined && opts.supported.includes(opts.parentEffort)) {
+    return opts.parentEffort;
+  }
+  return clampEffort(opts.roleDefault, opts.supported);
+}
+
+/**
+ * Resolve reasoning effort for a sub-agent spawn.
+ *
+ * Why parent is below role default: a /agent high selection on the primary must
+ * not force every leaf onto high — that multiplies the sol+high latency cliff
+ * across the fleet. Parent still fills gaps when the role default is not in the
+ * model's supported set but the parent effort is.
+ */
+export function resolveEffortForRole(opts: ResolveEffortForRoleOpts): ReasoningEffort | undefined {
+  const supported = supportedEfforts(opts.model, undefined, opts.isCodex === true);
+  return pickEffortFromCascade({
+    ...(opts.pin !== undefined ? { pin: opts.pin } : {}),
+    roleDefault: opts.orchestrator
+      ? ROLE_DEFAULT_EFFORT.orchestrator
+      : ROLE_DEFAULT_EFFORT.leaf,
+    ...(opts.parentEffort !== undefined ? { parentEffort: opts.parentEffort } : {}),
+    supported,
+  });
+}

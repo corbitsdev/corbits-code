@@ -23,8 +23,9 @@ export type SubAgentProvider = {
   apiKey?: string;
   keyless?: boolean;
   model: string;
-  // Subagents inherit the parent's reasoning effort so a /agent selection
-  // applies to delegated work, not just the top-level loop.
+  // Resolved effort for this spawn (pin > role default > parent). See
+  // resolveEffortForRole — leaves default to medium, orchestrators to high,
+  // so a primary /agent high selection does not force every leaf onto high.
   reasoningEffort?: ReasoningEffort;
   // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the generic
   // (no-tier) dispatch path builds a plain openai-compatible source and the

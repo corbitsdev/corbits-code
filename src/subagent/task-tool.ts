@@ -21,7 +21,11 @@ import {
   resolveInferenceWithPolicy,
   validateTaskMaxTurns,
 } from "../config/settings.js";
-import { validateEffort } from "../provider/reasoning-effort.js";
+import {
+  resolveEffortForRole,
+  validateEffort,
+  type ReasoningEffort,
+} from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import {
@@ -228,6 +232,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
 
       let provider: SubAgentProvider =
         typeof deps.provider === "function" ? deps.provider() : deps.provider;
+      // Snapshot parent effort before profile/tier rebuilds so role-default
+      // resolution can fall back to inheritance without reading a mutated provider.
+      const parentEffort = provider.reasoningEffort;
+      // Explicit profile inference / task-tier pin (if any). Distinct from the
+      // parent snapshot so resolveEffortForRole can apply pin > role > parent.
+      let effortPin: ReasoningEffort | undefined;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
       let orchestrator = false;
@@ -250,7 +260,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         resolved: {
           provider: string;
           model: string;
-          reasoningEffort?: import("../provider/reasoning-effort.js").ReasoningEffort;
+          reasoningEffort?: ReasoningEffort;
         },
         label: string,
       ): string | null => {
@@ -266,12 +276,16 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (!verdict.ok) {
             return `Error: ${label} has incompatible inference: ${verdict.error}`;
           }
+          // Pin is recorded here; final effort is applied after role resolution
+          // so a leg without reasoningEffort still gets the role default.
+          effortPin = resolved.reasoningEffort;
         }
         const providerSettings = settings.providers[resolved.provider];
         if (providerSettings === undefined) {
           return `Error: ${label} resolved to provider "${resolved.provider}" which is not configured.`;
         }
-        const effort = resolved.reasoningEffort ?? provider.reasoningEffort;
+        // Provider/model swap only — effort is finalized once via
+        // resolveEffortForRole (pin > role default > parent) below.
         provider = {
           providerName: resolved.provider,
           baseURL: providerSettings.baseURL,
@@ -283,7 +297,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ? { apiKey: providerSettings.apiKey }
             : {}),
           model: resolved.model,
-          ...(effort !== undefined ? { reasoningEffort: effort } : {}),
         };
         return null;
       };
@@ -333,7 +346,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // surfaces as a dispatch error rather than silently running on the
           // parent's provider.
           let resolved:
-            | { provider: string; model: string; reasoningEffort?: import("../provider/reasoning-effort.js").ReasoningEffort }
+            | { provider: string; model: string; reasoningEffort?: ReasoningEffort }
             | null = null;
           if (profile.inference !== undefined) {
             const outcome = resolveInferenceWithPolicy(profile.inference, settings);
@@ -381,6 +394,25 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         const err = applyResolvedProvider(assignment, `task tier "${taskTier}"`);
         if (err !== null) return taskToolResult(call.id, err);
         tier = taskTier;
+      }
+
+      // Role-based effort: pin > orchestrator/leaf default > parent inheritance.
+      // Leaves default to medium so a primary on high/sol does not multiply the
+      // latency cliff across every spawned worker (see resolveEffortForRole).
+      {
+        const effort = resolveEffortForRole({
+          orchestrator,
+          ...(effortPin !== undefined ? { pin: effortPin } : {}),
+          ...(parentEffort !== undefined ? { parentEffort } : {}),
+          model: provider.model,
+          isCodex: isCodexProviderName(provider.providerName),
+        });
+        if (effort !== undefined) {
+          provider = { ...provider, reasoningEffort: effort };
+        } else {
+          const { reasoningEffort: _drop, ...rest } = provider;
+          provider = rest;
+        }
       }
 
       let taskMaxTurns: number | undefined;
