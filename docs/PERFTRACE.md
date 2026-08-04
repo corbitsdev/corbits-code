@@ -13,8 +13,11 @@ PostHog usage events.
 - Offline dumps: `dumpSpans` + `rollupByPhase` / `rollupByTurn` / `sessionTotals`
   (`src/perf/dump.ts`, `src/perf/rollup.ts`) — same tag allowlist; never include
   OTEL auth headers
+- Attribution report: `bun scripts/perf-report.ts <dump.json>` — see
+  [`perftrace-attribution-guide.md`](./perftrace-attribution-guide.md)
 
 Local measurement does not require any settings or env vars.
+
 
 ## OTEL export (opt-in)
 
