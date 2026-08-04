@@ -2806,4 +2806,35 @@ describe("sub-agent identity on permission requests", () => {
     expect(withA?.agentLabel).toBe("Worker A");
     expect(withoutLabel?.agentLabel).toBeUndefined();
   });
+
+  test("two concurrent ALS scopes keep their agent labels isolated", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const seen: PermissionRequest[] = [];
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async (request) => {
+        seen.push(request);
+        // Hold both approvals open so the two scopes truly overlap.
+        await new Promise((r) => setTimeout(r, 5));
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      cwd: "/repo",
+    });
+    await Promise.all([
+      runWithSubAgentIdentity({ description: "Worker A", cwd: "/repo-a" }, () =>
+        gate.evaluate(shellCall("npm run a")),
+      ),
+      runWithSubAgentIdentity({ description: "Worker B", cwd: "/repo-b" }, () =>
+        gate.evaluate(shellCall("npm run b")),
+      ),
+    ]);
+    const withA = seen.find((r) => r.subject === "npm run a");
+    const withB = seen.find((r) => r.subject === "npm run b");
+    expect(withA?.agentLabel).toBe("Worker A");
+    expect(withA?.cwd).toBe("/repo-a");
+    expect(withB?.agentLabel).toBe("Worker B");
+    expect(withB?.cwd).toBe("/repo-b");
+  });
 });
