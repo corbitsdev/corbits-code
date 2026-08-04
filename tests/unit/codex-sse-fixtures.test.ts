@@ -109,6 +109,8 @@ describe("codex-sse fixtures (golden parse)", () => {
       type: "inference.tool_call.start",
       data: { callId: "call_fixture_read", name: "read_file", index: 2 },
     });
+    // Adapter wire shape: argument deltas use String(blockIndex) as callId
+    // (harness maps that placeholder to the real call_id from start).
     expect(out[7]).toMatchObject({
       type: "inference.tool_call.delta",
       data: { callId: "2", argumentFragment: '{"path":', index: 2 },
