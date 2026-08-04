@@ -26,6 +26,10 @@ export function assertPhasePresent(
 /**
  * Verify at least one span named `childName` is nested under a span named
  * `parentName` (via parentId → id).
+ *
+ * Arg order: (spans, child, parent) — the nested phase first, then its expected
+ * parent. Example: `assertNesting(spans, "inference", "turn")` means an
+ * inference span has parentId pointing at a turn span.
  */
 export function assertNesting(
   spans: readonly PerfSpan[],
@@ -45,19 +49,28 @@ export function assertNesting(
   }
 }
 
+export type TurnInferenceToolsOpts = {
+  /** Minimum tool invocations required (default 1). */
+  minToolCount?: number;
+};
+
 /**
  * Regression: a turn that ran tools must report positive inference and tool cost.
  * Accepts a single TurnSummary (from rollupByTurn).
  */
-export function assertTurnHasInferenceAndTools(turn: TurnSummary): void {
+export function assertTurnHasInferenceAndTools(
+  turn: TurnSummary,
+  opts?: TurnInferenceToolsOpts,
+): void {
+  const minToolCount = opts?.minToolCount ?? 1;
   if (turn.inferenceNs <= 0) {
     throw new Error(
       `turn ${turn.turnId}: expected inferenceNs > 0, got ${turn.inferenceNs}`,
     );
   }
-  if (turn.toolCount <= 0) {
+  if (turn.toolCount < minToolCount) {
     throw new Error(
-      `turn ${turn.turnId}: expected toolCount > 0 when tools ran, got ${turn.toolCount}`,
+      `turn ${turn.turnId}: expected toolCount >= ${minToolCount} when tools ran, got ${turn.toolCount}`,
     );
   }
   if (turn.toolNs <= 0) {

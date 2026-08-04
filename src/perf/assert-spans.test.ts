@@ -1,5 +1,13 @@
 /**
- * Latency eval harness: assert on PerfTrace phase presence and relative magnitudes.
+ * Latency eval harness: assert helpers over PerfTrace snapshots and rollups.
+ *
+ * This layer owns:
+ * - assert API behavior (pass paths + negative branches)
+ * - golden multi-tool fixture equality (locked TurnSummary)
+ * - one end-to-end smoke: reactor observer → snapshot → rollup → asserts
+ *
+ * Rollup arithmetic (phase totals, sessionTotals, percentiles) lives in
+ * rollup.test.ts — do not re-test pure rollup math here.
  *
  * Covers CL-5174 outcomes:
  * - phase presence + nesting helpers
@@ -23,7 +31,7 @@ import {
 } from "./fixtures/multi-tool-turn.js";
 import { ALLOWED_TAG_KEYS, clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
-import { rollupByPhase, rollupByTurn, sessionTotals } from "./rollup.js";
+import { rollupByPhase, rollupByTurn, type TurnSummary } from "./rollup.js";
 
 afterEach(() => {
   clear();
@@ -50,6 +58,19 @@ function completed(spans: PerfSpan[]): PerfSpan[] {
   return spans.filter((s) => s.endNs !== undefined);
 }
 
+function turnSummary(partial: Partial<TurnSummary> & Pick<TurnSummary, "turnId">): TurnSummary {
+  return {
+    turnNs: 1000,
+    open: false,
+    inferenceNs: 500,
+    toolNs: 200,
+    ttftNs: 100,
+    streamNs: 400,
+    toolCount: 1,
+    ...partial,
+  };
+}
+
 describe("assertPhasePresent / assertNesting", () => {
   test("assertPhasePresent finds phases on the golden fixture", () => {
     const spans = multiToolTurnFixture();
@@ -67,8 +88,9 @@ describe("assertPhasePresent / assertNesting", () => {
     );
   });
 
-  test("assertNesting verifies parent-child links", () => {
+  test("assertNesting verifies parent-child links (child, parent arg order)", () => {
     const spans = multiToolTurnFixture();
+    // child first, then expected parent
     assertNesting(spans, "inference", "turn");
     assertNesting(spans, "inference.ttft", "inference");
     assertNesting(spans, "inference.stream", "inference");
@@ -80,6 +102,90 @@ describe("assertPhasePresent / assertNesting", () => {
     expect(() => assertNesting(multiToolTurnFixture(), "tool", "inference")).toThrow(
       /expected nesting inference → tool/,
     );
+  });
+});
+
+describe("assertPhaseSummary", () => {
+  test("passes on golden phase rollup with minCount and minTotalNs", () => {
+    const phases = rollupByPhase(multiToolTurnFixture());
+    assertPhaseSummary(phases, "turn", { minCount: 1, minTotalNs: 5000 });
+    assertPhaseSummary(phases, "inference", { minCount: 1, minTotalNs: 2000 });
+    assertPhaseSummary(phases, "tool", { minCount: 2, minTotalNs: 1200 });
+    assertPhaseSummary(phases, "permission.wait", { minCount: 1, minTotalNs: 400 });
+  });
+
+  test("throws when phase summary is missing", () => {
+    const phases = rollupByPhase(multiToolTurnFixture());
+    expect(() => assertPhaseSummary(phases, "subagent")).toThrow(
+      /expected phase summary "subagent"/,
+    );
+  });
+
+  test("throws when count is below minCount", () => {
+    const phases = rollupByPhase(multiToolTurnFixture());
+    expect(() => assertPhaseSummary(phases, "tool", { minCount: 3 })).toThrow(
+      /phase "tool": expected count >= 3/,
+    );
+  });
+
+  test("throws when totalNs is below minTotalNs", () => {
+    const phases = rollupByPhase(multiToolTurnFixture());
+    expect(() =>
+      assertPhaseSummary(phases, "inference", { minTotalNs: 999_999 }),
+    ).toThrow(/phase "inference": expected totalNs >= 999999/);
+  });
+});
+
+describe("assertLessThan", () => {
+  test("passes when left < right", () => {
+    assertLessThan(400, 1600, "ttft vs stream");
+  });
+
+  test("throws when left >= right", () => {
+    expect(() => assertLessThan(1600, 400, "ttft vs stream")).toThrow(
+      /ttft vs stream: expected 1600 < 400/,
+    );
+    expect(() => assertLessThan(5, 5, "eq")).toThrow(/eq: expected 5 < 5/);
+  });
+});
+
+describe("assertTurnHasInferenceAndTools", () => {
+  test("passes on multi-tool golden rollup", () => {
+    const turns = rollupByTurn(multiToolTurnFixture());
+    assertTurnHasInferenceAndTools(turns[0]!);
+    assertTurnHasInferenceAndTools(turns[0]!, { minToolCount: 2 });
+  });
+
+  test("throws when inferenceNs is not positive", () => {
+    expect(() =>
+      assertTurnHasInferenceAndTools(turnSummary({ turnId: "t-no-inf", inferenceNs: 0 })),
+    ).toThrow(/turn t-no-inf: expected inferenceNs > 0/);
+  });
+
+  test("throws when toolCount is below minimum", () => {
+    const noTools = turnSummary({ turnId: "t-no-tools", toolCount: 0, toolNs: 0 });
+    expect(() => assertTurnHasInferenceAndTools(noTools)).toThrow(
+      /turn t-no-tools: expected toolCount >= 1/,
+    );
+
+    const oneTool = turnSummary({ turnId: "t-one", toolCount: 1, toolNs: 100 });
+    expect(() => assertTurnHasInferenceAndTools(oneTool, { minToolCount: 2 })).toThrow(
+      /turn t-one: expected toolCount >= 2/,
+    );
+  });
+
+  test("throws when toolNs is not positive despite toolCount", () => {
+    expect(() =>
+      assertTurnHasInferenceAndTools(
+        turnSummary({ turnId: "t-zero-tool-ns", toolCount: 1, toolNs: 0 }),
+      ),
+    ).toThrow(/turn t-zero-tool-ns: expected toolNs > 0/);
+  });
+
+  test("fails when tools are filtered out of the golden fixture", () => {
+    const spans: PerfSpan[] = multiToolTurnFixture().filter((s) => s.name !== "tool");
+    const turns = rollupByTurn(spans);
+    expect(() => assertTurnHasInferenceAndTools(turns[0]!)).toThrow(/toolCount/);
   });
 });
 
@@ -99,42 +205,9 @@ describe("golden multi-tool turn fixture", () => {
     }
   });
 
-  test("phase rollup reports expected counts and totals", () => {
-    const phases = rollupByPhase(multiToolTurnFixture());
-    assertPhaseSummary(phases, "turn", { minCount: 1, minTotalNs: 5000 });
-    assertPhaseSummary(phases, "inference", { minCount: 1, minTotalNs: 2000 });
-    assertPhaseSummary(phases, "tool", { minCount: 2, minTotalNs: 1200 });
-    assertPhaseSummary(phases, "permission.wait", { minCount: 1, minTotalNs: 400 });
-  });
-});
-
-describe("regression: turn has inference + tools when tools ran", () => {
-  test("assertTurnHasInferenceAndTools passes on multi-tool golden rollup", () => {
-    const turns = rollupByTurn(multiToolTurnFixture());
-    assertTurnHasInferenceAndTools(turns[0]!);
-  });
-
-  test("assertTurnHasInferenceAndTools fails when tools did not run", () => {
-    const spans: PerfSpan[] = multiToolTurnFixture().filter((s) => s.name !== "tool");
-    const turns = rollupByTurn(spans);
-    expect(() => assertTurnHasInferenceAndTools(turns[0]!)).toThrow(/toolCount/);
-  });
-
-  test("TTFT is less than stream on the golden fixture", () => {
+  test("TTFT is strictly less than stream on the golden fixture", () => {
     const turn = rollupByTurn(multiToolTurnFixture())[0]!;
     assertLessThan(turn.ttftNs, turn.streamNs, "ttft vs stream");
-    expect(turn.ttftNs).toBe(400);
-    expect(turn.streamNs).toBe(1600);
-  });
-
-  test("session totals include tool and inference cost", () => {
-    const totals = sessionTotals(multiToolTurnFixture());
-    expect(totals.turnCount).toBe(1);
-    expect(totals.totalInferenceNs).toBe(2000);
-    expect(totals.totalToolNs).toBe(1200);
-    expect(totals.totalToolCount).toBe(2);
-    expect(totals.ttftShare).toBeCloseTo(0.2, 5);
-    expect(totals.streamShare).toBeCloseTo(0.8, 5);
   });
 });
 
@@ -170,16 +243,18 @@ describe("observer pipeline → snapshot → rollup → assertions", () => {
 
     const turns = rollupByTurn(spans);
     expect(turns).toHaveLength(1);
-    assertTurnHasInferenceAndTools(turns[0]!);
+    assertTurnHasInferenceAndTools(turns[0]!, { minToolCount: 2 });
     expect(turns[0]!.toolCount).toBe(2);
 
-    // Live clock: TTFT ends at/before stream starts, so ttftNs should be <= streamNs
-    // only when both are positive; with real hrtime, stream wall is typically longer.
-    if (turns[0]!.ttftNs > 0 && turns[0]!.streamNs > 0) {
-      // Relative magnitude: first-token wait should not dominate a multi-token stream
-      // in the happy path (stream duration is from first token to done).
-      expect(turns[0]!.streamNs).toBeGreaterThanOrEqual(0);
-      expect(turns[0]!.ttftNs).toBeGreaterThanOrEqual(0);
+    // Live clock: duration magnitudes are non-deterministic under sync hrtime
+    // (ttftNs can exceed streamNs). Assert wall ordering instead of a no-op
+    // `>= 0` check: TTFT must end at or before stream starts when both exist.
+    const ttft = spans.find((s) => s.name === "inference.ttft");
+    const stream = spans.find((s) => s.name === "inference.stream");
+    expect(ttft?.endNs).toBeDefined();
+    expect(stream?.startNs).toBeDefined();
+    if (ttft!.endNs !== undefined && stream !== undefined) {
+      expect(ttft!.endNs <= stream.startNs).toBe(true);
     }
 
     const phases = rollupByPhase(spans);
