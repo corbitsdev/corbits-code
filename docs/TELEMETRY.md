@@ -86,3 +86,10 @@ it.
 Events are sent to PostHog. PostHog derives an approximate country from the
 request IP server-side; the client sends no location data itself. No
 self-hosted or third-party analytics beyond PostHog are used.
+
+## Not this document
+
+Local performance tracing and optional OpenTelemetry export to an operator-owned
+collector (Phoenix, PostHog OTEL, Jaeger, generic OTLP) are documented in
+`docs/PERFTRACE.md`. That pipe is separate: it does not expand these three
+events, and product telemetry opt-out does not control OTEL export.

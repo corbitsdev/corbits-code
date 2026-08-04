@@ -22,6 +22,24 @@ export {
   type TransportKind,
 } from "./sanitize.js";
 
+export {
+  DEFAULT_OTEL_SERVICE_NAME,
+  OTEL_CONFIG_INVALID,
+  OTEL_ENV,
+  OtelConfigError,
+  isOtelConfigInvalid,
+  otelConfigForDump,
+  parseOtelKeyValueList,
+  requireOtelExportConfig,
+  resolveOtelExportConfig,
+  type DisabledOtelExportConfig,
+  type EnabledOtelExportConfig,
+  type OtelConfigResolution,
+  type OtelExportConfig,
+  type OtelExportConfigDumpView,
+  type OtelSettings,
+} from "./otel-config.js";
+
 /** Core + adapter phase names. Adapters extend; they do not invent new sinks. */
 export const SPAN_NAMES = [
   "session",

@@ -71,3 +71,4 @@ Interchange is the standard library for this repo, consumed as published `@intx/
 - `docs/MCP.md` — connecting MCP servers
 - `docs/PLUGINS.md` — plugin manifest system and discovery
 - `docs/TELEMETRY.md` — what usage telemetry is collected and why
+- `docs/PERFTRACE.md` — local PerfTrace and opt-in OTEL export settings
