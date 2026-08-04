@@ -18,9 +18,12 @@ When a session feels slow, the first question is **where the wall time went**:
 | `subagent` | Child agent lifetimes (fanout cost). |
 | `other` | Turn wall not covered by the above — scheduling, TUI, un-instrumented work, gaps between phases. |
 
-Shares are **exclusive** over completed turn wall. Nested TTFT/stream and
-`adapter.transport` are diagnostic splits (they are not added on top of
-`inference` in the exclusive table).
+Shares are **exclusive** over turn wall. For **completed** turns, wall is
+`end − start`. For **open** (still-running) turns — including mid-stall dumps —
+wall is estimated as `max(completed-descendant endNs) − turn.startNs` so shares
+stay meaningful. Nested TTFT/stream and `adapter.transport` are diagnostic
+splits (they are not added on top of `inference` in the exclusive table).
+
 
 ## Capture a real slow session
 
@@ -66,21 +69,22 @@ Golden multi-tool demo (no dump file needed — uses
 bun scripts/perf-report.ts --fixture
 ```
 
-Example fixture output (nanosecond fixture times print as `ns` / sub-ms):
+Example fixture output (fixture ns values are tiny — formatter prints sub-ms):
 
 ```
 PerfTrace attribution report
-============================
-Session wall (completed turns): 5000ns  turns=1 completed=1
+───────────────────────────
+Session wall: 0.005ms  turns=1 (completed=1)
 
-Exclusive phase shares (of session wall)
-  inference             40.0%      2000ns
-  tools                 24.0%      1200ns  n=2
-  permission.wait        8.0%       400ns
-  subagent               0.0%         0ms
-  other                 28.0%      1400ns
+Exclusive phase shares (of session wall):
+  inference             40.0%  0.002ms  n=1
+  tools                 24.0%  0.001ms  n=2
+  permission.wait        8.0%  0.000ms
+  subagent               0.0%  0ms
+  other                 28.0%  0.001ms
 ...
 ```
+
 
 ## How to read the report
 

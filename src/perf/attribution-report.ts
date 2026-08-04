@@ -3,6 +3,9 @@
  *
  * Pure functions: no I/O, no module state, no OTEL. Categories partition turn
  * wall time into exclusive buckets so shares sum to ~1 (remainder → other).
+ *
+ * Open (still-running) turns use an estimated wall: max completed-descendant
+ * endNs − turn.startNs. That keeps mid-stall dumps usable for share %.
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
@@ -62,7 +65,10 @@ export type TurnAttribution = {
 /** Session-level attribution report. */
 export type AttributionReport = {
   session: {
-    /** Denominator for shares: sum of completed turn walls (open turns excluded). */
+    /**
+     * Denominator for shares: sum of turn walls (completed turns use end−start;
+     * open turns use estimated wall from max completed-descendant end).
+     */
     wallNs: number;
     categories: CategoryShare[];
     inference: InferenceSplit;
@@ -134,6 +140,31 @@ function walkDescendants(
   }
 }
 
+/**
+ * Wall for a turn span. Completed → end−start. Open → max completed-descendant
+ * end − turn.start (stall-dump estimate so shares stay meaningful mid-turn).
+ */
+export function turnWallNs(
+  turn: PerfSpan,
+  byParent: Map<string, PerfSpan[]>,
+): { wallNs: number; open: boolean } {
+  const completed = spanDurationNs(turn);
+  if (completed !== undefined) {
+    return { wallNs: completed, open: false };
+  }
+
+  let maxEnd: bigint | undefined;
+  walkDescendants(turn.id, byParent, (child) => {
+    if (child.endNs === undefined) return;
+    if (maxEnd === undefined || child.endNs > maxEnd) maxEnd = child.endNs;
+  });
+  if (maxEnd === undefined) {
+    return { wallNs: 0, open: true };
+  }
+  const d = maxEnd - turn.startNs;
+  return { wallNs: d <= 0n ? 0 : Number(d), open: true };
+}
+
 /** Accumulate exclusive + nested metrics from a descendant span. */
 function accumulate(bucket: ExclusiveBucket, span: PerfSpan): void {
   const dur = spanDurationNs(span) ?? 0;
@@ -182,7 +213,10 @@ function shareOf(ns: number, wallNs: number): number {
 
 /**
  * Build exclusive category shares. `other` absorbs gaps and un-instrumented wall
- * (scheduling, TUI, etc.) so shares sum to 1 when wallNs > 0.
+ * (scheduling, TUI, etc.) so shares sum to 1 when wallNs > 0 and attributed ≤ wall.
+ *
+ * When attributed exceeds wall (rare parallel overlap), other is 0 and category
+ * shares still use wall as denominator (sum may exceed 1 — caller can detect).
  */
 function categorySharesFromBucket(
   bucket: ExclusiveBucket,
@@ -252,6 +286,9 @@ function countNameUnder(
  * Nested diagnostics (not exclusive):
  *   inference.ttft / inference.stream shares of inference wall
  *   adapter.transport share of inference (transport prioritization signal)
+ *
+ * Open turns: wall estimated from max completed-descendant end so mid-stall
+ * dumps still produce usable share percentages.
  */
 export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionReport {
   const byParent = childrenOf(spans);
@@ -264,9 +301,7 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
     const bucket = emptyBucket();
     walkDescendants(turn.id, byParent, (child) => accumulate(bucket, child));
 
-    const turnDur = spanDurationNs(turn);
-    const turnNs = turnDur ?? 0;
-    const open = turnDur === undefined;
+    const { wallNs: turnNs, open } = turnWallNs(turn, byParent);
     const inferenceCount = countNameUnder(turn.id, byParent, "inference");
     const permissionWaitCount = countNameUnder(turn.id, byParent, "permission.wait");
 
@@ -289,8 +324,8 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
     };
   });
 
-  // Session: sum completed turns only for wall denominator so open turns do not
-  // inflate "other". Category ns still include open-turn children (partial data).
+  // Session wall includes open-turn estimates so stall dumps keep shares ~1.
+  // Category ns include all turn descendants (open children contribute 0 duration).
   const sessionBucket = emptyBucket();
   let wallNs = 0;
   let completedTurnCount = 0;
@@ -298,11 +333,9 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
   let permissionWaitCount = 0;
 
   for (const turn of turnSpans) {
-    const turnDur = spanDurationNs(turn);
-    if (turnDur !== undefined) {
-      wallNs += turnDur;
-      completedTurnCount += 1;
-    }
+    const { wallNs: turnNs, open } = turnWallNs(turn, byParent);
+    wallNs += turnNs;
+    if (!open) completedTurnCount += 1;
     walkDescendants(turn.id, byParent, (child) => {
       accumulate(sessionBucket, child);
       if (child.name === "inference") inferenceCount += 1;
@@ -408,78 +441,60 @@ function ms(ns: number): string {
 function categoryLine(c: CategoryShare): string {
   const count =
     c.count > 0 && c.category !== "other" ? `  n=${c.count}` : "";
-  return `  ${c.category.padEnd(18)} ${pct(c.share).padStart(7)}  ${ms(c.ns).padStart(10)}${count}`;
+  return `  ${c.category.padEnd(18)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}${count}`;
 }
 
-/**
- * Human-readable multi-line report. Safe for terminals; no color codes.
- */
+/** Human-readable multi-line report for CLI / docs. */
 export function formatAttributionReport(report: AttributionReport): string {
   const lines: string[] = [];
   const s = report.session;
 
   lines.push("PerfTrace attribution report");
-  lines.push("============================");
+  lines.push("───────────────────────────");
   lines.push(
-    `Session wall (completed turns): ${ms(s.wallNs)}  turns=${s.turnCount} completed=${s.completedTurnCount}`,
+    `Session wall: ${ms(s.wallNs)}  turns=${s.turnCount} (completed=${s.completedTurnCount})`,
   );
   lines.push("");
-  lines.push("Exclusive phase shares (of session wall)");
+  lines.push("Exclusive phase shares (of session wall):");
   for (const c of s.categories) {
     lines.push(categoryLine(c));
   }
   lines.push("");
-  lines.push("Inference split (ttft vs stream of ttft+stream)");
   lines.push(
-    `  ttft                ${pct(s.inference.ttftShare).padStart(7)}  ${ms(s.inference.ttftNs).padStart(10)}`,
+    `Inference split: ttft=${pct(s.inference.ttftShare)} (${ms(s.inference.ttftNs)})  stream=${pct(s.inference.streamShare)} (${ms(s.inference.streamNs)})`,
   );
-  lines.push(
-    `  stream              ${pct(s.inference.streamShare).padStart(7)}  ${ms(s.inference.streamNs).padStart(10)}`,
-  );
-  lines.push("");
-  lines.push("Transport signal (adapter.transport / inference)");
-  lines.push(
-    `  transportNs         ${ms(s.transportNs).padStart(10)}  share_of_inference=${pct(s.transportShareOfInference)}`,
-  );
-  lines.push(
-    `  tools=${s.toolCount}  subagents=${s.subagentCount}`,
-  );
+  if (s.transportNs > 0 || s.transportShareOfInference > 0) {
+    lines.push(
+      `Transport: ${ms(s.transportNs)}  (${pct(s.transportShareOfInference)} of inference)`,
+    );
+  }
+  lines.push(`Tools: n=${s.toolCount}  Subagents: n=${s.subagentCount}`);
 
   if (report.turns.length > 0) {
     lines.push("");
-    lines.push("Per-turn summary");
+    lines.push("Per-turn:");
     for (const t of report.turns) {
-      const open = t.open ? " OPEN" : "";
-      const byCat = Object.fromEntries(
-        t.categories.map((c) => [c.category, c]),
-      ) as Record<AttributionCategory, CategoryShare>;
+      const openTag = t.open ? " [open]" : "";
       lines.push(
-        `  turn ${t.turnId}${open}  wall=${ms(t.turnNs)}  ` +
-          `inf=${pct(byCat.inference.share)} tools=${pct(byCat.tools.share)} ` +
-          `perm=${pct(byCat["permission.wait"].share)} sub=${pct(byCat.subagent.share)} ` +
-          `other=${pct(byCat.other.share)}  ` +
-          `ttft/stream=${pct(t.inference.ttftShare)}/${pct(t.inference.streamShare)}  ` +
-          `tools_n=${t.toolCount} sub_n=${t.subagentCount}`,
+        `  turn ${t.turnId}${openTag}  wall=${ms(t.turnNs)}  tools=${t.toolCount}  subagents=${t.subagentCount}`,
       );
+      for (const c of t.categories) {
+        lines.push(`    ${c.category.padEnd(16)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}`);
+      }
     }
   }
 
-  lines.push("");
   return lines.join("\n");
 }
 
-/**
- * Lookup a category share from a report's session or turn categories list.
- * Convenience for tests and scripts.
- */
+/** Lookup a category share row (throws if missing — categories are always complete). */
 export function categoryShare(
   categories: readonly CategoryShare[],
-  name: AttributionCategory,
+  category: AttributionCategory,
 ): CategoryShare {
-  const found = categories.find((c) => c.category === name);
-  if (found === undefined) {
-    throw new Error(`missing attribution category "${name}"`);
+  const row = categories.find((c) => c.category === category);
+  if (row === undefined) {
+    throw new Error(`attribution report: missing category ${category}`);
   }
-  return found;
+  return row;
 }
-

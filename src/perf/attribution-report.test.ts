@@ -151,6 +151,143 @@ describe("attributionFromSpans — subagent + transport", () => {
   });
 });
 
+describe("attributionFromSpans — open (stall) turns", () => {
+  test("open turn wall is max completed-descendant end minus turn start", () => {
+    // Mid-stall dump: turn still open; inference + tool completed; stream still open.
+    const spans: PerfSpan[] = [
+      span({ id: "t1", name: "turn", startNs: 100n }), // open
+      span({
+        id: "i1",
+        name: "inference",
+        parentId: "t1",
+        startNs: 100n,
+        endNs: 2100n, // 2000ns
+      }),
+      span({
+        id: "ttft1",
+        name: "inference.ttft",
+        parentId: "i1",
+        startNs: 100n,
+        endNs: 500n,
+      }),
+      span({
+        id: "stream1",
+        name: "inference.stream",
+        parentId: "i1",
+        startNs: 500n, // still open — contributes 0 to streamNs
+      }),
+      span({
+        id: "k1",
+        name: "tool",
+        parentId: "t1",
+        startNs: 2100n,
+        endNs: 3100n, // 1000ns; max end → wall = 3100 - 100 = 3000
+      }),
+    ];
+
+    const report = attributionFromSpans(spans);
+    expect(report.session.completedTurnCount).toBe(0);
+    expect(report.session.turnCount).toBe(1);
+    // wall = maxEnd(3100) - start(100) = 3000
+    expect(report.session.wallNs).toBe(3000);
+    expect(report.turns[0]!.open).toBe(true);
+    expect(report.turns[0]!.turnNs).toBe(3000);
+
+    expect(categoryShare(report.session.categories, "inference").ns).toBe(2000);
+    expect(categoryShare(report.session.categories, "tools").ns).toBe(1000);
+    // other = 3000 - 2000 - 1000 = 0
+    expect(categoryShare(report.session.categories, "other").ns).toBe(0);
+
+    const shareSum = report.session.categories.reduce((a, c) => a + c.share, 0);
+    expect(shareSum).toBeCloseTo(1, 10);
+
+    const turnShareSum = report.turns[0]!.categories.reduce((a, c) => a + c.share, 0);
+    expect(turnShareSum).toBeCloseTo(1, 10);
+  });
+
+  test("mixed completed + open turns: session shares sum to ~1", () => {
+    const spans: PerfSpan[] = [
+      // completed turn: wall 5000
+      span({ id: "t0", name: "turn", startNs: 0n, endNs: 5000n }),
+      span({
+        id: "i0",
+        name: "inference",
+        parentId: "t0",
+        startNs: 0n,
+        endNs: 3000n,
+      }),
+      span({
+        id: "k0",
+        name: "tool",
+        parentId: "t0",
+        startNs: 3000n,
+        endNs: 4000n,
+      }),
+      // open stall turn: estimated wall 2000 (max end 7000 - start 5000)
+      span({ id: "t1", name: "turn", startNs: 5000n }),
+      span({
+        id: "i1",
+        name: "inference",
+        parentId: "t1",
+        startNs: 5000n,
+        endNs: 6500n, // 1500
+      }),
+      span({
+        id: "k1",
+        name: "tool",
+        parentId: "t1",
+        startNs: 6500n,
+        endNs: 7000n, // 500; max end → wall 2000
+      }),
+      span({
+        id: "stream1",
+        name: "inference.stream",
+        parentId: "i1",
+        startNs: 5500n, // open child — 0 duration
+      }),
+    ];
+
+    const report = attributionFromSpans(spans);
+    expect(report.session.completedTurnCount).toBe(1);
+    expect(report.session.turnCount).toBe(2);
+    // wall = 5000 + 2000 = 7000
+    expect(report.session.wallNs).toBe(7000);
+    // inference 3000+1500=4500; tools 1000+500=1500; other = 7000-6000=1000
+    expect(categoryShare(report.session.categories, "inference").ns).toBe(4500);
+    expect(categoryShare(report.session.categories, "tools").ns).toBe(1500);
+    expect(categoryShare(report.session.categories, "other").ns).toBe(1000);
+
+    const shareSum = report.session.categories.reduce((a, c) => a + c.share, 0);
+    expect(shareSum).toBeCloseTo(1, 10);
+
+    const openTurn = report.turns.find((t) => t.turnId === "t1")!;
+    expect(openTurn.open).toBe(true);
+    expect(openTurn.turnNs).toBe(2000);
+    const openShareSum = openTurn.categories.reduce((a, c) => a + c.share, 0);
+    expect(openShareSum).toBeCloseTo(1, 10);
+  });
+
+  test("open turn with no completed descendants has zero wall and zero shares", () => {
+    const spans: PerfSpan[] = [
+      span({ id: "t1", name: "turn", startNs: 0n }),
+      span({
+        id: "i1",
+        name: "inference",
+        parentId: "t1",
+        startNs: 0n, // still open
+      }),
+    ];
+    const report = attributionFromSpans(spans);
+    expect(report.session.wallNs).toBe(0);
+    expect(report.turns[0]!.open).toBe(true);
+    expect(report.turns[0]!.turnNs).toBe(0);
+    for (const c of report.session.categories) {
+      expect(c.share).toBe(0);
+      expect(c.ns).toBe(0);
+    }
+  });
+});
+
 describe("dump round-trip", () => {
   test("attributionFromDump matches live spans", () => {
     const spans = multiToolTurnFixture();
