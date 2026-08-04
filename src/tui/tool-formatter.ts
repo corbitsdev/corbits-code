@@ -19,9 +19,6 @@ export type ToolCallDescriptor = {
   full: string;
   // run_shell is rendered leanly: the command is the headline, not a loud tag.
   isShell: boolean;
-  // Leading marker distinguishing tool type at a glance, independent of the
-  // status colour applied around it.
-  glyph: string;
 };
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -38,42 +35,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   submit_output: "Submit",
   ask_operator: "Ask operator",
 };
-
-// Every tool call used to render with the same "●" bullet, colour alone
-// telling shell/read/write/search apart — a reader had to parse the text to
-// know what happened. A distinct glyph per tool type makes that a pre-attentive
-// signal instead. Symbols are chosen from Unicode blocks with a Narrow/Neutral
-// East Asian width and no default emoji presentation, so they render as a
-// single terminal cell rather than the double-wide glyphs emoji fonts substitute.
-const DEFAULT_TOOL_GLYPH = "●";
-
-const TOOL_GLYPHS: Record<string, string> = {
-  run_shell: "$",
-  read_file: "◇",
-  write_file: "✎",
-  edit_file: "✐",
-  grep: "⌕",
-  search_files: "⌗",
-  list_dir: "☰",
-  web_search: "⊛",
-  web_fetch: "⇣",
-  task: "⚑",
-  present: "▣",
-};
-
-export function toolGlyph(toolName: string): string {
-  return TOOL_GLYPHS[toolName] ?? DEFAULT_TOOL_GLYPH;
-}
-
-// A collapsed shell row's outcome is otherwise buried in text ("exit 1: ...").
-// Pass/fail glyphs mirror the plan-step checkmarks so the outcome reads at a
-// glance without opening the row.
-const SHELL_PASS_GLYPH = "✓";
-const SHELL_FAIL_GLYPH = "✗";
-
-export function shellOutcomeGlyph(isError: boolean): string {
-  return isError ? SHELL_FAIL_GLYPH : SHELL_PASS_GLYPH;
-}
 
 // run_shell prefixes a failed result with "exit code N\n<output>" (see
 // summarizeToolResult's run_shell case); other tool errors, and shell errors
@@ -153,7 +114,6 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       summary: "(invalid spec)",
       full: "",
       isShell: false,
-      glyph: toolGlyph(toolName),
     };
   }
   if (toolName === "run_shell") {
@@ -165,7 +125,6 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
       summary: command,
       full: command,
       isShell: true,
-      glyph: toolGlyph(toolName),
     };
   }
   if (toolName === "task") {
@@ -178,7 +137,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
       const summary = description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "";
-      return { display, role: "accent", summary, full: summary, isShell: false, glyph: toolGlyph(toolName) };
+      return { display, role: "accent", summary, full: summary, isShell: false };
     }
   }
   const { summary, full } = summarizeToolArgs(toolName, rawArgs);
@@ -188,7 +147,6 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
     summary,
     full,
     isShell: false,
-    glyph: toolGlyph(toolName),
   };
 }
 
