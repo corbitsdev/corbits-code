@@ -343,10 +343,13 @@ else
   }')
   mkdir -p "$TAP_DIR/Formula"
   # Drop the old single-name formula if we renamed (corbits -> corbits-code).
+  # git rm can remove the last file and drop the empty Formula/ directory —
+  # recreate it before writing the new formula.
   if [ -f "$TAP_DIR/Formula/$BINARY.rb" ] && [ "$BINARY" != "$BREW_FORMULA" ]; then
     git -C "$TAP_DIR" rm -f --quiet "Formula/$BINARY.rb" 2>/dev/null \
       || rm -f "$TAP_DIR/Formula/$BINARY.rb"
   fi
+  mkdir -p "$TAP_DIR/Formula"
   cat > "$TAP_DIR/Formula/$BREW_FORMULA.rb" <<EOF
 class $class < Formula
   desc "$DESC"

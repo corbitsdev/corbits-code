@@ -6,14 +6,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
-### Fixed
-
-- Standalone release binaries no longer externalize `react-devtools-core`, which broke first TUI launch after Homebrew install (`Cannot find package 'react-devtools-core'`).
-
-### Changed
-
-- Homebrew formula renamed to **`corbits-code`** (`brew install corbitsdev/tap/corbits-code`). The CLI binary remains `corbits`. README and release notes match. (`scripts/release.sh`, tap)
-
 ### Planned
 
 - Local context estimate for compaction when providers omit usage (CL-4345)
@@ -26,6 +18,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision (gates CL-5161 / CL-5164 / CL-5172).
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
+
+## [0.2.88] - 2026-08-04
+
+Hotfix: Homebrew standalone binary failed on first TUI launch.
+
+### Fixed
+
+- Standalone release binaries no longer externalize `react-devtools-core`, which broke first TUI launch after Homebrew install (`Cannot find package 'react-devtools-core'`).
+
+### Changed
+
+- Homebrew formula is **`corbits-code`** (`brew install corbitsdev/tap/corbits-code`). The CLI binary remains `corbits`.
 
 ## [0.2.87] - 2026-08-04
 
