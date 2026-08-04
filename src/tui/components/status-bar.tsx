@@ -1,7 +1,11 @@
 import { homedir } from "node:os";
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
-import { color } from "../theme.js";
+import {
+  COMPACTION_WINDOW_FRACTION,
+  CONTEXT_METER_DANGER_FRACTION,
+} from "../../provider/context-window.js";
+import { color, type SemanticRole } from "../theme.js";
 import { PRODUCT_NAME } from "../../branding.js";
 
 export type StatusBarProps = {
@@ -12,6 +16,9 @@ export type StatusBarProps = {
   // should stay hidden (free model, coding plan) rather than shown as $0.
   costLabel?: string;
   contextLabel?: string;
+  // Integer 0–100 occupancy of the model window, or null when unknown.
+  // Drives the context meter's normal → warning → danger color thresholds.
+  contextPercentUsed?: number | null;
   model?: string;
   cwd?: string;
   gitBranch?: string | null;
@@ -19,6 +26,24 @@ export type StatusBarProps = {
   // (model/cwd/branch, then cost/context) before running out of room.
   columns?: number;
 };
+
+// Color thresholds for the context-usage meter, tied to the same fractions
+// compaction and near-overflow use: muted below compaction, warning from the
+// compaction point, danger when the window is nearly full.
+export type ContextMeterTone = "normal" | "warning" | "danger";
+
+export function contextMeterTone(percentUsed: number | null | undefined): ContextMeterTone {
+  if (percentUsed == null) return "normal";
+  if (percentUsed >= Math.round(CONTEXT_METER_DANGER_FRACTION * 100)) return "danger";
+  if (percentUsed >= Math.round(COMPACTION_WINDOW_FRACTION * 100)) return "warning";
+  return "normal";
+}
+
+function contextMeterRole(tone: ContextMeterTone): SemanticRole {
+  if (tone === "danger") return "danger";
+  if (tone === "warning") return "warning";
+  return "muted";
+}
 
 const BRAND = PRODUCT_NAME;
 
@@ -148,6 +173,7 @@ export function StatusBar({
   mcpCount,
   costLabel,
   contextLabel,
+  contextPercentUsed,
   model,
   cwd,
   gitBranch,
@@ -165,6 +191,10 @@ export function StatusBar({
     ...(costLabel !== undefined ? { costLabel } : {}),
     ...(contextLabel !== undefined ? { contextLabel } : {}),
   });
+  const meterTone = contextMeterTone(contextPercentUsed);
+  const meterRole = contextMeterRole(meterTone);
+  // Warning/danger should read clearly; normal stays dim with the rest of the footer.
+  const meterDim = meterTone === "normal";
 
   return (
     <Box flexDirection="row" paddingX={1} gap={1} overflow="hidden">
@@ -177,7 +207,7 @@ export function StatusBar({
         <Text color={color("muted")} dimColor>{costLabel}</Text>
       )}
       {showContext && contextLabel !== undefined && (
-        <Text color={color("muted")} dimColor>{contextLabel}</Text>
+        <Text color={color(meterRole)} dimColor={meterDim}>{contextLabel}</Text>
       )}
       <Box flexGrow={1} />
       {mcpText !== undefined && (
