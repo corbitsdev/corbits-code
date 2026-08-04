@@ -59,18 +59,27 @@ describe("buildCostSummary", () => {
 describe("formatStatusBarSegments", () => {
   it("includes both cost and context when cost is not hidden", () => {
     const summary = buildCostSummary(baseInput);
-    expect(formatStatusBarSegments(summary)).toEqual({ costLabel: "$0.0123", contextLabel: "Ctx 50%" });
+    expect(formatStatusBarSegments(summary)).toEqual({
+      costLabel: "$0.0123",
+      contextLabel: "Ctx 50%",
+      contextPercentUsed: 50,
+    });
   });
 
   it("omits cost but keeps context when cost is hidden", () => {
     const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
-    expect(formatStatusBarSegments(summary)).toEqual({ contextLabel: "Ctx 50%" });
+    expect(formatStatusBarSegments(summary)).toEqual({
+      contextLabel: "Ctx 50%",
+      contextPercentUsed: 50,
+    });
   });
 
   it("renders an unknown context window as --% rather than 0%", () => {
     setModelContextWindows({ "test-model": 0 });
     const summary = buildCostSummary(baseInput);
-    expect(formatStatusBarSegments(summary).contextLabel).toBe("Ctx --%");
+    const segments = formatStatusBarSegments(summary);
+    expect(segments.contextLabel).toBe("Ctx --%");
+    expect(segments.contextPercentUsed).toBeNull();
   });
 });
 
