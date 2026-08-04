@@ -17,12 +17,13 @@ export async function resolveSessionLabel(
   cwd: string,
   sessionId: string,
   taskFromState: string,
+  home?: string,
 ): Promise<string> {
   const trimmed = taskFromState.trim();
   if (!isGenericSessionTask(trimmed)) {
     return truncateSessionLabel(trimmed);
   }
-  const sent = await loadSentMessages(cwd, sessionId);
+  const sent = await loadSentMessages(cwd, sessionId, home);
   const first = sent.find((line) => line.trim().length > 0);
   if (first !== undefined) {
     return truncateSessionLabel(first);

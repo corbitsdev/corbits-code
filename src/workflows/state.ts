@@ -10,9 +10,10 @@ const STEP_STATUSES: StepStatus[] = ["pending", "active", "completed", "skipped"
 
 const writeChains = new Map<string, Promise<void>>();
 
-function workflowStatePath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "workflow.json");
+function workflowStatePath(cwd: string, sessionId: string, home?: string): string {
+  return join(sessionDir(cwd, sessionId, home), "workflow.json");
 }
+
 
 function isValidWorkflowState(data: unknown): data is WorkflowState {
   if (typeof data !== "object" || data === null) return false;
@@ -45,8 +46,9 @@ export async function saveWorkflowState(
   cwd: string,
   sessionId: string,
   state: WorkflowState,
+  home?: string,
 ): Promise<void> {
-  const path = workflowStatePath(cwd, sessionId);
+  const path = workflowStatePath(cwd, sessionId, home);
   const payload = JSON.stringify(state, null, 2);
   const run = (): Promise<void> => atomicWrite(path, payload);
   const chained = (writeChains.get(path) ?? Promise.resolve()).then(run, run);
@@ -55,16 +57,22 @@ export async function saveWorkflowState(
 }
 
 /** Await any in-flight save for this session (used by tests and shutdown paths). */
-export async function flushWorkflowStateWrites(cwd: string, sessionId: string): Promise<void> {
-  const path = workflowStatePath(cwd, sessionId);
+export async function flushWorkflowStateWrites(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): Promise<void> {
+  const path = workflowStatePath(cwd, sessionId, home);
   await (writeChains.get(path) ?? Promise.resolve());
 }
 
 export async function loadWorkflowState(
   cwd: string,
   sessionId: string,
+  home?: string,
 ): Promise<WorkflowState | null> {
-  const path = workflowStatePath(cwd, sessionId);
+  const path = workflowStatePath(cwd, sessionId, home);
+
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);

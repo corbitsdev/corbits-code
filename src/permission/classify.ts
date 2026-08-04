@@ -20,7 +20,8 @@ import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../sh
 const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp"]);
 
 // Tools that take a single path-like argument the gate should check against
-// restriction (outside the workspace boundary, or writes under .agent-state).
+// restriction (outside the workspace boundary, or writes under the session state root).
+
 // Covers both read-only tools (dropped from allow to ask) and the mutating
 // file tools (dropped from auto-allow to ask in auto mode).
 const PATH_ARG_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "write_file", "edit_file", "delete_file"]);
@@ -32,7 +33,8 @@ function pathArgKey(toolName: string): string {
 
 // write_file/edit_file/delete_file mutate the target; every other path-arg tool only
 // reads it. Restriction policy (see path-restriction.ts) treats reads and
-// writes of an .agent-state path differently, so callers need to tell the
+// writes of a session-state path differently, so callers need to tell the
+
 // gate which mode a given tool call is in.
 function isWriteTool(toolName: string): boolean {
   return toolName === "write_file" || toolName === "edit_file" || toolName === "delete_file";

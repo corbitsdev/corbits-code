@@ -10,6 +10,7 @@ import { loadWorkflowState, saveWorkflowState } from "../../src/workflows/state.
 
 test("WorkflowRuntime resumes from workflow.json written mid sub-workflow chain", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "wf-runtime-persist-"));
+  const home = await mkdtemp(join(tmpdir(), "wf-runtime-persist-home-"));
   try {
     const build = findWorkflow("build");
     expect(build).toBeDefined();
@@ -23,8 +24,8 @@ test("WorkflowRuntime resumes from workflow.json written mid sub-workflow chain"
     expect(mid).toBeDefined();
     expect(mid).not.toBe(first);
 
-    await saveWorkflowState(cwd, "session-1", runtime.state());
-    const loaded = await loadWorkflowState(cwd, "session-1");
+    await saveWorkflowState(cwd, "session-1", runtime.state(), home);
+    const loaded = await loadWorkflowState(cwd, "session-1", home);
     expect(loaded).toEqual(runtime.state());
 
     const resumed = new WorkflowRuntime(new Map());
@@ -34,5 +35,6 @@ test("WorkflowRuntime resumes from workflow.json written mid sub-workflow chain"
     expect(resumed.isActive()).toBe(true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 });

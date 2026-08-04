@@ -71,8 +71,12 @@ export function buildSubAgentProvider(config: SubAgentProviderConfig): SubAgentP
 // ---------------------------------------------------------------------------
 
 /** Session → project → global → provider-model merge order (first match wins in gate). */
-export async function loadSeededApprovals(cwd: string, sessionId: string): Promise<Approval[]> {
-  const sessionApprovals = await loadApprovals(cwd, sessionId);
+export async function loadSeededApprovals(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): Promise<Approval[]> {
+  const sessionApprovals = await loadApprovals(cwd, sessionId, home);
   const [projectApprovals, globalApprovals, providerModelApprovals] = await Promise.all([
     loadProjectApprovals(cwd),
     loadGlobalApprovals(),
@@ -85,6 +89,7 @@ export async function loadSeededApprovals(cwd: string, sessionId: string): Promi
     ...providerModelApprovals,
   ];
 }
+
 
 /**
  * Route a gate-persisted grant to the store its scope selects.

@@ -65,7 +65,8 @@ Continues from the last saved state in the working directory.
   - **Denied** (must use `write_file` / `edit_file`): shell file mutations via output redirection, `tee`, `sed -i` / `perl -i`, interpreter inline programs or heredocs.
   - **Still asks**: dependency installs and remote runners (npm/yarn/pnpm/bun, pip, cargo, go, brew, `npx`/`bunx`, …), recursive `rm`, git worktree add/remove/prune (list is fine), shell that references sensitive paths, and opaque unparseable wrappers (variable expansion or command substitution).
   - **Wrapper peel**: `bash`/`sh`/`zsh -c`, `xargs`, and transparent prefixes (`env`, `nice`, `timeout`, …) are expanded so the same deny/ask rules see the inner payload.
-  - Paths outside the workspace and writes under `.agent-state` still ask; mutating MCP and unknown tools still prompt.
+  - Paths outside the workspace and writes under the session state root still ask; mutating MCP and unknown tools still prompt.
+
 - **Path sandboxing** — Tool path arguments are resolved against the working directory; paths that escape it are blocked.
 - **Write verification** — After every write/edit the file is re-read and compared to confirm the change actually landed.
 
@@ -90,7 +91,8 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 **What the user sees:** The agent stops producing tool calls. After 3 idle turns the run aborts with `Agent stalled: no tool calls for 3 turns.`
 
-**Recovery:** State is saved; inspect `.agent-state/run.json`, adjust the task or prompt, and start a new run.
+**Recovery:** State is saved; inspect `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated), adjust the task or prompt, and start a new run.
+
 
 ### Permission denied (exec)
 

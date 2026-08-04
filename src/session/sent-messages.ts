@@ -14,14 +14,20 @@ export const SENT_MESSAGE_HISTORY_LIMIT = 20;
 // head simply fails to parse and is skipped.
 const TAIL_BYTES = 64_000;
 
-function sentMessagesPath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "sent-messages.ndjson");
+function sentMessagesPath(cwd: string, sessionId: string, home?: string): string {
+  return join(sessionDir(cwd, sessionId, home), "sent-messages.ndjson");
 }
+
 
 const sentMessage = type("string");
 
-export async function loadSentMessages(cwd: string, sessionId: string): Promise<string[]> {
-  const file = Bun.file(sentMessagesPath(cwd, sessionId));
+export async function loadSentMessages(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): Promise<string[]> {
+  const file = Bun.file(sentMessagesPath(cwd, sessionId, home));
+
   let raw: string;
   try {
     const size = file.size;
@@ -44,8 +50,14 @@ export async function loadSentMessages(cwd: string, sessionId: string): Promise<
 }
 
 // Append-only: no read-modify-write race. Each message is one JSON line.
-export async function appendSentMessage(cwd: string, sessionId: string, message: string): Promise<void> {
+export async function appendSentMessage(
+  cwd: string,
+  sessionId: string,
+  message: string,
+  home?: string,
+): Promise<void> {
   const trimmed = message.trim();
   if (trimmed.length === 0) return;
-  await appendFile(sentMessagesPath(cwd, sessionId), JSON.stringify(trimmed) + "\n");
+  await appendFile(sentMessagesPath(cwd, sessionId, home), JSON.stringify(trimmed) + "\n");
 }
+

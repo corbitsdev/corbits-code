@@ -155,7 +155,8 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 | **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc) |
 | **ask** | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
 
-Unmatched shell auto-allows. Writes under `.agent-state`, mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
+Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
+
 
 Plan approval is handled separately by `use-gates` (`pendingPlan`), independent of auto mode.
 
@@ -292,7 +293,8 @@ Positional arguments are joined into the optional initial task delivered when th
 
 ### Agent Source
 
-`createAgent` is configured with a single OpenAI-compatible source built from the resolved config, `defaults.maxTokens = 16384`, and a git-backed `contextDir` at `.agent-state/context`.
+`createAgent` is configured with a single OpenAI-compatible source built from the resolved config, `defaults.maxTokens = 16384`, and a git-backed `contextDir` at `~/.corbits/projects/<project-key>/<session-id>/context`.
+
 
 ## Protocols and Formats
 
@@ -303,8 +305,13 @@ Positional arguments are joined into the optional initial task delivered when th
 
 ### State Persistence
 
-- `.agent-state/run.json` — `RunState`
-- `.agent-state/context/` — git-backed conversation context (`@intx/storage-isogit`)
+Session runtime state lives under the global projects tree (not in the repo):
+
+- `~/.corbits/projects/<project-key>/<session-id>/run.json` — `RunState`
+- `~/.corbits/projects/<project-key>/<session-id>/context/` — git-backed conversation context (`@intx/storage-isogit`)
+- Project key: slug + short hash of the shared git root (from `--git-common-dir`, so main + linked worktrees share one key; workspace realpath when not a git tree)
+
+- Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
 
 `createOptimizedContextStore` (`src/session/optimized-context-store.ts`) wraps the
