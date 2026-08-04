@@ -331,14 +331,17 @@ function markdownLines(content: string, width: number): StyledLine[] {
 }
 
 function shellLines(command: string, role: string, width: number, prefix = SHELL_PREFIX): StyledLine[] {
+  // Hang-indent every continuation under the "$ " (or fail-glyph) anchor so a
+  // wrapped long command never reads as a mid-token dump across the full width.
+  const hang = " ".repeat(prefix.length);
   const lines: StyledLine[] = [];
   command.split("\n").forEach((logical, li) => {
-    const rowWidth = li === 0 ? Math.max(1, width - prefix.length) : width;
+    const rowWidth = Math.max(1, width - prefix.length);
     wrapLines(logical, rowWidth).forEach((row, ri) => {
       if (li === 0 && ri === 0) {
         lines.push([{ text: prefix, color: color("muted"), dim: true }, { text: row, color: role }]);
       } else {
-        lines.push([{ text: row, color: role }]);
+        lines.push([{ text: hang, color: color("muted"), dim: true }, { text: row, color: role }]);
       }
     });
   });
@@ -523,7 +526,9 @@ function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }
   const { preview, full, isJSONDocument } = summarizeToolResult(block.name, block.content);
   if (expanded) {
     const limited = limitLines(full, EXPANDED_TOOL_RESULT_LINE_LIMIT);
-    return isJSONDocument ? markdownLines(limited, width) : plainLines(limited, { color: color("muted") }, width);
+    // Task reports are markdown envelopes; render headings rather than raw hashes.
+    if (isJSONDocument || block.name === "task") return markdownLines(limited, width);
+    return plainLines(limited, { color: color("muted") }, width);
   }
   return plainLines(preview, { color: color("muted"), dim: true }, width);
 }
