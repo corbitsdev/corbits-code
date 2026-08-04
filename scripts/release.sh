@@ -372,9 +372,13 @@ class $class < Formula
   end
 end
 EOF
-  if git -C "$TAP_DIR" diff --quiet -- "Formula/$FORMULA.rb"; then
+  if git -C "$TAP_DIR" rev-parse --verify HEAD >/dev/null 2>&1 \
+    && git -C "$TAP_DIR" ls-files --error-unmatch "Formula/$FORMULA.rb" >/dev/null 2>&1 \
+    && git -C "$TAP_DIR" diff --quiet -- "Formula/$FORMULA.rb"; then
     skip "formula already at $VERSION"
   else
+    # Untracked formula (empty or new tap) is invisible to `git diff`, so we
+    # require the file to be tracked before treating "no diff" as up-to-date.
     git -C "$TAP_DIR" add "Formula/$FORMULA.rb"
     git -C "$TAP_DIR" commit -q -m "$FORMULA $VERSION"
     info "committed formula bump"
