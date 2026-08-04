@@ -175,6 +175,80 @@ describe("createPerfReactorObserver", () => {
     obs.observe(inferenceDone());
     expect(byName(completed(snapshot()), "turn")).toHaveLength(2);
   });
+
+  test("abandon mid-inference then new start closes prior turn with no orphans", () => {
+    const obs = createPerfReactorObserver();
+
+    obs.observe(event("inference.start", { model: "test-model" }));
+    obs.observe(event("inference.text.delta", { token: "partial", partial: { text: "partial" } }));
+    // Interrupt: no inference.done / error — next start must abandon.
+    obs.observe(event("inference.start", { model: "test-model" }));
+    obs.observe(inferenceDone());
+
+    const spans = snapshot();
+    expect(spans.every((s) => s.endNs !== undefined)).toBe(true);
+
+    const turns = byName(completed(spans), "turn");
+    const inferences = byName(completed(spans), "inference");
+    expect(turns).toHaveLength(2);
+    expect(inferences).toHaveLength(2);
+    expect(inferences[0]!.parentId).toBe(turns[0]!.id);
+    expect(inferences[1]!.parentId).toBe(turns[1]!.id);
+    // First turn abandoned before second opened — not nested.
+    expect(turns[0]!.endNs! <= turns[1]!.startNs).toBe(true);
+  });
+
+  test("abandon mid-tool then new start closes open tools and prior turn", () => {
+    const obs = createPerfReactorObserver();
+
+    obs.observe(event("inference.start", { model: "test-model" }));
+    obs.observe(
+      inferenceDone([
+        { type: "tool_call", id: "call-1", name: "run_shell", arguments: {} },
+      ]),
+    );
+    obs.observe(event("tool.start", { call: { id: "call-1", name: "run_shell", arguments: {} } }));
+    // Interrupt mid-tool: no tool.done — next inference.start must not nest.
+    obs.observe(event("inference.start", { model: "next-model" }));
+    obs.observe(inferenceDone());
+
+    const spans = snapshot();
+    expect(spans.every((s) => s.endNs !== undefined)).toBe(true);
+
+    const turns = byName(completed(spans), "turn");
+    const tools = byName(completed(spans), "tool");
+    const inferences = byName(completed(spans), "inference");
+
+    expect(turns).toHaveLength(2);
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.parentId).toBe(turns[0]!.id);
+    expect(inferences).toHaveLength(2);
+    expect(inferences[0]!.parentId).toBe(turns[0]!.id);
+    expect(inferences[1]!.parentId).toBe(turns[1]!.id);
+    // Second inference must not nest under the abandoned turn.
+    expect(inferences[1]!.parentId).not.toBe(turns[0]!.id);
+    expect(turns[0]!.endNs! <= turns[1]!.startNs).toBe(true);
+  });
+
+  test("inference.error mid-turn then new start leaves no open spans", () => {
+    const obs = createPerfReactorObserver();
+
+    obs.observe(event("inference.start", { model: "test-model" }));
+    obs.observe(event("inference.text.delta", { token: "x", partial: { text: "x" } }));
+    obs.observe(event("inference.error", { error: { message: "timeout" } }));
+
+    // Error with no pending tools closes the turn.
+    expect(snapshot().every((s) => s.endNs !== undefined)).toBe(true);
+
+    obs.observe(event("inference.start", { model: "retry-model" }));
+    obs.observe(inferenceDone());
+
+    const spans = snapshot();
+    expect(spans.every((s) => s.endNs !== undefined)).toBe(true);
+    const turns = byName(completed(spans), "turn");
+    expect(turns).toHaveLength(2);
+    expect(byName(completed(spans), "inference")[1]!.parentId).toBe(turns[1]!.id);
+  });
 });
 
 describe("turn collector durationMs unchanged with perf observer", () => {

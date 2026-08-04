@@ -136,12 +136,21 @@ export function createPerfReactorObserver(): PerfReactorObserver {
     state.openTools.clear();
   }
 
+  /**
+   * Single exit for ending a turn: close orphan tool spans, then the turn.
+   * Inference tree must already be closed (or will be via abandonTurn).
+   */
   function closeTurn(): void {
-    closeInferenceTree();
     closeOpenTools();
     endIfOpen(state.turnId);
     state.turnId = null;
     state.pendingTools = 0;
+  }
+
+  /** Abandon the whole open tree (inference + tools + turn). */
+  function abandonTurn(): void {
+    closeInferenceTree();
+    closeTurn();
   }
 
   function ensureTurn(): string {
@@ -163,17 +172,10 @@ export function createPerfReactorObserver(): PerfReactorObserver {
     const type = event.type;
 
     if (type === "inference.start") {
-      // Close a prior inference that never got done/error (defensive).
-      if (state.inferenceId !== null) {
-        closeInferenceTree();
-      }
-      // New model call after a fully finished turn: open a fresh top-level turn.
-      // If tools are still pending, nest under the open turn (should not happen
-      // under DefaultDirector, which re-infers only after all tool.done).
-      if (state.turnId !== null && state.pendingTools === 0) {
-        endIfOpen(state.turnId);
-        state.turnId = null;
-      }
+      // Always abandon any prior turn before opening a new one. Interrupt mid-
+      // inference or mid-tool must not nest the next call under a stale turn or
+      // leave orphan tool spans in the process-wide open map.
+      abandonTurn();
       const turnId = ensureTurn();
       const tags = modelTags(event);
       state.inferenceId = start("inference", {
@@ -195,8 +197,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
       closeInferenceTree(tags);
       state.pendingTools = toolCallCount(event);
       if (state.pendingTools === 0) {
-        endIfOpen(state.turnId);
-        state.turnId = null;
+        closeTurn();
       }
       return;
     }
@@ -206,8 +207,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
       // Drop the turn if nothing is waiting on tools; otherwise keep it open
       // so in-flight tool spans can still close under it.
       if (state.pendingTools === 0) {
-        endIfOpen(state.turnId);
-        state.turnId = null;
+        closeTurn();
       }
       return;
     }
@@ -246,16 +246,14 @@ export function createPerfReactorObserver(): PerfReactorObserver {
         state.pendingTools -= 1;
       }
       if (state.pendingTools === 0 && state.inferenceId === null && state.turnId !== null) {
-        closeOpenTools();
-        endIfOpen(state.turnId);
-        state.turnId = null;
+        closeTurn();
       }
       return;
     }
   }
 
   function reset(): void {
-    closeTurn();
+    abandonTurn();
     state = emptyState();
   }
 
