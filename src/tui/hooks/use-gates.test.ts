@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { join } from "node:path";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
@@ -9,13 +10,20 @@ import { createWorktreeRootsProvider } from "../../permission/worktree-roots.js"
 import type { ApprovalOutcome, Approval, PermissionRequest } from "../../permission/types.js";
 import { useGates, type GateController, type PermissionGrantEvent } from "./use-gates.js";
 
+// Pre-grant path guards rebind relative tokens to the request's process cwd.
+// Use real workspace paths so program tokens like "npm"/"test" resolve inside
+// the workspace; fake roots like /repo make every token look restricted.
+const WORKSPACE = process.cwd();
+const REPO_A = join(WORKSPACE, "repo-a");
+const REPO_B = join(WORKSPACE, "repo-b");
+
 function request(overrides: Partial<PermissionRequest> = {}): PermissionRequest {
   return {
     tool: "run_shell",
     action: "Run",
     subject: "bun install",
     scopes: [],
-    cwd: "/repo",
+    cwd: WORKSPACE,
     ...overrides,
   };
 }
@@ -98,24 +106,24 @@ describe("useGates queue reconciliation", () => {
     const { rerender, unmount } = render(element());
 
     const outcomes: Array<{ cwd: string; outcome: ApprovalOutcome }> = [];
-    enqueuePermission(emitter, request({ subject: "npm test", cwd: "/repo-a" })).then((o) =>
-      outcomes.push({ cwd: "/repo-a", outcome: o }),
+    enqueuePermission(emitter, request({ subject: "npm test", cwd: REPO_A })).then((o) =>
+      outcomes.push({ cwd: REPO_A, outcome: o }),
     );
-    enqueuePermission(emitter, request({ subject: "npm test", cwd: "/repo-b" })).then((o) =>
-      outcomes.push({ cwd: "/repo-b", outcome: o }),
+    enqueuePermission(emitter, request({ subject: "npm test", cwd: REPO_B })).then((o) =>
+      outcomes.push({ cwd: REPO_B, outcome: o }),
     );
     rerender(element());
     expect(controllerRef.current!.permissionQueueDepth).toBe(2);
 
-    // A project grant minted in /repo-a must never drain /repo-b's queued request.
-    grant(emitter, { tool: "run_shell", pattern: "npm test", cwd: "/repo-a" });
+    // A project grant minted in repo-a must never drain repo-b's queued request.
+    grant(emitter, { tool: "run_shell", pattern: "npm test", cwd: REPO_A });
     rerender(element());
     await new Promise((r) => setTimeout(r, 0));
     rerender(element());
 
     expect(controllerRef.current!.permissionQueueDepth).toBe(1);
     expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]!.cwd).toBe("/repo-a");
+    expect(outcomes[0]!.cwd).toBe(REPO_A);
     expect(outcomes[0]!.outcome.allow).toBe(true);
 
     // Settle the remaining one so the promise doesn't dangle across tests.
@@ -131,10 +139,10 @@ describe("useGates queue reconciliation", () => {
     const { rerender, unmount } = render(element());
 
     const outcomes: ApprovalOutcome[] = [];
-    enqueuePermission(emitter, request({ subject: "npm test", cwd: "/repo-a" })).then((o) =>
+    enqueuePermission(emitter, request({ subject: "npm test", cwd: REPO_A })).then((o) =>
       outcomes.push(o),
     );
-    enqueuePermission(emitter, request({ subject: "npm test", cwd: "/repo-b" })).then((o) =>
+    enqueuePermission(emitter, request({ subject: "npm test", cwd: REPO_B })).then((o) =>
       outcomes.push(o),
     );
     rerender(element());

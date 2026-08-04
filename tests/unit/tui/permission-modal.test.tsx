@@ -345,12 +345,32 @@ test("multiplexer commands show the broad wildcard as explicit options", async (
   expect(outcome).toMatchObject({ allow: true, persist: { grant: "project", pattern: "bun run *" } });
 });
 
-test("footer reflects the real option count and offers Ctrl+O to expand", () => {
-  const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
+test("footer reflects the real option count and offers Ctrl+O to expand when body is collapsible", () => {
+  const expandable: PermissionRequest = {
+    tool: "run_shell",
+    action: "Run shell command",
+    subject: "git commit -F - <<'EOF'\nfix: something\n\nlonger body line\nEOF",
+    scopes: [
+      { id: "prefix-1", label: "Always allow git commit *", pattern: "git commit *" },
+      {
+        id: "exact",
+        label: "Always allow this exact command",
+        pattern: "git commit -F - <<'EOF'\nfix: something\n\nlonger body line\nEOF",
+      },
+    ],
+  };
+  const { lastFrame } = render(<PermissionModal request={expandable} onResolve={() => {}} />);
   const frame = lastFrame() ?? "";
   // 2 fixed + 3 broad (session/project/global) = 5 options when a prefix scope exists
   expect(frame).toContain("1-5 select");
   expect(frame).toContain("Ctrl+O expand");
+});
+
+test("footer omits Ctrl+O expand when the body has nothing to expand", () => {
+  const { lastFrame } = render(<PermissionModal request={request} onResolve={() => {}} />);
+  const frame = lastFrame() ?? "";
+  expect(frame).toContain("1-5 select");
+  expect(frame).not.toContain("Ctrl+O");
 });
 
 test("PermissionModal shows web tool argument details", () => {
