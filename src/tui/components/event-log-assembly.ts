@@ -282,6 +282,7 @@ export function buildResourceBanner(
   width: number,
   cwd: string,
   telemetryNotice?: string,
+  whatsNewMarkdown?: string,
 ): StyledLine[] {
   const lines: StyledLine[] = [
     [{ text: SESSION_BRAND, bold: true, color: color("brand") }],
@@ -299,6 +300,11 @@ export function buildResourceBanner(
   if (telemetryNotice !== undefined && telemetryNotice.length > 0) {
     lines.push([]);
     lines.push(...plainLines(telemetryNotice, { color: color("muted"), dim: true }, width));
+  }
+  if (whatsNewMarkdown !== undefined && whatsNewMarkdown.length > 0) {
+    lines.push([]);
+    lines.push([{ text: "[What's new]", color: color("brand") }]);
+    lines.push(...markdownLines(whatsNewMarkdown, width));
   }
   lines.push([]);
   return lines;

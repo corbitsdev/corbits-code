@@ -17,6 +17,7 @@ Patch-ready tip on `main` after the PerfTrace / Codex measurement stack and rela
 - **Latency eval harness** — assert phase presence and relative magnitudes in tests (`assert-spans`, multi-tool fixture). (CL-5174, #310)
 - **Reasoning effort by agent role** — orchestrator vs task-leaf defaults so high-effort leaves stop multiplying wall time. (CL-5162, #302)
 - **Session state under `~/.corbits/projects`** — project key from git toplevel (worktrees share); dual-read migrate from in-repo `.agent-state`; path-restriction exception for the global state root. (CL-5257, #313)
+- **Post-upgrade release notes** — on a fresh interactive start after upgrade, show bounded Keep-a-Changelog sections in the session banner; stamp `lastChangelogVersion` in global settings; first install is quiet; `/changelog` and `/changelog full` for on-demand history. Ships `CHANGELOG.md` next to release binaries. (CL-5333, CL-5332, CL-5334)
 - **Streaming stall / loop detection** — trailing-window repetition detection; preserve partial streamed output in exec and TUI; partial-capture lifecycle owned by the cycle recorder. (#280, #281)
 - **Nested UI polish** — quieter chrome, context meter, task/shell rows, observe-leave behavior. (#312)
 - **Approval queue re-eval** — when a grant widens, re-check the pending queue; stored approvals evaluated through `@intx/authz`. (#288, #295)
@@ -45,7 +46,6 @@ Patch-ready tip on `main` after the PerfTrace / Codex measurement stack and rela
 
 ### Planned
 
-- What's-new banner on interactive start after upgrade (CL-4604 — **canceled** as a ticket; still not implemented; see note below)
 - Local context estimate for compaction when providers omit usage (CL-4345)
 - Image age → rehydratable attachment URI (CL-4349)
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)

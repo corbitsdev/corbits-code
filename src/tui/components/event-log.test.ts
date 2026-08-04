@@ -739,6 +739,27 @@ describe("flat line buffer", () => {
     }
   });
 
+  test("buildResourceBanner shows What's new when release notes markdown is provided", () => {
+    const banner = buildResourceBanner(
+      [],
+      [],
+      80,
+      "/tmp/ws",
+      undefined,
+      "## [0.2.86]\n\n- Feature A",
+    );
+    const text = banner.map((line) => line.map((s) => s.text).join("")).join("\n");
+    expect(text).toContain("[What's new]");
+    expect(text).toContain("0.2.86");
+    expect(text).toContain("Feature A");
+  });
+
+  test("buildResourceBanner omits What's new when markdown is empty", () => {
+    const banner = buildResourceBanner([], [], 80, "/tmp/ws", undefined, "");
+    const text = banner.map((line) => line.map((s) => s.text).join("")).join("\n");
+    expect(text).not.toContain("[What's new]");
+  });
+
   const planBlock: ContentBlock = {
     type: "plan",
     id: "plan-1",

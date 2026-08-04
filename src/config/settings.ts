@@ -86,6 +86,9 @@ export type Settings = {
   // Set after the first launch's welcome animation + provider modal has been
   // shown. Controls whether subsequent launches show "Welcome to" vs "Welcome back".
   onboarded?: boolean;
+  // Last package version whose release notes were shown (or stamped on first
+  // interactive install). Drives the one-shot post-upgrade notes banner.
+  lastChangelogVersion?: string;
   // Controls the context-compaction strategy used when the context window fills.
   // "llm" (default) generates a structured handoff summary via LLM call.
   // "pruning" uses fast deterministic pruning with no LLM call.
@@ -378,6 +381,7 @@ const SettingsSchema = type({
   "web?": "string",
   "hiddenCommands?": "string[]",
   "onboarded?": "boolean",
+  "lastChangelogVersion?": "string",
   "compactionMode?": "'llm' | 'pruning'",
   "maxConcurrentSubAgents?": "number",
   "subagentMaxTurns?": "number",
@@ -552,6 +556,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "web",
   "hiddenCommands",
   "onboarded",
+  "lastChangelogVersion",
   "compactionMode",
   "maxConcurrentSubAgents",
   "subagentMaxTurns",
@@ -614,6 +619,10 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     web: s.web as string | undefined,
     hiddenCommands: s.hiddenCommands as string[] | undefined,
     onboarded: s.onboarded !== undefined ? Boolean(s.onboarded) : undefined,
+    lastChangelogVersion:
+      typeof s.lastChangelogVersion === "string" && s.lastChangelogVersion.trim().length > 0
+        ? s.lastChangelogVersion.trim()
+        : undefined,
     compactionMode:
       s.compactionMode === "llm" || s.compactionMode === "pruning" ? s.compactionMode : undefined,
     maxConcurrentSubAgents:
@@ -724,6 +733,16 @@ export async function markOnboarded(path: string): Promise<void> {
   const onDisk = await loadSettings(path);
   const base: Settings = onDisk ?? { providers: {} };
   await saveGlobalSettings(path, { ...base, onboarded: true });
+}
+
+/** Persist the package version whose release notes were last shown (or stamped on first install). */
+export async function markLastChangelogVersion(path: string, version: string): Promise<void> {
+  const trimmed = version.trim();
+  if (trimmed.length === 0) return;
+  const onDisk = await loadSettings(path);
+  const base: Settings = onDisk ?? { providers: {} };
+  if (base.lastChangelogVersion === trimmed) return;
+  await saveGlobalSettings(path, { ...base, lastChangelogVersion: trimmed });
 }
 
 // Ensure a persisted telemetry installationId exists, generating and saving

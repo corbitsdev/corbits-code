@@ -2,6 +2,11 @@ import { registerCommand } from "./registry.js";
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
 import { formatGoalStatus, type GoalSetOpts } from "../../agent/goal.js";
 import { formatCostCommandOutput } from "../../cost/cost-summary.js";
+import {
+  formatStartupChangelog,
+  parseChangelog,
+  resolveChangelogPath,
+} from "../../changelog/index.js";
 
 // Which tiers are currently assigned. Defaults to empty so /fast, /standard,
 // /clever stay out of the slash menu until the user configures one; app.tsx
@@ -205,6 +210,38 @@ registerCommand({
       return { type: "message", text: "Cost tracking is not available in this session." };
     }
     return { type: "message", text: formatCostCommandOutput(summary) };
+  },
+});
+
+registerCommand({
+  name: "changelog",
+  description: "Show recent release notes (or full history)",
+  argumentHint: "[full]",
+  subcommands: [{ name: "full", description: "Show the complete changelog" }],
+  handler: (args) => {
+    const path = resolveChangelogPath();
+    if (path === undefined) {
+      return {
+        type: "message",
+        text: "CHANGELOG.md not found next to the install or package root.",
+      };
+    }
+    const entries = parseChangelog(path);
+    if (entries.length === 0) {
+      return { type: "message", text: "No versioned release notes found in CHANGELOG.md." };
+    }
+    const wantFull = args.trim().toLowerCase() === "full";
+    if (wantFull) {
+      return {
+        type: "message",
+        text: entries.map((e) => e.content).join("\n\n"),
+      };
+    }
+    const formatted = formatStartupChangelog(entries, {
+      maxEntries: 5,
+      fullHint: "Run /changelog full for complete history.",
+    });
+    return { type: "message", text: formatted.markdown };
   },
 });
 

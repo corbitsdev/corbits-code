@@ -35,7 +35,7 @@ TAP_REPO="corbitsdev/homebrew-tap"          # tap repo (formula)
 TAP_SLUG="corbitsdev/tap"                   # `brew tap' name of TAP_REPO
 FORMULA="corbits"                           # formula / binary name
 DESC="Single-process coding agent CLI built on the Interchange runtime"
-DOC_FILES=(LICENSE.md README.md GPLv2-AI-Exception.md GPL-2.0.txt)  # shipped with the binary
+DOC_FILES=(LICENSE.md README.md CHANGELOG.md GPLv2-AI-Exception.md GPL-2.0.txt)  # shipped with the binary
 
 # Build matrix: "label|bun-target|kind|deb-arch". kind is macos or linux;
 # deb-arch is the Debian architecture for linux targets, "-" for macOS.

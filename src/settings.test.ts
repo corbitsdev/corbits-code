@@ -24,6 +24,7 @@ import {
   validateTaskMaxTurns,
   toolWatchdogFromSettings,
   loadGlobalSettingsWriteBase,
+  markLastChangelogVersion,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -472,6 +473,55 @@ describe("maxConcurrentSubAgents", () => {
   test("clamp floors fractional values and negative numbers", () => {
     expect(clampMaxConcurrentSubAgents(3.9)).toBe(3);
     expect(clampMaxConcurrentSubAgents(-2)).toBe(0);
+  });
+});
+
+describe("lastChangelogVersion", () => {
+  test("isSettings accepts a version string", () => {
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        lastChangelogVersion: "0.2.86",
+      }),
+    ).toBe(true);
+  });
+
+  test("loadSettings round-trips lastChangelogVersion", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".corbits", "settings.json");
+      await saveGlobalSettings(path, { ...firepass, lastChangelogVersion: "0.2.85" });
+      expect(await loadSettings(path)).toEqual({ ...firepass, lastChangelogVersion: "0.2.85" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("markLastChangelogVersion stamps without clobbering other fields", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".corbits", "settings.json");
+      await saveGlobalSettings(path, { ...firepass, onboarded: true });
+      await markLastChangelogVersion(path, "0.2.86");
+      const loaded = await loadSettings(path);
+      expect(loaded?.lastChangelogVersion).toBe("0.2.86");
+      expect(loaded?.onboarded).toBe(true);
+      expect(loaded?.defaultProvider).toBe("firepass");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("markLastChangelogVersion ignores empty versions", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".corbits", "settings.json");
+      await saveGlobalSettings(path, firepass);
+      await markLastChangelogVersion(path, "  ");
+      expect(await loadSettings(path)).toEqual(firepass);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

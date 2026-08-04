@@ -200,6 +200,8 @@ export type AppProps = {
   /** One-line passive notice shown once in the top-of-scrollback banner on
    * the first run telemetry is active. Undefined/empty renders nothing. */
   telemetryNotice?: string;
+  /** Markdown release notes shown once after upgrade in the session banner. */
+  whatsNewMarkdown?: string;
   /** Whether anonymous telemetry is currently enabled, for the settings toggle. */
   telemetryEnabled?: boolean;
   /** Persists the settings Telemetry on|off toggle to global settings. */
@@ -269,6 +271,7 @@ export function App({
   subAgentSessions,
   goalApi,
   telemetryNotice,
+  whatsNewMarkdown,
   telemetryEnabled = false,
   onChangeTelemetryEnabled,
   waitForApproval: waitForApprovalProp,
@@ -610,6 +613,7 @@ export function App({
     activePlugins,
     cwd,
     telemetryNotice,
+    whatsNewMarkdown,
     enteredSession,
   });
 

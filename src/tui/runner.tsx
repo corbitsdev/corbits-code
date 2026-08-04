@@ -27,6 +27,7 @@ import {
   saveLocalSettings,
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
+  markLastChangelogVersion,
   type Settings,
   type LocalSettings,
   type PluginConfig,
@@ -65,6 +66,8 @@ import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/fi
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
+import { loadStartupChangelogMarkdown } from "../changelog/index.js";
+import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
@@ -1306,6 +1309,32 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
+  // Post-upgrade release notes: one-shot banner on a fresh interactive session.
+  // Resume skips the banner and does not stamp, so the next fresh session still
+  // surfaces notes. First install stamps without dumping history.
+  const changelogDecision = loadStartupChangelogMarkdown({
+    lastChangelogVersion: globalSettingsForOnboarding?.lastChangelogVersion,
+    packageVersion: typeof pkg.version === "string" ? pkg.version : "0.0.0",
+  });
+  let whatsNewMarkdown: string | undefined;
+  if (changelogDecision.kind === "upgrade" && !resumeSkipInitialTask) {
+    whatsNewMarkdown = changelogDecision.markdown;
+    void markLastChangelogVersion(trueGlobalSettingsPath, changelogDecision.stampVersion).catch(
+      () => {
+        // Best-effort watermark; worst case notes reappear next launch.
+      },
+    );
+  } else if (changelogDecision.kind === "first_install") {
+    void markLastChangelogVersion(trueGlobalSettingsPath, changelogDecision.stampVersion).catch(
+      () => {
+        // Best-effort watermark.
+      },
+    );
+  } else if (changelogDecision.kind === "upgrade" && resumeSkipInitialTask) {
+    // Resume with pending notes: leave watermark alone so a future fresh
+    // session can show them.
+  }
+
   const exitAltScreen = enterAltScreen();
 
   // Strip SGR mouse sequences before Ink's parser broadcasts input to every
@@ -1334,6 +1363,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       globalOnboardingPath={trueGlobalSettingsPath}
       globallyOnboarded={globallyOnboarded}
       {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
+      {...(whatsNewMarkdown !== undefined ? { whatsNewMarkdown } : {})}
       telemetryEnabled={liveTelemetryIntent}
       onChangeTelemetryEnabled={(enabled) => {
         liveTelemetryIntent = enabled;
