@@ -268,22 +268,29 @@ function lineCountSuffix(count: number): string {
 // collapse — the operator has to be able to read the code they are approving.
 // `ssh` is unconditional too: whatever payload follows the host runs on the
 // remote end regardless of flags, so there is no safe "no -c present" case.
-const CODE_CONSUMING_UNCONDITIONAL = new Set(["eval", "source", ".", "xargs", "env", "ssh"]);
-
-// Each interpreter's own flag(s) for "run this payload as code" — not every
-// interpreter takes `-c`, so this cannot be a single shared flag.
-const INTERPRETER_CODE_FLAGS: Record<string, readonly string[]> = {
-  bash: ["-c"],
-  sh: ["-c"],
-  zsh: ["-c"],
-  dash: ["-c"],
-  python: ["-c"],
-  python3: ["-c"],
-  node: ["-e", "--eval"],
-  ruby: ["-e"],
-  perl: ["-e"],
-  php: ["-r"],
-};
+//
+// Interpreters are unconditional for the same reason: they can take code via
+// `-c`/`-e`, stdin (`-s` / `-`), a heredoc body, or a pipe from an earlier
+// stage — flag-gated detection left those paths free to collapse executable
+// bodies. Fail open: any segment that names an interpreter never collapses.
+const CODE_CONSUMING_COMMANDS = new Set([
+  "eval",
+  "source",
+  ".",
+  "xargs",
+  "env",
+  "ssh",
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "python",
+  "python3",
+  "node",
+  "ruby",
+  "perl",
+  "php",
+]);
 
 // Command-position words only: the program name and its flags, never text
 // inside a quoted argument or heredoc body. A naive whitespace split would
@@ -367,20 +374,23 @@ function programBasename(word: string): string {
 
 // True when `segment` names a command that treats a quoted or heredoc payload
 // as code — directly (eval, source, xargs, env, ssh) or via an interpreter
-// invoked with its code flag — including one reached through a
-// `$(...)`/backtick command substitution, since those words show up as
-// ordinary tokens in the segment either way. Interpreter names are matched by
-// basename so a path-qualified spelling (`/bin/bash -c`, `./sh -c`) is not
-// missed, and wrapper prefixes (env, sudo, nohup, timeout, ...) are handled
-// for free because this scans every word rather than just the first.
+// (bash/sh/python/node/…), including one reached through a `$(...)`/backtick
+// command substitution, since those words show up as ordinary tokens in the
+// segment either way. Interpreter names are matched by basename so a
+// path-qualified spelling (`/bin/bash`, `./sh`) is not missed, and wrapper
+// prefixes (env, sudo, nohup, timeout, ...) are handled for free because this
+// scans every word rather than just the first.
+//
+// Also true when any *other* segment of a pipe/chain is code-consuming: the
+// caller checks each segment, and `groupChainSegmentsForDisplay` keeps pipes
+// in one display segment, so `cat <<EOF … | bash` is one segment containing
+// both `cat` and `bash` and fails closed via the bash word.
 function isCodeConsumingSegment(segment: string): boolean {
   const words = segmentWords(segment);
   const bareWord = (word: string): string => word.replace(/^[(`]+/, "").replace(/^\$\(/, "");
   for (const word of words) {
     const bare = programBasename(bareWord(word));
-    if (CODE_CONSUMING_UNCONDITIONAL.has(bare)) return true;
-    const codeFlags = INTERPRETER_CODE_FLAGS[bare];
-    if (codeFlags !== undefined && codeFlags.some((flag) => words.includes(flag))) return true;
+    if (CODE_CONSUMING_COMMANDS.has(bare)) return true;
   }
   return false;
 }

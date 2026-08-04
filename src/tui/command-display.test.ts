@@ -229,3 +229,39 @@ test("collapseSegmentPayloads still collapses a normal long commit-message hered
   expect(display).toBe("git commit -F <<'EOF' <heredoc, 2 lines>");
   expect(payloads).toEqual([{ placeholder: "<heredoc, 2 lines>", lines: ["summary line", "more detail"] }]);
 });
+
+test("collapseSegmentPayloads never collapses a bash heredoc without -c", () => {
+  const segment = "bash <<'EOF'\necho hi\nrm -rf /\nEOF\n";
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a python3 heredoc without -c", () => {
+  const segment = "python3 <<'EOF'\nimport os\nos.system('rm -rf /')\nEOF\n";
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a bash -s heredoc", () => {
+  const segment = "bash -s <<'EOF'\necho hi\nEOF\n";
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a pipe into bash", () => {
+  const segment = "cat <<'EOF'\necho hi\nrm -rf /\nEOF\n | bash";
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses echo piped to sh", () => {
+  const segment = 'echo "a\nb" | sh';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses a quoted bash -c flag", () => {
+  const segment = 'bash "-c" "line1\nline2"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses an interpreter without any code flag", () => {
+  // Fail-open: naming bash at all is enough, even with no payload flags.
+  const segment = "bash script.sh";
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
