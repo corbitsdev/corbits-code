@@ -6,7 +6,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
-Patch-ready tip on `main` after the PerfTrace / Codex measurement stack and related polish. Candidate for **0.2.87**.
+### Planned
+
+- Local context estimate for compaction when providers omit usage (CL-4345)
+- Image age → rehydratable attachment URI (CL-4349)
+- Always-return subagent salvage without a default wall-clock death clock (CL-4401)
+- Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
+
+### Operator follow-ups
+
+- Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision (gates CL-5161 / CL-5164 / CL-5172).
+- Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
+- Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
+
+## [0.2.87] - 2026-08-04
+
+Patch release: always-on PerfTrace measurement stack, session state under `~/.corbits/projects`, post-upgrade release notes in the interactive banner, and related Codex/TUI polish.
 
 ### New Features
 
@@ -17,7 +32,7 @@ Patch-ready tip on `main` after the PerfTrace / Codex measurement stack and rela
 - **Latency eval harness** — assert phase presence and relative magnitudes in tests (`assert-spans`, multi-tool fixture). (CL-5174, #310)
 - **Reasoning effort by agent role** — orchestrator vs task-leaf defaults so high-effort leaves stop multiplying wall time. (CL-5162, #302)
 - **Session state under `~/.corbits/projects`** — project key from git toplevel (worktrees share); dual-read migrate from in-repo `.agent-state`; path-restriction exception for the global state root. (CL-5257, #313)
-- **Post-upgrade release notes** — on a fresh interactive start after upgrade, show bounded Keep-a-Changelog sections in the session banner; stamp `lastChangelogVersion` in global settings; first install is quiet; `/changelog` and `/changelog full` for on-demand history. Ships `CHANGELOG.md` next to release binaries. (CL-5333, CL-5332, CL-5334)
+- **Post-upgrade release notes** — on a fresh interactive start after upgrade, show bounded Keep-a-Changelog sections in the session banner; stamp `lastChangelogVersion` in global settings; first install is quiet; `/changelog` and `/changelog full` for on-demand history. Ships `CHANGELOG.md` next to release binaries. (CL-5333, CL-5332, CL-5334, #314)
 - **Streaming stall / loop detection** — trailing-window repetition detection; preserve partial streamed output in exec and TUI; partial-capture lifecycle owned by the cycle recorder. (#280, #281)
 - **Nested UI polish** — quieter chrome, context meter, task/shell rows, observe-leave behavior. (#312)
 - **Approval queue re-eval** — when a grant widens, re-check the pending queue; stored approvals evaluated through `@intx/authz`. (#288, #295)
@@ -43,19 +58,6 @@ Patch-ready tip on `main` after the PerfTrace / Codex measurement stack and rela
 - `docs/PERFTRACE.md` — local sink, OTEL config, collector examples, relationship to product telemetry.
 - Codex request parity checklist (spike, no production behavior change). (CL-5168, #304)
 - Codex SSE golden fixture pack + parse tests. (CL-5166, #301)
-
-### Planned
-
-- Local context estimate for compaction when providers omit usage (CL-4345)
-- Image age → rehydratable attachment URI (CL-4349)
-- Always-return subagent salvage without a default wall-clock death clock (CL-4401)
-- Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
-
-### Operator follow-ups (not blockers for 0.2.87)
-
-- Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision (gates CL-5161 / CL-5164 / CL-5172).
-- Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
-- Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
 
 ## [0.2.86] - 2026-07-30
 
