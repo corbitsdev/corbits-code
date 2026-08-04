@@ -312,4 +312,38 @@ describe("subagent spans", () => {
     expect(agents[0]!.tags?.subagent_id).toBe("call-fail");
     expect(agents[0]!.endNs).toBeDefined();
   });
+
+  test("opens and closes subagent span when worktree setup fails before run", async () => {
+    let runEntered = false;
+    const tool = createTaskTool({
+      permissionGate: skipGate,
+      // Not a git repo — createSubAgentWorktree fails before run.
+      cwd: "/tmp/not-a-git-repo-for-subagent-span",
+      getWorkdirBase: () => "/tmp/not-a-git-repo-for-subagent-span/.corbits",
+      provider,
+      useWorktree: true,
+      run: async () => {
+        runEntered = true;
+        return "## Summary\n\nshould not run\n";
+      },
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+
+    const result = await tool.handler(
+      {
+        id: "call-wt-fail",
+        name: "task",
+        arguments: { description: "Worktree fail", prompt: "Work" },
+      },
+      new AbortController().signal,
+    );
+    expect(runEntered).toBe(false);
+    expect(typeof result.content === "string" ? result.content : "").toContain("Error:");
+
+    const agents = byName(completed(snapshot()), "subagent");
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.tags?.subagent_id).toBe("call-wt-fail");
+    expect(agents[0]!.endNs).toBeDefined();
+  });
 });
+
