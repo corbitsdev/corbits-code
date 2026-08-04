@@ -10,6 +10,7 @@ import {
   computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
   mergeInFlightSubAgents,
+  orderStripSessions,
   shouldShowAgentsStrip,
   type AgentsStripWindow,
 } from "../components/agents-strip.js";
@@ -81,7 +82,7 @@ export function useAgentsStrip({
   // the live-progress fallback can still paint a ghost "doing" row.
   const browseSessions = useMemo(() => {
     void sessionsTick;
-    return subAgentSessions?.listForStrip() ?? [];
+    return orderStripSessions(subAgentSessions?.listForStrip() ?? []);
   }, [subAgentSessions, sessionsTick]);
 
   // A running agent can reach a terminal state while agents-nav is open, which
