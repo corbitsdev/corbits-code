@@ -49,3 +49,17 @@ test("useScrollWindow reports maxOffset 0 when content already fits", () => {
   const { lastFrame } = render(<Harness rowCount={3} visibleRows={4} />);
   expect(lastFrame()).toBe("offset=0 above=0 below=0 max=0");
 });
+
+test("useScrollWindow clamps a stale raw offset when content shrinks", async () => {
+  // Start tall so paging can leave rawOffset past the later maxOffset.
+  const { stdin, lastFrame, rerender } = render(<Harness rowCount={30} visibleRows={5} />);
+  for (let i = 0; i < 6; i++) {
+    stdin.write("\x1B[6~"); // PageDown
+    await tick();
+  }
+  expect(lastFrame()).toBe("offset=25 above=25 below=0 max=25");
+  // Content shrinks — displayed offset must clamp immediately without PageUp.
+  rerender(<Harness rowCount={8} visibleRows={5} />);
+  await tick();
+  expect(lastFrame()).toBe("offset=3 above=3 below=0 max=3");
+});

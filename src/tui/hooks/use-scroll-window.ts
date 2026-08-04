@@ -32,8 +32,19 @@ export function useScrollWindow(rowCount: number, visibleRows: number): ScrollWi
   const above = offset;
   const below = Math.max(0, rowCount - offset - visibleRows);
 
-  const pageUp = (): void => setOffset((o) => Math.max(0, o - visibleRows));
-  const pageDown = (): void => setOffset((o) => Math.min(maxOffset, o + visibleRows));
+  // Clamp the stored offset to the current max before paging so a shrink of
+  // the content (or of the viewport) does not force the operator to press
+  // PageUp multiple times just to reach the true top of the window.
+  const pageUp = (): void =>
+    setOffset((o) => {
+      const current = Math.min(o, maxOffset);
+      return Math.max(0, current - visibleRows);
+    });
+  const pageDown = (): void =>
+    setOffset((o) => {
+      const current = Math.min(o, maxOffset);
+      return Math.min(maxOffset, current + visibleRows);
+    });
 
   return { offset, maxOffset, above, below, pageUp, pageDown };
 }
