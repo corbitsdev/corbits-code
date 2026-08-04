@@ -312,15 +312,22 @@ git_push "$ROOT" "$TAG"
 # ---- 5. GitHub release on the main repo ------------------------------------
 step "GitHub release on $MAIN_REPO"
 ASSETS=()
-for f in "$STAGE"/*.tar.gz "$STAGE"/*.tar.gz.sha256 "$STAGE"/*.deb "$STAGE"/*.deb.sha256; do
+# Only this version — dist/release keeps prior builds for local caching.
+for f in \
+  "$STAGE"/"$BINARY-$VERSION"-*.tar.gz \
+  "$STAGE"/"$BINARY-$VERSION"-*.tar.gz.sha256 \
+  "$STAGE"/"${BINARY}_${VERSION}_"*.deb \
+  "$STAGE"/"${BINARY}_${VERSION}_"*.deb.sha256
+do
   [ -e "$f" ] && ASSETS+=("$f")
 done
+[ "${#ASSETS[@]}" -gt 0 ] || die "no assets for $VERSION in $STAGE"
 if gh release view "$TAG" --repo "$MAIN_REPO" >/dev/null 2>&1; then
   skip "release $TAG exists -- refreshing assets"
   gh release upload "$TAG" "${ASSETS[@]}" --repo "$MAIN_REPO" --clobber
 else
   gh release create "$TAG" "${ASSETS[@]}" \
-    --repo "$MAIN_REPO" --title "$FORMULA $VERSION" --notes-file "$NOTES_FILE"
+    --repo "$MAIN_REPO" --title "$BINARY $VERSION" --notes-file "$NOTES_FILE"
   info "created release $TAG with ${#ASSETS[@]} assets"
 fi
 
