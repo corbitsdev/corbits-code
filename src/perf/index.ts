@@ -18,6 +18,7 @@ export {
   OPAQUE_ID_RE,
   ALLOWED_TAG_KEYS,
   type AllowedTagKey,
+  type DecisionKind,
   type PerfTags,
   type TransportKind,
 } from "./sanitize.js";

@@ -25,6 +25,8 @@ import {
   type McpToolPermissionRegistry,
 } from "../mcp/tool-permissions.js";
 import type { MCPClient } from "../mcp/client.js";
+import { end, start } from "../perf/index.js";
+import { currentTurnId } from "../perf/reactor-spans.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
@@ -459,7 +461,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // to mint a grant for one even if a persist scope somehow arrived.
         const isMegaChain = segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD;
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
+        const turnId = currentTurnId();
+        const waitSpanId = start("permission.wait", {
+          ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+          tags: { tool_id: request.tool },
+        });
         const outcome = await requestApproval(requestForOperator);
+        end(waitSpanId, { decision: outcome.allow ? "allow" : "deny" });
         if (!outcome.allow) {
           const suffix =
             outcome.message !== undefined && outcome.message.length > 0
@@ -496,7 +504,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         };
       }
 
+      const turnId = currentTurnId();
+      const waitSpanId = start("permission.wait", {
+        ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+        tags: { tool_id: request.tool },
+      });
       const outcome = await requestApproval(request);
+      end(waitSpanId, { decision: outcome.allow ? "allow" : "deny" });
       if (!outcome.allow) {
         const suffix = outcome.message !== undefined && outcome.message.length > 0
           ? ` — ${outcome.message}`

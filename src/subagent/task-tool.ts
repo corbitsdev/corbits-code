@@ -42,6 +42,8 @@ import {
 import { isSubAgentCancelError } from "./dispose.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { generateSessionId } from "../session/index.js";
+import { end, start } from "../perf/index.js";
+import { currentTurnId } from "../perf/reactor-spans.js";
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,
@@ -591,7 +593,17 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           maxTurns: resolvedMaxTurns,
           ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
         };
-        const result = await run(params);
+        const turnId = currentTurnId();
+        const subagentSpanId = start("subagent", {
+          ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
+          tags: {
+            subagent_id: call.id,
+            ...(turnId !== null && turnId.length > 0 ? { turn_id: turnId } : {}),
+          },
+        });
+        const result = await run(params).finally(() => {
+          end(subagentSpanId);
+        });
         // Operator cancel may race after run resolves. Keep strip status cancelled
         // when requested, but never discard a returned body (including salvage).
         const wasCancelled =

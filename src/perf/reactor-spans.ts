@@ -7,6 +7,16 @@
  *       inference.ttft   (start → first content-bearing delta)
  *       inference.stream (first delta → inference.done)
  *     tool (per invocation)
+ *     permission.wait   (operator ask; diagnostic nested category — wall time
+ *                        overlaps tool; exclusive attribution already excludes
+ *                        nested categories, so double-count is intentional)
+ *     subagent          (task fleet child wall)
+ *
+ * Single-primary assumption: the session run-sink owns one
+ * `createPerfReactorObserver`. Process-wide `currentTurnId()` is published only
+ * by that primary so permission.wait / subagent can nest outside the observer.
+ * Do not create concurrent observers that also call ensureTurn — they would
+ * overwrite the slot. Tests call `clear()` (and observer `reset()`) between cases.
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -32,7 +42,25 @@ const FIRST_TOKEN_TYPES: ReadonlySet<string> = new Set([
 export type PerfReactorObserver = {
   observe(event: ReactorEmittedEvent): void;
   reset(): void;
+  /** Opaque PerfTrace id of the open turn span, or null when no turn is open. */
+  currentTurnId(): string | null;
 };
+
+/**
+ * Process-wide open-turn id from the most recently active reactor observer.
+ * Permission-wait and subagent spans nest under this when present.
+ * Tests that open turns should clear() PerfTrace and reset observers between cases.
+ */
+let activeTurnId: string | null = null;
+
+/** Current open turn span id (for nesting permission.wait / subagent outside the observer). */
+export function currentTurnId(): string | null {
+  return activeTurnId;
+}
+
+function setActiveTurnId(id: string | null): void {
+  activeTurnId = id;
+}
 
 type ObserverState = {
   turnId: string | null;
@@ -139,10 +167,14 @@ export function createPerfReactorObserver(): PerfReactorObserver {
   /**
    * Single exit for ending a turn: close orphan tool spans, then the turn.
    * Inference tree must already be closed (or will be via abandonTurn).
+   * Clears the process-wide active turn when this observer owns it.
    */
   function closeTurn(): void {
     closeOpenTools();
     endIfOpen(state.turnId);
+    if (state.turnId !== null && activeTurnId === state.turnId) {
+      setActiveTurnId(null);
+    }
     state.turnId = null;
     state.pendingTools = 0;
   }
@@ -156,6 +188,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
   function ensureTurn(): string {
     if (state.turnId === null) {
       state.turnId = start("turn");
+      setActiveTurnId(state.turnId);
     }
     return state.turnId;
   }
@@ -257,5 +290,9 @@ export function createPerfReactorObserver(): PerfReactorObserver {
     state = emptyState();
   }
 
-  return { observe, reset };
+  return {
+    observe,
+    reset,
+    currentTurnId: () => state.turnId,
+  };
 }
