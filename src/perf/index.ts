@@ -3,12 +3,19 @@
  *
  * Fixed-size ring buffer, monotonic high-res clocks, privacy-sanitized tags.
  * No network, no PostHog, no export side effects.
+ *
+ * Memory policy (fixed, not settings):
+ * - RING_CAPACITY completed spans (oldest completed dropped on overflow)
+ * - OPEN_SPAN_CAPACITY concurrent open spans (oldest open dropped on overflow)
+ * - snapshot() returns shallow copies so consumers cannot poison internal state
  */
 
-import { sanitizeTags, type PerfTags, type TransportKind } from "./sanitize.js";
+import { isOpaqueId, sanitizeTags, type PerfTags } from "./sanitize.js";
 
 export {
   sanitizeTags,
+  isOpaqueId,
+  OPAQUE_ID_RE,
   ALLOWED_TAG_KEYS,
   type AllowedTagKey,
   type PerfTags,
@@ -48,8 +55,14 @@ export type StartOptions = {
   tags?: Record<string, unknown>;
 };
 
-/** Fixed ring capacity — constant, not a settings UI. */
+/** Fixed ring capacity for completed spans — constant, not a settings UI. */
 export const RING_CAPACITY = 4096;
+
+/**
+ * Max concurrent open (un-ended) spans. Fixed memory: when exceeded, the
+ * oldest open span is dropped so a leaked start() cannot grow without bound.
+ */
+export const OPEN_SPAN_CAPACITY = 1024;
 
 // Module state: one process-wide ring. Tests call clear() between cases.
 let nextId = 0;
@@ -80,33 +93,77 @@ function pushRing(span: PerfSpan): void {
   }
 }
 
+function ringHasId(id: string): boolean {
+  if (ringCount === 0) return false;
+  const startIdx = ringCount < RING_CAPACITY ? 0 : ringWrite;
+  for (let i = 0; i < ringCount; i += 1) {
+    const span = ring[(startIdx + i) % RING_CAPACITY];
+    if (span !== undefined && span.id === id) return true;
+  }
+  return false;
+}
+
+/**
+ * Privacy fence for parentId: only opaque span ids (known open/ring ids, or
+ * OPAQUE_ID_RE). Free text, paths, and long strings are stripped.
+ */
+function sanitizeParentId(parentId: string | undefined): string | undefined {
+  if (parentId === undefined || parentId.length === 0) return undefined;
+  if (openSpans.has(parentId) || ringHasId(parentId)) return parentId;
+  if (isOpaqueId(parentId)) return parentId;
+  return undefined;
+}
+
+/** Shallow copy so snapshot consumers cannot mutate the ring / open map. */
+function cloneSpan(span: PerfSpan): PerfSpan {
+  const copy: PerfSpan = {
+    id: span.id,
+    name: span.name,
+    startNs: span.startNs,
+  };
+  if (span.parentId !== undefined) copy.parentId = span.parentId;
+  if (span.endNs !== undefined) copy.endNs = span.endNs;
+  if (span.tags !== undefined) copy.tags = { ...span.tags };
+  return copy;
+}
+
+/** Drop the oldest open span when at capacity (Map iteration is insertion order). */
+function evictOldestOpenIfFull(): void {
+  if (openSpans.size < OPEN_SPAN_CAPACITY) return;
+  const oldest = openSpans.keys().next().value;
+  if (oldest !== undefined) openSpans.delete(oldest);
+}
+
 /**
  * Open a timed span. Returns an opaque id for `end`.
  * Unknown span names are ignored (returns empty string; end is a no-op).
+ * When open capacity is full, the oldest open span is dropped first.
  */
 export function start(name: SpanName | string, opts?: StartOptions): string {
   if (!isSpanName(name)) return "";
 
   const id = allocId();
   const tags = sanitizeTags(opts?.tags);
+  const parentId = sanitizeParentId(opts?.parentId);
   const span: PerfSpan = {
     id,
     name,
     startNs: nowNs(),
   };
-  if (opts?.parentId !== undefined && opts.parentId.length > 0) {
-    span.parentId = opts.parentId;
+  if (parentId !== undefined) {
+    span.parentId = parentId;
   }
   if (tags !== undefined) {
     span.tags = tags;
   }
+  evictOldestOpenIfFull();
   openSpans.set(id, span);
   return id;
 }
 
 /**
  * Close a span opened by `start`. Merges optional end tags (sanitized).
- * Unknown or already-ended ids are ignored.
+ * Unknown or already-ended ids are ignored (double-end is a no-op).
  */
 export function end(id: string, tags?: Record<string, unknown>): void {
   if (id.length === 0) return;
@@ -126,20 +183,25 @@ export function end(id: string, tags?: Record<string, unknown>): void {
 
 /**
  * Point-in-time event: recorded as a completed span with startNs === endNs.
- * Unknown span names are ignored.
+ * Unknown span names are ignored. Accepts the same options shape as `start`
+ * (optional parentId + tags).
  */
-export function mark(name: SpanName | string, tags?: Record<string, unknown>): string {
+export function mark(name: SpanName | string, opts?: StartOptions): string {
   if (!isSpanName(name)) return "";
 
   const id = allocId();
   const ns = nowNs();
-  const sanitized = sanitizeTags(tags);
+  const sanitized = sanitizeTags(opts?.tags);
+  const parentId = sanitizeParentId(opts?.parentId);
   const span: PerfSpan = {
     id,
     name,
     startNs: ns,
     endNs: ns,
   };
+  if (parentId !== undefined) {
+    span.parentId = parentId;
+  }
   if (sanitized !== undefined) {
     span.tags = sanitized;
   }
@@ -150,6 +212,9 @@ export function mark(name: SpanName | string, tags?: Record<string, unknown>): s
 /**
  * Snapshot of completed spans in chronological order (oldest first),
  * plus any still-open spans (endNs unset) appended after completed ones.
+ *
+ * Returns shallow copies of each span (and of tags) so callers cannot
+ * mutate the ring buffer or open-span map through the returned objects.
  */
 export function snapshot(): PerfSpan[] {
   const completed: PerfSpan[] = [];
@@ -157,13 +222,13 @@ export function snapshot(): PerfSpan[] {
     const startIdx = ringCount < RING_CAPACITY ? 0 : ringWrite;
     for (let i = 0; i < ringCount; i += 1) {
       const span = ring[(startIdx + i) % RING_CAPACITY];
-      if (span !== undefined) completed.push(span);
+      if (span !== undefined) completed.push(cloneSpan(span));
     }
   }
 
   if (openSpans.size === 0) return completed;
 
-  const open = [...openSpans.values()];
+  const open = [...openSpans.values()].map(cloneSpan);
   // Stable order by start time so tests and dumps are deterministic.
   open.sort((a, b) => (a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0));
   return completed.concat(open);

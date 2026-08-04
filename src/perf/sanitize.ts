@@ -72,13 +72,14 @@ const MAX_ID_LENGTH = 64;
 
 // Opaque ids / model ids: alphanumerics, dots, underscores, hyphens, colons, @.
 // No spaces, slashes, backslashes, or control characters.
-const OPAQUE_ID_RE = /^[A-Za-z0-9._:@-]{1,64}$/;
+export const OPAQUE_ID_RE = /^[A-Za-z0-9._:@-]{1,64}$/;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isOpaqueId(value: unknown): value is string {
+/** True for short opaque id strings (no paths, whitespace, or free text). */
+export function isOpaqueId(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAX_ID_LENGTH && OPAQUE_ID_RE.test(value);
 }
 
