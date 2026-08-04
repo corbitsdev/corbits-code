@@ -116,7 +116,7 @@ export const taskToolDefinition: ToolDefinition = {
       agent: {
         type: "string",
         description:
-          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify tier, capability restrictions, and role. Omit for a generic sub-agent on the default provider.",
+          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify tier, capability restrictions, and role. Role drives reasoning-effort defaults (orchestrator high, leaf medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
       },
       maxTurns: {
         type: "number",
