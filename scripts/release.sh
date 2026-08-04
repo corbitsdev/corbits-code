@@ -15,7 +15,7 @@
 #   5. pushes the release commit and tag only after artifacts exist,
 #   6. creates the GitHub release on corbitsdev/corbits-code with those assets,
 #   7. regenerates the Homebrew formula (per-arch url + sha256) in the
-#      corbitsdev/homebrew-tap tap and pushes it, so `brew install corbits` works.
+#      corbitsdev/homebrew-tap tap and pushes it, so `brew install corbits-code` works.
 #
 # Every step is idempotent: a stage whose artifact already exists is skipped,
 # so a half-finished release can be completed by re-running with the version.
@@ -33,7 +33,9 @@ set -euo pipefail
 MAIN_REPO="corbitsdev/corbits-code"         # source repo (releases + tags)
 TAP_REPO="corbitsdev/homebrew-tap"          # tap repo (formula)
 TAP_SLUG="corbitsdev/tap"                   # `brew tap' name of TAP_REPO
-FORMULA="corbits"                           # formula / binary name
+BINARY="corbits"                            # CLI binary + tarball/deb stem
+BREW_FORMULA="corbits-code"                 # `brew install` name (file Formula/$BREW_FORMULA.rb)
+FORMULA="$BINARY"                           # legacy alias used in package paths
 DESC="Single-process coding agent CLI built on the Interchange runtime"
 DOC_FILES=(LICENSE.md README.md CHANGELOG.md GPLv2-AI-Exception.md GPL-2.0.txt)  # shipped with the binary
 
@@ -224,15 +226,15 @@ else
     echo "## Install"; echo
     echo "### macOS (Homebrew)"; echo
     echo '```'
-    echo "brew tap $TAP_SLUG && brew install $FORMULA"
+    echo "brew tap $TAP_SLUG && brew install $BREW_FORMULA"
     echo '```'; echo
     echo "### Debian / Ubuntu"; echo
     echo '```'
-    echo "sudo dpkg -i ${FORMULA}_${VERSION}_amd64.deb   # or _arm64.deb"
+    echo "sudo dpkg -i ${BINARY}_${VERSION}_amd64.deb   # or _arm64.deb"
     echo '```'; echo
     echo "### Any macOS or Linux (tarball)"; echo
-    echo "Download the matching \`$FORMULA-$VERSION-<platform>.tar.gz\` below,"
-    echo "extract, and put the \`$FORMULA\` binary on your PATH. It is"
+    echo "Download the matching \`$BINARY-$VERSION-<platform>.tar.gz\` below,"
+    echo "extract, and put the \`$BINARY\` binary on your PATH. It is"
     echo "self-contained; no runtime is required."
   } > "$NOTES_TMP"
   info "notes: (generated -- no scripts/notes/$TAG.md found)"
@@ -325,16 +327,26 @@ fi
 if [ "$SKIP_TAP" = 1 ]; then
   step "Homebrew formula (skipped: --skip-tap)"
 else
-  step "Update $TAP_SLUG formula"
+  step "Update $TAP_SLUG formula ($BREW_FORMULA)"
   sha_for() {  # sha_for LABEL -> sha256 of that tarball
-    cut -d' ' -f1 "$STAGE/$FORMULA-$VERSION-$1.tar.gz.sha256"
+    cut -d' ' -f1 "$STAGE/$BINARY-$VERSION-$1.tar.gz.sha256"
   }
   url_for() {  # url_for LABEL -> download URL for that tarball
-    echo "https://github.com/$MAIN_REPO/releases/download/$TAG/$FORMULA-$VERSION-$1.tar.gz"
+    echo "https://github.com/$MAIN_REPO/releases/download/$TAG/$BINARY-$VERSION-$1.tar.gz"
   }
-  class=$(echo "$FORMULA" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+  # Homebrew class: corbits-code -> CorbitsCode
+  class=$(echo "$BREW_FORMULA" | awk -F'[-_]' '{
+    s = ""
+    for (i = 1; i <= NF; i++) s = s toupper(substr($i, 1, 1)) substr($i, 2)
+    print s
+  }')
   mkdir -p "$TAP_DIR/Formula"
-  cat > "$TAP_DIR/Formula/$FORMULA.rb" <<EOF
+  # Drop the old single-name formula if we renamed (corbits -> corbits-code).
+  if [ -f "$TAP_DIR/Formula/$BINARY.rb" ] && [ "$BINARY" != "$BREW_FORMULA" ]; then
+    git -C "$TAP_DIR" rm -f --quiet "Formula/$BINARY.rb" 2>/dev/null \
+      || rm -f "$TAP_DIR/Formula/$BINARY.rb"
+  fi
+  cat > "$TAP_DIR/Formula/$BREW_FORMULA.rb" <<EOF
 class $class < Formula
   desc "$DESC"
   homepage "https://github.com/$MAIN_REPO"
@@ -364,23 +376,25 @@ class $class < Formula
   end
 
   def install
-    bin.install "$FORMULA"
+    bin.install "$BINARY"
   end
 
   test do
-    assert_predicate bin/"$FORMULA", :executable?
+    assert_predicate bin/"$BINARY", :executable?
   end
 end
 EOF
   if git -C "$TAP_DIR" rev-parse --verify HEAD >/dev/null 2>&1 \
-    && git -C "$TAP_DIR" ls-files --error-unmatch "Formula/$FORMULA.rb" >/dev/null 2>&1 \
-    && git -C "$TAP_DIR" diff --quiet -- "Formula/$FORMULA.rb"; then
+    && git -C "$TAP_DIR" ls-files --error-unmatch "Formula/$BREW_FORMULA.rb" >/dev/null 2>&1 \
+    && git -C "$TAP_DIR" diff --quiet -- "Formula/$BREW_FORMULA.rb" \
+    && ! git -C "$TAP_DIR" status --porcelain -- "Formula/" | grep -q .; then
     skip "formula already at $VERSION"
   else
     # Untracked formula (empty or new tap) is invisible to `git diff`, so we
     # require the file to be tracked before treating "no diff" as up-to-date.
-    git -C "$TAP_DIR" add "Formula/$FORMULA.rb"
-    git -C "$TAP_DIR" commit -q -m "$FORMULA $VERSION"
+    git -C "$TAP_DIR" add "Formula/$BREW_FORMULA.rb"
+    git -C "$TAP_DIR" add -u "Formula/" 2>/dev/null || true
+    git -C "$TAP_DIR" commit -q -m "$BREW_FORMULA $VERSION"
     info "committed formula bump"
     git_push "$TAP_DIR"
   fi
@@ -389,5 +403,5 @@ fi
 # ---- done ------------------------------------------------------------------
 step "Done: $TAG released"
 info "release: https://github.com/$MAIN_REPO/releases/tag/$TAG"
-[ "$SKIP_TAP" = 1 ] || info "install: brew tap $TAP_SLUG && brew install $FORMULA"
-info "verify:  brew update && brew upgrade $FORMULA"
+[ "$SKIP_TAP" = 1 ] || info "install: brew tap $TAP_SLUG && brew install $BREW_FORMULA"
+info "verify:  brew update && brew upgrade $BREW_FORMULA"

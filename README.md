@@ -4,6 +4,17 @@ Corbits Code is a local-first coding agent. It lives in your terminal and works 
 
 ## Quickstart
 
+### Homebrew (macOS / Linux)
+
+```sh
+brew tap corbitsdev/tap
+brew install corbits-code
+```
+
+Upgrade later with `brew update && brew upgrade corbits-code`. The CLI binary is `corbits`.
+
+### From source
+
 [Bun](https://bun.sh) v1.2+ is required.
 
 ```sh

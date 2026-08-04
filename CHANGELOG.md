@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Changed
+
+- Homebrew formula renamed to **`corbits-code`** (`brew install corbits-code`). The CLI binary remains `corbits`. README and release notes match. (`scripts/release.sh`, tap)
+
 ### Planned
 
 - Local context estimate for compaction when providers omit usage (CL-4345)
