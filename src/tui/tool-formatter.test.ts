@@ -293,3 +293,64 @@ describe("describeToolCall for task tool", () => {
     expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
   });
 });
+
+describe("task activity transcript lines", () => {
+  const fullBrief = {
+    agent: "explore",
+    description: "map callers of leaveObserve",
+    prompt: "Find every call site...",
+    intent: "explore",
+    tier: "fast",
+    maxTurns: 40,
+    success_criteria: ["list call sites", "note tests"],
+    do_not: ["edit code", "open PRs"],
+  };
+
+  const reportBody = [
+    'Sub-agent "map callers of leaveObserve" reported:',
+    "",
+    "## Summary",
+    "Found 3 call sites in app.tsx",
+    "",
+    "## Findings",
+    "- app.tsx leaveObserveChrome",
+    "- use-keymap Esc handler",
+    "",
+    "## Blockers",
+    "None",
+    "",
+    "## Paths",
+    "src/tui/app.tsx",
+  ].join("\n");
+
+  test("summarizeToolArgs keeps only the description, not the full spawn brief", () => {
+    const s = summarizeToolArgs("task", JSON.stringify(fullBrief));
+    expect(s.summary).toBe("map callers of leaveObserve");
+    expect(s.summary).not.toContain("prompt");
+    expect(s.summary).not.toContain("intent");
+    expect(s.summary).not.toContain("maxTurns");
+    expect(s.summary).not.toContain("success_criteria");
+    expect(s.full).toBe("map callers of leaveObserve");
+  });
+
+  test("summarizeToolResult peels the report envelope to the summary line", () => {
+    const r = summarizeToolResult("task", reportBody);
+    expect(r.preview).toBe("Found 3 call sites in app.tsx");
+    expect(r.preview).not.toContain("## Summary");
+    expect(r.preview).not.toContain("## Findings");
+  });
+
+  test("summarizeToolResult marks a cancelled task without raw markdown", () => {
+    const r = summarizeToolResult("task", 'Sub-agent "map callers" cancelled by operator.');
+    expect(r.preview).toBe("cancelled");
+    expect(r.preview).not.toContain("##");
+  });
+
+  test("mergedToolCollapsedPreview curates task call+result into one line", () => {
+    const line = mergedToolCollapsedPreview("task", JSON.stringify(fullBrief), reportBody, false);
+    expect(line).toBe("Explore map callers of leaveObserve — Found 3 call sites in app.tsx");
+    expect(line).not.toContain("prompt");
+    expect(line).not.toContain("maxTurns");
+    expect(line).not.toContain("## Summary");
+  });
+});

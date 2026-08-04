@@ -82,6 +82,26 @@ describe("collapsed shell rows", () => {
     expect(lines).toEqual(["  $ ls -la"]);
   });
 
+  test("wrapped shell continuations hang-indent under the dollar prefix", () => {
+    // One long unbroken token forces a hard wrap; hang-indent keeps the
+    // continuation under "$ " rather than flush to the left content edge.
+    const token = "x".repeat(COLUMNS);
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_call",
+        id: "s-hang",
+        name: "run_shell",
+        arguments: JSON.stringify({ command: token }),
+      },
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toStartWith("  $ ");
+    // TOOL_INDENT (2) + hang matching "$ " (2) = 4 leading spaces on wrap rows.
+    expect(lines[1]).toStartWith("    ");
+    expect(lines[1]).not.toStartWith("  $ ");
+  });
+
   test("pending shell marks the running row and completed shell shows duration", () => {
     const call: ContentBlock = {
       type: "tool_call",
