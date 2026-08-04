@@ -54,7 +54,7 @@ Interchange is the standard library for this repo, consumed as published `@intx/
 
 | Package | Covers |
 |---|---|
-| `@intx/authz` | Grant-based policy engine (allow/ask/deny) |
+| `@intx/authz` | Grant matching (`matchPattern`, `evaluateGrants`) for permission approvals; Corbits owns the gate, store, and TUI ask |
 | `@intx/inference` | Reactor loop, `createAuthzExtension`, `DefaultDirector` |
 | `@intx/agent` | Agent lifecycle, send queue, stream |
 | `@intx/tools-posix` | Shell, file read/write/edit, grep, search |

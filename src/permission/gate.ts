@@ -13,7 +13,8 @@ import {
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
-import { isApproved, matchesPattern, escapeGlobLiteral } from "./matcher.js";
+import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
+import { evaluateApprovals } from "./authz-grants.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
@@ -421,7 +422,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             needsOperator = true;
             continue;
           }
-          if (isApproved(request.tool, segment, approvals, activeProviderModel, effectiveCwd)) {
+          if (
+            await evaluateApprovals({
+              tool: request.tool,
+              subject: segment,
+              approvals,
+              activeProviderModel,
+              requestCwd: effectiveCwd,
+            })
+          ) {
             continue;
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
@@ -467,10 +476,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         continue;
       }
 
-      const alreadyApproved =
-        // Path-arg tools already drop to ask via callTargetsRestricted; grants
-        // match on the path subject the same as before.
-        isApproved(request.tool, request.subject, approvals, activeProviderModel, effectiveCwd);
+      // Path-arg tools already drop to ask via callTargetsRestricted; grants
+      // match on the path subject the same as before.
+      const alreadyApproved = await evaluateApprovals({
+        tool: request.tool,
+        subject: request.subject,
+        approvals,
+        activeProviderModel,
+        requestCwd: effectiveCwd,
+      });
       if (alreadyApproved) {
         continue;
       }

@@ -12,7 +12,8 @@ import {
   isShellNoOp,
   stripCommentLines,
 } from "./command.js";
-import { globToRegExp, matchesPattern, isApproved, escapeGlobLiteral } from "./matcher.js";
+import { matchesPattern, isApproved, escapeGlobLiteral } from "./matcher.js";
+import { evaluateApprovals } from "./authz-grants.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
@@ -212,20 +213,20 @@ describe("deriveCommandScopes", () => {
   });
 });
 
-describe("globToRegExp / matchesPattern", () => {
-  test("* matches zero or more, ? matches exactly one", () => {
+describe("matchesPattern (@intx/authz + exact escapes)", () => {
+  test("* matches zero or more characters via @intx/authz", () => {
     expect(matchesPattern("npm exec vite", "npm *")).toBe(true);
     expect(matchesPattern("npm", "npm *")).toBe(false);
-    expect(matchesPattern("ab", "a?")).toBe(true);
-    expect(matchesPattern("abc", "a?")).toBe(false);
+    expect(matchesPattern("src/a.ts", "src/*")).toBe(true);
+    expect(matchesPattern("lib/a.ts", "src/*")).toBe(false);
   });
 
-  test("escapes regex metacharacters in literals", () => {
-    expect(globToRegExp("a.b").test("axb")).toBe(false);
+  test("literal patterns match only themselves", () => {
     expect(matchesPattern("a.b", "a.b")).toBe(true);
+    expect(matchesPattern("axb", "a.b")).toBe(false);
   });
 
-  test("a backslash escapes the following char, turning it into a literal", () => {
+  test("a backslash-escaped pattern is exact-only (package has no escape syntax)", () => {
     expect(matchesPattern("echo *", "echo \\*")).toBe(true);
     expect(matchesPattern("echo anything", "echo \\*")).toBe(false);
     expect(matchesPattern("a?b", "a\\?b")).toBe(true);
@@ -250,6 +251,82 @@ describe("isApproved", () => {
     expect(isApproved("run_shell", "curl x", approvals)).toBe(false);
     expect(isApproved("write_file", "src/a.ts", approvals)).toBe(true);
     expect(isApproved("write_file", "lib/a.ts", approvals)).toBe(false);
+  });
+});
+
+describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
+  const approvals: Approval[] = [
+    { tool: "run_shell", pattern: "npm *" },
+    { tool: "write_file", pattern: "src/*" },
+    { tool: "run_shell", pattern: "rm -rf build/\\*" },
+  ];
+
+  test("allows package-compatible wildcard grants", async () => {
+    expect(
+      await evaluateApprovals({ tool: "run_shell", subject: "npm test", approvals }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({ tool: "run_shell", subject: "curl x", approvals }),
+    ).toBe(false);
+    expect(
+      await evaluateApprovals({ tool: "write_file", subject: "src/a.ts", approvals }),
+    ).toBe(true);
+  });
+
+  test("allows exact-escaped grants without treating * as a wildcard", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "rm -rf build/*",
+        approvals,
+      }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "rm -rf build/../../etc",
+        approvals,
+      }),
+    ).toBe(false);
+  });
+
+  test("respects providerModel and cwd filters", async () => {
+    const scoped: Approval[] = [
+      { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-4o" },
+      { tool: "run_shell", pattern: "git *", cwd: "/repo-a" },
+    ];
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "npm test",
+        approvals: scoped,
+        activeProviderModel: "openai:gpt-4o",
+      }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "npm test",
+        approvals: scoped,
+        activeProviderModel: "anthropic:opus",
+      }),
+    ).toBe(false);
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "git status",
+        approvals: scoped,
+        requestCwd: "/repo-a",
+      }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "git status",
+        approvals: scoped,
+        requestCwd: "/repo-b",
+      }),
+    ).toBe(false);
   });
 });
 

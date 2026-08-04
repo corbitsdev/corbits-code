@@ -1,38 +1,42 @@
+import { matchPattern } from "@intx/authz";
+
 import type { Approval } from "./types.js";
 
-// Translate a shell-style glob (opencode semantics: `*` = zero or more chars,
-// `?` = exactly one char, `\x` = literal `x` even when `x` is `*`, `?`, or `\`,
-// everything else literal) into an anchored RegExp.
-export function globToRegExp(pattern: string): RegExp {
-  let out = "^";
+// Exact-command grants (see escapeGlobLiteral) store a backslash before every
+// glob metacharacter so a command like `rm -rf build/*` never becomes the
+// wildcard `rm -rf build/*`. @intx/authz's matchPattern has no escape syntax —
+// `*` always wildcards — so escaped patterns are exact-only: strip one level of
+// backslash escapes and require string equality. Unescaped patterns use the
+// package matcher (* wildcards only; no `?`).
+function unescapeExactPattern(pattern: string): string {
+  let out = "";
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i] as string;
     if (ch === "\\" && i + 1 < pattern.length) {
-      const escaped = pattern[++i] as string;
-      out += escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out += pattern[++i] as string;
       continue;
     }
-    if (ch === "*") {
-      out += ".*";
-    } else if (ch === "?") {
-      out += ".";
-    } else {
-      out += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    }
+    out += ch;
   }
-  out += "$";
-  return new RegExp(out);
+  return out;
 }
 
-// Escape a literal string so it matches only itself when interpreted by
-// globToRegExp, even when it contains `*`, `?`, or `\`. Used when a grant must
-// cover an exact command rather than a pattern.
+function isExactEscapedPattern(pattern: string): boolean {
+  return pattern.includes("\\");
+}
+
+// Escape a literal string so it matches only itself under matchesPattern, even
+// when it contains `*`, `?`, or `\`. Used when a grant must cover an exact
+// command rather than a wildcard pattern.
 export function escapeGlobLiteral(text: string): string {
   return text.replace(/[\\*?]/g, "\\$&");
 }
 
 export function matchesPattern(subject: string, pattern: string): boolean {
-  return globToRegExp(pattern).test(subject);
+  if (isExactEscapedPattern(pattern)) {
+    return subject === unescapeExactPattern(pattern);
+  }
+  return matchPattern(pattern, subject);
 }
 
 // True when any stored approval for this tool matches the subject. The subject
