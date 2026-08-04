@@ -268,6 +268,19 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
       }
       break;
     }
+    case "task": {
+      // Spawns carry a large structured brief (prompt, intent, criteria). The
+      // transcript only needs the short description; Ctrl+O still shows the
+      // full description text, not every spawn field.
+      const parsed = TaskArgSchema(obj);
+      if (!(parsed instanceof type.errors)) {
+        const desc = (parsed.description ?? "").trim();
+        if (desc.length > 0) {
+          return { summary: abbreviate(desc, ARG_VALUE_MAX), full: desc };
+        }
+      }
+      return { summary: "", full: "" };
+    }
   }
 
   if (obj === null) {
@@ -415,6 +428,14 @@ export function mergedToolCollapsedPreview(
     return outcomePreview;
   }
 
+  if (toolName === "task") {
+    // describeToolCall already curates the spawn brief to a short description;
+    // reusing it here keeps the collapsed row free of prompt/intent/criteria dumps.
+    const { display, summary } = describeToolCall(toolName, rawArgs);
+    if (summary.length > 0) return `${display} ${summary} — ${outcomePreview}`;
+    return `${display} — ${outcomePreview}`;
+  }
+
   if (isMcpToolName(toolName)) {
     const label = humanizeToolName(toolName);
     if (argSummary.length > 0) return `${label} ${argSummary} — ${outcomePreview}`;
@@ -437,6 +458,31 @@ function pathFromResult(toolName: string, content: string): string | null {
   const edited = content.match(/replaced \d+ occurrence\(s\) in (.+)$/m);
   if (edited) return edited[1] ?? null;
   return null;
+}
+
+// Task tool results are either "Sub-agent \"desc\" reported:\n\n## Summary\n..."
+// or a cancel notice. Pull a one-line human preview without leaking markdown headers.
+function summarizeTaskResultPreview(content: string): string {
+  const trimmed = content.trim();
+  if (/^Sub-agent ".+" cancelled/i.test(trimmed)) {
+    return "cancelled";
+  }
+  const reported = trimmed.match(/^Sub-agent "([^"]*)" reported:\s*([\s\S]*)$/i);
+  const body = (reported?.[2] ?? trimmed).trim();
+  const summarySection = body.match(/^##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\s*$)/im);
+  if (summarySection) {
+    const first = summarySection[1]!
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (first !== undefined && first.length > 0) return abbreviate(first, 64);
+  }
+  const withoutHeadings = body
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !/^##\s+/.test(l));
+  const first = withoutHeadings[0] ?? "";
+  return first.length > 0 ? abbreviate(first, 64) : "(no output)";
 }
 
 const WebSearchItemSchema = type({ "title?": "string", "url?": "string", "snippet?": "string" });
@@ -554,6 +600,12 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
       } else {
         preview = firstLine.length > 0 ? `${firstLine}${more}` : "(no output)";
       }
+      break;
+    }
+    case "task": {
+      // Workers reply with a ## Summary / ## Findings envelope. Collapse to the
+      // summary first line so raw markdown headings never leak into the transcript.
+      preview = summarizeTaskResultPreview(content);
       break;
     }
     case "search_files": {
