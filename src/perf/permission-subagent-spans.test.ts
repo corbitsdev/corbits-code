@@ -73,6 +73,43 @@ describe("permission.wait spans", () => {
     expect(waits[0]!.tags?.tool_id).toBe("run_shell");
   });
 
+  test("permission.wait tags never include free-text reason/prompt — only tool_id + decision", async () => {
+    // Gate path that would surface operator free text in the verdict reason, but
+    // must never land free-text keys on the span (sanitizeTags + gate only pass
+    // tool_id + allow/deny enums).
+    const freeText =
+      "please do not store this prompt: /Users/me/secret/key.pem and system: you are";
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      requestApproval: async () => ({ allow: false, message: freeText }),
+    });
+
+    const verdict = await gate.evaluate(shellCall("curl example.com"));
+    expect(verdict.allowed).toBe(false);
+    // Free text reaches the operator-facing reason only (not span tags).
+    expect(
+      !verdict.allowed && "reason" in verdict ? verdict.reason : "",
+    ).toContain(freeText);
+
+    const waits = byName(completed(snapshot()), "permission.wait");
+    expect(waits).toHaveLength(1);
+    const tags = waits[0]!.tags ?? {};
+    // Allowlist: only tool_id + decision enums on permission.wait.
+    expect(Object.keys(tags).sort()).toEqual(["decision", "tool_id"]);
+    expect(tags).toEqual({ tool_id: "run_shell", decision: "deny" });
+    // Explicit privacy fence: no free-text keys, and free text never appears in values.
+    for (const key of ["reason", "prompt", "message", "path", "error", "action", "subject"] as const) {
+      expect(Object.hasOwn(tags, key)).toBe(false);
+    }
+    for (const value of Object.values(tags)) {
+      expect(String(value)).not.toContain(freeText);
+      expect(String(value)).not.toContain("secret");
+      expect(String(value)).not.toContain("system:");
+    }
+  });
+
   test("records path-arg tool ask as permission.wait", async () => {
     const gate = createPermissionGate({
       approvals: [],
