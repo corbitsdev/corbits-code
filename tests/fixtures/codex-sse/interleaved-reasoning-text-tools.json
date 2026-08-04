@@ -1,0 +1,162 @@
+[
+  {
+    "type": "response.created",
+    "response": {
+      "id": "resp_fixture_interleaved",
+      "status": "in_progress",
+      "model": "gpt-fixture-codex"
+    }
+  },
+  {
+    "type": "response.in_progress",
+    "response": {
+      "id": "resp_fixture_interleaved",
+      "status": "in_progress"
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "output_index": 0,
+    "item": {
+      "type": "reasoning",
+      "id": "rs_fixture_1",
+      "summary": []
+    }
+  },
+  {
+    "type": "response.reasoning_summary_text.delta",
+    "item_id": "rs_fixture_1",
+    "output_index": 0,
+    "delta": "consider "
+  },
+  {
+    "type": "response.reasoning_summary_text.delta",
+    "item_id": "rs_fixture_1",
+    "output_index": 0,
+    "delta": "options"
+  },
+  {
+    "type": "response.reasoning_summary_text.done",
+    "item_id": "rs_fixture_1",
+    "output_index": 0,
+    "text": "consider options"
+  },
+  {
+    "type": "response.output_item.done",
+    "output_index": 0,
+    "item": {
+      "type": "reasoning",
+      "id": "rs_fixture_1",
+      "summary": [{ "type": "summary_text", "text": "consider options" }],
+      "encrypted_content": "ENC_FIXTURE_BLOB_NOT_REAL"
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "output_index": 1,
+    "item": {
+      "type": "message",
+      "id": "msg_fixture_1",
+      "role": "assistant",
+      "content": []
+    }
+  },
+  {
+    "type": "response.content_part.added",
+    "item_id": "msg_fixture_1",
+    "output_index": 1,
+    "content_index": 0,
+    "part": { "type": "output_text", "text": "" }
+  },
+  {
+    "type": "response.output_text.delta",
+    "item_id": "msg_fixture_1",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "I will "
+  },
+  {
+    "type": "response.output_text.delta",
+    "item_id": "msg_fixture_1",
+    "output_index": 1,
+    "content_index": 0,
+    "delta": "check."
+  },
+  {
+    "type": "response.output_text.done",
+    "item_id": "msg_fixture_1",
+    "output_index": 1,
+    "content_index": 0,
+    "text": "I will check."
+  },
+  {
+    "type": "response.content_part.done",
+    "item_id": "msg_fixture_1",
+    "output_index": 1,
+    "content_index": 0,
+    "part": { "type": "output_text", "text": "I will check." }
+  },
+  {
+    "type": "response.output_item.done",
+    "output_index": 1,
+    "item": {
+      "type": "message",
+      "id": "msg_fixture_1",
+      "role": "assistant",
+      "content": [{ "type": "output_text", "text": "I will check." }]
+    }
+  },
+  {
+    "type": "response.output_item.added",
+    "output_index": 2,
+    "item": {
+      "type": "function_call",
+      "id": "fc_fixture_1",
+      "call_id": "call_fixture_read",
+      "name": "read_file",
+      "arguments": ""
+    }
+  },
+  {
+    "type": "response.function_call_arguments.delta",
+    "item_id": "fc_fixture_1",
+    "output_index": 2,
+    "delta": "{\"path\":"
+  },
+  {
+    "type": "response.function_call_arguments.delta",
+    "item_id": "fc_fixture_1",
+    "output_index": 2,
+    "delta": "\"src/app.ts\"}"
+  },
+  {
+    "type": "response.function_call_arguments.done",
+    "item_id": "fc_fixture_1",
+    "output_index": 2,
+    "arguments": "{\"path\":\"src/app.ts\"}"
+  },
+  {
+    "type": "response.output_item.done",
+    "output_index": 2,
+    "item": {
+      "type": "function_call",
+      "id": "fc_fixture_1",
+      "call_id": "call_fixture_read",
+      "name": "read_file",
+      "arguments": "{\"path\":\"src/app.ts\"}"
+    }
+  },
+  {
+    "type": "response.completed",
+    "response": {
+      "id": "resp_fixture_interleaved",
+      "status": "completed",
+      "usage": {
+        "input_tokens": 120,
+        "output_tokens": 40,
+        "input_tokens_details": { "cached_tokens": 16 },
+        "output_tokens_details": { "reasoning_tokens": 12 }
+      }
+    }
+  }
+]

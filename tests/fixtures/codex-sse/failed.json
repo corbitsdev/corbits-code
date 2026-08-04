@@ -1,0 +1,26 @@
+[
+  {
+    "type": "response.created",
+    "response": {
+      "id": "resp_fixture_failed",
+      "status": "in_progress",
+      "model": "gpt-fixture-codex"
+    }
+  },
+  {
+    "type": "response.output_text.delta",
+    "item_id": "msg_fixture_fail",
+    "delta": "before fail"
+  },
+  {
+    "type": "response.failed",
+    "response": {
+      "id": "resp_fixture_failed",
+      "status": "failed",
+      "error": {
+        "code": "server_error",
+        "message": "fixture backend failure (sanitized)"
+      }
+    }
+  }
+]
