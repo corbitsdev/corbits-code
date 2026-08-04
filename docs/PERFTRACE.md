@@ -10,7 +10,8 @@ PostHog usage events.
 - In-process ring buffer of phase spans (turn, inference, tools, …)
 - Privacy-strict tags: enums, ids, and numbers only — no prompts, paths, tool
   args, free-text errors, or credentials
-- Future session dumps (CL-5169) use the same allowlist and must never include
+- Offline dumps: `dumpSpans` + `rollupByPhase` / `rollupByTurn` / `sessionTotals`
+  (`src/perf/dump.ts`, `src/perf/rollup.ts`) — same tag allowlist; never include
   OTEL auth headers
 
 Local measurement does not require any settings or env vars.
