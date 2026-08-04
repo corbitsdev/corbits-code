@@ -468,7 +468,7 @@ describe("privacy fixture", () => {
 describe("edge: ring eviction and open spans in snapshot", () => {
   test("rollup tolerates more than RING_CAPACITY completed spans", () => {
     for (let i = 0; i < RING_CAPACITY + 25; i += 1) {
-      mark("tool", { count: i });
+      mark("tool", { tags: { count: i } });
     }
     const spans = snapshot();
     expect(spans).toHaveLength(RING_CAPACITY);
