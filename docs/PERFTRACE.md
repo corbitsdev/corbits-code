@@ -21,10 +21,10 @@ Local measurement does not require any settings or env vars.
 Export is **off** until an OTLP endpoint is configured. When enabled, traces go
 to the operator-owned backend you point at — not Corbits product analytics.
 
-The settings/env surface is implemented now (`src/perf/otel-config.ts`). The
-actual OTLP transport lands in a follow-up (CL-5173). Invalid config fails
-closed with a stable error code `OTEL_CONFIG_INVALID` and does not half-enable
-export.
+The settings/env surface lives in `src/perf/otel-config.ts`. OTLP/HTTP JSON
+export (`src/perf/otel-sink.ts`, CL-5173) flushes the PerfSpan tree once at
+process exit when export is enabled. Invalid config fails closed with a stable
+error code `OTEL_CONFIG_INVALID` and does not half-enable export.
 
 ### Configuration
 
@@ -97,7 +97,8 @@ No endpoint and no half-config → export stays disabled (not an error).
 ### Targeting common collectors
 
 Examples assume the OTLP HTTP base URL your collector documents. Paths such as
-`/v1/traces` are appended by the exporter (CL-5173), not by this settings layer.
+`/v1/traces` are appended by the exporter unless the endpoint already ends with
+`/v1/traces`.
 
 #### Arize Phoenix
 

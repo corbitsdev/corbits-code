@@ -1564,6 +1564,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
   // Bound against process.exit dropping the session_end capture for short
   // sessions; flush itself is deadline-capped so exit stays snappy.
+  // PerfTrace OTEL export runs once at process exit in main (flushPerfToOtel).
   await getTelemetry().flush();
 
   await sessionOps.awaitTail();
