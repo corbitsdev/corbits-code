@@ -9,9 +9,9 @@ export type SpinnerLabelInput = {
 };
 
 /**
- * Single session-phase label for the footer progress row (Amp-quiet: one
- * indicator, not competing spinners). Returns undefined when idle so the
- * progress zone can collapse entirely.
+ * Single session-phase label for the footer progress row (one indicator, not
+ * competing spinners). Returns undefined when idle so the progress zone can
+ * collapse entirely.
  */
 export function resolveSessionSpinnerLabel(input: SpinnerLabelInput): string | undefined {
   if (!input.isProcessing) return undefined;

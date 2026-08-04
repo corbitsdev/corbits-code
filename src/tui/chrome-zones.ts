@@ -36,12 +36,20 @@ export function sumChromeZoneRows(
   );
 }
 
+/** True when the progress row has anything to paint (live phase or workflow chip). */
+export function shouldShowProgressRow(input: {
+  active: boolean;
+  hasWorkflow: boolean;
+}): boolean {
+  return input.active || input.hasWorkflow;
+}
+
 /** Rows the progress zone occupies when the phase/workflow line is painted. */
 export function progressChromeRowCount(input: {
   active: boolean;
   hasWorkflow: boolean;
 }): number {
-  return input.active || input.hasWorkflow ? CHROME_ZONE_ROWS.progress : 0;
+  return shouldShowProgressRow(input) ? CHROME_ZONE_ROWS.progress : 0;
 }
 
 /** Full-width hairline for the progress/prompt separator. */

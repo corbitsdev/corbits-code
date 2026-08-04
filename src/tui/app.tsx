@@ -30,7 +30,6 @@ import { ModalStack } from "./components/modal-stack.js";
 import type { CompactionMode } from "./components/settings-overlay.js";
 import type { PluginsAdmin } from "./components/plugins-manager.js";
 import type { PermissionsAdmin, ScopedApproval } from "../permission/admin.js";
-import { InFlightIndicator } from "./components/in-flight-indicator.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import {
@@ -88,6 +87,10 @@ import {
   extraChromeRowCount,
 } from "./chrome-geometry.js";
 import { progressChromeRowCount } from "./chrome-zones.js";
+import {
+  InFlightIndicator,
+  resolveInlineWorkflowChip,
+} from "./components/in-flight-indicator.js";
 import type { OutboundUserMessage } from "./message-types.js";
 
 const EMPTY_WORKFLOW_STATUS: WorkflowStatus = {
@@ -340,7 +343,6 @@ export function App({
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     initialWorkflowStatus ?? EMPTY_WORKFLOW_STATUS,
   );
-  const [workflowHistory, setWorkflowHistory] = useState<WorkflowStatus[]>([]);
   const [goalSnapshot, setGoalSnapshot] = useState<import("../agent/goal.js").GoalSnapshot | null>(
     () => goalApi?.get() ?? null,
   );
@@ -466,7 +468,6 @@ export function App({
   useEffect(() => {
     const onWorkflow = (state: WorkflowControllerState) => {
       setWorkflowStatus(state.current);
-      setWorkflowHistory(state.history);
     };
     eventEmitter.on("workflow", onWorkflow);
     return () => { eventEmitter.off("workflow", onWorkflow); };
@@ -532,15 +533,10 @@ export function App({
     workExpanded,
   });
   const pluginChromeRows = pluginChromeRowCount({ pluginsOpen, pluginsAdmin });
-  const progressHasWorkflow =
-    (workflowStatus.active && workflowStatus.name !== undefined)
-    || (() => {
-      const last = workflowHistory[workflowHistory.length - 1];
-      return last !== undefined && last.name !== undefined;
-    })();
+  const progressWorkflow = resolveInlineWorkflowChip(workflowStatus);
   const progressChromeRows = progressChromeRowCount({
     active: state.isProcessing,
-    hasWorkflow: progressHasWorkflow,
+    hasWorkflow: progressWorkflow !== undefined,
   });
 
   const extraChromeRows = extraChromeRowCount({
@@ -693,7 +689,6 @@ export function App({
     promptCodexRelogin,
     promptXaiRelogin,
     setExpandedTools,
-    setWorkflowHistory,
     setInputValue,
     setSessionStartedAt,
     setEnteredSessionId,
@@ -964,8 +959,8 @@ export function App({
         forceRender((n) => n + 1);
       },
       exitEnteredSession: () => {
-        // Clear focus + command chrome together so "Back to parent session"
-        // never sticks on the parent transcript after leave-observe (CL-4869).
+        // Clear focus and command toast together so leave-observe never leaves
+        // a sticky toast on the parent transcript.
         const chrome = leaveObserveChrome();
         setEnteredSessionId(chrome.enteredSessionId);
         setCommandMessage(chrome.commandMessage);
@@ -1257,16 +1252,7 @@ export function App({
             timingAnchor={spinnerTiming.anchor}
             toolName={state.currentToolName}
             {...(spinnerLabel !== undefined ? { label: spinnerLabel } : {})}
-            {...(() => {
-              if (workflowStatus.active && workflowStatus.name !== undefined) {
-                return { workflow: { name: workflowStatus.name, stepIndex: workflowStatus.stepIndex, total: workflowStatus.total, label: workflowStatus.label } };
-              }
-              const last = workflowHistory[workflowHistory.length - 1];
-              if (last !== undefined && last.name !== undefined) {
-                return { workflow: { name: last.name, stepIndex: last.total - 1, total: last.total, label: "done" } };
-              }
-              return {};
-            })()}
+            {...(progressWorkflow !== undefined ? { workflow: progressWorkflow } : {})}
           />
           {state.quotaError !== null && (
             <QuotaErrorBanner retryAt={state.quotaError.retryAt} />

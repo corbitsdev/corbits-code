@@ -333,6 +333,25 @@ describe("task activity transcript lines", () => {
     expect(s.full).toBe("map callers of leaveObserve");
   });
 
+  test("describeToolCall full keeps the untrimmed description for Ctrl+O", () => {
+    const long = "a".repeat(80);
+    const d = describeToolCall(
+      "task",
+      JSON.stringify({ agent: "explorer", description: long, prompt: "secret brief" }),
+    );
+    expect(d.summary.length).toBeLessThan(long.length);
+    expect(d.full).toBe(long);
+    expect(d.full).not.toContain("secret brief");
+    expect(d.display).toBe("Explorer");
+  });
+
+  test("describeToolCall task with empty description stays empty", () => {
+    const d = describeToolCall("task", JSON.stringify({ agent: "worker" }));
+    expect(d.summary).toBe("");
+    expect(d.full).toBe("");
+    expect(d.display).toBe("Worker");
+  });
+
   test("summarizeToolResult peels the report envelope to the summary line", () => {
     const r = summarizeToolResult("task", reportBody);
     expect(r.preview).toBe("Found 3 call sites in app.tsx");

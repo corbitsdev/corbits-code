@@ -97,7 +97,3 @@ export function extraChromeRowCount(args: {
   );
 }
 
-/** Task / Work strip is a track header surface — zero rows when no active tracks. */
-export function shouldShowTaskTrack(hasActiveTasks: boolean): boolean {
-  return hasActiveTasks;
-}

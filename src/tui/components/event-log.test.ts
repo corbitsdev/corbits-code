@@ -102,6 +102,22 @@ describe("collapsed shell rows", () => {
     expect(lines[1]).not.toStartWith("  $ ");
   });
 
+  test("error shell hang-indents under the same dollar prefix (no fail glyph)", () => {
+    // Call-only (no result yet) still paints as `$ `; hang indent matches success path.
+    const token = "y".repeat(COLUMNS);
+    const blocks: ContentBlock[] = [
+      toolCallBlock("s-err", "run_shell", JSON.stringify({ command: token }), "s-err"),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toStartWith("  $ ");
+    expect(lines[0]).not.toMatch(/✗|×|✕/);
+    expect(lines[1]).toStartWith("    ");
+    expect(lines[1]).not.toMatch(/✗|×|✕/);
+  });
+
+
+
   test("pending shell marks the running row and completed shell shows duration", () => {
     const call: ContentBlock = {
       type: "tool_call",
@@ -1353,3 +1369,50 @@ describe("viewport-local expand", () => {
     expect(two.lines.length).toBeLessThan(Math.floor(DEFAULT_MAX_RENDERED_LOG_LINES / 2));
   });
 });
+
+describe("task tool rows", () => {
+  const taskArgs = JSON.stringify({
+    description: "map callers of leaveObserve",
+    prompt: "secret full brief with intent and maxTurns",
+    agent: "explore",
+    intent: "explore",
+    maxTurns: 12,
+  });
+  const reportBody = [
+    "## Summary",
+    "Found 3 call sites in app.tsx",
+    "",
+    "## Findings",
+    "- enterObserveChrome",
+    "- leaveObserveChrome",
+  ].join("\n");
+
+  test("collapsed task row shows curated description, not spawn brief fields", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("t1", "task", taskArgs, "t1"),
+      toolResultBlock("tr1", "t1", "task", reportBody),
+    ];
+    const lines = lineText(buildLines(blocks, COLUMNS, false, isExpanded));
+    const joined = lines.join("\n");
+    expect(joined).toContain("map callers of leaveObserve");
+    expect(joined).toContain("Found 3 call sites in app.tsx");
+    expect(joined).not.toContain("secret full brief");
+    expect(joined).not.toContain("maxTurns");
+    expect(joined).not.toContain("intent");
+    expect(joined).not.toContain("## Summary");
+  });
+
+  test("expanded task result shows report body without collapsing to preview only", () => {
+    const blocks: ContentBlock[] = [
+      toolCallBlock("t2", "task", taskArgs, "t2"),
+      toolResultBlock("tr2", "t2", "task", reportBody),
+    ];
+    const expanded = new Set(["t2", "tr2"]);
+    const lines = lineText(buildLines(blocks, COLUMNS, false, (b) => expanded.has(b.id)));
+    const joined = lines.join("\n");
+    // Expanded should surface findings, not only the one-line summary preview.
+    expect(joined).toContain("Found 3 call sites in app.tsx");
+    expect(joined).toMatch(/enterObserveChrome|Findings/);
+  });
+});
+

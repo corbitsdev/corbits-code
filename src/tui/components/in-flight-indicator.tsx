@@ -7,6 +7,8 @@ import {
   SPINNER_FRAME_MS,
 } from "../hooks/use-spinner.js";
 import { color } from "../theme.js";
+import { shouldShowProgressRow } from "../chrome-zones.js";
+import type { WorkflowStatus } from "../workflow-controller.js";
 
 export type InlineWorkflowStatus = {
   name: string;
@@ -23,6 +25,26 @@ export type InFlightIndicatorProps = {
   toolName?: string | null;
   workflow?: InlineWorkflowStatus;
 };
+
+/**
+ * Live workflow chip for the progress row. Only while a named workflow is
+ * active — completed history must not pin the progress zone open after idle.
+ */
+export function resolveInlineWorkflowChip(
+  current: WorkflowStatus,
+): InlineWorkflowStatus | undefined {
+  if (current.active && current.name !== undefined) {
+    return {
+      name: current.name,
+      stepIndex: current.stepIndex,
+      total: current.total,
+      label: current.label,
+    };
+  }
+  return undefined;
+}
+
+
 
 // Ink draws to the terminal — there is no CSS @keyframes. This hook is the
 // lightest equivalent: one small subtree repaints on SPINNER_FRAME_MS, not App.
@@ -62,14 +84,6 @@ export function formatElapsed(elapsedMs: number): string {
   return `${hours}h ${minutes}m ${seconds}s`;
 }
 
-/** True when the progress row has anything to paint (live phase or workflow chip). */
-export function shouldShowProgressRow(input: {
-  active: boolean;
-  hasWorkflow: boolean;
-}): boolean {
-  return input.active || input.hasWorkflow;
-}
-
 // Single dim progress line for the session phase. Hidden entirely when idle
 // with nothing to show — no permanent blank spacer eating chrome rows.
 export function InFlightIndicator({ active, timingAnchor, label, toolName, workflow }: InFlightIndicatorProps): ReactNode {
@@ -98,11 +112,11 @@ export function InFlightIndicator({ active, timingAnchor, label, toolName, workf
     <Box paddingX={1} marginTop={1}>
       <Text color={color("live")}>{frame}</Text>
       <Text color={color("muted")} dimColor>{` ${displayLabel}${toolText}${suffix}`}</Text>
-      {workflowText !== undefined && (
+      {workflowText !== undefined ? (
         <Box flexGrow={1} justifyContent="flex-end">
           <Text color={color("accent")} dimColor>{workflowText}</Text>
         </Box>
-      )}
+      ) : null}
     </Box>
   );
 }

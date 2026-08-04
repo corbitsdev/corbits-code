@@ -329,8 +329,8 @@ function markdownLines(content: string, width: number): StyledLine[] {
 }
 
 function shellLines(command: string, role: string, width: number, prefix = SHELL_PREFIX): StyledLine[] {
-  // Hang-indent every continuation under the "$ " (or fail-glyph) anchor so a
-  // wrapped long command never reads as a mid-token dump across the full width.
+  // Hang-indent every continuation under the command prefix so a wrapped long
+  // command never reads as a mid-token dump across the full width.
   const hang = " ".repeat(prefix.length);
   const lines: StyledLine[] = [];
   command.split("\n").forEach((logical, li) => {

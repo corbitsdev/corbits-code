@@ -228,15 +228,9 @@ export function AgentsStrip({
         const tree = treeIndent(session, visible, index);
         // Status is colour + the header summary counts — no decorative ●/✓/✗ zoo.
         return (
-          <Box key={session.id} gap={1} width="100%">
+          <Box key={session.id} width="100%">
             <Text
-              color={
-                selected || entered
-                  ? color("text")
-                  : session.status === "running"
-                    ? statusColor(session.status)
-                    : color("muted")
-              }
+              color={agentsStripRowColor(session.status, { selected, entered })}
               bold={session.status === "running" || selected || entered}
               wrap="truncate-end"
             >
@@ -319,7 +313,12 @@ function summaryCounts(sessions: readonly SubAgentSession[]): string {
   return parts.length > 0 ? parts.join(" · ") : `${sessions.length}`;
 }
 
-function statusColor(status: SubAgentSessionStatus): string {
+/** Row colour for status (no glyphs). Selection/observe focus use text colour. */
+export function agentsStripRowColor(
+  status: SubAgentSessionStatus,
+  opts: { selected: boolean; entered: boolean },
+): string {
+  if (opts.selected || opts.entered) return color("text");
   switch (status) {
     case "running":
       return color("text");

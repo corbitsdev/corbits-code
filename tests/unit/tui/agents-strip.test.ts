@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   activeStripSessions,
+  agentsStripRowColor,
   agentsStripRowCount,
   computeAgentsStripWindow,
   DEFAULT_STRIP_MAX_VISIBLE,
@@ -15,6 +16,7 @@ import type {
   SubAgentSessionStatus,
   SubAgentTranscriptEntry,
 } from "../../../src/subagent/session-store.js";
+import { color } from "../../../src/tui/theme.js";
 
 describe("agentsStripRowCount", () => {
   test("no sessions reserves no rows", () => {
@@ -217,3 +219,17 @@ describe("formatSessionLabel", () => {
     expect(formatSessionLabel(session)).toBe("researcher: researching things — bun test");
   });
 });
+
+describe("agentsStripRowColor", () => {
+  test("status colours survive without glyphs; selection uses text", () => {
+    expect(agentsStripRowColor("running", { selected: false, entered: false })).toBe(color("text"));
+    expect(agentsStripRowColor("done", { selected: false, entered: false })).toBe(color("success"));
+    expect(agentsStripRowColor("failed", { selected: false, entered: false })).toBe(color("danger"));
+    expect(agentsStripRowColor("cancelled", { selected: false, entered: false })).toBe(color("muted"));
+    // Focus overrides status so the cursor/observe row stays readable.
+    expect(agentsStripRowColor("failed", { selected: true, entered: false })).toBe(color("text"));
+    expect(agentsStripRowColor("done", { selected: false, entered: true })).toBe(color("text"));
+  });
+});
+
+

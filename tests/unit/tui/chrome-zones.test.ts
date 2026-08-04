@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   chromeDividerLine,
   progressChromeRowCount,
+  shouldShowProgressRow,
   sumChromeZoneRows,
 } from "../../../src/tui/chrome-zones.js";
 import { CHROME_ROWS } from "../../../src/tui/hooks/use-layout-geometry.js";
@@ -18,10 +19,17 @@ test("CHROME_ROWS is derived from chrome zone budgets", () => {
   expect(CHROME_ROWS).toBe(sumChromeZoneRows());
 });
 
-test("progressChromeRowCount is zero when idle with no workflow", () => {
-  expect(progressChromeRowCount({ active: false, hasWorkflow: false })).toBe(0);
-  expect(progressChromeRowCount({ active: true, hasWorkflow: false })).toBe(2);
-  expect(progressChromeRowCount({ active: false, hasWorkflow: true })).toBe(2);
+test("shouldShowProgressRow and progressChromeRowCount share one predicate", () => {
+  const cases = [
+    { active: false, hasWorkflow: false },
+    { active: true, hasWorkflow: false },
+    { active: false, hasWorkflow: true },
+    { active: true, hasWorkflow: true },
+  ] as const;
+  for (const input of cases) {
+    const show = shouldShowProgressRow(input);
+    expect(progressChromeRowCount(input)).toBe(show ? 2 : 0);
+  }
 });
 
 test("chromeDividerLine spans the requested inner width", () => {
