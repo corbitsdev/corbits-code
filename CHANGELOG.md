@@ -6,13 +6,56 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+Patch-ready tip on `main` after the PerfTrace / Codex measurement stack and related polish. Candidate for **0.2.87**.
+
+### New Features
+
+- **Always-on PerfTrace** — in-process span API, ring buffer, and privacy-strict tag allowlist (`src/perf/`). One span model for turns, inference (TTFT/stream), tools, permission waits, and subagents. No settings required for local measurement. (CL-5160, #303; CL-5171, #305; CL-5170, #308)
+- **Offline dump + rollup** — `dumpSpans` and pure rollups by phase/turn/session; TTFT vs stream shares. (CL-5169, #307)
+- **Attribution report** — exclusive wall-time shares (inference / tools / permission / subagent / other), open-turn stall dumps, CLI `bun scripts/perf-report.ts`, operator guide in `docs/perftrace-attribution-guide.md`. (CL-5167, #311)
+- **Opt-in OTEL export** — settings/env surface (`OTEL_EXPORTER_OTLP_*`, `~/.corbits/settings.json` `otel` block) plus OTLP HTTP JSON sink. Fail-closed config; dump-safe header redaction. Targets Phoenix, PostHog OTEL, or any OTLP collector — separate from PostHog product analytics. (CL-5175, #306; CL-5173, #309)
+- **Latency eval harness** — assert phase presence and relative magnitudes in tests (`assert-spans`, multi-tool fixture). (CL-5174, #310)
+- **Reasoning effort by agent role** — orchestrator vs task-leaf defaults so high-effort leaves stop multiplying wall time. (CL-5162, #302)
+- **Session state under `~/.corbits/projects`** — project key from git toplevel (worktrees share); dual-read migrate from in-repo `.agent-state`; path-restriction exception for the global state root. (CL-5257, #313)
+- **Streaming stall / loop detection** — trailing-window repetition detection; preserve partial streamed output in exec and TUI; partial-capture lifecycle owned by the cycle recorder. (#280, #281)
+- **Nested UI polish** — quieter chrome, context meter, task/shell rows, observe-leave behavior. (#312)
+- **Approval queue re-eval** — when a grant widens, re-check the pending queue; stored approvals evaluated through `@intx/authz`. (#288, #295)
+- **Task re-dispatch cap** — parents stop re-dispatching identical thrashing / budget-exhausted briefs. (#294)
+
+### Fixed
+
+- Hard-deny shell authz through `env -S` / split-string payloads (including empty payload and end-of-options forms). (#278)
+- Streaming markdown tables stay on one column-width set (no mid-stream realign / raw-pipe degradation). (#277)
+- Shell approval modal scroll, expand, and agent-label display; shared scroll-window math. (#279 train / related)
+- Worktree preserve: do not drop stash when unknown or detached HEAD advanced; count gitignored-but-present files as content worth keeping. (related main commits)
+- Judge shell auto-allow and restriction against the process cwd; queued-grant coverage uses the session path restriction.
+
+### Changed
+
+- Package rename: root package is `@corbits/code` (was `corbits`). (#282)
+- Homebrew release tap points at `corbitsdev/homebrew-tap`. (#283)
+- TUI root and event log split into focused modules (assembly vs presentation). (#285, #286)
+- Sub-agent tool description no longer claims an incorrect working-tree isolation model.
+
+### Docs / tooling
+
+- `docs/PERFTRACE.md` — local sink, OTEL config, collector examples, relationship to product telemetry.
+- Codex request parity checklist (spike, no production behavior change). (CL-5168, #304)
+- Codex SSE golden fixture pack + parse tests. (CL-5166, #301)
+
 ### Planned
 
-- What's-new banner on interactive start after upgrade (CL-4604)
+- What's-new banner on interactive start after upgrade (CL-4604 — **canceled** as a ticket; still not implemented; see note below)
 - Local context estimate for compaction when providers omit usage (CL-4345)
 - Image age → rehydratable attachment URI (CL-4349)
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)
 - Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints (CL-4426)
+
+### Operator follow-ups (not blockers for 0.2.87)
+
+- Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision (gates CL-5161 / CL-5164 / CL-5172).
+- Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
+- Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
 
 ## [0.2.86] - 2026-07-30
 
