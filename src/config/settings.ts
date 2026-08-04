@@ -123,6 +123,16 @@ export type Settings = {
     installationId?: string;
     noticeShown?: boolean;
   };
+  // Opt-in OTEL export (operator-owned collector). Separate from PostHog product
+  // telemetry. Prefer OTEL_* env vars for secrets; see docs/PERFTRACE.md.
+  // Local PerfTrace remains always-on regardless of this block.
+  otel?: {
+    enabled?: boolean;
+    endpoint?: string;
+    headers?: Record<string, string>;
+    serviceName?: string;
+    resourceAttributes?: Record<string, string>;
+  };
 };
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
@@ -384,6 +394,13 @@ const SettingsSchema = type({
     "installationId?": "string",
     "noticeShown?": "boolean",
   }),
+  "otel?": type({
+    "enabled?": "boolean",
+    "endpoint?": "string",
+    "headers?": "Record<string, string>",
+    "serviceName?": "string",
+    "resourceAttributes?": "Record<string, string>",
+  }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -543,6 +560,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "shell",
   "tools",
   "telemetry",
+  "otel",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
 /** Optional local settings keys the load path is required to consider. */
@@ -615,6 +633,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     shell: s.shell as Settings["shell"] | undefined,
     tools: s.tools as Settings["tools"] | undefined,
     telemetry: s.telemetry as Settings["telemetry"] | undefined,
+    otel: s.otel as Settings["otel"] | undefined,
   };
   return {
     providers: s.providers as Settings["providers"],
