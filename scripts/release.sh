@@ -118,14 +118,15 @@ host_label() {
 # NODE_ENV=production) and add:
 #   --target               cross-compile from the Mac host
 #   --define DEV=false     dead-code-eliminate Ink's optional devtools import
-#   --external react-devtools-core  keep the optional dep out of the binary
+# Do NOT --external react-devtools-core: standalone binaries have no
+# node_modules; leaving it external makes first TUI load fail with
+# "Cannot find package 'react-devtools-core'".
 # Keep this block in sync with package.json "build:bin" when those flags change.
 compile_bin() {  # compile_bin BUN_TARGET OUTFILE
   local target=$1 out=$2
   bun build ./src/index.ts --compile --target="$target" --minify \
     --define process.env.NODE_ENV='"production"' \
     --define process.env.DEV='"false"' \
-    --external react-devtools-core \
     --outfile "$out" >/dev/null
 }
 
@@ -226,7 +227,7 @@ else
     echo "## Install"; echo
     echo "### macOS (Homebrew)"; echo
     echo '```'
-    echo "brew tap $TAP_SLUG && brew install $BREW_FORMULA"
+    echo "brew install $TAP_SLUG/$BREW_FORMULA"
     echo '```'; echo
     echo "### Debian / Ubuntu"; echo
     echo '```'
@@ -403,5 +404,5 @@ fi
 # ---- done ------------------------------------------------------------------
 step "Done: $TAG released"
 info "release: https://github.com/$MAIN_REPO/releases/tag/$TAG"
-[ "$SKIP_TAP" = 1 ] || info "install: brew tap $TAP_SLUG && brew install $BREW_FORMULA"
+[ "$SKIP_TAP" = 1 ] || info "install: brew install $TAP_SLUG/$BREW_FORMULA"
 info "verify:  brew update && brew upgrade $BREW_FORMULA"

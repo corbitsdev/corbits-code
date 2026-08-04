@@ -6,9 +6,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Fixed
+
+- Standalone release binaries no longer externalize `react-devtools-core`, which broke first TUI launch after Homebrew install (`Cannot find package 'react-devtools-core'`).
+
 ### Changed
 
-- Homebrew formula renamed to **`corbits-code`** (`brew install corbits-code`). The CLI binary remains `corbits`. README and release notes match. (`scripts/release.sh`, tap)
+- Homebrew formula renamed to **`corbits-code`** (`brew install corbitsdev/tap/corbits-code`). The CLI binary remains `corbits`. README and release notes match. (`scripts/release.sh`, tap)
 
 ### Planned
 

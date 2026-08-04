@@ -7,8 +7,7 @@ Corbits Code is a local-first coding agent. It lives in your terminal and works 
 ### Homebrew (macOS / Linux)
 
 ```sh
-brew tap corbitsdev/tap
-brew install corbits-code
+brew install corbitsdev/tap/corbits-code
 ```
 
 Upgrade later with `brew update && brew upgrade corbits-code`. The CLI binary is `corbits`.
