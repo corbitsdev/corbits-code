@@ -1,15 +1,27 @@
 import { test, expect } from "bun:test";
-import { chromeDividerLine, sumChromeZoneRows } from "../../../src/tui/chrome-zones.js";
+import {
+  chromeDividerLine,
+  progressChromeRowCount,
+  sumChromeZoneRows,
+} from "../../../src/tui/chrome-zones.js";
 import { CHROME_ROWS } from "../../../src/tui/hooks/use-layout-geometry.js";
 
 // Per-zone budgets are checked against rendered component output in
 // chrome-zone-budgets.test.tsx; this pin only guards the overall total.
-test("sumChromeZoneRows totals the zone budgets", () => {
-  expect(sumChromeZoneRows()).toBe(11);
+// Progress is optional (via progressChromeRowCount) so idle sessions stay quiet.
+test("sumChromeZoneRows totals always-present zone budgets", () => {
+  // header(2) + divider(1) + modelBar(1) + prompt(3) + status(2) = 9
+  expect(sumChromeZoneRows()).toBe(9);
 });
 
 test("CHROME_ROWS is derived from chrome zone budgets", () => {
   expect(CHROME_ROWS).toBe(sumChromeZoneRows());
+});
+
+test("progressChromeRowCount is zero when idle with no workflow", () => {
+  expect(progressChromeRowCount({ active: false, hasWorkflow: false })).toBe(0);
+  expect(progressChromeRowCount({ active: true, hasWorkflow: false })).toBe(2);
+  expect(progressChromeRowCount({ active: false, hasWorkflow: true })).toBe(2);
 });
 
 test("chromeDividerLine spans the requested inner width", () => {

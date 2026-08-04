@@ -1,6 +1,9 @@
 import { test, expect } from "bun:test";
 import { render } from "ink-testing-library";
-import { InFlightIndicator } from "../../../src/tui/components/in-flight-indicator.js";
+import {
+  InFlightIndicator,
+  shouldShowProgressRow,
+} from "../../../src/tui/components/in-flight-indicator.js";
 import { SPINNER_FRAMES } from "../../../src/tui/hooks/use-spinner.js";
 
 const tick = (ms = 20): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -20,11 +23,15 @@ test("spinner glyph advances on its own tick without parent rerender", async () 
   expect(after).not.toBe(initial);
 });
 
-test("renders nothing visible while inactive", () => {
+test("renders nothing while inactive with no workflow", () => {
   const { lastFrame } = render(<InFlightIndicator active={false} timingAnchor={null} />);
-  const frame = lastFrame() ?? "";
-  expect(frame).not.toContain("Thinking…");
-  expect(frame).not.toContain("⠋");
+  expect((lastFrame() ?? "").trim()).toBe("");
+});
+
+test("shouldShowProgressRow gates the permanent spacer", () => {
+  expect(shouldShowProgressRow({ active: false, hasWorkflow: false })).toBe(false);
+  expect(shouldShowProgressRow({ active: true, hasWorkflow: false })).toBe(true);
+  expect(shouldShowProgressRow({ active: false, hasWorkflow: true })).toBe(true);
 });
 
 test("surfaces an elapsed counter only once the wait runs long", () => {

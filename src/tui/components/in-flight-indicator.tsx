@@ -62,24 +62,32 @@ export function formatElapsed(elapsedMs: number): string {
   return `${hours}h ${minutes}m ${seconds}s`;
 }
 
-// A single dim line that spins while the model is composing and clears the
-// instant its first token streams. The row is always rendered (blank when
-// idle) so the surrounding layout never shifts as it appears and disappears.
+/** True when the progress row has anything to paint (live phase or workflow chip). */
+export function shouldShowProgressRow(input: {
+  active: boolean;
+  hasWorkflow: boolean;
+}): boolean {
+  return input.active || input.hasWorkflow;
+}
+
+// Single dim progress line for the session phase. Hidden entirely when idle
+// with nothing to show — no permanent blank spacer eating chrome rows.
 export function InFlightIndicator({ active, timingAnchor, label, toolName, workflow }: InFlightIndicatorProps): ReactNode {
   const { frame, elapsedMs } = useInFlightVisuals(active, timingAnchor);
   const workflowText = workflow !== undefined
     ? `⟳ ${workflow.name} · ${workflow.stepIndex + 1}/${workflow.total} ${workflow.label}`
     : undefined;
 
+  if (!shouldShowProgressRow({ active, hasWorkflow: workflowText !== undefined })) {
+    return null;
+  }
+
   if (!active) {
     return (
       <Box paddingX={1} marginTop={1}>
-        <Text> </Text>
-        {workflowText !== undefined && (
-          <Box flexGrow={1} justifyContent="flex-end">
-            <Text color={color("accent")} dimColor>{workflowText}</Text>
-          </Box>
-        )}
+        <Box flexGrow={1} justifyContent="flex-end">
+          <Text color={color("accent")} dimColor>{workflowText}</Text>
+        </Box>
       </Box>
     );
   }
