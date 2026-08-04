@@ -116,8 +116,9 @@ export function rollupByPhase(spans: readonly PerfSpan[]): PhaseSummary[] {
 /**
  * Build parent → children index. Orphans (parent missing after ring eviction)
  * still appear as roots for by-phase; by-turn only lists actual turn spans.
+ * Shared with attribution-report (exclusive shares walk the same tree).
  */
-function childrenOf(spans: readonly PerfSpan[]): Map<string, PerfSpan[]> {
+export function childrenOf(spans: readonly PerfSpan[]): Map<string, PerfSpan[]> {
   const byParent = new Map<string, PerfSpan[]>();
   for (const span of spans) {
     if (span.parentId === undefined) continue;
@@ -132,7 +133,7 @@ function childrenOf(spans: readonly PerfSpan[]): Map<string, PerfSpan[]> {
 }
 
 /** Depth-first walk of the subtree rooted at `rootId` (excluding the root). */
-function walkDescendants(
+export function walkDescendants(
   rootId: string,
   byParent: Map<string, PerfSpan[]>,
   visit: (span: PerfSpan) => void,
