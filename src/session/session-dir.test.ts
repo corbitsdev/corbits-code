@@ -80,3 +80,52 @@ test("listSessions finds legacy sessions and migrates them", async () => {
   expect(existsSync(sessionDir(cwd, sessionId, home))).toBe(true);
   expect(existsSync(legacy)).toBe(false);
 });
+
+test("migrateLegacySessionIfNeeded finds legacy under git project root from a worktree cwd", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const main = join(cwd, "main");
+  await mkdir(main, { recursive: true });
+  execFileSync("git", ["init"], { cwd: main, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: main, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "test"], { cwd: main, stdio: "ignore" });
+  await writeFile(join(main, "README"), "x");
+  execFileSync("git", ["add", "README"], { cwd: main, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "init"], { cwd: main, stdio: "ignore" });
+
+  const sessionId = generateSessionId();
+  const legacyOnMain = join(main, ".agent-state", sessionId);
+  await mkdir(join(legacyOnMain, "context"), { recursive: true });
+  await writeFile(
+    join(legacyOnMain, "run.json"),
+    JSON.stringify({
+      status: "running",
+      turnsUsed: 1,
+      task: "main-legacy",
+      startedAt: 1_700_000_000_000,
+    }),
+  );
+
+  const wt = join(cwd, "wt");
+  execFileSync("git", ["worktree", "add", "--detach", wt, "HEAD"], {
+    cwd: main,
+    stdio: "ignore",
+  });
+  try {
+    const dir = await migrateLegacySessionIfNeeded(wt, sessionId, home);
+    expect(dir).toBe(sessionDir(wt, sessionId, home));
+    expect(existsSync(dir)).toBe(true);
+    expect(existsSync(legacyOnMain)).toBe(false);
+    const raw = await readFile(join(dir, "run.json"), "utf8");
+    expect(JSON.parse(raw).task).toBe("main-legacy");
+  } finally {
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", wt], {
+        cwd: main,
+        stdio: "ignore",
+      });
+    } catch {
+      await rm(wt, { recursive: true, force: true });
+    }
+  }
+});
+

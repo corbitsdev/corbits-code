@@ -1,11 +1,13 @@
 import { mkdir, readdir, readlink, rename, rm, symlink, stat, cp, unlink } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 import { loadState, saveState, type RunState } from "./state.js";
 import { resolveSessionLabel } from "./session-label.js";
-import { projectSessionsRoot } from "./project-key.js";
+import { projectRootFor, projectSessionsRoot } from "./project-key.js";
+
 
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
@@ -66,6 +68,22 @@ export function legacySessionDir(cwd: string, sessionId: string): string {
   return join(cwd, LEGACY_SESSION_BASE, sessionId);
 }
 
+/** Candidate legacy session dirs: cwd first, then git project root when different. */
+function legacySessionCandidates(cwd: string, sessionId: string): string[] {
+  const underCwd = legacySessionDir(cwd, sessionId);
+  const projectRoot = projectRootFor(cwd);
+  if (realpathSafe(projectRoot) === realpathSafe(cwd)) return [underCwd];
+  return [underCwd, join(projectRoot, LEGACY_SESSION_BASE, sessionId)];
+}
+
+function realpathSafe(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 /**
  * If the global session tree is empty and a legacy in-repo tree exists, move
  * it into the global location so resume never strands. Returns the canonical
@@ -79,19 +97,22 @@ export async function migrateLegacySessionIfNeeded(
   const dir = sessionDir(cwd, sessionId, home);
   if (existsSync(dir)) return dir;
 
-  const legacy = legacySessionDir(cwd, sessionId);
-  if (!existsSync(legacy)) return dir;
+  for (const legacy of legacySessionCandidates(cwd, sessionId)) {
+    if (!existsSync(legacy)) continue;
 
-  await mkdir(dirname(dir), { recursive: true });
-  try {
-    await rename(legacy, dir);
-  } catch {
-    // Cross-device or busy tree: copy then remove legacy.
-    await cp(legacy, dir, { recursive: true });
-    await rm(legacy, { recursive: true, force: true });
+    await mkdir(dirname(dir), { recursive: true });
+    try {
+      await rename(legacy, dir);
+    } catch {
+      // Cross-device or busy tree: copy then remove legacy.
+      await cp(legacy, dir, { recursive: true });
+      await rm(legacy, { recursive: true, force: true });
+    }
+    return dir;
   }
   return dir;
 }
+
 
 /** Full path to a session's context subdirectory. */
 export function sessionContextDir(cwd: string, sessionId: string, home: string = homedir()): string {

@@ -29,9 +29,8 @@ test("projectKeyFor is stable across calls for the same path", () => {
   expect(a).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*-[a-f0-9]{8}$/);
 });
 
-test("projectKeyFor uses git toplevel when present", async () => {
+test("projectKeyFor uses shared git common dir so worktrees match main", async () => {
   execFileSync("git", ["init"], { cwd: root, stdio: "ignore" });
-  // Identity required for git on some CI images; harmless locally.
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root, stdio: "ignore" });
   execFileSync("git", ["config", "user.name", "test"], { cwd: root, stdio: "ignore" });
   await writeFile(join(root, "README"), "x");
@@ -42,7 +41,27 @@ test("projectKeyFor uses git toplevel when present", async () => {
   await mkdir(nested, { recursive: true });
   expect(projectRootFor(nested)).toBe(projectRootFor(root));
   expect(projectKeyFor(nested)).toBe(projectKeyFor(root));
+
+  const wt = join(root, "..", `wt-${Date.now()}`);
+  try {
+    execFileSync("git", ["worktree", "add", "--detach", wt, "HEAD"], {
+      cwd: root,
+      stdio: "ignore",
+    });
+    expect(projectRootFor(wt)).toBe(projectRootFor(root));
+    expect(projectKeyFor(wt)).toBe(projectKeyFor(root));
+  } finally {
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", wt], {
+        cwd: root,
+        stdio: "ignore",
+      });
+    } catch {
+      await rm(wt, { recursive: true, force: true });
+    }
+  }
 });
+
 
 test("projectSessionsRoot lives under ~/.corbits/projects/<key>", () => {
   const home = join(root, "home");
