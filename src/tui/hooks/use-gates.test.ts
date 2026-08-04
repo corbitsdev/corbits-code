@@ -180,6 +180,38 @@ describe("useGates queue reconciliation", () => {
     unmount();
   });
 
+  test("a provider-model grant drains the queue when the active model matches", async () => {
+    const emitter = new EventEmitter();
+    const controllerRef: { current: GateController | null } = { current: null };
+    const active = "openai:gpt-5";
+    const element = () =>
+      createElement(Harness, { emitter, controllerRef, activeProviderModel: active });
+    const { rerender, unmount } = render(element());
+
+    const outcomes: ApprovalOutcome[] = [];
+    enqueuePermission(emitter, request({ subject: "npm test" })).then((o) => outcomes.push(o));
+    rerender(element());
+
+    grant(
+      emitter,
+      {
+        tool: "run_shell",
+        pattern: "npm test",
+        providerModel: active,
+      },
+      active,
+    );
+    rerender(element());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender(element());
+
+    expect(controllerRef.current!.permissionQueueDepth).toBe(0);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.allow).toBe(true);
+
+    unmount();
+  });
+
   test("a grant that does not match the queued command's pattern leaves it queued", async () => {
     const emitter = new EventEmitter();
     const controllerRef: { current: GateController | null } = { current: null };
@@ -233,7 +265,7 @@ describe("useGates queue reconciliation", () => {
     const { rerender, unmount } = render(element());
 
     const outcomes: ApprovalOutcome[] = [];
-    enqueuePermission(emitter, request({ subject: "cat ../../etc/passwd" })).then((o) =>
+    enqueuePermission(emitter, request({ subject: "cat /etc/passwd" })).then((o) =>
       outcomes.push(o),
     );
     rerender(element());
