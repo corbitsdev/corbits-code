@@ -2,6 +2,7 @@ import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "./branding.js";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
+import { flushPerfToOtel } from "./perf/index.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import { runExec } from "./exec/runner.js";
@@ -66,6 +67,11 @@ export async function mainWithRunners(
   } else {
     exitCode = await runners.runTUI(config);
   }
+
+  // Opt-in OTEL export of the PerfSpan tree (session/process boundary).
+  // No-op when OTEL is disabled — zero network on the export path.
+  const otelSettings = config.configured ? config.settings : null;
+  await flushPerfToOtel(otelSettings);
 
   // Bound against process.exit dropping in-flight captures for short
   // sessions; flush itself is deadline-capped so exit stays snappy.

@@ -42,6 +42,49 @@ export {
   type OtelSettings,
 } from "./otel-config.js";
 
+export {
+  buildOtlpPayload,
+  flushToOtel,
+  monoToUnixNano,
+  newOtelTraceId,
+  otelSpanId,
+  otlpTracesUrl,
+  tagsToOtlpAttributes,
+  type FlushPerfToOtelOptions,
+  type FlushToOtelOptions,
+  type OtlpExportPayload,
+  type OtlpKeyValue,
+  type OtlpSpan,
+} from "./otel-sink.js";
+
+import type { Settings } from "../config/settings.js";
+import {
+  flushPerfToOtel as flushPerfToOtelImpl,
+  type FlushPerfToOtelOptions,
+} from "./otel-sink.js";
+
+/**
+ * Snapshot the process-wide ring and POST to the operator OTLP collector when
+ * export is enabled. Zero network when disabled. Never throws.
+ * Cadence: call on session/process exit (wired from main).
+ */
+export async function flushPerfToOtel(
+  settings?: Settings | null,
+  env: NodeJS.ProcessEnv = process.env,
+  options: FlushPerfToOtelOptions = {},
+): Promise<void> {
+  const { spans, getSpans, ...rest } = options;
+  if (spans !== undefined) {
+    await flushPerfToOtelImpl(settings, env, { ...rest, spans });
+    return;
+  }
+  if (getSpans !== undefined) {
+    await flushPerfToOtelImpl(settings, env, { ...rest, getSpans });
+    return;
+  }
+  await flushPerfToOtelImpl(settings, env, { ...rest, getSpans: snapshot });
+}
+
 /** Core + adapter phase names. Adapters extend; they do not invent new sinks. */
 export const SPAN_NAMES = [
   "session",
