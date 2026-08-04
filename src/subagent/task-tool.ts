@@ -624,13 +624,13 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
             }
             const reported = appendSubAgentParentHints(result, hintOptions);
-            return finishWithWorktree(
+            return await finishWithWorktree(
               taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
             );
           }
           if (session !== undefined) deps.sessions?.complete(session.id, result);
           const reported = appendSubAgentParentHints(result, hintOptions);
-          return finishWithWorktree(
+          return await finishWithWorktree(
             taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
           );
 
@@ -647,7 +647,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ) {
               deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
             }
-            return finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
+            return await finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
           }
           // Run never produced a body — undo the admit so turn-budget retry budget
           // is not burned by auth/provider crashes.
@@ -661,10 +661,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // fail() prefixes "Error:" on the transcript report entry — pass bare text.
           const failReason = authMessage ?? sessionError;
           if (session !== undefined) deps.sessions?.fail(session.id, failReason);
-          return finishWithWorktree(taskToolResult(call.id, message));
+          return await finishWithWorktree(taskToolResult(call.id, message));
         } finally {
           signal.removeEventListener("abort", onParentAbort);
         }
+
       } finally {
         end(subagentSpanId);
       }
