@@ -60,6 +60,26 @@ function agentTagColor(label: string): string {
   return color(AGENT_TAG_ROLES[hash % AGENT_TAG_ROLES.length]!);
 }
 
+// Dispatch labels and worktree paths are model- or environment-authored and
+// sit next to the approval chrome — strip the same bidi/control sequences the
+// command subject gets, then clamp so a long label cannot shove choices off
+// screen.
+const MAX_AGENT_LABEL_LENGTH = 48;
+const MAX_AGENT_CWD_LENGTH = 64;
+
+function displayAgentLabel(label: string): string {
+  const cleaned = sanitizeForPrompt(label);
+  return cleaned.length > MAX_AGENT_LABEL_LENGTH
+    ? `${cleaned.slice(0, MAX_AGENT_LABEL_LENGTH - 1)}…`
+    : cleaned;
+}
+
+function displayAgentCwd(cwd: string): string {
+  const cleaned = sanitizeForPrompt(cwd);
+  if (cleaned.length <= MAX_AGENT_CWD_LENGTH) return cleaned;
+  return `…${cleaned.slice(-(MAX_AGENT_CWD_LENGTH - 1))}`;
+}
+
 const MAX_RENDERED_QUEUE_ENTRIES = 5;
 
 // A body window shorter than this reads as broken (no room to show anything
@@ -246,13 +266,28 @@ export function PermissionModal({
   // newline is recognized as a payload boundary, not just turned into a ↵
   // marker — this is what lets the command render once, as one line per
   // segment, with no separate raw dump underneath.
+  //
+  // Segments that refuse to collapse (interpreters, eval, …) can still be
+  // multi-line or longer than the display clamp. Ctrl+O expands those via
+  // expandLines so the operator can read the full body they are approving.
   const collapsedSegments = cappedSegments.map((segment) => {
     const collapsed = collapseSegmentPayloads(segment);
+    const sanitizedDisplay = sanitizeForPrompt(collapsed.display);
+    const display = clampForDisplay(sanitizedDisplay);
+    const expandLines =
+      collapsed.payloads.length === 0 &&
+      (segment.includes("\n") || sanitizedDisplay.length > MAX_DISPLAY_LINE_LENGTH)
+        ? segment.split("\n")
+        : [];
     return {
-      display: clampForDisplay(sanitizeForPrompt(collapsed.display)),
+      display,
       payloads: collapsed.payloads,
+      expandLines,
     };
   });
+  const canExpandBody = collapsedSegments.some(
+    (segment) => segment.payloads.length > 0 || segment.expandLines.length > 0,
+  );
 
   const activeChoice = choices[selected];
   const messageMode = message.length > 0 || false;
@@ -276,12 +311,32 @@ export function PermissionModal({
         </Text>,
       );
       if (expanded) {
-        segment.payloads.forEach((payload, pi) => {
-          const lines = payload.lines.slice(0, MAX_RENDERED_LINES);
-          const hiddenLines = payload.lines.length - lines.length;
+        if (segment.payloads.length > 0) {
+          segment.payloads.forEach((payload, pi) => {
+            const lines = payload.lines.slice(0, MAX_RENDERED_LINES);
+            const hiddenLines = payload.lines.length - lines.length;
+            lines.forEach((line, li) => {
+              bodyRows.push(
+                <Text key={`seg-${i}-payload-${pi}-${li}`} color={color("muted")} wrap="wrap">
+                  {"   "}
+                  {clampForDisplay(sanitizeForPrompt(line))}
+                </Text>,
+              );
+            });
+            if (hiddenLines > 0) {
+              bodyRows.push(
+                <Text key={`seg-${i}-payload-${pi}-hidden`} color={color("muted")}>
+                  {`   … ${hiddenLines} more lines`}
+                </Text>,
+              );
+            }
+          });
+        } else if (segment.expandLines.length > 0) {
+          const lines = segment.expandLines.slice(0, MAX_RENDERED_LINES);
+          const hiddenLines = segment.expandLines.length - lines.length;
           lines.forEach((line, li) => {
             bodyRows.push(
-              <Text key={`seg-${i}-payload-${pi}-${li}`} color={color("muted")} wrap="wrap">
+              <Text key={`seg-${i}-expand-${li}`} color={color("muted")} wrap="wrap">
                 {"   "}
                 {clampForDisplay(sanitizeForPrompt(line))}
               </Text>,
@@ -289,12 +344,12 @@ export function PermissionModal({
           });
           if (hiddenLines > 0) {
             bodyRows.push(
-              <Text key={`seg-${i}-payload-${pi}-hidden`} color={color("muted")}>
+              <Text key={`seg-${i}-expand-hidden`} color={color("muted")}>
                 {`   … ${hiddenLines} more lines`}
               </Text>,
             );
           }
-        });
+        }
       }
     });
     if (hiddenSegmentCount > 0) {
@@ -378,7 +433,7 @@ export function PermissionModal({
     }
 
     if (key.ctrl && input === "o") {
-      setExpanded((e) => !e);
+      if (canExpandBody) setExpanded((e) => !e);
       return;
     }
 
@@ -436,9 +491,9 @@ export function PermissionModal({
       <Text bold color={toolColor}>Approval needed</Text>
       {request.agentLabel !== undefined && (
         <Text>
-          <Text color={agentTagColor(request.agentLabel)} bold>{`⏺ ${request.agentLabel}`}</Text>
+          <Text color={agentTagColor(request.agentLabel)} bold>{`⏺ ${displayAgentLabel(request.agentLabel)}`}</Text>
           {request.cwd !== undefined && (
-            <Text color={color("muted")}>{`  ${request.cwd}`}</Text>
+            <Text color={color("muted")}>{`  ${displayAgentCwd(request.cwd)}`}</Text>
           )}
         </Text>
       )}
@@ -467,7 +522,7 @@ export function PermissionModal({
               <Text key={entry.id} color={color("muted")}>
                 {"· "}
                 {entry.agentLabel !== undefined ? (
-                  <Text color={agentTagColor(entry.agentLabel)}>{entry.agentLabel}</Text>
+                  <Text color={agentTagColor(entry.agentLabel)}>{displayAgentLabel(entry.agentLabel)}</Text>
                 ) : (
                   <Text color={color("muted")}>session</Text>
                 )}
@@ -560,7 +615,10 @@ export function PermissionModal({
         <Text color={color("muted")}>
           {messageMode
             ? "Enter confirm · Esc clear · ↑↓ navigate"
-            : `1-${choices.length} select · ↑↓ navigate · Enter choose · Ctrl+O ${expanded ? "collapse" : "expand"} · Esc reject`}
+            : canExpandBody
+              ? `1-${choices.length} select · ↑↓ navigate · Enter choose · Ctrl+O ${expanded ? "collapse" : "expand"} · Esc reject`
+              : `1-${choices.length} select · ↑↓ navigate · Enter choose · Esc reject`}
+
         </Text>
       </Box>
     </Box>

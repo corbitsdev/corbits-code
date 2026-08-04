@@ -131,21 +131,32 @@ export function OperatorModal({
   // border(2) + paddingY(2) + marginBottom after the question(1) + marginTop
   // before the footer(1) + footer line(1).
   const reservedChrome = 7;
-  const available = Math.max(
+  const baseAvailable = Math.max(
     MIN_QUESTION_ROWS + MIN_OPTION_ROWS,
     terminalRows - reservedChrome,
   );
 
-  let questionRows: number;
-  let optionsRows: number;
-  if (questionLines.length + optionsRowsNeeded <= available) {
-    questionRows = questionLines.length;
-    optionsRows = optionsRowsNeeded;
-  } else {
+  const layout = (available: number): { questionRows: number; optionsRows: number } => {
+    if (questionLines.length + optionsRowsNeeded <= available) {
+      return { questionRows: questionLines.length, optionsRows: optionsRowsNeeded };
+    }
     // The selection must stay reachable, so the option list gets priority;
     // whatever's left goes to the question.
-    optionsRows = Math.min(optionsRowsNeeded, Math.max(MIN_OPTION_ROWS, available - MIN_QUESTION_ROWS));
-    questionRows = Math.max(MIN_QUESTION_ROWS, available - optionsRows);
+    const optionsRows = Math.min(
+      optionsRowsNeeded,
+      Math.max(MIN_OPTION_ROWS, available - MIN_QUESTION_ROWS),
+    );
+    const questionRows = Math.max(MIN_QUESTION_ROWS, available - optionsRows);
+    return { questionRows, optionsRows };
+  };
+
+  let { questionRows, optionsRows } = layout(baseAvailable);
+  const questionScrollableTentative = questionLines.length > questionRows;
+  const optionsScrollableTentative = !useGrid && options.length > optionsRows;
+  const indicatorRows =
+    (questionScrollableTentative ? 1 : 0) + (optionsScrollableTentative ? 1 : 0);
+  if (indicatorRows > 0) {
+    ({ questionRows, optionsRows } = layout(baseAvailable - indicatorRows));
   }
 
   const questionScrollable = questionLines.length > questionRows;
@@ -188,6 +199,16 @@ export function OperatorModal({
       }
       if (key.backspace || key.delete) {
         setDraft((d) => d.slice(0, -1));
+        return;
+      }
+      // Page keys still scroll a long question while the operator is typing a
+      // custom answer — the draft is unrelated to the question viewport.
+      if (questionScrollable && key.pageUp) {
+        questionScroll.pageUp();
+        return;
+      }
+      if (questionScrollable && key.pageDown) {
+        questionScroll.pageDown();
         return;
       }
       if (!key.ctrl && !key.meta && input.length > 0 && /^[\x20-\x7E -￿]+$/.test(input)) {
