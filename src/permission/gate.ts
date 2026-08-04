@@ -466,11 +466,20 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
           tags: { tool_id: request.tool },
         });
-        const outcome = await requestApproval(requestForOperator);
-        end(waitSpanId, { decision: outcome.allow ? "allow" : "deny" });
-        if (!outcome.allow) {
+        let outcome: ApprovalOutcome | undefined;
+        try {
+          outcome = await requestApproval(requestForOperator);
+        } finally {
+          end(
+            waitSpanId,
+            outcome !== undefined
+              ? { decision: outcome.allow ? "allow" : "deny" }
+              : undefined,
+          );
+        }
+        if (outcome === undefined || !outcome.allow) {
           const suffix =
-            outcome.message !== undefined && outcome.message.length > 0
+            outcome?.message !== undefined && outcome.message.length > 0
               ? ` — ${outcome.message}`
               : "";
           return {
@@ -509,13 +518,26 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
         tags: { tool_id: request.tool },
       });
-      const outcome = await requestApproval(request);
-      end(waitSpanId, { decision: outcome.allow ? "allow" : "deny" });
-      if (!outcome.allow) {
-        const suffix = outcome.message !== undefined && outcome.message.length > 0
-          ? ` — ${outcome.message}`
-          : "";
-        return { allowed: false, reason: `Operator declined: ${request.action} (${request.subject})${suffix}` };
+      let outcome: ApprovalOutcome | undefined;
+      try {
+        outcome = await requestApproval(request);
+      } finally {
+        end(
+          waitSpanId,
+          outcome !== undefined
+            ? { decision: outcome.allow ? "allow" : "deny" }
+            : undefined,
+        );
+      }
+      if (outcome === undefined || !outcome.allow) {
+        const suffix =
+          outcome?.message !== undefined && outcome.message.length > 0
+            ? ` — ${outcome.message}`
+            : "";
+        return {
+          allowed: false,
+          reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
+        };
       }
       mintGrant(request.tool, outcome);
     }

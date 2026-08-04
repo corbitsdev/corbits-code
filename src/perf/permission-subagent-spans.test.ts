@@ -6,7 +6,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPermissionGate } from "../permission/gate.js";
 import { createTaskTool } from "../subagent/task-tool.js";
 import { clear, snapshot, type PerfSpan } from "./index.js";
-import { createPerfReactorObserver } from "./reactor-spans.js";
+import { createPerfReactorObserver, currentTurnId } from "./reactor-spans.js";
 
 afterEach(() => {
   clear();
@@ -91,6 +91,36 @@ describe("permission.wait spans", () => {
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
     expect(waits[0]!.tags).toEqual({ tool_id: "write_file", decision: "allow" });
+  });
+
+  test("closes permission.wait when requestApproval throws", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      requestApproval: async () => {
+        throw new Error("ui aborted");
+      },
+    });
+
+    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow(
+      "ui aborted",
+    );
+
+    const waits = byName(completed(snapshot()), "permission.wait");
+    expect(waits).toHaveLength(1);
+    expect(waits[0]!.endNs).toBeDefined();
+    expect(waits[0]!.tags?.tool_id).toBe("run_shell");
+    // No decision tag when approval never returned.
+    expect(waits[0]!.tags?.decision).toBeUndefined();
+  });
+
+  test("clear() nulls process-wide currentTurnId", () => {
+    const obs = createPerfReactorObserver();
+    obs.observe(event("inference.start", { model: "m" }));
+    expect(currentTurnId()).not.toBeNull();
+    clear();
+    expect(currentTurnId()).toBeNull();
   });
 
   test("does not open a span when a grant auto-approves", async () => {

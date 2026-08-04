@@ -21,6 +21,10 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { end, start } from "./index.js";
+import {
+  getActiveTurnId,
+  setActiveTurnId,
+} from "./active-turn.js";
 
 /** Content-bearing events that end TTFT and open the stream phase. */
 const FIRST_TOKEN_TYPES: ReadonlySet<string> = new Set([
@@ -49,17 +53,10 @@ export type PerfReactorObserver = {
 /**
  * Process-wide open-turn id from the most recently active reactor observer.
  * Permission-wait and subagent spans nest under this when present.
- * Tests that open turns should clear() PerfTrace and reset observers between cases.
+ * Owned by `active-turn.ts`; cleared on observer close/reset and PerfTrace clear().
  */
-let activeTurnId: string | null = null;
-
-/** Current open turn span id (for nesting permission.wait / subagent outside the observer). */
 export function currentTurnId(): string | null {
-  return activeTurnId;
-}
-
-function setActiveTurnId(id: string | null): void {
-  activeTurnId = id;
+  return getActiveTurnId();
 }
 
 type ObserverState = {
@@ -172,7 +169,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
   function closeTurn(): void {
     closeOpenTools();
     endIfOpen(state.turnId);
-    if (state.turnId !== null && activeTurnId === state.turnId) {
+    if (state.turnId !== null && getActiveTurnId() === state.turnId) {
       setActiveTurnId(null);
     }
     state.turnId = null;

@@ -11,6 +11,7 @@
  */
 
 import { isOpaqueId, sanitizeTags, type PerfTags } from "./sanitize.js";
+import { clearActiveTurnId } from "./active-turn.js";
 
 export {
   sanitizeTags,
@@ -244,4 +245,6 @@ export function clear(): void {
   ringWrite = 0;
   ringCount = 0;
   nextId = 0;
+  clearActiveTurnId();
 }
+
