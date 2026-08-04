@@ -21,8 +21,16 @@ When a session feels slow, the first question is **where the wall time went**:
 Shares are **exclusive** over turn wall. For **completed** turns, wall is
 `end − start`. For **open** (still-running) turns — including mid-stall dumps —
 wall is estimated as `max(completed-descendant endNs) − turn.startNs` so shares
-stay meaningful. Nested TTFT/stream and `adapter.transport` are diagnostic
-splits (they are not added on top of `inference` in the exclusive table).
+stay meaningful, and the report lists **open phase names** (e.g.
+`inference.stream`, `turn`) so completed-only shares are not read as a full
+stall diagnosis.
+
+Nested exclusive children under an exclusive parent (e.g. `tool` /
+`inference` under `subagent`) count only toward the parent exclusive bucket —
+they are not double-counted. Nested TTFT/stream and `adapter.transport` are
+diagnostic splits (they are not added on top of `inference` in the exclusive
+table). TTFT/stream shares use **(ttft + stream)** as the denominator, not
+inference wall.
 
 
 ## Capture a real slow session
@@ -92,18 +100,24 @@ Exclusive phase shares (of session wall):
    `inference` share with high `ttft` points at model queueing / cold start. A
    large `tools` share with high `n=` points at tool work. A large
    `permission.wait` share is human/ask-gate idle, not model or tool code.
-2. **`other` large** — either real un-instrumented cost (TUI, scheduling) or
+2. **Open / incomplete** — if the report says `Open (incomplete)` and lists
+   still-running phases, exclusive shares only cover completed descendants.
+   Treat open phase names as the hang candidates; do not conclude from the
+   exclusive table alone.
+3. **`other` large** — either real un-instrumented cost (TUI, scheduling) or
    gaps between instrumented phases. If `other` dominates a pain session, add
    spans before optimizing transport.
-3. **TTFT vs stream** — of `ttft + stream` only. High TTFT share → time-to-first-token
-   problem. High stream share → long generation or slow token delivery.
-4. **Transport signal** — `adapter.transport / inference`. When transport is a
+4. **TTFT vs stream** — of `ttft + stream` only (not inference wall). High TTFT
+   share → time-to-first-token problem. High stream share → long generation or
+   slow token delivery.
+5. **Transport signal** — `adapter.transport / inference`. When transport is a
    large fraction of inference wall, prioritize transport work (WebSocket /
    incremental input). When it is small, transport is not the bottleneck.
-5. **Per-turn rows** — find the outlier turn when the session average looks fine
-   but one turn felt stuck.
-6. **Subagent count + share** — fanout cost. High subagent share means child
-   agents, not the parent inference path.
+6. **Per-turn rows** — find the outlier turn when the session average looks fine
+   but one turn felt stuck. Open turns print `open phases:` explicitly.
+7. **Subagent count + share** — fanout cost. High subagent share means child
+   agents as a whole (nested tools/inference under the subagent are inside that
+   bucket, not double-counted as parent tools/inference).
 
 ### What “large transport share” looks like
 

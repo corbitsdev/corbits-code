@@ -4,14 +4,19 @@
  * Pure functions: no I/O, no module state, no OTEL. Categories partition turn
  * wall time into exclusive buckets so shares sum to ~1 (remainder → other).
  *
+ * Exclusive buckets do not double-count nested exclusive children (e.g. tools
+ * under a subagent count only toward `subagent`, not also toward `tools`).
+ *
  * Open (still-running) turns use an estimated wall: max completed-descendant
- * endNs − turn.startNs. That keeps mid-stall dumps usable for share %.
+ * endNs − turn.startNs. That keeps mid-stall dumps usable for share %, but
+ * open phase names are reported so completed-only shares are not mistaken for
+ * a complete stall diagnosis.
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
 import type { DumpSpan, PerfDump } from "./dump.js";
 import { DUMP_VERSION } from "./dump.js";
-import { spanDurationNs } from "./rollup.js";
+import { childrenOf, spanDurationNs, walkDescendants } from "./rollup.js";
 
 /** Exclusive wall-time buckets used for session / turn share %. */
 export const ATTRIBUTION_CATEGORIES = [
@@ -24,6 +29,14 @@ export const ATTRIBUTION_CATEGORIES = [
 
 export type AttributionCategory = (typeof ATTRIBUTION_CATEGORIES)[number];
 
+/** Span names that form the exclusive partition (not nested diagnostics). */
+const EXCLUSIVE_SPAN_NAMES: ReadonlySet<string> = new Set([
+  "inference",
+  "tool",
+  "permission.wait",
+  "subagent",
+]);
+
 /** One exclusive category and its share of a denominator wall. */
 export type CategoryShare = {
   category: AttributionCategory;
@@ -35,7 +48,10 @@ export type CategoryShare = {
   count: number;
 };
 
-/** TTFT vs stream split inside inference wall (not exclusive of each other vs parent). */
+/**
+ * TTFT vs stream split. Shares use (ttft + stream) as the denominator —
+ * not inference wall (gaps / un-instrumented inference time are excluded).
+ */
 export type InferenceSplit = {
   ttftNs: number;
   streamNs: number;
@@ -49,6 +65,12 @@ export type TurnAttribution = {
   turnId: string;
   turnNs: number;
   open: boolean;
+  /**
+   * Distinct phase names still open under this turn (and the turn itself when
+   * open). Empty for completed turns. Surfaces mid-stall hangs so exclusive
+   * shares of completed children are not read as a full diagnosis.
+   */
+  openPhases: SpanName[];
   categories: CategoryShare[];
   inference: InferenceSplit;
   toolCount: number;
@@ -70,6 +92,13 @@ export type AttributionReport = {
      * open turns use estimated wall from max completed-descendant end).
      */
     wallNs: number;
+    /** True when any turn is still open (stall / mid-dump). */
+    open: boolean;
+    /**
+     * Distinct open phase names across the session (union of per-turn openPhases).
+     * Empty when every turn is completed.
+     */
+    openPhases: SpanName[];
     categories: CategoryShare[];
     inference: InferenceSplit;
     toolCount: number;
@@ -108,36 +137,29 @@ function emptyBucket(): ExclusiveBucket {
   };
 }
 
-function childrenOf(spans: readonly PerfSpan[]): Map<string, PerfSpan[]> {
-  const byParent = new Map<string, PerfSpan[]>();
-  for (const span of spans) {
-    if (span.parentId === undefined) continue;
-    const list = byParent.get(span.parentId);
-    if (list === undefined) {
-      byParent.set(span.parentId, [span]);
-    } else {
-      list.push(span);
-    }
-  }
-  return byParent;
+function spanById(spans: readonly PerfSpan[]): Map<string, PerfSpan> {
+  const map = new Map<string, PerfSpan>();
+  for (const span of spans) map.set(span.id, span);
+  return map;
 }
 
-function walkDescendants(
-  rootId: string,
-  byParent: Map<string, PerfSpan[]>,
-  visit: (span: PerfSpan) => void,
-): void {
-  const stack = byParent.get(rootId);
-  if (stack === undefined) return;
-  const work: PerfSpan[] = stack.slice();
-  while (work.length > 0) {
-    const span = work.pop()!;
-    visit(span);
-    const kids = byParent.get(span.id);
-    if (kids !== undefined) {
-      for (const k of kids) work.push(k);
-    }
+/**
+ * True when any ancestor of `span` is an exclusive-category span.
+ * Nested exclusive children (e.g. tool under subagent) must not also fill the
+ * exclusive tools bucket — their wall is already inside the parent exclusive.
+ */
+function hasExclusiveAncestor(
+  span: PerfSpan,
+  byId: Map<string, PerfSpan>,
+): boolean {
+  let parentId = span.parentId;
+  while (parentId !== undefined) {
+    const parent = byId.get(parentId);
+    if (parent === undefined) return false;
+    if (EXCLUSIVE_SPAN_NAMES.has(parent.name)) return true;
+    parentId = parent.parentId;
   }
+  return false;
 }
 
 /**
@@ -165,22 +187,53 @@ export function turnWallNs(
   return { wallNs: d <= 0n ? 0 : Number(d), open: true };
 }
 
-/** Accumulate exclusive + nested metrics from a descendant span. */
-function accumulate(bucket: ExclusiveBucket, span: PerfSpan): void {
+/**
+ * Distinct open phase names under `rootId` (descendants only). Stable SPAN_NAMES
+ * order when known, then any remaining by name.
+ */
+function openPhasesUnder(
+  rootId: string,
+  byParent: Map<string, PerfSpan[]>,
+  includeRoot?: PerfSpan,
+): SpanName[] {
+  const found = new Set<SpanName>();
+  if (includeRoot !== undefined && includeRoot.endNs === undefined) {
+    found.add(includeRoot.name);
+  }
+  walkDescendants(rootId, byParent, (child) => {
+    if (child.endNs === undefined) found.add(child.name);
+  });
+  if (found.size === 0) return [];
+  return [...found].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Accumulate metrics from a descendant span.
+ *
+ * Exclusive categories (inference / tool / permission.wait / subagent) only
+ * contribute ns when the span is not under another exclusive parent — so a
+ * nested tool under subagent does not double-count against turn wall.
+ * Nested diagnostics (ttft / stream / transport) and counts always accumulate.
+ */
+function accumulate(
+  bucket: ExclusiveBucket,
+  span: PerfSpan,
+  skipExclusiveNs: boolean,
+): void {
   const dur = spanDurationNs(span) ?? 0;
   switch (span.name as SpanName) {
     case "inference":
-      bucket.inferenceNs += dur;
+      if (!skipExclusiveNs) bucket.inferenceNs += dur;
       break;
     case "tool":
-      bucket.toolNs += dur;
+      if (!skipExclusiveNs) bucket.toolNs += dur;
       bucket.toolCount += 1;
       break;
     case "permission.wait":
-      bucket.permissionWaitNs += dur;
+      if (!skipExclusiveNs) bucket.permissionWaitNs += dur;
       break;
     case "subagent":
-      bucket.subagentNs += dur;
+      if (!skipExclusiveNs) bucket.subagentNs += dur;
       bucket.subagentCount += 1;
       break;
     case "inference.ttft":
@@ -195,6 +248,17 @@ function accumulate(bucket: ExclusiveBucket, span: PerfSpan): void {
     default:
       break;
   }
+}
+
+function accumulateTree(
+  rootId: string,
+  byParent: Map<string, PerfSpan[]>,
+  byId: Map<string, PerfSpan>,
+  bucket: ExclusiveBucket,
+): void {
+  walkDescendants(rootId, byParent, (child) => {
+    accumulate(bucket, child, hasExclusiveAncestor(child, byId));
+  });
 }
 
 function inferenceSplit(ttftNs: number, streamNs: number): InferenceSplit {
@@ -265,14 +329,21 @@ function categorySharesFromBucket(
   ];
 }
 
-function countNameUnder(
+/**
+ * Count exclusive-category spans under root that are not nested under another
+ * exclusive parent (top-level exclusive only — matches exclusive ns accounting).
+ */
+function countTopExclusiveUnder(
   rootId: string,
   byParent: Map<string, PerfSpan[]>,
+  byId: Map<string, PerfSpan>,
   name: SpanName,
 ): number {
   let n = 0;
   walkDescendants(rootId, byParent, (s) => {
-    if (s.name === name) n += 1;
+    if (s.name !== name) return;
+    if (hasExclusiveAncestor(s, byId)) return;
+    n += 1;
   });
   return n;
 }
@@ -283,15 +354,20 @@ function countNameUnder(
  * Exclusive categories (do not nest-double-count):
  *   inference | tools | permission.wait | subagent | other
  *
+ * Nested exclusive children under an exclusive parent (e.g. inference/tool under
+ * subagent) contribute only to the parent exclusive bucket.
+ *
  * Nested diagnostics (not exclusive):
- *   inference.ttft / inference.stream shares of inference wall
+ *   inference.ttft / inference.stream shares of (ttft + stream)
  *   adapter.transport share of inference (transport prioritization signal)
  *
  * Open turns: wall estimated from max completed-descendant end so mid-stall
- * dumps still produce usable share percentages.
+ * dumps still produce usable share percentages; openPhases lists still-running
+ * phases so the report is not read as a complete hang diagnosis.
  */
 export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionReport {
   const byParent = childrenOf(spans);
+  const byId = spanById(spans);
   const turnSpans = spans
     .filter((s) => s.name === "turn")
     .slice()
@@ -299,16 +375,30 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
 
   const turns: TurnAttribution[] = turnSpans.map((turn) => {
     const bucket = emptyBucket();
-    walkDescendants(turn.id, byParent, (child) => accumulate(bucket, child));
+    accumulateTree(turn.id, byParent, byId, bucket);
 
     const { wallNs: turnNs, open } = turnWallNs(turn, byParent);
-    const inferenceCount = countNameUnder(turn.id, byParent, "inference");
-    const permissionWaitCount = countNameUnder(turn.id, byParent, "permission.wait");
+    const openPhases = open
+      ? openPhasesUnder(turn.id, byParent, turn)
+      : [];
+    const inferenceCount = countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "inference",
+    );
+    const permissionWaitCount = countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "permission.wait",
+    );
 
     return {
       turnId: turn.id,
       turnNs,
       open,
+      openPhases,
       categories: categorySharesFromBucket(
         bucket,
         turnNs,
@@ -325,31 +415,55 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
   });
 
   // Session wall includes open-turn estimates so stall dumps keep shares ~1.
-  // Category ns include all turn descendants (open children contribute 0 duration).
+  // Category ns use exclusive (non-nested) accounting; open children contribute 0 duration.
   const sessionBucket = emptyBucket();
   let wallNs = 0;
   let completedTurnCount = 0;
   let inferenceCount = 0;
   let permissionWaitCount = 0;
+  const sessionOpenPhases = new Set<SpanName>();
 
   for (const turn of turnSpans) {
     const { wallNs: turnNs, open } = turnWallNs(turn, byParent);
     wallNs += turnNs;
-    if (!open) completedTurnCount += 1;
-    walkDescendants(turn.id, byParent, (child) => {
-      accumulate(sessionBucket, child);
-      if (child.name === "inference") inferenceCount += 1;
-      if (child.name === "permission.wait") permissionWaitCount += 1;
-    });
+    if (!open) {
+      completedTurnCount += 1;
+    } else {
+      for (const p of openPhasesUnder(turn.id, byParent, turn)) {
+        sessionOpenPhases.add(p);
+      }
+    }
+    accumulateTree(turn.id, byParent, byId, sessionBucket);
+    inferenceCount += countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "inference",
+    );
+    permissionWaitCount += countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "permission.wait",
+    );
   }
 
   // No turn roots (partial / orphan snapshot): fall back to flat exclusive sums
-  // and use attributed total as the wall denominator.
+  // (still skip exclusive ns under exclusive ancestors) and use attributed total
+  // as the wall denominator.
   if (turnSpans.length === 0) {
     for (const span of spans) {
-      accumulate(sessionBucket, span);
-      if (span.name === "inference") inferenceCount += 1;
-      if (span.name === "permission.wait") permissionWaitCount += 1;
+      accumulate(sessionBucket, span, hasExclusiveAncestor(span, byId));
+      if (span.name === "inference" && !hasExclusiveAncestor(span, byId)) {
+        inferenceCount += 1;
+      }
+      if (
+        span.name === "permission.wait" &&
+        !hasExclusiveAncestor(span, byId)
+      ) {
+        permissionWaitCount += 1;
+      }
+      if (span.endNs === undefined) sessionOpenPhases.add(span.name);
     }
     wallNs =
       sessionBucket.inferenceNs +
@@ -358,9 +472,15 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       sessionBucket.subagentNs;
   }
 
+  const openPhases = [...sessionOpenPhases].sort((a, b) =>
+    a.localeCompare(b),
+  );
+
   return {
     session: {
       wallNs,
+      open: openPhases.length > 0 || completedTurnCount < turnSpans.length,
+      openPhases,
       categories: categorySharesFromBucket(
         sessionBucket,
         wallNs,
@@ -416,10 +536,12 @@ export function spansFromDumpJson(raw: unknown): PerfSpan[] {
 
 /** Attribute a parsed PerfDump (or dump-like JSON) offline. */
 export function attributionFromDump(raw: unknown): AttributionReport {
-  if (raw !== null && typeof raw === "object") {
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Partial<PerfDump>;
     if (obj.version !== undefined && obj.version !== DUMP_VERSION) {
-      // Still attempt — schema may be forward-compatible on spans[].
+      throw new Error(
+        `attribution report: unsupported dump version ${String(obj.version)} (expected ${DUMP_VERSION})`,
+      );
     }
   }
   return attributionFromSpans(spansFromDumpJson(raw));
@@ -444,6 +566,10 @@ function categoryLine(c: CategoryShare): string {
   return `  ${c.category.padEnd(18)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}${count}`;
 }
 
+function formatOpenPhases(phases: readonly SpanName[]): string {
+  return phases.length === 0 ? "(none)" : phases.join(", ");
+}
+
 /** Human-readable multi-line report for CLI / docs. */
 export function formatAttributionReport(report: AttributionReport): string {
   const lines: string[] = [];
@@ -454,14 +580,26 @@ export function formatAttributionReport(report: AttributionReport): string {
   lines.push(
     `Session wall: ${ms(s.wallNs)}  turns=${s.turnCount} (completed=${s.completedTurnCount})`,
   );
+  if (s.open) {
+    lines.push(
+      `Open (incomplete): still-running phases: ${formatOpenPhases(s.openPhases)}`,
+    );
+    lines.push(
+      "  Exclusive shares below use completed descendants only — not a full stall diagnosis.",
+    );
+  }
   lines.push("");
-  lines.push("Exclusive phase shares (of session wall):");
+  lines.push(
+    s.open
+      ? "Exclusive phase shares (of estimated session wall; incomplete while open):"
+      : "Exclusive phase shares (of session wall):",
+  );
   for (const c of s.categories) {
     lines.push(categoryLine(c));
   }
   lines.push("");
   lines.push(
-    `Inference split: ttft=${pct(s.inference.ttftShare)} (${ms(s.inference.ttftNs)})  stream=${pct(s.inference.streamShare)} (${ms(s.inference.streamNs)})`,
+    `Inference split (of ttft+stream): ttft=${pct(s.inference.ttftShare)} (${ms(s.inference.ttftNs)})  stream=${pct(s.inference.streamShare)} (${ms(s.inference.streamNs)})`,
   );
   if (s.transportNs > 0 || s.transportShareOfInference > 0) {
     lines.push(
@@ -478,6 +616,11 @@ export function formatAttributionReport(report: AttributionReport): string {
       lines.push(
         `  turn ${t.turnId}${openTag}  wall=${ms(t.turnNs)}  tools=${t.toolCount}  subagents=${t.subagentCount}`,
       );
+      if (t.open) {
+        lines.push(
+          `    open phases: ${formatOpenPhases(t.openPhases)}  (shares incomplete)`,
+        );
+      }
       for (const c of t.categories) {
         lines.push(`    ${c.category.padEnd(16)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}`);
       }

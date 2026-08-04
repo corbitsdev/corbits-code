@@ -7,7 +7,7 @@ import {
   formatAttributionReport,
   spansFromDumpJson,
 } from "./attribution-report.js";
-import { buildDump, serializeSpan } from "./dump.js";
+import { DUMP_VERSION, buildDump, serializeSpan } from "./dump.js";
 import {
   MULTI_TOOL_TURN_GOLDEN,
   multiToolTurnFixture,
@@ -148,6 +148,112 @@ describe("attributionFromSpans — subagent + transport", () => {
     expect(report.session.subagentCount).toBe(1);
     expect(report.session.transportNs).toBe(800);
     expect(report.session.transportShareOfInference).toBeCloseTo(800 / 4000, 10);
+    expect(report.session.open).toBe(false);
+    expect(report.session.openPhases).toEqual([]);
+  });
+
+  test("nested exclusive under subagent does not double-count (share sum ≈ 1)", () => {
+    // turn 10_000
+    //   inference 2000 (top-level exclusive)
+    //   subagent 6000 containing nested inference 2500 + tools 1500
+    //   tool 1000 (sibling exclusive)
+    // Exclusive: inference=2000, subagent=6000, tools=1000, other=1000
+    // Nested under subagent must NOT add 2500+1500 into exclusive buckets.
+    const spans: PerfSpan[] = [
+      span({ id: "t1", name: "turn", startNs: 0n, endNs: 10_000n }),
+      span({
+        id: "i1",
+        name: "inference",
+        parentId: "t1",
+        startNs: 0n,
+        endNs: 2000n,
+      }),
+      span({
+        id: "ttft1",
+        name: "inference.ttft",
+        parentId: "i1",
+        startNs: 0n,
+        endNs: 400n,
+      }),
+      span({
+        id: "stream1",
+        name: "inference.stream",
+        parentId: "i1",
+        startNs: 400n,
+        endNs: 2000n,
+      }),
+      span({
+        id: "sa1",
+        name: "subagent",
+        parentId: "t1",
+        startNs: 2000n,
+        endNs: 8000n,
+      }),
+      span({
+        id: "sa_i1",
+        name: "inference",
+        parentId: "sa1",
+        startNs: 2000n,
+        endNs: 4500n,
+      }),
+      span({
+        id: "sa_ttft",
+        name: "inference.ttft",
+        parentId: "sa_i1",
+        startNs: 2000n,
+        endNs: 2500n,
+      }),
+      span({
+        id: "sa_stream",
+        name: "inference.stream",
+        parentId: "sa_i1",
+        startNs: 2500n,
+        endNs: 4500n,
+      }),
+      span({
+        id: "sa_k1",
+        name: "tool",
+        parentId: "sa1",
+        startNs: 4500n,
+        endNs: 6000n,
+      }),
+      span({
+        id: "k1",
+        name: "tool",
+        parentId: "t1",
+        startNs: 8000n,
+        endNs: 9000n,
+      }),
+    ];
+
+    const report = attributionFromSpans(spans);
+    const inf = categoryShare(report.session.categories, "inference");
+    const tools = categoryShare(report.session.categories, "tools");
+    const sub = categoryShare(report.session.categories, "subagent");
+    const other = categoryShare(report.session.categories, "other");
+
+    expect(inf.ns).toBe(2000);
+    expect(sub.ns).toBe(6000);
+    expect(tools.ns).toBe(1000); // only the top-level tool, not sa_k1
+    expect(other.ns).toBe(1000); // 10000 - 2000 - 6000 - 1000
+    expect(inf.count).toBe(1); // nested inference under subagent not counted
+    expect(sub.count).toBe(1);
+    // toolCount still sees nested tools for visibility
+    expect(report.session.toolCount).toBe(2);
+    expect(report.session.subagentCount).toBe(1);
+
+    const shareSum = report.session.categories.reduce((a, c) => a + c.share, 0);
+    expect(shareSum).toBeCloseTo(1, 10);
+
+    // Nested diagnostics still roll up (parent + subagent ttft/stream)
+    expect(report.session.inference.ttftNs).toBe(400 + 500);
+    expect(report.session.inference.streamNs).toBe(1600 + 2000);
+
+    const turnShareSum = report.turns[0]!.categories.reduce(
+      (a, c) => a + c.share,
+      0,
+    );
+    expect(turnShareSum).toBeCloseTo(1, 10);
   });
 });
 
@@ -192,6 +298,10 @@ describe("attributionFromSpans — open (stall) turns", () => {
     expect(report.session.wallNs).toBe(3000);
     expect(report.turns[0]!.open).toBe(true);
     expect(report.turns[0]!.turnNs).toBe(3000);
+    expect(report.session.open).toBe(true);
+    // Still-running: turn + open stream (completed inference/tool are not listed)
+    expect(report.session.openPhases).toEqual(["inference.stream", "turn"]);
+    expect(report.turns[0]!.openPhases).toEqual(["inference.stream", "turn"]);
 
     expect(categoryShare(report.session.categories, "inference").ns).toBe(2000);
     expect(categoryShare(report.session.categories, "tools").ns).toBe(1000);
@@ -281,6 +391,9 @@ describe("attributionFromSpans — open (stall) turns", () => {
     expect(report.session.wallNs).toBe(0);
     expect(report.turns[0]!.open).toBe(true);
     expect(report.turns[0]!.turnNs).toBe(0);
+    expect(report.session.open).toBe(true);
+    expect(report.session.openPhases).toEqual(["inference", "turn"]);
+    expect(report.turns[0]!.openPhases).toEqual(["inference", "turn"]);
     for (const c of report.session.categories) {
       expect(c.share).toBe(0);
       expect(c.ns).toBe(0);
@@ -308,6 +421,17 @@ describe("dump round-trip", () => {
     expect(spans[0]!.startNs).toBe(0n);
     expect(deserializeDumpSpan(serialized[0]!).id).toBe("t1");
   });
+
+  test("attributionFromDump rejects unsupported DUMP_VERSION", () => {
+    const dump = buildDump(
+      multiToolTurnFixture(),
+      "fixture-multi",
+      "2026-04-08T00:00:00.000Z",
+    );
+    expect(() =>
+      attributionFromDump({ ...dump, version: DUMP_VERSION + 1 }),
+    ).toThrow(/unsupported dump version/);
+  });
 });
 
 describe("formatAttributionReport", () => {
@@ -324,5 +448,39 @@ describe("formatAttributionReport", () => {
     expect(text).toContain("40.0%"); // inference 2000/5000
     expect(text).toContain("24.0%"); // tools 1200/5000
     expect(text).toContain("turn t1");
+    expect(text).toContain("Inference split (of ttft+stream)");
+    expect(text).not.toContain("Open (incomplete)");
+  });
+
+  test("surfaces open phases for mid-stall dumps", () => {
+    const spans: PerfSpan[] = [
+      span({ id: "t1", name: "turn", startNs: 0n }),
+      span({
+        id: "i1",
+        name: "inference",
+        parentId: "t1",
+        startNs: 0n,
+        endNs: 1000n,
+      }),
+      span({
+        id: "stream1",
+        name: "inference.stream",
+        parentId: "i1",
+        startNs: 200n,
+      }),
+      span({
+        id: "k1",
+        name: "tool",
+        parentId: "t1",
+        startNs: 1000n,
+        endNs: 1500n,
+      }),
+    ];
+    const text = formatAttributionReport(attributionFromSpans(spans));
+    expect(text).toContain("Open (incomplete)");
+    expect(text).toContain("inference.stream");
+    expect(text).toContain("open phases:");
+    expect(text).toContain("shares incomplete");
+    expect(text).toContain("not a full stall diagnosis");
   });
 });
