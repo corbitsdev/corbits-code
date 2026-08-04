@@ -163,6 +163,17 @@ describe("pickEffortFromCascade (precedence table)", () => {
     ).toBe("low");
   });
 
+  test("1b. unsupported pin is clamped onto supported", () => {
+    expect(
+      pickEffortFromCascade({
+        pin: "xhigh",
+        roleDefault: "medium",
+        parentEffort: "high",
+        supported: ["low", "medium", "high"],
+      }),
+    ).toBe("high");
+  });
+
   test("2. role default when supported (ignores parent)", () => {
     expect(
       pickEffortFromCascade({

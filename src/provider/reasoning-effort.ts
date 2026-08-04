@@ -150,11 +150,15 @@ export type ResolveEffortForRoleOpts = {
  * precedence table without depending on per-model supported sets.
  *
  * Precedence (first match wins):
- * 1. Explicit pin
+ * 1. Explicit pin (clamped onto supported when the pin is not in the set)
  * 2. Role default when present in `supported`
  * 3. Parent effort when present in `supported`
  * 4. Clamp of role default onto `supported`
  * 5. undefined when `supported` is empty
+ *
+ * Pins are still highest precedence, but an unsupported pin is clamped so the
+ * pure API owns the "never emit an unsupported effort" invariant (callers that
+ * want hard-fail on bad pins should validateEffort first, as task-tool does).
  */
 export function pickEffortFromCascade(opts: {
   pin?: ReasoningEffort;
@@ -162,8 +166,10 @@ export function pickEffortFromCascade(opts: {
   parentEffort?: ReasoningEffort;
   supported: readonly ReasoningEffort[];
 }): ReasoningEffort | undefined {
-  if (opts.pin !== undefined) return opts.pin;
   if (opts.supported.length === 0) return undefined;
+  if (opts.pin !== undefined) {
+    return opts.supported.includes(opts.pin) ? opts.pin : clampEffort(opts.pin, opts.supported);
+  }
   if (opts.supported.includes(opts.roleDefault)) return opts.roleDefault;
   if (opts.parentEffort !== undefined && opts.supported.includes(opts.parentEffort)) {
     return opts.parentEffort;
