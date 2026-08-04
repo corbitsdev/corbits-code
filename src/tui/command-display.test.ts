@@ -265,3 +265,33 @@ test("collapseSegmentPayloads never collapses an interpreter without any code fl
   const segment = "bash script.sh";
   expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
 });
+
+test("collapseSegmentPayloads never collapses bun -e code", () => {
+  const segment = 'bun -e "console.log(1)\nconsole.log(2)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses bunx running a package", () => {
+  const segment = 'bunx cowsay "line one\nline two"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses deno eval code", () => {
+  const segment = 'deno eval "console.log(1)\nconsole.log(2)"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses busybox sh -c", () => {
+  const segment = 'busybox sh -c "line one\nline two"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses ash -c", () => {
+  const segment = 'ash -c "line one\nline two"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});
+
+test("collapseSegmentPayloads never collapses osascript", () => {
+  const segment = 'osascript -e "display dialog \\"hi\\"\nbeep"';
+  expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
+});

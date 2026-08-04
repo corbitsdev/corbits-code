@@ -2838,3 +2838,69 @@ describe("sub-agent identity on permission requests", () => {
     expect(withB?.cwd).toBe("/repo-b");
   });
 });
+
+describe("sub-agent auto-allow uses the process cwd, not the session cwd", () => {
+  test("a relative read inside the worktree auto-allows under the process cwd", async () => {
+    // Nested worktree under the session so absolute paths stay inside the
+    // workspace roots. Auto-allow must still judge containment against the
+    // worktree (process cwd), not the session — this case is the happy path
+    // where the relative target lands inside the worktree either way.
+    const root = mkdtempSync(join(tmpdir(), "gate-eff-cwd-"));
+    const sessionCwd = join(root, "session");
+    const agentCwd = join(sessionCwd, "agent-x");
+    mkdirSync(sessionCwd);
+    mkdirSync(agentCwd);
+    writeFileSync(join(agentCwd, "local.txt"), "worktree-local\n");
+
+    let prompted = false;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        prompted = true;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      cwd: sessionCwd,
+    });
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const verdict = await runWithSubAgentIdentity(
+      { description: "Worktree worker", cwd: agentCwd },
+      () => gate.evaluate(shellCall("cat local.txt")),
+    );
+    expect(verdict).toEqual({ allowed: true });
+    expect(prompted).toBe(false);
+  });
+
+  test("a relative read that escapes the worktree but not the session is not auto-allowed", async () => {
+    // Worktree nested under the session: `cat ../session-only.txt` resolves
+    // inside the session when judged against session cwd (bug → auto-allow)
+    // but escapes the worktree when judged against the process cwd (correct →
+    // ask).
+    const root = mkdtempSync(join(tmpdir(), "gate-escape-wt-"));
+    const sessionCwd = join(root, "session");
+    mkdirSync(sessionCwd);
+    writeFileSync(join(sessionCwd, "session-only.txt"), "only-in-session\n");
+    const agentCwd = join(sessionCwd, "agent-x");
+    mkdirSync(agentCwd);
+
+    let prompted = false;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        prompted = true;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      cwd: sessionCwd,
+    });
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const verdict = await runWithSubAgentIdentity(
+      { description: "Nested worktree", cwd: agentCwd },
+      () => gate.evaluate(shellCall("cat ../session-only.txt")),
+    );
+    expect(verdict).toEqual({ allowed: true });
+    expect(prompted).toBe(true);
+  });
+});

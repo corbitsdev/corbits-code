@@ -284,12 +284,18 @@ const CODE_CONSUMING_COMMANDS = new Set([
   "sh",
   "zsh",
   "dash",
+  "ash",
+  "busybox",
   "python",
   "python3",
   "node",
+  "bun",
+  "bunx",
+  "deno",
   "ruby",
   "perl",
   "php",
+  "osascript",
 ]);
 
 // Command-position words only: the program name and its flags, never text
