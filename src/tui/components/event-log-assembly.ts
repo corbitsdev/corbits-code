@@ -6,9 +6,7 @@ import {
   describeToolCall,
   isShellExitEnvelope,
   mergedToolCollapsedPreview,
-  shellOutcomeGlyph,
   summarizeToolResult,
-  toolGlyph,
 } from "../tool-formatter.js";
 import { extractMcpRecords, extractMcpRecord } from "../mcp-result-format.js";
 import { isMcpToolName } from "../../mcp/tool-name.js";
@@ -368,7 +366,7 @@ function toolCallLines(
   expanded: boolean,
   meta?: { pending?: boolean; durationSuffix?: string },
 ): StyledLine[] {
-  const { display, role, summary, full, isShell, glyph } = describeToolCall(block.name, block.arguments);
+  const { display, role, summary, full, isShell } = describeToolCall(block.name, block.arguments);
   const roleColor = color(role);
   // A pending row bakes no duration text; its live spinner and elapsed clock are
   // painted by the running-row component from the startedAt marker instead.
@@ -389,10 +387,12 @@ function toolCallLines(
   }
 
   if (expanded) {
-    const headline = wrapStyledLine([
-      { text: `${glyph} `, color: roleColor },
-      { text: `${display}${durationSuffix}`, color: roleColor },
-    ], contentWidth);
+    // Text + colour only — no per-tool glyph zoo. Indent from the caller is the
+    // only left gutter; RunningToolRow swaps that indent for ○ while pending.
+    const headline = wrapStyledLine(
+      [{ text: `${display}${durationSuffix}`, color: roleColor }],
+      contentWidth,
+    );
     const edit = editDiffFromArgs(block.name, block.arguments);
     if (edit !== null) {
       // write_file replaces a whole file, so collapse its unchanged context
@@ -411,12 +411,10 @@ function toolCallLines(
   }
 
   // Collapsed non-shell tool calls are subordinate — danger stays loud, everything
-  // else recedes so the model's actual text output draws the eye instead. The
-  // leading bullet stays in the action colour so a call still reads as a call.
+  // else recedes so the model's actual text output draws the eye instead.
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   return wrapStyledLine(
     [
-      { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
       { text: `${display}${durationSuffix}`, color: collapsedColor, dim: role !== "danger" },
       ...(summary.length > 0 ? [{ text: ` ${summary}`, color: color("dim"), dim: true }] : []),
     ],
@@ -438,10 +436,7 @@ function appendDiffStat(lines: StyledLine[], toolName: string, rawArgs: string):
 
 function mergedFileEditGroupLines(count: number, width: number): StyledLine[] {
   return wrapStyledLine(
-    [
-      { text: `${toolGlyph("edit_file")} `, color: color("success"), dim: true },
-      { text: `Edited ${count} files`, color: color("muted"), dim: true },
-    ],
+    [{ text: `Edited ${count} files`, color: color("muted"), dim: true }],
     width,
   );
 }
@@ -451,7 +446,7 @@ function mergedToolLines(
   result: Extract<RenderableBlock, { type: "tool_result" }>,
   width: number,
 ): StyledLine[] {
-  const { role, isShell, summary, glyph } = describeToolCall(call.name, call.arguments);
+  const { role, isShell, summary } = describeToolCall(call.name, call.arguments);
   const roleColor = color(role);
 
   const durationSuffix = formatToolDurationMs((result.finishedAt ?? call.startedAt ?? 0) - (call.startedAt ?? 0));
@@ -471,7 +466,9 @@ function mergedToolLines(
     }
 
     if (isShellExitEnvelope(call.name, result.content)) {
-      const rows = clampedShellLines(summary, roleColor, width, `${shellOutcomeGlyph(true)} `);
+      // Prefer plain status text over a pass/fail mark: "$ cmd → exit 1: …" in
+      // danger colour already reads as failure without a decorative ✗.
+      const rows = clampedShellLines(summary, roleColor, width);
       const withOutcome = appendTextToLastLine(rows, ` → ${outcome}`, { color: color("danger"), dim: false });
       return appendTextToLastLine(withOutcome, durationSuffix, { color: color("dim"), dim: true });
     }
@@ -480,10 +477,7 @@ function mergedToolLines(
   const merged = mergedToolCollapsedPreview(call.name, call.arguments, result.content, result.isError);
   const collapsedColor = role === "danger" ? roleColor : color("muted");
   const rows = wrapStyledLine(
-    [
-      { text: `${glyph} `, color: roleColor, dim: role !== "danger" },
-      { text: merged, color: collapsedColor, dim: role !== "danger" },
-    ],
+    [{ text: merged, color: collapsedColor, dim: role !== "danger" }],
     width,
   );
   const withStat =
@@ -499,8 +493,9 @@ function toolResultLines(block: Extract<RenderableBlock, { type: "tool_result" }
       if (isShellExitEnvelope(block.name, block.content)) {
         // summarizeToolResult's run_shell case already parses the "exit code N\n<output>"
         // envelope into a one-line preview; reuse it instead of re-deriving it here.
+        // Danger colour + "exit N" text is enough — no decorative fail mark.
         const { preview } = summarizeToolResult(block.name, block.content);
-        return plainLines(`${shellOutcomeGlyph(true)} ${preview}`, { color: color("danger") }, width);
+        return plainLines(preview, { color: color("danger") }, width);
       }
       const firstLine = block.content.split("\n")[0] ?? "";
       return plainLines(`error: ${firstLine}`, { color: color("danger") }, width);

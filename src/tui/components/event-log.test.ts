@@ -299,10 +299,11 @@ describe("error tool result output", () => {
     expect(text.length).toBeLessThan(trace.length);
   });
 
-  test("a collapsed shell error row shows a fail glyph derived from the exit code", () => {
+  test("a collapsed shell error row shows plain exit status text, not a fail glyph", () => {
     const text = lineText(buildLines([shellErrorResult(1, "boom")], COLUMNS, false, isExpanded)).join("\n");
-    expect(text).toContain("✗");
     expect(text).toContain("exit 1");
+    expect(text).not.toContain("✗");
+    expect(text).not.toContain("✓");
   });
 
   test("a non-shell collapsed error keeps the plain error prefix without a glyph", () => {
@@ -322,11 +323,11 @@ describe("merged collapsed shell failure", () => {
     ];
   }
 
-  test("shows a fail glyph and the parsed exit summary, not the raw envelope", () => {
+  test("shows the parsed exit summary as plain text, not a fail glyph or raw envelope", () => {
     const text = lineText(buildLines(shellCallAndFailure("false", 1, "boom"), COLUMNS, false, isExpanded)).join("\n");
-    expect(text).toContain("✗");
     expect(text).toContain("exit 1: boom");
     expect(text).not.toContain("exit code 1");
+    expect(text).not.toContain("✗");
   });
 
   test("caps a long error trace to a short summary instead of dumping it", () => {
@@ -473,7 +474,7 @@ describe("flat line buffer", () => {
       },
     ];
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ◇ Read 1 line of package.json"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  Read 1 line of package.json"]);
     expect(lineText(buildLines(blocks, COLUMNS, false, () => true)).join("\n")).toContain("scripts");
   });
 
@@ -544,7 +545,7 @@ describe("flat line buffer", () => {
   test("consecutive file edits collapse into one group", () => {
     const blocks = [0, 1, 2, 3].flatMap(editPair);
 
-    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  ✐ Edited 4 files"]);
+    expect(lineText(buildLines(blocks, COLUMNS, false, isExpanded))).toEqual(["  Edited 4 files"]);
   });
 
   test("expanded file edits render individually", () => {
@@ -553,7 +554,8 @@ describe("flat line buffer", () => {
     const text = lineText(buildLines(blocks, COLUMNS, false, (block) => expandedIds.has(block.id))).join("\n");
 
     expect(text).toContain("Edited src/file-0.ts");
-    expect(text).toContain("✐ Edit");
+    expect(text).toContain("Edit");
+    expect(text).not.toMatch(/[◇✎✐⌕⌗☰⊛⇣⚑▣]/);
     expect(text).toContain("src/file-1.ts");
     expect(text).toContain("Edited src/file-2.ts");
     expect(text).not.toContain("Edited 3 files");
@@ -784,8 +786,8 @@ describe("flat line buffer", () => {
     expect(lines).toEqual([
       " ● I'll read the config then edit it.",
       "",
-      "  ◇ Read 1 line of package.json",
-      "  ✐ Edited package.json (1 replacement)",
+      "  Read 1 line of package.json",
+      "  Edited package.json (1 replacement)",
     ]);
   });
 

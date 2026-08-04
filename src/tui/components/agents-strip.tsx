@@ -170,13 +170,6 @@ export function agentsStripRowCount(
   return rows;
 }
 
-const STATUS_GLYPH: Record<SubAgentSessionStatus, string> = {
-  running: "●",
-  done: "✓",
-  failed: "✗",
-  cancelled: "⊘",
-};
-
 export function AgentsStrip({
   sessions,
   selectedId = null,
@@ -233,17 +226,18 @@ export function AgentsStrip({
         const prefix = selected ? "› " : entered ? "· " : "  ";
         const label = formatSessionLabel(session);
         const tree = treeIndent(session, visible, index);
+        // Status is colour + the header summary counts — no decorative ●/✓/✗ zoo.
         return (
           <Box key={session.id} gap={1} width="100%">
             <Text
-              color={statusColor(session.status)}
-              bold={session.status === "running" || selected}
-            >
-              {STATUS_GLYPH[session.status]}
-            </Text>
-            <Text
-              color={selected || entered ? color("text") : color("muted")}
-              bold={selected || entered}
+              color={
+                selected || entered
+                  ? color("text")
+                  : session.status === "running"
+                    ? statusColor(session.status)
+                    : color("muted")
+              }
+              bold={session.status === "running" || selected || entered}
               wrap="truncate-end"
             >
               {tree}
