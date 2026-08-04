@@ -10,9 +10,10 @@ import { sessionDir } from "../session/index.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Approvals are remembered per session, alongside the run state.
-function storePath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "permissions.json");
+function storePath(cwd: string, sessionId: string, home?: string): string {
+  return join(sessionDir(cwd, sessionId, home), "permissions.json");
 }
+
 
 // Persistent project grants live next to the project's settings. The file is
 // gitignored (machine-local), so a teammate who pulls the repo never silently
@@ -104,9 +105,14 @@ function chainObjectWrite(
   return chained;
 }
 
-export async function loadApprovals(cwd: string, sessionId: string): Promise<Approval[]> {
-  return readApprovalsField(storePath(cwd, sessionId), "approvals");
+export async function loadApprovals(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): Promise<Approval[]> {
+  return readApprovalsField(storePath(cwd, sessionId, home), "approvals");
 }
+
 
 export async function loadProjectApprovals(cwd: string): Promise<Approval[]> {
   return readApprovalsField(projectStorePath(cwd), "approvals");

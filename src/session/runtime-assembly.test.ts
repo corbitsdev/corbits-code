@@ -53,25 +53,26 @@ describe("buildSubAgentProvider", () => {
 
 describe("loadSeededApprovals merge order", () => {
   let cwd = "";
+  let home = "";
   let sessionId = "";
 
   afterEach(async () => {
-    if (cwd !== "" && sessionId !== "") {
-      await rm(sessionDir(cwd, sessionId), { recursive: true, force: true }).catch(() => undefined);
-    }
     if (cwd !== "") await rm(cwd, { recursive: true, force: true });
+    if (home !== "") await rm(home, { recursive: true, force: true });
     cwd = "";
+    home = "";
     sessionId = "";
   });
 
   test("orders session, then project, before empty global/provider-model layers", async () => {
     cwd = await mkdtemp(join(tmpdir(), "runtime-assembly-"));
+    home = await mkdtemp(join(tmpdir(), "runtime-assembly-home-"));
     sessionId = generateSessionId();
-    await initSessionDir(cwd, sessionId);
+    await initSessionDir(cwd, sessionId, home);
 
-    await mkdir(sessionDir(cwd, sessionId), { recursive: true });
+    await mkdir(sessionDir(cwd, sessionId, home), { recursive: true });
     await writeFile(
-      join(sessionDir(cwd, sessionId), "permissions.json"),
+      join(sessionDir(cwd, sessionId, home), "permissions.json"),
       JSON.stringify({
         approvals: [{ tool: "run_shell", pattern: "session npm *" }],
       }),
@@ -81,13 +82,14 @@ describe("loadSeededApprovals merge order", () => {
       pattern: "project npm *",
     });
 
-    const seeded = await loadSeededApprovals(cwd, sessionId);
+    const seeded = await loadSeededApprovals(cwd, sessionId, home);
 
     // Session must lead so gate first-match prefers the tighter session grant.
     // Global / provider-model layers may contain real-home entries; assert prefix only.
     expect(seeded[0]).toEqual({ tool: "run_shell", pattern: "session npm *" });
     expect(seeded[1]).toEqual({ tool: "run_shell", pattern: "project npm *" });
   });
+
 });
 
 describe("createApprovalPersist", () => {

@@ -76,6 +76,19 @@ function legacySessionCandidates(cwd: string, sessionId: string): string[] {
   return [underCwd, join(projectRoot, LEGACY_SESSION_BASE, sessionId)];
 }
 
+/** Legacy roots that may still hold unmigrated sessions (cwd + project root). */
+function legacySessionRoots(cwd: string): string[] {
+  const underCwd = join(cwd, LEGACY_SESSION_BASE);
+  const projectRoot = projectRootFor(cwd);
+  if (realpathSafe(projectRoot) === realpathSafe(cwd)) return [underCwd];
+  return [underCwd, join(projectRoot, LEGACY_SESSION_BASE)];
+}
+
+function legacyLatestCandidates(cwd: string): string[] {
+  return legacySessionRoots(cwd).map((base) => join(base, "latest"));
+}
+
+
 function realpathSafe(path: string): string {
   try {
     return realpathSync(path);
@@ -165,21 +178,25 @@ export async function resolveLatestSession(
       contextDir: sessionContextDir(cwd, sessionId, home),
     };
   } catch {
-    // Fall back: legacy latest symlink under .agent-state, then migrate.
-    try {
-      const legacyLink = join(cwd, LEGACY_SESSION_BASE, "latest");
-      const sessionId = await readlink(legacyLink);
-      const dir = await migrateLegacySessionIfNeeded(cwd, sessionId, home);
-      return {
-        sessionId,
-        dir,
-        contextDir: sessionContextDir(cwd, sessionId, home),
-      };
-    } catch {
-      return null;
+    // Fall back: legacy latest under cwd, then under the git project root
+    // (worktree cwd may not have its own .agent-state/latest).
+    for (const legacyLink of legacyLatestCandidates(cwd)) {
+      try {
+        const sessionId = await readlink(legacyLink);
+        const dir = await migrateLegacySessionIfNeeded(cwd, sessionId, home);
+        return {
+          sessionId,
+          dir,
+          contextDir: sessionContextDir(cwd, sessionId, home),
+        };
+      } catch {
+        // try next candidate
+      }
     }
+    return null;
   }
 }
+
 
 export type SessionSummary = {
   sessionId: string;
@@ -193,7 +210,7 @@ const SESSION_ID_RE =
 
 async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   const ids = new Set<string>();
-  const roots = [projectSessionsRoot(cwd, home), join(cwd, LEGACY_SESSION_BASE)];
+  const roots = [projectSessionsRoot(cwd, home), ...legacySessionRoots(cwd)];
   for (const base of roots) {
     let entries: string[];
     try {
@@ -208,6 +225,7 @@ async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   }
   return [...ids];
 }
+
 
 /** List on-disk sessions for a project, newest first. */
 export async function listSessions(cwd: string, home: string = homedir()): Promise<SessionSummary[]> {

@@ -25,7 +25,8 @@ async function withController(
   ) => void | Promise<void>,
 ): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), "wf-controller-"));
-  await initSessionDir(cwd, "session-1");
+  const home = await mkdtemp(join(tmpdir(), "wf-controller-home-"));
+  await initSessionDir(cwd, "session-1", home);
   const director = { coordinator: undefined as WorkflowCoordinator | undefined };
   const controller = new WorkflowController({
     cwd,
@@ -41,10 +42,12 @@ async function withController(
   try {
     await fn(controller, director, cwd);
   } finally {
-    await flushWorkflowStateWrites(cwd, "session-1");
+    await flushWorkflowStateWrites(cwd, "session-1", home);
     await rm(cwd, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 }
+
 
 test("starting a workflow attaches a coordinator to the director", async () => {
   await withController([], async (controller, director, _cwd) => {

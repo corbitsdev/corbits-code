@@ -309,7 +309,8 @@ Session runtime state lives under the global projects tree (not in the repo):
 
 - `~/.corbits/projects/<project-key>/<session-id>/run.json` — `RunState`
 - `~/.corbits/projects/<project-key>/<session-id>/context/` — git-backed conversation context (`@intx/storage-isogit`)
-- Project key: slug + short hash of the git toplevel realpath (or workspace realpath when not a git tree), so main + worktrees share resume history
+- Project key: slug + short hash of the shared git root (from `--git-common-dir`, so main + linked worktrees share one key; workspace realpath when not a git tree)
+
 - Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
 

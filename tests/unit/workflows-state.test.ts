@@ -18,36 +18,38 @@ const sampleState: WorkflowState = {
 
 describe("workflow state persistence", () => {
   let cwd: string;
+  let home: string;
 
   beforeEach(async () => {
     cwd = await mkdtemp(join(tmpdir(), "wf-state-"));
+    home = await mkdtemp(join(tmpdir(), "wf-state-home-"));
   });
 
   afterEach(async () => {
-    await rm(sessionDir(cwd, SESSION_ID), { recursive: true, force: true }).catch(() => undefined);
     await rm(cwd, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   });
 
   test("saveWorkflowState then loadWorkflowState returns an equal object", async () => {
-    await saveWorkflowState(cwd, SESSION_ID, sampleState);
-    const loaded = await loadWorkflowState(cwd, SESSION_ID);
+    await saveWorkflowState(cwd, SESSION_ID, sampleState, home);
+    const loaded = await loadWorkflowState(cwd, SESSION_ID, home);
     expect(loaded).toEqual(sampleState);
   });
 
   test("loadWorkflowState on missing file returns null", async () => {
-    expect(await loadWorkflowState(cwd, "nope")).toBeNull();
+    expect(await loadWorkflowState(cwd, "nope", home)).toBeNull();
   });
 
   test("loadWorkflowState with truncated JSON returns null instead of throwing", async () => {
-    const dir = sessionDir(cwd, SESSION_ID);
+    const dir = sessionDir(cwd, SESSION_ID, home);
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "workflow.json"), '{ "completed": false, "stack": [');
 
-    expect(await loadWorkflowState(cwd, SESSION_ID)).toBeNull();
+    expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
   });
 
   test("loadWorkflowState rejects invalid stepIndex values", async () => {
-    const dir = sessionDir(cwd, SESSION_ID);
+    const dir = sessionDir(cwd, SESSION_ID, home);
     await mkdir(dir, { recursive: true });
     await writeFile(
       join(dir, "workflow.json"),
@@ -57,11 +59,11 @@ describe("workflow state persistence", () => {
       }),
     );
 
-    expect(await loadWorkflowState(cwd, SESSION_ID)).toBeNull();
+    expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
   });
 
   test("loadWorkflowState rejects unknown step statuses", async () => {
-    const dir = sessionDir(cwd, SESSION_ID);
+    const dir = sessionDir(cwd, SESSION_ID, home);
     await mkdir(dir, { recursive: true });
     await writeFile(
       join(dir, "workflow.json"),
@@ -71,30 +73,30 @@ describe("workflow state persistence", () => {
       }),
     );
 
-    expect(await loadWorkflowState(cwd, SESSION_ID)).toBeNull();
+    expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
   });
 
   test("saveWorkflowState leaves no .tmp file after successful write", async () => {
-    await saveWorkflowState(cwd, SESSION_ID, sampleState);
-    const files = await readdir(sessionDir(cwd, SESSION_ID));
+    await saveWorkflowState(cwd, SESSION_ID, sampleState, home);
+    const files = await readdir(sessionDir(cwd, SESSION_ID, home));
     expect(files.filter((f) => f.includes(".tmp"))).toHaveLength(0);
   });
 
   test("saveWorkflowState overwrites a pre-existing file with well-formed JSON", async () => {
-    await saveWorkflowState(cwd, SESSION_ID, sampleState);
+    await saveWorkflowState(cwd, SESSION_ID, sampleState, home);
     const updated: WorkflowState = { ...sampleState, completed: true, stack: [] };
-    await saveWorkflowState(cwd, SESSION_ID, updated);
-    const raw = await readFile(join(sessionDir(cwd, SESSION_ID), "workflow.json"), "utf8");
+    await saveWorkflowState(cwd, SESSION_ID, updated, home);
+    const raw = await readFile(join(sessionDir(cwd, SESSION_ID, home), "workflow.json"), "utf8");
     expect(JSON.parse(raw)).toEqual(updated);
   });
 
   test("concurrent saveWorkflowState calls serialize and leave valid JSON", async () => {
     await Promise.all([
-      saveWorkflowState(cwd, SESSION_ID, sampleState),
-      saveWorkflowState(cwd, SESSION_ID, { ...sampleState, completed: true }),
-      saveWorkflowState(cwd, SESSION_ID, sampleState),
+      saveWorkflowState(cwd, SESSION_ID, sampleState, home),
+      saveWorkflowState(cwd, SESSION_ID, { ...sampleState, completed: true }, home),
+      saveWorkflowState(cwd, SESSION_ID, sampleState, home),
     ]);
-    const loaded = await loadWorkflowState(cwd, SESSION_ID);
+    const loaded = await loadWorkflowState(cwd, SESSION_ID, home);
     expect(loaded).not.toBeNull();
     expect(loaded?.stack).toEqual(sampleState.stack);
   });
