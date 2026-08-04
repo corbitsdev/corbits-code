@@ -53,15 +53,20 @@ describe("buildSubAgentProvider", () => {
 
 describe("loadSeededApprovals merge order", () => {
   let cwd = "";
+  let sessionId = "";
 
   afterEach(async () => {
+    if (cwd !== "" && sessionId !== "") {
+      await rm(sessionDir(cwd, sessionId), { recursive: true, force: true }).catch(() => undefined);
+    }
     if (cwd !== "") await rm(cwd, { recursive: true, force: true });
     cwd = "";
+    sessionId = "";
   });
 
   test("orders session, then project, before empty global/provider-model layers", async () => {
     cwd = await mkdtemp(join(tmpdir(), "runtime-assembly-"));
-    const sessionId = generateSessionId();
+    sessionId = generateSessionId();
     await initSessionDir(cwd, sessionId);
 
     await mkdir(sessionDir(cwd, sessionId), { recursive: true });

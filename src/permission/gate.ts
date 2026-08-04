@@ -323,7 +323,8 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
     const isRestrictedHere = bindRestrictedToProcessCwd(isRestricted, effectiveCwd);
     // A call targeting a restricted path (outside the workspace, or a write
-    // under .agent-state) drops from allow to ask, so it never auto-allows on
+    // under the session state root) drops from allow to ask, so it never auto-allows on
+
     // tier or shell-safety below.
     const restricted = callTargetsRestricted(call, isRestrictedHere);
     const shellCmd =

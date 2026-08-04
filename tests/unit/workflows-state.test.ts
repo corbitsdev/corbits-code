@@ -24,6 +24,7 @@ describe("workflow state persistence", () => {
   });
 
   afterEach(async () => {
+    await rm(sessionDir(cwd, SESSION_ID), { recursive: true, force: true }).catch(() => undefined);
     await rm(cwd, { recursive: true, force: true });
   });
 

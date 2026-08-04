@@ -1,8 +1,11 @@
-import { mkdir, readdir, readlink, stat, symlink, unlink } from "node:fs/promises";
+import { mkdir, readdir, readlink, rename, rm, symlink, stat, cp, unlink } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 
 import { loadState, saveState, type RunState } from "./state.js";
 import { resolveSessionLabel } from "./session-label.js";
+import { projectSessionsRoot } from "./project-key.js";
 
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
@@ -47,34 +50,73 @@ export function generateSessionId(): string {
 // ---------------------------------------------------------------------------
 // Session directory helpers
 // ---------------------------------------------------------------------------
+// Canonical layout: ~/.corbits/projects/<project-key>/<session-id>/
+// Legacy in-repo layout: <cwd>/.agent-state/<session-id>/ (dual-read + migrate)
 
-const SESSION_BASE = ".agent-state";
+/** Legacy in-repo session base (compat / dual-read only). */
+export const LEGACY_SESSION_BASE = ".agent-state";
 
-/** Full path to a session's root directory. */
-export function sessionDir(cwd: string, sessionId: string): string {
-  return join(cwd, SESSION_BASE, sessionId);
+/** Full path to a session's root directory (canonical global location). */
+export function sessionDir(cwd: string, sessionId: string, home: string = homedir()): string {
+  return join(projectSessionsRoot(cwd, home), sessionId);
+}
+
+/** Pre-move in-repo path for a session (migration dual-read). */
+export function legacySessionDir(cwd: string, sessionId: string): string {
+  return join(cwd, LEGACY_SESSION_BASE, sessionId);
+}
+
+/**
+ * If the global session tree is empty and a legacy in-repo tree exists, move
+ * it into the global location so resume never strands. Returns the canonical
+ * session directory path (which may not exist yet for brand-new sessions).
+ */
+export async function migrateLegacySessionIfNeeded(
+  cwd: string,
+  sessionId: string,
+  home: string = homedir(),
+): Promise<string> {
+  const dir = sessionDir(cwd, sessionId, home);
+  if (existsSync(dir)) return dir;
+
+  const legacy = legacySessionDir(cwd, sessionId);
+  if (!existsSync(legacy)) return dir;
+
+  await mkdir(dirname(dir), { recursive: true });
+  try {
+    await rename(legacy, dir);
+  } catch {
+    // Cross-device or busy tree: copy then remove legacy.
+    await cp(legacy, dir, { recursive: true });
+    await rm(legacy, { recursive: true, force: true });
+  }
+  return dir;
 }
 
 /** Full path to a session's context subdirectory. */
-export function sessionContextDir(cwd: string, sessionId: string): string {
-  return join(cwd, SESSION_BASE, sessionId, "context");
+export function sessionContextDir(cwd: string, sessionId: string, home: string = homedir()): string {
+  return join(sessionDir(cwd, sessionId, home), "context");
 }
 
-/** Path to the latest-session symlink. */
-function latestSymlinkPath(cwd: string): string {
-  return join(cwd, SESSION_BASE, "latest");
+/** Path to the latest-session symlink (per project, under the global root). */
+function latestSymlinkPath(cwd: string, home: string = homedir()): string {
+  return join(projectSessionsRoot(cwd, home), "latest");
 }
 
 /**
  * Create a session directory and update the `latest` symlink.
  * Returns the session directory path.
  */
-export async function initSessionDir(cwd: string, sessionId: string): Promise<string> {
-  const dir = sessionDir(cwd, sessionId);
+export async function initSessionDir(
+  cwd: string,
+  sessionId: string,
+  home: string = homedir(),
+): Promise<string> {
+  const dir = await migrateLegacySessionIfNeeded(cwd, sessionId, home);
   await mkdir(join(dir, "context"), { recursive: true });
 
   // Update the `latest` symlink to point to this session.
-  const linkPath = latestSymlinkPath(cwd);
+  const linkPath = latestSymlinkPath(cwd, home);
   await mkdir(dirname(linkPath), { recursive: true });
 
   // Remove existing symlink first, then create new one.
@@ -90,17 +132,31 @@ export async function initSessionDir(cwd: string, sessionId: string): Promise<st
  */
 export async function resolveLatestSession(
   cwd: string,
+  home: string = homedir(),
 ): Promise<{ sessionId: string; dir: string; contextDir: string } | null> {
   try {
-    const linkPath = latestSymlinkPath(cwd);
+    const linkPath = latestSymlinkPath(cwd, home);
     const sessionId = await readlink(linkPath);
+    await migrateLegacySessionIfNeeded(cwd, sessionId, home);
     return {
       sessionId,
-      dir: sessionDir(cwd, sessionId),
-      contextDir: sessionContextDir(cwd, sessionId),
+      dir: sessionDir(cwd, sessionId, home),
+      contextDir: sessionContextDir(cwd, sessionId, home),
     };
   } catch {
-    return null;
+    // Fall back: legacy latest symlink under .agent-state, then migrate.
+    try {
+      const legacyLink = join(cwd, LEGACY_SESSION_BASE, "latest");
+      const sessionId = await readlink(legacyLink);
+      const dir = await migrateLegacySessionIfNeeded(cwd, sessionId, home);
+      return {
+        sessionId,
+        dir,
+        contextDir: sessionContextDir(cwd, sessionId, home),
+      };
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -114,20 +170,32 @@ export type SessionSummary = {
 const SESSION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** List on-disk sessions for a repo, newest first. */
-export async function listSessions(cwd: string): Promise<SessionSummary[]> {
-  const base = join(cwd, SESSION_BASE);
-  let entries: string[];
-  try {
-    entries = await readdir(base);
-  } catch {
-    return [];
+async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
+  const ids = new Set<string>();
+  const roots = [projectSessionsRoot(cwd, home), join(cwd, LEGACY_SESSION_BASE)];
+  for (const base of roots) {
+    let entries: string[];
+    try {
+      entries = await readdir(base);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry === "latest" || !SESSION_ID_RE.test(entry)) continue;
+      ids.add(entry);
+    }
   }
+  return [...ids];
+}
+
+/** List on-disk sessions for a project, newest first. */
+export async function listSessions(cwd: string, home: string = homedir()): Promise<SessionSummary[]> {
+  const entries = await collectSessionIds(cwd, home);
 
   const summaries: SessionSummary[] = [];
   for (const entry of entries) {
-    if (entry === "latest" || !SESSION_ID_RE.test(entry)) continue;
-    const state = await loadState(cwd, entry);
+    await migrateLegacySessionIfNeeded(cwd, entry, home);
+    const state = await loadState(cwd, entry, home);
     if (state !== null) {
       summaries.push({
         sessionId: entry,
@@ -139,8 +207,8 @@ export async function listSessions(cwd: string): Promise<SessionSummary[]> {
     }
     // TUI sessions persist conversation under context/ before run.json exists.
     try {
-      const dirStat = await stat(sessionDir(cwd, entry));
-      await stat(sessionContextDir(cwd, entry));
+      const dirStat = await stat(sessionDir(cwd, entry, home));
+      await stat(sessionContextDir(cwd, entry, home));
       summaries.push({
         sessionId: entry,
         task: "(conversation)",
@@ -156,22 +224,28 @@ export async function listSessions(cwd: string): Promise<SessionSummary[]> {
   return Promise.all(
     summaries.map(async (row) => ({
       ...row,
-      task: await resolveSessionLabel(cwd, row.sessionId, row.task),
+      task: await resolveSessionLabel(cwd, row.sessionId, row.task, home),
     })),
   );
 }
 
 /** Set the display name shown in resume lists and the session header (`run.json` task). */
-export async function renameSession(cwd: string, sessionId: string, name: string): Promise<void> {
+export async function renameSession(
+  cwd: string,
+  sessionId: string,
+  name: string,
+  home: string = homedir(),
+): Promise<void> {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
     throw new Error("Session name cannot be empty");
   }
-  const existing = await loadState(cwd, sessionId);
+  await migrateLegacySessionIfNeeded(cwd, sessionId, home);
+  const existing = await loadState(cwd, sessionId, home);
   if (existing === null) {
     let startedAt = Date.now();
     try {
-      const dirStat = await stat(sessionDir(cwd, sessionId));
+      const dirStat = await stat(sessionDir(cwd, sessionId, home));
       startedAt = dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs;
     } catch {
       // Session dir missing; fall back to now.
@@ -181,8 +255,10 @@ export async function renameSession(cwd: string, sessionId: string, name: string
       turnsUsed: 0,
       task: trimmed,
       startedAt,
-    });
+    }, home);
     return;
   }
-  await saveState(cwd, sessionId, { ...existing, task: trimmed });
+  await saveState(cwd, sessionId, { ...existing, task: trimmed }, home);
 }
+
+export { projectKeyFor, projectSessionsRoot, projectsRoot, projectRootFor } from "./project-key.js";

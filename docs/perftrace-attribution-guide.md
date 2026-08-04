@@ -47,10 +47,10 @@ import { snapshot } from "../src/perf/index.js";
 import { dumpSpans } from "../src/perf/dump.js";
 
 const path = await dumpSpans(snapshot(), {
-  dir: ".agent-state/<sessionId>",
+  dir: "~/.corbits/projects/<project-key>/<sessionId>",
   sessionId: "<sessionId>",
 });
-// → .agent-state/<sessionId>/perftrace-<sessionId>.json
+// → ~/.corbits/projects/<project-key>/<sessionId>/perftrace-<sessionId>.json
 ```
 
 The dump is privacy-strict (allowlisted tags only). Safe to keep offline or
@@ -61,13 +61,13 @@ share with teammates without prompts/paths.
 From a local dump file alone:
 
 ```bash
-bun scripts/perf-report.ts .agent-state/<sessionId>/perftrace-<sessionId>.json
+bun scripts/perf-report.ts ~/.corbits/projects/<project-key>/<sessionId>/perftrace-<sessionId>.json
 ```
 
 Machine-readable JSON:
 
 ```bash
-bun scripts/perf-report.ts --json .agent-state/<sessionId>/perftrace-<sessionId>.json
+bun scripts/perf-report.ts --json ~/.corbits/projects/<project-key>/<sessionId>/perftrace-<sessionId>.json
 ```
 
 Golden multi-tool demo (no dump file needed — uses

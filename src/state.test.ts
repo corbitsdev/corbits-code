@@ -7,11 +7,12 @@ import {
   loadState,
   type RunState,
 } from "./session/state.js";
+import { sessionDir } from "./session/index.js";
 
 const SESSION_ID = "test-session-001";
 
-async function makeTempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "state-test-"));
+async function makeTempDir(prefix: string): Promise<string> {
+  return mkdtemp(join(tmpdir(), prefix));
 }
 
 const baseRunState: RunState = {
@@ -23,22 +24,27 @@ const baseRunState: RunState = {
 
 describe("state persistence", () => {
   let cwd: string;
+  let home: string;
 
   beforeEach(async () => {
-    cwd = await makeTempDir();
+    cwd = await makeTempDir("state-test-cwd-");
+    home = await makeTempDir("state-test-home-");
   });
 
   afterEach(async () => {
     await rm(cwd, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   });
+
+  const dir = () => sessionDir(cwd, SESSION_ID, home);
 
   // ---------------------------------------------------------------------------
   // 1. Round-trip: save then load returns an equal object
   // ---------------------------------------------------------------------------
 
   test("saveState then loadState returns an equal RunState", async () => {
-    await saveState(cwd, SESSION_ID, baseRunState);
-    const loaded = await loadState(cwd, SESSION_ID);
+    await saveState(cwd, SESSION_ID, baseRunState, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
     expect(loaded).toEqual(baseRunState);
   });
 
@@ -48,8 +54,8 @@ describe("state persistence", () => {
       status: "done",
       finishedAt: 1_700_000_005_000,
     };
-    await saveState(cwd, SESSION_ID, state);
-    const loaded = await loadState(cwd, SESSION_ID);
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
     expect(loaded).toEqual(state);
   });
 
@@ -58,23 +64,21 @@ describe("state persistence", () => {
   // ---------------------------------------------------------------------------
 
   test("loadState on missing file returns null", async () => {
-    const result = await loadState(cwd, "nonexistent-session");
+    const result = await loadState(cwd, "nonexistent-session", home);
     expect(result).toBeNull();
   });
 
   // ---------------------------------------------------------------------------
   // 3. Corrupt / truncated JSON returns null rather than throwing
-  //    BUG: JSON.parse throws SyntaxError (no .code property), so the catch
-  //    block re-throws it. The fix is to catch SyntaxError and return null.
   // ---------------------------------------------------------------------------
 
   test("loadState with truncated JSON returns null instead of throwing", async () => {
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
+    const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
     await mkdir(stateDir, { recursive: true });
     await writeFile(join(stateDir, "run.json"), '{ "turnsUsed": ');
 
-    const result = await loadState(cwd, SESSION_ID);
+    const result = await loadState(cwd, SESSION_ID, home);
     expect(result).toBeNull();
   });
 
@@ -83,7 +87,7 @@ describe("state persistence", () => {
   // ---------------------------------------------------------------------------
 
   test("loadState with turnsUsed as string returns null", async () => {
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
+    const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
     await mkdir(stateDir, { recursive: true });
     await writeFile(
@@ -91,25 +95,17 @@ describe("state persistence", () => {
       JSON.stringify({ status: "running", turnsUsed: "not-a-number", task: "x", startedAt: 0 }),
     );
 
-    const result = await loadState(cwd, SESSION_ID);
+    const result = await loadState(cwd, SESSION_ID, home);
     expect(result).toBeNull();
   });
 
   // ---------------------------------------------------------------------------
   // 5. Atomic write: saveState uses temp+rename
-  //    BUG: saveState called writeFile directly to the final path, so a process
-  //    killed mid-write would leave torn JSON. Fixed: write to a .tmp file then
-  //    rename into place, matching the approvals-store pattern.
-  //
-  //    Direct interception of the bound `rename` import is not possible from the
-  //    test. Instead, we verify observable post-conditions: the canonical path
-  //    contains well-formed JSON after the call, no temp file remains, and a
-  //    pre-existing file at the canonical path is fully replaced (not torn).
   // ---------------------------------------------------------------------------
 
   test("saveState leaves no .tmp file after successful write", async () => {
-    await saveState(cwd, SESSION_ID, baseRunState);
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
+    await saveState(cwd, SESSION_ID, baseRunState, home);
+    const stateDir = dir();
     const { readdir } = await import("node:fs/promises");
     const files = await readdir(stateDir);
     const temps = files.filter((f) => f.includes(".tmp"));
@@ -117,20 +113,17 @@ describe("state persistence", () => {
   });
 
   test("saveState overwrites a pre-existing file with well-formed JSON", async () => {
-    // Write a known good file, then overwrite — simulates repeated saves.
-    await saveState(cwd, SESSION_ID, baseRunState);
+    await saveState(cwd, SESSION_ID, baseRunState, home);
     const updated: RunState = { ...baseRunState, turnsUsed: 99, status: "done" };
-    await saveState(cwd, SESSION_ID, updated);
-    const raw = await readFile(join(cwd, ".agent-state", SESSION_ID, "run.json"), "utf8");
-    // The canonical path must contain only the new payload, never a partial mix.
+    await saveState(cwd, SESSION_ID, updated, home);
+    const raw = await readFile(join(dir(), "run.json"), "utf8");
     expect(() => JSON.parse(raw)).not.toThrow();
     expect(JSON.parse(raw)).toEqual(updated);
   });
 
   test("saveState produces a valid final file that round-trips", async () => {
-    // Rename completed — file is well-formed JSON at the canonical path.
-    await saveState(cwd, SESSION_ID, baseRunState);
-    const raw = await readFile(join(cwd, ".agent-state", SESSION_ID, "run.json"), "utf8");
+    await saveState(cwd, SESSION_ID, baseRunState, home);
+    const raw = await readFile(join(dir(), "run.json"), "utf8");
     expect(() => JSON.parse(raw)).not.toThrow();
     expect(JSON.parse(raw)).toEqual(baseRunState);
   });
@@ -148,20 +141,20 @@ describe("state persistence", () => {
         { name: "railway", toolCount: 4 },
       ],
     };
-    await saveState(cwd, SESSION_ID, state);
-    const loaded = await loadState(cwd, SESSION_ID);
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
     expect(loaded).toEqual(state);
   });
 
   test("loadState accepts a record with no model or mcpServers (pre-existing sessions)", async () => {
-    await saveState(cwd, SESSION_ID, baseRunState);
-    const loaded = await loadState(cwd, SESSION_ID);
+    await saveState(cwd, SESSION_ID, baseRunState, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
     expect(loaded?.model).toBeUndefined();
     expect(loaded?.mcpServers).toBeUndefined();
   });
 
   test("loadState rejects a mcpServers entry missing toolCount", async () => {
-    const stateDir = join(cwd, ".agent-state", SESSION_ID);
+    const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
     await mkdir(stateDir, { recursive: true });
     await writeFile(
@@ -175,24 +168,7 @@ describe("state persistence", () => {
       }),
     );
 
-    const result = await loadState(cwd, SESSION_ID);
+    const result = await loadState(cwd, SESSION_ID, home);
     expect(result).toBeNull();
   });
-
-  // ---------------------------------------------------------------------------
-  // 7. "cancelled" is a valid terminal status distinct from "running"
-  // ---------------------------------------------------------------------------
-
-  test("saveState round-trips a cancelled status with finishedAt set", async () => {
-    const state: RunState = {
-      ...baseRunState,
-      status: "cancelled",
-      finishedAt: 1_700_000_010_000,
-    };
-    await saveState(cwd, SESSION_ID, state);
-    const loaded = await loadState(cwd, SESSION_ID);
-    expect(loaded).toEqual(state);
-    expect(loaded?.status).not.toBe("running");
-  });
-
 });

@@ -10,9 +10,10 @@ const STEP_STATUSES: StepStatus[] = ["pending", "active", "completed", "skipped"
 
 const writeChains = new Map<string, Promise<void>>();
 
-function workflowStatePath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "workflow.json");
+function workflowStatePath(cwd: string, sessionId: string, home?: string): string {
+  return join(sessionDir(cwd, sessionId, home), "workflow.json");
 }
+
 
 function isValidWorkflowState(data: unknown): data is WorkflowState {
   if (typeof data !== "object" || data === null) return false;

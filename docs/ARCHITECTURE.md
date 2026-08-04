@@ -27,7 +27,8 @@ The director returns actions that shape the loop:
 
 - `capabilities.continue()` — run another inference turn (implicit default).
 - `capabilities.reply(text)` — inject a synthetic tool result into the next turn's context.
-- `capabilities.checkpoint(label)` — persist a named checkpoint to `.agent-state/`.
+- `capabilities.checkpoint(label)` — persist a named checkpoint under the session state root (`~/.corbits/projects/...`).
+
 - `capabilities.done()` — terminate the loop.
 
 ### Director-layer termination
@@ -148,7 +149,8 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 
 - `types.ts` — `Workflow`, `WorkflowStep` (`prompt`, `capability`, `agent`, `skill`, `workflow` sub-workflow ref, `optional`, `parallel`, `type: "gate"`), and the `WorkflowState` persistence shape. `MAX_WORKFLOW_DEPTH` bounds nesting.
 - `capabilities.ts` — `detectCapabilities` maps the live tool surface to abstract capabilities (`ticket-tracker`, `code-host`, `doc-search`) by name pattern; `resolveStep` decides whether a step runs. A capability override set forces integrations off per run. Adding a capability is a data edit, not a logic change.
-- `runtime.ts` — `WorkflowRuntime` drives execution on a call stack: it skips capability-unsatisfied steps, descends into sub-workflow references, emits step lifecycle events, and snapshots `WorkflowState`. `state.ts` persists that snapshot atomically to `.agent-state/workflow.json` for resume.
+- `runtime.ts` — `WorkflowRuntime` drives execution on a call stack: it skips capability-unsatisfied steps, descends into sub-workflow references, emits step lifecycle events, and snapshots `WorkflowState`. `state.ts` persists that snapshot atomically to `workflow.json` under the session state root for resume.
+
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
@@ -196,8 +198,8 @@ The agent's identity is **Corbits Code**, framed as a senior coding assistant ru
 ### State Persistence (`src/session/state.ts`)
 
 - `RunState` — `running` | `done` | `failed`, turns used, task, timestamps, error
-- Atomic JSON save/load to `.agent-state/run.json`, with schema validation on load
-- Conversation context is persisted separately by the git-backed store under `.agent-state/context`
+- Atomic JSON save/load to `run.json` under the session state root (`~/.corbits/projects/<project-key>/<session-id>/`), with schema validation on load
+- Conversation context is persisted separately by the git-backed store under that session's `context/` directory
 
 ### Lifecycle Hooks (`src/session/hooks.ts`)
 
@@ -249,7 +251,8 @@ tool call
 - **classify** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) are tier `allow`; everything else is tier `ask`. Builds approval requests: shell yields one request for the full command the model asked to run (security still splits under the gate); file tools keyed on the target path; other tools keyed on tool name.
 - **command** — Splits chained commands for security classification and derives command-shape approval scopes. Multi-segment chains only offer an exact-command persist pattern (a prefix like `npm *` must not cover `npm i && rm -rf /` later).
 - **auto-shell-policy** — Constrains `run_shell` even when auto mode would otherwise rubber-stamp it. Before matching, `expandShellSubjects` peels `bash`/`sh`/`zsh -c`, `xargs` utility tails, and transparent prefixes (`env`, `nice`, `timeout`, …) so rules see the real payload; an unparseable wrapper (variable expansion or command substitution) sets an opaque flag that forces `ask`. Effects: `deny` blocks outright (file mutations through ad-hoc tooling — output redirection, `tee`, `sed -i`/`perl -i`, interpreter inline programs or heredocs — which must instead go through `write_file`/`edit_file`); `ask` declines to auto-allow and falls through to the operator prompt (recursive `rm`, dependency installs and remote runners: npm/yarn/pnpm/bun, pip, cargo, go, brew, npx/bunx, …, git worktree add/remove/prune, shell that references a sensitive path such as `.env` or a private key, and opaque wrappers). Deny beats ask when multiple subjects match. Quoted spans are stripped before pattern matching so a quoted `>` or install word in an argument is not flagged, and program names are matched only in command position. Adding a table category is a one-line rule append in `AUTO_SHELL_RULES`.
-- **gate** — Evaluates a call: `skipPermissions` allows everything; `allow`-tier passes; for `ask`-tier, checks persisted approvals, otherwise requests operator approval. Shell security classifies each chain segment (`||` / `&&` / `|` / `;` / newlines), but the operator is prompted once for the full command block — any unapproved segment fails the whole block, and execution always runs the unsplit original. Safe pipeline tails and pure shell no-ops (`true` / `false` / `:` and bare control-flow keywords stranded by chain-splitting) skip without a prompt. In a non-interactive run an unresolved `ask` becomes a denial. In auto mode: non-shell built-ins in `AUTO_ALLOWED_TOOLS` (writes/edits/deletes, `manage_tasks`, `task`, …) auto-allow when not path-restricted; for `run_shell` the gate consults the auto-shell policy — a `deny` rule fails the call, an `ask` rule skips the auto-allow shortcut and proceeds to the normal approval flow, and anything unmatched is auto-allowed. Paths outside the workspace and writes under `.agent-state` still ask. Mutating MCP and unknown built-ins are not blanket-allowed. Newly granted scopes are appended in memory and persisted.
+- **gate** — Evaluates a call: `skipPermissions` allows everything; `allow`-tier passes; for `ask`-tier, checks persisted approvals, otherwise requests operator approval. Shell security classifies each chain segment (`||` / `&&` / `|` / `;` / newlines), but the operator is prompted once for the full command block — any unapproved segment fails the whole block, and execution always runs the unsplit original. Safe pipeline tails and pure shell no-ops (`true` / `false` / `:` and bare control-flow keywords stranded by chain-splitting) skip without a prompt. In a non-interactive run an unresolved `ask` becomes a denial. In auto mode: non-shell built-ins in `AUTO_ALLOWED_TOOLS` (writes/edits/deletes, `manage_tasks`, `task`, …) auto-allow when not path-restricted; for `run_shell` the gate consults the auto-shell policy — a `deny` rule fails the call, an `ask` rule skips the auto-allow shortcut and proceeds to the normal approval flow, and anything unmatched is auto-allowed. Paths outside the workspace and writes under the session state root (`~/.corbits/projects/...` and legacy `.agent-state`) still ask. Mutating MCP and unknown built-ins are not blanket-allowed. Newly granted scopes are appended in memory and persisted.
+
 - **matcher** — Approval pattern matching via `@intx/authz` `matchPattern` (`*` wildcards). Exact-command grants store a backslash before each metacharacter; those patterns match by equality after unescape (the package has no escape syntax).
 - **authz-grants** — Maps stored approvals into `@intx/authz` `GrantRule`s and evaluates them with `evaluateGrants` (allow-only; Corbits cwd/provider-model filters applied first). Exact-escaped grants bypass the package path and use equality.
 - **store** — Loads/persists approvals scoped to the working directory (Corbits JSON layout; not the package GrantStore).
@@ -367,7 +370,8 @@ CLI argv
               ↓ gates / errors
          [blocked] → operator resolves → [running]
               ↓ fatal inference/reactor error
-         [failed] (TUI may surface and allow retry; context persists under .agent-state/)
+         [failed] (TUI may surface and allow retry; context persists under the session state root)
+
 ```
 
 There is no post-submit `build`/`typecheck`/`test` critique step in the current tree; validation is operator- and hook-driven (`postTurn`/`postRun`) plus explicit `run_shell` during agent work.

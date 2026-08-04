@@ -8,14 +8,19 @@ import { appendSentMessage } from "./sent-messages.js";
 import { isGenericSessionTask, resolveSessionLabel, truncateSessionLabel } from "./session-label.js";
 
 let cwd = "";
+let home = "";
 
 beforeEach(async () => {
-  cwd = join(tmpdir(), `corbits-session-label-${Date.now()}`);
+  const stamp = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  cwd = join(tmpdir(), `corbits-session-label-${stamp}`);
+  home = join(tmpdir(), `corbits-session-label-home-${stamp}`);
   await mkdir(cwd, { recursive: true });
+  await mkdir(home, { recursive: true });
 });
 
 afterEach(async () => {
   await rm(cwd, { recursive: true, force: true });
+  await rm(home, { recursive: true, force: true });
 });
 
 test("truncateSessionLabel collapses whitespace", () => {
@@ -24,16 +29,16 @@ test("truncateSessionLabel collapses whitespace", () => {
 
 test("resolveSessionLabel uses run.json task when set", async () => {
   const id = generateSessionId();
-  await initSessionDir(cwd, id);
-  const label = await resolveSessionLabel(cwd, id, "Ship sent-history");
+  await initSessionDir(cwd, id, home);
+  const label = await resolveSessionLabel(cwd, id, "Ship sent-history", home);
   expect(label).toBe("Ship sent-history");
 });
 
 test("resolveSessionLabel falls back to first sent message", async () => {
   const id = generateSessionId();
-  await initSessionDir(cwd, id);
-  await appendSentMessage(cwd, id, "How do we name sessions?");
-  const label = await resolveSessionLabel(cwd, id, "(conversation)");
+  await initSessionDir(cwd, id, home);
+  await appendSentMessage(cwd, id, "How do we name sessions?", home);
+  const label = await resolveSessionLabel(cwd, id, "(conversation)", home);
   expect(label).toBe("How do we name sessions?");
 });
 

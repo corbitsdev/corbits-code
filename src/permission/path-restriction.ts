@@ -1,6 +1,8 @@
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 import type { RootsProvider } from "./worktree-roots.js";
+import { projectSessionsRoot } from "../session/project-key.js";
 
 // Paths the agent should not touch without explicit operator approval, even
 // though the read tools are otherwise allow-tier and write/edit auto-allow in
@@ -9,10 +11,12 @@ import type { RootsProvider } from "./worktree-roots.js";
 //   - anything outside the session workspace (the primary cwd and its
 //     registered worktrees) — autonomy is scoped to the workspace boundary, not
 //     the whole filesystem. Restricted for both reads and writes.
-//   - writes under .agent-state (the agent's own run state) — the agent should
-//     not rewrite its own session history without operator approval. Reads stay
-//     unrestricted since .agent-state holds the transcripts users read to debug
-//     a run.
+//   - writes under the session state root (global
+//     ~/.corbits/projects/<project-key>/… and legacy in-repo .agent-state) —
+//     the agent should not rewrite its own session history without operator
+//     approval. Reads stay unrestricted since state holds the transcripts
+//     users read to debug a run. The state root is an exception to the
+//     outside-workspace rule: global state lives under $HOME, not under cwd.
 //
 // Gitignore status is deliberately not a factor: build output, node_modules,
 // and scratch files are ordinary workspace files for both reads and writes.
@@ -21,12 +25,11 @@ import type { RootsProvider } from "./worktree-roots.js";
 // require operator approval instead of a hard deny. Results are cached per
 // resolved path and access mode because the gate consults this on every tool
 // call with a path argument.
-
 export type PathRestriction = {
   isRestricted: (path: string, isWrite: boolean) => boolean;
 };
 
-const STATE_DIR = ".agent-state";
+const LEGACY_STATE_DIR = ".agent-state";
 
 function realpathOr(path: string): string {
   try {
@@ -83,17 +86,36 @@ export function resolveWorkspacePath(
   return undefined;
 }
 
+function underRoot(abs: string, root: string): boolean {
+  // realpathNearestOr on both sides so a not-yet-created state root still
+  // compares equal to paths under it (realpathOr alone leaves the root
+  // unresolved while the abs path is rebuilt through an existing ancestor).
+  const realRoot = realpathNearestOr(root);
+  const realAbs = realpathNearestOr(abs);
+  return realAbs === realRoot || realAbs.startsWith(realRoot + sep);
+}
+
+
 // `rootsProvider` supplies the additional workspace roots (the session's
 // registered git worktrees) beyond cwd itself. A worktree created mid-session
 // is missing from whatever set the provider started with; when a checked path
 // falls outside every currently-known root, we ask the provider to refresh
 // once (subject to its own debounce) and re-check before concluding the path
 // is genuinely outside the workspace.
-export function createPathRestriction(cwd: string, rootsProvider: RootsProvider = () => []): PathRestriction {
-  const stateDir = resolve(cwd, STATE_DIR);
+//
+// `home` is injectable so tests can pin the global state root without
+// mutating process env.
+export function createPathRestriction(
+  cwd: string,
+  rootsProvider: RootsProvider = () => [],
+  home: string = homedir(),
+): PathRestriction {
+  const legacyStateDir = resolve(cwd, LEGACY_STATE_DIR);
+  const globalStateDir = projectSessionsRoot(cwd, home);
   const cache = new Map<string, boolean>();
 
-  const underStateDir = (abs: string): boolean => abs === stateDir || abs.startsWith(stateDir + sep);
+  const underStateDir = (abs: string): boolean =>
+    underRoot(abs, legacyStateDir) || underRoot(abs, globalStateDir);
 
   return {
     isRestricted: (path: string, isWrite: boolean): boolean => {
@@ -101,10 +123,17 @@ export function createPathRestriction(cwd: string, rootsProvider: RootsProvider 
       const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
       const cached = cache.get(cacheKey);
       if (cached !== undefined) return cached;
+
+      // State root: read allow, write ask — even when the root lives outside
+      // the workspace (global ~/.corbits/projects/...).
+      if (underStateDir(abs)) {
+        cache.set(cacheKey, isWrite);
+        return isWrite;
+      }
+
       const outsideWorkspace = resolveWorkspacePath(cwd, path, rootsProvider) === undefined;
-      const restricted = outsideWorkspace || (isWrite && underStateDir(abs));
-      cache.set(cacheKey, restricted);
-      return restricted;
+      cache.set(cacheKey, outsideWorkspace);
+      return outsideWorkspace;
     },
   };
 }

@@ -31,9 +31,10 @@ const RunStateSchema = type({
 
 export type RunState = typeof RunStateSchema.infer;
 
-function statePath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "run.json");
+function statePath(cwd: string, sessionId: string, home?: string): string {
+  return join(sessionDir(cwd, sessionId, home), "run.json");
 }
+
 
 let tmpWriteCounter = 0;
 
@@ -54,9 +55,15 @@ export function warnUnreadableState(path: string, reason: string): void {
   process.stderr.write(`${COMMAND_NAME}: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
 }
 
-export async function saveState(cwd: string, sessionId: string, state: RunState): Promise<void> {
-  await atomicWrite(statePath(cwd, sessionId), JSON.stringify(state, null, 2));
+export async function saveState(
+  cwd: string,
+  sessionId: string,
+  state: RunState,
+  home?: string,
+): Promise<void> {
+  await atomicWrite(statePath(cwd, sessionId, home), JSON.stringify(state, null, 2));
 }
+
 
 // Returns the parsed state, or the arktype error summary when the shape is
 // invalid, so callers can surface a specific reason rather than "invalid shape".
@@ -65,8 +72,13 @@ function parseRunState(data: unknown): RunState | { error: string } {
   return result instanceof type.errors ? { error: result.summary } : result;
 }
 
-export async function loadState(cwd: string, sessionId: string): Promise<RunState | null> {
-  const path = statePath(cwd, sessionId);
+export async function loadState(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): Promise<RunState | null> {
+  const path = statePath(cwd, sessionId, home);
+
   try {
     const raw = await readFile(path, "utf8");
     const parsed = parseRunState(JSON.parse(raw));

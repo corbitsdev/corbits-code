@@ -82,7 +82,8 @@ Corbits Code defaults to **auto mode** (`auto = true`). Workspace file writes/ed
 - Git worktree boundary changes (`add` / `remove` / `prune`; read-only `git worktree list` is fine)
 - Shell that references sensitive paths (`.env`, private keys, certs, credential files, …)
 - Opaque shell wrappers the policy cannot statically inspect (variable expansion or command substitution in a wrapper payload)
-- Paths outside the workspace, writes under `.agent-state`, mutating MCP tools, and unknown built-ins
+- Paths outside the workspace, writes under the session state root, mutating MCP tools, and unknown built-ins
+
 
 ### What auto hard-denies (use the file tools instead)
 
