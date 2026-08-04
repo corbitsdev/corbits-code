@@ -7,7 +7,11 @@ export const CHROME_ZONE_ROWS = {
   header: 2,
   /** Hairline between the transcript and the progress/prompt stack. */
   progressDivider: 1,
-  /** InFlightIndicator: its own marginTop={1} + one content line. */
+  /**
+   * InFlightIndicator when visible: marginTop={1} + one content line.
+   * Not part of the fixed sum — reserved only via progressChromeRowCount so
+   * idle sessions do not keep an empty progress spacer.
+   */
   progress: 2,
   /** Profile · model · effort line above the prompt border (ChatInput action bar). */
   modelBar: 1,
@@ -19,17 +23,25 @@ export const CHROME_ZONE_ROWS = {
 
 export type ChromeZone = keyof typeof CHROME_ZONE_ROWS;
 
+/** Always-present chrome (excludes optional progress, which is added when shown). */
 export function sumChromeZoneRows(
   zones: { readonly [K in ChromeZone]: number } = CHROME_ZONE_ROWS,
 ): number {
   return (
     zones.header
     + zones.progressDivider
-    + zones.progress
     + zones.modelBar
     + zones.prompt
     + zones.status
   );
+}
+
+/** Rows the progress zone occupies when the phase/workflow line is painted. */
+export function progressChromeRowCount(input: {
+  active: boolean;
+  hasWorkflow: boolean;
+}): number {
+  return input.active || input.hasWorkflow ? CHROME_ZONE_ROWS.progress : 0;
 }
 
 /** Full-width hairline for the progress/prompt separator. */
