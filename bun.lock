@@ -6,6 +6,7 @@
       "name": "interchange-code",
       "dependencies": {
         "@intx/agent": "0.2.2",
+        "@intx/authz": "0.2.2",
         "@intx/inference": "workspace:*",
         "@intx/log": "0.2.2",
         "@intx/storage-isogit": "0.2.2",
@@ -67,6 +68,8 @@
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 
     "@intx/agent": ["@intx/agent@0.2.2", "", { "dependencies": { "@intx/inference": "0.2.2", "@intx/log": "0.2.2", "@intx/mime": "0.2.2", "@intx/types": "0.2.2", "arktype": "^2.1.29" } }, "sha512-tlsFL0bjYQ7MimcgUIfx7WJgXpNX5YA2v0EVOsZaNXPubjx+ifnh/Ewlol5gf0pADvLG7yiXryuJ7DTUFg/bTw=="],
+
+    "@intx/authz": ["@intx/authz@0.2.2", "", { "dependencies": { "@intx/types": "0.2.2" } }, "sha512-LDHF/3u2duVFGOPzbAFP9WuRlouNqVW+os/o7Y2Mj/9vld92DaemDkL1BPO8m6xF2vSctykpLZFnw4fVcC9oQw=="],
 
     "@intx/crypto": ["@intx/crypto@0.2.2", "", { "dependencies": { "@intx/types": "0.2.2" } }, "sha512-RhqDZ+Yyt24xDmFrBRm58vGyFT20AK/OF5L6GxXUwu/8TRVf406pfpMuRMNzgGxd0mDopdv/Fb+gWc1/PULfFQ=="],
 
