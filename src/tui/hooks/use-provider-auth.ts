@@ -1,4 +1,5 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { getLogger } from "@intx/log";
 import { getValidCodexToken, CodexAuthError } from "../../auth/codex/session.js";
 import { refreshCodexInstructions } from "../../auth/codex/instructions.js";
 import { removeCodexProfile } from "../../auth/codex/store.js";
@@ -10,6 +11,9 @@ import { codexProviderName, codexProfileFromProviderName } from "../../config/co
 import { xaiProviderName, xaiProfileFromProviderName } from "../../config/xai-providers.js";
 import { fetchCodexModels } from "../../auth/codex/usage.js";
 import type { ProviderCatalogEntry } from "../../config/index.js";
+import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "provider-auth"]);
 
 export type LoginModal = "codex" | "xai" | "choose" | null;
 
@@ -137,8 +141,24 @@ export function useProviderAuth({
   };
 
   const switchToCodexProfile = (name: string): void => {
-    void refreshCodexInstructions().catch(() => {});
-    void Promise.all([getValidCodexToken(name), fetchCodexModels(name).catch(() => [])]).then(
+    void refreshCodexInstructions().catch((err: unknown) => {
+      // Best-effort prompt refresh; profile switch still proceeds with cached text.
+      logger.warn("Codex instructions refresh failed: {error}", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+    void Promise.all([
+      getValidCodexToken(name),
+      fetchCodexModels(name).catch((err: unknown) => {
+        // Empty catalog falls back to CODEX_DEFAULT_MODELS below; log so
+        // rate-limit/network failures are visible while switching profiles.
+        logger.debug("Codex models fetch failed for profile {profile}; using defaults: {error}", {
+          profile: name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [];
+      }),
+    ]).then(
       ([token, liveModels]) => {
         const accountId = token.accountId;
         // Prefer the account's live model catalog; fall back to the current

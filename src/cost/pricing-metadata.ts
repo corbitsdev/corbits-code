@@ -31,7 +31,10 @@ export function schedulePricingMetadataRefresh(options: PricingFetcherOptions = 
     .then((cache) => {
       if (cache !== null) applyPricingCacheMetadata(cache);
     })
-    .catch(() => undefined);
+    .catch((err: unknown) => {
+      // Match pricing-fetcher: keep refresh best-effort, surface the failure.
+      process.stderr.write(`pricing-metadata: refresh error: ${err}\n`);
+    });
 }
 
 export async function bootstrapPricingMetadata(options: PricingFetcherOptions = {}): Promise<void> {

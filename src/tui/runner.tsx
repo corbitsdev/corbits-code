@@ -866,7 +866,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // the run) rather than the OpenAI-compatible one.
   const initialCodexProfile = codexProfileFromProviderName(config.providerName);
   const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
-  if (initialCodexProfile !== undefined) void refreshCodexInstructions().catch(() => {});
+  if (initialCodexProfile !== undefined) {
+    void refreshCodexInstructions().catch((err: unknown) => {
+      // Best-effort; agent still starts with cached/default instructions.
+      tuiLogger.warn("Codex instructions refresh failed: {error}", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
   const initialCodexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
   const buildOpenAICompatibleInitialSource = (): InferenceSource =>
     buildOpenAISource({
@@ -1138,8 +1145,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     pendingReload = false;
     void enqueueOp(async () => {
       const old = currentAgent;
-      await old.close().catch(() => undefined);
-      await streamPromise.catch(() => undefined);
+      await old.close().catch((err: unknown) => {
+        tuiLogger.debug("agent.close during reload teardown failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      await streamPromise.catch((err: unknown) => {
+        tuiLogger.debug("stream drain during reload teardown failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
       currentAgent = await buildAgent();
       streamPromise = consumeStream(currentAgent.stream(), streamSink);
       // The rebuild made a fresh director; re-attach the active workflow.
@@ -1275,8 +1290,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // and salvages the buffer before that teardown, so it is never lost
         // or misattributed to the rebuilt agent's next cycle.
         await cycleRecorder.dispose("interrupted");
-        await currentAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
+        await currentAgent.close().catch((err: unknown) => {
+          tuiLogger.debug("agent.close during interrupt teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        await streamPromise.catch((err: unknown) => {
+          tuiLogger.debug("stream drain during interrupt teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
         currentAgent = await buildAgent();
         cycleRecorder.reset();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
@@ -1309,8 +1332,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // settles, and a dead cycle's partial must land in the session that
         // produced it, not the fresh one.
         await cycleRecorder.dispose("rotation");
-        await currentAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
+        await currentAgent.close().catch((err: unknown) => {
+          tuiLogger.debug("agent.close during session-rotation teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        await streamPromise.catch((err: unknown) => {
+          tuiLogger.debug("stream drain during session-rotation teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
         await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
         startedAt = Date.now();

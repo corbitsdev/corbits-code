@@ -109,7 +109,16 @@ async function writeProfileFile(dir: string, profile: AgentProfile): Promise<voi
 }
 
 async function deleteProfileFile(dir: string, id: string): Promise<void> {
-  await unlink(`${dir}/${id}.json`).catch(() => {});
+  try {
+    await unlink(`${dir}/${id}.json`);
+  } catch (err: unknown) {
+    // Missing file is the common case (already deleted / never written).
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    getLogger([LOG_NAMESPACE_ROOT, "tui", "profiles"]).warn(
+      "Failed to delete agent profile {id}: {error}",
+      { id, error: err instanceof Error ? err.message : String(err) },
+    );
+  }
 }
 
 export type AppProps = {
