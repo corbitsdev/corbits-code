@@ -439,6 +439,10 @@ export function App({
     registerXaiProvider,
     removeCodexProvider,
     removeXaiProvider,
+    recentModels,
+    favoriteModels,
+    recordRecentModel,
+    toggleFavorite,
   } = providerManager;
   // Safe to mutate during render: the ref is only read later by the faremeter's
   // pricing resolver at usage-event time, never during this render pass.
@@ -1257,6 +1261,10 @@ if (workPrimary && !wasWorkPrimary.current) {
             setAutoLoginProfile(profile);
             setLoginModal(kind);
           }}
+          recentModels={recentModels}
+          favoriteModels={favoriteModels}
+          onToggleFavorite={toggleFavorite}
+          onRecordRecent={recordRecentModel}
           activeApproval={gates.activeApproval}
           onApprove={gates.approve}
           onReject={gates.reject}

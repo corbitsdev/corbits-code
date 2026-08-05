@@ -17,7 +17,6 @@ import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from
 import {
   globalSettingsPath,
   loadLocalSettings,
-  loadLocalSettingsWriteBase,
   loadGlobalSettingsWriteBase,
   loadSettings,
   localSettingsPath,

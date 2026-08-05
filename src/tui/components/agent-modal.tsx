@@ -1,10 +1,15 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
-import { useState, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
 import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
-import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
+import {
+  PROVIDER_TIERS,
+  type ModelRef,
+  type ProviderTier,
+  type TierConfig,
+} from "../../config/settings.js";
 import { formatTierChain, normalizeTierDefinition } from "../../config/inference-sources.js";
 import type { AgentProfile } from "../../agent/profiles.js";
 import { useTerminalSize } from "../hooks/use-terminal-size.js";
@@ -21,7 +26,8 @@ import {
   type FirstClassProviderPath,
   validateGoApiKey,
 } from "../../../packages/first-class-providers/src/index.js";
-import { billingProductHint } from "../../provider/billing-product.js";
+import { billingProductHint, isGoModelOnZenPath } from "../../provider/billing-product.js";
+import { buildModelsFirstList, type ModelPick } from "../model-picker.js";
 
 // Effort display: undefined means "no override" (field omitted); "none" is
 // OpenAI's explicit disable-reasoning value. Both read as "off".
@@ -68,6 +74,7 @@ export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission }
 export type ProviderFormField = "name" | "baseURL" | "keyless" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
 type Step =
+  | "models"
   | "provider"
   | "connect"
   | "connect-path"
@@ -95,6 +102,8 @@ function connectAuthLabel(auth: FirstClassProviderDef["auth"]): string {
 }
 
 const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "keyless", "apiKey", "models", "defaultModel"];
+/** First-class connect only collects credentials; catalog seeds the rest. */
+const AUTH_ONLY_FIELDS: readonly ProviderFormField[] = ["apiKey"];
 
 const FIELD_LABELS: Record<ProviderFormField, string> = {
   name: "Provider name",
@@ -177,6 +186,14 @@ export type AgentModalProps = {
   unauthedProviders?: ReadonlySet<string>;
   /** Called when user presses Enter on an unauthed OAuth provider to trigger login. */
   onRequestLogin?: (kind: "codex" | "xai", profile: string) => void;
+  /** Recent provider+model pairs for the models-first list (newest first). */
+  recentModels?: ModelRef[];
+  /** Favorite provider+model pairs. */
+  favoriteModels?: ModelRef[];
+  /** Toggle favorite for the highlighted model (Alt+F). */
+  onToggleFavorite?: (ref: ModelRef) => void;
+  /** Record a model as recently used after apply. */
+  onRecordRecent?: (ref: ModelRef) => void;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -358,6 +375,10 @@ export function AgentModal({
   onRequestUsage,
   unauthedProviders,
   onRequestLogin,
+  recentModels = [],
+  favoriteModels = [],
+  onToggleFavorite,
+  onRecordRecent,
 }: AgentModalProps): ReactNode {
   const { columns } = useTerminalSize();
   const stackFields = columns < STACK_FORM_COLUMNS;
@@ -372,13 +393,15 @@ export function AgentModal({
     0,
     providers.findIndex((p) => p.name === activeProvider),
   );
-  const [step, setStep] = useState<Step>("provider");
+  const [step, setStep] = useState<Step>("models");
+  const [pickIndex, setPickIndex] = useState(0);
   const [providerIndex, setProviderIndex] = useState(initialProvider);
   const [modelIndex, setModelIndex] = useState(0);
   const [pendingProvider, setPendingProvider] = useState<string | undefined>(undefined);
   const [pendingModel, setPendingModel] = useState<string | undefined>(undefined);
   const [effortIndex, setEffortIndex] = useState(0);
   const [formIndex, setFormIndex] = useState(0);
+  const [formAuthOnly, setFormAuthOnly] = useState(false);
   const [formValues, setFormValues] = useState<ProviderFormValues>(() => initialFormValues(undefined));
   const [editingProvider, setEditingProvider] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
@@ -399,6 +422,39 @@ export function AgentModal({
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
 
+  const modelPicks = useMemo(
+    () =>
+      buildModelsFirstList({
+        providers: providers.map((p) => {
+          const account =
+            p.codexProfile !== undefined
+              ? p.codexProfile
+              : p.xaiProfile !== undefined
+                ? p.xaiProfile
+                : undefined;
+          return {
+            name: p.name,
+            models: p.models,
+            baseURL: p.baseURL,
+            ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+            ...(p.codexProfile !== undefined ? { codexProfile: p.codexProfile } : {}),
+            ...(p.xaiProfile !== undefined ? { xaiProfile: p.xaiProfile } : {}),
+            ...(p.opencodeGo === true ? { opencodeGo: true } : {}),
+            ...(account !== undefined ? { account } : {}),
+          };
+        }),
+        recent: recentModels,
+        favorites: favoriteModels,
+        isGoModelOnZenPath: (model, provider) =>
+          isGoModelOnZenPath(model, {
+            name: provider.name,
+            ...(provider.baseURL !== undefined ? { baseURL: provider.baseURL } : {}),
+            ...(provider.opencodeGo === true ? { opencodeGo: true } : {}),
+          }),
+      }),
+    [providers, recentModels, favoriteModels],
+  );
+
   const requestUsageForIndex = (idx: number): void => {
     if (onRequestUsage === undefined) return;
     const p = providers[idx];
@@ -412,7 +468,8 @@ export function AgentModal({
     providers.find((p) => p.name === name)?.codexProfile !== undefined;
   const efforts: ReasoningEffort[] =
     pendingModel !== undefined ? supportedEfforts(pendingModel, undefined, isCodexProvider(pendingProvider)) : [];
-  const currentField = FORM_FIELDS[formIndex] ?? "name";
+  const activeFormFields = formAuthOnly ? AUTH_ONLY_FIELDS : FORM_FIELDS;
+  const currentField = activeFormFields[formIndex] ?? activeFormFields[0] ?? "name";
 
   const enterModelStep = (): void => {
     const provider = providers[providerIndex];
@@ -436,6 +493,7 @@ export function AgentModal({
 
   const enterAddForm = (): void => {
     connectDraft.current = null;
+    setFormAuthOnly(false);
     setEditingProvider(undefined);
     setFormValues(initialFormValues(undefined));
     setFormIndex(0);
@@ -457,7 +515,8 @@ export function AgentModal({
     setEditingProvider(seed.editingProvider);
     setFormValues(seed.formValues);
     connectDraft.current = seed.connectDraft;
-    setFormIndex(3); // apiKey field
+    setFormAuthOnly(true);
+    setFormIndex(0); // apiKey is the only field in auth-only mode
     setFormError(null);
     setStep("form");
   };
@@ -501,6 +560,7 @@ export function AgentModal({
       anthropic: provider.anthropic === true,
       opencodeGo: provider.opencodeGo === true,
     };
+    setFormAuthOnly(false);
     setEditingProvider(provider.name);
     setFormValues(initialFormValues(provider));
     setFormIndex(0);
@@ -533,7 +593,7 @@ export function AgentModal({
     if (pendingTierAssign !== null) {
       setStep("tiers");
     } else {
-      setStep("provider");
+      setStep("models");
     }
   };
 
@@ -599,6 +659,63 @@ export function AgentModal({
   };
 
   useInput((input, key) => {
+    if (step === "models") {
+      if (key.upArrow) {
+        setPickIndex((i) => (modelPicks.length === 0 ? 0 : i > 0 ? i - 1 : modelPicks.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setPickIndex((i) => (modelPicks.length === 0 ? 0 : i < modelPicks.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (key.return) {
+        const pick = modelPicks[pickIndex];
+        if (pick === undefined) return;
+        const options = supportedEfforts(pick.model, undefined, isCodexProvider(pick.provider));
+        if (options.length === 0) {
+          onRecordRecent?.({ provider: pick.provider, model: pick.model });
+          onApply(pick.provider, pick.model, undefined);
+          onClose();
+          return;
+        }
+        enterEffortStep(pick.provider, pick.model);
+        return;
+      }
+      // Alt+A connect; some terminals send meta+a
+      if ((key.meta && (input === "a" || input === "A")) || (key.ctrl && input === "a")) {
+        enterConnectStep();
+        return;
+      }
+      if (input === "c") {
+        enterConnectStep();
+        return;
+      }
+      // Alt+F favorite
+      if (key.meta && (input === "f" || input === "F")) {
+        const pick = modelPicks[pickIndex];
+        if (pick !== undefined) {
+          onToggleFavorite?.({ provider: pick.provider, model: pick.model });
+        }
+        return;
+      }
+      if (input === "a") {
+        // Advanced: provider drill-down for edit/delete/tiers
+        setStep("provider");
+        return;
+      }
+      if (input === "t") {
+        setStep("tiers");
+        return;
+      }
+      if (input === "p") {
+        setProfileIndex(0);
+        setStep("profiles");
+        return;
+      }
+      if (key.escape) onClose();
+      return;
+    }
+
     if (step === "provider") {
       if (key.upArrow) {
         setProviderIndex((i) => {
@@ -656,7 +773,10 @@ export function AgentModal({
         setStep("profiles");
         return;
       }
-      if (key.escape) onClose();
+      if (key.escape) {
+        setStep("models");
+        return;
+      }
       return;
     }
 
@@ -946,11 +1066,13 @@ export function AgentModal({
           setStep("tiers");
           return;
         }
+        onRecordRecent?.({ provider: pendingProvider, model: pendingModel });
         onApply(pendingProvider, pendingModel, effort);
         onClose();
         return;
       }
       if (input === "d") {
+        onRecordRecent?.({ provider: pendingProvider, model: pendingModel });
         onPersistDefault(pendingProvider, pendingModel, effort);
         onClose();
       }
@@ -970,26 +1092,26 @@ export function AgentModal({
     }
 
     if (key.upArrow) {
-      setFormIndex((i) => (i > 0 ? i - 1 : FORM_FIELDS.length - 1));
+      setFormIndex((i) => (i > 0 ? i - 1 : activeFormFields.length - 1));
       return;
     }
     if (key.downArrow || key.tab) {
       setFormIndex((i) => {
         // Skip the apiKey field when keyless is enabled — there's nothing to enter.
         if (currentField === "keyless" && formValues.keyless === "yes") {
-          const next = i + 1 >= FORM_FIELDS.length ? 0 : i + 2;
-          return next >= FORM_FIELDS.length ? 0 : next;
+          const next = i + 1 >= activeFormFields.length ? 0 : i + 2;
+          return next >= activeFormFields.length ? 0 : next;
         }
-        return i < FORM_FIELDS.length - 1 ? i + 1 : 0;
+        return i < activeFormFields.length - 1 ? i + 1 : 0;
       });
       return;
     }
     if (key.return) {
-      if (formIndex < FORM_FIELDS.length - 1) {
+      if (formIndex < activeFormFields.length - 1) {
         setFormIndex((i) => {
           // Skip apiKey when keyless.
           if (currentField === "keyless" && formValues.keyless === "yes") {
-            return Math.min(i + 2, FORM_FIELDS.length - 1);
+            return Math.min(i + 2, activeFormFields.length - 1);
           }
           return i + 1;
         });
@@ -999,7 +1121,8 @@ export function AgentModal({
       return;
     }
     if (key.escape) {
-      setStep("provider");
+      setFormAuthOnly(false);
+      setStep("models");
       setFormError(null);
       setPendingTierAssign(null);
       return;
@@ -1024,8 +1147,10 @@ export function AgentModal({
 
 const helpText = ((): string | null => {
     switch (step) {
+      case "models":
+        return "Up/Down · Enter use · Alt+A connect · Alt+F favorite · a advanced · t tiers · p profiles · Esc close";
       case "provider":
-        return "Up/Down navigate · Enter models · c/Ctrl+A connect · a advanced · e edit · x remove · t tiers · p profiles · Esc close";
+        return "Up/Down navigate · Enter models · c/Alt+A connect · a add custom · e edit · x remove · t tiers · p profiles · Esc back";
       case "connect":
         return "Up/Down navigate · Enter connect · Esc back";
       case "connect-path":
@@ -1045,7 +1170,9 @@ const helpText = ((): string | null => {
       case "effort":
         return "Up/Down navigate · Enter use now · d set as default · Esc back";
       case "form":
-        return "Up/Down fields · Left/Right toggle keyless · Enter next/save · Esc cancel";
+        return formAuthOnly
+          ? "Enter save · Esc cancel"
+          : "Up/Down fields · Left/Right toggle keyless · Enter next/save · Esc cancel";
       case "delete":
         return "y remove · n cancel · Esc back";
     }
@@ -1077,8 +1204,83 @@ const helpText = ((): string | null => {
         </Box>
       )}
       <Box marginTop={1}>
-        <Text color={color("muted")}>Provider / Model</Text>
+        <Text color={color("muted")}>
+          {step === "models" ? "Models" : "Provider / Model"}
+        </Text>
       </Box>
+
+      {step === "models" && (
+        <Box marginTop={1} flexDirection="column">
+          {modelPicks.length === 0 ? (
+            <Text color={color("muted")}>
+              No models yet — press Alt+A (or c) to connect a provider
+            </Text>
+          ) : (
+            (() => {
+              let lastSection: ModelPick["section"] | null = null;
+              let lastProvider: string | null = null;
+              return modelPicks.map((pick, i) => {
+                const isCursor = i === pickIndex;
+                const isActive =
+                  pick.provider === activeProvider && pick.model === activeModel;
+                const headers: ReactNode[] = [];
+                if (pick.section !== lastSection) {
+                  lastSection = pick.section;
+                  lastProvider = null;
+                  const title =
+                    pick.section === "recent"
+                      ? "Recent"
+                      : pick.section === "favorites"
+                        ? "Favorites"
+                        : "Providers";
+                  headers.push(
+                    <Text key={`sec-${pick.section}-${i}`} color={color("muted")} bold>
+                      {title}
+                    </Text>,
+                  );
+                }
+                if (
+                  pick.section === "provider" &&
+                  pick.provider !== lastProvider
+                ) {
+                  lastProvider = pick.provider;
+                  headers.push(
+                    <Text key={`prov-${pick.provider}-${i}`} color={color("muted")}>
+                      {pick.providerLabel ?? pick.provider}
+                    </Text>,
+                  );
+                }
+                const meta = [
+                  pick.section !== "provider" ? (pick.providerLabel ?? pick.provider) : null,
+                  pick.account,
+                  pick.warning,
+                ]
+                  .filter((x): x is string => x !== undefined && x !== null && x.length > 0)
+                  .join(" · ");
+                return (
+                  <Box key={`${pick.section}-${pick.provider}-${pick.model}-${i}`} flexDirection="column">
+                    {headers}
+                    <Box flexDirection="row" gap={1}>
+                      <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                        {isCursor ? ">" : " "}
+                      </Text>
+                      <Text color={isCursor ? color("accent") : color("text")}>
+                        {isActive ? "* " : "  "}
+                        {pick.model}
+                      </Text>
+                      {meta.length > 0 && (
+                        <Text color={pick.warning !== undefined ? color("warning") : color("muted")}>
+                          {meta}
+                        </Text>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              });
+            })()
+          )}
+        </Box>
+      )}
 
       {step === "provider" && (
         <Box marginTop={1} flexDirection="column">
@@ -1308,9 +1510,18 @@ const helpText = ((): string | null => {
       {step === "form" && (
         <Box marginTop={1} flexDirection="column">
           <Text color={color("muted")}>
-            {editingProvider === undefined ? "Add provider" : `Edit provider ${editingProvider}`}
+            {formAuthOnly
+              ? editingProvider === undefined
+                ? "Connect provider"
+                : `Connect ${editingProvider}`
+              : editingProvider === undefined
+                ? "Add provider"
+                : `Edit provider ${editingProvider}`}
           </Text>
-          {FORM_FIELDS.map((field, i) => {
+          {formAuthOnly && formValues.baseURL.length > 0 && (
+            <Text color={color("muted")}>{formValues.baseURL}</Text>
+          )}
+          {activeFormFields.map((field, i) => {
             const isCursor = i === formIndex;
             const value = formValues[field];
             const isKeyless = formValues.keyless === "yes";

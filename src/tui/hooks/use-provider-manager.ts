@@ -5,9 +5,12 @@ import { providerCatalogToSettings, runtimeSettingsWithCatalog, type ProviderCat
 import {
   loadSettings,
   localSettingsPath,
+  pushRecentModel,
   saveGlobalSettings,
   saveLocalSettings,
+  toggleFavoriteModel,
   type LocalSettings,
+  type ModelRef,
   type ProviderTier,
   type Settings,
   type TierConfig,
@@ -63,8 +66,12 @@ export type ProviderManagerController = {
   providerCatalog: ProviderCatalogEntry[];
   globalDefaultProvider: string | undefined;
   tiers: Partial<Record<ProviderTier, TierConfig>>;
+  recentModels: ModelRef[];
+  favoriteModels: ModelRef[];
   applySelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   persistSelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
+  recordRecentModel: (ref: ModelRef) => void;
+  toggleFavorite: (ref: ModelRef) => void;
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
   saveTierAssignment: (
@@ -212,6 +219,12 @@ export function useProviderManager({
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(initialCatalog);
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
   const [tiers, setTiers] = useState<Partial<Record<ProviderTier, TierConfig>>>(initialTiers ?? {});
+  const [recentModels, setRecentModels] = useState<ModelRef[]>(
+    () => initialSettings?.recentModels ?? [],
+  );
+  const [favoriteModels, setFavoriteModels] = useState<ModelRef[]>(
+    () => initialSettings?.favoriteModels ?? [],
+  );
 
   const publishRuntimeResolution = (
     catalog: readonly ProviderCatalogEntry[],
@@ -293,7 +306,47 @@ export function useProviderManager({
   ): void => {
     if (applyCatalogSelection(providerCatalog, providerName, nextModel, nextEffort)) {
       onMessage(`Now using ${providerName} · ${nextModel}`);
+      // Keep recent list in sync even when the modal does not call recordRecentModel.
+      recordRecentModel({ provider: providerName, model: nextModel });
     }
+  };
+
+  const recordRecentModel = (ref: ModelRef): void => {
+    setRecentModels((prev) => {
+      const next =
+        pushRecentModel({ providers: {}, recentModels: prev }, ref).recentModels ?? [];
+      void persistWithMergeBase({
+        globalSettingsPath,
+        initialSettings,
+        buildSettings: (base) => {
+          const settings: Settings = base ?? { providers: {} };
+          return pushRecentModel(settings, ref);
+        },
+        onMessage,
+        successMessage: "",
+        failPrefix: "Failed to save recent models",
+      });
+      return next;
+    });
+  };
+
+  const toggleFavorite = (ref: ModelRef): void => {
+    setFavoriteModels((prev) => {
+      const next =
+        toggleFavoriteModel({ providers: {}, favoriteModels: prev }, ref).favoriteModels ?? [];
+      void persistWithMergeBase({
+        globalSettingsPath,
+        initialSettings,
+        buildSettings: (base) => {
+          const settings: Settings = base ?? { providers: {} };
+          return toggleFavoriteModel(settings, ref);
+        },
+        onMessage,
+        successMessage: "",
+        failPrefix: "Failed to save favorite models",
+      });
+      return next;
+    });
   };
 
   const persistLocalSelection = (providerName: string, nextModel: string): void => {
@@ -506,8 +559,12 @@ export function useProviderManager({
     providerCatalog,
     globalDefaultProvider,
     tiers,
+    recentModels,
+    favoriteModels,
     applySelection,
     persistSelection,
+    recordRecentModel,
+    toggleFavorite,
     upsertProvider,
     deleteProvider,
     saveTierAssignment,
