@@ -1,5 +1,5 @@
 import { Box, Text, useInput, usePaste } from "ink";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { getCommand, listCommands } from "../commands/registry.js";
 import type { CommandContext, CommandResult, SubcommandDefinition } from "../commands/registry.js";
@@ -426,10 +426,15 @@ export function ChatInput({
   const selfSetValue = useRef<string | null>(null);
 
   // Reset the cursor to the end only when value changes from the OUTSIDE.
-  useEffect(() => {
-    if (value === selfSetValue.current) return;
-    setCursor(value.length);
-  }, [value]);
+  // Adjust during render (not an effect) so the caret lands in the same paint
+  // as the external value update — no extra commit for the cursor alone.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    if (value !== selfSetValue.current) {
+      setCursor(value.length);
+    }
+  }
 
   const atMention = useAtSuggestions(cwd);
 

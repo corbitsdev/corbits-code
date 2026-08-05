@@ -241,13 +241,18 @@ export function useMessagePipeline({
   };
   const startNewSession = () => startNewSessionRef.current();
 
-  // Send the initial task once the App (and its gate listeners) is mounted, so
-  // the run is driven through the same abortable path as interactive sends.
+  // Hydrate sent-message history for the active session. Cancel stale loads so a
+  // session switch or unmount cannot write history from a prior session id.
   useEffect(() => {
     if (getSessionId === undefined) return;
+    let cancelled = false;
     void loadSentMessages(cwd, getSessionId()).then((sent) => {
+      if (cancelled) return;
       setSentHistoryBrowse(createSentHistoryBrowse(sent));
     });
+    return () => {
+      cancelled = true;
+    };
   }, [cwd, getSessionId]);
 
   useEffect(() => {

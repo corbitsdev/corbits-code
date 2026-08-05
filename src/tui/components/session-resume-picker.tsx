@@ -1,6 +1,6 @@
 import { Box, Text, useApp, useInput } from "ink";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import type { SessionSummary } from "../../session/index.js";
 import { formatRelativeTime } from "../format-relative-time.js";
@@ -21,10 +21,9 @@ function formatLabel(session: SessionSummary): string {
 export function SessionResumePicker({ sessions, onSelect, onCancel }: SessionResumePickerProps): ReactNode {
   const { exit } = useApp();
   const [cursor, setCursor] = useState(0);
-  const cursorRef = useRef(0);
-  useEffect(() => {
-    cursorRef.current = cursor;
-  }, [cursor]);
+  // Keep the latest cursor available to useInput without an effect round-trip.
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
   const rows = useMemo(() => sessions.map((s) => ({ session: s, label: formatLabel(s) })), [sessions]);
   const clamped = rows.length > 0 ? Math.min(cursor, rows.length - 1) : 0;
 
