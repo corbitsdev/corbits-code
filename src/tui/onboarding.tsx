@@ -181,9 +181,24 @@ export function ProviderSetupPanel({ onSubmit, showTelemetryNotice }: ProviderSe
 
       {/* Main content */}
       <Box flexGrow={1} flexDirection="column" paddingX={4} paddingY={2}>
-        <Box marginBottom={2}>
-          <Text color={color("text")}>
-            No inference provider is configured. Add one to get started.
+        <Box marginBottom={1} flexDirection="column">
+          <Text color={color("text")} bold>
+            Welcome — let's connect an inference provider
+          </Text>
+          <Text color={color("muted")}>
+            Step {fieldIndex + 1} of {FIELDS.length}: {FIELD_LABELS[currentField]}
+          </Text>
+        </Box>
+
+        <Box marginBottom={2} flexDirection="column">
+          <Text color={color("dim")}>
+            {currentField === "name" && "1. Name the provider (openai, anthropic, fireworks, ollama, …)"}
+            {currentField === "baseURL" && "2. Paste the API base URL (must include /v1 if required)"}
+            {currentField === "apiKey" && "3. Enter an API key — leave blank for local/keyless providers"}
+            {currentField === "model" && "4. Pick a default model, then Enter to test & save"}
+          </Text>
+          <Text color={color("dim")}>
+            After setup you can switch providers with Ctrl+A or /models.
           </Text>
         </Box>
 
