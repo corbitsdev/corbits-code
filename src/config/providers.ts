@@ -36,6 +36,10 @@ export function buildProviderEntry(
   if (!keyless && (apiKey === undefined || apiKey.length === 0)) {
     return { ok: false, error: "Provider API key is required" };
   }
+  // Protocol flags are not form fields — preserve catalog flags on edit unless
+  // the submission explicitly re-asserts them (Connect path).
+  const anthropic = submission.anthropic === true || existing?.anthropic === true;
+  const opencodeGo = submission.opencodeGo === true || existing?.opencodeGo === true;
   const entry: ProviderCatalogEntry = {
     name: submission.name,
     baseURL: submission.baseURL,
@@ -48,8 +52,8 @@ export function buildProviderEntry(
     ...(submission.bifrostVirtualKey === true || existing?.bifrostVirtualKey === true
       ? { bifrostVirtualKey: true }
       : {}),
-    ...(submission.anthropic === true ? { anthropic: true } : {}),
-    ...(submission.opencodeGo === true ? { opencodeGo: true } : {}),
+    ...(anthropic ? { anthropic: true } : {}),
+    ...(opencodeGo ? { opencodeGo: true } : {}),
   };
   const catalog = currentCatalog
     .filter((p) => p.name !== submission.name && p.name !== submission.originalName)

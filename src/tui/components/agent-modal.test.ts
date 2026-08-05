@@ -133,6 +133,36 @@ test("trims leading and trailing spaces on text fields at save", () => {
     }
   });
 
+  test("edit submission re-asserts protocol flags from provider extras", () => {
+    // Mirrors enterEditForm seeding connectDraft from AgentProvider flags.
+    const goEdit = validateProviderForm(
+      form({
+        name: "opencode-go",
+        baseURL: "https://opencode.ai/zen/go/v1",
+        apiKey: "",
+        models: "kimi-k2.7-code, minimax-m3",
+        defaultModel: "kimi-k2.7-code",
+      }),
+      "opencode-go",
+      { opencodeGo: true },
+    );
+    expect(goEdit.ok).toBe(true);
+    if (goEdit.ok) {
+      expect(goEdit.submission.originalName).toBe("opencode-go");
+      expect(goEdit.submission.opencodeGo).toBe(true);
+    }
+
+    const anthropicEdit = validateProviderForm(
+      form({ name: "anthropic", baseURL: "https://api.anthropic.com" }),
+      "anthropic",
+      { anthropic: true },
+    );
+    expect(anthropicEdit.ok).toBe(true);
+    if (anthropicEdit.ok) {
+      expect(anthropicEdit.submission.anthropic).toBe(true);
+    }
+  });
+
   test("rejects invalid OpenCode Go API keys when opencodeGo is set", () => {
     expect(
       validateProviderForm(form({ name: "opencode-go", apiKey: "short" }), undefined, {

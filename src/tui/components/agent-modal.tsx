@@ -349,6 +349,7 @@ export function AgentModal({
   };
 
   const enterAddForm = (): void => {
+    connectDraft.current = null;
     setEditingProvider(undefined);
     setFormValues(initialFormValues(undefined));
     setFormIndex(0);
@@ -378,8 +379,8 @@ export function AgentModal({
       models: (def.models ?? []).join(", "),
       defaultModel: def.defaultModel ?? def.models?.[0] ?? "",
     });
-    // Stash first-class flags on form via a module-level connect draft so submit
-    // can attach anthropic/opencodeGo without expanding every form field.
+    // Stash first-class flags so submit can attach anthropic/opencodeGo without
+    // expanding every form field.
     connectDraft.current = {
       anthropic: def.anthropic === true,
       opencodeGo: def.id === "opencode-go",
@@ -392,6 +393,11 @@ export function AgentModal({
   const enterEditForm = (): void => {
     const provider = providers[providerIndex];
     if (provider === undefined) return;
+    // Preserve protocol flags across edit/re-key so Go/Anthropic routing survives.
+    connectDraft.current = {
+      anthropic: provider.anthropic === true,
+      opencodeGo: provider.opencodeGo === true,
+    };
     setEditingProvider(provider.name);
     setFormValues(initialFormValues(provider));
     setFormIndex(0);

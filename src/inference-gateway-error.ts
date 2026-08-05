@@ -115,10 +115,11 @@ export function normalizeOpenCodeGoInferenceError(error: InferenceError): Infere
         : undefined;
   if (body === undefined) return error;
 
-  // Accept Go-typed bodies without a URL, or any request aimed at the Go gateway.
+  // Prefer Go-specific type names / host markers. Do not match bare
+  // `provider_rate_limit_exceeded` alone — other OpenAI-compatible proxies use it.
   const looksGo =
     isOpenCodeGoURL(rawText) ||
-    /GoUsageLimitError|FreeUsageLimitError|BlackUsageLimitError|provider_rate_limit_exceeded|Console Go|opencode\.ai\/zen\/go/i.test(
+    /GoUsageLimitError|FreeUsageLimitError|BlackUsageLimitError|Console Go|opencode\.ai\/zen\/go/i.test(
       `${messageText}\n${rawText}`,
     );
   if (!looksGo) return error;

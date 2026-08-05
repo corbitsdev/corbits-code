@@ -26,6 +26,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
 export const SLASH_COMMANDS: ShortcutEntry[] = [
   { keys: "/help", description: "Show the help overlay" },
   { keys: "/tasks", description: "Show the tasks panel" },
-  { keys: "/agent", description: "Configure provider, model, tiers, and profiles" },
+  { keys: "/model", description: "Connect providers, pick model, tiers, profiles" },
   { keys: "/permissions", description: "View and revoke remembered approvals" },
 ];

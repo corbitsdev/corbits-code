@@ -115,4 +115,20 @@ describe("normalizeInferenceErrorForRetry", () => {
     });
     expect(normalized.category).toBe("quota_exhausted");
   });
+
+  test("does not reclassify non-Go provider_rate_limit_exceeded bodies", () => {
+    const err = {
+      category: "fatal" as const,
+      message: "rate limited",
+      statusCode: 400,
+      raw: {
+        error: {
+          message: "Provider rate limit exceeded",
+          type: "rate_limit_error",
+          code: "provider_rate_limit_exceeded",
+        },
+      },
+    };
+    expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
+  });
 });
