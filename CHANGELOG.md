@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Fixed
+
+- Pure directory listing (`ls`, `tree`) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. (CL-5422)
+
 ### Planned
 
 - Local context estimate for compaction when providers omit usage (CL-4345)

@@ -85,6 +85,49 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
   test("allows an in-workspace flag-glued path", () => {
     expect(isAutoAllowedShellCall(shellCall("grep --file=patterns.txt src"), "/repo")).toBe(true);
   });
+
+  // Pure directory listing is names/metadata only — outside-workspace targets
+  // still auto-allow. Content readers (cat, head, …) remain contained.
+  test("auto-allows pure directory listing outside the workspace", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls /tmp"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(true);
+  });
+
+  test("still denies content reads outside the workspace", () => {
+    expect(isAutoAllowedShellCall(shellCall("cat /etc/passwd"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("head ~/.aws/config"), "/repo")).toBe(false);
+  });
+});
+
+describe("pure directory listing — outside-workspace auto-shell policy", () => {
+  // Paths that resolve outside /repo are restricted; ~ is also treated as
+  // outside by commandTargetsRestricted. Pure ls/tree must not trip the ask rule.
+  const isRestricted = (path: string): boolean =>
+    path.startsWith("~") || path.startsWith("/") || path.includes("..");
+
+  test("does not force outside-workspace ask for pure ls/tree outside paths", () => {
+    expect(autoShellRuleForCall(shellCall("ls /tmp"), isRestricted)).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("ls -la ~"), isRestricted)).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)).toBeUndefined();
+  });
+
+  test("still forces outside-workspace ask for content reads outside paths", () => {
+    // Non-sensitive outside paths so this asserts containment, not the
+    // sensitive-path ask rule (which fires first for e.g. ~/.aws/config).
+    expect(autoShellRuleForCall(shellCall("cat /etc/passwd"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+    expect(autoShellRuleForCall(shellCall("head /tmp/notes.txt"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+  });
+
+  test("chained ls outside + cat outside still asks for the content half", () => {
+    expect(autoShellRuleForCall(shellCall("ls /tmp && cat /etc/passwd"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+  });
 });
 
 describe("isAutoAllowedShellSegment — command substitution", () => {

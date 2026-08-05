@@ -67,19 +67,46 @@ export function restrictedPathArg(
   return isRestricted(path, isWriteTool(call.name)) ? path : undefined;
 }
 
+// Programs that only print directory names / metadata. Outside-workspace path
+// arguments are fine for these — listing is not a content read. Content readers
+// (cat, head, xxd, …) still fail the restricted-path check below.
+const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
+
+function isPureDirectoryListingSegment(segment: string): boolean {
+  const trimmed = segment.trim();
+  // Redirects / composition mean the segment is not "names only" — e.g.
+  // `ls > /dev/pts/0` must still hit path restriction + authz hard-deny.
+  if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
+  const program = tokenize(trimmed)[0] ?? "";
+  return PURE_DIRECTORY_LISTING_PROGRAMS.has(program);
+}
+
 // Whether a shell command reads through a restricted path. Tokenised so a bare
 // `cat .agent-state/run.json` is caught; flags are ignored since they are not
 // path arguments. The auto-shell allowlist (SAFE_SHELL_PROGRAMS) only ever
 // admits read-only commands, so shell targets are always judged as reads.
 // Surfaces flag-glued path values (`--file=PATH`, `-fPATH`) and treats `~…`
 // as outside-workspace the same way the safe-shell path does.
+// Pure directory listing (`ls`, `tree`) is exempt: names/metadata only, even
+// outside the workspace. Chains are judged per segment so `ls /tmp && cat …`
+// still flags the content-reading half.
 export function commandTargetsRestricted(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
-  return pathLikeTokens(command).some(
-    (token) => token.startsWith("~") || isRestricted(token, false),
-  );
+  const segments = splitChainedCommand(command);
+  const parts = segments.length > 0 ? segments : [command];
+  for (const segment of parts) {
+    if (isPureDirectoryListingSegment(segment)) continue;
+    if (
+      pathLikeTokens(segment).some(
+        (token) => token.startsWith("~") || isRestricted(token, false),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function pathLikeTokens(command: string): string[] {
@@ -128,10 +155,12 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // A safe read command auto-runs only when every path-like argument stays inside
 // the workspace. Containment — not a secret-name denylist — is the real
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
-// `strings /proc/self/environ` from auto-reading any file on the host. Sensitive
-// path names (`.env`, keys) additionally never auto-allow; the permission gate
-// asks so the operator can approve legitimate shell uses (e.g. `--env-file`).
-// Path-keyed secret reads remain a hard deny in secret-guard.
+// `strings /proc/self/environ` from auto-reading any file on the host. Pure
+// directory listing (`ls`, `tree`) is the exception: names/metadata only, so
+// outside-workspace targets still auto-allow. Sensitive path names (`.env`,
+// keys) additionally never auto-allow; the permission gate asks so the operator
+// can approve legitimate shell uses (e.g. `--env-file`). Path-keyed secret
+// reads remain a hard deny in secret-guard.
 function realpathOr(path: string): string {
   try {
     return realpathSync(path);
@@ -201,7 +230,14 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
     if (args.some((token) => EXEC_FLAG.test(token))) return false;
   }
   if (args.some((token) => isSensitivePath(token))) return false;
-  if (args.some((token) => argEscapesWorkspace(token, realCwd))) return false;
+  // Pure directory listing may target outside-workspace paths (names only).
+  // Content readers must stay inside the workspace.
+  if (
+    !PURE_DIRECTORY_LISTING_PROGRAMS.has(program) &&
+    args.some((token) => argEscapesWorkspace(token, realCwd))
+  ) {
+    return false;
+  }
   return true;
 }
 
