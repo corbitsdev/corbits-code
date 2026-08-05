@@ -28,6 +28,35 @@ setChromeZones(shell, formatChromeZones({
 // null lines hide the zone; geometry measures heights (never guessed here).
 ```
 
+## Live subagent observe
+
+Host enters with real child rows + label; appends child events while focused; Esc restores parent.
+
+```ts
+import {
+  appendObserveStreamRow,
+  appendStreamRow,
+  enterSubagentObserve,
+  leaveSubagentObserve,
+} from "./shell"
+
+enterSubagentObserve(shell, {
+  sessionId: child.id,
+  agentId: child.agentId,
+  description: child.description,
+  lines: childRows, // live seed from store
+})
+// Child deltas while observing:
+appendObserveStreamRow(shell, { role: "assistant", text: "…" })
+// Parent reactor events still use appendStreamRow — they land on the parent
+// snapshot and reappear on leave (not mixed into the child view).
+appendStreamRow(shell, parentRow)
+// Esc or:
+leaveSubagentObserve(shell)
+```
+
+Demo/fixture path (`makeObserveFixture`) is unchanged for `v` / palette observe.
+
 ## App shell
 
 ```ts

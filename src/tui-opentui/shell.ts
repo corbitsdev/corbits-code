@@ -652,8 +652,33 @@ export function appendTranscript(
   paintStatus(shell)
 }
 
-/** Append a role-styled stream row (user / assistant / tool / system). */
+/**
+ * Append a role-styled stream row to the **parent** transcript.
+ * While subagent observe is active, rows go to the parent snapshot only
+ * (not painted); leave restores them with the parent lease.
+ */
 export function appendStreamRow(shell: AppShell, row: StreamRow): void {
+  if (shell.observe !== null && shell.parentStreamLog !== null) {
+    shell.parentStreamLog.push(row)
+    return
+  }
+  paintAppendStreamRow(shell, row)
+}
+
+/**
+ * Append a child stream row while observing a subagent.
+ * Host-pushed live events (not only fixture seed lines). No-op when not observing.
+ * @returns true when the row was applied to the observe view
+ */
+export function appendObserveStreamRow(shell: AppShell, row: StreamRow): boolean {
+  if (shell.observe === null) return false
+  shell.observe.lines.push(row)
+  paintAppendStreamRow(shell, row)
+  return true
+}
+
+/** Paint + push onto the visible streamLog (child while observing, parent otherwise). */
+function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   shell.streamLog.push(row)
   shell.lineCount = shell.streamLog.length
 
@@ -1350,8 +1375,9 @@ export function copyActiveMessage(
 }
 
 /**
- * Enter a child subagent session view (Wave 7).
- * Independent stream window; Esc restores parent lease.
+ * Enter a child subagent session view.
+ * Host passes live rows + agent label (`ObserveSession`); fixture via
+ * `makeObserveFixture()` is only for demo/tests. Esc restores parent lease.
  */
 export function enterSubagentObserve(
   shell: AppShell,
@@ -1361,15 +1387,16 @@ export function enterSubagentObserve(
     leaveSubagentObserve(shell)
   }
 
+  const seedLines = session.lines.slice()
   shell.parentStreamLog = shell.streamLog.slice()
   shell.observe = {
     sessionId: session.sessionId,
     agentId: session.agentId,
     description: session.description,
-    lines: session.lines.slice(),
+    lines: seedLines.slice(),
   }
 
-  shell.streamLog = session.lines.slice()
+  shell.streamLog = seedLines
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
 
@@ -1377,7 +1404,8 @@ export function enterSubagentObserve(
   setChromeZones(shell, {
     agents: `observe: ${session.agentId} — ${session.description}`,
   })
-  appendStreamRow(shell, {
+  // Child chrome toast — must not route to parent snapshot.
+  appendObserveStreamRow(shell, {
     role: "system",
     text: `Viewing ${session.agentId}: ${session.description}`,
     meta: "observe",
