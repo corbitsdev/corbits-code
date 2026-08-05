@@ -1,6 +1,7 @@
 /**
  * Wave 7 residual surface fixtures + observe session types (pure).
- * Shell/overlays open the panes; this module owns catalogs only.
+ * Shell openers inject host catalogs via OpenResidualListOpts; fixtures apply
+ * only when the host omits `items`.
  */
 
 import type { StreamRow } from "./stream.js"
