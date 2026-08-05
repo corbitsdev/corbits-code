@@ -6,6 +6,8 @@ import type { ScopedApproval } from "../../permission/admin.js";
 import type { SessionMode } from "../../config/session-mode.js";
 import { SESSION_MODES } from "../../config/session-mode.js";
 import { color } from "../theme.js";
+import { useTerminalSize } from "../hooks/use-terminal-size.js";
+import { STACK_FORM_COLUMNS, fitTrailingText, formContentWidth } from "./form-reflow.js";
 
 export type CompactionMode = "llm" | "pruning";
 
@@ -72,23 +74,38 @@ function entryLabel(entry: ScopedApproval): string {
   return `${entry.tool}  ${entry.pattern}${suffix}`;
 }
 
-function TabBar({ activeTab, onSwitch }: { activeTab: Tab; onSwitch: (t: Tab) => void }): ReactNode {
+function TabBar({
+  activeTab,
+  onSwitch,
+  stack,
+}: {
+  activeTab: Tab;
+  onSwitch: (t: Tab) => void;
+  stack: boolean;
+}): ReactNode {
   return (
-    <Box gap={2} marginBottom={1}>
-      {TABS.map((tab) => {
-        const isActive = tab === activeTab;
-        return (
-          <Text
-            key={tab}
-            bold={isActive}
-            color={isActive ? color("brand") : color("muted")}
-            underline={isActive}
-          >
-            {tab}
-          </Text>
-        );
-      })}
-      <Text color={color("muted")}>  Tab to switch sections</Text>
+    <Box
+      flexDirection={stack ? "column" : "row"}
+      flexWrap={stack ? undefined : "wrap"}
+      gap={stack ? 0 : 2}
+      marginBottom={1}
+    >
+      <Box flexDirection="row" flexWrap="wrap" gap={stack ? 1 : 2}>
+        {TABS.map((tab) => {
+          const isActive = tab === activeTab;
+          return (
+            <Text
+              key={tab}
+              bold={isActive}
+              color={isActive ? color("brand") : color("muted")}
+              underline={isActive}
+            >
+              {tab}
+            </Text>
+          );
+        })}
+      </Box>
+      <Text color={color("muted")}>{stack ? "Tab to switch" : "  Tab to switch sections"}</Text>
     </Box>
   );
 }
@@ -97,10 +114,12 @@ function PermissionsTab({
   entries,
   onRevoke,
   maxRows,
+  contentWidth,
 }: {
   entries: ScopedApproval[];
   onRevoke: (entry: ScopedApproval) => void;
   maxRows?: number | undefined;
+  contentWidth: number;
 }): ReactNode {
   const ordered = orderEntries(entries);
   const [selected, setSelected] = useState(0);
@@ -151,7 +170,9 @@ function PermissionsTab({
                   <Text color={isActive ? color("brand") : color("muted")} bold={isActive}>
                     {isActive ? "› " : "  "}
                   </Text>
-                  <Text bold={isActive}>{entryLabel(entry)}</Text>
+                  <Text bold={isActive}>
+                    {fitTrailingText(entryLabel(entry), Math.max(8, contentWidth - 4))}
+                  </Text>
                 </Box>
               );
             })}
@@ -499,6 +520,9 @@ export function SettingsOverlay({
   maxHeight,
 }: SettingsOverlayProps): ReactNode {
   const [activeTab, setActiveTab] = useState<Tab>("Permissions");
+  const { columns } = useTerminalSize();
+  const stack = columns < STACK_FORM_COLUMNS;
+  const contentWidth = formContentWidth(columns, stack);
 
   const contentRows = maxHeight !== undefined ? Math.max(4, maxHeight - FIXED_CHROME) : undefined;
 
@@ -518,18 +542,20 @@ export function SettingsOverlay({
   return (
     <Box
       flexDirection="column"
-      paddingX={2}
+      paddingX={stack ? 1 : 2}
       paddingY={1}
       marginX={1}
       marginY={1}
+      width={Math.max(1, columns - 2)}
     >
       <Text bold color={color("accent")}>Settings</Text>
-      <TabBar activeTab={activeTab} onSwitch={setActiveTab} />
+      <TabBar activeTab={activeTab} onSwitch={setActiveTab} stack={stack} />
       {activeTab === "Permissions" && (
         <PermissionsTab
           entries={permissionEntries}
           onRevoke={onRevokePermission}
           maxRows={contentRows}
+          contentWidth={contentWidth}
         />
       )}
       {activeTab === "Compaction" && (

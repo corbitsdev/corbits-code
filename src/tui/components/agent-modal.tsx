@@ -7,6 +7,13 @@ import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning
 import { PROVIDER_TIERS, type ProviderTier, type TierConfig } from "../../config/settings.js";
 import { formatTierChain, normalizeTierDefinition } from "../../config/inference-sources.js";
 import type { AgentProfile } from "../../agent/profiles.js";
+import { useTerminalSize } from "../hooks/use-terminal-size.js";
+import {
+  STACK_FORM_COLUMNS,
+  fitTrailingText,
+  formContentWidth,
+  wrapHelpSegments,
+} from "./form-reflow.js";
 
 // Effort display: undefined means "no override" (field omitted); "none" is
 // OpenAI's explicit disable-reasoning value. Both read as "off".
@@ -249,6 +256,15 @@ export function AgentModal({
   unauthedProviders,
   onRequestLogin,
 }: AgentModalProps): ReactNode {
+  const { columns } = useTerminalSize();
+  const stackFields = columns < STACK_FORM_COLUMNS;
+  const contentWidth = formContentWidth(columns, stackFields);
+  // Label column widths used in row layout; stacked layout uses full content width for values.
+  const providerLabelWidth = 16;
+  const profileLabelWidth = 14;
+  const valueWidth = stackFields
+    ? contentWidth
+    : Math.max(8, contentWidth - Math.max(providerLabelWidth, profileLabelWidth) - 1);
   const initialProvider = Math.max(
     0,
     providers.findIndex((p) => p.name === activeProvider),
@@ -773,13 +789,40 @@ export function AgentModal({
     setFormError(null);
   });
 
+  const helpText = ((): string | null => {
+    switch (step) {
+      case "provider":
+        return "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · p profiles · Esc close";
+      case "tiers":
+        return "Up/Down navigate · Enter add · e edit chain · m mode · c clear · Esc back";
+      case "tier-chain":
+        return "Up/Down leg · a/Enter add · x remove · u/d reorder · m mode · Esc back";
+      case "profiles":
+        return "Up/Down navigate · a add · e edit · x remove · Esc back";
+      case "profile-form":
+        return "Up/Down fields · Left/Right for tier · Enter next/save · Esc cancel";
+      case "profile-delete":
+        return "y remove · n cancel · Esc back";
+      case "model":
+        return "Up/Down navigate · Enter effort · Esc back";
+      case "effort":
+        return "Up/Down navigate · Enter use now · d set as default · Esc back";
+      case "form":
+        return "Up/Down fields · Left/Right toggle keyless · Enter next/save · Esc cancel";
+      case "delete":
+        return "y remove · n cancel · Esc back";
+    }
+  })();
+  const helpLines = helpText !== null ? wrapHelpSegments(helpText.split(" · "), contentWidth) : [];
+
   return (
     <Box
       flexDirection="column"
-      paddingX={2}
+      paddingX={stackFields ? 1 : 2}
       paddingY={1}
       marginX={1}
       marginY={1}
+      width={Math.max(1, columns - 2)}
     >
       <Text bold color={color("accent")}>
         Agent Configuration
@@ -859,16 +902,18 @@ export function AgentModal({
             const assignment = tiers[tier];
             const isCursor = i === tierIndex;
             const assignmentLabel = formatTierChain(assignment);
+            const rowDir = stackFields ? "column" : "row";
             return (
-              <Box key={tier} flexDirection="row" gap={2}>
-                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
-                  {isCursor ? ">" : " "}
-                </Text>
-                <Box width={10} flexShrink={0}>
+              <Box key={tier} flexDirection={rowDir} gap={stackFields ? 0 : 2}>
+                <Box flexDirection="row" gap={1}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {isCursor ? ">" : " "}
+                  </Text>
                   <Text color={isCursor ? color("accent") : color("text")}>{tier}</Text>
                 </Box>
                 <Text color={assignment !== undefined ? color("text") : color("muted")}>
-                  {assignmentLabel}
+                  {stackFields ? "  " : ""}
+                  {fitTrailingText(assignmentLabel, stackFields ? contentWidth - 2 : Math.max(8, contentWidth - 12))}
                 </Text>
               </Box>
             );
@@ -886,17 +931,27 @@ export function AgentModal({
           {models.map((m, i) => {
             const isActive = selectedProvider?.name === activeProvider && m === activeModel;
             const isCursor = i === modelIndex;
+            const desc = MODEL_DESCRIPTIONS[m];
+            const namePart = `${isActive ? "* " : "  "}${m}`;
+            const showDescInline = desc !== undefined && !stackFields && namePart.length + desc.length + 4 < contentWidth;
             return (
-              <Box key={m} flexDirection="row" gap={1}>
-                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
-                  {isCursor ? ">" : " "}
-                </Text>
-                <Text color={isCursor ? color("accent") : color("text")}>
-                  {isActive ? "* " : "  "}
-                  {m}
-                </Text>
-                {MODEL_DESCRIPTIONS[m] !== undefined && (
-                  <Text color={color("muted")}>— {MODEL_DESCRIPTIONS[m]}</Text>
+              <Box key={m} flexDirection="column">
+                <Box flexDirection="row" gap={1}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {isCursor ? ">" : " "}
+                  </Text>
+                  <Text color={isCursor ? color("accent") : color("text")}>
+                    {fitTrailingText(namePart, contentWidth - 2)}
+                  </Text>
+                  {showDescInline && (
+                    <Text color={color("muted")}>— {desc}</Text>
+                  )}
+                </Box>
+                {desc !== undefined && !showDescInline && (
+                  <Text color={color("muted")}>
+                    {"  "}
+                    {fitTrailingText(desc, contentWidth - 2)}
+                  </Text>
                 )}
               </Box>
             );
@@ -915,17 +970,27 @@ export function AgentModal({
           {efforts.map((e, i) => {
             const isActive = e === activeEffort;
             const isCursor = i === effortIndex;
+            const desc = EFFORT_DESCRIPTIONS[e];
+            const namePart = `${isActive ? "* " : "  "}${effortLabel(e)}`;
+            const showDescInline = desc !== undefined && !stackFields && namePart.length + desc.length + 4 < contentWidth;
             return (
-              <Box key={e} flexDirection="row" gap={1}>
-                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
-                  {isCursor ? ">" : " "}
-                </Text>
-                <Text color={isCursor ? color("accent") : color("text")}>
-                  {isActive ? "* " : "  "}
-                  {effortLabel(e)}
-                </Text>
-                {EFFORT_DESCRIPTIONS[e] !== undefined && (
-                  <Text color={color("muted")}>— {EFFORT_DESCRIPTIONS[e]}</Text>
+              <Box key={e} flexDirection="column">
+                <Box flexDirection="row" gap={1}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {isCursor ? ">" : " "}
+                  </Text>
+                  <Text color={isCursor ? color("accent") : color("text")}>
+                    {fitTrailingText(namePart, contentWidth - 2)}
+                  </Text>
+                  {showDescInline && (
+                    <Text color={color("muted")}>— {desc}</Text>
+                  )}
+                </Box>
+                {desc !== undefined && !showDescInline && (
+                  <Text color={color("muted")}>
+                    {"  "}
+                    {fitTrailingText(desc, contentWidth - 2)}
+                  </Text>
                 )}
               </Box>
             );
@@ -949,45 +1014,67 @@ export function AgentModal({
             const isCursor = i === formIndex;
             const value = formValues[field];
             const isKeyless = formValues.keyless === "yes";
-            // gap only between label and value — never between value and caret,
+// gap only between label and value — never between value and caret,
             // or the caret sits after a phantom space the user did not type.
             const showCaret =
               isCursor &&
               field !== "keyless" &&
               !(field === "apiKey" && isKeyless);
+            const rawDisplay =
+              field === "keyless"
+                ? null
+                : field === "apiKey" && isKeyless
+                  ? "(disabled — keyless provider)"
+                  : value.length > 0
+                    ? maskInput(field, value)
+                    : field === "apiKey" && editingProvider !== undefined
+                      ? "leave blank to keep existing"
+                      : FIELD_HINTS[field];
+            // Reserve one cell for the caret so long values do not push it off-screen.
+            const fitted =
+              rawDisplay === null
+                ? null
+                : fitTrailingText(rawDisplay, showCaret ? Math.max(1, valueWidth - 1) : valueWidth);
             return (
-              <Box key={field} flexDirection="row" gap={1}>
-                <Box width={16} flexShrink={0}>
+              <Box
+                key={field}
+                flexDirection={stackFields ? "column" : "row"}
+                gap={stackFields ? 0 : 1}
+                marginBottom={stackFields ? 1 : 0}
+              >
+                <Box width={stackFields ? undefined : providerLabelWidth} flexShrink={0}>
                   <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
                     {FIELD_LABELS[field]}
                   </Text>
                 </Box>
-                {field === "keyless" ? (
-                  <Text color={value === "yes" ? color("accent") : color("muted")}>
-                    {isCursor ? "< " : "  "}
-                    {value === "yes" ? "yes" : "no"}
-                    {isCursor ? " >" : ""}
-                  </Text>
-                ) : field === "apiKey" && isKeyless ? (
-                  <Text color={color("muted")}>(disabled — keyless provider)</Text>
-                ) : (
-                  <Box>
-                    <Text color={value.length > 0 ? color("text") : color("muted")}>
-                      {value.length > 0
-                        ? maskInput(field, value)
-                        : field === "apiKey" && editingProvider !== undefined
-                          ? "leave blank to keep existing"
-                          : FIELD_HINTS[field]}
+                <Box flexDirection="row" gap={0}>
+                  {field === "keyless" ? (
+                    <Text color={value === "yes" ? color("accent") : color("muted")}>
+                      {isCursor ? "< " : "  "}
+                      {value === "yes" ? "yes" : "no"}
+                      {isCursor ? " >" : ""}
                     </Text>
-                    {showCaret && <Text color={color("accent")}>|</Text>}
-                  </Box>
-                )}
+                  ) : (
+                    <Text
+                      color={
+                        field === "apiKey" && isKeyless
+                          ? color("muted")
+                          : value.length > 0
+                            ? color("text")
+                            : color("muted")
+                      }
+                    >
+                      {fitted}
+                    </Text>
+                  )}
+                  {showCaret && <Text color={color("accent")}>|</Text>}
+                </Box>
               </Box>
             );
           })}
           {formError !== null && (
             <Box marginTop={1}>
-              <Text color={color("danger")}>{formError}</Text>
+              <Text color={color("danger")}>{fitTrailingText(formError, contentWidth)}</Text>
             </Box>
           )}
         </Box>
@@ -1000,18 +1087,23 @@ export function AgentModal({
           )}
           {profiles.map((p, i) => {
             const isCursor = i === profileIndex;
+            const meta = `${p.tier !== undefined ? `[${p.tier}]` : ""}${p.description !== undefined ? ` ${p.description}` : ""}`.trim();
             return (
-              <Box key={p.id} flexDirection="row" gap={2}>
-                <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
-                  {isCursor ? ">" : " "}
-                </Text>
-                <Box width={20} flexShrink={0}>
-                  <Text color={isCursor ? color("accent") : color("text")}>{p.id}</Text>
+              <Box key={p.id} flexDirection={stackFields ? "column" : "row"} gap={stackFields ? 0 : 2}>
+                <Box flexDirection="row" gap={1}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {isCursor ? ">" : " "}
+                  </Text>
+                  <Text color={isCursor ? color("accent") : color("text")}>
+                    {fitTrailingText(p.id, stackFields ? contentWidth - 2 : 20)}
+                  </Text>
                 </Box>
-                <Text color={color("muted")}>
-                  {p.tier !== undefined ? `[${p.tier}]` : ""}
-                  {p.description !== undefined ? ` ${p.description}` : ""}
-                </Text>
+                {meta.length > 0 && (
+                  <Text color={color("muted")}>
+                    {stackFields ? "  " : ""}
+                    {fitTrailingText(meta, stackFields ? contentWidth - 2 : Math.max(8, contentWidth - 24))}
+                  </Text>
+                )}
               </Box>
             );
           })}
@@ -1032,53 +1124,62 @@ export function AgentModal({
           </Text>
           {PROFILE_FORM_FIELDS.map((field, i) => {
             const isCursor = i === profileFormIndex;
+            const showCaret = isCursor && field !== "tier";
+            const raw =
+              field === "tier"
+                ? null
+                : profileFormValues[field].length > 0
+                  ? profileFormValues[field]
+                  : PROFILE_FIELD_HINTS[field];
+            const fitted =
+              raw === null
+                ? null
+                : fitTrailingText(raw, showCaret ? Math.max(1, valueWidth - 1) : valueWidth);
             return (
-              <Box key={field} flexDirection="row" gap={1}>
-                <Box width={14} flexShrink={0}>
+              <Box
+                key={field}
+                flexDirection={stackFields ? "column" : "row"}
+                gap={stackFields ? 0 : 1}
+                marginBottom={stackFields ? 1 : 0}
+              >
+                <Box width={stackFields ? undefined : profileLabelWidth} flexShrink={0}>
                   <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
                     {PROFILE_FIELD_LABELS[field]}
                   </Text>
                 </Box>
-                {field === "tier" ? (
-                  <Text color={profileFormValues.tier.length > 0 ? color("text") : color("muted")}>
-                    {isCursor ? "< " : "  "}
-                    {profileFormValues.tier.length > 0 ? profileFormValues.tier : "none"}
-                    {isCursor ? " >" : ""}
-                  </Text>
-                ) : (
-                  <Box>
-                    <Text color={profileFormValues[field].length > 0 ? color("text") : color("muted")}>
-                      {profileFormValues[field].length > 0 ? profileFormValues[field] : PROFILE_FIELD_HINTS[field]}
+<Box flexDirection="row" gap={0}>
+                  {field === "tier" ? (
+                    <Text color={profileFormValues.tier.length > 0 ? color("text") : color("muted")}>
+                      {isCursor ? "< " : "  "}
+                      {profileFormValues.tier.length > 0 ? profileFormValues.tier : "none"}
+                      {isCursor ? " >" : ""}
                     </Text>
-                    {isCursor && <Text color={color("accent")}>|</Text>}
-                  </Box>
-                )}
+                  ) : (
+                    <Text
+                      color={profileFormValues[field].length > 0 ? color("text") : color("muted")}
+                    >
+                      {fitted}
+                    </Text>
+                  )}
+                  {showCaret && <Text color={color("accent")}>|</Text>}
+                </Box>
               </Box>
             );
           })}
           {profileFormError !== null && (
             <Box marginTop={1}>
-              <Text color={color("danger")}>{profileFormError}</Text>
+              <Text color={color("danger")}>{fitTrailingText(profileFormError, contentWidth)}</Text>
             </Box>
           )}
         </Box>
       )}
 
-      <Box marginTop={1}>
-        <Text dimColor>
-          {step === "provider" && "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · p profiles · Esc close"}
-          {step === "tiers" &&
-            "Up/Down navigate · Enter add · e edit chain · m mode · c clear · Esc back"}
-          {step === "tier-chain" &&
-            "Up/Down leg · a/Enter add · x remove · u/d reorder · m mode · Esc back"}
-          {step === "profiles" && "Up/Down navigate · a add · e edit · x remove · Esc back"}
-          {step === "profile-form" && "Up/Down fields · Left/Right for tier · Enter next/save · Esc cancel"}
-          {step === "profile-delete" && "y remove · n cancel · Esc back"}
-          {step === "model" && "Up/Down navigate · Enter effort · Esc back"}
-          {step === "effort" && "Up/Down navigate · Enter use now · d set as default · Esc back"}
-          {step === "form" && "Up/Down fields · Left/Right toggle keyless · Enter next/save · Esc cancel"}
-          {step === "delete" && "y remove · n cancel · Esc back"}
-        </Text>
+      <Box marginTop={1} flexDirection="column">
+        {helpLines.map((line, i) => (
+          <Text key={i} dimColor>
+            {line}
+          </Text>
+        ))}
       </Box>
     </Box>
   );
