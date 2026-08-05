@@ -1,13 +1,15 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": false,
+    "noEmit": true,
     "composite": false,
-    "outDir": "dist",
-    "rootDir": "src",
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "paths": {}
+    "baseUrl": ".",
+    "paths": {
+      "@corbits/provider-opencode-go": ["./packages/opencode-go/src/index.ts"],
+      "@corbits/first-class-providers": ["./packages/first-class-providers/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "packages/**/*.ts"]
 }

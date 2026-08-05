@@ -39,7 +39,8 @@
   },
   "workspaces": [
     ".",
-    "./vendor/intx-inference"
+    "./vendor/intx-inference",
+    "./packages/*"
   ],
   "overrides": {
     "@intx/inference": "workspace:*"
