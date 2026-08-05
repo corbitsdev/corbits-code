@@ -94,6 +94,29 @@ describe("loadConfig", () => {
     }
   });
 
+  test("threads local settings diagnostics on unconfigured early return", async () => {
+    const cwd = await emptyCwd();
+    try {
+      await mkdir(join(cwd, ".corbits"), { recursive: true });
+      await writeFile(
+        join(cwd, ".corbits", "settings.json"),
+        JSON.stringify({ unknownKey: true, anotherJunk: 1 }),
+      );
+      const result = await loadConfig(["--cwd", cwd, "do it"], {
+        globalSettingsPath: NO_SETTINGS,
+        allowUnconfigured: true,
+      });
+      expect(result.configured).toBe(false);
+      if (result.configured === false) {
+        expect(result.settingsDiagnostics).toBeDefined();
+        expect(result.settingsDiagnostics!.length).toBeGreaterThan(0);
+        expect(result.settingsDiagnostics!.some((d) => /unknown/i.test(d.message))).toBe(true);
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("UnconfiguredConfig.globalSettingsPath reflects --config path, not the global default", async () => {
     const cwd = await emptyCwd();
     try {

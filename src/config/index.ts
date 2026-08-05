@@ -269,6 +269,12 @@ export type UnconfiguredConfig = {
   globalSettingsPath: string;
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
+  /**
+   * Fail-open diagnostics from local settings load. Still threaded on the
+   * unconfigured path so junk local files surface via stderr/banner rather
+   * than disappearing when provider setup fails early.
+   */
+  settingsDiagnostics?: SettingsLoadDiagnostic[];
 };
 
 export type LoadConfigOptions = {
@@ -458,6 +464,9 @@ export async function loadConfig(
       command,
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
+      // Keep diagnostics even when provider setup fails early so junk local
+      // files still reach stderr (exec) / banner (TUI after onboarding).
+      ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
     };
   }
 

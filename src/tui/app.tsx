@@ -84,6 +84,7 @@ import {
   taskChromeRowCount,
   pluginChromeRowCount,
   extraChromeRowCount,
+  settingsNoticeRowCount,
 } from "./chrome-geometry.js";
 import { progressChromeRowCount } from "./chrome-zones.js";
 import {
@@ -567,7 +568,11 @@ export function App({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
     commandMessageRows:
       commandMessage === null ? 0 : Math.max(1, commandMessage.split("\n").length),
-    settingsNoticePresent: settingsNotice !== null,
+    // Multi-line banner: 2 rows per diagnostic + Esc hint; 0 when dismissed.
+    settingsNoticeRows:
+      settingsNotice === null
+        ? 0
+        : settingsNoticeRowCount(settingsDiagnostics?.length ?? 0),
     goalChromeRows,
     taskChromeRows,
     pluginChromeRows,

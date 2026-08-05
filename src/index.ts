@@ -20,9 +20,12 @@ export async function mainWithRunners(
   runners: Runners,
 ): Promise<number> {
   const config = await loadConfig(argv, { allowUnconfigured: true });
-  // Exec has no Ink surface for settings diagnostics — fail-open must still
-  // tell the operator what was ignored and how to fix it.
-  if (config.configured && config.command === "exec" && config.settingsDiagnostics !== undefined) {
+  // Exec has no Ink banner; unconfigured TUI goes to onboarding without the
+  // main-screen notice. Surface fail-open diagnostics on stderr for those
+  // paths so junk local files are never silent.
+  const surfaceDiagnosticsOnStderr =
+    config.command === "exec" || !config.configured;
+  if (surfaceDiagnosticsOnStderr && config.settingsDiagnostics !== undefined) {
     for (const d of config.settingsDiagnostics) {
       process.stderr.write(`settings: ${d.message}\n  fix: ${d.fix}\n`);
     }
