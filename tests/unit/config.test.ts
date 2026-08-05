@@ -129,6 +129,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       web: "plug-a",
       hiddenCommands: ["/help"],
       onboarded: true,
+      lastChangelogVersion: "0.1.0",
       compactionMode: "pruning" as const,
       maxConcurrentSubAgents: 3,
       subagentMaxTurns: 20,
@@ -137,6 +138,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       shell: { timeoutMs: 1000, maxTimeoutMs: 5000 },
       tools: { timeoutMs: 2000, waitForApproval: false },
       telemetry: { enabled: false, installationId: "id", noticeShown: true },
+      otel: { endpoint: "http://localhost:4318", serviceName: "corbits-test" },
     };
     await writeFile(globalPath, JSON.stringify(fixture));
     const loaded = await loadSettings(globalPath);

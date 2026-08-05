@@ -56,6 +56,11 @@ import { copyTargets, transcriptMarkdown, type CopyTarget } from "./copy.js";
 import { useProviderManager } from "./hooks/use-provider-manager.js";
 import { fetchCodexUsage, formatCodexUsage } from "../auth/codex/usage.js";
 import { fetchXaiUsage, formatXaiUsage } from "../auth/xai/usage.js";
+import {
+  fetchGoUsage,
+  formatGoUsage,
+  OPENCODE_GO_PROVIDER_ID,
+} from "../../packages/opencode-go/src/index.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import { listCommands } from "./commands/registry.js";
 import type { AgentProfile } from "../agent/profiles.js";
@@ -349,6 +354,7 @@ export function App({
   const [enteredSessionId, setEnteredSessionId] = useState<string | null>(null);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
+  const [goSubscriptionLabel, setGoSubscriptionLabel] = useState<string | undefined>(undefined);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Mount-only seeds from runner props. Runner does not re-render App when these
@@ -444,6 +450,32 @@ export function App({
   useEffect(() => {
     setConfiguredTiers(tiers);
   }, [tiers]);
+
+  // OpenCode Go subscription usage in the status bar when Go is the active
+  // provider. Failures (auth, network, missing endpoint) clear the label so the
+  // bar degrades cleanly rather than showing an error string.
+  useEffect(() => {
+    if (provider !== OPENCODE_GO_PROVIDER_ID) {
+      setGoSubscriptionLabel(undefined);
+      return;
+    }
+    const entry = providerCatalog.find((p) => p.name === provider);
+    const apiKey = entry?.apiKey;
+    if (apiKey === undefined || apiKey.length === 0) {
+      setGoSubscriptionLabel(undefined);
+      return;
+    }
+    const controller = new AbortController();
+    void fetchGoUsage(apiKey, { signal: controller.signal }).then((usage) => {
+      if (controller.signal.aborted) return;
+      if (usage.status === "ok") {
+        setGoSubscriptionLabel(formatGoUsage(usage));
+      } else {
+        setGoSubscriptionLabel(undefined);
+      }
+    });
+    return () => controller.abort();
+  }, [provider, providerCatalog]);
 
   const {
     unauthedProviders,
@@ -1278,7 +1310,6 @@ if (workPrimary && !wasWorkPrimary.current) {
         onClosePlugins={() => setPluginsOpen(false)}
         cwd={cwd}
         loginModal={loginModal}
-        onSelectLoginProvider={(provider) => setLoginModal(provider)}
         onCloseLoginModal={() => { setLoginModal(null); setAutoLoginProfile(undefined); }}
         xaiProfileNames={xaiProfileNames}
         codexProfileNames={codexProfileNames}
@@ -1405,6 +1436,7 @@ if (workPrimary && !wasWorkPrimary.current) {
             cwd={cwd}
             gitBranch={gitBranch}
             columns={columns}
+            {...(goSubscriptionLabel !== undefined ? { subscriptionLabel: goSubscriptionLabel } : {})}
             {...formatStatusBarSegments(getCostSummary())}
           />
         </Box>

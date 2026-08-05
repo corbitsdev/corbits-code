@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { PermissionsManager } from "./permissions-manager.js";
 import { SettingsOverlay, type CompactionMode } from "./settings-overlay.js";
 import { PluginsManager, type PluginsAdmin } from "./plugins-manager.js";
-import { LoginProviderPicker } from "./login-provider-picker.js";
 import { CodexLoginModal } from "./codex-login-modal.js";
 import type { ScopedApproval } from "../../permission/admin.js";
 import type { LoginModal } from "../hooks/use-provider-auth.js";
@@ -40,7 +39,6 @@ export type OverlayStackProps = {
   cwd: string;
 
   loginModal: LoginModal;
-  onSelectLoginProvider: (provider: LoginModal) => void;
   onCloseLoginModal: () => void;
   xaiProfileNames: string[];
   codexProfileNames: string[];
@@ -91,12 +89,6 @@ export function OverlayStack(props: OverlayStackProps): ReactNode {
       )}
       {props.pluginsOpen && props.pluginsAdmin !== undefined && (
         <PluginsManager admin={props.pluginsAdmin} onClose={props.onClosePlugins} cwd={props.cwd} />
-      )}
-      {props.loginModal === "choose" && (
-        <LoginProviderPicker
-          onSelect={props.onSelectLoginProvider}
-          onClose={props.onCloseLoginModal}
-        />
       )}
       {(props.loginModal === "codex" || props.loginModal === "xai") && (
         <CodexLoginModal

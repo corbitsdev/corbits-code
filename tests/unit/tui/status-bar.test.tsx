@@ -169,6 +169,7 @@ test("planStatusBarLayout keeps everything when it fits", () => {
     modelCwdBranchText: "gpt-5 · ~/repo · main",
     showCost: true,
     showContext: true,
+    showSubscription: false,
   });
 });
 

@@ -28,7 +28,7 @@ export type CommandResult =
   | { type: "send"; text: string }
   | { type: "view"; view: "tasks" }
   | { type: "overlay"; overlay: "help" | "permissions" | "plugins" | "settings" }
-  | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" | "login" }
+  | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "paste-image" }
   | { type: "tier"; tier: ProviderTier }

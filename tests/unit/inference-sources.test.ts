@@ -72,7 +72,7 @@ test("prefer mode appends settings providers as fallback tail", () => {
 test("buildInferenceSourceForRef uses bifrost provider when flag set", () => {
   const source = buildInferenceSourceForRef(
     { provider: "bifrost", model: "gpt-4o" },
-    { settings: { providers: {} }, catalog: [...catalog] },
+    { sessionId: "s1", catalog: [...catalog] },
     undefined,
   );
   expect(source?.provider).toBe("bifrost");
@@ -87,7 +87,7 @@ test("buildInferenceSourceForRef applies tier leg reasoning effort", () => {
   };
   const source = buildInferenceSourceForRef(
     { provider: "openai", model: "gpt-5", reasoningEffort: "high" },
-    { settings, catalog: [...catalog] },
+    { sessionId: "s1", catalog: [...catalog] },
     settings,
   );
   expect(source?.defaults?.providerOptions).toEqual({ reasoning_effort: "high" });
@@ -148,6 +148,66 @@ test("formatTierChain shows reasoning effort on legs", () => {
     order: [{ provider: "openai", model: "gpt-5", reasoningEffort: "high" }],
   });
   expect(label).toContain("gpt-5@high");
+});
+
+test("buildInferenceSourceForRef routes OpenCode Go models by protocol", () => {
+  const goCatalog: ProviderCatalogEntry[] = [
+    {
+      name: "opencode-go",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      apiKey: "sk-go-test-key",
+      models: ["kimi-k2.7-code", "gpt-5.6-luna", "minimax-m3"],
+      defaultModel: "kimi-k2.7-code",
+      opencodeGo: true,
+    },
+  ];
+  const ctx = { sessionId: "go", catalog: goCatalog };
+
+  const chat = buildInferenceSourceForRef(
+    { provider: "opencode-go", model: "kimi-k2.7-code" },
+    ctx,
+    undefined,
+  );
+  expect(chat?.provider).toBe("openai-compatible");
+  expect(chat?.baseURL).toBe("https://opencode.ai/zen/go/v1");
+  expect(chat?.model).toBe("kimi-k2.7-code");
+
+  const responses = buildInferenceSourceForRef(
+    { provider: "opencode-go", model: "gpt-5.6-luna" },
+    ctx,
+    undefined,
+  );
+  expect(responses?.provider).toBe("openai-responses");
+  expect(responses?.baseURL).toBe("https://opencode.ai/zen/go/v1");
+
+  const messages = buildInferenceSourceForRef(
+    { provider: "opencode-go", model: "minimax-m3" },
+    ctx,
+    undefined,
+  );
+  expect(messages?.provider).toBe("anthropic");
+  expect(messages?.baseURL).toBe("https://opencode.ai/zen/go");
+  expect(messages?.model).toBe("minimax-m3");
+});
+
+test("buildInferenceSourceForRef uses anthropic provider when flag set", () => {
+  const anthropicCatalog: ProviderCatalogEntry[] = [
+    {
+      name: "anthropic",
+      baseURL: "https://api.anthropic.com",
+      apiKey: "sk-ant-test",
+      models: ["claude-sonnet-4-5"],
+      defaultModel: "claude-sonnet-4-5",
+      anthropic: true,
+    },
+  ];
+  const source = buildInferenceSourceForRef(
+    { provider: "anthropic", model: "claude-sonnet-4-5" },
+    { sessionId: "a", catalog: anthropicCatalog },
+    undefined,
+  );
+  expect(source?.provider).toBe("anthropic");
+  expect(source?.baseURL).toBe("https://api.anthropic.com");
 });
 
 test("removeTierLeg and moveTierLeg edit the chain", () => {

@@ -33,6 +33,10 @@ describe("removed commands", () => {
   it("/scope is not registered (slash commands live under enabled command plugins, e.g. a namespaced /ns sub)", () => {
     expect(getCommand("scope")).toBeUndefined();
   });
+
+  it("/login is not registered (connect from /model)", () => {
+    expect(getCommand("login")).toBeUndefined();
+  });
 });
 
 describe("removed approval command", () => {

@@ -119,24 +119,9 @@ registerCommand({
   handler: (_args, _ctx) => ({ type: "overlay", overlay: "plugins" }),
 });
 
-registerCommand({
-  name: "login",
-  description: "Sign in with Codex or xAI OAuth and manage profiles",
-  subcommands: [
-    { name: "codex", description: "Sign in with a ChatGPT Plus/Pro subscription" },
-    { name: "xai", description: "Sign in with a SuperGrok or X Premium+ subscription" },
-    { name: "grok", description: "Alias for xai" },
-  ],
-  handler: (args, _ctx) => {
-    // With no argument, the bare command opens a provider picker so the user
-    // can choose Codex or xAI before naming the profile. An explicit argument
-    // skips the picker and goes straight to that provider's login modal.
-    const provider = args.trim().toLowerCase();
-    if (provider === "") return { type: "modal", modal: "login" };
-    if (provider === "xai" || provider === "grok") return { type: "modal", modal: "xai-login" };
-    return { type: "modal", modal: "codex-login" };
-  },
-});
+// Models-first connect: providers are connected from /model (Ctrl+A / c), not a
+// standalone /login picker. Keep codex/xai login modals reachable only via
+// Connect or re-auth on an expired profile.
 
 // signalClear rotates to a fresh session: the on-screen transcript and run
 // telemetry are reset and the agent is rebuilt against a new state directory,

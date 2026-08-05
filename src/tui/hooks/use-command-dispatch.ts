@@ -156,9 +156,8 @@ export function useCommandDispatch({
         setAgentModalUsage(null);
       }
     }
-    if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login" || result.modal === "login")) {
-      if (result.modal === "login") setLoginModal("choose");
-      else setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
+    if (result.type === "modal" && (result.modal === "codex-login" || result.modal === "xai-login")) {
+      setLoginModal(result.modal === "xai-login" ? "xai" : "codex");
     }
     if (result.type === "paste-image") {
       handlePasteImage();

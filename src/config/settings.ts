@@ -34,6 +34,10 @@ export type ProviderSettings = {
   // adapter (which injects the x-bf-vk header) and enables model
   // auto-discovery via the Bifrost /v1/models endpoint.
   bifrostVirtualKey?: boolean;
+  // Anthropic Messages API provider (x-api-key auth).
+  anthropic?: boolean;
+  // OpenCode Go multi-protocol provider; per-model adapter selection.
+  opencodeGo?: boolean;
 };
 
 export type ProviderTier = "fast" | "standard" | "clever";
@@ -344,6 +348,8 @@ const ProviderSettingsSchema = type({
   "free?": "boolean",
   "contextWindow?": "number",
   "bifrostVirtualKey?": "boolean",
+  "anthropic?": "boolean",
+  "opencodeGo?": "boolean",
 });
 
 const TierProviderRefSchema = type({

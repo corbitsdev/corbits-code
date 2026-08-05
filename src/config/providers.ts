@@ -9,6 +9,8 @@ export type ProviderSubmission = {
   defaultModel?: string;
   keyless?: boolean;
   bifrostVirtualKey?: boolean;
+  anthropic?: boolean;
+  opencodeGo?: boolean;
 };
 
 export type ProviderEntryResult =
@@ -34,6 +36,10 @@ export function buildProviderEntry(
   if (!keyless && (apiKey === undefined || apiKey.length === 0)) {
     return { ok: false, error: "Provider API key is required" };
   }
+  // Protocol flags are not form fields — preserve catalog flags on edit unless
+  // the submission explicitly re-asserts them (Connect path).
+  const anthropic = submission.anthropic === true || existing?.anthropic === true;
+  const opencodeGo = submission.opencodeGo === true || existing?.opencodeGo === true;
   const entry: ProviderCatalogEntry = {
     name: submission.name,
     baseURL: submission.baseURL,
@@ -41,11 +47,13 @@ export function buildProviderEntry(
     ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
     ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
-    // Form no longer exposes Bifrost; keep any previously stored flag on edit so
+// Form no longer exposes Bifrost; keep any previously stored flag on edit so
     // re-saving a provider does not silently drop x-bf-vk routing.
     ...(submission.bifrostVirtualKey === true || existing?.bifrostVirtualKey === true
       ? { bifrostVirtualKey: true }
       : {}),
+    ...(anthropic ? { anthropic: true } : {}),
+    ...(opencodeGo ? { opencodeGo: true } : {}),
   };
   const catalog = currentCatalog
     .filter((p) => p.name !== submission.name && p.name !== submission.originalName)

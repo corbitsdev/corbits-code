@@ -3,6 +3,8 @@ import type { InferenceSource } from "@intx/types/runtime";
 import {
   buildBifrostSource,
   buildCodexSource,
+  buildGoSource,
+  buildAnthropicSource,
   buildOpenAISource,
   buildXaiSource,
   type ProviderCatalogEntry,
@@ -121,6 +123,30 @@ export function buildInferenceSourceForRef(
     return buildXaiSource({
       id: ref.provider,
       apiKey: entry.apiKey ?? "",
+      model: ref.model,
+    });
+  }
+  if (entry?.opencodeGo === true || providerSettings?.opencodeGo === true) {
+    return buildGoSource({
+      id: ref.provider,
+      ...(entry?.apiKey !== undefined
+        ? { apiKey: entry.apiKey }
+        : providerSettings?.apiKey !== undefined
+          ? { apiKey: providerSettings.apiKey }
+          : {}),
+      model: ref.model,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    });
+  }
+  if (entry?.anthropic === true || providerSettings?.anthropic === true) {
+    return buildAnthropicSource({
+      id: ref.provider,
+      baseURL,
+      ...(entry?.apiKey !== undefined
+        ? { apiKey: entry.apiKey }
+        : providerSettings?.apiKey !== undefined
+          ? { apiKey: providerSettings.apiKey }
+          : {}),
       model: ref.model,
     });
   }
