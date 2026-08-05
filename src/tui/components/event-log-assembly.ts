@@ -611,14 +611,17 @@ function blockToLines(
       ];
     }
     case "user": {
-      // A subtle box with a blank padded row above and below so the text has
-      // breathing room. Text starts at column 1 to line up with the assistant's
-      // "●" marker; a 1-col right margin keeps the fill off the edge.
+      // Subtle box: paint background only on content rows. Blank spacer rows
+      // used to be full-width bg fills and could flash as solid grey blocks
+      // during scroll/repaint when content was empty or mid-frame.
+      // plainLines/wrapRanges always yield ≥1 row (even for ""), so gate on
+      // real emptiness rather than userLines.length.
+      if (!block.content.trim()) return [];
       const bg = color("userMessageBg");
       const LEFT = 1;
       const RIGHT = 1;
       const innerWidth = Math.max(1, width - LEFT - RIGHT);
-      const blankRow = [{ text: " ".repeat(width), backgroundColor: bg }];
+      const blankRow: StyledLine = [{ text: "" }];
       const userLines = plainLines(
         compactUserCodeBlocks(block.content),
         { color: color("text"), backgroundColor: bg },
