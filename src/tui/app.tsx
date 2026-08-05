@@ -178,9 +178,6 @@ export type AppProps = {
   // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
   // from stdin before they reach useInput (see createFilteredStdin).
   mouseEvents?: EventEmitter;
-  // Wall-clock ms timestamp the session started. Drives the whole-session timer
-  // in the status bar; reset on /new.
-  sessionStartedAt?: number;
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
   /** Goal mode operator surface. */
@@ -266,7 +263,6 @@ export function App({
   globallyOnboarded = false,
   globalOnboardingPath,
   mouseEvents,
-  sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
   telemetryNotice,
@@ -651,8 +647,6 @@ export function App({
   const copyTargetList = copyModeOpen ? copyTargetsRef.current : [];
 
   const [, forceRender] = useState(0);
-  // Whole-session timer for the status bar. Held in state so /new can zero it.
-  const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
 
   const {
     sendMessage,
@@ -693,7 +687,6 @@ export function App({
     promptXaiRelogin,
     setExpandedTools,
     setInputValue,
-    setSessionStartedAt,
     setEnteredSessionId,
     setAgentsNavOpen,
     setAgentsNavIndex,
