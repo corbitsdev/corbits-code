@@ -789,7 +789,7 @@ export function AgentModal({
     setFormError(null);
   });
 
-  const helpText = ((): string | null => {
+const helpText = ((): string | null => {
     switch (step) {
       case "provider":
         return "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · p profiles · Esc close";
@@ -814,6 +814,11 @@ export function AgentModal({
     }
   })();
   const helpLines = helpText !== null ? wrapHelpSegments(helpText.split(" · "), contentWidth) : [];
+  const selectedProviderRow = providers[providerIndex];
+  const showReauthHint =
+    selectedProviderRow !== undefined &&
+    (selectedProviderRow.codexProfile !== undefined || selectedProviderRow.xaiProfile !== undefined) &&
+    unauthedProviders?.has(selectedProviderRow.name) === true;
 
   return (
     <Box
@@ -863,15 +868,11 @@ export function AgentModal({
               </Box>
             );
           })}
-          {(() => {
-            const p = providers[providerIndex];
-            const isUnauthed = p !== undefined && (p.codexProfile !== undefined || p.xaiProfile !== undefined) && unauthedProviders?.has(p.name) === true;
-            return isUnauthed ? (
-              <Box marginTop={1}>
-                <Text color="red">Enter to re-authenticate</Text>
-              </Box>
-            ) : null;
-          })()}
+          {showReauthHint ? (
+            <Box marginTop={1}>
+              <Text color="red">Enter to re-authenticate</Text>
+            </Box>
+          ) : null}
         </Box>
       )}
 

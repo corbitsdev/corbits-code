@@ -160,6 +160,43 @@ function persistGlobalSettings(
   );
 }
 
+// Shared disk-first persist path for catalog and tier writes. Loads a fresh
+// merge base, builds settings, optionally mutates in-memory state, then saves.
+// Fire-and-forget: callers `void` the promise so UI stays non-blocking.
+async function persistWithMergeBase(args: {
+  globalSettingsPath: string;
+  initialSettings: Settings | undefined;
+  buildSettings: (base: Settings | undefined) => Settings;
+  onMessage: (msg: string) => void;
+  successMessage: string;
+  failPrefix: string;
+  /** Runs only after load+build succeed, before the disk write. */
+  onBeforeSave?: () => void;
+}): Promise<void> {
+  let base: Settings | undefined;
+  try {
+    base = await loadMergeBase(args.globalSettingsPath, args.initialSettings);
+  } catch (err) {
+    args.onMessage(`${args.failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  let settings: Settings;
+  try {
+    settings = args.buildSettings(base);
+  } catch (err) {
+    args.onMessage(`${args.failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  args.onBeforeSave?.();
+  persistGlobalSettings(
+    args.globalSettingsPath,
+    settings,
+    args.onMessage,
+    args.successMessage,
+    args.failPrefix,
+  );
+}
+
 export function useProviderManager({
   initialProvider,
   initialModel,
@@ -316,37 +353,22 @@ export function useProviderManager({
     successMessage: string,
   ): void => {
     // Disk-first merge base: mid-session /plugins writes must survive a later
-    // provider save. Fail closed if settings cannot be re-read.
-    void (async () => {
-      let base: Settings | undefined;
-      try {
-        base = await loadMergeBase(globalSettingsPath, initialSettings);
-      } catch (err) {
-        onMessage(
-          `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return;
-      }
-      let settings: Settings;
-      try {
-        settings = persistSettingsWithTiers(catalog, defaultProvider, base, tiers);
-      } catch (err) {
-        onMessage(
-          `Provider settings changed locally, but saving failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return;
-      }
-      setProviderCatalog(catalog);
-      setGlobalDefaultProvider(defaultProvider);
-      publishRuntimeResolution(catalog, tiers, defaultProvider);
-      persistGlobalSettings(
-        globalSettingsPath,
-        settings,
-        onMessage,
-        successMessage,
-        "Provider settings changed locally, but saving failed",
-      );
-    })();
+    // provider save. Fail closed if settings cannot be re-read. Catalog state
+    // only updates after load+build succeed so a failed re-read never leaves
+    // the UI ahead of disk.
+    void persistWithMergeBase({
+      globalSettingsPath,
+      initialSettings,
+      buildSettings: (base) => persistSettingsWithTiers(catalog, defaultProvider, base, tiers),
+      onMessage,
+      successMessage,
+      failPrefix: "Provider settings changed locally, but saving failed",
+      onBeforeSave: () => {
+        setProviderCatalog(catalog);
+        setGlobalDefaultProvider(defaultProvider);
+        publishRuntimeResolution(catalog, tiers, defaultProvider);
+      },
+    });
   };
 
   const upsertProvider = (submission: ProviderSubmission): { ok: true } | { ok: false; error: string } => {
@@ -391,26 +413,20 @@ export function useProviderManager({
     successMessage: string,
     failPrefix: string,
   ): void => {
+    // Tiers update optimistically so the modal reflects the edit immediately;
+    // disk write is best-effort via the shared merge-base path.
     setTiers(nextTiers);
     pushLiveSources(nextTiers);
     publishRuntimeResolution(providerCatalog, nextTiers);
-    void (async () => {
-      let base: Settings | undefined;
-      try {
-        base = await loadMergeBase(globalSettingsPath, initialSettings);
-      } catch (err) {
-        onMessage(`${failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
-        return;
-      }
-      persistGlobalSettings(
-        globalSettingsPath,
+    void persistWithMergeBase({
+      globalSettingsPath,
+      initialSettings,
+      buildSettings: (base) =>
         persistSettingsWithTiers(providerCatalog, globalDefaultProvider, base, nextTiers),
-
-        onMessage,
-        successMessage,
-        failPrefix,
-      );
-    })();
+      onMessage,
+      successMessage,
+      failPrefix,
+    });
   };
 
   const saveTierAssignment = (

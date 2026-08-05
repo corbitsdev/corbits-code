@@ -235,6 +235,21 @@ export type AppProps = {
   onFirstUserMessage?: () => void;
 };
 
+// Center a selection in a fixed-height window over a copy-target list.
+// Returns the visible slice and the absolute index of its first item so
+// the caller can mark the selected row without re-scanning the full list.
+function windowedCopyTargets(
+  items: readonly CopyTarget[],
+  selectedIndex: number,
+  windowSize = 6,
+): { window: readonly CopyTarget[]; start: number } {
+  const start = Math.max(
+    0,
+    Math.min(selectedIndex - Math.floor(windowSize / 2), Math.max(0, items.length - windowSize)),
+  );
+  return { window: items.slice(start, start + windowSize), start };
+}
+
 export function App({
   eventEmitter,
   agent,
@@ -1074,6 +1089,40 @@ export function App({
     );
   }
 
+  // Work / Acceptance chrome: order flips by goal phase (implementing = Work on top).
+  const workBlock = hasActiveTasks(state.tasks) ? (
+    <Box flexDirection="column" marginTop={1} key="work">
+      <TaskView
+        tasks={state.tasks}
+        compact={!workExpanded}
+        title={goalActive ? "Work" : "Tasks"}
+      />
+    </Box>
+  ) : null;
+  const acceptBlock =
+    goalActive && goalSnapshot !== null ? (
+      <Box flexDirection="column" marginTop={1} key="accept">
+        <GoalView goal={goalSnapshot} compact={!showAcceptance} />
+      </Box>
+    ) : null;
+  const workAcceptBlocks = workPrimary ? (
+    <>
+      {workBlock}
+      {acceptBlock}
+    </>
+  ) : (
+    <>
+      {acceptBlock}
+      {workBlock}
+    </>
+  );
+
+  const copyModeSelection = copyModeIndex ?? 0;
+  const { window: copyModeWindow, start: copyModeWindowStart } = windowedCopyTargets(
+    copyTargetList,
+    copyModeSelection,
+  );
+
   return (
     <Box flexDirection="column" height={rows}>
       <Box flexShrink={0} flexDirection="column">
@@ -1256,35 +1305,7 @@ export function App({
       )}
       {!taskFullScreenOpen && (
         <Box flexShrink={0} flexDirection="column">
-          {(() => {
-            const workBlock = hasActiveTasks(state.tasks) ? (
-              <Box flexDirection="column" marginTop={1} key="work">
-                <TaskView
-                  tasks={state.tasks}
-                  compact={!workExpanded}
-                  title={goalActive ? "Work" : "Tasks"}
-                />
-              </Box>
-            ) : null;
-            const acceptBlock =
-              goalActive && goalSnapshot !== null ? (
-                <Box flexDirection="column" marginTop={1} key="accept">
-                  <GoalView goal={goalSnapshot} compact={!showAcceptance} />
-                </Box>
-              ) : null;
-            // implementing: Work on top; planning/reviewing/completed: Acceptance on top
-            return workPrimary ? (
-              <>
-                {workBlock}
-                {acceptBlock}
-              </>
-            ) : (
-              <>
-                {acceptBlock}
-                {workBlock}
-              </>
-            );
-          })()}
+          {workAcceptBlocks}
           {agentsStripVisible ? (
             <Box flexDirection="column" marginTop={1}>
               <AgentsStrip
@@ -1317,20 +1338,15 @@ export function App({
           {copyModeOpen && (
             <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={color("brand")} paddingX={1}>
               <Text color={color("brand")} bold>Copy — ↑/↓ select · y/⏎ copy · a copy all · esc cancel</Text>
-              {(() => {
-                const windowSize = 6;
-                const sel = copyModeIndex ?? 0;
-                const start = Math.max(0, Math.min(sel - Math.floor(windowSize / 2), Math.max(0, copyTargetList.length - windowSize)));
-                return copyTargetList.slice(start, start + windowSize).map((target, i) => {
-                  const idx = start + i;
-                  const selected = idx === sel;
-                  return (
-                    <Text key={target.id} color={selected ? color("text") : color("muted")} dimColor={!selected}>
-                      {selected ? "› " : "  "}{target.label}: {target.preview}
-                    </Text>
-                  );
-                });
-              })()}
+              {copyModeWindow.map((target, i) => {
+                const idx = copyModeWindowStart + i;
+                const selected = idx === copyModeSelection;
+                return (
+                  <Text key={target.id} color={selected ? color("text") : color("muted")} dimColor={!selected}>
+                    {selected ? "› " : "  "}{target.label}: {target.preview}
+                  </Text>
+                );
+              })}
             </Box>
           )}
           {exitConfirmOpen ? (
