@@ -9,6 +9,7 @@ import {
   type GoalStatus,
 } from "../../agent/goal.js";
 import { color } from "../theme.js";
+import { useTerminalSize } from "../hooks/use-terminal-size.js";
 
 export type GoalViewProps = {
   goal: GoalSnapshot;
@@ -39,12 +40,19 @@ const PHASE_ORDER: readonly GoalPhase[] = [
   "completed",
 ];
 
+/** Full trail `plan→impl→review→done` needs ~23 cols; below this show current only. */
+const PHASE_TRAIL_MIN_COLS = 48;
+
 /**
  * Expanded acceptance checklist — primary goal surface.
  * Quiet styling (muted labels, no bright accent wash).
  * On achieve: freezes on "Goal completed in …" and stops looking like work-in-progress.
+ * Width-constrained so long briefs/criteria truncate instead of colliding with Work/footer.
  */
 export function GoalView({ goal, compact }: GoalViewProps) {
+  // Hooks must run unconditionally — mount can flip inactive without unmount.
+  const { columns } = useTerminalSize();
+
   if (goal.status === "inactive" || goal.status === "cleared") return null;
 
   const phase = goal.phase;
@@ -52,54 +60,49 @@ export function GoalView({ goal, compact }: GoalViewProps) {
   const brief = goal.brief || goal.condition;
   const quiet = isQuietStatus(goal.status);
   const completed = formatGoalCompleted(goal);
+  const narrow = columns < PHASE_TRAIL_MIN_COLS;
 
   if (completed !== null) {
     return (
-      <Box flexDirection="column" paddingX={1}>
-        <Box gap={1}>
-          <Text bold color={color("success")}>
-            Goal
-          </Text>
-          <Text color={color("success")}>{completed}</Text>
-          {progress.total > 0 && (
-            <Text color={color("dim")} dimColor>
-              {`${progress.done}/${progress.total}`}
+      <Box flexDirection="column" width="100%" paddingX={1} overflow="hidden">
+        <Box width="100%" gap={1} overflow="hidden">
+          <Box flexShrink={0}>
+            <Text bold color={color("success")}>
+              Goal
             </Text>
-          )}
-        </Box>
-        <Text wrap="truncate-end" color={color("dim")} dimColor>
-          {brief}
-        </Text>
-        {goal.criteria.length > 0 &&
-          sortedCriteria(goal.criteria).map((c) => (
-            <Box key={c.id} gap={1}>
-              <Text color={criterionColor(c.status)}>{GLYPH[c.status]}</Text>
-              <Text color={color("dim")} strikethrough={c.status === "done" || c.status === "cancelled"} wrap="truncate-end">
-                {c.title}
+          </Box>
+          <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+            <Text color={color("success")} wrap="truncate-end">
+              {completed}
+            </Text>
+          </Box>
+          {progress.total > 0 && (
+            <Box flexShrink={0}>
+              <Text color={color("dim")} dimColor>
+                {`${progress.done}/${progress.total}`}
               </Text>
             </Box>
-          ))}
+          )}
+        </Box>
+        <BriefLine brief={brief} dim />
+        {goal.criteria.length > 0 &&
+          sortedCriteria(goal.criteria).map((c) => <CriterionRow key={c.id} criterion={c} />)}
       </Box>
     );
   }
 
   if (compact || goal.criteria.length === 0) {
     return (
-      <Box flexDirection="column" paddingX={1}>
-        <Box gap={1}>
-          <Text bold color={color("muted")}>
-            Goal
-          </Text>
-          <PhaseTrail phase={phase} />
-          {!quiet && (
-            <Text color={statusColor(goal.status)} dimColor={quiet}>
-              {goal.status}
-            </Text>
-          )}
-        </Box>
-        <Text wrap="truncate-end" dimColor={quiet}>
-          {brief}
-        </Text>
+      <Box flexDirection="column" width="100%" paddingX={1} overflow="hidden">
+        <HeaderRow
+          label="Goal"
+          phase={phase}
+          narrow={narrow}
+          progress={null}
+          status={!quiet ? goal.status : null}
+          quiet={quiet}
+        />
+        <BriefLine brief={brief} dim={quiet} />
         {goal.criteria.length === 0 && phase === "planning" && (
           <Text color={color("dim")} dimColor>
             planning acceptance…
@@ -110,77 +113,136 @@ export function GoalView({ goal, compact }: GoalViewProps) {
   }
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box gap={1}>
-        <Text bold color={color("muted")}>
-          Acceptance
-        </Text>
-        <PhaseTrail phase={phase} />
-        <Text color={color("dim")} dimColor>
-          {`${progress.done}/${progress.total}`}
-        </Text>
-        {!quiet && (
-          <Text color={statusColor(goal.status)} dimColor={quiet}>
-            {goal.status}
-          </Text>
-        )}
-      </Box>
-      <Text wrap="truncate-end" color={color("dim")} dimColor>
-        {brief}
-      </Text>
+    <Box flexDirection="column" width="100%" paddingX={1} overflow="hidden">
+      <HeaderRow
+        label="Acceptance"
+        phase={phase}
+        narrow={narrow}
+        progress={progress.total > 0 ? `${progress.done}/${progress.total}` : null}
+        status={!quiet ? goal.status : null}
+        quiet={quiet}
+      />
+      <BriefLine brief={brief} dim />
       {sortedCriteria(goal.criteria).map((c) => (
-        <Box key={c.id} gap={1}>
-          <Text color={criterionColor(c.status)}>{GLYPH[c.status]}</Text>
-          <Text
-            {...(c.status === "done" || c.status === "cancelled"
-              ? { color: color("dim"), strikethrough: true }
-              : {})}
-            bold={c.status === "doing"}
-            wrap="truncate-end"
-          >
-            {c.title}
-          </Text>
-          {c.note !== undefined && c.note.length > 0 && (
-            <Text color={color("dim")} dimColor wrap="truncate-end">
-              {c.note}
-            </Text>
-          )}
-        </Box>
+        <CriterionRow key={c.id} criterion={c} />
       ))}
       {goal.lastReason !== undefined && goal.lastReason.length > 0 && (
-        <Text color={color("dim")} dimColor wrap="truncate-end">
-          {goal.lastReason}
-        </Text>
+        <Box width="100%" overflow="hidden">
+          <Text color={color("dim")} dimColor wrap="truncate-end">
+            {goal.lastReason}
+          </Text>
+        </Box>
       )}
     </Box>
   );
 }
 
-/** plan → impl → review → done with current phase emphasized. */
-function PhaseTrail({ phase }: { phase: GoalPhase }) {
+function HeaderRow(props: {
+  label: string;
+  phase: GoalPhase;
+  narrow: boolean;
+  progress: string | null;
+  status: GoalStatus | null;
+  quiet: boolean;
+}) {
+  const { label, phase, narrow, progress, status, quiet } = props;
+  return (
+    <Box width="100%" gap={1} overflow="hidden">
+      <Box flexShrink={0}>
+        <Text bold color={color("muted")}>
+          {label}
+        </Text>
+      </Box>
+      <Box flexShrink={0}>
+        <PhaseTrail phase={phase} narrow={narrow} />
+      </Box>
+      {progress !== null && (
+        <Box flexShrink={0}>
+          <Text color={color("dim")} dimColor>
+            {progress}
+          </Text>
+        </Box>
+      )}
+      {status !== null && (
+        <Box flexShrink={1} minWidth={0} overflow="hidden">
+          <Text color={statusColor(status)} dimColor={quiet} wrap="truncate-end">
+            {status}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function BriefLine({ brief, dim }: { brief: string; dim?: boolean }) {
+  return (
+    <Box width="100%" overflow="hidden">
+      {dim ? (
+        <Text wrap="truncate-end" color={color("dim")} dimColor>
+          {brief}
+        </Text>
+      ) : (
+        <Text wrap="truncate-end">{brief}</Text>
+      )}
+    </Box>
+  );
+}
+
+function CriterionRow({ criterion: c }: { criterion: GoalCriterion }) {
+  const terminal = c.status === "done" || c.status === "cancelled";
+  return (
+    <Box width="100%" gap={1} overflow="hidden">
+      <Box flexShrink={0}>
+        <Text color={criterionColor(c.status)}>{GLYPH[c.status]}</Text>
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+        <Text
+          {...(terminal ? { color: color("dim"), strikethrough: true } : {})}
+          bold={c.status === "doing"}
+          wrap="truncate-end"
+        >
+          {c.title}
+        </Text>
+      </Box>
+      {c.note !== undefined && c.note.length > 0 && (
+        <Box flexShrink={1} minWidth={0} overflow="hidden">
+          <Text color={color("dim")} dimColor wrap="truncate-end">
+            {c.note}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/** plan → impl → review → done; on narrow terminals show only the current phase. */
+function PhaseTrail({ phase, narrow }: { phase: GoalPhase; narrow: boolean }) {
+  if (narrow) {
+    return (
+      <Text bold color={color("text")}>
+        {PHASE_SHORT[phase]}
+      </Text>
+    );
+  }
   const idx = PHASE_ORDER.indexOf(phase);
   return (
-    <Box gap={0}>
+    <Text>
       {PHASE_ORDER.map((p, i) => {
         const current = p === phase;
+        const sep = i > 0 ? "→" : "";
         return (
-          <Box key={p} gap={0}>
-            {i > 0 && (
-              <Text color={color("dim")} dimColor>
-                →
-              </Text>
-            )}
-            <Text
-              bold={current}
-              color={current ? color("text") : color("dim")}
-              dimColor={!current || i < idx}
-            >
-              {PHASE_SHORT[p]}
-            </Text>
-          </Box>
+          <Text
+            key={p}
+            bold={current}
+            color={current ? color("text") : color("dim")}
+            dimColor={!current || i < idx}
+          >
+            {sep}
+            {PHASE_SHORT[p]}
+          </Text>
         );
       })}
-    </Box>
+    </Text>
   );
 }
 

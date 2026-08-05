@@ -70,7 +70,8 @@ export function pluginChromeRowCount(args: {
 
 export function extraChromeRowCount(args: {
   mcpNeedsAuthCount: number;
-  commandMessagePresent: boolean;
+  /** Rows reserved for the command feedback banner (0 when absent). */
+  commandMessageRows: number;
   goalChromeRows: number;
   taskChromeRows: number;
   pluginChromeRows: number;
@@ -85,7 +86,7 @@ export function extraChromeRowCount(args: {
 }): number {
   return (
     (args.mcpNeedsAuthCount > 0 ? 1 : 0) +
-    (args.commandMessagePresent ? 1 : 0) +
+    args.commandMessageRows +
     args.goalChromeRows +
     args.taskChromeRows +
     args.pluginChromeRows +

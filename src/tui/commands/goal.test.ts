@@ -108,8 +108,9 @@ describe("/goal command", () => {
     const result = cmd!.handler("ship the feature", ctx);
     expect(result.type).toBe("message");
     if (result.type === "message") {
-      expect(result.text).toContain("Goal set");
-      expect(result.text).toContain("ship the feature");
+      expect(result.text).toBe("Goal set.");
+      // Brief is shown in GoalView chrome, not the one-shot banner.
+      expect(result.text).not.toContain("ship the feature");
       expect(result.text).not.toContain("The agent will expand");
       expect(result.text).not.toContain("manage_goal");
     }
@@ -186,8 +187,8 @@ describe("/goal command", () => {
     const ok = getCommand("goal")!.handler("--replace new goal", ctx);
     expect(ok.type).toBe("message");
     if (ok.type === "message") {
-      expect(ok.text).toContain("Goal set");
-      expect(ok.text).toContain("new goal");
+      expect(ok.text).toBe("Goal set.");
+      expect(ok.text).not.toContain("new goal");
     }
   });
 });

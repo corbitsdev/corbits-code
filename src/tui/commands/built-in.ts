@@ -307,9 +307,11 @@ registerCommand({
           `Clear it first (/goal clear) or replace with /goal --replace <brief>.`,
       };
     }
-    const snap = api.set(condition, parsed.opts);
+    api.set(condition, parsed.opts);
     api.kickoff?.(condition, "set");
-    return { type: "message", text: `Goal set.\nBrief: ${snap.brief}` };
+    // One-shot banner only — brief lives in GoalView chrome (multi-line here
+    // used to overflow chrome row accounting and collide with Work).
+    return { type: "message", text: "Goal set." };
   },
 });
 
