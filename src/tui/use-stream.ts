@@ -1052,12 +1052,14 @@ export function createAgentStreamState(
             const taskArgs = callIdToArguments.get(result.callId) ?? "";
             callIdToName.delete(result.callId);
             callIdToArguments.delete(result.callId);
-            const newTasks = (() => {
-              let raw: unknown;
-              try { raw = JSON.parse(taskArgs as string); } catch { return tasks; }
+            let newTasks = tasks;
+            try {
+              const raw: unknown = JSON.parse(taskArgs as string);
               const parsed = parseManageTasksArgs(raw);
-              return parsed !== null ? applyManageTasks(tasks, parsed) : tasks;
-            })();
+              if (parsed !== null) newTasks = applyManageTasks(tasks, parsed);
+            } catch {
+              // Malformed manage_tasks args: leave the checklist unchanged.
+            }
             if (taskCallIndex >= 0) {
               spliceBlocks(taskCallIndex, 1);
             }

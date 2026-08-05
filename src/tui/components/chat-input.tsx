@@ -66,6 +66,64 @@ export type ChatInputProps = {
   canSubmitEmpty?: boolean;
 };
 
+// Action bar above the prompt: revolving verb + interrupt/queue hint on the
+// left, profile · model · effort right-aligned. Null when nothing to show.
+function PromptActionBar({
+  showSteerHint,
+  value,
+  steerOnEnter,
+  queuedCount,
+  verb,
+  profile,
+  model,
+  effort,
+  attachmentSummary,
+}: {
+  showSteerHint: boolean;
+  value: string;
+  steerOnEnter: boolean;
+  queuedCount: number;
+  verb?: string;
+  profile?: string;
+  model?: string;
+  effort?: string;
+  attachmentSummary?: string;
+}): ReactNode {
+  // Enter and Alt+Enter are no-ops on an empty field, so with nothing typed
+  // the hint advertises the interrupt chord instead.
+  const hasPromptText = value.trim().length > 0;
+  const actionsText = !hasPromptText
+    ? "Esc Esc interrupt"
+    : !steerOnEnter
+      ? "Enter queues for orchestrator"
+      : "Enter steer · Alt+Enter queue";
+  const steerText = queuedCount > 0 ? `${queuedCount} queued · ${actionsText}` : actionsText;
+  // exactOptionalPropertyTypes: omit undefined keys rather than pass them.
+  const modelText = composePromptActionBarModelLabel({
+    ...(profile !== undefined ? { profile } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+  });
+  const showAttachments = attachmentSummary !== undefined && attachmentSummary.length > 0;
+  if (!showSteerHint && modelText === undefined && !showAttachments) return null;
+  return (
+    <Box flexDirection="row" marginX={1} gap={1}>
+      {showAttachments && (
+        <Text color={color("accent")}>{attachmentSummary}</Text>
+      )}
+      {showSteerHint && (
+        <Text dimColor>
+          {verb !== undefined && verb.length > 0 ? `${verb} · ` : ""}{steerText}
+        </Text>
+      )}
+      <Box flexGrow={1} />
+      {modelText !== undefined && (
+        <Text color={color("muted")} dimColor>{modelText}</Text>
+      )}
+    </Box>
+  );
+}
+
 // The subset of Ink's Key type that applyKey needs. Keeping only what we use
 // prevents coupling to Ink's full Key shape in test code.
 export type InputKey = {
@@ -685,6 +743,71 @@ export function ChatInput({
   // discoverable immediately.
   const showSteerHint = isProcessing;
 
+  const renderInputLines = (): ReactNode[] => {
+    const out: ReactNode[] = [];
+    if (atTopEdge) {
+      out.push(
+        <Text key="top-edge" color={color("success")}>{"  ↑"}</Text>,
+      );
+    }
+    for (let i = windowStart; i < windowEnd; i++) {
+      const line = lines[i]!;
+      const prefix = i === 0 ? "> " : "  ";
+      if (i !== cursorLine) {
+        out.push(
+          <Text key={i}>
+            <Text color={color("success")}>{prefix}</Text>
+            {line}
+          </Text>,
+        );
+        continue;
+      }
+      const head = line.slice(0, cursorCol);
+      const atChar = line.slice(cursorCol, cursorCol + cursorCharLength);
+      const tail = line.slice(cursorCol + cursorCharLength);
+      out.push(
+        <Text key={i}>
+          <Text color={color("success")}>{prefix}</Text>
+          <Text>{head}</Text>
+          {atChar.length > 0 ? (
+            <>
+              <Text backgroundColor={color("emphasis")} color={color("surface")}>{atChar}</Text>
+              <Text>{tail}</Text>
+            </>
+          ) : (
+            <Text color={color("success")}>▏</Text>
+          )}
+        </Text>,
+      );
+    }
+    if (atBottomEdge) {
+      out.push(
+        <Text key="bottom-edge" color={color("success")}>{"  ↓"}</Text>,
+      );
+    }
+    return out;
+  };
+
+  // When slash/@ pickers are open the input renders plainly so the
+  // suggestion list sits flush above it without a competing border.
+  const inputLines = renderInputLines();
+  const inputBody = showSlash || showAt ? (
+    <Box flexDirection="column" paddingX={1}>
+      {inputLines}
+    </Box>
+  ) : (
+    <Box marginX={1} flexDirection="column">
+      <Box
+        borderStyle="round"
+        borderColor={borderColor}
+        flexDirection="column"
+        paddingX={1}
+      >
+        {inputLines}
+      </Box>
+    </Box>
+  );
+
   return (
     <Box flexDirection="column">
       {showSlash && (
@@ -749,111 +872,18 @@ export function ChatInput({
       {showAt && (
         <AtSuggestions suggestions={atMention.suggestions} selectedIdx={atClampedIdx} />
       )}
-      {(() => {
-        // Action bar: the row directly above the prompt box. While processing,
-        // the revolving verb + action hint sit on the left; the
-        // profile · model · effort is always right-aligned on the same baseline.
-        // Enter and Alt+Enter are no-ops on an empty field, so with nothing
-        // typed the hint advertises the interrupt chord instead.
-        const hasPromptText = value.trim().length > 0;
-        const actionsText = !hasPromptText
-          ? "Esc Esc interrupt"
-          : !steerOnEnter
-            ? "Enter queues for orchestrator"
-            : "Enter steer · Alt+Enter queue";
-        const steerText = queuedCount > 0 ? `${queuedCount} queued · ${actionsText}` : actionsText;
-        const modelText = composePromptActionBarModelLabel({
-          ...(profile !== undefined ? { profile } : {}),
-          ...(model !== undefined ? { model } : {}),
-          ...(effort !== undefined ? { effort } : {}),
-        });
-        const showAttachments = attachmentSummary !== undefined && attachmentSummary.length > 0;
-        if (!showSteerHint && modelText === undefined && !showAttachments) return null;
-        return (
-          <Box flexDirection="row" marginX={1} gap={1}>
-            {showAttachments && (
-              <Text color={color("accent")}>{attachmentSummary}</Text>
-            )}
-            {showSteerHint && (
-              <Text dimColor>
-                {verb !== undefined && verb.length > 0 ? `${verb} · ` : ""}{steerText}
-              </Text>
-            )}
-            <Box flexGrow={1} />
-            {modelText !== undefined && (
-              <Text color={color("muted")} dimColor>{modelText}</Text>
-            )}
-          </Box>
-        );
-      })()}
-      {(() => {
-        const renderInputLines = () => {
-          const out: ReactNode[] = [];
-          if (atTopEdge) {
-            out.push(
-              <Text key="top-edge" color={color("success")}>{"  ↑"}</Text>,
-            );
-          }
-          for (let i = windowStart; i < windowEnd; i++) {
-            const line = lines[i]!;
-            const prefix = i === 0 ? "> " : "  ";
-            if (i !== cursorLine) {
-              out.push(
-                <Text key={i}>
-                  <Text color={color("success")}>{prefix}</Text>
-                  {line}
-                </Text>,
-              );
-              continue;
-            }
-            const head = line.slice(0, cursorCol);
-            const atChar = line.slice(cursorCol, cursorCol + cursorCharLength);
-            const tail = line.slice(cursorCol + cursorCharLength);
-            out.push(
-              <Text key={i}>
-                <Text color={color("success")}>{prefix}</Text>
-                <Text>{head}</Text>
-                {atChar.length > 0 ? (
-                  <>
-                    <Text backgroundColor={color("emphasis")} color={color("surface")}>{atChar}</Text>
-                    <Text>{tail}</Text>
-                  </>
-                ) : (
-                  <Text color={color("success")}>▏</Text>
-                )}
-              </Text>,
-            );
-          }
-          if (atBottomEdge) {
-            out.push(
-              <Text key="bottom-edge" color={color("success")}>{"  ↓"}</Text>,
-            );
-          }
-          return out;
-        };
-
-        // When slash/@ pickers are open the input renders plainly so the
-        // suggestion list sits flush above it without a competing border.
-        if (showSlash || showAt) {
-          return (
-            <Box flexDirection="column" paddingX={1}>
-              {renderInputLines()}
-            </Box>
-          );
-        }
-        return (
-          <Box marginX={1} flexDirection="column">
-            <Box
-              borderStyle="round"
-              borderColor={borderColor}
-              flexDirection="column"
-              paddingX={1}
-            >
-              {renderInputLines()}
-            </Box>
-          </Box>
-        );
-      })()}
+      <PromptActionBar
+        showSteerHint={showSteerHint}
+        value={value}
+        steerOnEnter={steerOnEnter}
+        queuedCount={queuedCount}
+        {...(verb !== undefined ? { verb } : {})}
+        {...(profile !== undefined ? { profile } : {})}
+        {...(model !== undefined ? { model } : {})}
+        {...(effort !== undefined ? { effort } : {})}
+        {...(attachmentSummary !== undefined ? { attachmentSummary } : {})}
+      />
+      {inputBody}
     </Box>
   );
 }
