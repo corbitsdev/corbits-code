@@ -19,6 +19,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
 
+## [0.2.89] - 2026-08-05
+
+Patch: models-first `/model` picker and OpenCode Go subscription billing pin.
+
+### New Features
+
+- **Models-first `/model`** — open on a Recent / Favorites / all-models list; Alt+A / Alt+F for favorites; connect is auth-only for Tier A first-class providers. (CL-5355, #327)
+- **Tier A connect catalog** — OpenAI dual-path (ChatGPT login vs API key), Anthropic, xAI, Z.AI, OpenCode Zen, OpenCode Go; no OpenRouter/Copilot in the first-run list. (CL-5355, #327)
+
+### Fixed
+
+- **OpenCode Go billed as Zen PAYG** — central `isOpenCodeGoProvider` / `isOpenCodeGoProviderId` identity; force subscription `OPENCODE_GO_BASE_URL` at catalog load, `buildProviderEntry`, `resolveProvider`, and inference source build so a wrong disk `baseURL` cannot mis-bill. (CL-5356, #327)
+- **Go model on Zen path** — `isGoModelOnZenPath` warning when a known Go model sits on a credits-billed Zen provider. (#327)
+- Recent/favorite model prefs serialize writes so concurrent toggles cannot clobber each other. (#327)
+- Empty success toasts and double-recording of recent models on apply. (#327)
+
 ## [0.2.88] - 2026-08-04
 
 Hotfix: Homebrew standalone binary failed on first TUI launch.
