@@ -13,6 +13,11 @@ export type PaletteActionId =
   | "toggle_agents"
   | "copy_active"
   | "help"
+  | "settings"
+  | "plugins"
+  | "resume"
+  | "mentions"
+  | "observe"
 
 export type PaletteCommand = {
   readonly id: PaletteActionId
@@ -62,6 +67,31 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
     id: "help",
     label: "Show keymap help",
     keywords: ["keys", "bindings", "help"],
+  },
+  {
+    id: "settings",
+    label: "Open settings",
+    keywords: ["config", "preferences", "options"],
+  },
+  {
+    id: "plugins",
+    label: "Manage plugins",
+    keywords: ["mcp", "extension", "plugin"],
+  },
+  {
+    id: "resume",
+    label: "Resume prior session",
+    keywords: ["history", "session", "picker"],
+  },
+  {
+    id: "mentions",
+    label: "Insert file mention",
+    keywords: ["@", "path", "file", "mention"],
+  },
+  {
+    id: "observe",
+    label: "Observe subagent session",
+    keywords: ["child", "worker", "observe", "agents"],
   },
 ] as const
 

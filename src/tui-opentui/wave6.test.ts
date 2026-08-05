@@ -71,7 +71,7 @@ describe("Wave 6: command palette", () => {
     )
   })
 
-  test("accept action (help) then returns to prompt", async () => {
+  test("accept action (help) opens help overlay", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -80,7 +80,6 @@ describe("Wave 6: command palette", () => {
         })
         try {
           openPalette(shell)
-          // help is last in DEFAULT_PALETTE_COMMANDS
           const helpIdx = shell.paletteCommands.findIndex((c) => c.id === "help")
           expect(helpIdx).toBeGreaterThanOrEqual(0)
           for (let i = 0; i < helpIdx; i++) moveOverlaySelection(shell, 1)
@@ -88,16 +87,14 @@ describe("Wave 6: command palette", () => {
             "help",
           )
 
-          const before = shell.lineCount
           acceptOverlaySelection(shell)
+          // Help is a residual list surface — palette closes, help opens.
+          expect(shell.overlayKind).toBe("help")
+          expect(shell.overlayList).not.toBeNull()
+          expect(focusOwner(shell.focus)).toBe("overlay")
+          closeInsetOverlay(shell)
           expect(shell.overlayList).toBeNull()
           expect(focusOwner(shell.focus)).toBe("prompt")
-          expect(shell.lineCount).toBeGreaterThan(before)
-          expect(
-            shell.streamLog.some(
-              (r) => r.role === "system" && r.text.includes("Ctrl+O palette"),
-            ),
-          ).toBe(true)
         } finally {
           shell.dispose()
         }
