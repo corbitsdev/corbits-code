@@ -1323,6 +1323,10 @@ export function useAgentStream(
     setDisplayRevision((r) => r + 1);
   };
 
+  // `state` is a stable store object from useState — never recreated. Effects
+  // that re-arm on status/quota changes depend only on those fields; listing
+  // `state` itself would be noise (always same identity).
+
   // ~30fps drain makes streaming feel metronomic rather than bursty. Gated to
   // running/blocked so an idle session schedules no periodic timer.
   useEffect(() => {
@@ -1334,7 +1338,7 @@ export function useAgentStream(
       }
     }, 33);
     return () => clearInterval(interval);
-  }, [state, state.status]);
+  }, [state.status]);
 
   // Line layout is heavier than chrome updates; coalesce it during token
   // streaming. Gated to running/blocked so an idle session schedules no
@@ -1347,7 +1351,7 @@ export function useAgentStream(
       }
     }, 100);
     return () => clearInterval(interval);
-  }, [state, state.status]);
+  }, [state.status]);
 
   // requestStop()/clear() can transition status out of running/blocked with a
   // token delta still buffered in pendingRenderRef/pendingLineRevisionRef —
@@ -1361,7 +1365,7 @@ export function useAgentStream(
       setTick((t) => t + 1);
       bumpDisplayRevision();
     }
-  }, [state, state.status]);
+  }, [state.status]);
 
   useEffect(() => {
     const handler = (event: ReactorEmittedEvent) => {
@@ -1406,7 +1410,8 @@ export function useAgentStream(
       emitter.off("subagent.progress", progressHandler);
       emitter.off("history.hydrate", hydrateHandler);
     };
-  }, [emitter, state]);
+    // state is a stable store; only re-bind when the emitter instance changes.
+  }, [emitter]);
 
   useEffect(() => {
     if (state.status !== "running" && state.status !== "blocked" && state.quotaError === null) return;
@@ -1416,12 +1421,13 @@ export function useAgentStream(
     return () => {
       clearInterval(interval);
     };
-  }, [state, state.status, state.quotaError]);
+  }, [state.status, state.quotaError]);
 
   void tick;
 
+  // state identity is stable; re-wrap only when displayRevision advances.
   return useMemo(
     () => Object.assign(Object.create(state), { displayRevision }),
-    [state, displayRevision],
+    [displayRevision],
   );
 }

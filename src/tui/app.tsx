@@ -351,6 +351,9 @@ export function App({
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Mount-only seeds from runner props. Runner does not re-render App when these
+  // change; Settings updates flow through the local setters + onChange* callbacks
+  // that mutate runner-held live values. No prop→state sync effect needed.
   const [liveTelemetryEnabled, setLiveTelemetryEnabled] = useState(telemetryEnabled);
   const [waitForApproval, setWaitForApproval] = useState(waitForApprovalProp);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
