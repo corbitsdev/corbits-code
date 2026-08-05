@@ -138,9 +138,10 @@ export function useGates({
   activationBlocked = false,
 }: UseGatesArgs): GateController {
   const [activeApproval, setActiveApproval] = useState<ActiveApproval | null>(null);
-  const [permissionQueueDepth, setPermissionQueueDepth] = useState(0);
   const [queuedApprovals, setQueuedApprovals] = useState<readonly QueuedApprovalSummary[]>([]);
   const queue = useRef<GateQueueEntry[]>([]);
+  // Depth is the length of the permission summary list — one source of truth.
+  const permissionQueueDepth = queuedApprovals.length;
 
   function syncQueuedApprovals(): void {
     setQueuedApprovals(
@@ -194,7 +195,6 @@ export function useGates({
     clearEntryTimer(entry);
     detachEntryAbort(entry);
     if (entry.kind === "permission") {
-      setPermissionQueueDepth((depth) => Math.max(0, depth - 1));
       syncQueuedApprovals();
     }
     setGatePendingRef.current(false);
@@ -245,7 +245,6 @@ export function useGates({
   function enqueue(entry: GateQueueEntry): void {
     queue.current.push(entry);
     if (entry.kind === "permission") {
-      setPermissionQueueDepth((depth) => depth + 1);
       syncQueuedApprovals();
     }
     setGatePendingRef.current(true);
@@ -256,7 +255,6 @@ export function useGates({
     const remaining = queue.current.splice(0);
     activeId.current = null;
     setActiveApproval(null);
-    setPermissionQueueDepth(0);
     setQueuedApprovals([]);
     for (const entry of remaining) {
       clearEntryTimer(entry);

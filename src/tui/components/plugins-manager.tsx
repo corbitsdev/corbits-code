@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import type { ReactNode } from "react";
 import { color } from "../theme.js";
 import { listPathSuggestions } from "./at-mention/index.js";
@@ -86,14 +86,15 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
   const isEnabled = (id: string): boolean => config[id]?.enabled === true;
   const isConsented = (id: string): boolean => config[id]?.consented === true;
 
-  useEffect(() => {
-    if (addingPath === null) {
-      pathGeneration.current++;
-      lastPathPrefix.current = null;
-      setPathSuggestions([]);
-      setPathSelectedIdx(0);
-    }
-  }, [addingPath]);
+  // Clear path-suggestion state when leaving add-by-path (call at every exit site
+  // instead of watching addingPath with an effect).
+  const clearAddingPath = (): void => {
+    pathGeneration.current++;
+    lastPathPrefix.current = null;
+    setPathSuggestions([]);
+    setPathSelectedIdx(0);
+    setAddingPath(null);
+  };
 
   const fetchPathSuggestions = (prefix: string, gen: number) => {
     void listPathSuggestions(prefix, cwd).then((results) => {
@@ -142,7 +143,7 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
     void Promise.resolve(admin.addPath(path)).then(
       (result) => {
         setAddStatus({ ok: result.ok, message: result.message });
-        if (result.ok) { setAddingPath(null); setVersion((v) => v + 1); }
+        if (result.ok) { clearAddingPath(); setVersion((v) => v + 1); }
       },
       (err: unknown) => setAddStatus({ ok: false, message: err instanceof Error ? err.message : String(err) }),
     );
@@ -160,7 +161,7 @@ export function PluginsManager({ admin, onClose, cwd }: PluginsManagerProps): Re
 
     if (addingPath !== null) {
       if (key.escape) {
-        setAddingPath(null);
+        clearAddingPath();
         setAddStatus(null);
         return;
       }

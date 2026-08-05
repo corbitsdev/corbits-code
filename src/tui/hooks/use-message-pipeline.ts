@@ -114,6 +114,10 @@ export function useMessagePipeline({
   const sendCounterRef = useRef(0);
   const lastSentMessageRef = useRef<string>("");
   const quotaAutoRetryFiredRef = useRef(false);
+  // Bumped on every sent-history load (and on effect cleanup) so only the latest
+  // loadSentMessages result can write browse state — startNewSession and the
+  // hydrate effect share this so neither path can apply a stale session's history.
+  const sentHistoryLoadGenRef = useRef(0);
 
   sendMessageRef.current = (message: OutboundUserMessage) => {
     lastSentMessageRef.current = message.text;
@@ -208,6 +212,17 @@ export function useMessagePipeline({
 
   requestStopRef.current = requestStop;
 
+  // Start a sent-history load; only the newest generation may apply. Shared by
+  // startNewSession and the hydrate effect so rapid /clear or session switches
+  // cannot write browse from a prior id after a newer load has begun.
+  const loadSentHistoryBrowse = (sessionId: string) => {
+    const gen = ++sentHistoryLoadGenRef.current;
+    void loadSentMessages(cwd, sessionId).then((sent) => {
+      if (gen !== sentHistoryLoadGenRef.current) return;
+      setSentHistoryBrowse(createSentHistoryBrowse(sent));
+    });
+  };
+
   const startNewSessionRef = useRef<() => void>(() => undefined);
   startNewSessionRef.current = () => {
     sendAbortRef.current?.abort();
@@ -230,10 +245,10 @@ export function useMessagePipeline({
     subAgentSessions?.clear();
     onNewSession?.();
     if (getSessionId !== undefined) {
-      void loadSentMessages(cwd, getSessionId()).then((sent) => {
-        setSentHistoryBrowse(createSentHistoryBrowse(sent));
-      });
+      loadSentHistoryBrowse(getSessionId());
     } else {
+      // Invalidate any in-flight load before clearing browse for a no-session path.
+      sentHistoryLoadGenRef.current++;
       setSentHistoryBrowse(createSentHistoryBrowse([]));
     }
     scroll.scrollToBottom();
@@ -241,13 +256,17 @@ export function useMessagePipeline({
   };
   const startNewSession = () => startNewSessionRef.current();
 
-  // Send the initial task once the App (and its gate listeners) is mounted, so
-  // the run is driven through the same abortable path as interactive sends.
+  // Hydrate sent-message history for the active session. Cancel stale loads so a
+  // session switch or unmount cannot write history from a prior session id.
   useEffect(() => {
     if (getSessionId === undefined) return;
-    void loadSentMessages(cwd, getSessionId()).then((sent) => {
-      setSentHistoryBrowse(createSentHistoryBrowse(sent));
-    });
+    loadSentHistoryBrowse(getSessionId());
+    return () => {
+      sentHistoryLoadGenRef.current++;
+    };
+    // loadSentHistoryBrowse closes over cwd/setSentHistoryBrowse; re-run when the
+    // session identity source or cwd changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd, getSessionId]);
 
   useEffect(() => {

@@ -351,6 +351,9 @@ export function App({
   const [agentModalUsage, setAgentModalUsage] = useState<string | null>(null);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Mount-only seeds from runner props. Runner does not re-render App when these
+  // change; Settings updates flow through the local setters + onChange* callbacks
+  // that mutate runner-held live values. No prop→state sync effect needed.
   const [liveTelemetryEnabled, setLiveTelemetryEnabled] = useState(telemetryEnabled);
   const [waitForApproval, setWaitForApproval] = useState(waitForApprovalProp);
   const [compactionMode, setCompactionMode] = useState<CompactionMode>(
@@ -555,13 +558,12 @@ export function App({
 
   const { goalActive, goalPhase, showAcceptance, workPrimary } = resolveGoalChrome({ goalSnapshot });
   // Default-expand Work when entering implementing; Ctrl+T can still collapse.
+  // Adjust during render so the panel opens in the same paint as the phase flip.
   const wasWorkPrimary = useRef(false);
-  useEffect(() => {
-    if (workPrimary && !wasWorkPrimary.current) {
-      setTasksExpanded(true);
-    }
-    wasWorkPrimary.current = workPrimary;
-  }, [workPrimary]);
+if (workPrimary && !wasWorkPrimary.current) {
+    setTasksExpanded(true);
+  }
+  wasWorkPrimary.current = workPrimary;
   // Drop the /goal one-shot once Goal chrome is live so it does not stack on
   // the brief / Work checklist (and blow the reserved chrome rows).
   useEffect(() => {
