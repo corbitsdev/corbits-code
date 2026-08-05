@@ -173,6 +173,49 @@ function initialFormValues(provider: AgentProvider | undefined): ProviderFormVal
   };
 }
 
+/** Pre-seed the Connect form for an API-key first-class provider.
+ *  If the catalog already has that id, treat Connect as re-key/edit so save
+ *  upserts instead of failing with "already exists". */
+export function seedConnectForm(
+  def: FirstClassProviderDef,
+  existing: AgentProvider | undefined,
+): {
+  editingProvider: string | undefined;
+  formValues: ProviderFormValues;
+  connectDraft: { anthropic: boolean; opencodeGo: boolean };
+} {
+  const base: ProviderFormValues = {
+    name: def.id,
+    baseURL: def.baseURL ?? "",
+    keyless: "no",
+    apiKey: "",
+    models: (def.models ?? []).join(", "),
+    defaultModel: def.defaultModel ?? def.models?.[0] ?? "",
+  };
+  // Re-connect keeps operator-customized models/URL/keyless when present.
+  const formValues =
+    existing !== undefined
+      ? {
+          ...base,
+          baseURL: existing.baseURL.length > 0 ? existing.baseURL : base.baseURL,
+          keyless: existing.keyless === true ? "yes" : "no",
+          models: existing.models.length > 0 ? existing.models.join(", ") : base.models,
+          defaultModel:
+            existing.defaultModel ??
+            existing.models[0] ??
+            base.defaultModel,
+        }
+      : base;
+  return {
+    editingProvider: existing?.name,
+    formValues,
+    connectDraft: {
+      anthropic: def.anthropic === true || existing?.anthropic === true,
+      opencodeGo: def.id === "opencode-go" || existing?.opencodeGo === true,
+    },
+  };
+}
+
 function parseModels(raw: string): string[] {
   return raw
     .split(",")
@@ -369,22 +412,12 @@ export function AgentModal({
       }
       return;
     }
-    // Pre-seed api-key first-class providers so Connect is one key paste + save.
-    setEditingProvider(undefined);
-    setFormValues({
-      name: def.id,
-      baseURL: def.baseURL ?? "",
-      keyless: "no",
-      apiKey: "",
-      models: (def.models ?? []).join(", "),
-      defaultModel: def.defaultModel ?? def.models?.[0] ?? "",
-    });
-    // Stash first-class flags so submit can attach anthropic/opencodeGo without
-    // expanding every form field.
-    connectDraft.current = {
-      anthropic: def.anthropic === true,
-      opencodeGo: def.id === "opencode-go",
-    };
+// Upsert: re-Connect on an existing first-class provider re-keys in place.
+    const existing = providers.find((p) => p.name === def.id);
+    const seed = seedConnectForm(def, existing);
+    setEditingProvider(seed.editingProvider);
+    setFormValues(seed.formValues);
+    connectDraft.current = seed.connectDraft;
     setFormIndex(3); // apiKey field
     setFormError(null);
     setStep("form");
