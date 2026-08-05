@@ -1,7 +1,7 @@
 import type { InferenceError } from "@intx/types/runtime";
 import {
+  isOpenCodeGoProviderId,
   isOpenCodeGoURL,
-  OPENCODE_GO_PROVIDER_ID,
   parseGoAPIError,
 } from "../packages/opencode-go/src/index.js";
 
@@ -117,7 +117,7 @@ function tryParseJSON(text: string): unknown {
  */
 function isKnownOpenCodeGoError(error: InferenceErrorWithGoContext, rawText: string, messageText: string): boolean {
   if (error.opencodeGo === true) return true;
-  if (error.providerId === OPENCODE_GO_PROVIDER_ID) return true;
+  if (isOpenCodeGoProviderId(error.providerId)) return true;
   if (isOpenCodeGoURL(error.requestURL)) return true;
   if (isOpenCodeGoURL(rawText)) return true;
   return /GoUsageLimitError|FreeUsageLimitError|BlackUsageLimitError|Console Go|opencode\.ai\/zen\/go/i.test(

@@ -139,6 +139,8 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       tools: { timeoutMs: 2000, waitForApproval: false },
       telemetry: { enabled: false, installationId: "id", noticeShown: true },
       otel: { endpoint: "http://localhost:4318", serviceName: "corbits-test" },
+      recentModels: [{ provider: "p", model: "m" }],
+      favoriteModels: [{ provider: "p", model: "m" }],
     };
     await writeFile(globalPath, JSON.stringify(fixture));
     const loaded = await loadSettings(globalPath);

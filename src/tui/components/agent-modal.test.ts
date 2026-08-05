@@ -187,6 +187,8 @@ test("trims leading and trailing spaces on text fields at save", () => {
 describe("seedConnectForm", () => {
   const goDef = FIRST_CLASS_PROVIDERS.find((p) => p.id === "opencode-go");
   if (goDef === undefined) throw new Error("opencode-go missing from FIRST_CLASS_PROVIDERS");
+  const zenDef = FIRST_CLASS_PROVIDERS.find((p) => p.id === "zen");
+  if (zenDef === undefined) throw new Error("zen missing from FIRST_CLASS_PROVIDERS");
 
   test("creates a new provider submission path when catalog is empty", () => {
     const seed = seedConnectForm(goDef, undefined);
@@ -206,8 +208,8 @@ describe("seedConnectForm", () => {
     });
     expect(seed.editingProvider).toBe("opencode-go");
     expect(seed.connectDraft.opencodeGo).toBe(true);
-    // Operator-customized models are kept; only the key is re-entered.
-    expect(seed.formValues.models).toBe("kimi-k2.7-code");
+    // Go re-connect seeds catalog models; only the key is re-entered.
+    expect(seed.formValues.baseURL).toBe(goDef.baseURL ?? "");
     expect(seed.formValues.apiKey).toBe("");
 
     const validated = validateProviderForm(
@@ -221,5 +223,34 @@ describe("seedConnectForm", () => {
       expect(validated.submission.opencodeGo).toBe(true);
       expect(validated.submission.apiKey).toBe("sk-go-rotated-key-long");
     }
+  });
+
+  test("does not re-seed a wrong Zen PAYG baseURL for OpenCode Go", () => {
+    const seed = seedConnectForm(goDef, {
+      name: "opencode-go",
+      baseURL: "https://opencode.ai/zen/v1",
+      models: ["wrong-model"],
+      defaultModel: "wrong-model",
+      opencodeGo: true,
+    });
+    expect(seed.formValues.baseURL).toBe(goDef.baseURL ?? "");
+    expect(seed.formValues.baseURL).not.toBe("https://opencode.ai/zen/v1");
+    // Catalog models/default, not the stale existing values.
+    expect(seed.formValues.models).toBe((goDef.models ?? []).join(", "));
+    expect(seed.formValues.defaultModel).toBe(goDef.defaultModel ?? goDef.models?.[0] ?? "");
+    expect(seed.connectDraft.opencodeGo).toBe(true);
+  });
+
+  test("zen re-connect always seeds catalog baseURL", () => {
+    const seed = seedConnectForm(zenDef, {
+      name: "zen",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      models: ["claude-sonnet-4-5"],
+      defaultModel: "claude-sonnet-4-5",
+    });
+    expect(seed.formValues.baseURL).toBe(zenDef.baseURL ?? "");
+    expect(seed.formValues.baseURL).toBe("https://opencode.ai/zen/v1");
+    // Operator-customized models still kept for zen.
+    expect(seed.formValues.models).toBe("claude-sonnet-4-5");
   });
 });

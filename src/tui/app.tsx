@@ -59,7 +59,7 @@ import { fetchXaiUsage, formatXaiUsage } from "../auth/xai/usage.js";
 import {
   fetchGoUsage,
   formatGoUsage,
-  OPENCODE_GO_PROVIDER_ID,
+  isOpenCodeGoProviderId,
 } from "../../packages/opencode-go/src/index.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import { listCommands } from "./commands/registry.js";
@@ -439,6 +439,9 @@ export function App({
     registerXaiProvider,
     removeCodexProvider,
     removeXaiProvider,
+    recentModels,
+    favoriteModels,
+    toggleFavorite,
   } = providerManager;
   // Safe to mutate during render: the ref is only read later by the faremeter's
   // pricing resolver at usage-event time, never during this render pass.
@@ -455,7 +458,7 @@ export function App({
   // provider. Failures (auth, network, missing endpoint) clear the label so the
   // bar degrades cleanly rather than showing an error string.
   useEffect(() => {
-    if (provider !== OPENCODE_GO_PROVIDER_ID) {
+    if (!isOpenCodeGoProviderId(provider)) {
       setGoSubscriptionLabel(undefined);
       return;
     }
@@ -1257,6 +1260,9 @@ if (workPrimary && !wasWorkPrimary.current) {
             setAutoLoginProfile(profile);
             setLoginModal(kind);
           }}
+          recentModels={recentModels}
+          favoriteModels={favoriteModels}
+          onToggleFavorite={toggleFavorite}
           activeApproval={gates.activeApproval}
           onApprove={gates.approve}
           onReject={gates.reject}

@@ -1,3 +1,8 @@
+import {
+  OPENCODE_GO_BASE_URL,
+  isOpenCodeGoProvider,
+  isOpenCodeGoProviderId,
+} from "../../packages/opencode-go/src/index.js";
 import type { ProviderCatalogEntry } from "./index.js";
 
 export type ProviderSubmission = {
@@ -37,17 +42,26 @@ export function buildProviderEntry(
     return { ok: false, error: "Provider API key is required" };
   }
   // Protocol flags are not form fields — preserve catalog flags on edit unless
-  // the submission explicitly re-asserts them (Connect path).
+  // the submission explicitly re-asserts them (Connect path). Known Go ids and
+  // display labels always pin even when the flag was dropped from disk.
   const anthropic = submission.anthropic === true || existing?.anthropic === true;
-  const opencodeGo = submission.opencodeGo === true || existing?.opencodeGo === true;
+  const opencodeGo = isOpenCodeGoProvider({
+    name: submission.name,
+    opencodeGo:
+      submission.opencodeGo === true ||
+      existing?.opencodeGo === true ||
+      isOpenCodeGoProviderId(submission.originalName),
+  });
+  // Never persist bare Zen PAYG baseURL for a Go subscription provider.
+  const baseURL = opencodeGo ? OPENCODE_GO_BASE_URL : submission.baseURL;
   const entry: ProviderCatalogEntry = {
     name: submission.name,
-    baseURL: submission.baseURL,
+    baseURL,
     ...(keyless ? { keyless: true } : {}),
     ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
     ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
-// Form no longer exposes Bifrost; keep any previously stored flag on edit so
+    // Form no longer exposes Bifrost; keep any previously stored flag on edit so
     // re-saving a provider does not silently drop x-bf-vk routing.
     ...(submission.bifrostVirtualKey === true || existing?.bifrostVirtualKey === true
       ? { bifrostVirtualKey: true }

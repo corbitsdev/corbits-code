@@ -1,13 +1,16 @@
 import type { Agent } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { providerCatalogToSettings, runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../../config/index.js";
 import {
   loadSettings,
   localSettingsPath,
+  pushRecentModel,
   saveGlobalSettings,
   saveLocalSettings,
+  toggleFavoriteModel,
   type LocalSettings,
+  type ModelRef,
   type ProviderTier,
   type Settings,
   type TierConfig,
@@ -63,8 +66,12 @@ export type ProviderManagerController = {
   providerCatalog: ProviderCatalogEntry[];
   globalDefaultProvider: string | undefined;
   tiers: Partial<Record<ProviderTier, TierConfig>>;
+  recentModels: ModelRef[];
+  favoriteModels: ModelRef[];
   applySelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
   persistSelection: (providerName: string, nextModel: string, nextEffort: ReasoningEffort | undefined) => void;
+  recordRecentModel: (ref: ModelRef) => void;
+  toggleFavorite: (ref: ModelRef) => void;
   upsertProvider: (submission: ProviderSubmission) => { ok: true } | { ok: false; error: string };
   deleteProvider: (providerName: string) => void;
   saveTierAssignment: (
@@ -151,9 +158,11 @@ function persistGlobalSettings(
   onMessage: (msg: string) => void,
   successMessage: string,
   failPrefix: string,
-): void {
-  void saveGlobalSettings(globalSettingsPath, settings).then(
-    () => onMessage(successMessage),
+): Promise<void> {
+  return saveGlobalSettings(globalSettingsPath, settings).then(
+    () => {
+      if (successMessage.length > 0) onMessage(successMessage);
+    },
     (err: unknown) => {
       onMessage(`${failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
     },
@@ -178,7 +187,7 @@ async function persistWithMergeBase(args: {
     const base = await loadMergeBase(args.globalSettingsPath, args.initialSettings);
     const settings = args.buildSettings(base);
     args.onBeforeSave?.();
-    persistGlobalSettings(
+    await persistGlobalSettings(
       args.globalSettingsPath,
       settings,
       args.onMessage,
@@ -212,6 +221,17 @@ export function useProviderManager({
   const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogEntry[]>(initialCatalog);
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>(initialGlobalDefaultProvider);
   const [tiers, setTiers] = useState<Partial<Record<ProviderTier, TierConfig>>>(initialTiers ?? {});
+  const [recentModels, setRecentModels] = useState<ModelRef[]>(
+    () => initialSettings?.recentModels ?? [],
+  );
+  const [favoriteModels, setFavoriteModels] = useState<ModelRef[]>(
+    () => initialSettings?.favoriteModels ?? [],
+  );
+  // Absolute in-memory truth for model prefs — writes never re-derive from disk.
+  const recentModelsRef = useRef<ModelRef[]>(initialSettings?.recentModels ?? []);
+  const favoriteModelsRef = useRef<ModelRef[]>(initialSettings?.favoriteModels ?? []);
+  // Serialize concurrent recent/favorite saves so they cannot clobber each other.
+  const modelPrefsWriteChain = useRef(Promise.resolve());
 
   const publishRuntimeResolution = (
     catalog: readonly ProviderCatalogEntry[],
@@ -293,7 +313,53 @@ export function useProviderManager({
   ): void => {
     if (applyCatalogSelection(providerCatalog, providerName, nextModel, nextEffort)) {
       onMessage(`Now using ${providerName} · ${nextModel}`);
+      // Keep recent list in sync even when the modal does not call recordRecentModel.
+      recordRecentModel({ provider: providerName, model: nextModel });
     }
+  };
+
+  const enqueueModelPrefsWrite = (
+    failPrefix: string,
+    apply: (base: Settings) => Settings,
+  ): void => {
+    modelPrefsWriteChain.current = modelPrefsWriteChain.current
+      .then(() =>
+        persistWithMergeBase({
+          globalSettingsPath,
+          initialSettings,
+          buildSettings: (base) => apply(base ?? { providers: {} }),
+          onMessage,
+          successMessage: "",
+          failPrefix,
+        }),
+      )
+      .catch(() => {
+        // Errors already reported via onMessage inside persistWithMergeBase.
+      });
+  };
+
+  const recordRecentModel = (ref: ModelRef): void => {
+    const next =
+      pushRecentModel({ providers: {}, recentModels: recentModelsRef.current }, ref).recentModels ??
+      [];
+    recentModelsRef.current = next;
+    setRecentModels(next);
+    enqueueModelPrefsWrite("Failed to save recent models", (base) => ({
+      ...base,
+      recentModels: recentModelsRef.current,
+    }));
+  };
+
+  const toggleFavorite = (ref: ModelRef): void => {
+    const next =
+      toggleFavoriteModel({ providers: {}, favoriteModels: favoriteModelsRef.current }, ref)
+        .favoriteModels ?? [];
+    favoriteModelsRef.current = next;
+    setFavoriteModels(next);
+    enqueueModelPrefsWrite("Failed to save favorite models", (base) => ({
+      ...base,
+      favoriteModels: favoriteModelsRef.current,
+    }));
   };
 
   const persistLocalSelection = (providerName: string, nextModel: string): void => {
@@ -506,8 +572,12 @@ export function useProviderManager({
     providerCatalog,
     globalDefaultProvider,
     tiers,
+    recentModels,
+    favoriteModels,
     applySelection,
     persistSelection,
+    recordRecentModel,
+    toggleFavorite,
     upsertProvider,
     deleteProvider,
     saveTierAssignment,

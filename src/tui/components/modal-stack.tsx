@@ -71,6 +71,9 @@ export type ModalStackProps = {
   onRequestAgentUsage?: (kind: "codex" | "xai", profile: string, baseURL?: string) => void;
   unauthedProviders?: ReadonlySet<string>;
   onRequestAgentLogin?: (kind: "codex" | "xai", profile: string) => void;
+  recentModels?: import("../../config/settings.js").ModelRef[];
+  favoriteModels?: import("../../config/settings.js").ModelRef[];
+  onToggleFavorite?: (ref: import("../../config/settings.js").ModelRef) => void;
 
   activeApproval: ActiveApproval | null;
   onApprove: (id: number) => void;
@@ -115,6 +118,9 @@ export function ModalStack({
   onRequestAgentUsage,
   unauthedProviders,
   onRequestAgentLogin,
+  recentModels,
+  favoriteModels,
+  onToggleFavorite,
   activeApproval,
   onApprove,
   onReject,
@@ -154,6 +160,9 @@ export function ModalStack({
           {...(onRequestAgentUsage !== undefined ? { onRequestUsage: onRequestAgentUsage } : {})}
           {...(unauthedProviders !== undefined ? { unauthedProviders } : {})}
           {...(onRequestAgentLogin !== undefined ? { onRequestLogin: onRequestAgentLogin } : {})}
+          {...(recentModels !== undefined ? { recentModels } : {})}
+          {...(favoriteModels !== undefined ? { favoriteModels } : {})}
+          {...(onToggleFavorite !== undefined ? { onToggleFavorite } : {})}
         />
       )}
       {activeApproval?.kind === "plan" && (
