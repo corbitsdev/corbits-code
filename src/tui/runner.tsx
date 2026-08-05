@@ -1363,6 +1363,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       globalOnboardingPath={trueGlobalSettingsPath}
       globallyOnboarded={globallyOnboarded}
       {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
+      {...(config.settingsDiagnostics !== undefined && config.settingsDiagnostics.length > 0
+        ? { settingsDiagnostics: config.settingsDiagnostics }
+        : {})}
       {...(whatsNewMarkdown !== undefined ? { whatsNewMarkdown } : {})}
       telemetryEnabled={liveTelemetryIntent}
       onChangeTelemetryEnabled={(enabled) => {

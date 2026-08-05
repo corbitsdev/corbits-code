@@ -336,13 +336,26 @@ describe("loaders", () => {
     }
   });
 
-  test("loadLocalSettings rejects credentials", async () => {
+  test("loadLocalSettings fails open on credentials and unknown keys", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
-      await writeFile(path, JSON.stringify({ provider: "a", apiKey: "leak" }));
-      await expect(loadLocalSettings(path)).rejects.toThrow(/no credentials/);
+      await writeFile(
+        path,
+        JSON.stringify({ provider: "a", model: "m1", apiKey: "leak", providers: {}, weird: true }),
+      );
+      // Must not throw — app starts with known keys applied.
+      const loaded = await loadLocalSettings(path);
+      expect(loaded).toEqual({ provider: "a", model: "m1" });
+      // Credentials never load.
+      expect(loaded).not.toHaveProperty("apiKey");
+      const { loadLocalSettingsResult } = await import("./config/settings.js");
+      const result = await loadLocalSettingsResult(path);
+      expect(result.settings).toEqual({ provider: "a", model: "m1" });
+      expect(result.diagnostics.length).toBeGreaterThan(0);
+      expect(result.diagnostics.some((d) => /credential|apiKey|unknown/i.test(d.message))).toBe(true);
+      expect(result.diagnostics.every((d) => d.fix.length > 0)).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -641,13 +654,18 @@ describe("saveLocalSettings", () => {
     }
   });
 
-  test("loadLocalSettings rejects an invalid reasoningEffort", async () => {
+  test("loadLocalSettings fails open on invalid reasoningEffort", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
       await writeFile(path, JSON.stringify({ model: "m", reasoningEffort: "legendary" }));
-      await expect(loadLocalSettings(path)).rejects.toThrow(/reasoningEffort/);
+      // Fail open: keep model, drop invalid effort, surface diagnostic.
+      expect(await loadLocalSettings(path)).toEqual({ model: "m" });
+      const { loadLocalSettingsResult } = await import("./config/settings.js");
+      const result = await loadLocalSettingsResult(path);
+      expect(result.settings).toEqual({ model: "m" });
+      expect(result.diagnostics.some((d) => /reasoningEffort/i.test(d.message))).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

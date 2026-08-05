@@ -650,36 +650,154 @@ export async function loadSettings(path: string): Promise<Settings | null> {
   };
 }
 
-export async function loadLocalSettings(path: string): Promise<LocalSettings | null> {
+/** Diagnostic produced when settings fail open instead of crashing startup. */
+export type SettingsLoadDiagnostic = {
+  path: string;
+  message: string;
+  /** Actionable recommendation for the user. */
+  fix: string;
+};
+
+export type LocalSettingsLoadResult = {
+  settings: LocalSettings | null;
+  diagnostics: SettingsLoadDiagnostic[];
+};
+
+const LOCAL_ALLOWED_KEYS = new Set<string>(LOCAL_SETTINGS_OPTIONAL_KEYS);
+const LOCAL_CREDENTIAL_KEYS = new Set([
+  "apiKey",
+  "api_key",
+  "token",
+  "secret",
+  "password",
+  "authorization",
+]);
+
+function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadResult {
+  const diagnostics: SettingsLoadDiagnostic[] = [];
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      settings: null,
+      diagnostics: [
+        {
+          path,
+          message: `Local settings in ${path} is not a JSON object.`,
+          fix: `Edit ${path} to a JSON object with only: provider, model, reasoningEffort, mcpServers, sessionMode, env.`,
+        },
+      ],
+    };
+  }
+  const s = parsed as Record<string, unknown>;
+  // Valid strict path still returns cleanly with no diagnostics.
+  if (isLocalSettings(parsed)) {
+    const optional: OptionalLocalSettingsFields = {
+      provider: s.provider as string | undefined,
+      model: s.model as string | undefined,
+      reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
+      mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+      sessionMode:
+        s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+      env: s.env as Record<string, string> | undefined,
+    };
+    return { settings: pickDefined(optional), diagnostics: [] };
+  }
+
+  const unknownKeys = Object.keys(s).filter((k) => !LOCAL_ALLOWED_KEYS.has(k));
+  const credentialKeys = unknownKeys.filter(
+    (k) => LOCAL_CREDENTIAL_KEYS.has(k) || /key|token|secret|password/i.test(k),
+  );
+  const otherUnknown = unknownKeys.filter((k) => !credentialKeys.includes(k));
+  if (credentialKeys.length > 0) {
+    diagnostics.push({
+      path,
+      message: `Ignored credential field(s) in local settings (${credentialKeys.join(", ")}).`,
+      fix: "Keep credentials out of local .corbits/settings.json — store API keys via provider settings / keychain, not local selection files.",
+    });
+  }
+  if (otherUnknown.length > 0) {
+    diagnostics.push({
+      path,
+      message: `Ignored unknown local settings key(s): ${otherUnknown.join(", ")}.`,
+      fix: `Remove unknown keys from ${path}. Allowed keys: ${[...LOCAL_ALLOWED_KEYS].join(", ")}.`,
+    });
+  }
+
+  const optional: OptionalLocalSettingsFields = {
+    provider: typeof s.provider === "string" ? s.provider : undefined,
+    model: typeof s.model === "string" ? s.model : undefined,
+    reasoningEffort:
+      s.reasoningEffort === "low" || s.reasoningEffort === "medium" || s.reasoningEffort === "high"
+        ? s.reasoningEffort
+        : undefined,
+    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+    sessionMode:
+      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+    env:
+      s.env !== undefined && typeof s.env === "object" && s.env !== null && !Array.isArray(s.env)
+        ? Object.fromEntries(
+            Object.entries(s.env as Record<string, unknown>).filter(
+              (e): e is [string, string] => typeof e[1] === "string",
+            ),
+          )
+        : undefined,
+  };
+  if (s.mcpServers !== undefined && optional.mcpServers === undefined) {
+    diagnostics.push({
+      path,
+      message: `mcpServers in ${path} was invalid and was ignored.`,
+      fix: "Use an object map of MCP server entries (command/args or url).",
+    });
+  }
+  if (s.reasoningEffort !== undefined && optional.reasoningEffort === undefined) {
+    diagnostics.push({
+      path,
+      message: `reasoningEffort in ${path} was invalid and was ignored.`,
+      fix: 'Use "low", "medium", or "high".',
+    });
+  }
+  if (diagnostics.length === 0) {
+    // Shape failed isLocalSettings for another reason (e.g. wrong types).
+    diagnostics.push({
+      path,
+      message: `Local settings in ${path} had invalid values and were partially ignored.`,
+      fix: `Edit ${path}: only "provider", "model", "reasoningEffort", "mcpServers", "sessionMode", and "env" are allowed (no credentials).`,
+    });
+  }
+  const settings = pickDefined(optional);
+  return { settings: Object.keys(settings).length > 0 ? settings : null, diagnostics };
+}
+
+export async function loadLocalSettingsResult(path: string): Promise<LocalSettingsLoadResult> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
   } catch (err) {
-    if (isENOENT(err)) return null;
+    if (isENOENT(err)) return { settings: null, diagnostics: [] };
     throw err;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`Invalid JSON in local settings file: ${path}`);
+    return {
+      settings: null,
+      diagnostics: [
+        {
+          path,
+          message: `Invalid JSON in local settings file: ${path}`,
+          fix: `Fix JSON syntax in ${path}, or delete the file to fall back to global settings only.`,
+        },
+      ],
+    };
   }
-  if (!isLocalSettings(parsed)) {
-    throw new Error(
-      `Invalid local settings in ${path}: only "provider", "model", "reasoningEffort", "mcpServers", "sessionMode", and "env" are allowed (no credentials).`,
-    );
-  }
-  const s = parsed as Record<string, unknown>;
-  const optional: OptionalLocalSettingsFields = {
-    provider: s.provider as string | undefined,
-    model: s.model as string | undefined,
-    reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
-    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-    sessionMode:
-      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
-    env: s.env as Record<string, string> | undefined,
-  };
-  return pickDefined(optional);
+  return coerceLocalSettings(path, parsed);
+}
+
+export async function loadLocalSettings(path: string): Promise<LocalSettings | null> {
+  // Fail open: never throw for schema/unknown-key problems. Callers that need
+  // diagnostics should use loadLocalSettingsResult.
+  const { settings } = await loadLocalSettingsResult(path);
+  return settings;
 }
 
 // Resolve the base for a read-modify-write of the global settings file.
