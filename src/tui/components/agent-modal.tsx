@@ -16,9 +16,12 @@ import {
 } from "./form-reflow.js";
 import {
   FIRST_CLASS_PROVIDERS,
+  firstClassPathAsProvider,
   type FirstClassProviderDef,
+  type FirstClassProviderPath,
   validateGoApiKey,
 } from "../../../packages/first-class-providers/src/index.js";
+import { billingProductHint } from "../../provider/billing-product.js";
 
 // Effort display: undefined means "no override" (field omitted); "none" is
 // OpenAI's explicit disable-reasoning value. Both read as "off".
@@ -67,6 +70,7 @@ export type ProviderFormValues = Record<ProviderFormField, string>;
 type Step =
   | "provider"
   | "connect"
+  | "connect-path"
   | "model"
   | "effort"
   | "form"
@@ -76,6 +80,19 @@ type Step =
   | "profiles"
   | "profile-form"
   | "profile-delete";
+
+function connectAuthLabel(auth: FirstClassProviderDef["auth"]): string {
+  switch (auth) {
+    case "oauth":
+      return "OAuth";
+    case "api-key":
+      return "API key";
+    case "chooser":
+      return "choose path";
+    case "custom":
+      return "custom";
+  }
+}
 
 const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "keyless", "apiKey", "models", "defaultModel"];
 
@@ -175,7 +192,11 @@ function initialFormValues(provider: AgentProvider | undefined): ProviderFormVal
 
 /** Pre-seed the Connect form for an API-key first-class provider.
  *  If the catalog already has that id, treat Connect as re-key/edit so save
- *  upserts instead of failing with "already exists". */
+ *  upserts instead of failing with "already exists".
+ *
+ *  OpenCode Go always seeds catalog baseURL/models/defaultModel so a prior
+ *  wrong Zen URL cannot stick. Zen always seeds catalog baseURL for the same
+ *  reason. Other first-class providers keep operator-customized models/URL. */
 export function seedConnectForm(
   def: FirstClassProviderDef,
   existing: AgentProvider | undefined,
@@ -184,6 +205,8 @@ export function seedConnectForm(
   formValues: ProviderFormValues;
   connectDraft: { anthropic: boolean; opencodeGo: boolean };
 } {
+  const isGo = def.opencodeGo === true || def.id === "opencode-go";
+  const isZen = def.id === "zen";
   const base: ProviderFormValues = {
     name: def.id,
     baseURL: def.baseURL ?? "",
@@ -192,26 +215,44 @@ export function seedConnectForm(
     models: (def.models ?? []).join(", "),
     defaultModel: def.defaultModel ?? def.models?.[0] ?? "",
   };
-  // Re-connect keeps operator-customized models/URL/keyless when present.
-  const formValues =
-    existing !== undefined
-      ? {
-          ...base,
-          baseURL: existing.baseURL.length > 0 ? existing.baseURL : base.baseURL,
-          keyless: existing.keyless === true ? "yes" : "no",
-          models: existing.models.length > 0 ? existing.models.join(", ") : base.models,
-          defaultModel:
-            existing.defaultModel ??
-            existing.models[0] ??
-            base.defaultModel,
-        }
-      : base;
+
+  let formValues: ProviderFormValues = base;
+  if (existing !== undefined) {
+    if (isGo) {
+      // Pin catalog baseURL/models/defaultModel; only keyless may carry over.
+      // API key is always re-entered on Connect.
+      formValues = {
+        ...base,
+        keyless: existing.keyless === true ? "yes" : "no",
+      };
+    } else if (isZen) {
+      // Pin catalog baseURL; keep operator-customized models when present.
+      formValues = {
+        ...base,
+        baseURL: base.baseURL,
+        keyless: existing.keyless === true ? "yes" : "no",
+        models: existing.models.length > 0 ? existing.models.join(", ") : base.models,
+        defaultModel:
+          existing.defaultModel ?? existing.models[0] ?? base.defaultModel,
+      };
+    } else {
+      formValues = {
+        ...base,
+        baseURL: existing.baseURL.length > 0 ? existing.baseURL : base.baseURL,
+        keyless: existing.keyless === true ? "yes" : "no",
+        models: existing.models.length > 0 ? existing.models.join(", ") : base.models,
+        defaultModel:
+          existing.defaultModel ?? existing.models[0] ?? base.defaultModel,
+      };
+    }
+  }
+
   return {
     editingProvider: existing?.name,
     formValues,
     connectDraft: {
       anthropic: def.anthropic === true || existing?.anthropic === true,
-      opencodeGo: def.id === "opencode-go" || existing?.opencodeGo === true,
+      opencodeGo: isGo || existing?.opencodeGo === true,
     },
   };
 }
@@ -351,6 +392,8 @@ export function AgentModal({
   const [editingProfileId, setEditingProfileId] = useState<string | undefined>(undefined);
   const [profileFormError, setProfileFormError] = useState<string | null>(null);
   const [connectIndex, setConnectIndex] = useState(0);
+  const [connectPathIndex, setConnectPathIndex] = useState(0);
+  const [chooserDef, setChooserDef] = useState<FirstClassProviderDef | null>(null);
   const connectDraft = useRef<{ anthropic: boolean; opencodeGo: boolean } | null>(null);
 
   const selectedProvider = providers[providerIndex];
@@ -402,7 +445,32 @@ export function AgentModal({
 
   const enterConnectStep = (): void => {
     setConnectIndex(0);
+    setChooserDef(null);
+    setConnectPathIndex(0);
     setStep("connect");
+  };
+
+  const enterApiKeyConnectForm = (def: FirstClassProviderDef): void => {
+    // Upsert: re-Connect on an existing first-class provider re-keys in place.
+    const existing = providers.find((p) => p.name === def.id);
+    const seed = seedConnectForm(def, existing);
+    setEditingProvider(seed.editingProvider);
+    setFormValues(seed.formValues);
+    connectDraft.current = seed.connectDraft;
+    setFormIndex(3); // apiKey field
+    setFormError(null);
+    setStep("form");
+  };
+
+  const enterConnectPath = (path: FirstClassProviderPath, parent: FirstClassProviderDef): void => {
+    if (path.auth === "oauth") {
+      if (path.oauth !== undefined && onRequestLogin !== undefined) {
+        onRequestLogin(path.oauth, "default");
+      }
+      return;
+    }
+    const seeded = firstClassPathAsProvider(parent, path.id);
+    if (seeded !== undefined) enterApiKeyConnectForm(seeded);
   };
 
   const enterConnectForm = (def: FirstClassProviderDef): void => {
@@ -412,15 +480,17 @@ export function AgentModal({
       }
       return;
     }
-// Upsert: re-Connect on an existing first-class provider re-keys in place.
-    const existing = providers.find((p) => p.name === def.id);
-    const seed = seedConnectForm(def, existing);
-    setEditingProvider(seed.editingProvider);
-    setFormValues(seed.formValues);
-    connectDraft.current = seed.connectDraft;
-    setFormIndex(3); // apiKey field
-    setFormError(null);
-    setStep("form");
+    if (def.auth === "custom") {
+      enterAddForm();
+      return;
+    }
+    if (def.auth === "chooser") {
+      setChooserDef(def);
+      setConnectPathIndex(0);
+      setStep("connect-path");
+      return;
+    }
+    enterApiKeyConnectForm(def);
   };
 
   const enterEditForm = (): void => {
@@ -606,6 +676,36 @@ export function AgentModal({
       }
       if (key.escape) {
         setStep("provider");
+        return;
+      }
+      return;
+    }
+
+    if (step === "connect-path") {
+      const paths = chooserDef?.paths ?? [];
+      if (paths.length === 0) {
+        if (key.escape) {
+          setChooserDef(null);
+          setStep("connect");
+        }
+        return;
+      }
+      if (key.upArrow) {
+        setConnectPathIndex((i) => (i > 0 ? i - 1 : paths.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setConnectPathIndex((i) => (i < paths.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (key.return) {
+        const path = paths[connectPathIndex];
+        if (path !== undefined && chooserDef !== null) enterConnectPath(path, chooserDef);
+        return;
+      }
+      if (key.escape) {
+        setChooserDef(null);
+        setStep("connect");
         return;
       }
       return;
@@ -928,6 +1028,8 @@ const helpText = ((): string | null => {
         return "Up/Down navigate · Enter models · c/Ctrl+A connect · a advanced · e edit · x remove · t tiers · p profiles · Esc close";
       case "connect":
         return "Up/Down navigate · Enter connect · Esc back";
+      case "connect-path":
+        return "Up/Down navigate · Enter choose path · Esc back";
       case "tiers":
         return "Up/Down navigate · Enter add · e edit chain · m mode · c clear · Esc back";
       case "tier-chain":
@@ -985,6 +1087,7 @@ const helpText = ((): string | null => {
             const isCursor = i === providerIndex;
             const isOAuth = p.codexProfile !== undefined || p.xaiProfile !== undefined;
             const isUnauthed = isOAuth && unauthedProviders?.has(p.name) === true;
+            const productHint = billingProductHint(p);
             return (
               <Box key={p.name} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
@@ -997,6 +1100,9 @@ const helpText = ((): string | null => {
                 <Text color={color("muted")}>
                   ({p.models.length} model{p.models.length === 1 ? "" : "s"})
                 </Text>
+                {productHint !== undefined && (
+                  <Text color={color("muted")}>[{productHint}]</Text>
+                )}
                 {isUnauthed && (
                   <Text color="red"> ! not authenticated</Text>
                 )}
@@ -1025,14 +1131,42 @@ const helpText = ((): string | null => {
                   <Text color={isCursor ? color("accent") : color("text")} bold={isCursor}>
                     {def.label}
                   </Text>
-                  <Text color={color("muted")}>
-                    ({def.auth === "oauth" ? "OAuth" : "API key"})
-                  </Text>
+                  <Text color={color("muted")}>({connectAuthLabel(def.auth)})</Text>
                 </Box>
                 {isCursor && def.authHint !== undefined && (
                   <Box flexDirection="row" gap={1}>
                     <Text>{"  "}</Text>
                     <Text color={color("muted")}>{def.authHint}</Text>
+                  </Box>
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {step === "connect-path" && chooserDef !== null && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={color("muted")}>Connect {chooserDef.label}</Text>
+          {(chooserDef.paths ?? []).map((path, i) => {
+            const isCursor = i === connectPathIndex;
+            return (
+              <Box key={path.id} flexDirection="column">
+                <Box flexDirection="row" gap={1}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {isCursor ? ">" : " "}
+                  </Text>
+                  <Text color={isCursor ? color("accent") : color("text")} bold={isCursor}>
+                    {path.label}
+                  </Text>
+                  <Text color={color("muted")}>
+                    ({path.auth === "oauth" ? "OAuth" : "API key"})
+                  </Text>
+                </Box>
+                {isCursor && path.authHint !== undefined && (
+                  <Box flexDirection="row" gap={1}>
+                    <Text>{"  "}</Text>
+                    <Text color={color("muted")}>{path.authHint}</Text>
                   </Box>
                 )}
               </Box>
