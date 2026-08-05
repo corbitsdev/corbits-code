@@ -524,6 +524,14 @@ export function App({
     }
     wasWorkPrimary.current = workPrimary;
   }, [workPrimary]);
+  // Drop the /goal one-shot once Goal chrome is live so it does not stack on
+  // the brief / Work checklist (and blow the single reserved chrome row).
+  useEffect(() => {
+    if (!goalActive || commandMessage === null) return;
+    if (commandMessage === "Goal set." || commandMessage.startsWith("Goal set.")) {
+      setCommandMessage(null);
+    }
+  }, [goalActive, commandMessage]);
   const workExpanded = tasksExpanded;
   const goalChromeRows = goalChromeRowCount({
     goalActive,
@@ -1203,8 +1211,10 @@ export function App({
       />
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
-        <Box paddingX={1}>
-          <Text color="cyan">{commandMessage}</Text>
+        <Box paddingX={1} width="100%" overflow="hidden">
+          <Text color="cyan" wrap="truncate-end">
+            {commandMessage.split("\n")[0]}
+          </Text>
         </Box>
       )}
       {!taskFullScreenOpen && (
