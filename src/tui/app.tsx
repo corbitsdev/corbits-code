@@ -84,6 +84,7 @@ import {
   taskChromeRowCount,
   pluginChromeRowCount,
   extraChromeRowCount,
+  settingsNoticeRowCount,
 } from "./chrome-geometry.js";
 import { progressChromeRowCount } from "./chrome-zones.js";
 import {
@@ -196,6 +197,15 @@ export type AppProps = {
   /** One-line passive notice shown once in the top-of-scrollback banner on
    * the first run telemetry is active. Undefined/empty renders nothing. */
   telemetryNotice?: string;
+  /**
+   * Fail-open settings diagnostics (unknown keys, invalid JSON, stripped
+   * credentials). Shown as a dismissible notice on the main screen.
+   */
+  settingsDiagnostics?: readonly {
+    path: string;
+    message: string;
+    fix: string;
+  }[];
   /** Markdown release notes shown once after upgrade in the session banner. */
   whatsNewMarkdown?: string;
   /** Whether anonymous telemetry is currently enabled, for the settings toggle. */
@@ -266,6 +276,7 @@ export function App({
   subAgentSessions,
   goalApi,
   telemetryNotice,
+  settingsDiagnostics,
   whatsNewMarkdown,
   telemetryEnabled = false,
   onChangeTelemetryEnabled,
@@ -334,6 +345,14 @@ export function App({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [permissionEntries, setPermissionEntries] = useState<ScopedApproval[]>([]);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
+  // Seed from fail-open settings load so unknown/invalid keys never crash
+  // startup — the operator sees the problem and fix on the main screen.
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(() => {
+    if (settingsDiagnostics === undefined || settingsDiagnostics.length === 0) return null;
+    return settingsDiagnostics
+      .map((d) => `Settings warning: ${d.message}\n  Fix: ${d.fix}`)
+      .join("\n");
+  });
   // Tracks the live auto-mode flag so SHIFT+TAB can toggle (not only enable).
   // Seeded from config.auto / --no-auto; gate is updated via onToggleAuto.
   const [autoEnabled, setAutoEnabled] = useState(initialAuto);
@@ -549,6 +568,11 @@ export function App({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
     commandMessageRows:
       commandMessage === null ? 0 : Math.max(1, commandMessage.split("\n").length),
+    // Multi-line banner: 2 rows per diagnostic + Esc hint; 0 when dismissed.
+    settingsNoticeRows:
+      settingsNotice === null
+        ? 0
+        : settingsNoticeRowCount(settingsDiagnostics?.length ?? 0),
     goalChromeRows,
     taskChromeRows,
     pluginChromeRows,
@@ -782,6 +806,7 @@ export function App({
       copyModeOpen,
       agentsNavOpen,
       enteredSession: enteredSession !== undefined,
+      settingsNoticePresent: settingsNotice !== null,
       commandPaletteOpen: inputValue.startsWith("/") && (
         !inputValue.includes(" ") ||
         listCommands().some(
@@ -809,6 +834,7 @@ export function App({
         }
       },
       closeHookPanel: () => setHookPanelOpen(false),
+      dismissSettingsNotice: () => setSettingsNotice(null),
       scrollUp: () => activeScroll.scrollUp(visibleRows),
       scrollDown: () => activeScroll.scrollDown(visibleRows),
       scrollToBottom: () => activeScroll.scrollToBottom(),
@@ -1204,6 +1230,12 @@ export function App({
         removeCodexProfileEverywhere={removeCodexProfileEverywhere}
       />
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
+      {settingsNotice !== null && (
+        <Box paddingX={1} flexDirection="column">
+          <Text color="yellow">{settingsNotice}</Text>
+          <Text dimColor>Press Esc to dismiss settings warnings</Text>
+        </Box>
+      )}
       {commandMessage !== null && (
         <Box paddingX={1} width="100%" overflow="hidden" flexDirection="column">
           {commandMessage.split("\n").map((line, i) => (

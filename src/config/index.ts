@@ -34,6 +34,8 @@ import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
   globalSettingsPath,
   loadLocalSettings,
+  loadLocalSettingsResult,
+  type SettingsLoadDiagnostic,
   loadSettings,
   localSettingsPath,
   normalizeOpenAICompatibleBaseURL,
@@ -245,6 +247,11 @@ export type Config = {
    * providerCatalogToSettings (or re-read disk) before any persist.
    */
   settings?: Settings;
+  /**
+   * Fail-open diagnostics from local settings load (unknown keys, invalid JSON,
+   * stripped credentials). Shown on the main TUI so startup never hard-crashes.
+   */
+  settingsDiagnostics?: SettingsLoadDiagnostic[];
 };
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
@@ -262,6 +269,12 @@ export type UnconfiguredConfig = {
   globalSettingsPath: string;
   // The original error message, used for non-TUI (exec) error output.
   providerError: string;
+  /**
+   * Fail-open diagnostics from local settings load. Still threaded on the
+   * unconfigured path so junk local files surface via stderr/banner rather
+   * than disappearing when provider setup fails early.
+   */
+  settingsDiagnostics?: SettingsLoadDiagnostic[];
 };
 
 export type LoadConfigOptions = {
@@ -403,7 +416,10 @@ export async function loadConfig(
   // The per-repo selection file still applies on top of a --config source: that
   // file supplies provider definitions, while .corbits/settings.json supplies
   // the provider/model selection. CLI --provider/--model override both.
-  const local = await loadLocalSettings(localSettingsPath(cwd));
+  // Fail open on unknown/invalid local keys — never crash startup.
+  const localResult = await loadLocalSettingsResult(localSettingsPath(cwd));
+  const local = localResult.settings;
+  const settingsDiagnostics = localResult.diagnostics;
 
   const profile = await resolveProfile(cwd, profileFlag);
 
@@ -448,6 +464,9 @@ export async function loadConfig(
       command,
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
+      // Keep diagnostics even when provider setup fails early so junk local
+      // files still reach stderr (exec) / banner (TUI after onboarding).
+      ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
     };
   }
 
@@ -499,6 +518,7 @@ export async function loadConfig(
     // Codex/xAI providers that are never written to settings.json. Not safe
     // to persist as-is — use providerCatalogToSettings or re-read disk.
     ...(settingsForResolution !== null ? { settings: settingsForResolution } : {}),
+    ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
   };
 }
 

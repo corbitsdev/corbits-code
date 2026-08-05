@@ -21,6 +21,8 @@ export type KeymapContext = {
   agentsNavOpen: boolean;
   // Observing a sub-agent session (read-only enter).
   enteredSession: boolean;
+  // Fail-open settings diagnostics banner on the main screen.
+  settingsNoticePresent: boolean;
 };
 
 export type KeymapActions = {
@@ -55,6 +57,7 @@ export type KeymapActions = {
   // Abort the selected (nav) or focused (entered) running sub-agent.
   agentsNavKill: () => void;
   exitEnteredSession: () => void;
+  dismissSettingsNotice: () => void;
 };
 
 // Pure dispatch function — separated from the hook so it can be unit tested
@@ -169,6 +172,10 @@ export function handleKey(
     }
     if (context.hookPanelOpen) {
       actions.closeHookPanel();
+      return 0;
+    }
+    if (context.settingsNoticePresent) {
+      actions.dismissSettingsNotice();
       return 0;
     }
     if (now - lastEscMs <= DOUBLE_ESC_MS) {

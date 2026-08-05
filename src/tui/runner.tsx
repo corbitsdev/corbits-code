@@ -17,6 +17,7 @@ import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from
 import {
   globalSettingsPath,
   loadLocalSettings,
+  loadLocalSettingsWriteBase,
   loadGlobalSettingsWriteBase,
   loadSettings,
   localSettingsPath,
@@ -1363,6 +1364,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       globalOnboardingPath={trueGlobalSettingsPath}
       globallyOnboarded={globallyOnboarded}
       {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
+      {...(config.settingsDiagnostics !== undefined && config.settingsDiagnostics.length > 0
+        ? { settingsDiagnostics: config.settingsDiagnostics }
+        : {})}
       {...(whatsNewMarkdown !== undefined ? { whatsNewMarkdown } : {})}
       telemetryEnabled={liveTelemetryIntent}
       onChangeTelemetryEnabled={(enabled) => {
@@ -1438,8 +1442,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onChangeSessionMode={async (mode, scope) => {
         if (scope === "local") {
           const path = localSettingsPath(config.cwd);
-          const existing = (await loadLocalSettings(path).catch(() => null)) ?? {};
-          const next: LocalSettings = { ...existing, sessionMode: mode };
+          const base = await loadLocalSettingsWriteBase(path);
+          // Skip write when the file exists but is unreadable/unusable so we
+          // never wipe a broken selection down to only sessionMode.
+          if (base === null) return;
+          const next: LocalSettings = { ...base, sessionMode: mode };
           await saveLocalSettings(path, next);
         } else {
           const current = await loadSettings(config.globalSettingsPath).catch(() => null);

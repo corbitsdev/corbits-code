@@ -20,6 +20,16 @@ export async function mainWithRunners(
   runners: Runners,
 ): Promise<number> {
   const config = await loadConfig(argv, { allowUnconfigured: true });
+  // Exec has no Ink banner; unconfigured TUI goes to onboarding without the
+  // main-screen notice. Surface fail-open diagnostics on stderr for those
+  // paths so junk local files are never silent.
+  const surfaceDiagnosticsOnStderr =
+    config.command === "exec" || !config.configured;
+  if (surfaceDiagnosticsOnStderr && config.settingsDiagnostics !== undefined) {
+    for (const d of config.settingsDiagnostics) {
+      process.stderr.write(`settings: ${d.message}\n  fix: ${d.fix}\n`);
+    }
+  }
   // Always the TRUE global settings file, never config.globalSettingsPath —
   // that's the --config override file when one was given, and splitting
   // telemetry across two files means the installationId lands somewhere the
