@@ -160,7 +160,9 @@ function persistGlobalSettings(
   failPrefix: string,
 ): void {
   void saveGlobalSettings(globalSettingsPath, settings).then(
-    () => onMessage(successMessage),
+    () => {
+      if (successMessage.length > 0) onMessage(successMessage);
+    },
     (err: unknown) => {
       onMessage(`${failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
     },

@@ -74,7 +74,6 @@ export type ModalStackProps = {
   recentModels?: import("../../config/settings.js").ModelRef[];
   favoriteModels?: import("../../config/settings.js").ModelRef[];
   onToggleFavorite?: (ref: import("../../config/settings.js").ModelRef) => void;
-  onRecordRecent?: (ref: import("../../config/settings.js").ModelRef) => void;
 
   activeApproval: ActiveApproval | null;
   onApprove: (id: number) => void;
@@ -122,7 +121,6 @@ export function ModalStack({
   recentModels,
   favoriteModels,
   onToggleFavorite,
-  onRecordRecent,
   activeApproval,
   onApprove,
   onReject,
@@ -165,7 +163,6 @@ export function ModalStack({
           {...(recentModels !== undefined ? { recentModels } : {})}
           {...(favoriteModels !== undefined ? { favoriteModels } : {})}
           {...(onToggleFavorite !== undefined ? { onToggleFavorite } : {})}
-          {...(onRecordRecent !== undefined ? { onRecordRecent } : {})}
         />
       )}
       {activeApproval?.kind === "plan" && (

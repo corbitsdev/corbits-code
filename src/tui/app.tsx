@@ -441,7 +441,6 @@ export function App({
     removeXaiProvider,
     recentModels,
     favoriteModels,
-    recordRecentModel,
     toggleFavorite,
   } = providerManager;
   // Safe to mutate during render: the ref is only read later by the faremeter's
@@ -1264,7 +1263,6 @@ if (workPrimary && !wasWorkPrimary.current) {
           recentModels={recentModels}
           favoriteModels={favoriteModels}
           onToggleFavorite={toggleFavorite}
-          onRecordRecent={recordRecentModel}
           activeApproval={gates.activeApproval}
           onApprove={gates.approve}
           onReject={gates.reject}

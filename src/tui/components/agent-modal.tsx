@@ -192,8 +192,6 @@ export type AgentModalProps = {
   favoriteModels?: ModelRef[];
   /** Toggle favorite for the highlighted model (Alt+F). */
   onToggleFavorite?: (ref: ModelRef) => void;
-  /** Record a model as recently used after apply. */
-  onRecordRecent?: (ref: ModelRef) => void;
 };
 
 function initialFormValues(provider: AgentProvider | undefined): ProviderFormValues {
@@ -378,7 +376,6 @@ export function AgentModal({
   recentModels = [],
   favoriteModels = [],
   onToggleFavorite,
-  onRecordRecent,
 }: AgentModalProps): ReactNode {
   const { columns } = useTerminalSize();
   const stackFields = columns < STACK_FORM_COLUMNS;
@@ -673,7 +670,6 @@ export function AgentModal({
         if (pick === undefined) return;
         const options = supportedEfforts(pick.model, undefined, isCodexProvider(pick.provider));
         if (options.length === 0) {
-          onRecordRecent?.({ provider: pick.provider, model: pick.model });
           onApply(pick.provider, pick.model, undefined);
           onClose();
           return;
@@ -1066,13 +1062,11 @@ export function AgentModal({
           setStep("tiers");
           return;
         }
-        onRecordRecent?.({ provider: pendingProvider, model: pendingModel });
         onApply(pendingProvider, pendingModel, effort);
         onClose();
         return;
       }
       if (input === "d") {
-        onRecordRecent?.({ provider: pendingProvider, model: pendingModel });
         onPersistDefault(pendingProvider, pendingModel, effort);
         onClose();
       }
