@@ -48,7 +48,7 @@ export type AgentProvider = {
 
 export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
 
-export type ProviderFormField = "name" | "baseURL" | "keyless" | "apiKey" | "models" | "defaultModel" | "bifrostVirtualKey";
+export type ProviderFormField = "name" | "baseURL" | "keyless" | "apiKey" | "models" | "defaultModel";
 export type ProviderFormValues = Record<ProviderFormField, string>;
 type Step =
   | "provider"
@@ -62,7 +62,7 @@ type Step =
   | "profile-form"
   | "profile-delete";
 
-const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "keyless", "apiKey", "models", "defaultModel", "bifrostVirtualKey"];
+const FORM_FIELDS: readonly ProviderFormField[] = ["name", "baseURL", "keyless", "apiKey", "models", "defaultModel"];
 
 const FIELD_LABELS: Record<ProviderFormField, string> = {
   name: "Provider name",
@@ -71,7 +71,6 @@ const FIELD_LABELS: Record<ProviderFormField, string> = {
   apiKey: "API key",
   models: "Models",
   defaultModel: "Default model",
-  bifrostVirtualKey: "Bifrost virtual key",
 };
 
 const FIELD_HINTS: Record<ProviderFormField, string> = {
@@ -81,7 +80,6 @@ const FIELD_HINTS: Record<ProviderFormField, string> = {
   apiKey: "sk-...",
   models: "model-a, model-b",
   defaultModel: "optional; must be in models",
-  bifrostVirtualKey: "yes = use x-bf-vk header (Bifrost)",
 };
 
 // Project provider catalog entries carry credentials. The modal receives the
@@ -153,7 +151,6 @@ function initialFormValues(provider: AgentProvider | undefined): ProviderFormVal
     apiKey: "",
     models: provider?.models.join(", ") ?? "",
     defaultModel: provider?.defaultModel ?? provider?.models[0] ?? "",
-    bifrostVirtualKey: provider?.bifrostVirtualKey === true ? "yes" : "no",
   };
 }
 
@@ -172,7 +169,6 @@ export function validateProviderForm(
   const baseURL = values.baseURL.trim();
   const apiKey = values.apiKey.trim();
   const keyless = values.keyless === "yes";
-  const bifrostVirtualKey = values.bifrostVirtualKey === "yes";
   const models = parseModels(values.models);
   const defaultModel = values.defaultModel.trim();
 
@@ -196,7 +192,6 @@ export function validateProviderForm(
       ...(apiKey.length > 0 ? { apiKey } : {}),
       models,
       ...(defaultModel.length > 0 ? { defaultModel } : {}),
-      ...(bifrostVirtualKey ? { bifrostVirtualKey: true } : {}),
     },
   };
 }
@@ -768,13 +763,6 @@ export function AgentModal({
       }
       return;
     }
-    if (currentField === "bifrostVirtualKey") {
-      if (key.leftArrow || key.rightArrow || input === " ") {
-        setFormValues((v) => ({ ...v, bifrostVirtualKey: v.bifrostVirtualKey === "yes" ? "no" : "yes" }));
-        setFormError(null);
-      }
-      return;
-    }
     if (key.backspace || key.delete) {
       setFormValues((values) => ({ ...values, [currentField]: values[currentField].slice(0, -1) }));
       setFormError(null);
@@ -966,7 +954,6 @@ export function AgentModal({
             const showCaret =
               isCursor &&
               field !== "keyless" &&
-              field !== "bifrostVirtualKey" &&
               !(field === "apiKey" && isKeyless);
             return (
               <Box key={field} flexDirection="row" gap={1}>
@@ -975,7 +962,7 @@ export function AgentModal({
                     {FIELD_LABELS[field]}
                   </Text>
                 </Box>
-                {field === "keyless" || field === "bifrostVirtualKey" ? (
+                {field === "keyless" ? (
                   <Text color={value === "yes" ? color("accent") : color("muted")}>
                     {isCursor ? "< " : "  "}
                     {value === "yes" ? "yes" : "no"}
