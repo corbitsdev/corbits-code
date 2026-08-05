@@ -26,9 +26,8 @@ const form = (overrides: Partial<ProviderFormValues> = {}): ProviderFormValues =
   keyless: "no",
   models: "fp-large, fp-small",
   defaultModel: "fp-large",
-  bifrostVirtualKey: "no",
   ...overrides,
-} as ProviderFormValues);
+});
 
 describe("validateProviderForm", () => {
   test("creates a provider submission from comma-separated models", () => {

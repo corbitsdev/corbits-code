@@ -41,7 +41,11 @@ export function buildProviderEntry(
     ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
     ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
-    ...(submission.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+    // Form no longer exposes Bifrost; keep any previously stored flag on edit so
+    // re-saving a provider does not silently drop x-bf-vk routing.
+    ...(submission.bifrostVirtualKey === true || existing?.bifrostVirtualKey === true
+      ? { bifrostVirtualKey: true }
+      : {}),
   };
   const catalog = currentCatalog
     .filter((p) => p.name !== submission.name && p.name !== submission.originalName)
