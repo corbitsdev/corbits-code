@@ -255,10 +255,13 @@ export function CodexLoginModal({
         <Box marginTop={1} flexDirection="column">
           <Box flexDirection="row" gap={1}>
             <Text color={color("muted")}>Profile name</Text>
-            <Text color={nameValue.length > 0 ? color("text") : color("muted")}>
-              {nameValue.length > 0 ? nameValue : "personal, work, ..."}
-            </Text>
-            <Text color={color("accent")}>|</Text>
+            {/* Keep value and caret in one Box so gap does not insert a phantom space. */}
+            <Box>
+              <Text color={nameValue.length > 0 ? color("text") : color("muted")}>
+                {nameValue.length > 0 ? nameValue : "personal, work, ..."}
+              </Text>
+              <Text color={color("accent")}>|</Text>
+            </Box>
           </Box>
           {nameError !== null && (
             <Box marginTop={1}>
