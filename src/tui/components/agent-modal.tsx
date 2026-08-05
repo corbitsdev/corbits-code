@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { color } from "../theme.js";
 import { type ProviderSubmission } from "../../config/providers.js";
 import { supportedEfforts, type ReasoningEffort } from "../../provider/reasoning-effort.js";
@@ -14,6 +14,11 @@ import {
   formContentWidth,
   wrapHelpSegments,
 } from "./form-reflow.js";
+import {
+  FIRST_CLASS_PROVIDERS,
+  type FirstClassProviderDef,
+  validateGoApiKey,
+} from "../../../packages/first-class-providers/src/index.js";
 
 // Effort display: undefined means "no override" (field omitted); "none" is
 // OpenAI's explicit disable-reasoning value. Both read as "off".
@@ -51,6 +56,8 @@ export type AgentProvider = {
   codexProfile?: string;
   xaiProfile?: string;
   bifrostVirtualKey?: boolean;
+  anthropic?: boolean;
+  opencodeGo?: boolean;
 };
 
 export type { ProviderSubmission, ProviderSubmission as ProviderFormSubmission };
@@ -59,6 +66,7 @@ export type ProviderFormField = "name" | "baseURL" | "keyless" | "apiKey" | "mod
 export type ProviderFormValues = Record<ProviderFormField, string>;
 type Step =
   | "provider"
+  | "connect"
   | "model"
   | "effort"
   | "form"
@@ -103,6 +111,8 @@ export function toAgentProviders(
     codexProfile?: string;
     xaiProfile?: string;
     bifrostVirtualKey?: boolean;
+    anthropic?: boolean;
+    opencodeGo?: boolean;
   }>,
 ): AgentProvider[] {
   return entries.map((p) => ({
@@ -114,6 +124,8 @@ export function toAgentProviders(
     ...(p.codexProfile !== undefined ? { codexProfile: p.codexProfile } : {}),
     ...(p.xaiProfile !== undefined ? { xaiProfile: p.xaiProfile } : {}),
     ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+    ...(p.anthropic === true ? { anthropic: true } : {}),
+    ...(p.opencodeGo === true ? { opencodeGo: true } : {}),
   }));
 }
 
@@ -171,6 +183,7 @@ function parseModels(raw: string): string[] {
 export function validateProviderForm(
   values: ProviderFormValues,
   originalName: string | undefined,
+  extras?: { anthropic?: boolean; opencodeGo?: boolean },
 ): { ok: true; submission: ProviderSubmission } | { ok: false; error: string } {
   const name = values.name.trim();
   const baseURL = values.baseURL.trim();
@@ -188,6 +201,10 @@ export function validateProviderForm(
   if (defaultModel.length > 0 && !models.includes(defaultModel)) {
     return { ok: false, error: "Default model must be listed in models" };
   }
+  if (extras?.opencodeGo === true && apiKey.length > 0) {
+    const goKey = validateGoApiKey(apiKey);
+    if (!goKey.ok) return { ok: false, error: goKey.error };
+  }
 
   return {
     ok: true,
@@ -199,6 +216,8 @@ export function validateProviderForm(
       ...(apiKey.length > 0 ? { apiKey } : {}),
       models,
       ...(defaultModel.length > 0 ? { defaultModel } : {}),
+      ...(extras?.anthropic === true ? { anthropic: true } : {}),
+      ...(extras?.opencodeGo === true ? { opencodeGo: true } : {}),
     },
   };
 }
@@ -288,6 +307,8 @@ export function AgentModal({
   const [profileFormValues, setProfileFormValues] = useState<ProfileFormValues>(() => initialProfileFormValues(undefined));
   const [editingProfileId, setEditingProfileId] = useState<string | undefined>(undefined);
   const [profileFormError, setProfileFormError] = useState<string | null>(null);
+  const [connectIndex, setConnectIndex] = useState(0);
+  const connectDraft = useRef<{ anthropic: boolean; opencodeGo: boolean } | null>(null);
 
   const selectedProvider = providers[providerIndex];
   const models = selectedProvider?.models ?? [];
@@ -335,6 +356,39 @@ export function AgentModal({
     setStep("form");
   };
 
+  const enterConnectStep = (): void => {
+    setConnectIndex(0);
+    setStep("connect");
+  };
+
+  const enterConnectForm = (def: FirstClassProviderDef): void => {
+    if (def.auth === "oauth") {
+      if (def.oauth !== undefined && onRequestLogin !== undefined) {
+        onRequestLogin(def.oauth, "default");
+      }
+      return;
+    }
+    // Pre-seed api-key first-class providers so Connect is one key paste + save.
+    setEditingProvider(undefined);
+    setFormValues({
+      name: def.id,
+      baseURL: def.baseURL ?? "",
+      keyless: "no",
+      apiKey: "",
+      models: (def.models ?? []).join(", "),
+      defaultModel: def.defaultModel ?? def.models?.[0] ?? "",
+    });
+    // Stash first-class flags on form via a module-level connect draft so submit
+    // can attach anthropic/opencodeGo without expanding every form field.
+    connectDraft.current = {
+      anthropic: def.anthropic === true,
+      opencodeGo: def.id === "opencode-go",
+    };
+    setFormIndex(3); // apiKey field
+    setFormError(null);
+    setStep("form");
+  };
+
   const enterEditForm = (): void => {
     const provider = providers[providerIndex];
     if (provider === undefined) return;
@@ -346,7 +400,17 @@ export function AgentModal({
   };
 
   const submitForm = (): void => {
-    const result = validateProviderForm(formValues, editingProvider);
+    const draft = connectDraft.current;
+    const result = validateProviderForm(
+      formValues,
+      editingProvider,
+      draft !== null
+        ? {
+            ...(draft.anthropic ? { anthropic: true } : {}),
+            ...(draft.opencodeGo ? { opencodeGo: true } : {}),
+          }
+        : undefined,
+    );
     if (!result.ok) {
       setFormError(result.error);
       return;
@@ -356,6 +420,7 @@ export function AgentModal({
       setFormError(saved.error);
       return;
     }
+    connectDraft.current = null;
     if (pendingTierAssign !== null) {
       setStep("tiers");
     } else {
@@ -457,6 +522,14 @@ export function AgentModal({
         enterAddForm();
         return;
       }
+      if (key.ctrl && input === "a") {
+        enterConnectStep();
+        return;
+      }
+      if (input === "c") {
+        enterConnectStep();
+        return;
+      }
       if (input === "e") {
         enterEditForm();
         return;
@@ -475,6 +548,27 @@ export function AgentModal({
         return;
       }
       if (key.escape) onClose();
+      return;
+    }
+
+    if (step === "connect") {
+      if (key.upArrow) {
+        setConnectIndex((i) => (i > 0 ? i - 1 : FIRST_CLASS_PROVIDERS.length - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setConnectIndex((i) => (i < FIRST_CLASS_PROVIDERS.length - 1 ? i + 1 : 0));
+        return;
+      }
+      if (key.return) {
+        const def = FIRST_CLASS_PROVIDERS[connectIndex];
+        if (def !== undefined) enterConnectForm(def);
+        return;
+      }
+      if (key.escape) {
+        setStep("provider");
+        return;
+      }
       return;
     }
 
@@ -792,7 +886,9 @@ export function AgentModal({
 const helpText = ((): string | null => {
     switch (step) {
       case "provider":
-        return "Up/Down navigate · Enter models · a add · e edit · x remove · t tiers · p profiles · Esc close";
+        return "Up/Down navigate · Enter models · c/Ctrl+A connect · a advanced · e edit · x remove · t tiers · p profiles · Esc close";
+      case "connect":
+        return "Up/Down navigate · Enter connect · Esc back";
       case "tiers":
         return "Up/Down navigate · Enter add · e edit chain · m mode · c clear · Esc back";
       case "tier-chain":
@@ -873,6 +969,36 @@ const helpText = ((): string | null => {
               <Text color="red">Enter to re-authenticate</Text>
             </Box>
           ) : null}
+        </Box>
+      )}
+
+      {step === "connect" && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color={color("muted")}>Connect a first-class provider</Text>
+          {FIRST_CLASS_PROVIDERS.map((def, i) => {
+            const isCursor = i === connectIndex;
+            return (
+              <Box key={def.id} flexDirection="column">
+                <Box flexDirection="row" gap={1}>
+                  <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
+                    {isCursor ? ">" : " "}
+                  </Text>
+                  <Text color={isCursor ? color("accent") : color("text")} bold={isCursor}>
+                    {def.label}
+                  </Text>
+                  <Text color={color("muted")}>
+                    ({def.auth === "oauth" ? "OAuth" : "API key"})
+                  </Text>
+                </Box>
+                {isCursor && def.authHint !== undefined && (
+                  <Box flexDirection="row" gap={1}>
+                    <Text>{"  "}</Text>
+                    <Text color={color("muted")}>{def.authHint}</Text>
+                  </Box>
+                )}
+              </Box>
+            );
+          })}
         </Box>
       )}
 

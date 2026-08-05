@@ -15,7 +15,7 @@ import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "provider-auth"]);
 
-export type LoginModal = "codex" | "xai" | "choose" | null;
+export type LoginModal = "codex" | "xai" | null;
 
 export type UseProviderAuthArgs = {
   provider: string;
@@ -88,8 +88,11 @@ export function useProviderAuth({
       setAutoLoginProfile(codexName);
       setLoginModal("codex");
     } else {
+      // API-key providers: no OAuth modal — surface the failure as a command message.
       setAutoLoginProfile(undefined);
-      setLoginModal("choose");
+      setCommandMessage(
+        `Authentication failed for provider "${provider}". Reconnect from /model (c or Ctrl+A).`,
+      );
     }
   };
 

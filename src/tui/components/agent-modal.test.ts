@@ -89,7 +89,7 @@ describe("validateProviderForm", () => {
     }
   });
 
-  test("trims leading and trailing spaces on text fields at save", () => {
+test("trims leading and trailing spaces on text fields at save", () => {
     const result = validateProviderForm(
       form({
         name: "  firepass  ",
@@ -110,5 +110,40 @@ describe("validateProviderForm", () => {
         defaultModel: "fp-large",
       },
     });
+  });
+
+  test("persists anthropic and opencodeGo flags from connect extras", () => {
+    const anthropic = validateProviderForm(form({ name: "anthropic" }), undefined, {
+      anthropic: true,
+    });
+    expect(anthropic.ok).toBe(true);
+    if (anthropic.ok) {
+      expect(anthropic.submission.anthropic).toBe(true);
+      expect(anthropic.submission.opencodeGo).toBeUndefined();
+    }
+
+    const go = validateProviderForm(
+      form({ name: "opencode-go", apiKey: "sk-go-longenough" }),
+      undefined,
+      { opencodeGo: true },
+    );
+    expect(go.ok).toBe(true);
+    if (go.ok) {
+      expect(go.submission.opencodeGo).toBe(true);
+    }
+  });
+
+  test("rejects invalid OpenCode Go API keys when opencodeGo is set", () => {
+    expect(
+      validateProviderForm(form({ name: "opencode-go", apiKey: "short" }), undefined, {
+        opencodeGo: true,
+      }),
+    ).toEqual({ ok: false, error: "API key looks too short" });
+
+    expect(
+      validateProviderForm(form({ name: "opencode-go", apiKey: "has space" }), undefined, {
+        opencodeGo: true,
+      }),
+    ).toEqual({ ok: false, error: "API key must not contain whitespace" });
   });
 });
