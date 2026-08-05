@@ -15,6 +15,7 @@ import {
 } from "./event-log.js";
 import { formatElapsed } from "./in-flight-indicator.js";
 import type { ContentBlock, ContentBlockData } from "../use-stream.js";
+import { color } from "../theme.js";
 
 function asBlock(data: ContentBlockData & { id: string }): ContentBlock {
   return data as ContentBlock;
@@ -703,6 +704,25 @@ describe("flat line buffer", () => {
     for (const line of lines) {
       const len = line.reduce((n, s) => n + s.text.length, 0);
       expect(len).toBeLessThanOrEqual(width);
+    }
+  });
+
+  test("user banner spacer rows have no background while body keeps userMessageBg", () => {
+    const block: ContentBlock = { type: "user", id: "user-bg", content: "hello" };
+    const lines = buildLines([block], COLUMNS, false, isExpanded);
+    // blank spacer, body, blank spacer
+    expect(lines.length).toBe(3);
+    const bg = color("userMessageBg");
+    expect(lines[0]!.every((seg) => seg.backgroundColor === undefined)).toBe(true);
+    expect(lines[2]!.every((seg) => seg.backgroundColor === undefined)).toBe(true);
+    expect(lines[1]!.some((seg) => seg.backgroundColor === bg)).toBe(true);
+    expect(lines[1]!.every((seg) => seg.backgroundColor === bg)).toBe(true);
+  });
+
+  test("empty or whitespace user content yields no grey box", () => {
+    for (const content of ["", "   ", "\n\t"]) {
+      const block: ContentBlock = { type: "user", id: "empty-user", content };
+      expect(buildLines([block], COLUMNS, false, isExpanded)).toEqual([]);
     }
   });
 

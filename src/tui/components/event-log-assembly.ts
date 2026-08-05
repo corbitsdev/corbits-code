@@ -614,6 +614,9 @@ function blockToLines(
       // Subtle box: paint background only on content rows. Blank spacer rows
       // used to be full-width bg fills and could flash as solid grey blocks
       // during scroll/repaint when content was empty or mid-frame.
+      // plainLines/wrapRanges always yield ≥1 row (even for ""), so gate on
+      // real emptiness rather than userLines.length.
+      if (!block.content.trim()) return [];
       const bg = color("userMessageBg");
       const LEFT = 1;
       const RIGHT = 1;
@@ -624,10 +627,6 @@ function blockToLines(
         { color: color("text"), backgroundColor: bg },
         innerWidth,
       );
-      if (userLines.length === 0) {
-        // Empty user content: skip the grey box entirely.
-        return [];
-      }
       const body = userLines.map((line) => {
         const textLen = line.reduce((n, s) => n + s.text.length, 0);
         const pad = Math.max(0, innerWidth - textLen + RIGHT);
