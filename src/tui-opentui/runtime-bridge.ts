@@ -14,7 +14,6 @@ import {
   setRunState,
   type QueueItem,
   type QueueKind,
-  type RunState,
 } from "./session-queue.js"
 import {
   appendStreamRow,
@@ -25,6 +24,18 @@ import {
   type AppShell,
 } from "./shell.js"
 import type { StreamRow } from "./stream.js"
+import {
+  PRODUCTION_REACTOR_TYPES,
+  createStreamMapContext,
+  mapProductionEvent,
+  mapReactorLike as mapReactorLikeImpl,
+  type BridgeInboundEvent,
+  type ReactorLikeEvent,
+  type StreamMapContext,
+} from "./stream-event-map.js"
+
+/** Re-export map types so existing `from "./runtime-bridge"` imports keep working. */
+export type { BridgeInboundEvent, ReactorLikeEvent, StreamMapContext }
 
 /** Outbound actions the UI asks the session runtime to perform. */
 export type SessionPort = {
@@ -39,34 +50,6 @@ export type SessionPort = {
 }
 
 export type SessionPortHandlers = Partial<SessionPort>
-
-/** Canonical inbound events the bridge understands (fixtures + mapped reactor). */
-export type BridgeInboundEvent =
-  | { readonly type: "user"; readonly text: string }
-  | { readonly type: "assistant"; readonly text: string }
-  | { readonly type: "assistant.delta"; readonly text: string }
-  | {
-      readonly type: "tool_call"
-      readonly name: string
-      readonly detail?: string
-    }
-  | {
-      readonly type: "tool_result"
-      readonly name: string
-      readonly detail?: string
-      readonly isError?: boolean
-    }
-  | { readonly type: "system"; readonly text: string }
-  | { readonly type: "run"; readonly state: RunState }
-  | { readonly type: "tool.boundary" }
-  | { readonly type: "error"; readonly message: string }
-
-/** Loose reactor-shaped event (no hard dep on @intx/inference in this module). */
-export type ReactorLikeEvent = {
-  readonly type: string
-  readonly data?: unknown
-  readonly seq?: number
-}
 
 export type SessionBridge = {
   /** Apply a canonical or reactor-like event to the shell. */
@@ -139,113 +122,14 @@ function isBridgeInbound(event: {
   }
 }
 
-/** Reactor event types that must go through mapReactorLike (not bridge-native). */
-const REACTOR_TYPES = new Set([
-  "message.received",
-  "inference.start",
-  "inference.text.delta",
-  "inference.tool_call.end",
-  "tool.start",
-  "tool.done",
-  "connector.reply",
-  "reactor.done",
-  "reactor.error",
-  "inference.error",
-])
-
 /**
  * Map a reactor-like event into zero or more canonical bridge events.
- * Covers the subset needed for fixture sessions and later real wiring.
+ * Stateless (fixture-friendly). Live sessions use a StreamMapContext via handle.
  */
 export function mapReactorLike(
   event: ReactorLikeEvent,
 ): readonly BridgeInboundEvent[] {
-  const { type, data } = event
-  switch (type) {
-    case "message.received": {
-      const msg = (data as { message?: { content?: string } } | undefined)
-        ?.message
-      const text = msg?.content ?? ""
-      if (text.trim().length === 0) return []
-      return [{ type: "user", text }]
-    }
-    case "inference.start":
-      return [{ type: "run", state: "busy" }]
-    case "inference.text.delta": {
-      const token = (data as { token?: string } | undefined)?.token ?? ""
-      if (token.length === 0) return []
-      return [{ type: "assistant.delta", text: token }]
-    }
-    case "inference.tool_call.end": {
-      const d = data as { name?: string; arguments?: unknown } | undefined
-      const name = d?.name ?? "tool"
-      const detail =
-        typeof d?.arguments === "string"
-          ? d.arguments
-          : d?.arguments !== undefined
-            ? JSON.stringify(d.arguments)
-            : undefined
-      return [{ type: "tool_call", name, ...(detail ? { detail } : {}) }]
-    }
-    case "tool.start": {
-      const call = (data as { call?: { name?: string } } | undefined)?.call
-      const name = call?.name ?? "tool"
-      return [{ type: "tool_call", name }]
-    }
-    case "tool.done": {
-      const result = (
-        data as
-          | {
-              result?: {
-                callId?: string
-                content?: unknown
-                isError?: boolean
-                name?: string
-              }
-            }
-          | undefined
-      )?.result
-      const name = result?.name ?? "tool"
-      const detail =
-        typeof result?.content === "string"
-          ? result.content
-          : result?.content !== undefined
-            ? JSON.stringify(result.content)
-            : undefined
-      const out: BridgeInboundEvent = {
-        type: "tool_result",
-        name,
-        ...(detail ? { detail } : {}),
-        ...(result?.isError ? { isError: true } : {}),
-      }
-      // Tool boundary: ASAP injection point after tool result.
-      return [out, { type: "tool.boundary" }]
-    }
-    case "connector.reply": {
-      const content =
-        (data as { content?: string } | undefined)?.content ?? ""
-      if (content.trim().length === 0) return []
-      return [{ type: "assistant", text: content }]
-    }
-    case "reactor.done":
-      return [{ type: "run", state: "idle" }, { type: "tool.boundary" }]
-    case "reactor.error": {
-      const error =
-        (data as { error?: string } | undefined)?.error ?? "reactor error"
-      return [
-        { type: "error", message: error },
-        { type: "run", state: "idle" },
-      ]
-    }
-    case "inference.error": {
-      const message =
-        (data as { error?: { message?: string } } | undefined)?.error
-          ?.message ?? "inference error"
-      return [{ type: "error", message }]
-    }
-    default:
-      return []
-  }
+  return mapReactorLikeImpl(event)
 }
 
 function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
@@ -281,6 +165,8 @@ type BridgeBag = {
   port: SessionPort
   /** Accumulator for assistant.delta coalescing. */
   deltaBuf: string
+  /** callId→name / delta bookkeeping for production-shaped events. */
+  mapCtx: StreamMapContext
   disposed: boolean
 }
 
@@ -365,6 +251,7 @@ export function attachSessionBridge(
   const bag: BridgeBag = {
     port: resolvePort(handlers),
     deltaBuf: "",
+    mapCtx: createStreamMapContext(),
     disposed: false,
   }
   bridges.set(shell, bag)
@@ -372,8 +259,11 @@ export function attachSessionBridge(
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return
     // Reactor-shaped types always map first (avoids tool.done name collision).
-    if (REACTOR_TYPES.has(event.type)) {
-      for (const mapped of mapReactorLike(event as ReactorLikeEvent)) {
+    if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
+      for (const mapped of mapProductionEvent(
+        event as ReactorLikeEvent,
+        bag.mapCtx,
+      )) {
         applyInbound(shell, bag, mapped)
       }
       return

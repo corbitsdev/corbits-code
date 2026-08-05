@@ -26,6 +26,7 @@ import {
   openOperatorOverlay,
   openPermissionsOverlay,
 } from "./overlays.js"
+import { formatChromeZones } from "./chrome-state.js"
 import {
   appendStreamRow,
   createAppShell,
@@ -224,7 +225,15 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   ) {
     const on = shell.layout.heights.goal > 0
     setChromeZones(shell, {
-      goal: on ? null : "goal: Wave 7 residual surfaces + observe",
+      goal: on
+        ? null
+        : formatChromeZones({
+            goal: {
+              title: "Wave 7 residual surfaces + observe",
+              phase: "implementing",
+              status: "active",
+            },
+          }).goal,
     })
     return
   }
@@ -237,7 +246,9 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   ) {
     const on = shell.layout.heights.task > 0
     setChromeZones(shell, {
-      task: on ? null : "task: cutover readiness",
+      task: on
+        ? null
+        : formatChromeZones({ task: "cutover readiness" }).task,
     })
     return
   }
@@ -249,8 +260,13 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     shell.prompt.value.length === 0
   ) {
     const on = shell.layout.heights.agents > 0
+    // Empty list → null (hide). Demo forces a zero-live summary string when on.
     setChromeZones(shell, {
-      agents: on ? null : "agents: 0 running",
+      agents: on
+        ? null
+        : formatChromeZones({
+            agents: [],
+          }).agents ?? "agents: 0 live",
     })
     return
   }

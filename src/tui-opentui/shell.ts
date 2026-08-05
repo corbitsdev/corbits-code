@@ -49,6 +49,8 @@ import {
 import {
   DEFAULT_PALETTE_COMMANDS,
   filterPaletteCommands,
+  isResidualActionId,
+  paletteDispatchOf,
   paletteLabels,
   type PaletteActionId,
   type PaletteCommand,
@@ -112,6 +114,110 @@ export function getShellBridgeHooks(
   return shellBridgeHooks.get(shell)
 }
 
+/**
+ * Payload delivered when the operator accepts an overlay list selection.
+ * Hosts map this into ApprovalOutcome / OperatorResult / model switch.
+ */
+export type OverlaySelection = {
+  readonly kind: PrimaryOverlayKind
+  readonly index: number
+  readonly label: string
+  /** Stable id when the host provided `itemIds`; otherwise omitted. */
+  readonly id?: string
+}
+
+/**
+ * Shell-level overlay accept hooks. Host binds authz / ask_operator / settings.
+ * Kind-specific hooks win over `onSelect`. Per-open `onAccept` (on open opts)
+ * takes precedence for that open's lifetime.
+ */
+export type ShellOverlayHooks = {
+  readonly onPermission?: (selection: OverlaySelection) => void
+  readonly onOperator?: (selection: OverlaySelection) => void
+  readonly onModel?: (selection: OverlaySelection) => void
+  /** Catch-all for non-palette kinds when no kind-specific hook is set. */
+  readonly onSelect?: (selection: OverlaySelection) => void
+}
+
+const shellOverlayHooks = new WeakMap<AppShell, ShellOverlayHooks>()
+
+export function setShellOverlayHooks(
+  shell: AppShell,
+  hooks: ShellOverlayHooks,
+): void {
+  shellOverlayHooks.set(shell, hooks)
+}
+
+export function clearShellOverlayHooks(shell: AppShell): void {
+  shellOverlayHooks.delete(shell)
+}
+
+export function getShellOverlayHooks(
+  shell: AppShell,
+): ShellOverlayHooks | undefined {
+  return shellOverlayHooks.get(shell)
+}
+
+/**
+ * Injectable handler for registry-backed palette selections (`dispatch: "command"`).
+ * Residual openers still go through `runPaletteAction`. Host binds real handlers
+ * (slash command run, overlay open, etc.) without the palette importing the registry.
+ */
+export type PaletteOnCommand = (name: string) => void
+
+const shellPaletteOnCommand = new WeakMap<AppShell, PaletteOnCommand>()
+
+export function setPaletteOnCommand(
+  shell: AppShell,
+  handler: PaletteOnCommand | undefined,
+): void {
+  if (handler) shellPaletteOnCommand.set(shell, handler)
+  else shellPaletteOnCommand.delete(shell)
+}
+
+export function getPaletteOnCommand(
+  shell: AppShell,
+): PaletteOnCommand | undefined {
+  return shellPaletteOnCommand.get(shell)
+}
+
+/** Dispatch accept to per-open callback, then shell-level kind hooks. */
+function dispatchOverlayAccept(
+  shell: AppShell,
+  selection: OverlaySelection,
+  perOpen: ((selection: OverlaySelection) => void) | null,
+): void {
+  if (perOpen) {
+    perOpen(selection)
+    return
+  }
+  const hooks = getShellOverlayHooks(shell)
+  if (!hooks) return
+  switch (selection.kind) {
+    case "permissions":
+      if (hooks.onPermission) {
+        hooks.onPermission(selection)
+        return
+      }
+      break
+    case "operator":
+      if (hooks.onOperator) {
+        hooks.onOperator(selection)
+        return
+      }
+      break
+    case "model_picker":
+      if (hooks.onModel) {
+        hooks.onModel(selection)
+        return
+      }
+      break
+    default:
+      break
+  }
+  hooks.onSelect?.(selection)
+}
+
 /** Renderer surface required by the shell (CliRenderer / createTestRenderer). */
 export type ShellRenderer = Pick<
   CliRenderer,
@@ -137,6 +243,19 @@ export type AppShellOptions = {
   readonly run?: RunState
   /** Overlay list labels for inset demo. */
   readonly overlayItems?: readonly string[]
+  /**
+   * Default palette catalog when `openPalette` is called without `catalog`.
+   * Host typically passes `buildPaletteCatalog({ commands: listCommands() })`.
+   * Static array or lazy builder. Defaults to residual openers only.
+   */
+  readonly paletteCatalog?:
+    | readonly PaletteCommand[]
+    | (() => readonly PaletteCommand[])
+  /**
+   * Invoked when a registry-backed palette item is accepted (`dispatch: "command"`).
+   * Residual openers never hit this path.
+   */
+  readonly onCommand?: PaletteOnCommand
 }
 
 export type AppShell = {
@@ -412,6 +531,8 @@ type PriorOverlaySnapshot = {
   readonly list: ListViewportState
   readonly title: string
   readonly paletteCommands: readonly PaletteCommand[]
+  readonly itemIds: readonly string[]
+  readonly onAccept: ((selection: OverlaySelection) => void) | null
 }
 
 type ShellInternals = {
@@ -421,6 +542,18 @@ type ShellInternals = {
   overlayBodyRows: number | undefined
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null
+  /** Optional stable ids aligned with overlayItems for the open primary. */
+  overlayItemIds: readonly string[]
+  /** Per-open accept callback; cleared on close without invoke (Esc path). */
+  overlayOnAccept: ((selection: OverlaySelection) => void) | null
+  /**
+   * Default palette catalog (static or lazy). Used when openPalette omits catalog.
+   * Residual DEFAULT_PALETTE_COMMANDS when unset.
+   */
+  paletteCatalog:
+    | readonly PaletteCommand[]
+    | (() => readonly PaletteCommand[])
+    | null
   /** Chrome text content (empty = zone off). */
   chrome: {
     goal: string
@@ -660,9 +793,16 @@ export type OpenListOverlayOpts = {
   readonly kind?: PrimaryOverlayKind
   readonly title?: string
   readonly items?: readonly string[]
+  /** Optional stable ids aligned with `items` (permission scope ids, model ids). */
+  readonly itemIds?: readonly string[]
   readonly body?: string
   readonly activeIndex?: number
   readonly frameId?: string
+  /**
+   * Per-open accept callback. Takes precedence over shell-level overlay hooks
+   * for this open. Not invoked on Esc / closeInsetOverlay.
+   */
+  readonly onAccept?: (selection: OverlaySelection) => void
 }
 
 /**
@@ -690,6 +830,8 @@ export function openListOverlay(
           list: shell.overlayList,
           title: String(shell.overlayTitle.content),
           paletteCommands: shell.paletteCommands,
+          itemIds: bag.overlayItemIds,
+          onAccept: bag.overlayOnAccept,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -706,6 +848,19 @@ export function openListOverlay(
   shell.overlayItems = labels
   shell.overlayKind = kind
   if (!isPalette) shell.paletteCommands = []
+
+  const bag = internals.get(shell)
+  if (bag) {
+    // Palette open does not own primary accept; leave prior snapshot's callback.
+    if (!isPalette) {
+      bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
+      bag.overlayOnAccept = opts?.onAccept ?? null
+    } else if (!bag.priorOverlay) {
+      // Bare palette (no primary under it): no accept payload.
+      bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
+      bag.overlayOnAccept = opts?.onAccept ?? null
+    }
+  }
 
   const cols = Math.max(20, shell.renderer.width || 80)
   const bodyText = opts?.body ?? ""
@@ -754,15 +909,39 @@ export function openInsetOverlay(
   })
 }
 
+/** Resolve the shell's default palette catalog (injected or residual-only). */
+export function resolvePaletteCatalog(shell: AppShell): readonly PaletteCommand[] {
+  const bag = internals.get(shell)
+  const raw = bag?.paletteCatalog
+  if (raw === null || raw === undefined) return DEFAULT_PALETTE_COMMANDS
+  return typeof raw === "function" ? raw() : raw
+}
+
+/**
+ * Replace the shell default palette catalog (host rebinds after registry load).
+ * Pass null to restore residual-only DEFAULT_PALETTE_COMMANDS.
+ */
+export function setPaletteCatalog(
+  shell: AppShell,
+  catalog:
+    | readonly PaletteCommand[]
+    | (() => readonly PaletteCommand[])
+    | null,
+): void {
+  const bag = internals.get(shell)
+  if (bag) bag.paletteCatalog = catalog
+}
+
 /**
  * Open Amp-class command palette (Ctrl+O).
  * Chord reclaimed from tool-expand — document in interaction contract.
+ * Catalog: opts.catalog → shell default (injected registry build) → residuals.
  */
 export function openPalette(
   shell: AppShell,
   opts?: { readonly query?: string; readonly catalog?: readonly PaletteCommand[] },
 ): void {
-  const catalog = opts?.catalog ?? DEFAULT_PALETTE_COMMANDS
+  const catalog = opts?.catalog ?? resolvePaletteCatalog(shell)
   const filtered = filterPaletteCommands(opts?.query ?? "", catalog)
   const commands = filtered.length > 0 ? filtered : []
   const labels =
@@ -789,6 +968,11 @@ export function closeInsetOverlay(shell: AppShell): void {
   shell.overlayBodyLines = []
   shell.paletteCommands = []
   clearOverlayBody(shell)
+  // Esc / dismiss: drop accept path without invoking callbacks.
+  if (bag && !prior) {
+    bag.overlayItemIds = []
+    bag.overlayOnAccept = null
+  }
 
   // Pop exactly one frame (palette or overlay).
   if (
@@ -807,6 +991,8 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.overlayList = prior.list
     shell.paletteCommands = prior.paletteCommands
     shell.overlayTitle.content = prior.title
+    bag.overlayItemIds = prior.itemIds
+    bag.overlayOnAccept = prior.onAccept
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -851,7 +1037,7 @@ export function pageOverlaySelection(shell: AppShell, dir: -1 | 1): void {
   paintOverlayList(shell)
 }
 
-/** Accept active overlay item → system line + close (palette dispatches action). */
+/** Accept active overlay item → callback + system line + close (palette dispatches action). */
 export function acceptOverlaySelection(shell: AppShell): void {
   if (!shell.overlayList) return
   const idx = shell.overlayList.activeIndex
@@ -861,7 +1047,7 @@ export function acceptOverlaySelection(shell: AppShell): void {
   if (kind === "palette") {
     const cmd = shell.paletteCommands[idx]
     closeInsetOverlay(shell)
-    if (cmd) runPaletteAction(shell, cmd.id)
+    if (cmd) dispatchPaletteSelection(shell, cmd)
     else {
       appendStreamRow(shell, {
         role: "system",
@@ -872,15 +1058,61 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return
   }
 
+  const bag = internals.get(shell)
+  const id = bag?.overlayItemIds[idx]
+  const selection: OverlaySelection = {
+    kind,
+    index: idx,
+    label,
+    ...(id !== undefined ? { id } : {}),
+  }
+  // Capture before close clears per-open state.
+  const perOpen = bag?.overlayOnAccept ?? null
+
   appendStreamRow(shell, {
     role: "system",
     text: `chose (${kind}): ${label}`,
     meta: "overlay",
   })
   closeInsetOverlay(shell)
+  dispatchOverlayAccept(shell, selection, perOpen)
 }
 
-/** Run a palette action after the palette has closed. */
+/**
+ * Dispatch a selected palette item after the palette has closed.
+ * - residual → `runPaletteAction` (overlays / chrome)
+ * - command → injectable `onCommand(name)` (registry slash path)
+ */
+export function dispatchPaletteSelection(
+  shell: AppShell,
+  cmd: PaletteCommand,
+): void {
+  const dispatch = paletteDispatchOf(cmd)
+  if (dispatch === "command") {
+    const onCommand = getPaletteOnCommand(shell)
+    if (onCommand) {
+      onCommand(cmd.id)
+      return
+    }
+    appendStreamRow(shell, {
+      role: "system",
+      text: `palette: /${cmd.id} (no onCommand handler)`,
+      meta: "palette",
+    })
+    return
+  }
+  if (isResidualActionId(cmd.id)) {
+    runPaletteAction(shell, cmd.id)
+    return
+  }
+  appendStreamRow(shell, {
+    role: "system",
+    text: `palette: unknown residual ${cmd.id}`,
+    meta: "palette",
+  })
+}
+
+/** Run a residual palette action after the palette has closed. */
 export function runPaletteAction(
   shell: AppShell,
   id: PaletteActionId,
@@ -1210,6 +1442,8 @@ export function createAppShell(
   const mount = options?.mount !== false
   const run = options?.run ?? "busy"
   const overlayItems = options?.overlayItems ?? [...DEFAULT_OVERLAY_ITEMS]
+  const paletteCatalogOpt = options?.paletteCatalog ?? null
+  const onCommandOpt = options?.onCommand
 
   const terminal = terminalOf(renderer, options?.terminal)
   const layout = resolveGeometry({
@@ -1578,8 +1812,12 @@ export function createAppShell(
     overlayMode: "closed",
     overlayBodyRows: undefined,
     priorOverlay: null,
+    overlayItemIds: [],
+    overlayOnAccept: null,
+    paletteCatalog: paletteCatalogOpt,
     chrome: { goal: "", task: "", agents: "" },
   })
+  if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)
   applyLayout(shell, layout)
   applyFocus(shell)
   return shell
