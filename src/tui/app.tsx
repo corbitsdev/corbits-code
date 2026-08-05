@@ -525,10 +525,10 @@ export function App({
     wasWorkPrimary.current = workPrimary;
   }, [workPrimary]);
   // Drop the /goal one-shot once Goal chrome is live so it does not stack on
-  // the brief / Work checklist (and blow the single reserved chrome row).
+  // the brief / Work checklist (and blow the reserved chrome rows).
   useEffect(() => {
     if (!goalActive || commandMessage === null) return;
-    if (commandMessage === "Goal set." || commandMessage.startsWith("Goal set.")) {
+    if (commandMessage.startsWith("Goal set.")) {
       setCommandMessage(null);
     }
   }, [goalActive, commandMessage]);
@@ -552,7 +552,8 @@ export function App({
 
   const extraChromeRows = extraChromeRowCount({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
-    commandMessagePresent: commandMessage !== null,
+    commandMessageRows:
+      commandMessage === null ? 0 : Math.max(1, commandMessage.split("\n").length),
     goalChromeRows,
     taskChromeRows,
     pluginChromeRows,
@@ -1211,10 +1212,12 @@ export function App({
       />
       {mcpStatus.needsAuth.length > 0 && <McpAuthPrompt servers={mcpStatus.needsAuth} />}
       {commandMessage !== null && (
-        <Box paddingX={1} width="100%" overflow="hidden">
-          <Text color="cyan" wrap="truncate-end">
-            {commandMessage.split("\n")[0]}
-          </Text>
+        <Box paddingX={1} width="100%" overflow="hidden" flexDirection="column">
+          {commandMessage.split("\n").map((line, i) => (
+            <Text key={i} color="cyan" wrap="truncate-end">
+              {line}
+            </Text>
+          ))}
         </Box>
       )}
       {!taskFullScreenOpen && (
