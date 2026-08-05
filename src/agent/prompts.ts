@@ -62,7 +62,7 @@ export function buildHarnessFacts(
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
     "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
-    "- Shell find, rg, and grep -r are blocked — they OOM the host. Use grep, search_files, and list_dir.",
+    "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/search_files tools.",
     ...(subAgent
       ? [
           "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
@@ -103,7 +103,7 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "Tool choice:",
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs.",
-    "- run_shell for builds, tests, git, and one-off commands — not for find, rg, grep -r, cat, or messaging the user.",
+    "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
       : ["- tool_search before assuming a plugin or MCP tool exists; use_skill before work covered by a listed skill."]),
@@ -185,9 +185,9 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
   delete_file: "delete one file with an explicit outcome (never shell rm)",
   run_shell: "run a shell command (builds, tests, git; 15s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
-  search_files: "find files by name or pattern (bounded; prefer over shell find)",
-  grep: "search file contents (bounded; prefer over shell grep -r/rg)",
-  list_dir: "list a directory's entries (use instead of ls or find)",
+  search_files: "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
+  grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg)",
+  list_dir: "list a directory's entries (bounded listing)",
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
