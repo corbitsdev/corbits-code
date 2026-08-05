@@ -822,7 +822,7 @@ export function AgentModal({
       paddingY={1}
       marginX={1}
       marginY={1}
-      width={Math.max(16, columns - 2)}
+      width={Math.max(1, columns - 2)}
     >
       <Text bold color={color("accent")}>
         Agent Configuration

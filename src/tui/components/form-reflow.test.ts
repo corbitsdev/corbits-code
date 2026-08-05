@@ -23,6 +23,27 @@ describe("fitTrailingText", () => {
     expect(fitTrailingText("x", 0)).toBe("");
     expect(fitTrailingText("x", -3)).toBe("");
   });
+
+  test("truncates by display width for CJK (two cells each)", () => {
+    // "你好世界" is 8 cells; budget 5 → "…" (1) + last two chars (4) = 5
+    expect(fitTrailingText("你好世界", 5)).toBe("…世界");
+  });
+
+  test("truncates by display width for emoji", () => {
+    // each rocket is 2 cells; budget 5 → "…" (1) + two rockets (4) = 5
+    expect(fitTrailingText("🚀🚀🚀🚀", 5)).toBe("…🚀🚀");
+  });
+
+  test("never exceeds the column budget after truncation", () => {
+    const samples = ["hello world", "你好世界测试", "a🚀b🚀c🚀d", "abcdefghijklmnopqrstuvwxyz"];
+    for (const text of samples) {
+      for (const width of [1, 2, 3, 5, 8, 10]) {
+        const out = fitTrailingText(text, width);
+        // stringWidth is exercised via the public API; Bun.stringWidth matches.
+        expect(Bun.stringWidth(out)).toBeLessThanOrEqual(Math.max(0, width));
+      }
+    }
+  });
 });
 
 describe("wrapHelpSegments", () => {
@@ -43,7 +64,7 @@ describe("wrapHelpSegments", () => {
     const lines = wrapHelpSegments(formHelp, 40);
     expect(lines.length).toBeGreaterThan(1);
     for (const line of lines) {
-      expect(line.length).toBeLessThanOrEqual(40);
+      expect(Bun.stringWidth(line)).toBeLessThanOrEqual(40);
     }
     expect(lines.join(" · ")).toContain("Up/Down fields");
     expect(lines.join(" · ")).toContain("Esc cancel");
@@ -54,7 +75,7 @@ describe("wrapHelpSegments", () => {
       const lines = wrapHelpSegments(formHelp, width);
       expect(lines.length).toBeGreaterThan(0);
       for (const line of lines) {
-        expect(line.length).toBeLessThanOrEqual(Math.max(8, width));
+        expect(Bun.stringWidth(line)).toBeLessThanOrEqual(Math.max(8, width));
       }
     }
   });
