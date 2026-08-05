@@ -131,4 +131,52 @@ describe("normalizeInferenceErrorForRetry", () => {
     };
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
+
+  test("known-Go bare 429 without Console Go markers reclassifies as rate_limit", () => {
+    // intx defaults 429 → quota_exhausted; without body markers the old path
+    // left that category in place. Known-Go context must reclassify.
+    const bare = {
+      category: "quota_exhausted" as const,
+      message: "Too Many Requests",
+      statusCode: 429,
+      raw: { error: { message: "Too Many Requests" } },
+    };
+
+    // Without Go context, leave intx's classification alone.
+    expect(normalizeInferenceErrorForRetry(bare)).toEqual(bare);
+
+    const viaRequestURL = normalizeInferenceErrorForRetry({
+      ...bare,
+      requestURL: "https://opencode.ai/zen/go/v1/chat/completions",
+    });
+    expect(viaRequestURL.category).toBe("retryable");
+    // Bare 429 keeps the original message and appends a short retry hint.
+    expect(viaRequestURL.message.toLowerCase()).toMatch(/too many requests|rate limit/);
+
+    const viaProviderId = normalizeInferenceErrorForRetry({
+      ...bare,
+      providerId: "opencode-go",
+    });
+    expect(viaProviderId.category).toBe("retryable");
+
+    const viaFlag = normalizeInferenceErrorForRetry({
+      ...bare,
+      opencodeGo: true,
+    });
+    expect(viaFlag.category).toBe("retryable");
+  });
+
+  test("403 with usage-limit body reclassifies as quota_exhausted", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "credential_failure",
+      message: "forbidden",
+      statusCode: 403,
+      raw: {
+        type: "error",
+        error: { type: "GoUsageLimitError", message: "subscription usage limit reached" },
+      },
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.message.toLowerCase()).toMatch(/usage limit|quota/);
+  });
 });

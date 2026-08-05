@@ -204,6 +204,36 @@ describe("parseGoAPIError", () => {
     expect(parsed?.category).toBe("auth");
   });
 
+  test("classifies 403 with usage-limit body as quota_exhausted not unauthorized", () => {
+    const parsed = parseGoAPIError({
+      statusCode: 403,
+      body: {
+        type: "error",
+        error: { type: "GoUsageLimitError", message: "subscription usage limit reached" },
+      },
+    });
+    expect(parsed?.kind).toBe("quota_exhausted");
+    expect(parsed?.category).toBe("quota_exhausted");
+  });
+
+  test("classifies 403 without limit markers as unauthorized", () => {
+    const parsed = parseGoAPIError({
+      statusCode: 403,
+      body: { error: { message: "forbidden" } },
+    });
+    expect(parsed?.kind).toBe("unauthorized");
+    expect(parsed?.category).toBe("auth");
+  });
+
+  test("bare 429 without body markers is retryable rate_limit", () => {
+    const parsed = parseGoAPIError({
+      statusCode: 429,
+      body: { error: { message: "Too Many Requests" } },
+    });
+    expect(parsed?.kind).toBe("rate_limit");
+    expect(parsed?.category).toBe("retryable");
+  });
+
   test("returns undefined for unrelated 500 bodies", () => {
     const parsed = parseGoAPIError({
       statusCode: 500,

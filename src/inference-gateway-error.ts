@@ -1,5 +1,9 @@
 import type { InferenceError } from "@intx/types/runtime";
-import { isOpenCodeGoURL, parseGoAPIError } from "../packages/opencode-go/src/index.js";
+import {
+  isOpenCodeGoURL,
+  OPENCODE_GO_PROVIDER_ID,
+  parseGoAPIError,
+} from "../packages/opencode-go/src/index.js";
 
 export type InferenceErrorLike = {
   category: string;
@@ -9,7 +13,20 @@ export type InferenceErrorLike = {
   retryAfterMs?: number;
   /** Optional request base/url when known — used to scope Go error reclassification. */
   requestURL?: string;
+  /** Provider catalog id when known (e.g. opencode-go). */
+  providerId?: string;
+  /** Explicit OpenCode Go provider flag when known. */
+  opencodeGo?: boolean;
 };
+
+/** Optional Go context callers may attach so bare 429s reclassify without body markers. */
+export type OpenCodeGoErrorContext = {
+  requestURL?: string;
+  providerId?: string;
+  opencodeGo?: boolean;
+};
+
+export type InferenceErrorWithGoContext = InferenceError & OpenCodeGoErrorContext;
 
 const GATEWAY_OVERLOAD_STATUS_CODES = new Set([502, 503, 504]);
 
@@ -94,35 +111,50 @@ function tryParseJSON(text: string): unknown {
 }
 
 /**
- * Reclassify OpenCode Go quota / rate-limit / auth failures when the body
- * carries Go-specific error types (or the gateway mis-statused a limit as 400).
+ * True when the error is known to come from OpenCode Go — via explicit
+ * provider context (id / flag / request URL) or Go-specific body markers.
+ * Do not match bare `provider_rate_limit_exceeded` alone; other proxies use it.
  */
-export function normalizeOpenCodeGoInferenceError(error: InferenceError): InferenceError {
+function isKnownOpenCodeGoError(error: InferenceErrorWithGoContext, rawText: string, messageText: string): boolean {
+  if (error.opencodeGo === true) return true;
+  if (error.providerId === OPENCODE_GO_PROVIDER_ID) return true;
+  if (isOpenCodeGoURL(error.requestURL)) return true;
+  if (isOpenCodeGoURL(rawText)) return true;
+  return /GoUsageLimitError|FreeUsageLimitError|BlackUsageLimitError|Console Go|opencode\.ai\/zen\/go/i.test(
+    `${messageText}\n${rawText}`,
+  );
+}
+
+/**
+ * Reclassify OpenCode Go quota / rate-limit / auth failures when the request is
+ * known to be Go (provider id / opencodeGo / requestURL) or the body carries
+ * Go-specific error types (including HTTP 400/403 mis-status).
+ *
+ * intx defaults bare 429 → quota_exhausted; for known-Go contexts a bare 429
+ * reclassifies as retryable rate_limit so short limits are not treated as
+ * long-window quota exhaustion.
+ */
+export function normalizeOpenCodeGoInferenceError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
   const statusCode = error.statusCode;
   if (statusCode === undefined) return error;
 
   const rawText = stringFromRaw(error.raw);
   const messageText = error.message ?? "";
+  if (!isKnownOpenCodeGoError(error, rawText, messageText)) return error;
+
   const bodyFromRaw =
     error.raw !== undefined && typeof error.raw === "object"
       ? error.raw
       : tryParseJSON(rawText.length > 0 ? rawText : messageText);
+  // Empty body is fine for known-Go bare 429/403 reclassification.
   const body =
     bodyFromRaw !== undefined
       ? bodyFromRaw
       : messageText.length > 0
         ? { error: { message: messageText } }
-        : undefined;
-  if (body === undefined) return error;
-
-  // Prefer Go-specific type names / host markers. Do not match bare
-  // `provider_rate_limit_exceeded` alone — other OpenAI-compatible proxies use it.
-  const looksGo =
-    isOpenCodeGoURL(rawText) ||
-    /GoUsageLimitError|FreeUsageLimitError|BlackUsageLimitError|Console Go|opencode\.ai\/zen\/go/i.test(
-      `${messageText}\n${rawText}`,
-    );
-  if (!looksGo) return error;
+        : {};
 
   const parsed = parseGoAPIError({ statusCode, body });
   if (parsed === undefined) return error;
@@ -151,7 +183,9 @@ export function normalizeOpenCodeGoInferenceError(error: InferenceError): Infere
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
  * Go quota/rate-limit shapes (including HTTP 400 mis-status).
  */
-export function normalizeInferenceErrorForRetry(error: InferenceError): InferenceError {
+export function normalizeInferenceErrorForRetry(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
   const goNormalized = normalizeOpenCodeGoInferenceError(error);
   if (goNormalized !== error) return goNormalized;
 

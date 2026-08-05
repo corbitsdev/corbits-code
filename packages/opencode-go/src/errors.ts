@@ -228,20 +228,8 @@ export function parseGoAPIError(args: {
   const quota = looksLikeQuota(typeName, code, message);
   const rateLimit = !quota && looksLikeRateLimit(typeName, code, message);
 
-  // Auth
-  if (statusCode === 401 || statusCode === 403) {
-    return {
-      kind: "unauthorized",
-      category: "auth",
-      message: userMessageFor("unauthorized", message, undefined),
-      statusCode,
-      ...(typeName !== undefined ? { typeName } : {}),
-      ...(code !== undefined ? { code } : {}),
-      ...(workspace !== undefined ? { workspace } : {}),
-    };
-  }
-
-  // Quota: 429/402/400 with GoUsageLimitError (or message markers).
+  // Quota before auth: the gateway has returned 403 with usage-limit bodies.
+  // Clear quota markers must not be swallowed as unauthorized.
   // 400 is intentional — the gateway has been observed returning 400 for limit hits.
   if (quota && (statusCode === 429 || statusCode === 402 || statusCode === 400 || statusCode === 403)) {
     return {
@@ -270,7 +258,22 @@ export function parseGoAPIError(args: {
     };
   }
 
+  // Auth after quota/rate-limit so marker-bearing 403s are not misclassified.
+  if (statusCode === 401 || statusCode === 403) {
+    return {
+      kind: "unauthorized",
+      category: "auth",
+      message: userMessageFor("unauthorized", message, undefined),
+      statusCode,
+      ...(typeName !== undefined ? { typeName } : {}),
+      ...(code !== undefined ? { code } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
+    };
+  }
+
   // Bare 429 without body markers — treat as retryable rate limit.
+  // Callers must only invoke parseGoAPIError for known-Go contexts; bare 429
+  // from other proxies stays outside this path.
   if (statusCode === 429) {
     return {
       kind: "rate_limit",

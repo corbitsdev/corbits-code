@@ -90,4 +90,23 @@ describe("buildProviderEntry protocol flag preservation", () => {
     if (!result.ok) return;
     expect(result.entry.opencodeGo).toBe(true);
   });
+
+  test("empty-key re-Connect preserves existing apiKey", () => {
+    // Re-Connect / edit without re-entering the key must keep the catalog secret.
+    const result = buildProviderEntry(
+      {
+        originalName: "opencode-go",
+        name: "opencode-go",
+        baseURL: "https://opencode.ai/zen/go/v1",
+        models: ["kimi-k2.7-code", "minimax-m3"],
+        defaultModel: "kimi-k2.7-code",
+        opencodeGo: true,
+      },
+      [goEntry()],
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.apiKey).toBe("sk-go-longenough");
+    expect(result.entry.opencodeGo).toBe(true);
+  });
 });
