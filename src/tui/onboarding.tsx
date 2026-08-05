@@ -30,7 +30,7 @@ const FIELD_LABELS: Record<Field, string> = {
 };
 
 const FIELD_HINTS: Record<Field, string> = {
-  name: "openai, anthropic, fireworks, ...",
+  name: "openai, anthropic, ollama, ...",
   baseURL: "https://api.openai.com/v1",
   apiKey: "sk-... (blank for keyless/local)",
   model: "gpt-4o",
