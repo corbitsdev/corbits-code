@@ -277,10 +277,13 @@ export function OperatorModal({
       </Box>
       {typing ? (
         <Box flexDirection="column">
+          {/* gap only between › and value — never between value and caret */}
           <Box flexDirection="row" gap={1}>
             <Text color={color("brand")} bold>›</Text>
-            <Text color={color("text")}>{draft}</Text>
-            <Text color={color("brand")}>▌</Text>
+            <Box>
+              <Text color={color("text")}>{draft}</Text>
+              <Text color={color("brand")}>▌</Text>
+            </Box>
           </Box>
           <Box marginTop={1}>
             <Text color={color("muted")}>Enter to confirm · Esc to cancel</Text>
