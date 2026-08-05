@@ -417,6 +417,7 @@ Policy: **minimal Ink patch only if daily-use blocker**; otherwise link as relat
 
 ## 14. References
 
+- Layout constitution: `docs/tui-layout-constitution.md` (principles, zone registry, geometry contract, kill list)
 - Product brief: `briefs/tui-rebuild-opentui.md`
 - Product UX claims: `docs/PRODUCT.md` (TUI section)
 - Architecture: `docs/ARCHITECTURE.md`
