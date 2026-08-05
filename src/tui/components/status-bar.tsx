@@ -26,6 +26,9 @@ export type StatusBarProps = {
   // Available terminal columns, used to drop/truncate low-priority segments
   // (model/cwd/branch, then cost/context) before running out of room.
   columns?: number;
+  // Optional subscription usage (e.g. OpenCode Go). Dropped before cost when
+  // the terminal is narrow; omitted entirely when unavailable/failed.
+  subscriptionLabel?: string;
 };
 
 // Color thresholds for the context-usage meter, tied to the same fractions
@@ -85,12 +88,14 @@ export type StatusBarLayoutArgs = {
   gitBranch?: string;
   costLabel?: string;
   contextLabel?: string;
+  subscriptionLabel?: string;
 };
 
 export type StatusBarLayout = {
   modelCwdBranchText?: string;
   showCost: boolean;
   showContext: boolean;
+  showSubscription: boolean;
 };
 
 function usedColumns(segments: (string | undefined)[]): number {
@@ -109,13 +114,14 @@ function joinModelCwdBranch(model?: string, cwd?: string, gitBranch?: string): s
 }
 
 // Decides which low-priority segments fit in the terminal width. Priority
-// (highest to lowest, dropped first when narrow): brand+agents > MCP >
-// model/cwd/branch > cost > context. Only the cwd part is truncated — model
-// and branch names stay intact; if the cwd cannot absorb the overflow the
-// whole model/cwd/branch segment is dropped.
+// (highest to lowest, dropped first when narrow): brand+timer > MCP >
+// model/cwd/branch > subscription > cost > context. Only the cwd part is
+// truncated — model and branch names stay intact; if the cwd cannot absorb
+// the overflow the whole model/cwd/branch segment is dropped.
 export function planStatusBarLayout(args: StatusBarLayoutArgs): StatusBarLayout {
   let cwd = args.cwd;
   let segment = joinModelCwdBranch(args.model, cwd, args.gitBranch);
+  let showSubscription = args.subscriptionLabel !== undefined;
   let showCost = args.costLabel !== undefined;
   let showContext = args.contextLabel !== undefined;
 
@@ -124,6 +130,7 @@ export function planStatusBarLayout(args: StatusBarLayoutArgs): StatusBarLayout 
       BRAND,
       args.agentsText,
       segment,
+      showSubscription ? args.subscriptionLabel : undefined,
       showCost ? args.costLabel : undefined,
       showContext ? args.contextLabel : undefined,
       args.mcpText,
@@ -131,6 +138,7 @@ export function planStatusBarLayout(args: StatusBarLayoutArgs): StatusBarLayout 
 
   if (overflow() > 0 && showContext) showContext = false;
   if (overflow() > 0 && showCost) showCost = false;
+  if (overflow() > 0 && showSubscription) showSubscription = false;
   if (overflow() > 0 && segment !== undefined) {
     const cwdBudget = cwd !== undefined ? cwd.length - overflow() : 0;
     if (cwd !== undefined && cwdBudget >= MIN_TRUNCATED_CWD) {
@@ -143,6 +151,7 @@ export function planStatusBarLayout(args: StatusBarLayoutArgs): StatusBarLayout 
 
   return {
     ...(segment !== undefined ? { modelCwdBranchText: segment } : {}),
+    showSubscription,
     showCost,
     showContext,
   };
@@ -170,13 +179,14 @@ export function StatusBar({
   cwd,
   gitBranch,
   columns,
+  subscriptionLabel,
 }: StatusBarProps): ReactNode {
   const agentsText =
     completedAgentsLabel !== undefined && completedAgentsLabel.length > 0
       ? completedAgentsLabel
       : undefined;
   const mcpText = mcpCount > 0 ? `MCP ✓ ${mcpCount}` : undefined;
-  const { modelCwdBranchText, showCost, showContext } = planStatusBarLayout({
+  const { modelCwdBranchText, showCost, showContext, showSubscription } = planStatusBarLayout({
     columns: columns ?? 120,
     ...(agentsText !== undefined ? { agentsText } : {}),
     ...(mcpText !== undefined ? { mcpText } : {}),
@@ -185,6 +195,7 @@ export function StatusBar({
     ...(gitBranch != null ? { gitBranch } : {}),
     ...(costLabel !== undefined ? { costLabel } : {}),
     ...(contextLabel !== undefined ? { contextLabel } : {}),
+    ...(subscriptionLabel !== undefined ? { subscriptionLabel } : {}),
   });
   const meterTone = contextMeterTone(contextPercentUsed);
   const meterRole = contextMeterRole(meterTone);
@@ -199,6 +210,9 @@ export function StatusBar({
       )}
       {modelCwdBranchText !== undefined && (
         <Text color={color("muted")} dimColor wrap="truncate-end">{modelCwdBranchText}</Text>
+      )}
+      {showSubscription && subscriptionLabel !== undefined && (
+        <Text color={color("muted")} dimColor>{subscriptionLabel}</Text>
       )}
       {showCost && costLabel !== undefined && (
         <Text color={color("muted")} dimColor>{costLabel}</Text>
