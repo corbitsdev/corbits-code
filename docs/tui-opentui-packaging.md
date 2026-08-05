@@ -6,7 +6,7 @@
 **Runtime:** Bun (`package.json` engines: `bun >= 1.2`)  
 **Platform priority:** macOS #1 · Linux #2 · Windows non-blocking  
 
-This document answers how OpenTUI natives install for contributors and CI, which matrix cells are required, and how to diagnose missing/wrong-arch binaries. It does **not** add OpenTUI to the root `package.json` and does **not** edit CI configs — those land when the migration branch productionizes the dependency.
+This document answers how OpenTUI natives install for contributors and CI, which matrix cells are required, and how to diagnose missing/wrong-arch binaries. Root `package.json` on `migration/opentui-tui` now depends on OpenTUI (see §1); CI configs are still unchanged.
 
 ---
 
@@ -46,7 +46,7 @@ Resolution (Bun path): `@opentui/core` dynamically imports the matching `@opentu
 
 ## 2. Contributor install (clean machine)
 
-Root Corbits does **not** depend on OpenTUI yet. Until cutover, use the isolated spike tree (or a future migration-branch install).
+On **main**, root Corbits does not depend on OpenTUI. On `migration/opentui-tui`, root depends on OpenTUI and `bun install` pulls the host native package. The isolated spike tree under `tmp/opentui-spike` remains useful for re-running spike scripts.
 
 ### Prerequisites
 
@@ -109,7 +109,7 @@ bun install --frozen-lockfile
 bun run test:tui   # or whatever harness lands with the platform
 ```
 
-**Do not** add `@opentui/*` to root `package.json` on main until cutover policy allows it (`docs/tui-migration-cutover.md`).
+**Do not** add `@opentui/*` to root `package.json` on **main** until cutover policy allows it (`docs/tui-migration-cutover.md`). On branch `migration/opentui-tui`, root already depends on `@opentui/core@0.5.1`, `@opentui/solid@0.5.1`, `@opentui/keymap@0.5.1`, and `solid-js@1.9.14` (scaffold under `src/tui-opentui/`; not wired to the `corbits` CLI yet).
 
 ### Solid contributor notes
 
