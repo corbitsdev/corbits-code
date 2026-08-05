@@ -55,6 +55,32 @@ import {
   type StreamRow,
 } from "./stream.js"
 
+/** Optional Wave-4 bridge hooks (runtime-bridge attaches exclusively). */
+export type ShellBridgeHooks = {
+  onSubmit: (text: string, kind: "queue" | "steer" | "immediate") => void
+  onInterrupt: () => void
+  exclusive: boolean
+}
+
+const shellBridgeHooks = new WeakMap<AppShell, ShellBridgeHooks>()
+
+export function setShellBridgeHooks(
+  shell: AppShell,
+  hooks: ShellBridgeHooks,
+): void {
+  shellBridgeHooks.set(shell, hooks)
+}
+
+export function clearShellBridgeHooks(shell: AppShell): void {
+  shellBridgeHooks.delete(shell)
+}
+
+export function getShellBridgeHooks(
+  shell: AppShell,
+): ShellBridgeHooks | undefined {
+  return shellBridgeHooks.get(shell)
+}
+
 /** Renderer surface required by the shell (CliRenderer / createTestRenderer). */
 export type ShellRenderer = Pick<
   CliRenderer,
@@ -394,6 +420,15 @@ export function submitPrompt(
   const t = text.trim()
   if (t.length === 0) return
 
+  const hooks = getShellBridgeHooks(shell)
+  if (hooks?.exclusive) {
+    shell.prompt.value = ""
+    const resolved: "queue" | "steer" | "immediate" =
+      shell.session.run === "idle" ? "immediate" : kind
+    hooks.onSubmit(text, resolved)
+    return
+  }
+
   if (shell.session.run === "idle") {
     appendStreamRow(shell, { role: "user", text: t })
     shell.prompt.value = ""
@@ -412,8 +447,8 @@ export function submitPrompt(
   paintStatus(shell)
 }
 
-/** Ctrl+C interrupt path: clear pending, flash, idle. */
-export function interruptShell(shell: AppShell): void {
+/** Local interrupt mutation (no bridge re-entry). */
+export function applyShellInterrupt(shell: AppShell): void {
   const had = badgeCount(shell.session)
   shell.session = interrupt(shell.session)
   shell.prompt.value = ""
@@ -423,6 +458,16 @@ export function interruptShell(shell: AppShell): void {
     meta: "stop",
   })
   paintStatus(shell)
+}
+
+/** Ctrl+C interrupt path: clear pending, flash, idle. */
+export function interruptShell(shell: AppShell): void {
+  const hooks = getShellBridgeHooks(shell)
+  if (hooks?.exclusive) {
+    hooks.onInterrupt()
+    return
+  }
+  applyShellInterrupt(shell)
 }
 
 export function clearShellInterruptFlash(shell: AppShell): void {
