@@ -31,6 +31,14 @@
         "yoga-layout": "~3.2.1",
       },
     },
+    "packages/first-class-providers": {
+      "name": "@corbits/first-class-providers",
+      "version": "0.1.0",
+    },
+    "packages/opencode-go": {
+      "name": "@corbits/provider-opencode-go",
+      "version": "0.1.0",
+    },
     "vendor/intx-inference": {
       "name": "@intx/inference",
       "version": "0.2.2",
@@ -64,6 +72,10 @@
     "@ark/schema": ["@ark/schema@0.56.0", "", { "dependencies": { "@ark/util": "0.56.0" } }, "sha512-ECg3hox/6Z/nLajxXqNhgPtNdHWC9zNsDyskwO28WinoFEnWow4IsERNz9AnXRhTZJnYIlAJ4uGn3nlLk65vZA=="],
 
     "@ark/util": ["@ark/util@0.56.0", "", {}, "sha512-BghfRC8b9pNs3vBoDJhcta0/c1J1rsoS1+HgVUreMFPdhz/CRAKReAu57YEllNaSy98rWAdY1gE+gFup7OXpgA=="],
+
+    "@corbits/first-class-providers": ["@corbits/first-class-providers@workspace:packages/first-class-providers"],
+
+    "@corbits/provider-opencode-go": ["@corbits/provider-opencode-go@workspace:packages/opencode-go"],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 
