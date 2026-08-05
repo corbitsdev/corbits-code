@@ -40,6 +40,25 @@ import {
   type ListViewportState,
 } from "./list-viewport.js"
 import {
+  LONG_LOG_WINDOW,
+  collapseMarker,
+  mustWindow,
+  windowSlice,
+} from "./long-log.js"
+import {
+  DEFAULT_PALETTE_COMMANDS,
+  filterPaletteCommands,
+  paletteLabels,
+  type PaletteActionId,
+  type PaletteCommand,
+} from "./palette.js"
+import {
+  copyStreamRow,
+  createRecordingClipboard,
+  pickCopyRow,
+  type ClipboardPort,
+} from "./copy-path.js"
+import {
   badgeCount,
   clearInterruptFlash,
   createSessionQueue,
@@ -115,6 +134,13 @@ export type AppShell = {
   readonly root: BoxRenderable
   readonly header: TextRenderable
   readonly headerBox: BoxRenderable
+  /** Optional chrome zones (constitution goal/task/agents). */
+  readonly goalBox: BoxRenderable
+  readonly goalText: TextRenderable
+  readonly taskBox: BoxRenderable
+  readonly taskText: TextRenderable
+  readonly agentsBox: BoxRenderable
+  readonly agentsText: TextRenderable
   readonly transcript: ScrollBoxRenderable
   readonly overlayHost: BoxRenderable
   readonly overlayTitle: TextRenderable
@@ -132,8 +158,10 @@ export type AppShell = {
   session: SessionQueueState
   /** Pending queue count (mirrors badgeCount(session); kept for status API). */
   pendingQueue: number
-  /** Transcript line count (append counter). */
+  /** Transcript line count (append counter / full log length). */
   lineCount: number
+  /** Full stream log (windowed paint; never unbounded render tree). */
+  streamLog: StreamRow[]
   /** Base title without BUSY/IDLE tag. */
   baseTitle: string
   /** Overlay list viewport (null when closed). */
@@ -144,6 +172,10 @@ export type AppShell = {
   overlayKind: PrimaryOverlayKind | null
   /** Optional long body lines painted above the list (operator question). */
   overlayBodyLines: readonly string[]
+  /** Palette command ids aligned with overlayItems when kind is palette. */
+  paletteCommands: readonly PaletteCommand[]
+  /** Clipboard port for keyboard copy (tests inject recording port). */
+  clipboard: ClipboardPort
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void
 }
@@ -153,6 +185,7 @@ export type PrimaryOverlayKind =
   | "operator"
   | "model_picker"
   | "demo"
+  | "palette"
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -298,6 +331,18 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.headerBox.height = headerH
   shell.headerBox.visible = headerH > 0
 
+  const goalH = Math.max(0, h.goal)
+  shell.goalBox.height = goalH > 0 ? goalH : 1
+  shell.goalBox.visible = goalH > 0
+
+  const taskH = Math.max(0, h.task)
+  shell.taskBox.height = taskH > 0 ? taskH : 1
+  shell.taskBox.visible = taskH > 0
+
+  const agentsH = Math.max(0, h.agents)
+  shell.agentsBox.height = agentsH > 0 ? agentsH : 1
+  shell.agentsBox.visible = agentsH > 0
+
   const transcriptH = Math.max(0, h.transcript)
   shell.transcript.height = transcriptH > 0 ? transcriptH : 1
   shell.transcript.visible = transcriptH > 0
@@ -333,11 +378,28 @@ export type RelayoutOpts = {
   readonly overlayBodyRows?: number
 }
 
+type PriorOverlaySnapshot = {
+  readonly kind: PrimaryOverlayKind | null
+  readonly items: readonly string[]
+  readonly bodyLines: readonly string[]
+  readonly list: ListViewportState
+  readonly title: string
+  readonly paletteCommands: readonly PaletteCommand[]
+}
+
 type ShellInternals = {
   visibility: ZoneVisibility
   promptContentRows: number | undefined
   overlayMode: OverlayMode
   overlayBodyRows: number | undefined
+  /** Snapshot when palette stacks over another primary overlay. */
+  priorOverlay: PriorOverlaySnapshot | null
+  /** Chrome text content (empty = zone off). */
+  chrome: {
+    goal: string
+    task: string
+    agents: string
+  }
 }
 
 const internals = new WeakMap<AppShell, ShellInternals>()
@@ -397,17 +459,61 @@ export function appendTranscript(
 
 /** Append a role-styled stream row (user / assistant / tool / system). */
 export function appendStreamRow(shell: AppShell, row: StreamRow): void {
-  const painted = paintStreamRow(row)
-  shell.lineCount += 1
-  const id = String(shell.lineCount).padStart(4, "0")
-  shell.transcript.add(
-    new TextRenderable(shell.renderer as CliRenderer, {
-      content: ` ${id}${painted.content}`,
-      fg: painted.fg,
-    }),
-  )
+  shell.streamLog.push(row)
+  shell.lineCount = shell.streamLog.length
+
+  // Under collapse threshold: append one paint node (cheap).
+  // Over threshold: rebuild the windowed paint tree only.
+  if (!mustWindow(shell.streamLog.length)) {
+    const painted = paintStreamRow(row)
+    const id = String(shell.lineCount).padStart(4, "0")
+    shell.transcript.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: ` ${id}${painted.content}`,
+        fg: painted.fg,
+      }),
+    )
+    paintStatus(shell)
+    return
+  }
+
+  repaintTranscriptWindow(shell)
   paintStatus(shell)
 }
+
+/** Rebuild transcript paint tree from the long-log window (O(window), not O(total)). */
+export function repaintTranscriptWindow(shell: AppShell): void {
+  const children = shell.transcript.getChildren()
+  for (const child of [...children]) {
+    shell.transcript.remove(child)
+    if (typeof (child as { destroy?: () => void }).destroy === "function") {
+      ;(child as { destroy: () => void }).destroy()
+    }
+  }
+
+  const win = windowSlice(shell.streamLog, { windowSize: LONG_LOG_WINDOW })
+  if (win.truncatedAbove) {
+    shell.transcript.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: ` ${collapseMarker(win.start)}`,
+        fg: "#565f89",
+      }),
+    )
+  }
+  for (let i = 0; i < win.rows.length; i++) {
+    const row = win.rows[i]!
+    const abs = win.start + i + 1
+    const painted = paintStreamRow(row)
+    const id = String(abs).padStart(4, "0")
+    shell.transcript.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: ` ${id}${painted.content}`,
+        fg: painted.fg,
+      }),
+    )
+  }
+}
+
 
 export function setHeader(shell: AppShell, text: string): void {
   shell.baseTitle = text
@@ -533,18 +639,46 @@ export type OpenListOverlayOpts = {
 }
 
 /**
- * Open an inset list overlay on the shared host (permissions / operator / picker).
+ * Open an inset list overlay on the shared host (permissions / operator / picker / palette).
  * Measures body + list into geometry — no guessed absolute paint.
  */
 export function openListOverlay(
   shell: AppShell,
   opts?: OpenListOverlayOpts,
 ): void {
-  if (shell.overlayList) return
+  const kind = opts?.kind ?? "demo"
+  const isPalette = kind === "palette"
+
+  // Single host: non-palette open is a no-op while anything is open.
+  // Palette may stack over a prior primary (snapshot paint; focus stacks).
+  if (shell.overlayList) {
+    if (!isPalette) return
+    if (shell.overlayKind !== "palette") {
+      const bag = internals.get(shell)
+      if (bag) {
+        bag.priorOverlay = {
+          kind: shell.overlayKind,
+          items: shell.overlayItems,
+          bodyLines: shell.overlayBodyLines,
+          list: shell.overlayList,
+          title: String(shell.overlayTitle.content),
+          paletteCommands: shell.paletteCommands,
+        }
+      }
+      // Leave prior overlay focus frame; palette will stack above it.
+    } else {
+      // Already palette — pop palette frame only so we re-push cleanly.
+      let guard = 4
+      while (guard-- > 0 && focusOwner(shell.focus) === "palette") {
+        shell.focus = popFocus(shell.focus)
+      }
+    }
+  }
 
   const labels = opts?.items ?? shell.overlayItems
   shell.overlayItems = labels
-  shell.overlayKind = opts?.kind ?? "demo"
+  shell.overlayKind = kind
+  if (!isPalette) shell.paletteCommands = []
 
   const cols = Math.max(20, shell.renderer.width || 80)
   const bodyText = opts?.body ?? ""
@@ -570,9 +704,10 @@ export function openListOverlay(
   shell.overlayTitle.content = ` ${title} · Esc cancel · Enter choose`
 
   const frameId = opts?.frameId ?? OVERLAY_FRAME_ID
+  const focusTarget = isPalette ? "palette" : "overlay"
   shell.focus = openOverlay(shell.focus, frameId, {
-    target: "overlay",
-    scrollOwner: "overlay",
+    target: focusTarget,
+    scrollOwner: isPalette ? "palette" : "overlay",
   })
   relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
   applyFocus(shell)
@@ -592,20 +727,88 @@ export function openInsetOverlay(
   })
 }
 
-/** Close overlay if open; restore prior focus (usually prompt). */
+/**
+ * Open Amp-class command palette (Ctrl+O).
+ * Chord reclaimed from tool-expand — document in interaction contract.
+ */
+export function openPalette(
+  shell: AppShell,
+  opts?: { readonly query?: string; readonly catalog?: readonly PaletteCommand[] },
+): void {
+  const catalog = opts?.catalog ?? DEFAULT_PALETTE_COMMANDS
+  const filtered = filterPaletteCommands(opts?.query ?? "", catalog)
+  const commands = filtered.length > 0 ? filtered : []
+  const labels =
+    commands.length > 0 ? paletteLabels(commands) : ["(no matches)"]
+  shell.paletteCommands = commands
+  openListOverlay(shell, {
+    kind: "palette",
+    title: "palette · Ctrl+O",
+    items: labels,
+    frameId: "command-palette",
+  })
+}
+
+/** Close overlay/palette if open; restore prior focus (or prior overlay under palette). */
 export function closeInsetOverlay(shell: AppShell): void {
   if (!shell.overlayList) return
+
+  const wasPalette = shell.overlayKind === "palette"
+  const bag = internals.get(shell)
+  const prior = wasPalette ? bag?.priorOverlay ?? null : null
+
   shell.overlayList = null
   shell.overlayKind = null
   shell.overlayBodyLines = []
+  shell.paletteCommands = []
   clearOverlayBody(shell)
-  let guard = 8
-  while (guard-- > 0 && focusOwner(shell.focus) === "overlay") {
+
+  // Pop exactly one frame (palette or overlay).
+  if (
+    focusOwner(shell.focus) === "overlay" ||
+    focusOwner(shell.focus) === "palette"
+  ) {
     shell.focus = popFocus(shell.focus)
   }
+
+  if (prior && bag) {
+    bag.priorOverlay = null
+    // Restore prior primary overlay paint; focus should already be overlay.
+    shell.overlayItems = prior.items
+    shell.overlayKind = prior.kind
+    shell.overlayBodyLines = prior.bodyLines
+    shell.overlayList = prior.list
+    shell.paletteCommands = prior.paletteCommands
+    shell.overlayTitle.content = prior.title
+    // If focus was not stacked (edge case), re-open overlay frame.
+    if (focusOwner(shell.focus) !== "overlay") {
+      shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
+        target: "overlay",
+        scrollOwner: "overlay",
+      })
+    }
+    const listH = prior.list.height
+    const hostRows = 1 + prior.bodyLines.length + listH
+    relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+    applyFocus(shell)
+    paintOverlayList(shell)
+    return
+  }
+
+  // Ensure no leftover overlay/palette frames.
+  let guard = 4
+  while (
+    guard-- > 0 &&
+    (focusOwner(shell.focus) === "overlay" ||
+      focusOwner(shell.focus) === "palette")
+  ) {
+    shell.focus = popFocus(shell.focus)
+  }
+
   relayout(shell, { overlayMode: "closed" })
   applyFocus(shell)
 }
+
 
 /** Move overlay selection (j/k / arrows). */
 export function moveOverlaySelection(shell: AppShell, delta: number): void {
@@ -621,18 +824,219 @@ export function pageOverlaySelection(shell: AppShell, dir: -1 | 1): void {
   paintOverlayList(shell)
 }
 
-/** Accept active overlay item → system line + close. */
+/** Accept active overlay item → system line + close (palette dispatches action). */
 export function acceptOverlaySelection(shell: AppShell): void {
   if (!shell.overlayList) return
   const idx = shell.overlayList.activeIndex
   const label = shell.overlayItems[idx] ?? `item ${idx}`
   const kind = shell.overlayKind ?? "demo"
+
+  if (kind === "palette") {
+    const cmd = shell.paletteCommands[idx]
+    closeInsetOverlay(shell)
+    if (cmd) runPaletteAction(shell, cmd.id)
+    else {
+      appendStreamRow(shell, {
+        role: "system",
+        text: `palette: no action for ${label}`,
+        meta: "palette",
+      })
+    }
+    return
+  }
+
   appendStreamRow(shell, {
     role: "system",
     text: `chose (${kind}): ${label}`,
     meta: "overlay",
   })
   closeInsetOverlay(shell)
+}
+
+/** Run a palette action after the palette has closed. */
+export function runPaletteAction(
+  shell: AppShell,
+  id: PaletteActionId,
+): void {
+  switch (id) {
+    case "permissions": {
+      // Lazy import surface — open via openListOverlay to avoid overlays circular init.
+      openListOverlay(shell, {
+        kind: "permissions",
+        title: "permissions",
+        items: [
+          "Allow once",
+          "Allow session",
+          "Always allow this tool",
+          "Deny",
+          ...Array.from({ length: 26 }, (_, i) => `Allow tool call #${i + 2}`),
+        ],
+        frameId: "permissions",
+      })
+      return
+    }
+    case "operator": {
+      openListOverlay(shell, {
+        kind: "operator",
+        title: "operator",
+        body:
+          "The agent wants to run a destructive command that may modify your working tree.\n\nProceed with git reset --hard HEAD~1?",
+        items: [
+          "Cancel",
+          "Allow this once",
+          "Allow for session",
+          "Deny and tell agent",
+          "Open diff first",
+          "Always ask",
+          "Skip remaining questions",
+          "Abort run",
+        ],
+        frameId: "operator-question",
+      })
+      return
+    }
+    case "model_picker": {
+      openListOverlay(shell, {
+        kind: "model_picker",
+        title: "model / provider",
+        items: [
+          "anthropic / claude-sonnet-4",
+          "anthropic / claude-opus-4",
+          "openai / gpt-4.1",
+          "openai / o3",
+          "google / gemini-2.5-pro",
+          "local / ollama",
+        ],
+        frameId: "model-picker",
+      })
+      return
+    }
+    case "toggle_goal": {
+      const bag = internals.get(shell)
+      const on = (bag?.chrome.goal.length ?? 0) > 0
+      setChromeZones(shell, {
+        goal: on ? null : "goal: Wave 6 palette + long-log + chrome",
+      })
+      appendStreamRow(shell, {
+        role: "system",
+        text: on ? "goal chrome off" : "goal chrome on",
+        meta: "chrome",
+      })
+      return
+    }
+    case "toggle_task": {
+      const bag = internals.get(shell)
+      const on = (bag?.chrome.task.length ?? 0) > 0
+      setChromeZones(shell, {
+        task: on ? null : "task: implement Wave 6 acceptance",
+      })
+      appendStreamRow(shell, {
+        role: "system",
+        text: on ? "task chrome off" : "task chrome on",
+        meta: "chrome",
+      })
+      return
+    }
+    case "toggle_agents": {
+      const bag = internals.get(shell)
+      const on = (bag?.chrome.agents.length ?? 0) > 0
+      setChromeZones(shell, {
+        agents: on ? null : "agents: 0 running",
+      })
+      appendStreamRow(shell, {
+        role: "system",
+        text: on ? "agents strip off" : "agents strip on",
+        meta: "chrome",
+      })
+      return
+    }
+    case "copy_active": {
+      copyActiveMessage(shell)
+      return
+    }
+    case "help": {
+      appendStreamRow(shell, {
+        role: "system",
+        text: "keys: Enter queue · Alt+Enter steer · Ctrl+C stop · Ctrl+O palette · Alt+C copy · Esc dismiss",
+        meta: "help",
+      })
+      return
+    }
+  }
+}
+
+export type ChromeZoneContent = {
+  readonly goal?: string | null
+  readonly task?: string | null
+  readonly agents?: string | null
+}
+
+/**
+ * Set agents/goal/task chrome zone content (null/empty = hide zone).
+ * Heights come from geometry resolve — never guessed.
+ */
+export function setChromeZones(
+  shell: AppShell,
+  content: ChromeZoneContent,
+): void {
+  const bag = internals.get(shell)
+  if (!bag) return
+
+  if (content.goal !== undefined) {
+    bag.chrome.goal = content.goal ?? ""
+  }
+  if (content.task !== undefined) {
+    bag.chrome.task = content.task ?? ""
+  }
+  if (content.agents !== undefined) {
+    bag.chrome.agents = content.agents ?? ""
+  }
+
+  const goalOn = bag.chrome.goal.length > 0
+  const taskOn = bag.chrome.task.length > 0
+  const agentsOn = bag.chrome.agents.length > 0
+
+  shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
+  shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
+  shell.agentsText.content = agentsOn ? ` ${bag.chrome.agents}` : ""
+
+  relayout(shell, {
+    visibility: {
+      ...bag.visibility,
+      goal: goalOn,
+      task: taskOn,
+      agents: agentsOn,
+    },
+    overlayMode: bag.overlayMode,
+    ...(bag.overlayBodyRows !== undefined
+      ? { overlayBodyRows: bag.overlayBodyRows }
+      : {}),
+  })
+}
+
+/**
+ * Keyboard copy path (Alt+C): copy last non-system stream row (or active index).
+ */
+export function copyActiveMessage(
+  shell: AppShell,
+  activeIndex?: number,
+): boolean {
+  const row = pickCopyRow(shell.streamLog, activeIndex)
+  const payload = copyStreamRow(row, shell.clipboard)
+  if (!payload) {
+    appendStreamRow(shell, {
+      role: "system",
+      text: "copy: nothing to copy",
+      meta: "copy",
+    })
+    return false
+  }
+  appendStreamRow(shell, {
+    role: "system",
+    text: payload.summary,
+    meta: "copy",
+  })
+  return true
 }
 
 /**
@@ -684,6 +1088,52 @@ export function createAppShell(
     fg: "#c0caf5",
   })
   headerBox.add(header)
+
+  // Optional chrome zones (off by default; setChromeZones turns them on).
+  const goalBox = new BoxRenderable(ctx, {
+    id: "shell-goal",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    backgroundColor: "#292e42",
+    visible: false,
+  })
+  const goalText = new TextRenderable(ctx, {
+    id: "shell-goal-text",
+    content: "",
+    fg: "#bb9af7",
+  })
+  goalBox.add(goalText)
+
+  const taskBox = new BoxRenderable(ctx, {
+    id: "shell-task",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    backgroundColor: "#292e42",
+    visible: false,
+  })
+  const taskText = new TextRenderable(ctx, {
+    id: "shell-task-text",
+    content: "",
+    fg: "#7dcfff",
+  })
+  taskBox.add(taskText)
+
+  const agentsBox = new BoxRenderable(ctx, {
+    id: "shell-agents",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    backgroundColor: "#292e42",
+    visible: false,
+  })
+  const agentsText = new TextRenderable(ctx, {
+    id: "shell-agents-text",
+    content: "",
+    fg: "#9ece6a",
+  })
+  agentsBox.add(agentsText)
 
   const transcript = new ScrollBoxRenderable(ctx, {
     id: "shell-transcript",
@@ -781,6 +1231,9 @@ export function createAppShell(
   statusBox.add(status)
 
   root.add(headerBox)
+  root.add(goalBox)
+  root.add(taskBox)
+  root.add(agentsBox)
   root.add(transcript)
   root.add(overlayHost)
   root.add(promptBox)
@@ -846,8 +1299,16 @@ export function createAppShell(
     }
 
     if (key.ctrl && (key.name === "o" || key.name === "O")) {
+      // Ctrl+O reclaimed from tool-expand → command palette (Wave 6).
       key.preventDefault()
-      openInsetOverlay(shell)
+      openPalette(shell)
+      return
+    }
+
+    if ((key.meta || key.option) && (key.name === "c" || key.name === "C") && !key.ctrl) {
+      // Alt+C: keyboard copy path (no mouse drag-select).
+      key.preventDefault()
+      copyActiveMessage(shell)
       return
     }
 
@@ -904,6 +1365,12 @@ export function createAppShell(
     root,
     header,
     headerBox,
+    goalBox,
+    goalText,
+    taskBox,
+    taskText,
+    agentsBox,
+    agentsText,
     transcript,
     overlayHost,
     overlayTitle,
@@ -918,11 +1385,14 @@ export function createAppShell(
     session,
     pendingQueue: badgeCount(session),
     lineCount: 0,
+    streamLog: [],
     baseTitle: title,
     overlayList: null,
     overlayItems,
     overlayKind: null,
     overlayBodyLines: [],
+    paletteCommands: [],
+    clipboard: createRecordingClipboard(),
     dispose: () => {
       if (disposed) return
       disposed = true
@@ -945,6 +1415,8 @@ export function createAppShell(
     promptContentRows,
     overlayMode: "closed",
     overlayBodyRows: undefined,
+    priorOverlay: null,
+    chrome: { goal: "", task: "", agents: "" },
   })
   applyLayout(shell, layout)
   applyFocus(shell)

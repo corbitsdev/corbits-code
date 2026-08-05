@@ -157,11 +157,12 @@ When pending count > 0, prefix the count. Empty-field busy state still shows the
 |---|---|
 | Chord | **Ctrl+O** opens the command palette |
 | Scope | Searchable actions: slash twins, panels, model/settings/permissions entry, queue clear, help |
-| Reclaim | Tool-output expand **must not** keep Ctrl+O; move expand to another chord (e.g. keep Ctrl+R / dedicated expand, not palette) |
-| Esc | Closes palette and restores prior focus (normally prompt) |
+| Reclaim | Tool-output expand **must not** keep Ctrl+O. Expand moves to a dedicated non-palette chord later (candidate: keep tool-row local expand / dedicated binding — **not** Ctrl+O). OpenTUI shell (`src/tui-opentui`) implements Ctrl+O → palette as of Wave 6. |
+| Esc | Closes palette and restores prior focus (normally prompt; if palette stacked over a primary overlay, Esc restores that overlay first) |
 | Slash | Remains a power path; every user-facing slash entry has a palette twin |
+| Stack | Palette may open above an existing primary overlay (permissions / operator / model). Esc pops one frame at a time. |
 
-Palette open takes the **overlay** focus slot and the scroll lease for its own list.
+Palette open takes the **palette** focus target (overlay priority slot) and the scroll lease for its own list.
 
 ---
 

@@ -2,12 +2,14 @@
  * Interactive OpenTUI product-skin demo (real TTY only).
  * Run: bun src/tui-opentui/demo.ts
  *
- * Wave 5: primary overlays + Wave 4 runtime bridge. Not production CLI.
- * Ink remains production.
+ * Wave 6: palette + long-log + chrome + copy on shared kit.
+ * Not production CLI. Ink remains production.
  *
  * Keys:
  *   Enter=queue · Alt+Enter=steer · Ctrl+C=stop
- *   p=permissions · o=operator · m=model picker · Ctrl+O=demo overlay
+ *   Ctrl+O=palette · Alt+C=copy
+ *   p=permissions · o=operator · m=model picker
+ *   g/t/a=toggle goal/task/agents chrome
  *   f=replay fixture · r=busy · q=quit when idle
  */
 import { createCliRenderer, type KeyEvent } from "@opentui/core"
@@ -25,8 +27,8 @@ import {
 import {
   appendStreamRow,
   createAppShell,
-  openInsetOverlay,
   paintStatus,
+  setChromeZones,
   setShellRunState,
 } from "./shell.js"
 
@@ -50,11 +52,11 @@ const bridge = attachSessionBridge(shell, port)
 
 appendStreamRow(shell, {
   role: "system",
-  text: "Wave 5 — permissions / operator / model picker on shared kit",
+  text: "Wave 6 — palette · long-log · chrome · copy (Ctrl+O / Alt+C)",
 })
 appendStreamRow(shell, {
   role: "system",
-  text: "p=permissions · o=operator · m=model · f=fixture · r=busy · Ctrl+O=demo · q=quit",
+  text: "p=permissions · o=operator · m=model · g/t/a=chrome · f=fixture · r=busy · q=quit",
 })
 
 bridge.play(FIXTURE_BUSY_SESSION)
@@ -73,6 +75,7 @@ function quit(): void {
   }, 40)
 }
 
+// Demo-only chords (shell owns Ctrl+O palette, Alt+C copy, queue/steer/interrupt).
 renderer.keyInput.on("keypress", (key: KeyEvent) => {
   if (shell.overlayList) return
 
@@ -146,8 +149,42 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     return
   }
 
-  if (key.ctrl && (key.name === "o" || key.name === "O")) {
-    openInsetOverlay(shell)
+  if (
+    key.name === "g" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    const on = shell.layout.heights.goal > 0
+    setChromeZones(shell, {
+      goal: on ? null : "goal: Wave 6 palette + long-log + chrome",
+    })
+    return
+  }
+
+  if (
+    key.name === "t" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    const on = shell.layout.heights.task > 0
+    setChromeZones(shell, {
+      task: on ? null : "task: implement Wave 6 acceptance",
+    })
+    return
+  }
+
+  if (
+    key.name === "a" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    const on = shell.layout.heights.agents > 0
+    setChromeZones(shell, {
+      agents: on ? null : "agents: 0 running",
+    })
     return
   }
 
@@ -170,3 +207,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     }
   }
 })
+
+console.log(
+  "OpenTUI Wave 6 demo — Ctrl+O palette · Alt+C copy · p/o/m overlays · g/t/a chrome · q quit",
+)
