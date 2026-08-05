@@ -20,6 +20,7 @@ import type {
 import { PROVIDER_TIERS, resolveTierDefinition, tierDefinitionAt } from "./settings.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { SOURCE_MAX_TOKENS } from "./index.js";
+import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 
 export type BuildSourceContext = {
   sessionId: string;
@@ -126,7 +127,14 @@ export function buildInferenceSourceForRef(
       model: ref.model,
     });
   }
-  if (entry?.opencodeGo === true || providerSettings?.opencodeGo === true) {
+  if (
+    isOpenCodeGoProvider({
+      name: ref.provider,
+      ...(entry?.opencodeGo === true || providerSettings?.opencodeGo === true
+        ? { opencodeGo: true as const }
+        : {}),
+    })
+  ) {
     return buildGoSource({
       id: ref.provider,
       ...(entry?.apiKey !== undefined

@@ -1,4 +1,8 @@
-import { OPENCODE_GO_BASE_URL } from "../../packages/opencode-go/src/index.js";
+import {
+  OPENCODE_GO_BASE_URL,
+  isOpenCodeGoProvider,
+  isOpenCodeGoProviderId,
+} from "../../packages/opencode-go/src/index.js";
 import type { ProviderCatalogEntry } from "./index.js";
 
 export type ProviderSubmission = {
@@ -38,14 +42,16 @@ export function buildProviderEntry(
     return { ok: false, error: "Provider API key is required" };
   }
   // Protocol flags are not form fields — preserve catalog flags on edit unless
-  // the submission explicitly re-asserts them (Connect path). Treat provider id
-  // "opencode-go" as Go even when the flag was dropped so re-saves stay on the
-  // subscription gateway.
+  // the submission explicitly re-asserts them (Connect path). Known Go ids and
+  // display labels always pin even when the flag was dropped from disk.
   const anthropic = submission.anthropic === true || existing?.anthropic === true;
-  const opencodeGo =
-    submission.opencodeGo === true ||
-    existing?.opencodeGo === true ||
-    submission.name === "opencode-go";
+  const opencodeGo = isOpenCodeGoProvider({
+    name: submission.name,
+    opencodeGo:
+      submission.opencodeGo === true ||
+      existing?.opencodeGo === true ||
+      isOpenCodeGoProviderId(submission.originalName),
+  });
   // Never persist bare Zen PAYG baseURL for a Go subscription provider.
   const baseURL = opencodeGo ? OPENCODE_GO_BASE_URL : submission.baseURL;
   const entry: ProviderCatalogEntry = {

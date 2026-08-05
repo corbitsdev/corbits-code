@@ -33,6 +33,7 @@ import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses-adapter.
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
   OPENCODE_GO_BASE_URL,
+  isOpenCodeGoProvider,
   resolveGoEndpoint,
 } from "../../packages/opencode-go/src/index.js";
 
@@ -591,9 +592,11 @@ export async function loadConfig(
 export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): ProviderSettings {
   // Anthropic and Go anthropic-protocol bases must not be forced through the
   // OpenAI-compatible normalizer (which assumes a /v1 chat-completions root).
+  // Go identity is flag or known provider id — always force subscription base.
+  const go = isOpenCodeGoProvider(entry);
   const baseURL =
-    entry.anthropic === true || entry.opencodeGo === true
-      ? entry.baseURL.replace(/\/+$/, "")
+    entry.anthropic === true || go
+      ? (go ? OPENCODE_GO_BASE_URL : entry.baseURL).replace(/\/+$/, "")
       : normalizeOpenAICompatibleBaseURL(entry.baseURL);
   return {
     baseURL,
@@ -604,7 +607,7 @@ export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): Pro
     ...(entry.free !== undefined ? { free: entry.free } : {}),
     ...(entry.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
     ...(entry.anthropic === true ? { anthropic: true } : {}),
-    ...(entry.opencodeGo === true ? { opencodeGo: true } : {}),
+    ...(go ? { opencodeGo: true } : {}),
   };
 }
 
@@ -644,21 +647,29 @@ export function buildProviderCatalog(
   resolved: ResolvedProvider,
 ): ProviderCatalogEntry[] {
   if (settings !== null && Object.keys(settings.providers).length > 0) {
-    return Object.entries(settings.providers).map(([name, p]): ProviderCatalogEntry => ({
-      name,
-      baseURL:
-        p.anthropic === true || p.opencodeGo === true
-          ? p.baseURL.replace(/\/+$/, "")
-          : normalizeOpenAICompatibleBaseURL(p.baseURL),
-      ...(p.keyless === true ? { keyless: true } : {}),
-      ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
-      models: p.models,
-      ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
-      ...(p.free !== undefined ? { free: p.free } : {}),
-      ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
-      ...(p.anthropic === true ? { anthropic: true } : {}),
-      ...(p.opencodeGo === true ? { opencodeGo: true } : {}),
-    }));
+    return Object.entries(settings.providers).map(([name, p]): ProviderCatalogEntry => {
+      // Heal mis-seeded Go rows on load: known id/label or flag → pin baseURL + flag.
+      const go = isOpenCodeGoProvider({
+        name,
+        ...(p.opencodeGo === true ? { opencodeGo: true as const } : {}),
+      });
+      return {
+        name,
+        baseURL: go
+          ? OPENCODE_GO_BASE_URL
+          : p.anthropic === true
+            ? p.baseURL.replace(/\/+$/, "")
+            : normalizeOpenAICompatibleBaseURL(p.baseURL),
+        ...(p.keyless === true ? { keyless: true } : {}),
+        ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
+        models: p.models,
+        ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
+        ...(p.free !== undefined ? { free: p.free } : {}),
+        ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+        ...(p.anthropic === true ? { anthropic: true } : {}),
+        ...(go ? { opencodeGo: true } : {}),
+      };
+    });
   }
   return [
     {

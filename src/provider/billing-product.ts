@@ -1,4 +1,7 @@
-import { isKnownGoModel } from "../../packages/opencode-go/src/index.js";
+import {
+  isKnownGoModel,
+  isOpenCodeGoProvider,
+} from "../../packages/opencode-go/src/index.js";
 
 /** How the provider is billed when known (Go subscription vs Zen PAYG credits). */
 export type BillingProduct = "subscription" | "credits";
@@ -35,13 +38,13 @@ export function isBareZenBaseURL(baseURL: string): boolean {
 
 /**
  * Resolve the billing product for a catalog/provider entry.
- * - OpenCode Go (flag or id) → subscription
+ * - OpenCode Go (flag or known id/label) → subscription
  * - Zen by name or bare zen baseURL → credits
  */
 export function billingProductForProvider(
   entry: BillingProductProvider,
 ): BillingProduct | undefined {
-  if (entry.opencodeGo === true || entry.name === "opencode-go") {
+  if (isOpenCodeGoProvider(entry)) {
     return "subscription";
   }
   if (entry.name === "zen") return "credits";
@@ -60,10 +63,6 @@ export function isGoModelOnZenPath(
   provider: BillingProductProvider,
 ): boolean {
   if (!isKnownGoModel(modelId)) return false;
-  if (entryIsGoSubscription(provider)) return false;
+  if (isOpenCodeGoProvider(provider)) return false;
   return billingProductForProvider(provider) === "credits";
-}
-
-function entryIsGoSubscription(provider: BillingProductProvider): boolean {
-  return provider.opencodeGo === true || provider.name === "opencode-go";
 }

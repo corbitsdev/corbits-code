@@ -27,6 +27,7 @@ describe("billingProductForProvider", () => {
   test("OpenCode Go flag or id is subscription", () => {
     expect(billingProductForProvider({ opencodeGo: true })).toBe("subscription");
     expect(billingProductForProvider({ name: "opencode-go" })).toBe("subscription");
+    expect(billingProductForProvider({ name: "OpenCode Go" })).toBe("subscription");
     expect(
       billingProductForProvider({
         name: "opencode-go",
