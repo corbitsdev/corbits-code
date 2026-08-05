@@ -36,6 +36,14 @@ $ corbits "Add JWT auth to the API"
 
 A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
 
+**Layout and interaction contracts** (platform rebuild / OpenTUI migration target — not the shipping default yet):
+
+- Layout constitution: `docs/tui-layout-constitution.md` (chrome budget, geometry ownership, kill list)
+- Interaction contract: `docs/tui-interaction-contract.md` (queue / steer / interrupt, keys, palette)
+- Ink freeze policy: `docs/tui-ink-freeze.md`
+- Migration cutover: `docs/tui-migration-cutover.md`
+- Epic plan: `docs/plans/tui-layout-scroll-platform.md` · product brief: `briefs/tui-rebuild-opentui.md`
+
 ### Exec mode (non-TUI product path)
 
 ```bash

@@ -264,7 +264,13 @@ Approval scopes offered: Allow Once (persist nothing), Allow Always for a file o
 
 ### TUI (`src/tui/`)
 
-Ink 7 + React 19, full-screen via the alternate-screen buffer.
+Ink 7 + React 19, full-screen via the alternate-screen buffer. Production today is this Ink shell. The **OpenTUI rebuild** is the target platform for layout/scroll work (branch migration; not the shipping default until cutover). Contracts and sequencing:
+
+- Layout constitution: `docs/tui-layout-constitution.md`
+- Interaction contract: `docs/tui-interaction-contract.md`
+- Ink freeze: `docs/tui-ink-freeze.md`
+- Migration cutover: `docs/tui-migration-cutover.md`
+- Epic plan: `docs/plans/tui-layout-scroll-platform.md` · brief: `briefs/tui-rebuild-opentui.md` · spike notes: `docs/plans/opentui-spike-report.md`
 
 - `app.tsx` — Root layout: pinned header, scrollable event log, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue (`pendingQueueRef` + `queuedCount`): while `isProcessing`, **Alt+Enter** enqueues outbound messages and **Enter** steers via interrupt (see interrupt/queue steering below). The queue drains one message per `connector.reply` (end of a response cycle), skipping drain while status is `blocked` (permission/operator gates). The queue is cleared on session rotation (`/clear`, `/new`). SHIFT+TAB toggles auto mode through the permission gate (`onToggleAuto`); enabling shows a one-line envelope reminder. Plan handling is a separate approval gate (`use-gates`), not a mode. `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
 
