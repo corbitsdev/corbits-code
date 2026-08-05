@@ -70,4 +70,49 @@ describe("normalizeInferenceErrorForRetry", () => {
     const err = { category: "fatal" as const, message: "bad request" };
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
+
+  test("maps GoUsageLimitError 429 to quota_exhausted", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "retryable",
+      message: "rate limited",
+      statusCode: 429,
+      raw: {
+        type: "error",
+        error: { type: "GoUsageLimitError", message: "subscription quota exceeded" },
+      },
+      retryAfterMs: 60_000,
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.message.toLowerCase()).toContain("quota");
+  });
+
+  test("maps provider rate limit 400 quirk to retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "bad request",
+      statusCode: 400,
+      raw: {
+        error: {
+          message: "Error from provider (Console Go): Provider rate limit exceeded",
+          type: "rate_limit_error",
+          code: "provider_rate_limit_exceeded",
+        },
+      },
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.message.toLowerCase()).toMatch(/rate limit/);
+  });
+
+  test("maps GoUsageLimitError on 400 to quota_exhausted", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "bad request",
+      statusCode: 400,
+      raw: {
+        type: "error",
+        error: { type: "GoUsageLimitError", message: "weekly limit hit" },
+      },
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+  });
 });

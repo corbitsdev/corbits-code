@@ -1,10 +1,14 @@
 import type { InferenceError } from "@intx/types/runtime";
+import { isOpenCodeGoURL, parseGoAPIError } from "../packages/opencode-go/src/index.js";
 
 export type InferenceErrorLike = {
   category: string;
   message?: string;
   statusCode?: number;
   raw?: unknown;
+  retryAfterMs?: number;
+  /** Optional request base/url when known — used to scope Go error reclassification. */
+  requestURL?: string;
 };
 
 const GATEWAY_OVERLOAD_STATUS_CODES = new Set([502, 503, 504]);
@@ -81,11 +85,75 @@ export function isGatewayOverloadInferenceError(error: InferenceErrorLike): bool
   return false;
 }
 
+function tryParseJSON(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Reclassify OpenCode Go quota / rate-limit / auth failures when the body
+ * carries Go-specific error types (or the gateway mis-statused a limit as 400).
+ */
+export function normalizeOpenCodeGoInferenceError(error: InferenceError): InferenceError {
+  const statusCode = error.statusCode;
+  if (statusCode === undefined) return error;
+
+  const rawText = stringFromRaw(error.raw);
+  const messageText = error.message ?? "";
+  const bodyFromRaw =
+    error.raw !== undefined && typeof error.raw === "object"
+      ? error.raw
+      : tryParseJSON(rawText.length > 0 ? rawText : messageText);
+  const body =
+    bodyFromRaw !== undefined
+      ? bodyFromRaw
+      : messageText.length > 0
+        ? { error: { message: messageText } }
+        : undefined;
+  if (body === undefined) return error;
+
+  // Accept Go-typed bodies without a URL, or any request aimed at the Go gateway.
+  const looksGo =
+    isOpenCodeGoURL(rawText) ||
+    /GoUsageLimitError|FreeUsageLimitError|BlackUsageLimitError|provider_rate_limit_exceeded|Console Go|opencode\.ai\/zen\/go/i.test(
+      `${messageText}\n${rawText}`,
+    );
+  if (!looksGo) return error;
+
+  const parsed = parseGoAPIError({ statusCode, body });
+  if (parsed === undefined) return error;
+
+  const category =
+    parsed.category === "auth"
+      ? ("credential_failure" as const)
+      : parsed.category;
+
+  const retryAfterMs =
+    parsed.retryAfterSec !== undefined
+      ? parsed.retryAfterSec * 1000
+      : error.retryAfterMs;
+
+  return {
+    category,
+    message: parsed.message,
+    statusCode: parsed.statusCode,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+  };
+}
+
 /**
  * Reclassify gateway overload errors so the default retry policy treats them as
- * transient instead of aborting on protocol_mismatch.
+ * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
+ * Go quota/rate-limit shapes (including HTTP 400 mis-status).
  */
 export function normalizeInferenceErrorForRetry(error: InferenceError): InferenceError {
+  const goNormalized = normalizeOpenCodeGoInferenceError(error);
+  if (goNormalized !== error) return goNormalized;
+
   if (!isGatewayOverloadInferenceError(error)) return error;
   if (error.category === "retryable" || error.category === "timeout") return error;
 
