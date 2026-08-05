@@ -127,13 +127,13 @@ src/
     commands/
       registry.ts         Extensible slash-command registry
       built-in.ts         /help, /model, /settings, /permissions, /plugins,
-                          /login, /codex, /xai, /grok, /clear, /new, /mcp
+                          /clear, /new, /mcp (connect providers from /model)
     components/
       header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx, task-view.tsx,
       at-mention/, operator-modal.tsx, permission-modal.tsx,
       permissions-manager.tsx, plugins-manager.tsx, settings-overlay.tsx,
       agent-modal.tsx, exit-confirm.tsx, help-overlay.tsx, hook-panel.tsx,
-      login-provider-picker.tsx, codex-login-modal.tsx, mcp-auth-prompt.tsx,
+      codex-login-modal.tsx, mcp-auth-prompt.tsx,
       onboarding-animation.tsx, in-flight-indicator.tsx, modal-stack.tsx
     hooks/
       use-gates.ts, use-keymap.ts, use-layout-geometry.ts, use-mcp-status.ts,
@@ -270,6 +270,10 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 ### Provider Configuration
 
 Providers and credentials are read exclusively from settings files: the global `~/.corbits/settings.json` (definitions + credentials) and the per-repo `.corbits/settings.json` (selection only). There are no `OPENAI_COMPATIBLE_*` environment-variable overrides, and `index.ts` does not load `.env` files — a deliberately stale or exported key can no longer shadow the configured provider.
+
+**Models-first connect.** There is no standalone `/login` command. From `/model`, press **c** or **Ctrl+A** to open Connect provider. First-class providers (Codex, xAI, OpenCode Zen, Anthropic, OpenAI, Google, OpenCode Go) ship from `packages/first-class-providers` (corbits-agnostic defs) and `packages/opencode-go` (Go catalog, auth validate, multi-protocol endpoints, usage). OAuth providers open the existing browser login modal; API-key providers pre-seed models and persist on save so selection works without restart.
+
+**OpenCode Go multi-protocol.** Each Go model carries protocol metadata (`chat-completions`, `responses`, or `messages`). `buildGoSource` / `resolveGoEndpoint` pick the adapter and base URL per model (not a single provider-wide OpenAI route). When Go is the active provider, subscription usage is fetched for the status bar and omitted on auth/network failure.
 
 ### CLI Verbs and Flags
 
