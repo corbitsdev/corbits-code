@@ -50,9 +50,11 @@ const PHASE_TRAIL_MIN_COLS = 48;
  * Width-constrained so long briefs/criteria truncate instead of colliding with Work/footer.
  */
 export function GoalView({ goal, compact }: GoalViewProps) {
+  // Hooks must run unconditionally — mount can flip inactive without unmount.
+  const { columns } = useTerminalSize();
+
   if (goal.status === "inactive" || goal.status === "cleared") return null;
 
-  const { columns } = useTerminalSize();
   const phase = goal.phase;
   const progress = goalCriteriaProgress(goal.criteria);
   const brief = goal.brief || goal.condition;
