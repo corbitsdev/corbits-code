@@ -135,6 +135,11 @@ export type ShellOverlayHooks = {
   readonly onPermission?: (selection: OverlaySelection) => void
   readonly onOperator?: (selection: OverlaySelection) => void
   readonly onModel?: (selection: OverlaySelection) => void
+  readonly onSettings?: (selection: OverlaySelection) => void
+  readonly onHelp?: (selection: OverlaySelection) => void
+  readonly onPlugins?: (selection: OverlaySelection) => void
+  readonly onResume?: (selection: OverlaySelection) => void
+  readonly onMentions?: (selection: OverlaySelection) => void
   /** Catch-all for non-palette kinds when no kind-specific hook is set. */
   readonly onSelect?: (selection: OverlaySelection) => void
 }
@@ -209,6 +214,36 @@ function dispatchOverlayAccept(
     case "model_picker":
       if (hooks.onModel) {
         hooks.onModel(selection)
+        return
+      }
+      break
+    case "settings":
+      if (hooks.onSettings) {
+        hooks.onSettings(selection)
+        return
+      }
+      break
+    case "help":
+      if (hooks.onHelp) {
+        hooks.onHelp(selection)
+        return
+      }
+      break
+    case "plugins":
+      if (hooks.onPlugins) {
+        hooks.onPlugins(selection)
+        return
+      }
+      break
+    case "resume":
+      if (hooks.onResume) {
+        hooks.onResume(selection)
+        return
+      }
+      break
+    case "mentions":
+      if (hooks.onMentions) {
+        hooks.onMentions(selection)
         return
       }
       break
@@ -1381,48 +1416,91 @@ export function leaveSubagentObserve(shell: AppShell): void {
   paintStatus(shell)
 }
 
-export function openSettingsOverlay(shell: AppShell): void {
+/**
+ * Host-injected residual list open. Fixtures apply only when `items` is omitted.
+ * Per-open `onAccept` wins over shell-level residual hooks for that open.
+ */
+export type OpenResidualListOpts = {
+  readonly items?: readonly string[]
+  /** Stable ids aligned with `items` (setting keys, session ids, paths). */
+  readonly itemIds?: readonly string[]
+  readonly activeIndex?: number
+  /** Per-open accept; host binds toggle / resume / mention insert. */
+  readonly onAccept?: (selection: OverlaySelection) => void
+}
+
+export function openSettingsOverlay(
+  shell: AppShell,
+  opts?: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "settings",
     title: "settings",
-    items: makeSettingsItems(),
+    items: opts?.items ?? makeSettingsItems(),
+    activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-settings",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
-export function openHelpOverlay(shell: AppShell): void {
+export function openHelpOverlay(
+  shell: AppShell,
+  opts?: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "help",
     title: "help · keymap",
-    items: makeHelpItems(),
+    items: opts?.items ?? makeHelpItems(),
+    activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-help",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
-export function openPluginsOverlay(shell: AppShell): void {
+export function openPluginsOverlay(
+  shell: AppShell,
+  opts?: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "plugins",
     title: "plugins",
-    items: makePluginsItems(),
+    items: opts?.items ?? makePluginsItems(),
+    activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-plugins",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
-export function openResumeOverlay(shell: AppShell): void {
+export function openResumeOverlay(
+  shell: AppShell,
+  opts?: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "resume",
     title: "resume session",
-    items: makeResumeItems(),
+    items: opts?.items ?? makeResumeItems(),
+    activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-resume",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
-export function openMentionsOverlay(shell: AppShell): void {
+export function openMentionsOverlay(
+  shell: AppShell,
+  opts?: OpenResidualListOpts,
+): void {
   openListOverlay(shell, {
     kind: "mentions",
     title: "mentions",
-    items: makeMentionItems(),
+    items: opts?.items ?? makeMentionItems(),
+    activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-mentions",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 

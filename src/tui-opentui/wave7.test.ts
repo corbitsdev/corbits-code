@@ -13,7 +13,9 @@ import {
   makeSettingsItems,
 } from "./residuals.js"
 import {
+  acceptOverlaySelection,
   appendStreamRow,
+  clearShellOverlayHooks,
   closeInsetOverlay,
   createAppShell,
   enterSubagentObserve,
@@ -24,6 +26,8 @@ import {
   openPluginsOverlay,
   openResumeOverlay,
   openSettingsOverlay,
+  setShellOverlayHooks,
+  type OverlaySelection,
   type PrimaryOverlayKind,
 } from "./shell.js"
 
@@ -220,5 +224,150 @@ describe("Wave 7: residual fixtures", () => {
       ),
     ).toBe(true)
     expect(makeObserveFixture().lines.length).toBeGreaterThan(2)
+  })
+})
+
+describe("Wave 7: residual live inject + accept", () => {
+  test("settings inject items/itemIds and onAccept fires with payload", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const accepted: OverlaySelection[] = []
+          openSettingsOverlay(shell, {
+            items: ["Permissions", "Telemetry", "Close"],
+            itemIds: ["permissions", "telemetry", "close"],
+            onAccept: (s) => accepted.push(s),
+          })
+          expect(shell.overlayKind).toBe("settings")
+          expect(shell.overlayItems).toEqual([
+            "Permissions",
+            "Telemetry",
+            "Close",
+          ])
+          expect(shell.overlayItems.length).not.toBe(
+            makeSettingsItems().length,
+          )
+
+          moveOverlaySelection(shell, 1)
+          acceptOverlaySelection(shell)
+          expect(accepted).toEqual([
+            {
+              kind: "settings",
+              index: 1,
+              label: "Telemetry",
+              id: "telemetry",
+            },
+          ])
+          expect(shell.overlayList).toBeNull()
+          expect(focusOwner(shell.focus)).toBe("prompt")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("resume shell-level onResume when no per-open onAccept", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const accepted: OverlaySelection[] = []
+          setShellOverlayHooks(shell, {
+            onResume: (s) => accepted.push(s),
+          })
+          openResumeOverlay(shell, {
+            items: ["Session A", "Session B"],
+            itemIds: ["sess-a", "sess-b"],
+          })
+          moveOverlaySelection(shell, 1)
+          acceptOverlaySelection(shell)
+          expect(accepted).toEqual([
+            {
+              kind: "resume",
+              index: 1,
+              label: "Session B",
+              id: "sess-b",
+            },
+          ])
+        } finally {
+          clearShellOverlayHooks(shell)
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("omitted items fall back to fixture catalogs", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          openPluginsOverlay(shell)
+          expect(shell.overlayItems).toEqual([...makePluginsItems()])
+          closeInsetOverlay(shell)
+
+          openMentionsOverlay(shell)
+          expect(shell.overlayItems).toEqual([...makeMentionItems()])
+          closeInsetOverlay(shell)
+
+          openHelpOverlay(shell)
+          expect(shell.overlayItems).toEqual([...makeHelpItems()])
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("per-open onAccept wins over shell residual hooks; Esc skips accept", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const shellHits: OverlaySelection[] = []
+          const openHits: OverlaySelection[] = []
+          setShellOverlayHooks(shell, {
+            onMentions: (s) => shellHits.push(s),
+          })
+          openMentionsOverlay(shell, {
+            items: ["@file.ts", "Close"],
+            itemIds: ["file", "close"],
+            onAccept: (s) => openHits.push(s),
+          })
+          acceptOverlaySelection(shell)
+          expect(openHits).toHaveLength(1)
+          expect(openHits[0]?.id).toBe("file")
+          expect(shellHits).toEqual([])
+
+          openMentionsOverlay(shell, {
+            items: ["@other.ts"],
+            onAccept: (s) => openHits.push(s),
+          })
+          closeInsetOverlay(shell)
+          expect(openHits).toHaveLength(1)
+        } finally {
+          clearShellOverlayHooks(shell)
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
   })
 })
