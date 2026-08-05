@@ -95,6 +95,11 @@ import { getToolApprovalBudget } from "../tui/tool-execution-watchdog.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
+/** Normalize unknown catch values for structured warn/error logs. */
+export function formatCaughtError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Content-less inbound used after compact so the reactor re-enters (matches TUI). */
 function buildCompactionContinuationMessage(): InboundMessage {
   return {
@@ -194,7 +199,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
       mcpServers: connectedMcp,
       ...(status !== "running" ? { finishedAt: Date.now() } : {}),
       ...(extra?.error !== undefined ? { error: extra.error } : {}),
-    }).catch(() => undefined);
+    }).catch((err: unknown) => {
+      // Persistence failure must not fail the run, but dropping it silently
+      // hides disk/permission problems that leave run.json stale.
+      logger.warn("saveState failed for session {sessionId} status={status}: {error}", {
+        sessionId,
+        status,
+        error: formatCaughtError(err),
+      });
+    });
   };
 
 
@@ -204,7 +217,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
   try {
     const inferenceDeps = await createInferenceDependencies();
     await seedPricingMetadataFromCache({ cachePath: defaultPricingCachePath() }).catch(
-      () => undefined,
+      (err: unknown) => {
+        // Pricing seed is optional for exec; continue without rates rather than fail the run.
+        logger.debug("seedPricingMetadataFromCache failed: {error}", {
+          error: formatCaughtError(err),
+        });
+      },
     );
 
     let projectTrust = await loadProjectTrust(config.cwd);
@@ -243,8 +261,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const profilesDir = join(config.cwd, ".agents", "agents");
     const liveAgentProfiles = await loadAgentProfiles(profilesDir);
 
+    // loadLocalSettings maps ENOENT → null; a throw is real I/O or schema failure.
     const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(
-      () => null,
+      (err: unknown) => {
+        logger.warn("Failed to load local settings: {error}", {
+          error: formatCaughtError(err),
+        });
+        return null;
+      },
     );
     const sessionMode: SessionMode =
       resolveSessionMode(config.settings, localSettingsForMode) ?? "orchestrator";
@@ -590,8 +614,16 @@ export async function runExec(config: Config): Promise<ExecResult> {
         // the entire successful reply as a spurious partial. After the drain,
         // dispose is a no-op on success and a real record only if a cycle
         // died without a terminal event.
-        await activeAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
+        await activeAgent.close().catch((err: unknown) => {
+          logger.debug("agent.close during successful-send teardown failed: {error}", {
+            error: formatCaughtError(err),
+          });
+        });
+        await streamPromise.catch((err: unknown) => {
+          logger.debug("stream drain during successful-send teardown failed: {error}", {
+            error: formatCaughtError(err),
+          });
+        });
         await cycleRecorder.dispose("cancelled");
       } else {
         // Failed or aborted send: close() tears down stream consumers before
@@ -599,8 +631,16 @@ export async function runExec(config: Config): Promise<ExecResult> {
         // snapshots the buffer at entry) runs before closing or the text is
         // lost.
         await cycleRecorder.dispose(sendCompleted ? "cancelled" : "send-failed");
-        await activeAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
+        await activeAgent.close().catch((err: unknown) => {
+          logger.debug("agent.close during failed-send teardown failed: {error}", {
+            error: formatCaughtError(err),
+          });
+        });
+        await streamPromise.catch((err: unknown) => {
+          logger.debug("stream drain during failed-send teardown failed: {error}", {
+            error: formatCaughtError(err),
+          });
+        });
       }
     }
 
@@ -630,7 +670,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
       toolCallCount: runSink.getToolCallCount(),
       ...(runError !== undefined ? { error: runError } : {}),
     });
-    await hookManager.dispatchPostRun(runSummary).catch(() => undefined);
+    await hookManager.dispatchPostRun(runSummary).catch((err: unknown) => {
+      // Post-run hooks are best-effort; keep the exec exit path intact but
+      // surface the failure so operators can see hook/script problems.
+      const message = formatCaughtError(err);
+      logger.warn("dispatchPostRun failed: {error}", { error: message });
+      stderr.write(`Warning: post-run hook failed: ${message}\n`);
+    });
 
     if (!sendCompleted || runError !== undefined || summaryStatus === "failed") {
       const message =
@@ -688,11 +734,19 @@ export async function runExec(config: Config): Promise<ExecResult> {
     };
   } finally {
     if (agent !== null) {
-      await agent.close().catch(() => undefined);
+      await agent.close().catch((err: unknown) => {
+        logger.debug("agent.close during exec finally failed: {error}", {
+          error: formatCaughtError(err),
+        });
+      });
     }
     // Match TUI: always dispose toolset (MCP clients + posix/plugin resources).
     if (toolset !== null) {
-      await toolset.dispose().catch(() => undefined);
+      await toolset.dispose().catch((err: unknown) => {
+        logger.debug("toolset.dispose during exec finally failed: {error}", {
+          error: formatCaughtError(err),
+        });
+      });
     }
   }
 }

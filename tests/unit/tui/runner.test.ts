@@ -1,6 +1,11 @@
 import { test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createTUIEventEmitter, getTUIRunSummaryStatus } from "../../../src/tui/runner.js";
+import {
+  createTUIEventEmitter,
+  getTUIRunSummaryStatus,
+  loadLocalSettingsWriteBase,
+  resumeTranscriptLoadErrorBlock,
+} from "../../../src/tui/runner.js";
 import { createRunSink } from "../../../src/session/run-sink.js";
 
 test("createTUIEventEmitter returns an EventEmitter", () => {
@@ -20,6 +25,32 @@ test("getTUIRunSummaryStatus distinguishes done, failed, and cancelled runs", ()
   expect(getTUIRunSummaryStatus(true, undefined)).toBe("done");
   expect(getTUIRunSummaryStatus(true, "network failed")).toBe("failed");
   expect(getTUIRunSummaryStatus(false, undefined)).toBe("cancelled");
+});
+
+test("resumeTranscriptLoadErrorBlock surfaces a user-visible error block", () => {
+  expect(resumeTranscriptLoadErrorBlock(new Error("EACCES"))).toEqual({
+    type: "error",
+    message: "Could not load prior session transcript: EACCES",
+  });
+  expect(resumeTranscriptLoadErrorBlock("disk full").message).toContain("disk full");
+});
+
+test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async () => {
+  // Absent → empty base (safe to write a single key).
+  expect(await loadLocalSettingsWriteBase("/nope", async () => null)).toEqual({});
+
+  // Readable → merge base.
+  expect(
+    await loadLocalSettingsWriteBase("/ok", async () => ({ sessionMode: "single" })),
+  ).toEqual({ sessionMode: "single" });
+
+  // Unreadable/invalid → null so the caller skips the write instead of
+  // overwriting the file with only sessionMode.
+  expect(
+    await loadLocalSettingsWriteBase("/bad", async () => {
+      throw new Error("invalid schema");
+    }),
+  ).toBeNull();
 });
 
 // Rotation behavioral tests — per-session store semantics without a real TUI or agent.

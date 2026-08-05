@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Config } from "../../../src/config/index.js";
-import { runExec } from "../../../src/exec/runner.js";
+import { formatCaughtError, runExec } from "../../../src/exec/runner.js";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
@@ -19,6 +19,14 @@ function bareConfig(task: string): Config {
     sessionId: "test-session",
   } as unknown as Config;
 }
+
+describe("formatCaughtError", () => {
+  test("prefers Error.message and stringifies other values", () => {
+    expect(formatCaughtError(new Error("disk full"))).toBe("disk full");
+    expect(formatCaughtError("plain")).toBe("plain");
+    expect(formatCaughtError(42)).toBe("42");
+  });
+});
 
 describe("runExec", () => {
   test("empty prompt exits 2 with stderr message without bootstrapping", async () => {

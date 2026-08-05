@@ -135,7 +135,9 @@ import {
 } from "../session/runtime-assembly.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
-import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
 export function createTUIEventEmitter(): EventEmitter {
   return new EventEmitter();
@@ -155,6 +157,30 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
     return 1;
   }
   return 0;
+}
+
+/** One-line transcript block when resume history fails to load. */
+export function resumeTranscriptLoadErrorBlock(err: unknown): {
+  type: "error";
+  message: string;
+} {
+  const message = err instanceof Error ? err.message : String(err);
+  return { type: "error", message: `Could not load prior session transcript: ${message}` };
+}
+
+/**
+ * Resolve the base for a local-settings read-modify-write.
+ * Absent file → empty object; unreadable/invalid → null (caller must skip write).
+ */
+export async function loadLocalSettingsWriteBase(
+  path: string,
+  load: (path: string) => Promise<LocalSettings | null> = loadLocalSettings,
+): Promise<LocalSettings | null> {
+  try {
+    return (await load(path)) ?? {};
+  } catch {
+    return null;
+  }
 }
 
 function buildCompactionContinuationMessage(): InboundMessage {
@@ -271,7 +297,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
-    await flushPartialOnCrash().catch(() => undefined);
+    await flushPartialOnCrash().catch((flushErr: unknown) => {
+      // Best-effort only — still attempt saveState below. Log so a flush
+      // failure is not invisible when diagnosing a crash exit.
+      const flushMessage = flushErr instanceof Error ? flushErr.message : String(flushErr);
+      tuiLogger.warn("crash finalize: partial flush failed: {error}", { error: flushMessage });
+      process.stderr.write(`${COMMAND_NAME}: crash finalize partial flush failed: ${flushMessage}\n`);
+    });
     const message = err instanceof Error ? err.message : String(err);
     await saveState(config.cwd, sessionId, {
       status: "failed",
@@ -282,7 +314,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       error: message,
       model: `${config.providerName}:${config.model}`,
       mcpServers: [],
-    }).catch(() => undefined);
+    }).catch((saveErr: unknown) => {
+      const saveMessage = saveErr instanceof Error ? saveErr.message : String(saveErr);
+      tuiLogger.warn(
+        "crash finalize: saveState failed for session {sessionId}: {error}",
+        { sessionId, error: saveMessage },
+      );
+      process.stderr.write(
+        `${COMMAND_NAME}: crash finalize saveState failed for ${sessionId}: ${saveMessage}\n`,
+      );
+    });
   };
 
   try {
@@ -412,8 +453,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let liveWebOverride: string | undefined = config.settings?.web;
   const livePluginPaths: string[] = [...(config.settings?.pluginPaths ?? [])];
   const persistPluginSettings = async (): Promise<void> => {
-    const current = await loadSettings(config.globalSettingsPath).catch(() => null);
-    const base: Settings = current ?? { providers: {} };
+    // Absent file → fresh base; unreadable/invalid → skip write so we never
+    // clobber a corrupt settings file by rewriting from a minimal shell.
+    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+    if (base === null) {
+      tuiLogger.warn(
+        "Skipping plugin settings write: unreadable global settings at {path}",
+        { path: config.globalSettingsPath },
+      );
+      return;
+    }
     const next: Settings = { ...base, plugins: livePluginConfig };
     if (livePluginPaths.length > 0) next.pluginPaths = livePluginPaths;
     else delete next.pluginPaths;
@@ -638,7 +687,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const picked = await promptSessionModeIfUnset(config.globalSettingsPath);
     liveSessionMode = picked ?? "orchestrator";
     if (picked !== undefined) {
-      const refreshed = await loadSettings(config.globalSettingsPath).catch(() => null);
+      const refreshed = await loadSettings(config.globalSettingsPath).catch((err: unknown) => {
+        // loadSettings already maps ENOENT → null; a throw is a real I/O or
+        // schema failure. Keep the in-memory config rather than pretending
+        // settings are empty.
+        tuiLogger.warn("Failed to reload settings after session mode pick: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
   }
@@ -809,7 +866,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // the run) rather than the OpenAI-compatible one.
   const initialCodexProfile = codexProfileFromProviderName(config.providerName);
   const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
-  if (initialCodexProfile !== undefined) void refreshCodexInstructions().catch(() => {});
+  if (initialCodexProfile !== undefined) {
+    void refreshCodexInstructions().catch((err: unknown) => {
+      // Best-effort; agent still starts with cached/default instructions.
+      tuiLogger.warn("Codex instructions refresh failed: {error}", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
   const initialCodexAccountId = config.providers.find((p) => p.name === config.providerName)?.codexAccountId;
   const buildOpenAICompatibleInitialSource = (): InferenceSource =>
     buildOpenAISource({
@@ -1081,8 +1145,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     pendingReload = false;
     void enqueueOp(async () => {
       const old = currentAgent;
-      await old.close().catch(() => undefined);
-      await streamPromise.catch(() => undefined);
+      await old.close().catch((err: unknown) => {
+        tuiLogger.debug("agent.close during reload teardown failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      await streamPromise.catch((err: unknown) => {
+        tuiLogger.debug("stream drain during reload teardown failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
       currentAgent = await buildAgent();
       streamPromise = consumeStream(currentAgent.stream(), streamSink);
       // The rebuild made a fresh director; re-attach the active workflow.
@@ -1218,8 +1290,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // and salvages the buffer before that teardown, so it is never lost
         // or misattributed to the rebuilt agent's next cycle.
         await cycleRecorder.dispose("interrupted");
-        await currentAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
+        await currentAgent.close().catch((err: unknown) => {
+          tuiLogger.debug("agent.close during interrupt teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        await streamPromise.catch((err: unknown) => {
+          tuiLogger.debug("stream drain during interrupt teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
         currentAgent = await buildAgent();
         cycleRecorder.reset();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
@@ -1252,8 +1332,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // settles, and a dead cycle's partial must land in the session that
         // produced it, not the fresh one.
         await cycleRecorder.dispose("rotation");
-        await currentAgent.close().catch(() => undefined);
-        await streamPromise.catch(() => undefined);
+        await currentAgent.close().catch((err: unknown) => {
+          tuiLogger.debug("agent.close during session-rotation teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        await streamPromise.catch((err: unknown) => {
+          tuiLogger.debug("stream drain during session-rotation teardown failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
         await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
         startedAt = Date.now();
@@ -1409,14 +1497,26 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       {...(config.settings !== undefined ? { initialSettings: config.settings } : {})}
       onChangeCompactionMode={async (mode) => {
         liveCompactionMode = mode;
-        const current = await loadSettings(config.globalSettingsPath).catch(() => null);
-        const base: Settings = current ?? { providers: {} };
+        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+        if (base === null) {
+          tuiLogger.warn(
+            "Skipping compaction mode write: unreadable global settings at {path}",
+            { path: config.globalSettingsPath },
+          );
+          return;
+        }
         await saveGlobalSettings(config.globalSettingsPath, { ...base, compactionMode: mode });
       }}
       onChangeMaxConcurrentSubAgents={async (limit) => {
         configureSubAgentConcurrency(limit);
         const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) return;
+        if (base === null) {
+          tuiLogger.warn(
+            "Skipping max concurrent sub-agents write: unreadable global settings at {path}",
+            { path: config.globalSettingsPath },
+          );
+          return;
+        }
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           maxConcurrentSubAgents: limit,
@@ -1426,7 +1526,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onChangeWaitForApproval={async (value) => {
         liveToolWatchdog.waitForApproval = value;
         const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) return;
+        if (base === null) {
+          tuiLogger.warn(
+            "Skipping wait-for-approval write: unreadable global settings at {path}",
+            { path: config.globalSettingsPath },
+          );
+          return;
+        }
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           tools: { ...base.tools, waitForApproval: value },
@@ -1442,15 +1548,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onChangeSessionMode={async (mode, scope) => {
         if (scope === "local") {
           const path = localSettingsPath(config.cwd);
-          const base = await loadLocalSettingsWriteBase(path);
-          // Skip write when the file exists but is unreadable/unusable so we
-          // never wipe a broken selection down to only sessionMode.
-          if (base === null) return;
-          const next: LocalSettings = { ...base, sessionMode: mode };
-          await saveLocalSettings(path, next);
+// Absent → {}; unreadable/invalid → null so we never clobber.
+          const existing = await loadLocalSettingsWriteBase(path);
+          if (existing === null) {
+            tuiLogger.warn(
+              "Skipping local session mode write: unreadable settings at {path}",
+              { path },
+            );
+            return;
+          }
+          await saveLocalSettings(path, { ...existing, sessionMode: mode });
         } else {
-          const current = await loadSettings(config.globalSettingsPath).catch(() => null);
-          const base: Settings = current ?? { providers: {} };
+          const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+          if (base === null) {
+            tuiLogger.warn(
+              "Skipping global session mode write: unreadable settings at {path}",
+              { path: config.globalSettingsPath },
+            );
+            return;
+          }
           await saveGlobalSettings(config.globalSettingsPath, { ...base, sessionMode: mode });
         }
       }}
@@ -1502,7 +1618,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
       if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
     })
-    .catch(() => undefined);
+    .catch((err: unknown) => {
+      // Resume still works without painted history, but a silent empty
+      // transcript looks like a brand-new session. Log and surface a one-line
+      // error block so the operator knows history failed to load.
+      const block = resumeTranscriptLoadErrorBlock(err);
+      tuiLogger.warn("Failed to load resume transcript from {workdir}: {error}", {
+        workdir,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      emitter.emit("history.hydrate", [block]);
+    });
 
   // Connect MCP servers after the TUI is up so the UI is usable immediately and
   // any OAuth authorization is surfaced as a copyable link rather than a browser
