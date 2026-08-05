@@ -30,7 +30,7 @@ const FIELD_LABELS: Record<Field, string> = {
 };
 
 const FIELD_HINTS: Record<Field, string> = {
-  name: "openai, anthropic, fireworks, ...",
+  name: "openai, anthropic, ollama, ...",
   baseURL: "https://api.openai.com/v1",
   apiKey: "sk-... (blank for keyless/local)",
   model: "gpt-4o",
@@ -181,9 +181,20 @@ export function ProviderSetupPanel({ onSubmit, showTelemetryNotice }: ProviderSe
 
       {/* Main content */}
       <Box flexGrow={1} flexDirection="column" paddingX={4} paddingY={2}>
-        <Box marginBottom={2}>
-          <Text color={color("text")}>
-            No inference provider is configured. Add one to get started.
+        <Box marginBottom={1} flexDirection="column">
+          <Text color={color("text")} bold>
+            Welcome — connect an inference provider
+          </Text>
+          <Text color={color("muted")}>
+            Step {fieldIndex + 1} of {FIELDS.length}: {FIELD_LABELS[currentField]}
+            {" — "}
+            {currentField === "name" && "name it (openai, anthropic, ollama, …)"}
+            {currentField === "baseURL" && "paste the API base URL (include /v1 if required)"}
+            {currentField === "apiKey" && "API key (blank for local/keyless)"}
+            {currentField === "model" && "default model, then Enter to test & save"}
+          </Text>
+          <Text color={color("dim")}>
+            After setup, switch providers with /model
           </Text>
         </Box>
 

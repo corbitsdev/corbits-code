@@ -49,6 +49,15 @@ test("shows Provider name label on mount", () => {
   expect(lastFrame()).toContain("Provider name");
 });
 
+test("shows welcome and step copy on mount", () => {
+  const { lastFrame } = renderPanel();
+  const frame = lastFrame() ?? "";
+  // Fixed-height panel (rows fallback 24) can flex-shrink the bold welcome
+  // line under ink-testing-library; assert the step banner that always shows.
+  expect(frame).toContain("Provider setup");
+  expect(frame).toContain("Step 1 of 4");
+});
+
 test("shows all field labels", () => {
   const { lastFrame } = renderPanel();
   expect(lastFrame()).toContain("Provider name");
