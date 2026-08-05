@@ -44,7 +44,6 @@ export type UseMessagePipelineArgs = {
   promptXaiRelogin: (name: string) => void;
   setExpandedTools: Dispatch<SetStateAction<ReadonlySet<string>>>;
   setInputValue: Dispatch<SetStateAction<string>>;
-  setSessionStartedAt: Dispatch<SetStateAction<number>>;
   setEnteredSessionId: Dispatch<SetStateAction<string | null>>;
   setAgentsNavOpen: Dispatch<SetStateAction<boolean>>;
   setAgentsNavIndex: Dispatch<SetStateAction<number>>;
@@ -98,7 +97,6 @@ export function useMessagePipeline({
   promptXaiRelogin,
   setExpandedTools,
   setInputValue,
-  setSessionStartedAt,
   setEnteredSessionId,
   setAgentsNavOpen,
   setAgentsNavIndex,
@@ -226,7 +224,6 @@ export function useMessagePipeline({
     lastSentMessageRef.current = "";
     quotaAutoRetryFiredRef.current = true;
     setInputValue("");
-    setSessionStartedAt(Date.now());
     setEnteredSessionId(null);
     setAgentsNavOpen(false);
     setAgentsNavIndex(0);

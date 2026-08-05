@@ -4,6 +4,7 @@ import type { Task } from "../../agent/tasks.js";
 import type { SubAgentSession, SubAgentSessionStatus } from "../../subagent/session-store.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
+import { formatElapsed } from "./in-flight-indicator.js";
 
 export type AgentsStripProps = {
   sessions: readonly SubAgentSession[];
@@ -314,6 +315,13 @@ function currentToolArguments(session: SubAgentSession): string {
 }
 
 export function formatSessionLabel(session: SubAgentSession): string {
+  // Only finished workers get a duration suffix — matches status-bar policy
+  // (completed sub-agent times, not a live tick for in-flight sessions).
+  const duration =
+    session.finishedAt !== undefined && session.finishedAt >= session.startedAt
+      ? formatElapsed(session.finishedAt - session.startedAt)
+      : undefined;
+  const durationSuffix = duration !== undefined ? ` · ${duration}` : "";
   if (session.status === "running" && session.currentToolName !== null) {
     const args = currentToolArguments(session);
     const { summary, isShell } = describeToolCall(session.currentToolName, args);
@@ -325,13 +333,13 @@ export function formatSessionLabel(session: SubAgentSession): string {
         ? `${session.currentToolName} ${summary}`
         : session.currentToolName;
     const tool = ` — ${preview}`;
-    return `${session.agentId}: ${session.description}${tool}`;
+    return `${session.agentId}: ${session.description}${tool}${durationSuffix}`;
   }
   const tool =
     session.toolNames.length > 0 && session.status !== "running"
       ? ` · ${session.toolNames.length} tool${session.toolNames.length === 1 ? "" : "s"}`
       : "";
-  return `${session.agentId}: ${session.description}${tool}`;
+  return `${session.agentId}: ${session.description}${tool}${durationSuffix}`;
 }
 
 function summaryCounts(sessions: readonly SubAgentSession[]): string {

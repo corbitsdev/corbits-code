@@ -35,7 +35,7 @@ test("status budget matches the rows StatusBar paints inside App's marginTop wra
   // App wraps StatusBar in <Box marginTop={1}>; mirror that wrapper here.
   const { lastFrame } = render(
     <Box marginTop={1}>
-      <StatusBar sessionElapsedMs={0} mcpCount={0} />
+      <StatusBar mcpCount={0} />
     </Box>,
   );
   expect(frameRows(lastFrame())).toBe(CHROME_ZONE_ROWS.status);

@@ -14,7 +14,7 @@ import {
 
 function renderBar(
   props: {
-    sessionElapsedMs?: number;
+    completedAgentsLabel?: string;
     mcpCount?: number;
     costLabel?: string;
     contextLabel?: string;
@@ -27,8 +27,8 @@ function renderBar(
 ) {
   return render(
     <StatusBar
-      sessionElapsedMs={props.sessionElapsedMs ?? 0}
       mcpCount={props.mcpCount ?? 0}
+      {...(props.completedAgentsLabel !== undefined ? { completedAgentsLabel: props.completedAgentsLabel } : {})}
       {...(props.costLabel !== undefined ? { costLabel: props.costLabel } : {})}
       {...(props.contextLabel !== undefined ? { contextLabel: props.contextLabel } : {})}
       {...(props.contextPercentUsed !== undefined ? { contextPercentUsed: props.contextPercentUsed } : {})}
@@ -48,9 +48,14 @@ test("StatusBar renders the product name on the left", () => {
   expect(frame.trimStart().startsWith("Corbits Code")).toBe(true);
 });
 
-test("StatusBar shows the session elapsed time beside the brand", () => {
-  const { lastFrame } = renderBar({ sessionElapsedMs: 65_000 });
-  expect(lastFrame()).toContain("1m 5s");
+test("StatusBar shows completed sub-agent durations beside the brand", () => {
+  const { lastFrame } = renderBar({ completedAgentsLabel: "agents 1m 5s" });
+  expect(lastFrame()).toContain("agents 1m 5s");
+});
+
+test("StatusBar hides agent timing when none have completed", () => {
+  const { lastFrame } = renderBar();
+  expect(lastFrame()).not.toContain("agents ");
 });
 
 test("StatusBar shows MCP health on the right when servers are connected", () => {
@@ -152,7 +157,7 @@ test("truncateMiddle keeps the head and tail around an ellipsis", () => {
 test("planStatusBarLayout keeps everything when it fits", () => {
   const layout = planStatusBarLayout({
     columns: 120,
-    timerText: "5s",
+    agentsText: "agents 5s",
     mcpText: "MCP ✓ 2",
     model: "gpt-5",
     cwd: "~/repo",
@@ -168,19 +173,19 @@ test("planStatusBarLayout keeps everything when it fits", () => {
 });
 
 test("planStatusBarLayout counts padding and per-child gaps in the budget", () => {
-  // brand(12) + timer(2) = 14 text columns; children are brand, timer, and the
+  // brand(12) + agents(2) = 14 text columns; children are brand, agents, and the
   // flex spacer, so 2 gaps; plus 2 padding columns = 18 total.
-  const fits = planStatusBarLayout({ columns: 18, timerText: "5s", contextLabel: "Ctx" });
-  const overflows = planStatusBarLayout({ columns: 17, timerText: "5s", contextLabel: "Ctx" });
+  const fits = planStatusBarLayout({ columns: 18, agentsText: "5s", contextLabel: "Ctx" });
+  const overflows = planStatusBarLayout({ columns: 17, agentsText: "5s", contextLabel: "Ctx" });
   expect(fits.showContext).toBe(false);
   // "Ctx"(3) + its gap(1) pushes the fitting width to 22.
-  expect(planStatusBarLayout({ columns: 22, timerText: "5s", contextLabel: "Ctx" }).showContext).toBe(true);
+  expect(planStatusBarLayout({ columns: 22, agentsText: "5s", contextLabel: "Ctx" }).showContext).toBe(true);
   expect(overflows.showContext).toBe(false);
 });
 
 test("planStatusBarLayout drops context before cost before the model segment", () => {
   const base = {
-    timerText: "5s",
+    agentsText: "5s",
     model: "gpt-5",
     cwd: "~/some/project/path",
     gitBranch: "main",
@@ -202,7 +207,7 @@ test("planStatusBarLayout drops context before cost before the model segment", (
 test("planStatusBarLayout truncates only the cwd, never model or branch", () => {
   const layout = planStatusBarLayout({
     columns: 60,
-    timerText: "5s",
+    agentsText: "5s",
     model: "gpt-5",
     cwd: "~/a/very/deeply/nested/project/directory",
     gitBranch: "feature-branch",
@@ -216,12 +221,24 @@ test("planStatusBarLayout truncates only the cwd, never model or branch", () => 
 test("planStatusBarLayout drops the model segment when cwd cannot absorb the overflow", () => {
   const layout = planStatusBarLayout({
     columns: 20,
-    timerText: "5s",
+    agentsText: "5s",
     model: "gpt-5-with-long-name",
-    cwd: "~/repo",
+    cwd: "/x",
     gitBranch: "main",
   });
   expect(layout.modelCwdBranchText).toBeUndefined();
+});
+
+test("formatCompletedAgentsLabel sums finished sub-agent durations", async () => {
+  const { formatCompletedAgentsLabel } = await import("../../../src/tui/components/status-bar.js");
+  expect(
+    formatCompletedAgentsLabel([
+      { status: "done", startedAt: 0, finishedAt: 65_000 },
+      { status: "running", startedAt: 0 },
+      { status: "failed", startedAt: 0, finishedAt: 5_000 },
+    ]),
+  ).toBe("agents 1m 10s");
+  expect(formatCompletedAgentsLabel([{ status: "running", startedAt: 0 }])).toBeUndefined();
 });
 
 test("contextMeterTone stays normal below the compaction threshold", () => {

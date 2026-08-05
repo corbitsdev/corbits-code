@@ -258,8 +258,9 @@ describe("formatSessionLabel", () => {
       status: "done",
       currentToolName: null,
       toolNames: ["grep", "read_file"],
+      finishedAt: 5_000,
     });
-    expect(formatSessionLabel(session)).toBe("researcher: researching things · 2 tools");
+    expect(formatSessionLabel(session)).toBe("researcher: researching things · 2 tools · 5s");
   });
 
   test("shell tool preview leads with the command, not a redundant tool name", () => {
@@ -268,6 +269,15 @@ describe("formatSessionLabel", () => {
     ];
     const session = baseSession({ currentToolName: "run_shell", entries });
     expect(formatSessionLabel(session)).toBe("researcher: researching things — bun test");
+  });
+
+  test("appends finished duration when finishedAt is set", () => {
+    const session = baseSession({
+      status: "done",
+      currentToolName: null,
+      finishedAt: 65_000,
+    });
+    expect(formatSessionLabel(session)).toBe("researcher: researching things · 1m 5s");
   });
 });
 

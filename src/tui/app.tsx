@@ -7,7 +7,7 @@ import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog, TEXT_GUTTER, resolveViewportExpandIds } from "./components/event-log.js";
-import { StatusBar } from "./components/status-bar.js";
+import { StatusBar, formatCompletedAgentsLabel } from "./components/status-bar.js";
 import { useGitBranch } from "./git-branch.js";
 import { formatStatusBarSegments } from "../cost/cost-summary.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -42,7 +42,6 @@ import type { SubAgentProvider, SubAgentSessionStore } from "../subagent/index.j
 import { useSpinner } from "./hooks/use-spinner.js";
 import { chromeDividerLine } from "./chrome-zones.js";
 import { useQuotaRetry } from "./hooks/use-quota-retry.js";
-import { useSessionClock } from "./hooks/use-session-clock.js";
 import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -179,9 +178,6 @@ export type AppProps = {
   // Emits "scrollUp"/"scrollDown" for mouse-wheel events, which are stripped
   // from stdin before they reach useInput (see createFilteredStdin).
   mouseEvents?: EventEmitter;
-  // Wall-clock ms timestamp the session started. Drives the whole-session timer
-  // in the status bar; reset on /new.
-  sessionStartedAt?: number;
   // Inspectable child sessions for the Agents strip and enter-session UI.
   subAgentSessions?: SubAgentSessionStore;
   /** Goal mode operator surface. */
@@ -267,7 +263,6 @@ export function App({
   globallyOnboarded = false,
   globalOnboardingPath,
   mouseEvents,
-  sessionStartedAt: sessionStartedAtProp,
   subAgentSessions,
   goalApi,
   telemetryNotice,
@@ -592,6 +587,8 @@ export function App({
     providerCatalog,
     extraChromeRows,
   });
+
+  const completedAgentsLabel = formatCompletedAgentsLabel(subAgentSessions?.list() ?? []);
   const { leftWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
   // Text wraps and renders inside the gutter so prose never touches the edges.
   const contentWidth = Math.max(8, leftWidth - TEXT_GUTTER * 2);
@@ -661,8 +658,6 @@ export function App({
   const copyTargetList = copyModeOpen ? copyTargetsRef.current : [];
 
   const [, forceRender] = useState(0);
-  // Whole-session timer for the status bar. Held in state so /new can zero it.
-  const [sessionStartedAt, setSessionStartedAt] = useState(sessionStartedAtProp ?? Date.now());
 
   const {
     sendMessage,
@@ -703,7 +698,6 @@ export function App({
     promptXaiRelogin,
     setExpandedTools,
     setInputValue,
-    setSessionStartedAt,
     setEnteredSessionId,
     setAgentsNavOpen,
     setAgentsNavIndex,
@@ -767,7 +761,6 @@ export function App({
     streamingType: state.streamingType,
   });
 
-  const sessionElapsedMs = useSessionClock(sessionStartedAt);
   // Persistent status bar segment: refreshes on an interval, never
   // blocks render on the git process.
   const gitBranch = useGitBranch(cwd);
@@ -1347,7 +1340,7 @@ export function App({
           )}
         <Box marginTop={1}>
           <StatusBar
-            sessionElapsedMs={sessionElapsedMs}
+            {...(completedAgentsLabel !== undefined ? { completedAgentsLabel } : {})}
             mcpCount={mcpStatus.connected.length}
             model={model}
             cwd={cwd}

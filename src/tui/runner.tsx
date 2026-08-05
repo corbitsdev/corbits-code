@@ -1466,7 +1466,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       activePlugins={activePlugins}
       initialWorkflowStatus={workflowController.status()}
       mouseEvents={mouseEvents}
-      sessionStartedAt={startedAt}
       subAgentSessions={subAgentSessions}
       goalApi={{
         get: () => goalGovernor.get(),
