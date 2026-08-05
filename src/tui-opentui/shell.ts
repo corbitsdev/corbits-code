@@ -1,80 +1,128 @@
 /**
- * OpenTUI app shell frame — header, sticky transcript, prompt, status.
+ * OpenTUI app shell — header, sticky transcript, prompt chrome, status, inset overlay.
  *
- * Functional Corbits wrappers around @opentui/core class renderables
- * (class API required: VNode ScrollBox broke scrollTop in the spike).
- * Not wired to the production CLI entry; Ink remains production.
+ * Wave 3 product skin on the Wave 2 platform. Functional wrappers around
+ * @opentui/core class renderables. Not wired to production CLI; Ink remains production.
  */
 
 import {
   BoxRenderable,
   CliRenderEvents,
   InputRenderable,
+  InputRenderableEvents,
   ScrollBoxRenderable,
   TextRenderable,
   type CliRenderer,
   type KeyEvent,
-} from "@opentui/core";
+} from "@opentui/core"
 
 import {
   createFocusState,
   focusOwner,
   focusPrompt,
   focusTranscript,
+  openOverlay,
+  popFocus,
   type FocusState,
-} from "./focus/index.js";
+} from "./focus/index.js"
 import {
   resolveGeometry,
   type GeometryLayout,
+  type OverlayMode,
   type ZoneVisibility,
-} from "./geometry/index.js";
+} from "./geometry/index.js"
+import {
+  createListViewport,
+  moveActive,
+  visibleSlice,
+  type ListViewportState,
+} from "./list-viewport.js"
+import {
+  badgeCount,
+  clearInterruptFlash,
+  createSessionQueue,
+  enqueue,
+  enqueueSteer,
+  interrupt,
+  setRunState,
+  type RunState,
+  type SessionQueueState,
+} from "./session-queue.js"
+import {
+  PROMPT_HINT,
+  paintStreamRow,
+  sessionHeaderTitle,
+  type StreamRow,
+} from "./stream.js"
 
 /** Renderer surface required by the shell (CliRenderer / createTestRenderer). */
 export type ShellRenderer = Pick<
   CliRenderer,
   "root" | "width" | "height" | "keyInput" | "on" | "off"
->;
+>
 
 export type AppShellOptions = {
-  /** Header label. Default "corbits". */
-  readonly title?: string;
+  /** Header base title. Default "corbits". */
+  readonly title?: string
   /** Zone visibility overrides for resolveGeometry. model_bar off by default. */
-  readonly visibility?: ZoneVisibility;
+  readonly visibility?: ZoneVisibility
   /** Requested prompt content rows (geometry caps at 40%). Default 3. */
-  readonly promptContentRows?: number;
-  /** Pending queue count shown in status. Default 0. */
-  readonly pendingQueue?: number;
-  /** Wire Tab focus toggle on keyInput. Default true. */
-  readonly wireKeys?: boolean;
+  readonly promptContentRows?: number
+  /** Pending queue count seed. Default 0. */
+  readonly pendingQueue?: number
+  /** Wire Tab + product keys (Enter/Alt+Enter/Ctrl+C/Esc/overlay). Default true. */
+  readonly wireKeys?: boolean
   /** Mount shell.root on renderer.root. Default true. */
-  readonly mount?: boolean;
+  readonly mount?: boolean
   /** Initial terminal size override (tests). Defaults to renderer.width/height. */
-  readonly terminal?: { readonly columns: number; readonly rows: number };
-};
+  readonly terminal?: { readonly columns: number; readonly rows: number }
+  /** Simulated agent run state. Default "busy" (queue-default mid-run). */
+  readonly run?: RunState
+  /** Overlay list labels for inset demo. */
+  readonly overlayItems?: readonly string[]
+}
 
 export type AppShell = {
-  readonly renderer: ShellRenderer;
-  readonly root: BoxRenderable;
-  readonly header: TextRenderable;
-  readonly headerBox: BoxRenderable;
-  readonly transcript: ScrollBoxRenderable;
-  readonly prompt: InputRenderable;
-  readonly promptBox: BoxRenderable;
-  readonly status: TextRenderable;
-  readonly statusBox: BoxRenderable;
+  readonly renderer: ShellRenderer
+  readonly root: BoxRenderable
+  readonly header: TextRenderable
+  readonly headerBox: BoxRenderable
+  readonly transcript: ScrollBoxRenderable
+  readonly overlayHost: BoxRenderable
+  readonly overlayTitle: TextRenderable
+  readonly overlayBody: BoxRenderable
+  readonly prompt: InputRenderable
+  readonly promptBox: BoxRenderable
+  readonly hint: TextRenderable
+  readonly status: TextRenderable
+  readonly statusBox: BoxRenderable
   /** Latest geometry resolution (updated on resize / relayout). */
-  layout: GeometryLayout;
+  layout: GeometryLayout
   /** Focus tree + scroll lease (updated by shell helpers). */
-  focus: FocusState;
-  /** Pending queue count placeholder (status bar). */
-  pendingQueue: number;
+  focus: FocusState
+  /** Session queue / steer / interrupt bag. */
+  session: SessionQueueState
+  /** Pending queue count (mirrors badgeCount(session); kept for status API). */
+  pendingQueue: number
   /** Transcript line count (append counter). */
-  lineCount: number;
+  lineCount: number
+  /** Base title without BUSY/IDLE tag. */
+  baseTitle: string
+  /** Overlay list viewport (null when closed). */
+  overlayList: ListViewportState | null
+  /** Overlay item labels currently shown. */
+  overlayItems: readonly string[]
   /** Detach key/resize listeners and unmount root. */
-  dispose: () => void;
-};
+  dispose: () => void
+}
 
-const DEFAULT_TITLE = "corbits";
+const DEFAULT_TITLE = "corbits"
+const DEFAULT_OVERLAY_ITEMS = [
+  "Allow bash: ls",
+  "Allow bash: cat README",
+  "Deny this tool",
+  "Always allow bash",
+] as const
 
 function terminalOf(
   renderer: ShellRenderer,
@@ -84,142 +132,204 @@ function terminalOf(
     return {
       columns: Math.max(1, Math.floor(override.columns)),
       rows: Math.max(1, Math.floor(override.rows)),
-    };
+    }
   }
   return {
     columns: Math.max(1, Math.floor(renderer.width || 80)),
     rows: Math.max(1, Math.floor(renderer.height || 24)),
-  };
+  }
 }
 
 function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
-  // Minimal shell owns header / transcript / prompt / status.
-  // model_bar is constitution always-on idle, but off until chrome task lands.
   return {
     modelBar: false,
     header: 2,
+    progress: false,
+    progressDivider: false,
     status: 1,
     ...visibility,
-  };
+  }
 }
 
 /** Whether the transcript viewport is stuck to the bottom (FOLLOW vs PINNED). */
 export function isTranscriptFollowing(shell: AppShell): boolean {
-  const { transcript } = shell;
-  const max = Math.max(0, transcript.scrollHeight - transcript.height);
-  return transcript.scrollTop >= max - 1;
+  const { transcript } = shell
+  const max = Math.max(0, transcript.scrollHeight - transcript.height)
+  return transcript.scrollTop >= max - 1
 }
 
 /** Status mode label from sticky state. */
 export function stickyMode(shell: AppShell): "FOLLOW" | "PINNED" {
-  return isTranscriptFollowing(shell) ? "FOLLOW" : "PINNED";
+  return isTranscriptFollowing(shell) ? "FOLLOW" : "PINNED"
 }
 
-/** Rebuild status line from focus + sticky + pending queue. */
+function syncPending(shell: AppShell): void {
+  shell.pendingQueue = badgeCount(shell.session)
+}
+
+/** Rebuild status + header from focus, sticky, session, overlay. */
 export function paintStatus(shell: AppShell): void {
-  const mode = stickyMode(shell);
-  const owner = focusOwner(shell.focus);
+  syncPending(shell)
+  const mode = stickyMode(shell)
+  const owner = focusOwner(shell.focus)
+  const flash = shell.session.interruptFlash ? " · INTERRUPT" : ""
+  const run = shell.session.run.toUpperCase()
   shell.status.content =
-    ` ${mode} · queue ${shell.pendingQueue} · focus ${owner} · lines ${shell.lineCount}`;
+    ` ${mode} · ${run} · queue ${shell.pendingQueue} · focus ${owner}${flash} · lines ${shell.lineCount}`
+  shell.header.content = ` ${sessionHeaderTitle(shell.baseTitle, shell.session.run)}`
+  shell.hint.content = ` ${PROMPT_HINT}`
 }
 
-/** Apply focus state to OpenTUI focusables (prompt Input vs transcript ScrollBox). */
+/** Apply focus state to OpenTUI focusables. */
 export function applyFocus(shell: AppShell): void {
-  const owner = focusOwner(shell.focus);
-  if (owner === "transcript") {
-    shell.transcript.focus();
+  const owner = focusOwner(shell.focus)
+  if (owner === "overlay" || owner === "palette") {
+    if (typeof shell.prompt.blur === "function") {
+      shell.prompt.blur()
+    }
+  } else if (owner === "transcript") {
+    shell.transcript.focus()
   } else {
-    shell.prompt.focus();
+    shell.prompt.focus()
   }
-  paintStatus(shell);
+  paintStatus(shell)
 }
 
-/** Shell-only: focus the prompt (typing). */
 export function shellFocusPrompt(shell: AppShell): void {
-  shell.focus = focusPrompt(shell.focus);
-  applyFocus(shell);
+  shell.focus = focusPrompt(shell.focus)
+  applyFocus(shell)
 }
 
-/** Shell-only: focus the transcript (browse / scroll lease). */
 export function shellFocusTranscript(shell: AppShell): void {
-  shell.focus = focusTranscript(shell.focus);
-  applyFocus(shell);
+  shell.focus = focusTranscript(shell.focus)
+  applyFocus(shell)
 }
 
-/** Tab toggle between prompt and transcript when shell-only. */
 export function toggleShellFocus(shell: AppShell): void {
-  const owner = focusOwner(shell.focus);
+  const owner = focusOwner(shell.focus)
+  if (owner === "overlay" || owner === "palette") return
   if (owner === "transcript") {
-    shellFocusPrompt(shell);
+    shellFocusPrompt(shell)
   } else {
-    shellFocusTranscript(shell);
+    shellFocusTranscript(shell)
   }
 }
 
-/** Apply geometry heights to chrome regions. */
-export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
-  shell.layout = layout;
-  const h = layout.heights;
-
-  const headerH = Math.max(1, h.header);
-  shell.headerBox.height = headerH;
-  shell.headerBox.visible = headerH > 0;
-
-  const transcriptH = Math.max(0, h.transcript);
-  shell.transcript.height = transcriptH > 0 ? transcriptH : 1;
-  shell.transcript.visible = transcriptH > 0;
-
-  const promptH = Math.max(1, h.prompt);
-  shell.promptBox.height = promptH;
-  shell.promptBox.visible = promptH > 0;
-
-  const statusH = Math.max(1, h.status);
-  shell.statusBox.height = statusH;
-  shell.statusBox.visible = statusH > 0;
-
-  paintStatus(shell);
+function clearOverlayBody(shell: AppShell): void {
+  const body = shell.overlayBody
+  const kids = [...body.getChildren()]
+  for (const child of kids) {
+    body.remove(child)
+    child.destroy()
+  }
 }
 
-/**
- * Re-resolve geometry from terminal size (resize path).
- * Uses current shell options stored on the shell bag via closures in createAppShell.
- */
+function paintOverlayList(shell: AppShell): void {
+  const list = shell.overlayList
+  clearOverlayBody(shell)
+  if (!list) return
+  const slice = visibleSlice(list)
+  for (let i = slice.start; i < slice.end; i++) {
+    const label = shell.overlayItems[i] ?? `item ${i}`
+    const active = i === list.activeIndex
+    shell.overlayBody.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: ` ${active ? ">" : " "} ${label}`,
+        fg: active ? "#c0caf5" : "#565f89",
+      }),
+    )
+  }
+}
+
+/** Apply geometry heights to chrome regions including overlay host. */
+export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
+  shell.layout = layout
+  const h = layout.heights
+
+  const headerH = Math.max(1, h.header)
+  shell.headerBox.height = headerH
+  shell.headerBox.visible = headerH > 0
+
+  const transcriptH = Math.max(0, h.transcript)
+  shell.transcript.height = transcriptH > 0 ? transcriptH : 1
+  shell.transcript.visible = transcriptH > 0
+
+  const overlayH = Math.max(0, h.overlay_host)
+  shell.overlayHost.height = overlayH > 0 ? overlayH : 1
+  shell.overlayHost.visible = overlayH > 0
+  if (overlayH > 0 && shell.overlayList) {
+    const bodyH = Math.max(1, overlayH - 1)
+    shell.overlayList = {
+      ...shell.overlayList,
+      height: bodyH,
+    }
+    paintOverlayList(shell)
+  }
+
+  const promptH = Math.max(1, h.prompt)
+  shell.promptBox.height = promptH
+  shell.promptBox.visible = promptH > 0
+
+  const statusH = Math.max(1, h.status)
+  shell.statusBox.height = statusH
+  shell.statusBox.visible = statusH > 0
+
+  paintStatus(shell)
+}
+
 export type RelayoutOpts = {
-  readonly columns?: number;
-  readonly rows?: number;
-  readonly visibility?: ZoneVisibility;
-  readonly promptContentRows?: number;
-};
+  readonly columns?: number
+  readonly rows?: number
+  readonly visibility?: ZoneVisibility
+  readonly promptContentRows?: number
+  readonly overlayMode?: OverlayMode
+  readonly overlayBodyRows?: number
+}
 
 type ShellInternals = {
-  visibility: ZoneVisibility;
-  promptContentRows: number | undefined;
-};
+  visibility: ZoneVisibility
+  promptContentRows: number | undefined
+  overlayMode: OverlayMode
+  overlayBodyRows: number | undefined
+}
 
-const internals = new WeakMap<AppShell, ShellInternals>();
+const internals = new WeakMap<AppShell, ShellInternals>()
 
 export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
-  const bag = internals.get(shell);
-  const visibility = opts?.visibility ?? bag?.visibility ?? defaultVisibility();
-  const promptContentRows = opts?.promptContentRows ?? bag?.promptContentRows;
+  const bag = internals.get(shell)
+  const visibility = opts?.visibility ?? bag?.visibility ?? defaultVisibility()
+  const promptContentRows = opts?.promptContentRows ?? bag?.promptContentRows
+  const overlayMode = opts?.overlayMode ?? bag?.overlayMode ?? "closed"
+  const overlayBodyRows = opts?.overlayBodyRows ?? bag?.overlayBodyRows
   if (bag) {
-    bag.visibility = visibility;
-    bag.promptContentRows = promptContentRows;
+    bag.visibility = visibility
+    bag.promptContentRows = promptContentRows
+    bag.overlayMode = overlayMode
+    bag.overlayBodyRows = overlayBodyRows
   }
 
-  const columns = opts?.columns ?? shell.renderer.width;
-  const rows = opts?.rows ?? shell.renderer.height;
+  const columns = opts?.columns ?? shell.renderer.width
+  const rows = opts?.rows ?? shell.renderer.height
   const layout = resolveGeometry({
     terminal: terminalOf(shell.renderer, { columns, rows }),
     visibility,
+    overlay:
+      overlayMode === "closed"
+        ? { mode: "closed" }
+        : {
+            mode: overlayMode,
+            ...(overlayBodyRows !== undefined
+              ? { bodyRows: overlayBodyRows }
+              : {}),
+          },
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
-  });
-  applyLayout(shell, layout);
-  return layout;
+  })
+  applyLayout(shell, layout)
+  return layout
 }
 
 /**
- * Append a line to the sticky transcript ScrollBox.
+ * Append a raw line to the sticky transcript ScrollBox.
  * stickyScroll + stickyStart "bottom" auto-follow until the operator scrolls up.
  */
 export function appendTranscript(
@@ -227,49 +337,184 @@ export function appendTranscript(
   line: string,
   opts?: { readonly fg?: string },
 ): void {
-  shell.lineCount += 1;
-  const id = String(shell.lineCount).padStart(4, "0");
+  shell.lineCount += 1
+  const id = String(shell.lineCount).padStart(4, "0")
   shell.transcript.add(
     new TextRenderable(shell.renderer as CliRenderer, {
       content: ` ${id}  ${line}`,
       fg: opts?.fg ?? "#a9b1d6",
     }),
-  );
-  paintStatus(shell);
+  )
+  paintStatus(shell)
+}
+
+/** Append a role-styled stream row (user / assistant / tool / system). */
+export function appendStreamRow(shell: AppShell, row: StreamRow): void {
+  const painted = paintStreamRow(row)
+  shell.lineCount += 1
+  const id = String(shell.lineCount).padStart(4, "0")
+  shell.transcript.add(
+    new TextRenderable(shell.renderer as CliRenderer, {
+      content: ` ${id}${painted.content}`,
+      fg: painted.fg,
+    }),
+  )
+  paintStatus(shell)
 }
 
 export function setHeader(shell: AppShell, text: string): void {
-  shell.header.content = ` ${text}`;
+  shell.baseTitle = text
+  paintStatus(shell)
 }
 
 export function setPendingQueue(shell: AppShell, count: number): void {
-  shell.pendingQueue = Math.max(0, Math.floor(count));
-  paintStatus(shell);
+  let s = shell.session
+  const target = Math.max(0, Math.floor(count))
+  while (badgeCount(s) > target) {
+    s = { ...s, items: s.items.slice(0, -1) }
+  }
+  while (badgeCount(s) < target) {
+    s = enqueue(s, `pad-${badgeCount(s) + 1}`)
+  }
+  shell.session = s
+  paintStatus(shell)
+}
+
+export function setShellRunState(shell: AppShell, run: RunState): void {
+  shell.session = setRunState(shell.session, run)
+  paintStatus(shell)
+}
+
+/** Submit prompt as queue (busy) or immediate user send (idle). */
+export function submitPrompt(
+  shell: AppShell,
+  kind: "queue" | "steer" = "queue",
+): void {
+  const text = shell.prompt.value
+  const t = text.trim()
+  if (t.length === 0) return
+
+  if (shell.session.run === "idle") {
+    appendStreamRow(shell, { role: "user", text: t })
+    shell.prompt.value = ""
+    return
+  }
+
+  shell.session =
+    kind === "steer" ? enqueueSteer(shell.session, t) : enqueue(shell.session, t)
+  shell.prompt.value = ""
+  const tag = kind === "steer" ? "steer" : "queue"
+  appendStreamRow(shell, {
+    role: "system",
+    text: `${tag} +1 → pending ${badgeCount(shell.session)}`,
+    meta: "queue",
+  })
+  paintStatus(shell)
+}
+
+/** Ctrl+C interrupt path: clear pending, flash, idle. */
+export function interruptShell(shell: AppShell): void {
+  const had = badgeCount(shell.session)
+  shell.session = interrupt(shell.session)
+  shell.prompt.value = ""
+  appendStreamRow(shell, {
+    role: "system",
+    text: `interrupt — discarded ${had} pending`,
+    meta: "stop",
+  })
+  paintStatus(shell)
+}
+
+export function clearShellInterruptFlash(shell: AppShell): void {
+  shell.session = clearInterruptFlash(shell.session)
+  paintStatus(shell)
+}
+
+const OVERLAY_FRAME_ID = "inset-demo"
+
+/** Open inset permission/palette stub; focus stack owns keys; Esc closes. */
+export function openInsetOverlay(
+  shell: AppShell,
+  items?: readonly string[],
+): void {
+  if (shell.overlayList) return
+  const labels = items ?? shell.overlayItems
+  shell.overlayItems = labels
+  const bodyH = Math.max(3, Math.floor((shell.renderer.height || 24) * 0.3))
+  shell.overlayList = createListViewport({
+    count: labels.length,
+    height: bodyH,
+    activeIndex: 0,
+  })
+  shell.overlayTitle.content = " permission · Esc cancel · Enter choose"
+  shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
+    target: "overlay",
+    scrollOwner: "overlay",
+  })
+  relayout(shell, { overlayMode: "inset", overlayBodyRows: bodyH + 1 })
+  applyFocus(shell)
+  paintOverlayList(shell)
+}
+
+/** Close overlay if open; restore prior focus (usually prompt). */
+export function closeInsetOverlay(shell: AppShell): void {
+  if (!shell.overlayList) return
+  shell.overlayList = null
+  clearOverlayBody(shell)
+  let guard = 8
+  while (guard-- > 0 && focusOwner(shell.focus) === "overlay") {
+    shell.focus = popFocus(shell.focus)
+  }
+  relayout(shell, { overlayMode: "closed" })
+  applyFocus(shell)
+}
+
+/** Move overlay selection (j/k / arrows). */
+export function moveOverlaySelection(shell: AppShell, delta: number): void {
+  if (!shell.overlayList) return
+  shell.overlayList = moveActive(shell.overlayList, delta)
+  paintOverlayList(shell)
+}
+
+/** Accept active overlay item → system line + close. */
+export function acceptOverlaySelection(shell: AppShell): void {
+  if (!shell.overlayList) return
+  const idx = shell.overlayList.activeIndex
+  const label = shell.overlayItems[idx] ?? `item ${idx}`
+  appendStreamRow(shell, {
+    role: "system",
+    text: `chose: ${label}`,
+    meta: "overlay",
+  })
+  closeInsetOverlay(shell)
 }
 
 /**
  * Build the app shell frame on an OpenTUI renderer.
- * Mounts header / sticky transcript / prompt / status and wires focus + resize.
+ * Mounts header / sticky transcript / overlay host / prompt+hint / status.
  */
 export function createAppShell(
   renderer: ShellRenderer,
   options?: AppShellOptions,
 ): AppShell {
-  const title = options?.title ?? DEFAULT_TITLE;
-  const visibility = defaultVisibility(options?.visibility);
-  const promptContentRows = options?.promptContentRows;
-  const wireKeys = options?.wireKeys !== false;
-  const mount = options?.mount !== false;
+  const title = options?.title ?? DEFAULT_TITLE
+  const visibility = defaultVisibility(options?.visibility)
+  // Bordered input (3) + hint row (1) — request 4 so geometry keeps status on-screen.
+  const promptContentRows = options?.promptContentRows ?? 4
+  const wireKeys = options?.wireKeys !== false
+  const mount = options?.mount !== false
+  const run = options?.run ?? "busy"
+  const overlayItems = options?.overlayItems ?? [...DEFAULT_OVERLAY_ITEMS]
 
-  const terminal = terminalOf(renderer, options?.terminal);
+  const terminal = terminalOf(renderer, options?.terminal)
   const layout = resolveGeometry({
     terminal,
     visibility,
-    ...(promptContentRows !== undefined ? { promptContentRows } : {}),
-  });
+    overlay: { mode: "closed" },
+    promptContentRows,
+  })
 
-  // OpenTUI class constructors expect the full RenderContext (CliRenderer).
-  const ctx = renderer as CliRenderer;
+  const ctx = renderer as CliRenderer
 
   const root = new BoxRenderable(ctx, {
     id: "app-shell",
@@ -277,7 +522,7 @@ export function createAppShell(
     height: "100%",
     flexDirection: "column",
     backgroundColor: "#1a1b26",
-  });
+  })
 
   const headerBox = new BoxRenderable(ctx, {
     id: "shell-header",
@@ -286,13 +531,13 @@ export function createAppShell(
     flexShrink: 0,
     backgroundColor: "#3d59a1",
     paddingLeft: 0,
-  });
+  })
   const header = new TextRenderable(ctx, {
     id: "shell-header-text",
-    content: ` ${title}`,
+    content: ` ${sessionHeaderTitle(title, run)}`,
     fg: "#c0caf5",
-  });
-  headerBox.add(header);
+  })
+  headerBox.add(header)
 
   const transcript = new ScrollBoxRenderable(ctx, {
     id: "shell-transcript",
@@ -306,22 +551,55 @@ export function createAppShell(
     rootOptions: { backgroundColor: "#1a1b26" },
     contentOptions: { backgroundColor: "#1a1b26" },
     viewportOptions: { backgroundColor: "#1a1b26" },
-  });
+  })
 
-  // Prompt zone: constitution base is 3 rows (bordered). Input is one content line.
+  const overlayHost = new BoxRenderable(ctx, {
+    id: "shell-overlay-host",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    flexDirection: "column",
+    border: true,
+    borderColor: "#e0af68",
+    backgroundColor: "#1f2335",
+    visible: false,
+  })
+  const overlayTitle = new TextRenderable(ctx, {
+    id: "shell-overlay-title",
+    content: " overlay",
+    fg: "#e0af68",
+  })
+  const overlayBody = new BoxRenderable(ctx, {
+    id: "shell-overlay-body",
+    width: "100%",
+    flexGrow: 1,
+    flexDirection: "column",
+    backgroundColor: "#1f2335",
+  })
+  overlayHost.add(overlayTitle)
+  overlayHost.add(overlayBody)
+
   const promptBox = new BoxRenderable(ctx, {
     id: "shell-prompt-region",
     width: "100%",
     height: Math.max(1, layout.heights.prompt),
     flexShrink: 0,
     flexDirection: "column",
+    backgroundColor: "#1a1b26",
+  })
+  // Bordered input: top border + field + bottom border = 3 rows.
+  const promptFrame = new BoxRenderable(ctx, {
+    id: "shell-prompt-frame",
+    width: "100%",
+    height: 3,
+    flexShrink: 0,
     border: true,
     borderColor: "#414868",
     focusedBorderColor: "#7aa2f7",
     backgroundColor: "#24283b",
     paddingLeft: 1,
     paddingRight: 1,
-  });
+  })
   const prompt = new InputRenderable(ctx, {
     id: "shell-prompt",
     width: "100%",
@@ -331,8 +609,16 @@ export function createAppShell(
     textColor: "#c0caf5",
     cursorColor: "#7aa2f7",
     placeholderColor: "#565f89",
-  });
-  promptBox.add(prompt);
+  })
+  const hint = new TextRenderable(ctx, {
+    id: "shell-prompt-hint",
+    height: 1,
+    content: ` ${PROMPT_HINT}`,
+    fg: "#565f89",
+  })
+  promptFrame.add(prompt)
+  promptBox.add(promptFrame)
+  promptBox.add(hint)
 
   const statusBox = new BoxRenderable(ctx, {
     id: "shell-status",
@@ -340,40 +626,122 @@ export function createAppShell(
     height: Math.max(1, layout.heights.status),
     flexShrink: 0,
     backgroundColor: "#9ece6a",
-  });
+  })
   const status = new TextRenderable(ctx, {
     id: "shell-status-text",
-    content: " FOLLOW · queue 0 · focus prompt · lines 0",
+    content: " FOLLOW · BUSY · queue 0 · focus prompt · lines 0",
     fg: "#1a1b26",
-  });
-  statusBox.add(status);
+  })
+  statusBox.add(status)
 
-  root.add(headerBox);
-  root.add(transcript);
-  root.add(promptBox);
-  root.add(statusBox);
+  root.add(headerBox)
+  root.add(transcript)
+  root.add(overlayHost)
+  root.add(promptBox)
+  root.add(statusBox)
 
   if (mount) {
-    renderer.root.add(root);
+    renderer.root.add(root)
   }
 
-  let disposed = false;
+  let disposed = false
+  let session = createSessionQueue(run)
+  const seedPending = Math.max(0, Math.floor(options?.pendingQueue ?? 0))
+  for (let i = 0; i < seedPending; i++) {
+    session = enqueue(session, `seed-${i + 1}`)
+  }
+
   const onKey = (key: KeyEvent): void => {
-    if (disposed) return;
-    if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
-      key.preventDefault();
-      toggleShellFocus(shell);
+    if (disposed) return
+
+    if (key.name === "escape") {
+      if (shell.overlayList) {
+        key.preventDefault()
+        closeInsetOverlay(shell)
+        return
+      }
     }
-  };
+
+    if (shell.overlayList) {
+      if (key.name === "up" || key.name === "k") {
+        key.preventDefault()
+        moveOverlaySelection(shell, -1)
+        return
+      }
+      if (key.name === "down" || key.name === "j") {
+        key.preventDefault()
+        moveOverlaySelection(shell, 1)
+        return
+      }
+      if (key.name === "return" || key.name === "enter") {
+        if (!key.meta && !key.option && !key.ctrl) {
+          key.preventDefault()
+          acceptOverlaySelection(shell)
+          return
+        }
+      }
+      return
+    }
+
+    if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
+      key.preventDefault()
+      toggleShellFocus(shell)
+      return
+    }
+
+    if (key.ctrl && (key.name === "o" || key.name === "O")) {
+      key.preventDefault()
+      openInsetOverlay(shell)
+      return
+    }
+
+    if (key.ctrl && key.name === "c") {
+      key.preventDefault()
+      if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
+        interruptShell(shell)
+      } else if (shell.prompt.value.length > 0) {
+        shell.prompt.value = ""
+        paintStatus(shell)
+      }
+      return
+    }
+
+    if (
+      (key.name === "return" || key.name === "enter") &&
+      (key.meta || key.option) &&
+      !key.ctrl
+    ) {
+      key.preventDefault()
+      if (shell.session.run === "busy") {
+        submitPrompt(shell, "steer")
+      }
+      return
+    }
+  }
+
+  const onEnter = (_value: string): void => {
+    if (disposed || shell.overlayList) return
+    submitPrompt(shell, "queue")
+  }
+
   const onResize = (width: number, height: number): void => {
-    if (disposed) return;
-    relayout(shell, { columns: width, rows: height });
-  };
+    if (disposed) return
+    const bag = internals.get(shell)
+    relayout(shell, {
+      columns: width,
+      rows: height,
+      overlayMode: bag?.overlayMode ?? "closed",
+      ...(bag?.overlayBodyRows !== undefined
+        ? { overlayBodyRows: bag.overlayBodyRows }
+        : {}),
+    })
+  }
 
   if (wireKeys) {
-    renderer.keyInput.on("keypress", onKey);
+    renderer.keyInput.on("keypress", onKey)
+    prompt.on(InputRenderableEvents.ENTER, onEnter)
   }
-  renderer.on(CliRenderEvents.RESIZE, onResize);
+  renderer.on(CliRenderEvents.RESIZE, onResize)
 
   const shell: AppShell = {
     renderer,
@@ -381,32 +749,46 @@ export function createAppShell(
     header,
     headerBox,
     transcript,
+    overlayHost,
+    overlayTitle,
+    overlayBody,
     prompt,
     promptBox,
+    hint,
     status,
     statusBox,
     layout,
     focus: createFocusState(),
-    pendingQueue: Math.max(0, Math.floor(options?.pendingQueue ?? 0)),
+    session,
+    pendingQueue: badgeCount(session),
     lineCount: 0,
+    baseTitle: title,
+    overlayList: null,
+    overlayItems,
     dispose: () => {
-      if (disposed) return;
-      disposed = true;
+      if (disposed) return
+      disposed = true
       if (wireKeys) {
-        renderer.keyInput.off("keypress", onKey);
+        renderer.keyInput.off("keypress", onKey)
+        prompt.off(InputRenderableEvents.ENTER, onEnter)
       }
-      renderer.off(CliRenderEvents.RESIZE, onResize);
+      renderer.off(CliRenderEvents.RESIZE, onResize)
       try {
-        renderer.root.remove(root);
+        renderer.root.remove(root)
       } catch {
         // Root may already be torn down in tests.
       }
-      root.destroy();
+      root.destroy()
     },
-  };
+  }
 
-  internals.set(shell, { visibility, promptContentRows });
-  applyLayout(shell, layout);
-  applyFocus(shell);
-  return shell;
+  internals.set(shell, {
+    visibility,
+    promptContentRows,
+    overlayMode: "closed",
+    overlayBodyRows: undefined,
+  })
+  applyLayout(shell, layout)
+  applyFocus(shell)
+  return shell
 }

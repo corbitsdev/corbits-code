@@ -1,5 +1,5 @@
 /**
- * Integration: app shell + harness — sticky transcript, focus, key chords.
+ * Integration: app shell product skin — sticky, queue/steer/interrupt, overlay Esc.
  */
 import { describe, expect, test } from "bun:test"
 import type { KeyEvent } from "@opentui/core"
@@ -11,14 +11,20 @@ import {
   visibleSlice,
 } from "./list-viewport"
 import { withTestRenderer } from "./harness"
+import { PROMPT_HINT, paintStreamRow } from "./stream"
 import {
+  appendStreamRow,
   appendTranscript,
+  closeInsetOverlay,
   createAppShell,
+  interruptShell,
   isTranscriptFollowing,
+  openInsetOverlay,
   setPendingQueue,
   shellFocusPrompt,
   shellFocusTranscript,
   stickyMode,
+  submitPrompt,
   toggleShellFocus,
 } from "./shell"
 
@@ -35,6 +41,7 @@ describe("createAppShell", () => {
           expect(shell.header).toBeDefined()
           expect(shell.transcript).toBeDefined()
           expect(shell.prompt).toBeDefined()
+          expect(shell.hint).toBeDefined()
           expect(shell.status).toBeDefined()
           expect(shell.transcript.stickyScroll).toBe(true)
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
@@ -45,6 +52,8 @@ describe("createAppShell", () => {
           await h.renderOnce()
           const frame = h.captureCharFrame()
           expect(frame).toContain("test")
+          expect(frame).toContain("BUSY")
+          expect(frame).toContain("Enter queue")
         } finally {
           shell.dispose()
         }
@@ -127,7 +136,6 @@ describe("createAppShell", () => {
           toggleShellFocus(shell)
           expect(focusOwner(shell.focus)).toBe("transcript")
           await h.renderOnce()
-          // Status is StyledText — assert via painted frame, not .content type
           expect(h.captureCharFrame()).toContain("focus transcript")
         } finally {
           shell.dispose()
@@ -208,6 +216,220 @@ describe("createAppShell", () => {
           expect(shell.pendingQueue).toBe(3)
           await h.renderOnce()
           expect(h.captureCharFrame()).toContain("queue 3")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("product skin: stream + queue + overlay", () => {
+  test("stream rows paint distinct role labels", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          appendStreamRow(shell, { role: "user", text: "hello world" })
+          appendStreamRow(shell, { role: "assistant", text: "hi there" })
+          appendStreamRow(shell, {
+            role: "tool",
+            text: "ok",
+            meta: "bash",
+          })
+          expect(shell.lineCount).toBe(3)
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          // Sticky follows the tail — last roles stay in view.
+          expect(frame).toContain("agent")
+          expect(frame).toContain("hi there")
+          expect(frame).toContain("tool")
+          expect(frame).toContain("bash")
+          // User row content is in the scroll buffer (pure paint covered in stream.test).
+          expect(paintStreamRow({ role: "user", text: "hello world" }).content).toContain(
+            "you",
+          )
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("hint line shows locked product bindings", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain(PROMPT_HINT)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("busy Enter enqueues; badge increments", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        try {
+          shell.prompt.value = "queue me"
+          submitPrompt(shell, "queue")
+          expect(shell.pendingQueue).toBe(1)
+          expect(shell.session.items[0]!.kind).toBe("queue")
+          expect(shell.prompt.value).toBe("")
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("queue 1")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("busy Alt+Enter steers", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        try {
+          shell.prompt.value = "steer me"
+          submitPrompt(shell, "steer")
+          expect(shell.pendingQueue).toBe(1)
+          expect(shell.session.items[0]!.kind).toBe("steer")
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("steer")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Ctrl+C interrupt clears pending + flash", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        try {
+          shell.prompt.value = "a"
+          submitPrompt(shell, "queue")
+          shell.prompt.value = "b"
+          submitPrompt(shell, "steer")
+          expect(shell.pendingQueue).toBe(2)
+          interruptShell(shell)
+          expect(shell.pendingQueue).toBe(0)
+          expect(shell.session.interruptFlash).toBe(true)
+          expect(shell.session.run).toBe("idle")
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("INTERRUPT")
+          expect(frame).toContain("queue 0")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("inset overlay opens; Esc restores prompt focus", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          expect(focusOwner(shell.focus)).toBe("prompt")
+          openInsetOverlay(shell)
+          expect(shell.overlayList).not.toBeNull()
+          expect(focusOwner(shell.focus)).toBe("overlay")
+          expect(shell.layout.overlayMode).toBe("inset")
+          expect(shell.overlayHost.visible).toBe(true)
+          await h.renderOnce()
+          const openFrame = h.captureCharFrame()
+          expect(openFrame).toContain("permission")
+          expect(openFrame).toContain("Allow bash")
+
+          closeInsetOverlay(shell)
+          expect(shell.overlayList).toBeNull()
+          expect(focusOwner(shell.focus)).toBe("prompt")
+          expect(shell.layout.overlayMode).toBe("closed")
+          await h.renderOnce()
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Esc key closes overlay via wireKeys", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          openInsetOverlay(shell)
+          expect(focusOwner(shell.focus)).toBe("overlay")
+          // ESC needs disambiguation delay on the mock stdin path.
+          h.pressKey("Escape")
+          await new Promise((r) => setTimeout(r, 60))
+          await h.renderOnce()
+          expect(shell.overlayList).toBeNull()
+          expect(focusOwner(shell.focus)).toBe("prompt")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("80x24 idle transcript floor holds with closed overlay", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          )
+          openInsetOverlay(shell)
+          // Inset may shrink transcript but still uses resolver floors.
+          expect(shell.layout.overlayHeight).toBeGreaterThan(0)
+          closeInsetOverlay(shell)
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          )
         } finally {
           shell.dispose()
         }
