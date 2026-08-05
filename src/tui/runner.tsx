@@ -1510,7 +1510,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onChangeMaxConcurrentSubAgents={async (limit) => {
         configureSubAgentConcurrency(limit);
         const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) return;
+        if (base === null) {
+          tuiLogger.warn(
+            "Skipping max concurrent sub-agents write: unreadable global settings at {path}",
+            { path: config.globalSettingsPath },
+          );
+          return;
+        }
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           maxConcurrentSubAgents: limit,
@@ -1520,7 +1526,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onChangeWaitForApproval={async (value) => {
         liveToolWatchdog.waitForApproval = value;
         const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) return;
+        if (base === null) {
+          tuiLogger.warn(
+            "Skipping wait-for-approval write: unreadable global settings at {path}",
+            { path: config.globalSettingsPath },
+          );
+          return;
+        }
         await saveGlobalSettings(config.globalSettingsPath, {
           ...base,
           tools: { ...base.tools, waitForApproval: value },
