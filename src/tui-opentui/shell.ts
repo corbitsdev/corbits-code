@@ -34,6 +34,8 @@ import {
 import {
   createListViewport,
   moveActive,
+  page as pageList,
+  setHeight as setListHeight,
   visibleSlice,
   type ListViewportState,
 } from "./list-viewport.js"
@@ -138,9 +140,19 @@ export type AppShell = {
   overlayList: ListViewportState | null
   /** Overlay item labels currently shown. */
   overlayItems: readonly string[]
+  /** Which primary overlay is open (null when closed). */
+  overlayKind: PrimaryOverlayKind | null
+  /** Optional long body lines painted above the list (operator question). */
+  overlayBodyLines: readonly string[]
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void
 }
+
+export type PrimaryOverlayKind =
+  | "permissions"
+  | "operator"
+  | "model_picker"
+  | "demo"
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -254,6 +266,16 @@ function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList
   clearOverlayBody(shell)
   if (!list) return
+
+  for (const line of shell.overlayBodyLines) {
+    shell.overlayBody.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: ` ${line}`,
+        fg: "#a9b1d6",
+      }),
+    )
+  }
+
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const label = shell.overlayItems[i] ?? `item ${i}`
@@ -284,11 +306,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.overlayHost.height = overlayH > 0 ? overlayH : 1
   shell.overlayHost.visible = overlayH > 0
   if (overlayH > 0 && shell.overlayList) {
-    const bodyH = Math.max(1, overlayH - 1)
-    shell.overlayList = {
-      ...shell.overlayList,
-      height: bodyH,
-    }
+    // Title row + optional body lines + list viewport.
+    const chrome = 1 + shell.overlayBodyLines.length
+    const bodyH = Math.max(1, overlayH - chrome)
+    shell.overlayList = setListHeight(shell.overlayList, bodyH)
     paintOverlayList(shell)
   }
 
@@ -477,34 +498,106 @@ export function clearShellInterruptFlash(shell: AppShell): void {
 
 const OVERLAY_FRAME_ID = "inset-demo"
 
+/** Wrap body text for the overlay host (shared with overlays.ts). */
+export function wrapShellOverlayBody(
+  text: string,
+  width: number,
+  maxLines = 8,
+): readonly string[] {
+  const w = Math.max(8, Math.floor(width))
+  const cap = Math.max(1, Math.floor(maxLines))
+  const lines: string[] = []
+  for (const raw of text.split("\n")) {
+    if (raw.length === 0) {
+      lines.push("")
+      if (lines.length >= cap) break
+      continue
+    }
+    let rest = raw
+    while (rest.length > 0 && lines.length < cap) {
+      lines.push(rest.slice(0, w))
+      rest = rest.slice(w)
+    }
+    if (lines.length >= cap) break
+  }
+  return lines.slice(0, cap)
+}
+
+export type OpenListOverlayOpts = {
+  readonly kind?: PrimaryOverlayKind
+  readonly title?: string
+  readonly items?: readonly string[]
+  readonly body?: string
+  readonly activeIndex?: number
+  readonly frameId?: string
+}
+
+/**
+ * Open an inset list overlay on the shared host (permissions / operator / picker).
+ * Measures body + list into geometry — no guessed absolute paint.
+ */
+export function openListOverlay(
+  shell: AppShell,
+  opts?: OpenListOverlayOpts,
+): void {
+  if (shell.overlayList) return
+
+  const labels = opts?.items ?? shell.overlayItems
+  shell.overlayItems = labels
+  shell.overlayKind = opts?.kind ?? "demo"
+
+  const cols = Math.max(20, shell.renderer.width || 80)
+  const bodyText = opts?.body ?? ""
+  // Operator body gets more lines; list-only overlays keep body empty.
+  const maxBody = shell.overlayKind === "operator" ? 8 : 0
+  shell.overlayBodyLines =
+    bodyText.length > 0
+      ? wrapShellOverlayBody(bodyText, cols - 4, maxBody)
+      : []
+
+  const rows = shell.renderer.height || 24
+  // Request ~30% of terminal for list rows; geometry will cap against floor.
+  const listH = Math.max(3, Math.floor(rows * 0.3))
+  const hostRows = 1 + shell.overlayBodyLines.length + listH
+
+  shell.overlayList = createListViewport({
+    count: labels.length,
+    height: listH,
+    activeIndex: opts?.activeIndex ?? 0,
+  })
+
+  const title = opts?.title ?? "permission"
+  shell.overlayTitle.content = ` ${title} · Esc cancel · Enter choose`
+
+  const frameId = opts?.frameId ?? OVERLAY_FRAME_ID
+  shell.focus = openOverlay(shell.focus, frameId, {
+    target: "overlay",
+    scrollOwner: "overlay",
+  })
+  relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  applyFocus(shell)
+  paintOverlayList(shell)
+}
+
 /** Open inset permission/palette stub; focus stack owns keys; Esc closes. */
 export function openInsetOverlay(
   shell: AppShell,
   items?: readonly string[],
 ): void {
-  if (shell.overlayList) return
-  const labels = items ?? shell.overlayItems
-  shell.overlayItems = labels
-  const bodyH = Math.max(3, Math.floor((shell.renderer.height || 24) * 0.3))
-  shell.overlayList = createListViewport({
-    count: labels.length,
-    height: bodyH,
-    activeIndex: 0,
+  openListOverlay(shell, {
+    kind: "demo",
+    title: "permission",
+    items: items ?? shell.overlayItems,
+    frameId: OVERLAY_FRAME_ID,
   })
-  shell.overlayTitle.content = " permission · Esc cancel · Enter choose"
-  shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
-    target: "overlay",
-    scrollOwner: "overlay",
-  })
-  relayout(shell, { overlayMode: "inset", overlayBodyRows: bodyH + 1 })
-  applyFocus(shell)
-  paintOverlayList(shell)
 }
 
 /** Close overlay if open; restore prior focus (usually prompt). */
 export function closeInsetOverlay(shell: AppShell): void {
   if (!shell.overlayList) return
   shell.overlayList = null
+  shell.overlayKind = null
+  shell.overlayBodyLines = []
   clearOverlayBody(shell)
   let guard = 8
   while (guard-- > 0 && focusOwner(shell.focus) === "overlay") {
@@ -521,14 +614,22 @@ export function moveOverlaySelection(shell: AppShell, delta: number): void {
   paintOverlayList(shell)
 }
 
+/** Page overlay selection (PgUp/PgDn). */
+export function pageOverlaySelection(shell: AppShell, dir: -1 | 1): void {
+  if (!shell.overlayList) return
+  shell.overlayList = pageList(shell.overlayList, dir)
+  paintOverlayList(shell)
+}
+
 /** Accept active overlay item → system line + close. */
 export function acceptOverlaySelection(shell: AppShell): void {
   if (!shell.overlayList) return
   const idx = shell.overlayList.activeIndex
   const label = shell.overlayItems[idx] ?? `item ${idx}`
+  const kind = shell.overlayKind ?? "demo"
   appendStreamRow(shell, {
     role: "system",
-    text: `chose: ${label}`,
+    text: `chose (${kind}): ${label}`,
     meta: "overlay",
   })
   closeInsetOverlay(shell)
@@ -718,6 +819,16 @@ export function createAppShell(
         moveOverlaySelection(shell, 1)
         return
       }
+      if (key.name === "pageup") {
+        key.preventDefault()
+        pageOverlaySelection(shell, -1)
+        return
+      }
+      if (key.name === "pagedown") {
+        key.preventDefault()
+        pageOverlaySelection(shell, 1)
+        return
+      }
       if (key.name === "return" || key.name === "enter") {
         if (!key.meta && !key.option && !key.ctrl) {
           key.preventDefault()
@@ -810,6 +921,8 @@ export function createAppShell(
     baseTitle: title,
     overlayList: null,
     overlayItems,
+    overlayKind: null,
+    overlayBodyLines: [],
     dispose: () => {
       if (disposed) return
       disposed = true

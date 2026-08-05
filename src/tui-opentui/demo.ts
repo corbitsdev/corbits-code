@@ -2,11 +2,13 @@
  * Interactive OpenTUI product-skin demo (real TTY only).
  * Run: bun src/tui-opentui/demo.ts
  *
- * Wave 4: fixture-driven runtime bridge (recording port). Not production CLI.
+ * Wave 5: primary overlays + Wave 4 runtime bridge. Not production CLI.
  * Ink remains production.
  *
- * Keys: Enter=queue · Alt+Enter=steer · Ctrl+C=stop · Ctrl+O=overlay
- *       f=replay fixture · r=busy · q=quit when idle
+ * Keys:
+ *   Enter=queue · Alt+Enter=steer · Ctrl+C=stop
+ *   p=permissions · o=operator · m=model picker · Ctrl+O=demo overlay
+ *   f=replay fixture · r=busy · q=quit when idle
  */
 import { createCliRenderer, type KeyEvent } from "@opentui/core"
 
@@ -15,6 +17,11 @@ import {
   attachSessionBridge,
   createRecordingPort,
 } from "./runtime-bridge.js"
+import {
+  openModelPickerOverlay,
+  openOperatorOverlay,
+  openPermissionsOverlay,
+} from "./overlays.js"
 import {
   appendStreamRow,
   createAppShell,
@@ -43,14 +50,13 @@ const bridge = attachSessionBridge(shell, port)
 
 appendStreamRow(shell, {
   role: "system",
-  text: "Wave 4 runtime bridge — fixture + recording SessionPort",
+  text: "Wave 5 — permissions / operator / model picker on shared kit",
 })
 appendStreamRow(shell, {
   role: "system",
-  text: "f=replay fixture · Enter=queue · Alt+Enter=steer · Ctrl+C=stop · Ctrl+O=overlay · r=busy · q=quit",
+  text: "p=permissions · o=operator · m=model · f=fixture · r=busy · Ctrl+O=demo · q=quit",
 })
 
-// Seed a short fixture so the transcript is not empty.
 bridge.play(FIXTURE_BUSY_SESSION)
 
 const stickyPoll = setInterval(() => {
@@ -68,26 +74,25 @@ function quit(): void {
 }
 
 renderer.keyInput.on("keypress", (key: KeyEvent) => {
+  if (shell.overlayList) return
+
   if (
     key.name === "q" &&
     !key.ctrl &&
     !key.meta &&
     shell.session.run === "idle" &&
-    shell.prompt.value.length === 0 &&
-    !shell.overlayList
+    shell.prompt.value.length === 0
   ) {
     appendStreamRow(shell, { role: "system", text: "quit" })
     quit()
     return
   }
 
-  // f = replay fixture session through the bridge
   if (
     key.name === "f" &&
     !key.ctrl &&
     !key.meta &&
-    shell.prompt.value.length === 0 &&
-    !shell.overlayList
+    shell.prompt.value.length === 0
   ) {
     appendStreamRow(shell, {
       role: "system",
@@ -101,14 +106,23 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     key.name === "r" &&
     !key.ctrl &&
     !key.meta &&
-    shell.prompt.value.length === 0 &&
-    !shell.overlayList
+    shell.prompt.value.length === 0
   ) {
     setShellRunState(shell, "busy")
     appendStreamRow(shell, {
       role: "system",
-      text: "run → BUSY (queue/steer active; port records enqueue)",
+      text: "run → BUSY (queue/steer active)",
     })
+    return
+  }
+
+  if (
+    key.name === "p" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openPermissionsOverlay(shell)
     return
   }
 
@@ -116,9 +130,23 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     key.name === "o" &&
     !key.ctrl &&
     !key.meta &&
-    shell.prompt.value.length === 0 &&
-    !shell.overlayList
+    shell.prompt.value.length === 0
   ) {
+    openOperatorOverlay(shell)
+    return
+  }
+
+  if (
+    key.name === "m" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openModelPickerOverlay(shell)
+    return
+  }
+
+  if (key.ctrl && (key.name === "o" || key.name === "O")) {
     openInsetOverlay(shell)
     return
   }
@@ -128,8 +156,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     key.name === "c" &&
     shell.session.run === "idle" &&
     shell.pendingQueue === 0 &&
-    shell.prompt.value.length === 0 &&
-    !shell.overlayList
+    shell.prompt.value.length === 0
   ) {
     if (!shell.session.interruptFlash) {
       appendStreamRow(shell, {
