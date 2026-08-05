@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   billingProductForProvider,
-  billingProductHint,
   isBareZenBaseURL,
   isGoModelOnZenPath,
 } from "./billing-product.js";
@@ -106,10 +105,12 @@ describe("isGoModelOnZenPath", () => {
   });
 });
 
-describe("billingProductHint", () => {
-  test("mirrors billingProductForProvider for UI labels", () => {
-    expect(billingProductHint({ name: "opencode-go", opencodeGo: true })).toBe("subscription");
-    expect(billingProductHint({ name: "zen" })).toBe("credits");
-    expect(billingProductHint({ name: "openai" })).toBeUndefined();
+describe("billingProductForProvider", () => {
+  test("resolves subscription and credits labels for UI rows", () => {
+    expect(billingProductForProvider({ name: "opencode-go", opencodeGo: true })).toBe(
+      "subscription",
+    );
+    expect(billingProductForProvider({ name: "zen" })).toBe("credits");
+    expect(billingProductForProvider({ name: "openai" })).toBeUndefined();
   });
 });

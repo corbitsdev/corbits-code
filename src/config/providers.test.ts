@@ -117,4 +117,21 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
     expect(result.entry.baseURL).toBe("https://opencode.ai/zen/v1");
     expect(result.entry.opencodeGo).toBeUndefined();
   });
+
+  test("pins Go baseURL when name is opencode-go even without opencodeGo flag", () => {
+    const result = buildProviderEntry(
+      {
+        name: "opencode-go",
+        baseURL: "https://opencode.ai/zen/v1",
+        apiKey: "sk-go-key-long-enough",
+        models: ["kimi-k2.7-code"],
+      },
+      [],
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
+    expect(result.entry.opencodeGo).toBe(true);
+  });
 });

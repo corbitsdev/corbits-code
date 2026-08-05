@@ -1,6 +1,6 @@
 import type { Agent } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { providerCatalogToSettings, runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../../config/index.js";
 import {
   loadSettings,
@@ -158,8 +158,8 @@ function persistGlobalSettings(
   onMessage: (msg: string) => void,
   successMessage: string,
   failPrefix: string,
-): void {
-  void saveGlobalSettings(globalSettingsPath, settings).then(
+): Promise<void> {
+  return saveGlobalSettings(globalSettingsPath, settings).then(
     () => {
       if (successMessage.length > 0) onMessage(successMessage);
     },
@@ -187,7 +187,7 @@ async function persistWithMergeBase(args: {
     const base = await loadMergeBase(args.globalSettingsPath, args.initialSettings);
     const settings = args.buildSettings(base);
     args.onBeforeSave?.();
-    persistGlobalSettings(
+    await persistGlobalSettings(
       args.globalSettingsPath,
       settings,
       args.onMessage,
@@ -227,6 +227,11 @@ export function useProviderManager({
   const [favoriteModels, setFavoriteModels] = useState<ModelRef[]>(
     () => initialSettings?.favoriteModels ?? [],
   );
+  // Absolute in-memory truth for model prefs — writes never re-derive from disk.
+  const recentModelsRef = useRef<ModelRef[]>(initialSettings?.recentModels ?? []);
+  const favoriteModelsRef = useRef<ModelRef[]>(initialSettings?.favoriteModels ?? []);
+  // Serialize concurrent recent/favorite saves so they cannot clobber each other.
+  const modelPrefsWriteChain = useRef(Promise.resolve());
 
   const publishRuntimeResolution = (
     catalog: readonly ProviderCatalogEntry[],
@@ -313,42 +318,48 @@ export function useProviderManager({
     }
   };
 
-  const recordRecentModel = (ref: ModelRef): void => {
-    setRecentModels((prev) => {
-      const next =
-        pushRecentModel({ providers: {}, recentModels: prev }, ref).recentModels ?? [];
-      void persistWithMergeBase({
-        globalSettingsPath,
-        initialSettings,
-        buildSettings: (base) => {
-          const settings: Settings = base ?? { providers: {} };
-          return pushRecentModel(settings, ref);
-        },
-        onMessage,
-        successMessage: "",
-        failPrefix: "Failed to save recent models",
+  const enqueueModelPrefsWrite = (
+    failPrefix: string,
+    apply: (base: Settings) => Settings,
+  ): void => {
+    modelPrefsWriteChain.current = modelPrefsWriteChain.current
+      .then(() =>
+        persistWithMergeBase({
+          globalSettingsPath,
+          initialSettings,
+          buildSettings: (base) => apply(base ?? { providers: {} }),
+          onMessage,
+          successMessage: "",
+          failPrefix,
+        }),
+      )
+      .catch(() => {
+        // Errors already reported via onMessage inside persistWithMergeBase.
       });
-      return next;
-    });
+  };
+
+  const recordRecentModel = (ref: ModelRef): void => {
+    const next =
+      pushRecentModel({ providers: {}, recentModels: recentModelsRef.current }, ref).recentModels ??
+      [];
+    recentModelsRef.current = next;
+    setRecentModels(next);
+    enqueueModelPrefsWrite("Failed to save recent models", (base) => ({
+      ...base,
+      recentModels: recentModelsRef.current,
+    }));
   };
 
   const toggleFavorite = (ref: ModelRef): void => {
-    setFavoriteModels((prev) => {
-      const next =
-        toggleFavoriteModel({ providers: {}, favoriteModels: prev }, ref).favoriteModels ?? [];
-      void persistWithMergeBase({
-        globalSettingsPath,
-        initialSettings,
-        buildSettings: (base) => {
-          const settings: Settings = base ?? { providers: {} };
-          return toggleFavoriteModel(settings, ref);
-        },
-        onMessage,
-        successMessage: "",
-        failPrefix: "Failed to save favorite models",
-      });
-      return next;
-    });
+    const next =
+      toggleFavoriteModel({ providers: {}, favoriteModels: favoriteModelsRef.current }, ref)
+        .favoriteModels ?? [];
+    favoriteModelsRef.current = next;
+    setFavoriteModels(next);
+    enqueueModelPrefsWrite("Failed to save favorite models", (base) => ({
+      ...base,
+      favoriteModels: favoriteModelsRef.current,
+    }));
   };
 
   const persistLocalSelection = (providerName: string, nextModel: string): void => {

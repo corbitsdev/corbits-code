@@ -67,10 +67,3 @@ export function isGoModelOnZenPath(
 function entryIsGoSubscription(provider: BillingProductProvider): boolean {
   return provider.opencodeGo === true || provider.name === "opencode-go";
 }
-
-/** Short product hint for UI rows ("subscription" / "credits"). */
-export function billingProductHint(
-  entry: BillingProductProvider,
-): BillingProduct | undefined {
-  return billingProductForProvider(entry);
-}

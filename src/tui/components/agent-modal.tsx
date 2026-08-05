@@ -20,13 +20,13 @@ import {
   wrapHelpSegments,
 } from "./form-reflow.js";
 import {
-  FIRST_CLASS_PROVIDERS,
+  connectListProviders,
   firstClassPathAsProvider,
   type FirstClassProviderDef,
   type FirstClassProviderPath,
   validateGoApiKey,
 } from "../../../packages/first-class-providers/src/index.js";
-import { billingProductHint, isGoModelOnZenPath } from "../../provider/billing-product.js";
+import { billingProductForProvider, isGoModelOnZenPath } from "../../provider/billing-product.js";
 import { buildModelsFirstList, type ModelPick } from "../model-picker.js";
 
 // Effort display: undefined means "no override" (field omitted); "none" is
@@ -399,6 +399,8 @@ export function AgentModal({
   const [effortIndex, setEffortIndex] = useState(0);
   const [formIndex, setFormIndex] = useState(0);
   const [formAuthOnly, setFormAuthOnly] = useState(false);
+  // Where Esc returns from connect/profiles when entered from models-first vs advanced.
+  const [navReturnStep, setNavReturnStep] = useState<"models" | "provider">("models");
   const [formValues, setFormValues] = useState<ProviderFormValues>(() => initialFormValues(undefined));
   const [editingProvider, setEditingProvider] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
@@ -499,6 +501,7 @@ export function AgentModal({
   };
 
   const enterConnectStep = (): void => {
+    setNavReturnStep(step === "provider" ? "provider" : "models");
     setConnectIndex(0);
     setChooserDef(null);
     setConnectPathIndex(0);
@@ -704,6 +707,7 @@ export function AgentModal({
         return;
       }
       if (input === "p") {
+        setNavReturnStep("models");
         setProfileIndex(0);
         setStep("profiles");
         return;
@@ -765,6 +769,7 @@ export function AgentModal({
         return;
       }
       if (input === "p") {
+        setNavReturnStep("provider");
         setProfileIndex(0);
         setStep("profiles");
         return;
@@ -778,20 +783,20 @@ export function AgentModal({
 
     if (step === "connect") {
       if (key.upArrow) {
-        setConnectIndex((i) => (i > 0 ? i - 1 : FIRST_CLASS_PROVIDERS.length - 1));
+        setConnectIndex((i) => (i > 0 ? i - 1 : connectListProviders().length - 1));
         return;
       }
       if (key.downArrow) {
-        setConnectIndex((i) => (i < FIRST_CLASS_PROVIDERS.length - 1 ? i + 1 : 0));
+        setConnectIndex((i) => (i < connectListProviders().length - 1 ? i + 1 : 0));
         return;
       }
       if (key.return) {
-        const def = FIRST_CLASS_PROVIDERS[connectIndex];
+        const def = connectListProviders()[connectIndex];
         if (def !== undefined) enterConnectForm(def);
         return;
       }
       if (key.escape) {
-        setStep("provider");
+        setStep(navReturnStep);
         return;
       }
       return;
@@ -849,7 +854,7 @@ export function AgentModal({
         return;
       }
       if (key.escape) {
-        setStep("provider");
+        setStep(navReturnStep);
         return;
       }
       return;
@@ -1283,7 +1288,7 @@ const helpText = ((): string | null => {
             const isCursor = i === providerIndex;
             const isOAuth = p.codexProfile !== undefined || p.xaiProfile !== undefined;
             const isUnauthed = isOAuth && unauthedProviders?.has(p.name) === true;
-            const productHint = billingProductHint(p);
+            const productHint = billingProductForProvider(p);
             return (
               <Box key={p.name} flexDirection="row" gap={1}>
                 <Text color={isCursor ? color("accent") : color("muted")} bold={isCursor}>
@@ -1316,7 +1321,7 @@ const helpText = ((): string | null => {
       {step === "connect" && (
         <Box marginTop={1} flexDirection="column">
           <Text color={color("muted")}>Connect a first-class provider</Text>
-          {FIRST_CLASS_PROVIDERS.map((def, i) => {
+          {connectListProviders().map((def, i) => {
             const isCursor = i === connectIndex;
             return (
               <Box key={def.id} flexDirection="column">
