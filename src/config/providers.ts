@@ -9,6 +9,8 @@ export type ProviderSubmission = {
   defaultModel?: string;
   keyless?: boolean;
   bifrostVirtualKey?: boolean;
+  anthropic?: boolean;
+  opencodeGo?: boolean;
 };
 
 export type ProviderEntryResult =
@@ -41,11 +43,13 @@ export function buildProviderEntry(
     ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
     models: submission.models,
     ...(submission.defaultModel !== undefined ? { defaultModel: submission.defaultModel } : {}),
-    // Form no longer exposes Bifrost; keep any previously stored flag on edit so
+// Form no longer exposes Bifrost; keep any previously stored flag on edit so
     // re-saving a provider does not silently drop x-bf-vk routing.
     ...(submission.bifrostVirtualKey === true || existing?.bifrostVirtualKey === true
       ? { bifrostVirtualKey: true }
       : {}),
+    ...(submission.anthropic === true ? { anthropic: true } : {}),
+    ...(submission.opencodeGo === true ? { opencodeGo: true } : {}),
   };
   const catalog = currentCatalog
     .filter((p) => p.name !== submission.name && p.name !== submission.originalName)

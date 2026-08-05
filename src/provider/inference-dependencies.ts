@@ -4,16 +4,15 @@ import * as openaiCompatible from "./openai-compatible-adapter.js";
 import * as codexResponses from "./codex-responses-adapter.js";
 import * as grokResponses from "./grok-responses-adapter.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
+import * as openaiResponses from "./openai-responses-adapter.js";
 import { CODEX_RESPONSES_PROVIDER } from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
+import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses-adapter.js";
 
-// Corbits Code ships three first-party adapters on top of the built-in provider
-// set: a providerOptions-aware "openai-compatible" override, plus the Codex and
-// Grok responses adapters. The interchange runtime resolves adapters through an
-// injected registry rather than a mutable global, so we describe ours as a
-// manifest and feed it a local importer — the registry keeps its dynamic-import
-// contract while these stay statically linked into the bundle.
+// Corbits Code ships first-party adapters on top of the built-in provider set:
+// openai-compatible override, Codex/Grok responses, Bifrost, and generic
+// openai-responses (OpenCode Go gpt-* Luna family).
 const manifest: AdapterManifest = [
   {
     provider: "openai-compatible",
@@ -35,13 +34,19 @@ const manifest: AdapterManifest = [
     specifier: "bifrost-adapter",
     export: "createBifrostAdapter",
   },
+  {
+    provider: OPENAI_RESPONSES_PROVIDER,
+    specifier: "openai-responses-adapter",
+    export: "createOpenAIResponsesAdapter",
+  },
 ];
 
 const localModules: Record<string, unknown> = {
   "openai-compatible-adapter": openaiCompatible,
   "codex-responses-adapter": codexResponses,
   "grok-responses-adapter": grokResponses,
-	  "bifrost-adapter": bifrostAdapter,
+  "bifrost-adapter": bifrostAdapter,
+  "openai-responses-adapter": openaiResponses,
 };
 
 let cached: Promise<Dependencies> | undefined;

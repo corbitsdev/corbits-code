@@ -29,7 +29,12 @@ import {
 } from "../provider/codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER, GROK_USER_ID_OPTION } from "../provider/grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
+import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses-adapter.js";
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
+import {
+  OPENCODE_GO_BASE_URL,
+  resolveGoEndpoint,
+} from "../../packages/opencode-go/src/index.js";
 
 import {
   globalSettingsPath,
@@ -119,6 +124,12 @@ export type ProviderCatalogEntry = {
   // inject the x-bf-vk header (in addition to Authorization). The flag is
   // also used to enable /models auto-discovery scoped to the key.
   bifrostVirtualKey?: boolean;
+  // Anthropic Messages API (x-api-key). Used by first-class Anthropic and by
+  // OpenCode Go models that speak the messages protocol.
+  anthropic?: boolean;
+  // OpenCode Go multi-protocol provider. Per-model routing picks
+  // openai-compatible, openai-responses, or anthropic at source-build time.
+  opencodeGo?: boolean;
 };
 
 // Build the InferenceSource for a Codex OAuth profile. Routes to the
@@ -191,6 +202,61 @@ export function buildBifrostSource(fields: {
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
+}
+
+// Anthropic Messages API (native anthropic provider in intx-inference).
+export function buildAnthropicSource(fields: {
+  id: string;
+  baseURL: string;
+  apiKey?: string;
+  model: string;
+}): InferenceSource {
+  return {
+    id: fields.id,
+    provider: "anthropic",
+    baseURL: fields.baseURL.replace(/\/+$/, ""),
+    apiKey: fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS },
+  };
+}
+
+// OpenCode Go: per-model protocol routing (chat completions / responses / messages).
+export function buildGoSource(fields: {
+  id: string;
+  apiKey?: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const endpoint = resolveGoEndpoint(fields.model);
+  const apiKey =
+    fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY;
+  if (endpoint.adapter === "anthropic") {
+    return buildAnthropicSource({
+      id: fields.id,
+      baseURL: endpoint.baseURL,
+      apiKey,
+      model: fields.model,
+    });
+  }
+  if (endpoint.adapter === "openai-responses") {
+    return {
+      id: fields.id,
+      provider: OPENAI_RESPONSES_PROVIDER,
+      baseURL: endpoint.baseURL,
+      apiKey,
+      model: fields.model,
+      defaults: { maxTokens: SOURCE_MAX_TOKENS },
+    };
+  }
+  // chat-completions (default)
+  return buildOpenAISource({
+    id: fields.id,
+    baseURL: endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
+    apiKey,
+    model: fields.model,
+    ...(fields.reasoningEffort !== undefined ? { reasoningEffort: fields.reasoningEffort } : {}),
+  });
 }
 
 export type Config = {
@@ -523,14 +589,22 @@ export async function loadConfig(
 }
 
 export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): ProviderSettings {
+  // Anthropic and Go anthropic-protocol bases must not be forced through the
+  // OpenAI-compatible normalizer (which assumes a /v1 chat-completions root).
+  const baseURL =
+    entry.anthropic === true || entry.opencodeGo === true
+      ? entry.baseURL.replace(/\/+$/, "")
+      : normalizeOpenAICompatibleBaseURL(entry.baseURL);
   return {
-    baseURL: normalizeOpenAICompatibleBaseURL(entry.baseURL),
+    baseURL,
     ...(entry.keyless === true ? { keyless: true } : {}),
     ...(entry.apiKey !== undefined && entry.apiKey.length > 0 ? { apiKey: entry.apiKey } : {}),
     models: entry.models,
     ...(entry.defaultModel !== undefined ? { defaultModel: entry.defaultModel } : {}),
     ...(entry.free !== undefined ? { free: entry.free } : {}),
     ...(entry.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+    ...(entry.anthropic === true ? { anthropic: true } : {}),
+    ...(entry.opencodeGo === true ? { opencodeGo: true } : {}),
   };
 }
 
@@ -572,13 +646,18 @@ export function buildProviderCatalog(
   if (settings !== null && Object.keys(settings.providers).length > 0) {
     return Object.entries(settings.providers).map(([name, p]): ProviderCatalogEntry => ({
       name,
-      baseURL: normalizeOpenAICompatibleBaseURL(p.baseURL),
+      baseURL:
+        p.anthropic === true || p.opencodeGo === true
+          ? p.baseURL.replace(/\/+$/, "")
+          : normalizeOpenAICompatibleBaseURL(p.baseURL),
       ...(p.keyless === true ? { keyless: true } : {}),
       ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
       models: p.models,
       ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
       ...(p.free !== undefined ? { free: p.free } : {}),
       ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+      ...(p.anthropic === true ? { anthropic: true } : {}),
+      ...(p.opencodeGo === true ? { opencodeGo: true } : {}),
     }));
   }
   return [
