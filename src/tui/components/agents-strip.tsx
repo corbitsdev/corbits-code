@@ -314,12 +314,12 @@ function currentToolArguments(session: SubAgentSession): string {
 }
 
 export function formatSessionLabel(session: SubAgentSession): string {
+  // Only finished workers get a duration suffix — matches status-bar policy
+  // (completed sub-agent times, not a live tick for in-flight sessions).
   const duration =
     session.finishedAt !== undefined && session.finishedAt >= session.startedAt
       ? formatStripDuration(session.finishedAt - session.startedAt)
-      : session.status === "running"
-        ? formatStripDuration(Date.now() - session.startedAt)
-        : undefined;
+      : undefined;
   const durationSuffix = duration !== undefined ? ` · ${duration}` : "";
   if (session.status === "running" && session.currentToolName !== null) {
     const args = currentToolArguments(session);
