@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { SETTINGS_DIR_NAME } from "../branding.js";
-import { REASONING_EFFORTS, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { isSessionMode, type SessionMode } from "./session-mode.js";
 
 // A configured inference provider. `apiKey` is secret and lives only in the
@@ -725,10 +725,7 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
   const optional: OptionalLocalSettingsFields = {
     provider: typeof s.provider === "string" ? s.provider : undefined,
     model: typeof s.model === "string" ? s.model : undefined,
-    reasoningEffort:
-      s.reasoningEffort === "low" || s.reasoningEffort === "medium" || s.reasoningEffort === "high"
-        ? s.reasoningEffort
-        : undefined,
+    reasoningEffort: isReasoningEffort(s.reasoningEffort) ? s.reasoningEffort : undefined,
     mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
     sessionMode:
       s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
@@ -752,7 +749,7 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
     diagnostics.push({
       path,
       message: `reasoningEffort in ${path} was invalid and was ignored.`,
-      fix: 'Use "low", "medium", or "high".',
+      fix: `Use one of: ${REASONING_EFFORTS.join(", ")}.`,
     });
   }
   if (diagnostics.length === 0) {

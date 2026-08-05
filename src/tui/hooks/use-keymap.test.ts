@@ -37,6 +37,7 @@ const noopActions: KeymapActions = {
   agentsNavCancel: () => undefined,
   agentsNavKill: () => undefined,
   exitEnteredSession: () => undefined,
+  dismissSettingsNotice: () => undefined,
 };
 
 const baseContext: KeymapContext = {
@@ -53,6 +54,7 @@ const baseContext: KeymapContext = {
   copyModeOpen: false,
   agentsNavOpen: false,
   enteredSession: false,
+  settingsNoticePresent: false,
 };
 
 describe("handleKey quota cancel", () => {
@@ -197,5 +199,27 @@ describe("agents nav and enter-session", () => {
     const ctx: KeymapContext = { ...baseContext, enteredSession: true };
     handleKey("x", key(), ctx, actions, 0, 0);
     expect(calls).toEqual(["kill"]);
+  });
+
+  test("Esc dismisses settings notice before double-Esc stop logic", () => {
+    let dismissed = false;
+    let stopped = false;
+    const actions: KeymapActions = {
+      ...noopActions,
+      dismissSettingsNotice: () => {
+        dismissed = true;
+      },
+      requestStop: () => {
+        stopped = true;
+      },
+    };
+    const ctx: KeymapContext = {
+      ...baseContext,
+      settingsNoticePresent: true,
+      isRunning: true,
+    };
+    handleKey("", key({ escape: true }), ctx, actions, 0, 0);
+    expect(dismissed).toBe(true);
+    expect(stopped).toBe(false);
   });
 });

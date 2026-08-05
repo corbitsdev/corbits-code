@@ -567,6 +567,7 @@ export function App({
     mcpNeedsAuthCount: mcpStatus.needsAuth.length,
     commandMessageRows:
       commandMessage === null ? 0 : Math.max(1, commandMessage.split("\n").length),
+    settingsNoticePresent: settingsNotice !== null,
     goalChromeRows,
     taskChromeRows,
     pluginChromeRows,
@@ -800,6 +801,7 @@ export function App({
       copyModeOpen,
       agentsNavOpen,
       enteredSession: enteredSession !== undefined,
+      settingsNoticePresent: settingsNotice !== null,
       commandPaletteOpen: inputValue.startsWith("/") && (
         !inputValue.includes(" ") ||
         listCommands().some(
@@ -827,6 +829,7 @@ export function App({
         }
       },
       closeHookPanel: () => setHookPanelOpen(false),
+      dismissSettingsNotice: () => setSettingsNotice(null),
       scrollUp: () => activeScroll.scrollUp(visibleRows),
       scrollDown: () => activeScroll.scrollDown(visibleRows),
       scrollToBottom: () => activeScroll.scrollToBottom(),

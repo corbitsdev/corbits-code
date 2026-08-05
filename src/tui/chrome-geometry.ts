@@ -72,6 +72,7 @@ export function extraChromeRowCount(args: {
   mcpNeedsAuthCount: number;
   /** Rows reserved for the command feedback banner (0 when absent). */
   commandMessageRows: number;
+  settingsNoticePresent?: boolean;
   goalChromeRows: number;
   taskChromeRows: number;
   pluginChromeRows: number;
@@ -87,6 +88,8 @@ export function extraChromeRowCount(args: {
   return (
     (args.mcpNeedsAuthCount > 0 ? 1 : 0) +
     args.commandMessageRows +
+    // Settings diagnostics banner is multi-line; budget 2 rows (message + Esc hint).
+    (args.settingsNoticePresent === true ? 2 : 0) +
     args.goalChromeRows +
     args.taskChromeRows +
     args.pluginChromeRows +
