@@ -417,10 +417,22 @@ Policy: **minimal Ink patch only if daily-use blocker**; otherwise link as relat
 
 ## 14. References
 
+### Constitution pack
+
 - Layout constitution: `docs/tui-layout-constitution.md` (principles, zone registry, geometry contract, kill list)
+- Interaction contract: `docs/tui-interaction-contract.md` (queue / steer / interrupt, keys, palette)
+- Ink freeze: `docs/tui-ink-freeze.md` (what may still patch on Ink before cutover)
+- Migration cutover: `docs/tui-migration-cutover.md` (branch hard cutover, merge gate)
+
+### Product / architecture entry points
+
 - Product brief: `briefs/tui-rebuild-opentui.md`
 - Product UX claims: `docs/PRODUCT.md` (TUI section)
-- Architecture: `docs/ARCHITECTURE.md`
+- Architecture: `docs/ARCHITECTURE.md` (TUI subsection; Ink today, OpenTUI target)
+- Spike report: `docs/plans/opentui-spike-report.md`
+
+### Code ownership and peers
+
 - Current ownership: `src/tui/chrome-zones.ts`, `chrome-geometry.ts`, `hooks/use-layout-geometry.ts`, `hooks/use-scroll*.ts`, `components/event-log.tsx`, `app.tsx`, `modal-stack.tsx`, `overlay-stack.tsx`
 - Amp: https://ampcode.com/manual
 - OpenTUI / OpenCode: peer stack reference
