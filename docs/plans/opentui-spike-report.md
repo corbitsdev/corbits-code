@@ -64,6 +64,9 @@ Notes for Corbits steering/interrupt design:
 
 **Recommended binding hint:** **Solid + core + keymap** (OpenCode-aligned), with core class API for low-level scroll/focus leases. Revisit if team velocity strongly favors React reuse; do not block GO on React sample.
 
+**Binding ADR (downstream of this report):** `docs/adr/opentui-binding.md` — decision **Solid + core + keymap**.
+
+
 `@opentui/keymap` not installed in this spike; treat as next packaging/spike item when wiring host key chords.
 
 ---
