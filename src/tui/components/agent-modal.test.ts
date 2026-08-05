@@ -89,4 +89,27 @@ describe("validateProviderForm", () => {
       expect(result.submission.keyless).toBeUndefined();
     }
   });
+
+  test("trims leading and trailing spaces on text fields at save", () => {
+    const result = validateProviderForm(
+      form({
+        name: "  firepass  ",
+        baseURL: "  https://firepass.example/v1  ",
+        apiKey: "  sk-key  ",
+        models: "  fp-large , fp-small  ",
+        defaultModel: "  fp-large  ",
+      }),
+      undefined,
+    );
+    expect(result).toEqual({
+      ok: true,
+      submission: {
+        name: "firepass",
+        baseURL: "https://firepass.example/v1",
+        apiKey: "sk-key",
+        models: ["fp-large", "fp-small"],
+        defaultModel: "fp-large",
+      },
+    });
+  });
 });

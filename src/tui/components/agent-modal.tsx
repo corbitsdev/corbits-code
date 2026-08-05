@@ -961,6 +961,13 @@ export function AgentModal({
             const isCursor = i === formIndex;
             const value = formValues[field];
             const isKeyless = formValues.keyless === "yes";
+            // gap only between label and value — never between value and caret,
+            // or the caret sits after a phantom space the user did not type.
+            const showCaret =
+              isCursor &&
+              field !== "keyless" &&
+              field !== "bifrostVirtualKey" &&
+              !(field === "apiKey" && isKeyless);
             return (
               <Box key={field} flexDirection="row" gap={1}>
                 <Box width={16} flexShrink={0}>
@@ -977,16 +984,16 @@ export function AgentModal({
                 ) : field === "apiKey" && isKeyless ? (
                   <Text color={color("muted")}>(disabled — keyless provider)</Text>
                 ) : (
-                  <Text color={value.length > 0 ? color("text") : color("muted")}>
-                    {value.length > 0
-                      ? maskInput(field, value)
-                      : field === "apiKey" && editingProvider !== undefined
-                        ? "leave blank to keep existing"
-                        : FIELD_HINTS[field]}
-                  </Text>
-                )}
-                {isCursor && field !== "keyless" && field !== "bifrostVirtualKey" && !(field === "apiKey" && isKeyless) && (
-                  <Text color={color("accent")}>|</Text>
+                  <Box>
+                    <Text color={value.length > 0 ? color("text") : color("muted")}>
+                      {value.length > 0
+                        ? maskInput(field, value)
+                        : field === "apiKey" && editingProvider !== undefined
+                          ? "leave blank to keep existing"
+                          : FIELD_HINTS[field]}
+                    </Text>
+                    {showCaret && <Text color={color("accent")}>|</Text>}
+                  </Box>
                 )}
               </Box>
             );
@@ -1052,12 +1059,12 @@ export function AgentModal({
                     {isCursor ? " >" : ""}
                   </Text>
                 ) : (
-                  <>
+                  <Box>
                     <Text color={profileFormValues[field].length > 0 ? color("text") : color("muted")}>
                       {profileFormValues[field].length > 0 ? profileFormValues[field] : PROFILE_FIELD_HINTS[field]}
                     </Text>
                     {isCursor && <Text color={color("accent")}>|</Text>}
-                  </>
+                  </Box>
                 )}
               </Box>
             );
