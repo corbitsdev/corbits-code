@@ -35,7 +35,8 @@
     "test": "bun test ./src ./tests ./evals",
     "test:tui": "bun test --isolate --preload ./tests/setup/tui-preload.ts ./src/tui ./tests/unit/tui",
     "start": "bun run build && bun ./dist/index.js",
-    "eval:capability": "bun scripts/eval-capability.ts"
+    "eval:capability": "bun scripts/eval-capability.ts",
+    "tui:opentui-smoke": "bun ./src/tui-opentui/smoke.ts"
   },
   "workspaces": [
     ".",
@@ -66,8 +67,12 @@
     "@intx/tools-posix": "0.2.2",
     "@intx/types": "0.2.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentui/core": "0.5.1",
+    "@opentui/keymap": "0.5.1",
+    "@opentui/solid": "0.5.1",
     "arktype": "catalog:",
-    "highlight.js": "^11.11.1"
+    "highlight.js": "^11.11.1",
+    "solid-js": "1.9.14"
   },
   "devDependencies": {
     "@intx/inference-testing": "0.2.2",
