@@ -8,6 +8,10 @@ import { type } from "arktype";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { isSessionMode, type SessionMode } from "./session-mode.js";
+import {
+  OPENCODE_GO_BASE_URL,
+  isOpenCodeGoProvider,
+} from "../../packages/opencode-go/src/index.js";
 
 // A configured inference provider. `apiKey` is secret and lives only in the
 // global settings file; `baseURL` is editable provider metadata that lives with
@@ -1042,7 +1046,11 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
 
   const selected = providerName !== undefined ? providers[providerName] : undefined;
 
-  const baseURL = selected?.baseURL;
+  const go = isOpenCodeGoProvider({
+    ...(providerName !== undefined ? { name: providerName } : {}),
+    ...(selected?.opencodeGo === true ? { opencodeGo: true as const } : {}),
+  });
+  const baseURL = go ? OPENCODE_GO_BASE_URL : selected?.baseURL;
   const apiKey = selected?.apiKey;
   const keyless = selected?.keyless === true;
   const model = cli.model ?? local?.model ?? selected?.defaultModel ?? selected?.models[0];
@@ -1082,7 +1090,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
 
   return {
     providerName,
-    baseURL: normalizeOpenAICompatibleBaseURL(baseURL),
+    baseURL: go ? OPENCODE_GO_BASE_URL : normalizeOpenAICompatibleBaseURL(baseURL),
     apiKey: apiKey ?? "",
     model,
     ...(keyless ? { keyless: true } : {}),

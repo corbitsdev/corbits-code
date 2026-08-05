@@ -59,7 +59,7 @@ import { fetchXaiUsage, formatXaiUsage } from "../auth/xai/usage.js";
 import {
   fetchGoUsage,
   formatGoUsage,
-  OPENCODE_GO_PROVIDER_ID,
+  isOpenCodeGoProviderId,
 } from "../../packages/opencode-go/src/index.js";
 import { useLayoutGeometry } from "./hooks/use-layout-geometry.js";
 import { listCommands } from "./commands/registry.js";
@@ -458,7 +458,7 @@ export function App({
   // provider. Failures (auth, network, missing endpoint) clear the label so the
   // bar degrades cleanly rather than showing an error string.
   useEffect(() => {
-    if (provider !== OPENCODE_GO_PROVIDER_ID) {
+    if (!isOpenCodeGoProviderId(provider)) {
       setGoSubscriptionLabel(undefined);
       return;
     }

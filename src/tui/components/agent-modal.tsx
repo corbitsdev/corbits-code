@@ -26,6 +26,7 @@ import {
   type FirstClassProviderPath,
   validateGoApiKey,
 } from "../../../packages/first-class-providers/src/index.js";
+import { isOpenCodeGoProviderId } from "../../../packages/opencode-go/src/index.js";
 import { billingProductForProvider, isGoModelOnZenPath } from "../../provider/billing-product.js";
 import { buildModelsFirstList, type ModelPick } from "../model-picker.js";
 
@@ -220,7 +221,7 @@ export function seedConnectForm(
   formValues: ProviderFormValues;
   connectDraft: { anthropic: boolean; opencodeGo: boolean };
 } {
-  const isGo = def.opencodeGo === true || def.id === "opencode-go";
+  const isGo = def.opencodeGo === true || isOpenCodeGoProviderId(def.id);
   const isZen = def.id === "zen";
   const base: ProviderFormValues = {
     name: def.id,
