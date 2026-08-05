@@ -4,6 +4,7 @@ import type { Task } from "../../agent/tasks.js";
 import type { SubAgentSession, SubAgentSessionStatus } from "../../subagent/session-store.js";
 import { color } from "../theme.js";
 import { describeToolCall } from "../tool-formatter.js";
+import { formatElapsed } from "./in-flight-indicator.js";
 
 export type AgentsStripProps = {
   sessions: readonly SubAgentSession[];
@@ -318,7 +319,7 @@ export function formatSessionLabel(session: SubAgentSession): string {
   // (completed sub-agent times, not a live tick for in-flight sessions).
   const duration =
     session.finishedAt !== undefined && session.finishedAt >= session.startedAt
-      ? formatStripDuration(session.finishedAt - session.startedAt)
+      ? formatElapsed(session.finishedAt - session.startedAt)
       : undefined;
   const durationSuffix = duration !== undefined ? ` · ${duration}` : "";
   if (session.status === "running" && session.currentToolName !== null) {
@@ -339,16 +340,6 @@ export function formatSessionLabel(session: SubAgentSession): string {
       ? ` · ${session.toolNames.length} tool${session.toolNames.length === 1 ? "" : "s"}`
       : "";
   return `${session.agentId}: ${session.description}${tool}${durationSuffix}`;
-}
-
-function formatStripDuration(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSec / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }
 
 function summaryCounts(sessions: readonly SubAgentSession[]): string {

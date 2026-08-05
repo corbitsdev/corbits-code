@@ -148,18 +148,8 @@ export function planStatusBarLayout(args: StatusBarLayoutArgs): StatusBarLayout 
   };
 }
 
-export function formatElapsed(elapsedMs: number): string {
-  const totalSeconds = Math.floor(elapsedMs / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-
-  const seconds = totalSeconds % 60;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  if (totalMinutes < 60) return `${totalMinutes}m ${seconds}s`;
-
-  const minutes = totalMinutes % 60;
-  const hours = Math.floor(totalMinutes / 60);
-  return `${hours}h ${minutes}m ${seconds}s`;
-}
+export { formatElapsed } from "./in-flight-indicator.js";
+import { formatElapsed } from "./in-flight-indicator.js";
 
 // Slim footer: brand anchors the bottom-left; completed sub-agent timing sits
 // beside it when any worker has finished this session. MCP health sits on the

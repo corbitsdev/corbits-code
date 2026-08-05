@@ -578,6 +578,8 @@ export function App({
     providerCatalog,
     extraChromeRows,
   });
+
+  const completedAgentsLabel = formatCompletedAgentsLabel(subAgentSessions?.list() ?? []);
   const { leftWidth, visibleRows, effectiveOverlayRows, permissionsOverlayRows } = layout;
   // Text wraps and renders inside the gutter so prose never touches the edges.
   const contentWidth = Math.max(8, leftWidth - TEXT_GUTTER * 2);
@@ -1325,10 +1327,7 @@ export function App({
           )}
         <Box marginTop={1}>
           <StatusBar
-            {...(() => {
-              const agentsLabel = formatCompletedAgentsLabel(subAgentSessions?.list() ?? []);
-              return agentsLabel !== undefined ? { completedAgentsLabel: agentsLabel } : {};
-            })()}
+            {...(completedAgentsLabel !== undefined ? { completedAgentsLabel } : {})}
             mcpCount={mcpStatus.connected.length}
             model={model}
             cwd={cwd}
