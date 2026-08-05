@@ -214,7 +214,7 @@ export function StatusBar({
   );
 }
 
-/** Sum finished sub-agent wall times into a compact status-bar label. */
+/** Sum of finished agent wall times (not multi-agent phase wall clock) as a compact status-bar label. */
 export function formatCompletedAgentsLabel(
   sessions: ReadonlyArray<{ status: string; startedAt: number; finishedAt?: number }>,
 ): string | undefined {

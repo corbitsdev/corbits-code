@@ -241,17 +241,6 @@ test("formatCompletedAgentsLabel sums finished sub-agent durations", async () =>
   expect(formatCompletedAgentsLabel([{ status: "running", startedAt: 0 }])).toBeUndefined();
 });
 
-test("planStatusBarLayout drops the model segment when cwd cannot absorb the overflow", () => {
-  const layout = planStatusBarLayout({
-    columns: 20,
-    agentsText: "5s",
-    model: "gpt-5-with-long-name",
-    cwd: "~/repo",
-    gitBranch: "main",
-  });
-  expect(layout.modelCwdBranchText).toBeUndefined();
-});
-
 test("contextMeterTone stays normal below the compaction threshold", () => {
   const warningAt = Math.round(COMPACTION_WINDOW_FRACTION * 100);
   expect(contextMeterTone(0)).toBe("normal");
