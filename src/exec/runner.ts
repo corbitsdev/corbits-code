@@ -95,6 +95,11 @@ import { getToolApprovalBudget } from "../tui/tool-execution-watchdog.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
+/** Normalize unknown catch values for structured warn/error logs. */
+export function formatCaughtError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Content-less inbound used after compact so the reactor re-enters (matches TUI). */
 function buildCompactionContinuationMessage(): InboundMessage {
   return {
@@ -194,7 +199,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
       mcpServers: connectedMcp,
       ...(status !== "running" ? { finishedAt: Date.now() } : {}),
       ...(extra?.error !== undefined ? { error: extra.error } : {}),
-    }).catch(() => undefined);
+    }).catch((err: unknown) => {
+      // Persistence failure must not fail the run, but dropping it silently
+      // hides disk/permission problems that leave run.json stale.
+      logger.warn("saveState failed for session {sessionId} status={status}: {error}", {
+        sessionId,
+        status,
+        error: formatCaughtError(err),
+      });
+    });
   };
 
 
@@ -630,7 +643,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
       toolCallCount: runSink.getToolCallCount(),
       ...(runError !== undefined ? { error: runError } : {}),
     });
-    await hookManager.dispatchPostRun(runSummary).catch(() => undefined);
+    await hookManager.dispatchPostRun(runSummary).catch((err: unknown) => {
+      // Post-run hooks are best-effort; keep the exec exit path intact but
+      // surface the failure so operators can see hook/script problems.
+      const message = formatCaughtError(err);
+      logger.warn("dispatchPostRun failed: {error}", { error: message });
+      stderr.write(`Warning: post-run hook failed: ${message}\n`);
+    });
 
     if (!sendCompleted || runError !== undefined || summaryStatus === "failed") {
       const message =
