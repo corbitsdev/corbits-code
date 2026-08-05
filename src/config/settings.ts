@@ -673,6 +673,40 @@ const LOCAL_CREDENTIAL_KEYS = new Set([
   "authorization",
 ]);
 
+/** Pick known local-settings fields from a raw object (strict or fail-open). */
+function pickLocalFields(
+  s: Record<string, unknown>,
+  mode: "strict" | "coerce",
+): OptionalLocalSettingsFields {
+  if (mode === "strict") {
+    return {
+      provider: s.provider as string | undefined,
+      model: s.model as string | undefined,
+      reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
+      mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+      sessionMode:
+        s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+      env: s.env as Record<string, string> | undefined,
+    };
+  }
+  return {
+    provider: typeof s.provider === "string" ? s.provider : undefined,
+    model: typeof s.model === "string" ? s.model : undefined,
+    reasoningEffort: isReasoningEffort(s.reasoningEffort) ? s.reasoningEffort : undefined,
+    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+    sessionMode:
+      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+    env:
+      s.env !== undefined && typeof s.env === "object" && s.env !== null && !Array.isArray(s.env)
+        ? Object.fromEntries(
+            Object.entries(s.env as Record<string, unknown>).filter(
+              (e): e is [string, string] => typeof e[1] === "string",
+            ),
+          )
+        : undefined,
+  };
+}
+
 function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadResult {
   const diagnostics: SettingsLoadDiagnostic[] = [];
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -690,16 +724,7 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
   const s = parsed as Record<string, unknown>;
   // Valid strict path still returns cleanly with no diagnostics.
   if (isLocalSettings(parsed)) {
-    const optional: OptionalLocalSettingsFields = {
-      provider: s.provider as string | undefined,
-      model: s.model as string | undefined,
-      reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
-      mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-      sessionMode:
-        s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
-      env: s.env as Record<string, string> | undefined,
-    };
-    return { settings: pickDefined(optional), diagnostics: [] };
+    return { settings: pickDefined(pickLocalFields(s, "strict")), diagnostics: [] };
   }
 
   const unknownKeys = Object.keys(s).filter((k) => !LOCAL_ALLOWED_KEYS.has(k));
@@ -722,22 +747,7 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
     });
   }
 
-  const optional: OptionalLocalSettingsFields = {
-    provider: typeof s.provider === "string" ? s.provider : undefined,
-    model: typeof s.model === "string" ? s.model : undefined,
-    reasoningEffort: isReasoningEffort(s.reasoningEffort) ? s.reasoningEffort : undefined,
-    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-    sessionMode:
-      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
-    env:
-      s.env !== undefined && typeof s.env === "object" && s.env !== null && !Array.isArray(s.env)
-        ? Object.fromEntries(
-            Object.entries(s.env as Record<string, unknown>).filter(
-              (e): e is [string, string] => typeof e[1] === "string",
-            ),
-          )
-        : undefined,
-  };
+  const optional = pickLocalFields(s, "coerce");
   if (s.mcpServers !== undefined && optional.mcpServers === undefined) {
     diagnostics.push({
       path,
