@@ -52,6 +52,12 @@ export type TierConfig = TierAssignment | TierDefinition;
 
 export const PROVIDER_TIERS: readonly ProviderTier[] = ["fast", "standard", "clever"];
 
+// Provider+model identity used by the models-first picker (recent / favorites).
+export type ModelRef = { provider: string; model: string };
+
+export const DEFAULT_RECENT_MODELS_STORED = 10;
+export const DEFAULT_RECENT_MODELS_SHOWN = 5;
+
 // Global settings: the set of providers plus which one to use by default.
 export type Settings = {
   defaultProvider?: string;
@@ -140,7 +146,58 @@ export type Settings = {
     serviceName?: string;
     resourceAttributes?: Record<string, string>;
   };
+  // Models-first /model picker: most-recently-used provider+model pairs (newest
+  // first). Global preference only — no credentials. Cap stored list (~10);
+  // UI surfaces fewer via listRecentModels.
+  recentModels?: ModelRef[];
+  // Operator-starred provider+model pairs for the models-first picker.
+  favoriteModels?: ModelRef[];
 };
+
+function modelRefKey(ref: ModelRef): string {
+  return `${ref.provider}\0${ref.model}`;
+}
+
+// Newest first, deduped by provider+model, capped at `max` (default 10).
+export function pushRecentModel(
+  settings: Settings,
+  ref: ModelRef,
+  max: number = DEFAULT_RECENT_MODELS_STORED,
+): Settings {
+  const next: ModelRef = { provider: ref.provider, model: ref.model };
+  const rest = (settings.recentModels ?? []).filter(
+    (r) => modelRefKey(r) !== modelRefKey(next),
+  );
+  return {
+    ...settings,
+    recentModels: [next, ...rest].slice(0, Math.max(0, max)),
+  };
+}
+
+// Add the pair if absent; remove it if present.
+export function toggleFavoriteModel(settings: Settings, ref: ModelRef): Settings {
+  const next: ModelRef = { provider: ref.provider, model: ref.model };
+  const key = modelRefKey(next);
+  const current = settings.favoriteModels ?? [];
+  const has = current.some((r) => modelRefKey(r) === key);
+  return {
+    ...settings,
+    favoriteModels: has
+      ? current.filter((r) => modelRefKey(r) !== key)
+      : [...current, next],
+  };
+}
+
+export function listRecentModels(
+  settings: Settings,
+  max: number = DEFAULT_RECENT_MODELS_SHOWN,
+): ModelRef[] {
+  return (settings.recentModels ?? []).slice(0, Math.max(0, max));
+}
+
+export function listFavoriteModels(settings: Settings): ModelRef[] {
+  return settings.favoriteModels ?? [];
+}
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
 // Returns undefined when unset so the plugin applies its own defaults.
@@ -352,6 +409,11 @@ const ProviderSettingsSchema = type({
   "opencodeGo?": "boolean",
 });
 
+const ModelRefSchema = type({
+  provider: "string",
+  model: "string",
+});
+
 const TierProviderRefSchema = type({
   provider: "string",
   model: "string",
@@ -411,6 +473,8 @@ const SettingsSchema = type({
     "serviceName?": "string",
     "resourceAttributes?": "Record<string, string>",
   }),
+  "recentModels?": ModelRefSchema.array(),
+  "favoriteModels?": ModelRefSchema.array(),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -572,6 +636,8 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "tools",
   "telemetry",
   "otel",
+  "recentModels",
+  "favoriteModels",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
 /** Optional local settings keys the load path is required to consider. */
@@ -649,6 +715,8 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     tools: s.tools as Settings["tools"] | undefined,
     telemetry: s.telemetry as Settings["telemetry"] | undefined,
     otel: s.otel as Settings["otel"] | undefined,
+    recentModels: s.recentModels as Settings["recentModels"] | undefined,
+    favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
   };
   return {
     providers: s.providers as Settings["providers"],

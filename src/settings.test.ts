@@ -26,6 +26,10 @@ import {
   toolWatchdogFromSettings,
   loadGlobalSettingsWriteBase,
   markLastChangelogVersion,
+  pushRecentModel,
+  toggleFavoriteModel,
+  listRecentModels,
+  listFavoriteModels,
 } from "./config/settings.js";
 
 const firepass: Settings = {
@@ -230,6 +234,25 @@ describe("validators", () => {
         agentModelFallback: "none",
       }),
     ).toBe(true);
+  });
+
+  test("isSettings accepts recentModels and favoriteModels", () => {
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        recentModels: [{ provider: "firepass", model: "fp-large" }],
+        favoriteModels: [{ provider: "firepass", model: "fp-small" }],
+      }),
+    ).toBe(true);
+  });
+
+  test("isSettings rejects malformed recentModels entries", () => {
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        recentModels: [{ provider: "firepass" }],
+      }),
+    ).toBe(false);
   });
 
   test("isLocalSettings rejects credentials", () => {
@@ -734,5 +757,42 @@ describe("saveLocalSettings", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("recent and favorite model helpers", () => {
+  test("pushRecentModel prepends, dedupes, and caps", () => {
+    let s: Settings = { providers: firepass.providers };
+    s = pushRecentModel(s, { provider: "a", model: "m1" });
+    s = pushRecentModel(s, { provider: "a", model: "m2" });
+    s = pushRecentModel(s, { provider: "a", model: "m1" });
+    expect(s.recentModels).toEqual([
+      { provider: "a", model: "m1" },
+      { provider: "a", model: "m2" },
+    ]);
+
+    for (let i = 0; i < 12; i++) {
+      s = pushRecentModel(s, { provider: "a", model: `x${i}` }, 10);
+    }
+    expect(s.recentModels).toHaveLength(10);
+    expect(s.recentModels?.[0]).toEqual({ provider: "a", model: "x11" });
+  });
+
+  test("toggleFavoriteModel adds and removes", () => {
+    let s: Settings = { providers: firepass.providers };
+    s = toggleFavoriteModel(s, { provider: "a", model: "m1" });
+    expect(listFavoriteModels(s)).toEqual([{ provider: "a", model: "m1" }]);
+    s = toggleFavoriteModel(s, { provider: "a", model: "m1" });
+    expect(listFavoriteModels(s)).toEqual([]);
+  });
+
+  test("listRecentModels respects max (default 5)", () => {
+    const recent = Array.from({ length: 8 }, (_, i) => ({
+      provider: "a",
+      model: `m${i}`,
+    }));
+    const s: Settings = { providers: firepass.providers, recentModels: recent };
+    expect(listRecentModels(s)).toHaveLength(5);
+    expect(listRecentModels(s, 3)).toHaveLength(3);
   });
 });
