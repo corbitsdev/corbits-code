@@ -21,6 +21,7 @@ import {
   focusOwner,
   focusPrompt,
   focusTranscript,
+  openObserve,
   openOverlay,
   popFocus,
   type FocusState,
@@ -52,6 +53,15 @@ import {
   type PaletteActionId,
   type PaletteCommand,
 } from "./palette.js"
+import {
+  makeHelpItems,
+  makeMentionItems,
+  makeObserveFixture,
+  makePluginsItems,
+  makeResumeItems,
+  makeSettingsItems,
+  type ObserveSession,
+} from "./residuals.js"
 import {
   copyStreamRow,
   createRecordingClipboard,
@@ -176,6 +186,18 @@ export type AppShell = {
   paletteCommands: readonly PaletteCommand[]
   /** Clipboard port for keyboard copy (tests inject recording port). */
   clipboard: ClipboardPort
+  /**
+   * Active subagent observe session (null when viewing parent).
+   * Independent stream window; Esc restores parent lease.
+   */
+  observe: {
+    sessionId: string
+    agentId: string
+    description: string
+    lines: StreamRow[]
+  } | null
+  /** Parent stream snapshot while observe is active. */
+  parentStreamLog: StreamRow[] | null
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void
 }
@@ -186,6 +208,11 @@ export type PrimaryOverlayKind =
   | "model_picker"
   | "demo"
   | "palette"
+  | "settings"
+  | "help"
+  | "plugins"
+  | "resume"
+  | "mentions"
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -955,11 +982,27 @@ export function runPaletteAction(
       return
     }
     case "help": {
-      appendStreamRow(shell, {
-        role: "system",
-        text: "keys: Enter queue · Alt+Enter steer · Ctrl+C stop · Ctrl+O palette · Alt+C copy · Esc dismiss",
-        meta: "help",
-      })
+      openHelpOverlay(shell)
+      return
+    }
+    case "settings": {
+      openSettingsOverlay(shell)
+      return
+    }
+    case "plugins": {
+      openPluginsOverlay(shell)
+      return
+    }
+    case "resume": {
+      openResumeOverlay(shell)
+      return
+    }
+    case "mentions": {
+      openMentionsOverlay(shell)
+      return
+    }
+    case "observe": {
+      enterSubagentObserve(shell, makeObserveFixture())
       return
     }
   }
@@ -1037,6 +1080,118 @@ export function copyActiveMessage(
     meta: "copy",
   })
   return true
+}
+
+/**
+ * Enter a child subagent session view (Wave 7).
+ * Independent stream window; Esc restores parent lease.
+ */
+export function enterSubagentObserve(
+  shell: AppShell,
+  session: ObserveSession,
+): void {
+  if (shell.observe) {
+    leaveSubagentObserve(shell)
+  }
+
+  shell.parentStreamLog = shell.streamLog.slice()
+  shell.observe = {
+    sessionId: session.sessionId,
+    agentId: session.agentId,
+    description: session.description,
+    lines: session.lines.slice(),
+  }
+
+  shell.streamLog = session.lines.slice()
+  shell.lineCount = shell.streamLog.length
+  repaintTranscriptWindow(shell)
+
+  shell.focus = openObserve(shell.focus, `observe-${session.sessionId}`)
+  setChromeZones(shell, {
+    agents: `observe: ${session.agentId} — ${session.description}`,
+  })
+  appendStreamRow(shell, {
+    role: "system",
+    text: `Viewing ${session.agentId}: ${session.description}`,
+    meta: "observe",
+  })
+  paintStatus(shell)
+}
+
+/** Leave observe; restore parent stream + focus lease. */
+export function leaveSubagentObserve(shell: AppShell): void {
+  if (!shell.observe) return
+
+  const agentId = shell.observe.agentId
+  shell.observe = null
+
+  if (shell.parentStreamLog) {
+    shell.streamLog = shell.parentStreamLog
+    shell.parentStreamLog = null
+  }
+  shell.lineCount = shell.streamLog.length
+  repaintTranscriptWindow(shell)
+
+  let guard = 4
+  while (guard-- > 0 && focusOwner(shell.focus) === "observe") {
+    shell.focus = popFocus(shell.focus)
+  }
+  // Drop any observe frames that weren't top.
+  const frames = shell.focus.frames.filter((f) => f.target !== "observe")
+  if (frames.length > 0) shell.focus = { frames }
+
+  setChromeZones(shell, { agents: null })
+  appendStreamRow(shell, {
+    role: "system",
+    text: `left observe (${agentId})`,
+    meta: "observe",
+  })
+  paintStatus(shell)
+}
+
+export function openSettingsOverlay(shell: AppShell): void {
+  openListOverlay(shell, {
+    kind: "settings",
+    title: "settings",
+    items: makeSettingsItems(),
+    frameId: "overlay-settings",
+  })
+}
+
+export function openHelpOverlay(shell: AppShell): void {
+  openListOverlay(shell, {
+    kind: "help",
+    title: "help · keymap",
+    items: makeHelpItems(),
+    frameId: "overlay-help",
+  })
+}
+
+export function openPluginsOverlay(shell: AppShell): void {
+  openListOverlay(shell, {
+    kind: "plugins",
+    title: "plugins",
+    items: makePluginsItems(),
+    frameId: "overlay-plugins",
+  })
+}
+
+export function openResumeOverlay(shell: AppShell): void {
+  openListOverlay(shell, {
+    kind: "resume",
+    title: "resume session",
+    items: makeResumeItems(),
+    frameId: "overlay-resume",
+  })
+}
+
+export function openMentionsOverlay(shell: AppShell): void {
+  openListOverlay(shell, {
+    kind: "mentions",
+    title: "mentions",
+    items: makeMentionItems(),
+    frameId: "overlay-mentions",
+  })
 }
 
 /**
@@ -1259,6 +1414,11 @@ export function createAppShell(
         closeInsetOverlay(shell)
         return
       }
+      if (shell.observe) {
+        key.preventDefault()
+        leaveSubagentObserve(shell)
+        return
+      }
     }
 
     if (shell.overlayList) {
@@ -1393,6 +1553,8 @@ export function createAppShell(
     overlayBodyLines: [],
     paletteCommands: [],
     clipboard: createRecordingClipboard(),
+    observe: null,
+    parentStreamLog: null,
     dispose: () => {
       if (disposed) return
       disposed = true

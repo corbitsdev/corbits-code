@@ -2,13 +2,14 @@
  * Interactive OpenTUI product-skin demo (real TTY only).
  * Run: bun src/tui-opentui/demo.ts
  *
- * Wave 6: palette + long-log + chrome + copy on shared kit.
+ * Wave 7: residual surfaces + observe on shared kit.
  * Not production CLI. Ink remains production.
  *
  * Keys:
  *   Enter=queue · Alt+Enter=steer · Ctrl+C=stop
  *   Ctrl+O=palette · Alt+C=copy
- *   p=permissions · o=operator · m=model picker
+ *   p=permissions · o=operator · m=model
+ *   s=settings · h=help · l=plugins · e=resume · n=mentions · v=observe
  *   g/t/a=toggle goal/task/agents chrome
  *   f=replay fixture · r=busy · q=quit when idle
  */
@@ -19,6 +20,7 @@ import {
   attachSessionBridge,
   createRecordingPort,
 } from "./runtime-bridge.js"
+import { makeObserveFixture } from "./residuals.js"
 import {
   openModelPickerOverlay,
   openOperatorOverlay,
@@ -27,6 +29,12 @@ import {
 import {
   appendStreamRow,
   createAppShell,
+  enterSubagentObserve,
+  openHelpOverlay,
+  openMentionsOverlay,
+  openPluginsOverlay,
+  openResumeOverlay,
+  openSettingsOverlay,
   paintStatus,
   setChromeZones,
   setShellRunState,
@@ -52,11 +60,11 @@ const bridge = attachSessionBridge(shell, port)
 
 appendStreamRow(shell, {
   role: "system",
-  text: "Wave 6 — palette · long-log · chrome · copy (Ctrl+O / Alt+C)",
+  text: "Wave 7 — residuals + observe (s/h/l/e/n/v · Ctrl+O palette)",
 })
 appendStreamRow(shell, {
   role: "system",
-  text: "p=permissions · o=operator · m=model · g/t/a=chrome · f=fixture · r=busy · q=quit",
+  text: "p/o/m overlays · g/t/a chrome · f=fixture · r=busy · q=quit",
 })
 
 bridge.play(FIXTURE_BUSY_SESSION)
@@ -75,9 +83,8 @@ function quit(): void {
   }, 40)
 }
 
-// Demo-only chords (shell owns Ctrl+O palette, Alt+C copy, queue/steer/interrupt).
 renderer.keyInput.on("keypress", (key: KeyEvent) => {
-  if (shell.overlayList) return
+  if (shell.overlayList || shell.observe) return
 
   if (
     key.name === "q" &&
@@ -150,6 +157,66 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   }
 
   if (
+    key.name === "s" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openSettingsOverlay(shell)
+    return
+  }
+
+  if (
+    key.name === "h" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openHelpOverlay(shell)
+    return
+  }
+
+  if (
+    key.name === "l" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openPluginsOverlay(shell)
+    return
+  }
+
+  if (
+    key.name === "e" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openResumeOverlay(shell)
+    return
+  }
+
+  if (
+    key.name === "n" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    openMentionsOverlay(shell)
+    return
+  }
+
+  if (
+    key.name === "v" &&
+    !key.ctrl &&
+    !key.meta &&
+    shell.prompt.value.length === 0
+  ) {
+    enterSubagentObserve(shell, makeObserveFixture())
+    return
+  }
+
+  if (
     key.name === "g" &&
     !key.ctrl &&
     !key.meta &&
@@ -157,7 +224,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   ) {
     const on = shell.layout.heights.goal > 0
     setChromeZones(shell, {
-      goal: on ? null : "goal: Wave 6 palette + long-log + chrome",
+      goal: on ? null : "goal: Wave 7 residual surfaces + observe",
     })
     return
   }
@@ -170,7 +237,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   ) {
     const on = shell.layout.heights.task > 0
     setChromeZones(shell, {
-      task: on ? null : "task: implement Wave 6 acceptance",
+      task: on ? null : "task: cutover readiness",
     })
     return
   }
@@ -209,5 +276,5 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
 })
 
 console.log(
-  "OpenTUI Wave 6 demo — Ctrl+O palette · Alt+C copy · p/o/m overlays · g/t/a chrome · q quit",
+  "OpenTUI Wave 7 demo — residuals s/h/l/e/n · observe v · Ctrl+O palette · q quit",
 )
