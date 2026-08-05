@@ -6,11 +6,23 @@ export * from "./focus/index"
 export * from "./list-viewport"
 export * from "./session-queue"
 export * from "./stream"
-export * from "./runtime-bridge"
+export * from "./stream-event-map"
+export {
+  attachSessionBridge,
+  createRecordingPort,
+  FIXTURE_BUSY_SESSION,
+  mapReactorLike,
+  type PortCall,
+  type SessionBridge,
+  type SessionPort,
+  type SessionPortHandlers,
+} from "./runtime-bridge"
+export * from "./live-session-port"
 export * from "./overlays"
 export * from "./long-log"
 export * from "./palette"
 export * from "./copy-path"
+export * from "./chrome-state"
 export * from "./residuals"
 export * from "./shell"
 export * from "./harness"

@@ -14,11 +14,14 @@ import {
 } from "./overlays"
 import {
   acceptOverlaySelection,
+  clearShellOverlayHooks,
   closeInsetOverlay,
   createAppShell,
   moveOverlaySelection,
   pageOverlaySelection,
   relayout,
+  setShellOverlayHooks,
+  type OverlaySelection,
 } from "./shell"
 import { visibleSlice } from "./list-viewport"
 
@@ -225,6 +228,167 @@ describe("model / provider picker", () => {
           frame = h.captureCharFrame()
           expect(frame).toContain("chose (model_picker)")
         } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("overlay accept callbacks", () => {
+  test("permissions open → navigate → accept fires onAccept with payload", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const accepted: OverlaySelection[] = []
+          openPermissionsOverlay(shell, {
+            items: ["Allow once", "Allow session", "Deny"],
+            itemIds: ["once", "session", "deny"],
+            onAccept: (s) => accepted.push(s),
+          })
+          moveOverlaySelection(shell, 1)
+          acceptOverlaySelection(shell)
+          expect(accepted).toEqual([
+            {
+              kind: "permissions",
+              index: 1,
+              label: "Allow session",
+              id: "session",
+            },
+          ])
+          expect(shell.overlayList).toBeNull()
+          expect(focusOwner(shell.focus)).toBe("prompt")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("operator accept fires shell-level onOperator when no per-open", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const accepted: OverlaySelection[] = []
+          setShellOverlayHooks(shell, {
+            onOperator: (s) => accepted.push(s),
+          })
+          openOperatorOverlay(shell, {
+            body: "Proceed?",
+            choices: ["Cancel", "Allow once", "Deny"],
+          })
+          moveOverlaySelection(shell, 1)
+          acceptOverlaySelection(shell)
+          expect(accepted).toHaveLength(1)
+          expect(accepted[0]).toEqual({
+            kind: "operator",
+            index: 1,
+            label: "Allow once",
+          })
+        } finally {
+          clearShellOverlayHooks(shell)
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("model_picker accept fires onModel with id", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const accepted: OverlaySelection[] = []
+          setShellOverlayHooks(shell, {
+            onModel: (s) => accepted.push(s),
+          })
+          openModelPickerOverlay(shell, {
+            items: ["anthropic / sonnet", "openai / gpt-5"],
+            itemIds: ["anthropic:claude-sonnet-4", "openai:gpt-5"],
+            activeIndex: 0,
+          })
+          moveOverlaySelection(shell, 1)
+          acceptOverlaySelection(shell)
+          expect(accepted).toEqual([
+            {
+              kind: "model_picker",
+              index: 1,
+              label: "openai / gpt-5",
+              id: "openai:gpt-5",
+            },
+          ])
+        } finally {
+          clearShellOverlayHooks(shell)
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Esc / close restores without accept callback", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const accepted: OverlaySelection[] = []
+          openPermissionsOverlay(shell, {
+            items: ["Allow once", "Deny"],
+            itemIds: ["once", "deny"],
+            onAccept: (s) => accepted.push(s),
+          })
+          moveOverlaySelection(shell, 1)
+          closeInsetOverlay(shell)
+          expect(accepted).toEqual([])
+          expect(shell.overlayList).toBeNull()
+          expect(focusOwner(shell.focus)).toBe("prompt")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("per-open onAccept wins over shell-level hooks", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const shellHits: OverlaySelection[] = []
+          const openHits: OverlaySelection[] = []
+          setShellOverlayHooks(shell, {
+            onPermission: (s) => shellHits.push(s),
+          })
+          openPermissionsOverlay(shell, {
+            items: ["Allow once"],
+            onAccept: (s) => openHits.push(s),
+          })
+          acceptOverlaySelection(shell)
+          expect(openHits).toHaveLength(1)
+          expect(shellHits).toEqual([])
+        } finally {
+          clearShellOverlayHooks(shell)
           shell.dispose()
         }
       },

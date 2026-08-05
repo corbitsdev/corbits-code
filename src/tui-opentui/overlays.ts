@@ -3,10 +3,14 @@
  * Pure content builders + open helpers on the shared list/focus/geometry kit.
  */
 
-import type { AppShell, PrimaryOverlayKind } from "./shell.js"
+import type {
+  AppShell,
+  OverlaySelection,
+  PrimaryOverlayKind,
+} from "./shell.js"
 import { openListOverlay } from "./shell.js"
 
-export type { PrimaryOverlayKind }
+export type { OverlaySelection, PrimaryOverlayKind }
 
 /** Fixture: 30 permission options (acceptance scenario 2). */
 export function makePermissionItems(count = 30): readonly string[] {
@@ -89,7 +93,11 @@ export function wrapOverlayBody(
 
 export type OpenPermissionsOpts = {
   readonly items?: readonly string[]
+  /** Stable ids aligned with `items` (e.g. ApprovalScope.id). */
+  readonly itemIds?: readonly string[]
   readonly activeIndex?: number
+  /** Per-open accept; host binds resolve(ApprovalOutcome). */
+  readonly onAccept?: (selection: OverlaySelection) => void
 }
 
 export function openPermissionsOverlay(
@@ -103,13 +111,18 @@ export function openPermissionsOverlay(
     items,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-permissions",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
 export type OpenOperatorOpts = {
   readonly body?: string
   readonly choices?: readonly string[]
+  readonly itemIds?: readonly string[]
   readonly activeIndex?: number
+  /** Per-open accept; host binds OperatorResult mapping. */
+  readonly onAccept?: (selection: OverlaySelection) => void
 }
 
 export function openOperatorOverlay(
@@ -124,12 +137,18 @@ export function openOperatorOverlay(
     items: opts?.choices ?? fixture.choices,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-operator",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
 export type OpenModelPickerOpts = {
   readonly items?: readonly string[]
+  /** Stable model/provider ids aligned with `items`. */
+  readonly itemIds?: readonly string[]
   readonly activeIndex?: number
+  /** Per-open accept; host binds model switch. */
+  readonly onAccept?: (selection: OverlaySelection) => void
 }
 
 export function openModelPickerOverlay(
@@ -142,5 +161,7 @@ export function openModelPickerOverlay(
     items: opts?.items ?? makeModelPickerItems(),
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-model",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
