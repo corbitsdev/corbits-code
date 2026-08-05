@@ -163,6 +163,8 @@ function persistGlobalSettings(
 // Shared disk-first persist path for catalog and tier writes. Loads a fresh
 // merge base, builds settings, optionally mutates in-memory state, then saves.
 // Fire-and-forget: callers `void` the promise so UI stays non-blocking.
+// onBeforeSave runs only after load+build succeed so a failed re-read never
+// leaves UI state ahead of disk.
 async function persistWithMergeBase(args: {
   globalSettingsPath: string;
   initialSettings: Settings | undefined;
@@ -170,31 +172,22 @@ async function persistWithMergeBase(args: {
   onMessage: (msg: string) => void;
   successMessage: string;
   failPrefix: string;
-  /** Runs only after load+build succeed, before the disk write. */
   onBeforeSave?: () => void;
 }): Promise<void> {
-  let base: Settings | undefined;
   try {
-    base = await loadMergeBase(args.globalSettingsPath, args.initialSettings);
+    const base = await loadMergeBase(args.globalSettingsPath, args.initialSettings);
+    const settings = args.buildSettings(base);
+    args.onBeforeSave?.();
+    persistGlobalSettings(
+      args.globalSettingsPath,
+      settings,
+      args.onMessage,
+      args.successMessage,
+      args.failPrefix,
+    );
   } catch (err) {
     args.onMessage(`${args.failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
-    return;
   }
-  let settings: Settings;
-  try {
-    settings = args.buildSettings(base);
-  } catch (err) {
-    args.onMessage(`${args.failPrefix}: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
-  args.onBeforeSave?.();
-  persistGlobalSettings(
-    args.globalSettingsPath,
-    settings,
-    args.onMessage,
-    args.successMessage,
-    args.failPrefix,
-  );
 }
 
 export function useProviderManager({
@@ -353,9 +346,7 @@ export function useProviderManager({
     successMessage: string,
   ): void => {
     // Disk-first merge base: mid-session /plugins writes must survive a later
-    // provider save. Fail closed if settings cannot be re-read. Catalog state
-    // only updates after load+build succeed so a failed re-read never leaves
-    // the UI ahead of disk.
+    // provider save. Fail closed if settings cannot be re-read.
     void persistWithMergeBase({
       globalSettingsPath,
       initialSettings,

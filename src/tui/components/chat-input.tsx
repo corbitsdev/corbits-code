@@ -68,7 +68,17 @@ export type ChatInputProps = {
 
 // Action bar above the prompt: revolving verb + interrupt/queue hint on the
 // left, profile · model · effort right-aligned. Null when nothing to show.
-function PromptActionBar(props: {
+function PromptActionBar({
+  showSteerHint,
+  value,
+  steerOnEnter,
+  queuedCount,
+  verb,
+  profile,
+  model,
+  effort,
+  attachmentSummary,
+}: {
   showSteerHint: boolean;
   value: string;
   steerOnEnter: boolean;
@@ -79,17 +89,6 @@ function PromptActionBar(props: {
   effort?: string;
   attachmentSummary?: string;
 }): ReactNode {
-  const {
-    showSteerHint,
-    value,
-    steerOnEnter,
-    queuedCount,
-    verb,
-    profile,
-    model,
-    effort,
-    attachmentSummary,
-  } = props;
   // Enter and Alt+Enter are no-ops on an empty field, so with nothing typed
   // the hint advertises the interrupt chord instead.
   const hasPromptText = value.trim().length > 0;
@@ -99,6 +98,7 @@ function PromptActionBar(props: {
       ? "Enter queues for orchestrator"
       : "Enter steer · Alt+Enter queue";
   const steerText = queuedCount > 0 ? `${queuedCount} queued · ${actionsText}` : actionsText;
+  // exactOptionalPropertyTypes: omit undefined keys rather than pass them.
   const modelText = composePromptActionBarModelLabel({
     ...(profile !== undefined ? { profile } : {}),
     ...(model !== undefined ? { model } : {}),
@@ -790,9 +790,10 @@ export function ChatInput({
 
   // When slash/@ pickers are open the input renders plainly so the
   // suggestion list sits flush above it without a competing border.
+  const inputLines = renderInputLines();
   const inputBody = showSlash || showAt ? (
     <Box flexDirection="column" paddingX={1}>
-      {renderInputLines()}
+      {inputLines}
     </Box>
   ) : (
     <Box marginX={1} flexDirection="column">
@@ -802,7 +803,7 @@ export function ChatInput({
         flexDirection="column"
         paddingX={1}
       >
-        {renderInputLines()}
+        {inputLines}
       </Box>
     </Box>
   );
