@@ -807,6 +807,22 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
   return settings;
 }
 
+// Resolve the base for a read-modify-write of the local selection file.
+// Absent file → empty base (create OK). Partial fail-open → cleaned fields.
+// Invalid JSON / unreadable / fully unusable → null so the caller skips the
+// write instead of collapsing to {} and wiping the file.
+export async function loadLocalSettingsWriteBase(path: string): Promise<LocalSettings | null> {
+  try {
+    const result = await loadLocalSettingsResult(path);
+    if (result.settings !== null) return result.settings;
+    // Absent (ENOENT) returns null settings with empty diagnostics.
+    if (result.diagnostics.length === 0) return {};
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Resolve the base for a read-modify-write of the global settings file.
 // An absent file yields a fresh minimal base; an unreadable or invalid file
 // yields null so the caller skips the write — falling back to a minimal base

@@ -20,6 +20,13 @@ export async function mainWithRunners(
   runners: Runners,
 ): Promise<number> {
   const config = await loadConfig(argv, { allowUnconfigured: true });
+  // Exec has no Ink surface for settings diagnostics — fail-open must still
+  // tell the operator what was ignored and how to fix it.
+  if (config.configured && config.command === "exec" && config.settingsDiagnostics !== undefined) {
+    for (const d of config.settingsDiagnostics) {
+      process.stderr.write(`settings: ${d.message}\n  fix: ${d.fix}\n`);
+    }
+  }
   // Always the TRUE global settings file, never config.globalSettingsPath —
   // that's the --config override file when one was given, and splitting
   // telemetry across two files means the installationId lands somewhere the

@@ -7,6 +7,7 @@ import {
   isLocalSettings,
   isSettings,
   loadLocalSettings,
+  loadLocalSettingsWriteBase,
   loadSettings,
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
@@ -356,6 +357,47 @@ describe("loaders", () => {
       expect(result.diagnostics.length).toBeGreaterThan(0);
       expect(result.diagnostics.some((d) => /credential|apiKey|unknown/i.test(d.message))).toBe(true);
       expect(result.diagnostics.every((d) => d.fix.length > 0)).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadLocalSettings fails open on invalid JSON with diagnostics", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await writeFile(path, "{ not json");
+      expect(await loadLocalSettings(path)).toBeNull();
+      const { loadLocalSettingsResult } = await import("./config/settings.js");
+      const result = await loadLocalSettingsResult(path);
+      expect(result.settings).toBeNull();
+      expect(result.diagnostics.some((d) => /Invalid JSON/i.test(d.message))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadLocalSettingsWriteBase distinguishes absent, cleaned, and unusable", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      // Absent: empty base is safe to create.
+      expect(await loadLocalSettingsWriteBase(path)).toEqual({});
+
+      // Partial fail-open: cleaned known fields are the base.
+      await writeFile(
+        path,
+        JSON.stringify({ provider: "a", model: "m1", apiKey: "leak", weird: true }),
+      );
+      expect(await loadLocalSettingsWriteBase(path)).toEqual({ provider: "a", model: "m1" });
+
+      // Invalid JSON: skip write — do not collapse to {}.
+      await writeFile(path, "{ not json");
+      expect(await loadLocalSettingsWriteBase(path)).toBeNull();
+
+      // Non-object: skip write.
+      await writeFile(path, JSON.stringify(["not", "object"]));
+      expect(await loadLocalSettingsWriteBase(path)).toBeNull();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
