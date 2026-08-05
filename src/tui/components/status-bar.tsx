@@ -9,8 +9,9 @@ import { color, type SemanticRole } from "../theme.js";
 import { PRODUCT_NAME } from "../../branding.js";
 
 export type StatusBarProps = {
-  // Whole-session elapsed time, always counting (not per-turn).
-  sessionElapsedMs: number;
+  // Label for completed sub-agent timing (e.g. "agents 2m 14s"). Replaces the
+  // whole-session wall clock which was noise for long sessions.
+  completedAgentsLabel?: string;
   mcpCount: number;
   // Pre-formatted by src/cost/cost-summary.ts; omitted entirely when cost
   // should stay hidden (free model, coding plan) rather than shown as $0.
@@ -76,7 +77,7 @@ const MIN_TRUNCATED_CWD = 5;
 
 export type StatusBarLayoutArgs = {
   columns: number;
-  timerText: string;
+  agentsText?: string;
   mcpText?: string;
   model?: string;
   // Already home-abbreviated.
@@ -108,7 +109,7 @@ function joinModelCwdBranch(model?: string, cwd?: string, gitBranch?: string): s
 }
 
 // Decides which low-priority segments fit in the terminal width. Priority
-// (highest to lowest, dropped first when narrow): brand+timer > MCP >
+// (highest to lowest, dropped first when narrow): brand+agents > MCP >
 // model/cwd/branch > cost > context. Only the cwd part is truncated — model
 // and branch names stay intact; if the cwd cannot absorb the overflow the
 // whole model/cwd/branch segment is dropped.
@@ -121,7 +122,7 @@ export function planStatusBarLayout(args: StatusBarLayoutArgs): StatusBarLayout 
   const overflow = () =>
     usedColumns([
       BRAND,
-      args.timerText,
+      args.agentsText,
       segment,
       showCost ? args.costLabel : undefined,
       showContext ? args.contextLabel : undefined,
@@ -160,16 +161,17 @@ export function formatElapsed(elapsedMs: number): string {
   return `${hours}h ${minutes}m ${seconds}s`;
 }
 
-// Slim footer: brand anchors the bottom-left with the session timer beside it;
-// MCP health sits on the right. The per-turn timer lives on the in-flight
-// indicator above the prompt box, not here.
+// Slim footer: brand anchors the bottom-left; completed sub-agent timing sits
+// beside it when any worker has finished this session. MCP health sits on the
+// right. The per-turn timer lives on the in-flight indicator above the prompt
+// box, not here.
 //
 // Segment priority (highest to lowest, dropped first when the terminal is
-// narrow): brand+timer > model/cwd/branch > cost/context. cwd is truncated
+// narrow): brand+agents > model/cwd/branch > cost/context. cwd is truncated
 // with a middle ellipsis before the model/cwd/branch segment is dropped
 // entirely.
 export function StatusBar({
-  sessionElapsedMs,
+  completedAgentsLabel,
   mcpCount,
   costLabel,
   contextLabel,
@@ -179,11 +181,14 @@ export function StatusBar({
   gitBranch,
   columns,
 }: StatusBarProps): ReactNode {
-  const timerText = formatElapsed(sessionElapsedMs);
+  const agentsText =
+    completedAgentsLabel !== undefined && completedAgentsLabel.length > 0
+      ? completedAgentsLabel
+      : undefined;
   const mcpText = mcpCount > 0 ? `MCP ✓ ${mcpCount}` : undefined;
   const { modelCwdBranchText, showCost, showContext } = planStatusBarLayout({
     columns: columns ?? 120,
-    timerText,
+    ...(agentsText !== undefined ? { agentsText } : {}),
     ...(mcpText !== undefined ? { mcpText } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(cwd !== undefined ? { cwd: abbreviateHome(cwd) } : {}),
@@ -199,7 +204,9 @@ export function StatusBar({
   return (
     <Box flexDirection="row" paddingX={1} gap={1} overflow="hidden">
       <Text bold color={color("muted")} dimColor wrap="truncate-end">{BRAND}</Text>
-      <Text color={color("muted")} dimColor>{timerText}</Text>
+      {agentsText !== undefined && (
+        <Text color={color("muted")} dimColor>{agentsText}</Text>
+      )}
       {modelCwdBranchText !== undefined && (
         <Text color={color("muted")} dimColor wrap="truncate-end">{modelCwdBranchText}</Text>
       )}
@@ -215,4 +222,20 @@ export function StatusBar({
       )}
     </Box>
   );
+}
+
+/** Sum finished sub-agent wall times into a compact status-bar label. */
+export function formatCompletedAgentsLabel(
+  sessions: ReadonlyArray<{ status: string; startedAt: number; finishedAt?: number }>,
+): string | undefined {
+  let totalMs = 0;
+  let count = 0;
+  for (const s of sessions) {
+    if (s.status !== "done" && s.status !== "failed" && s.status !== "cancelled") continue;
+    if (s.finishedAt === undefined || s.finishedAt < s.startedAt) continue;
+    totalMs += s.finishedAt - s.startedAt;
+    count += 1;
+  }
+  if (count === 0) return undefined;
+  return `agents ${formatElapsed(totalMs)}`;
 }

@@ -7,7 +7,7 @@ import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useAgentStream } from "./use-stream.js";
 import { Header } from "./components/header.js";
 import { EventLog, TEXT_GUTTER, resolveViewportExpandIds } from "./components/event-log.js";
-import { StatusBar } from "./components/status-bar.js";
+import { StatusBar, formatCompletedAgentsLabel } from "./components/status-bar.js";
 import { useGitBranch } from "./git-branch.js";
 import { formatStatusBarSegments } from "../cost/cost-summary.js";
 import { OnboardingAnimation } from "./components/onboarding-animation.js";
@@ -42,7 +42,6 @@ import type { SubAgentProvider, SubAgentSessionStore } from "../subagent/index.j
 import { useSpinner } from "./hooks/use-spinner.js";
 import { chromeDividerLine } from "./chrome-zones.js";
 import { useQuotaRetry } from "./hooks/use-quota-retry.js";
-import { useSessionClock } from "./hooks/use-session-clock.js";
 import { useRevolvingVerb } from "./hooks/use-revolving-verb.js";
 import { color } from "./theme.js";
 import { useTerminalSize } from "./hooks/use-terminal-size.js";
@@ -758,7 +757,6 @@ export function App({
     streamingType: state.streamingType,
   });
 
-  const sessionElapsedMs = useSessionClock(sessionStartedAt);
   // Persistent status bar segment: refreshes on an interval, never
   // blocks render on the git process.
   const gitBranch = useGitBranch(cwd);
@@ -1334,7 +1332,10 @@ export function App({
           )}
         <Box marginTop={1}>
           <StatusBar
-            sessionElapsedMs={sessionElapsedMs}
+            {...(() => {
+              const agentsLabel = formatCompletedAgentsLabel(subAgentSessions?.list() ?? []);
+              return agentsLabel !== undefined ? { completedAgentsLabel: agentsLabel } : {};
+            })()}
             mcpCount={mcpStatus.connected.length}
             model={model}
             cwd={cwd}

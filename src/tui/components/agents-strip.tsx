@@ -314,6 +314,13 @@ function currentToolArguments(session: SubAgentSession): string {
 }
 
 export function formatSessionLabel(session: SubAgentSession): string {
+  const duration =
+    session.finishedAt !== undefined && session.finishedAt >= session.startedAt
+      ? formatStripDuration(session.finishedAt - session.startedAt)
+      : session.status === "running"
+        ? formatStripDuration(Date.now() - session.startedAt)
+        : undefined;
+  const durationSuffix = duration !== undefined ? ` · ${duration}` : "";
   if (session.status === "running" && session.currentToolName !== null) {
     const args = currentToolArguments(session);
     const { summary, isShell } = describeToolCall(session.currentToolName, args);
@@ -325,13 +332,23 @@ export function formatSessionLabel(session: SubAgentSession): string {
         ? `${session.currentToolName} ${summary}`
         : session.currentToolName;
     const tool = ` — ${preview}`;
-    return `${session.agentId}: ${session.description}${tool}`;
+    return `${session.agentId}: ${session.description}${tool}${durationSuffix}`;
   }
   const tool =
     session.toolNames.length > 0 && session.status !== "running"
       ? ` · ${session.toolNames.length} tool${session.toolNames.length === 1 ? "" : "s"}`
       : "";
-  return `${session.agentId}: ${session.description}${tool}`;
+  return `${session.agentId}: ${session.description}${tool}${durationSuffix}`;
+}
+
+function formatStripDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 function summaryCounts(sessions: readonly SubAgentSession[]): string {
