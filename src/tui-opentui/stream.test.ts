@@ -24,7 +24,9 @@ describe("stream paint", () => {
   })
 
   test("prompt hint matches locked bindings", () => {
-    expect(PROMPT_HINT).toBe("Enter queue · Alt+Enter steer · Ctrl+C stop")
+    expect(PROMPT_HINT).toBe(
+      "Enter queue · Alt+Enter steer · / commands · Ctrl+C stop (×2 exit)",
+    )
   })
 
   test("session header tags run state", () => {

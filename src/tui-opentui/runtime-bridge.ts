@@ -20,9 +20,11 @@ import {
   applyShellInterrupt,
   clearShellBridgeHooks,
   paintStatus,
+  replaceStreamRowAt,
   setShellBridgeHooks,
   setStatusFlash,
   setTurnPhase,
+  streamRowCount,
   type AppShell,
 } from "./shell.js"
 import { resolveSessionSpinnerLabel } from "./session-chrome.js"
@@ -179,6 +181,7 @@ function isBridgeInbound(event: {
     case "user":
     case "assistant":
     case "assistant.delta":
+    case "thinking.delta":
     case "tool_call":
     case "tool_result":
     case "system":
@@ -227,10 +230,24 @@ function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
   }
 }
 
+/** Streaming row kinds the bridge grows in place, one row per message. */
+type OpenRowKind = "assistant" | "thinking"
+
+/** The transcript row deltas are currently appending to. */
+type OpenStreamRow = {
+  readonly kind: OpenRowKind
+  readonly index: number
+  text: string
+}
+
 type BridgeBag = {
   port: SessionPort
-  /** Accumulator for assistant.delta coalescing. */
-  deltaBuf: string
+  openRow: OpenStreamRow | null
+  /**
+   * Prompts already echoed locally. The runtime replays each one as
+   * `message.received`; without this the transcript shows the message twice.
+   */
+  pendingEchoes: string[]
   /** callId→name / delta bookkeeping for production-shaped events. */
   mapCtx: StreamMapContext
   disposed: boolean
@@ -252,10 +269,57 @@ function resolvePort(handlers?: SessionPortHandlers): SessionPort {
   }
 }
 
-function flushDelta(shell: AppShell, bag: BridgeBag): void {
-  if (bag.deltaBuf.length === 0) return
-  appendStreamRow(shell, { role: "assistant", text: bag.deltaBuf })
-  bag.deltaBuf = ""
+/**
+ * Prompt text without the attachment note. The local echo and the runtime's
+ * `message.received` word that note differently, so echoes match on content.
+ */
+function promptContent(text: string): string {
+  const note = text.indexOf("\n[")
+  return (note === -1 ? text : text.slice(0, note)).trim()
+}
+
+/** True when this inbound user message is one the shell already painted. */
+function consumeEcho(bag: BridgeBag, text: string): boolean {
+  const index = bag.pendingEchoes.indexOf(promptContent(text))
+  if (index === -1) return false
+  bag.pendingEchoes.splice(index, 1)
+  return true
+}
+
+function openRowContent(kind: OpenRowKind, text: string, streaming: boolean): StreamRow {
+  return kind === "assistant"
+    ? { role: "assistant", text, streaming }
+    : { role: "system", text, meta: "thinking", streaming }
+}
+
+/** Finalize the open streaming row: it stops growing and stops being unstable. */
+function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
+  const open = bag.openRow
+  if (open === null) return
+  bag.openRow = null
+  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false))
+}
+
+/**
+ * Grow the open row of this kind, or start one. Deltas never append a row of
+ * their own — the message is a single row whose body is repainted as it fills.
+ */
+function growOpenRow(
+  shell: AppShell,
+  bag: BridgeBag,
+  kind: OpenRowKind,
+  text: string,
+): void {
+  const open = bag.openRow
+  if (open !== null && open.kind === kind) {
+    open.text += text
+    replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true))
+    return
+  }
+  closeOpenRow(shell, bag)
+  const index = streamRowCount(shell)
+  bag.openRow = { kind, index, text }
+  appendStreamRow(shell, openRowContent(kind, text, true))
 }
 
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
@@ -268,6 +332,7 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
       text: userRowText(item.text, item.attachments ?? []),
       meta: item.kind === "steer" ? "steer" : "queued",
     })
+    bag.pendingEchoes.push(item.text.trim())
     bag.port.deliver(item)
   }
   paintStatus(shell)
@@ -281,11 +346,18 @@ function applyInbound(
   if (bag.disposed) return
 
   if (event.type === "assistant.delta") {
-    bag.deltaBuf += event.text
+    growOpenRow(shell, bag, "assistant", event.text)
     return
   }
 
-  flushDelta(shell, bag)
+  if (event.type === "thinking.delta") {
+    growOpenRow(shell, bag, "thinking", event.text)
+    return
+  }
+
+  closeOpenRow(shell, bag)
+
+  if (event.type === "user" && consumeEcho(bag, event.text)) return
 
   if (event.type === "run") {
     shell.session = setRunState(shell.session, event.state)
@@ -325,7 +397,8 @@ export function attachSessionBridge(
 
   const bag: BridgeBag = {
     port: resolvePort(handlers),
-    deltaBuf: "",
+    openRow: null,
+    pendingEchoes: [],
     mapCtx: createStreamMapContext(),
     disposed: false,
     turn: initialTurnState(now()),
@@ -392,6 +465,7 @@ export function attachSessionBridge(
 
     if (kind === "immediate" || shell.session.run === "idle") {
       appendStreamRow(shell, { role: "user", text: userRowText(t, attached) })
+      bag.pendingEchoes.push(t)
       bag.port.sendImmediate(t, attachments)
       shell.session = setRunState(shell.session, "busy")
       bag.lastSentMessage = t
@@ -416,6 +490,8 @@ export function attachSessionBridge(
 
   const doInterrupt = (): void => {
     if (bag.disposed) return
+    closeOpenRow(shell, bag)
+    bag.pendingEchoes.length = 0
     applyShellInterrupt(shell)
     bag.port.interrupt()
     // Clearing the last prompt is what stops the quota loop from replaying a

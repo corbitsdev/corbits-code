@@ -12,6 +12,7 @@ export type BridgeInboundEvent =
   | { readonly type: "user"; readonly text: string }
   | { readonly type: "assistant"; readonly text: string }
   | { readonly type: "assistant.delta"; readonly text: string }
+  | { readonly type: "thinking.delta"; readonly text: string }
   | {
       readonly type: "tool_call"
       readonly name: string
@@ -181,10 +182,11 @@ export function mapProductionEvent(
     }
 
     case "inference.thinking.delta": {
-      // Bridge has no thinking role; paint as system so the turn is not silent.
+      // Chain-of-thought is not transcript content: it coalesces into its own
+      // dim "thinking" row rather than interleaving with system chrome.
       const token = typeof data.token === "string" ? data.token : ""
       if (token.length === 0) return []
-      return [{ type: "system", text: token }]
+      return [{ type: "thinking.delta", text: token }]
     }
 
     case "inference.tool_call.start": {

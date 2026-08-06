@@ -212,6 +212,107 @@ describe("attachSessionBridge", () => {
     )
   })
 
+  test("token-by-token deltas grow one assistant row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          const tokens = "Hello there, this is one streamed reply.".split(" ")
+          bridge.handle({ type: "inference.start", data: {} })
+          for (const token of tokens) {
+            bridge.handle({
+              type: "inference.text.delta",
+              data: { token: `${token} ` },
+            })
+          }
+          bridge.handle({ type: "inference.done", data: {} })
+          bridge.handle({ type: "reactor.done", data: {} })
+
+          const assistant = shell.streamLog.filter((r) => r.role === "assistant")
+          expect(assistant).toHaveLength(1)
+          expect(assistant[0]?.text.trim()).toBe(
+            "Hello there, this is one streamed reply.",
+          )
+          expect(assistant[0]?.streaming).toBe(false)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("thinking deltas coalesce and never become plain system rows", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          bridge.handle({ type: "inference.start", data: {} })
+          for (const token of ["The ", "user ", "said ", "hi."]) {
+            bridge.handle({
+              type: "inference.thinking.delta",
+              data: { token },
+            })
+          }
+          bridge.handle({ type: "inference.text.delta", data: { token: "Hi!" } })
+          bridge.handle({ type: "reactor.done", data: {} })
+
+          const system = shell.streamLog.filter((r) => r.role === "system")
+          expect(system.every((r) => r.meta === "thinking")).toBe(true)
+          const thinking = system.filter((r) => r.meta === "thinking")
+          expect(thinking).toHaveLength(1)
+          expect(thinking[0]?.text).toBe("The user said hi.")
+          expect(
+            shell.streamLog.filter((r) => r.role === "assistant"),
+          ).toHaveLength(1)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a submitted prompt echoes exactly once", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          bridge.submit("hi", "immediate")
+          // The runtime replays the accepted prompt back onto the event stream.
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "hi" } },
+          })
+          expect(
+            shell.streamLog.filter((r) => r.role === "user" && r.text === "hi"),
+          ).toHaveLength(1)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("idle submit hits sendImmediate", async () => {
     await withTestRenderer(
       async (h) => {

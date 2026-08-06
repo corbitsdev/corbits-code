@@ -148,7 +148,7 @@ export function transcriptSyntaxStyle(): SyntaxStyle {
 
 /** Hint line under the prompt (locked product bindings). */
 export const PROMPT_HINT =
-  "Enter queue · Alt+Enter steer · Ctrl+C stop" as const
+  "Enter queue · Alt+Enter steer · / commands · Ctrl+C stop (×2 exit)" as const
 
 /** Header chrome for product-skin demo sessions. */
 export function sessionHeaderTitle(

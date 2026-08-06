@@ -17,6 +17,7 @@ import {
   StyledText,
   bold as boldChunk,
   fg as fgChunk,
+  type BaseRenderable,
   type CliRenderer,
   type KeyEvent,
   type TextChunk,
@@ -698,29 +699,57 @@ function clearOverlayBody(shell: AppShell): void {
   }
 }
 
+/**
+ * Rows the overlay host spends on itself before any list row: the bordered box
+ * costs a top and bottom rule, plus the title line and the wrapped body lines.
+ * Omitting the border here hands the list two rows the host cannot render, and
+ * flex then stacks the surplus rows onto cells the model bar already owns.
+ */
+const OVERLAY_HOST_BORDER_ROWS = 2
+
+function overlayChromeRows(bodyLineCount: number): number {
+  return OVERLAY_HOST_BORDER_ROWS + 1 + bodyLineCount
+}
+
+/** Total host rows needed to show `listRows` list rows under `bodyLineCount` body lines. */
+function overlayHostRows(bodyLineCount: number, listRows: number): number {
+  return overlayChromeRows(bodyLineCount) + listRows
+}
+
+function addOverlayRow(
+  shell: AppShell,
+  content: string,
+  fg: string,
+): void {
+  shell.overlayBody.add(
+    new TextRenderable(shell.renderer as CliRenderer, {
+      content,
+      fg,
+      height: 1,
+      // Without this, a body taller than its host makes flex shrink every row
+      // toward zero and paint several of them into the same terminal cells.
+      flexShrink: 0,
+    }),
+  )
+}
+
 function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList
   clearOverlayBody(shell)
   if (!list) return
 
   for (const line of shell.overlayBodyLines) {
-    shell.overlayBody.add(
-      new TextRenderable(shell.renderer as CliRenderer, {
-        content: ` ${line}`,
-        fg: "#a9b1d6",
-      }),
-    )
+    addOverlayRow(shell, ` ${line}`, "#a9b1d6")
   }
 
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const label = shell.overlayItems[i] ?? `item ${i}`
     const active = i === list.activeIndex
-    shell.overlayBody.add(
-      new TextRenderable(shell.renderer as CliRenderer, {
-        content: ` ${active ? ">" : " "} ${label}`,
-        fg: active ? "#c0caf5" : "#565f89",
-      }),
+    addOverlayRow(
+      shell,
+      ` ${active ? ">" : " "} ${label}`,
+      active ? "#c0caf5" : "#565f89",
     )
   }
 }
@@ -787,8 +816,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.overlayHost.height = overlayH > 0 ? overlayH : 1
   shell.overlayHost.visible = overlayH > 0
   if (overlayH > 0 && shell.overlayList) {
-    // Title row + optional body lines + list viewport.
-    const chrome = 1 + shell.overlayBodyLines.length
+    const chrome = overlayChromeRows(shell.overlayBodyLines.length)
     const bodyH = Math.max(1, overlayH - chrome)
     shell.overlayList = setListHeight(shell.overlayList, bodyH)
     paintOverlayList(shell)
@@ -902,10 +930,9 @@ export function appendTranscript(
   opts?: { readonly fg?: string },
 ): void {
   shell.lineCount += 1
-  const id = String(shell.lineCount).padStart(4, "0")
   shell.transcript.add(
     new TextRenderable(shell.renderer as CliRenderer, {
-      content: ` ${id}  ${line}`,
+      content: ` ${line}`,
       fg: opts?.fg ?? "#a9b1d6",
     }),
   )
@@ -945,13 +972,96 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   // Under collapse threshold: append one paint node (cheap).
   // Over threshold: rebuild the windowed paint tree only.
   if (!mustWindow(shell.streamLog.length)) {
-    shell.transcript.add(createStreamRowRenderable(shell, row, shell.lineCount))
+    shell.transcript.add(createStreamRowRenderable(shell, row))
     paintStatus(shell)
     return
   }
 
   repaintTranscriptWindow(shell)
   paintStatus(shell)
+}
+
+/** Row count of the log `appendStreamRow` currently targets (parent or observe). */
+export function streamRowCount(shell: AppShell): number {
+  return shell.observe !== null && shell.parentStreamLog !== null
+    ? shell.parentStreamLog.length
+    : shell.streamLog.length
+}
+
+/**
+ * Rewrite an already-appended transcript row in place.
+ *
+ * Streaming assistant and thinking bodies grow token by token; the bridge keeps
+ * one open row and replaces it on every delta rather than appending a row per
+ * token. Repaints only the affected node while the log fits without windowing.
+ */
+export function replaceStreamRowAt(
+  shell: AppShell,
+  index: number,
+  row: StreamRow,
+): void {
+  if (shell.observe !== null && shell.parentStreamLog !== null) {
+    if (index >= 0 && index < shell.parentStreamLog.length) {
+      shell.parentStreamLog[index] = row
+    }
+    return
+  }
+  if (index < 0 || index >= shell.streamLog.length) return
+  shell.streamLog[index] = row
+
+  const children = shell.transcript.getChildren()
+  // A raw appendTranscript line breaks the 1:1 node↔row mapping; fall back to
+  // the windowed rebuild, which derives every node from the log.
+  if (mustWindow(shell.streamLog.length) || children.length !== shell.streamLog.length) {
+    repaintTranscriptWindow(shell)
+    paintStatus(shell)
+    return
+  }
+
+  const stale = children[index]
+  if (stale && retextStreamRow(stale, row)) {
+    paintStatus(shell)
+    return
+  }
+  if (stale) {
+    shell.transcript.remove(stale)
+    if (typeof (stale as { destroy?: () => void }).destroy === "function") {
+      ;(stale as { destroy: () => void }).destroy()
+    }
+  }
+  shell.transcript.add(createStreamRowRenderable(shell, row), index)
+  paintStatus(shell)
+}
+
+/**
+ * Rewrite a row's body on its existing paint node.
+ *
+ * Streaming rows are replaced on every token, and tearing the node down each
+ * time would drop the markdown parser's block state — the very thing that makes
+ * incremental rendering stable. Returns false when the node shape does not
+ * match the row and the caller must rebuild it.
+ */
+function retextStreamRow(node: BaseRenderable, row: StreamRow): boolean {
+  if (row.diff !== undefined || row.structured !== undefined) return false
+
+  if (node instanceof TextRenderable) {
+    if (isMarkdownRow(row)) return false
+    node.content = paintStreamRow(row).content
+    return true
+  }
+
+  if (!(node instanceof BoxRenderable) || !isMarkdownRow(row)) return false
+  const [gutterNode, bodyNode] = node.getChildren()
+  if (
+    !(gutterNode instanceof TextRenderable) ||
+    !(bodyNode instanceof MarkdownRenderable)
+  ) {
+    return false
+  }
+  gutterNode.content = streamRowGutter(row).content
+  bodyNode.content = row.text
+  bodyNode.streaming = row.streaming === true
+  return true
 }
 
 /** Rebuild transcript paint tree from the long-log window (O(window), not O(total)). */
@@ -973,10 +1083,8 @@ export function repaintTranscriptWindow(shell: AppShell): void {
       }),
     )
   }
-  for (let i = 0; i < win.rows.length; i++) {
-    shell.transcript.add(
-      createStreamRowRenderable(shell, win.rows[i]!, win.start + i + 1),
-    )
+  for (const row of win.rows) {
+    shell.transcript.add(createStreamRowRenderable(shell, row))
   }
 }
 
@@ -989,23 +1097,21 @@ export function repaintTranscriptWindow(shell: AppShell): void {
 export function createStreamRowRenderable(
   shell: AppShell,
   row: StreamRow,
-  lineNumber: number,
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
-  const id = String(lineNumber).padStart(4, "0")
 
   if (row.diff !== undefined) {
-    return createDiffRowRenderable(ctx, row, row.diff, id)
+    return createDiffRowRenderable(ctx, row, row.diff)
   }
 
   if (row.structured !== undefined) {
-    return createStructuredRowRenderable(ctx, row, row.structured, id)
+    return createStructuredRowRenderable(ctx, row, row.structured)
   }
 
   if (!isMarkdownRow(row)) {
     const painted = paintStreamRow(row)
     return new TextRenderable(ctx, {
-      content: ` ${id}${painted.content}`,
+      content: painted.content,
       fg: painted.fg,
     })
   }
@@ -1017,7 +1123,7 @@ export function createStreamRowRenderable(
   })
   wrapper.add(
     new TextRenderable(ctx, {
-      content: ` ${id}${gutter.content}`,
+      content: gutter.content,
       fg: gutter.fg,
       flexShrink: 0,
     }),
@@ -1051,7 +1157,6 @@ function createDiffRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
   view: DiffView,
-  id: string,
 ): BoxRenderable {
   const gutter = streamRowGutter(row)
   const wrapper = new BoxRenderable(ctx, {
@@ -1060,7 +1165,7 @@ function createDiffRowRenderable(
   })
   wrapper.add(
     new TextRenderable(ctx, {
-      content: ` ${id}${gutter.content}`,
+      content: gutter.content,
       fg: gutter.fg,
       flexShrink: 0,
     }),
@@ -1085,7 +1190,6 @@ function createStructuredRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
   view: McpStructuredView,
-  id: string,
 ): BoxRenderable {
   const gutter = streamRowGutter(row)
   const wrapper = new BoxRenderable(ctx, {
@@ -1094,7 +1198,7 @@ function createStructuredRowRenderable(
   })
   wrapper.add(
     new TextRenderable(ctx, {
-      content: ` ${id}${gutter.content}`,
+      content: gutter.content,
       fg: gutter.fg,
       flexShrink: 0,
     }),
@@ -1338,7 +1442,7 @@ export function openListOverlay(
   const rows = shell.renderer.height || 24
   // Request ~30% of terminal for list rows; geometry will cap against floor.
   const listH = Math.max(3, Math.floor(rows * 0.3))
-  const hostRows = 1 + shell.overlayBodyLines.length + listH
+  const hostRows = overlayHostRows(shell.overlayBodyLines.length, listH)
 
   shell.overlayList = createListViewport({
     count: labels.length,
@@ -1403,7 +1507,11 @@ export function setPaletteCatalog(
  */
 export function openPalette(
   shell: AppShell,
-  opts?: { readonly query?: string; readonly catalog?: readonly PaletteCommand[] },
+  opts?: {
+    readonly query?: string
+    readonly catalog?: readonly PaletteCommand[]
+    readonly title?: string
+  },
 ): void {
   const catalog = opts?.catalog ?? resolvePaletteCatalog(shell)
   const filtered = filterPaletteCommands(opts?.query ?? "", catalog)
@@ -1413,7 +1521,7 @@ export function openPalette(
   shell.paletteCommands = commands
   openListOverlay(shell, {
     kind: "palette",
-    title: "palette · Ctrl+O",
+    title: opts?.title ?? "palette · Ctrl+O",
     items: labels,
     frameId: "command-palette",
   })
@@ -1422,6 +1530,8 @@ export function openPalette(
 /** Close overlay/palette if open; restore prior focus (or prior overlay under palette). */
 export function closeInsetOverlay(shell: AppShell): void {
   if (!shell.overlayList) return
+  // Esc (or any other dismiss) must also drop the `/` popup's key claim.
+  slashPopups.delete(shell)
 
   const wasPalette = shell.overlayKind === "palette"
   const bag = internals.get(shell)
@@ -1468,7 +1578,7 @@ export function closeInsetOverlay(shell: AppShell): void {
       })
     }
     const listH = prior.list.height
-    const hostRows = 1 + prior.bodyLines.length + listH
+    const hostRows = overlayHostRows(prior.bodyLines.length, listH)
     relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
     applyFocus(shell)
     paintOverlayList(shell)
@@ -1507,8 +1617,10 @@ export function setOverlayBody(
   const cols = Math.max(20, shell.renderer.width || 80)
   shell.overlayBodyLines =
     text.length > 0 ? wrapShellOverlayBody(text, cols - 4, maxLines) : []
-  const hostRows =
-    1 + shell.overlayBodyLines.length + shell.overlayList.height
+  const hostRows = overlayHostRows(
+    shell.overlayBodyLines.length,
+    shell.overlayList.height,
+  )
   relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
   paintOverlayList(shell)
 }
@@ -2105,6 +2217,154 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   return true
 }
 
+const slashPopups = new WeakSet<AppShell>()
+
+/** True while the `/` command popup owns typed characters. */
+export function isSlashPopupOpen(shell: AppShell): boolean {
+  return slashPopups.has(shell) && shell.overlayList !== null
+}
+
+/**
+ * Popup query = prompt text after the leading `/`. Null once the operator has
+ * typed whitespace: at that point the name is settled and the rest is arguments.
+ */
+function slashPopupQuery(shell: AppShell): string | null {
+  const value = shell.prompt.value
+  if (!value.startsWith("/")) return null
+  const head = value.slice(1)
+  return /\s/.test(head) ? null : head
+}
+
+/** Registry-backed slash entries only — residual openers stay on Ctrl+O. */
+function slashCatalog(shell: AppShell): readonly PaletteCommand[] {
+  return resolvePaletteCatalog(shell).filter(
+    (cmd) => paletteDispatchOf(cmd) === "command",
+  )
+}
+
+export function closeSlashPopup(shell: AppShell): void {
+  if (!slashPopups.has(shell)) return
+  slashPopups.delete(shell)
+  if (shell.overlayList) closeInsetOverlay(shell)
+}
+
+/**
+ * Open (or refresh) the `/` command popup for the name being typed. Reuses the
+ * palette overlay so accept dispatches through the same registry path as a
+ * typed `/name`. Returns false when nothing matches — the typed text stays.
+ */
+export function openSlashCommands(shell: AppShell): boolean {
+  const query = slashPopupQuery(shell)
+  if (query === null) {
+    closeSlashPopup(shell)
+    return false
+  }
+  // Name-prefix, not the palette's fuzzy label match: at the prompt the
+  // operator is typing the command they already mean.
+  const q = query.toLowerCase()
+  const matches = slashCatalog(shell).filter((cmd) =>
+    cmd.id.toLowerCase().startsWith(q),
+  )
+  if (matches.length === 0) {
+    closeSlashPopup(shell)
+    return false
+  }
+  closeSlashPopup(shell)
+  openPalette(shell, { catalog: matches, title: "commands · /" })
+  slashPopups.add(shell)
+  return true
+}
+
+function setPromptText(shell: AppShell, value: string): void {
+  shell.prompt.value = value
+  shell.prompt.cursorOffset = value.length
+  shell.sentHistory = sentHistoryOnEdit(shell.sentHistory)
+}
+
+/**
+ * Keys the `/` popup claims while open. Returns true when handled.
+ *
+ * Enter runs the highlighted command with no arguments; Tab instead completes
+ * the name and leaves the popup so arguments can be typed — a command that
+ * needs arguments should not fire bare just because its name matched.
+ */
+export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
+  if (!isSlashPopupOpen(shell) || shell.overlayList === null) return false
+
+  if (key.name === "backspace" && !key.ctrl && !key.meta && !key.option) {
+    setPromptText(shell, shell.prompt.value.slice(0, -1))
+    openSlashCommands(shell)
+    return true
+  }
+
+  const active = shell.paletteCommands[shell.overlayList.activeIndex]
+
+  if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
+    if (active) setPromptText(shell, `/${active.id} `)
+    closeSlashPopup(shell)
+    return true
+  }
+
+  if (
+    (key.name === "return" || key.name === "enter") &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option
+  ) {
+    closeSlashPopup(shell)
+    setPromptText(shell, "")
+    if (active) dispatchPaletteSelection(shell, active)
+    return true
+  }
+
+  const seq = typeof key.sequence === "string" ? key.sequence : ""
+  const printable =
+    seq.length === 1 &&
+    seq >= " " &&
+    seq !== "" &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option
+  if (!printable) return false
+
+  setPromptText(shell, shell.prompt.value + seq)
+  // Whitespace ends the name; keep the popup out of the way while args are typed.
+  if (/\s/.test(seq)) closeSlashPopup(shell)
+  else openSlashCommands(shell)
+  return true
+}
+
+/** Window in which a second Ctrl+C is read as "yes, quit". */
+export const CTRL_C_EXIT_WINDOW_MS = 2000
+
+const ctrlCArmedAt = new WeakMap<AppShell, number>()
+
+/**
+ * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
+ * The double press replaces the old Ink y/n exit confirm — same intent (an
+ * explicit second confirmation), no modal. Quitting routes through the
+ * registered exit handler so host finalize still runs.
+ */
+export function handleCtrlC(shell: AppShell, now = Date.now()): void {
+  const armedAt = ctrlCArmedAt.get(shell)
+  if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
+    ctrlCArmedAt.delete(shell)
+    const onExit = shellExitHandlers.get(shell)
+    if (onExit !== undefined) {
+      onExit()
+      return
+    }
+  }
+  ctrlCArmedAt.set(shell, now)
+
+  if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
+    interruptShell(shell)
+  } else if (shell.prompt.value.length > 0) {
+    shell.prompt.value = ""
+  }
+  setStatusFlash(shell, "press Ctrl+C again to exit")
+}
+
 /**
  * Build the app shell frame on an OpenTUI renderer.
  * Mounts header / sticky transcript / overlay host / prompt+hint / status.
@@ -2345,6 +2605,12 @@ export function createAppShell(
     }
 
     if (shell.overlayList) {
+      // The `/` popup filters as you type, so it claims printable keys before
+      // the overlay's j/k navigation can swallow them.
+      if (handleSlashPopupKey(shell, key)) {
+        key.preventDefault()
+        return
+      }
       if (key.name === "up" || key.name === "k") {
         key.preventDefault()
         moveOverlaySelection(shell, -1)
@@ -2502,6 +2768,24 @@ export function createAppShell(
       }
     }
 
+    // A slash command is only valid as the whole prompt, so `/` pops the
+    // command list at the start of an empty prompt and nowhere else — mid-line
+    // it is just a path separator.
+    if (
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      key.sequence === "/" &&
+      focusOwner(shell.focus) === "prompt" &&
+      shell.prompt.cursorOffset === 0 &&
+      shell.prompt.value.trim().length === 0
+    ) {
+      key.preventDefault()
+      setPromptText(shell, "/")
+      openSlashCommands(shell)
+      return
+    }
+
     if (
       !key.ctrl &&
       !key.meta &&
@@ -2552,12 +2836,7 @@ export function createAppShell(
 
     if (key.ctrl && key.name === "c") {
       key.preventDefault()
-      if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
-        interruptShell(shell)
-      } else if (shell.prompt.value.length > 0) {
-        shell.prompt.value = ""
-        paintStatus(shell)
-      }
+      handleCtrlC(shell)
       return
     }
 

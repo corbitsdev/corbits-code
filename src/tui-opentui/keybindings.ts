@@ -17,7 +17,7 @@ export type ShellShortcut = {
 export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Enter", description: "Queue message mid-run (badge); normal send when idle" },
   { keys: "Alt+Enter", description: "Steer at next tool boundary (only while busy)" },
-  { keys: "Ctrl+C", description: "Interrupt current run, or clear prompt / exit when idle" },
+  { keys: "Ctrl+C", description: "Interrupt current run or clear prompt; press twice to exit" },
   { keys: "Ctrl+O", description: "Open command palette" },
   { keys: "Alt+C", description: "Copy mode: pick a message, tool output, or diff" },
   { keys: "Tab", description: "Toggle prompt ↔ transcript focus" },
@@ -33,6 +33,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Alt+Y", description: "Cycle yank to the next-older kill" },
   { keys: "Ctrl+P", description: "Attach an image from the clipboard to the next message" },
   { keys: "@", description: "Open file suggestions for the @mention being typed" },
+  { keys: "/", description: "At an empty prompt, open the command list (Tab completes, Enter runs)" },
   { keys: "Up / Down", description: "Recall previously sent messages at the prompt edge" },
   { keys: "Arrow keys", description: "Move cursor left / right / up / down in prompt" },
 ] as const

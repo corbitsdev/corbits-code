@@ -226,6 +226,28 @@ describe("createAppShell", () => {
 })
 
 describe("product skin: stream + queue + overlay", () => {
+  test("transcript rows carry no line-number gutter", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          appendStreamRow(shell, { role: "tool", text: "ok", meta: "bash" })
+          appendStreamRow(shell, { role: "user", text: "hello world" })
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("hello world")
+          expect(frame).not.toMatch(/000[12]/)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("stream rows paint distinct role labels", async () => {
     await withTestRenderer(
       async (h) => {
