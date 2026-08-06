@@ -47,6 +47,7 @@ import {
   residualListFromCatalog,
   type ResidualCatalogEntry,
 } from "./residuals.js"
+import { destroySubtree } from "./teardown.js"
 import { UI } from "./theme.js"
 
 export type ProviderField = "name" | "baseURL" | "apiKey" | "model"
@@ -1010,7 +1011,7 @@ export async function runProviderSetup(
     input.off(InputRenderableEvents.INPUT, onInput)
     try {
       renderer.root.remove(root)
-      root.destroy()
+      destroySubtree(root)
     } catch {
       // already unmounted
     }

@@ -127,6 +127,7 @@ import {
   type PaletteCommand,
 } from "./palette.js"
 import { shortcutForPaletteId } from "./keybindings.js"
+import { destroySubtree } from "./teardown.js"
 import {
   filterMentionSuggestions,
   splitMentionToken,
@@ -942,7 +943,7 @@ function clearOverlayBody(shell: AppShell): void {
   const kids = [...body.getChildren()]
   for (const child of kids) {
     body.remove(child)
-    child.destroy()
+    destroySubtree(child)
   }
 }
 
@@ -1855,9 +1856,7 @@ export function replaceStreamRowAt(
   }
   if (stale) {
     shell.transcript.remove(stale)
-    if (typeof (stale as { destroy?: () => void }).destroy === "function") {
-      ;(stale as { destroy: () => void }).destroy()
-    }
+    destroySubtree(stale)
   }
   // +1: index 0 in the transcript's own child list is the bottom-anchor
   // spacer, not a row (see `transcriptRowChildren`).
@@ -1942,9 +1941,7 @@ export function repaintTranscriptWindow(shell: AppShell): void {
   const children = transcriptRowChildren(shell)
   for (const child of [...children]) {
     shell.transcript.remove(child)
-    if (typeof (child as { destroy?: () => void }).destroy === "function") {
-      ;(child as { destroy: () => void }).destroy()
-    }
+    destroySubtree(child)
   }
 
   const win = windowSlice(shell.streamLog, { windowSize: LONG_LOG_WINDOW })
@@ -1977,9 +1974,9 @@ function clearLandingMark(shell: AppShell): void {
   if (bag === undefined || landing === null || landing === undefined) return
   bag.landing = null
   shell.transcript.remove(landing.above.box)
-  landing.above.box.destroy()
+  destroySubtree(landing.above.box)
   shell.root.remove(landing.below)
-  landing.below.destroy()
+  destroySubtree(landing.below)
   relayout(shell)
 
   const notice = bag.landingNotice
@@ -4540,7 +4537,7 @@ export function createAppShell(
       } catch {
         // Root may already be torn down in tests.
       }
-      root.destroy()
+      destroySubtree(root)
     },
   }
 
