@@ -11,6 +11,8 @@ import {
   makePluginsItems,
   makeResumeItems,
   makeSettingsItems,
+  residualIdFromSelection,
+  residualListFromCatalog,
 } from "./residuals.js"
 import {
   acceptOverlaySelection,
@@ -224,6 +226,23 @@ describe("Wave 7: residual fixtures", () => {
       ),
     ).toBe(true)
     expect(makeObserveFixture().lines.length).toBeGreaterThan(2)
+  })
+
+  test("residualListFromCatalog + residualIdFromSelection round-trip", () => {
+    const catalog = residualListFromCatalog([
+      { id: "permissions", label: "Permissions" },
+      { id: "telemetry", label: "Telemetry" },
+      { id: "close", label: "Close" },
+    ])
+    expect(catalog.items).toEqual(["Permissions", "Telemetry", "Close"])
+    expect(catalog.itemIds).toEqual(["permissions", "telemetry", "close"])
+    expect(
+      residualIdFromSelection({ index: 1, id: "telemetry" }, catalog.itemIds),
+    ).toBe("telemetry")
+    expect(
+      residualIdFromSelection({ index: 2 }, catalog.itemIds),
+    ).toBe("close")
+    expect(residualIdFromSelection({ index: 0 })).toBeUndefined()
   })
 })
 

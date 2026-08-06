@@ -1,11 +1,19 @@
 /**
  * Level 2c — live subagent observe: host-pushed rows + parent restore.
+ * Pure child-event → StreamRow mappers live in observe-map (no renderer).
  */
 import { describe, expect, test } from "bun:test"
 import { focusOwner } from "./focus/index.js"
 import { withTestRenderer } from "./harness.js"
+import {
+  mapChildStreamEvent,
+  mapChildStreamSequence,
+  rowFromBridgeEvent,
+  rowsFromBridgeEventsCoalesced,
+} from "./observe-map.js"
 import type { ObserveSession } from "./residuals.js"
 import type { StreamRow } from "./stream.js"
+import { createStreamMapContext } from "./stream-event-map.js"
 import {
   appendObserveStreamRow,
   appendStreamRow,
@@ -232,5 +240,161 @@ describe("live subagent observe", () => {
       },
       { width: 80, height: 24 },
     )
+  })
+
+  test("host paints mapped child reactor events into observe view", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          run: "idle",
+        })
+        try {
+          const seed = mapChildStreamSequence([
+            {
+              type: "message.received",
+              data: { message: { content: "child task" } },
+            },
+            {
+              type: "connector.reply",
+              data: { content: "child answer" },
+            },
+          ])
+          enterSubagentObserve(shell, liveChildSession(seed))
+
+          const ctx = createStreamMapContext()
+          for (const row of mapChildStreamEvent(
+            {
+              type: "tool.done",
+              data: {
+                result: {
+                  name: "grep",
+                  content: "6 hits",
+                  isError: false,
+                },
+              },
+            },
+            ctx,
+          )) {
+            appendObserveStreamRow(shell, row)
+          }
+
+          expect(
+            shell.streamLog.some((r) => r.text === "child task"),
+          ).toBe(true)
+          expect(
+            shell.streamLog.some((r) => r.text === "child answer"),
+          ).toBe(true)
+          expect(
+            shell.streamLog.some(
+              (r) => r.role === "tool" && r.text === "6 hits",
+            ),
+          ).toBe(true)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("observe pure mappers", () => {
+  test("rowFromBridgeEvent covers paint roles", () => {
+    expect(rowFromBridgeEvent({ type: "user", text: "u" })).toEqual({
+      role: "user",
+      text: "u",
+    })
+    expect(rowFromBridgeEvent({ type: "assistant", text: "a" })).toEqual({
+      role: "assistant",
+      text: "a",
+    })
+    expect(
+      rowFromBridgeEvent({ type: "tool_call", name: "bash", detail: "ls" }),
+    ).toEqual({ role: "tool", text: "ls", meta: "bash" })
+    expect(
+      rowFromBridgeEvent({
+        type: "tool_result",
+        name: "bash",
+        detail: "out",
+        isError: true,
+      }),
+    ).toEqual({ role: "tool", text: "out", meta: "bash!" })
+    expect(rowFromBridgeEvent({ type: "system", text: "s" })).toEqual({
+      role: "system",
+      text: "s",
+    })
+    expect(rowFromBridgeEvent({ type: "error", message: "e" })).toEqual({
+      role: "system",
+      text: "e",
+      meta: "error",
+    })
+    expect(rowFromBridgeEvent({ type: "run", state: "busy" })).toBeNull()
+    expect(rowFromBridgeEvent({ type: "tool.boundary" })).toBeNull()
+    expect(
+      rowFromBridgeEvent({ type: "assistant.delta", text: "x" }),
+    ).toBeNull()
+  })
+
+  test("mapChildStreamEvent maps production reactor types", () => {
+    expect(
+      mapChildStreamEvent({
+        type: "message.received",
+        data: { message: { content: "go" } },
+      }),
+    ).toEqual([{ role: "user", text: "go" }])
+    expect(mapChildStreamEvent({ type: "inference.start" })).toEqual([])
+    expect(
+      mapChildStreamEvent({
+        type: "inference.text.delta",
+        data: { token: "Hi" },
+      }),
+    ).toEqual([])
+  })
+
+  test("rowsFromBridgeEventsCoalesced folds assistant deltas", () => {
+    expect(
+      rowsFromBridgeEventsCoalesced([
+        { type: "assistant.delta", text: "Hel" },
+        { type: "assistant.delta", text: "lo" },
+        { type: "tool_call", name: "read_file", detail: "a.ts" },
+        { type: "assistant.delta", text: "done" },
+      ]),
+    ).toEqual([
+      { role: "assistant", text: "Hello" },
+      { role: "tool", text: "a.ts", meta: "read_file" },
+      { role: "assistant", text: "done" },
+    ])
+  })
+
+  test("mapChildStreamSequence tracks tool names across events", () => {
+    const rows = mapChildStreamSequence([
+      {
+        type: "inference.tool_call.start",
+        data: { name: "grep", callId: "c1" },
+      },
+      {
+        type: "inference.tool_call.end",
+        data: {
+          name: "grep",
+          callId: "c1",
+          arguments: { q: "observe" },
+        },
+      },
+      {
+        type: "tool.done",
+        data: {
+          result: { callId: "c1", content: "hits", isError: false },
+        },
+      },
+    ])
+    expect(rows).toEqual([
+      {
+        role: "tool",
+        text: JSON.stringify({ q: "observe" }),
+        meta: "grep",
+      },
+      { role: "tool", text: "hits", meta: "grep" },
+    ])
   })
 })

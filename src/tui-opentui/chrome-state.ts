@@ -268,3 +268,137 @@ function compactLine(prefix: string, body: string): string {
   if (b.toLowerCase().startsWith(`${prefix}:`)) return b
   return `${prefix}: ${b}`
 }
+
+// ---------------------------------------------------------------------------
+// Session-shaped → ChromeLiveState (loose mapping for product host push)
+// ---------------------------------------------------------------------------
+
+/**
+ * Loose goal governor snapshot fields. Accepts GoalSnapshot-like objects
+ * without importing agent/goal (brief/condition/criteria/status/phase).
+ */
+export type ChromeSessionGoal = {
+  readonly brief?: string
+  readonly condition?: string
+  readonly title?: string
+  readonly status?: string
+  readonly phase?: string
+  readonly criteria?: readonly {
+    readonly status: string
+  }[]
+}
+
+/** manage_tasks / Task-shaped row (title + status). */
+export type ChromeSessionTask = {
+  readonly title: string
+  readonly status: "todo" | "doing" | "done" | "cancelled"
+}
+
+/**
+ * SubAgentSession-shaped strip row. `agentId` preferred; falls back to `id`
+ * when the store only exposes a session id.
+ */
+export type ChromeSessionAgent = {
+  readonly agentId?: string
+  readonly id?: string
+  readonly description: string
+  readonly status: "running" | "done" | "failed" | "cancelled"
+  readonly currentToolName?: string | null
+}
+
+/**
+ * Live session bags the product host already holds. Missing fields omit zones.
+ */
+export type ChromeSessionInput = {
+  readonly goal?: ChromeSessionGoal | null
+  readonly tasks?: readonly ChromeSessionTask[] | null
+  readonly agents?: readonly ChromeSessionAgent[] | null
+  readonly observe?: ChromeLiveState["observe"]
+}
+
+/**
+ * Map real session shapes (goal governor / tasks / subagent store) into
+ * ChromeLiveState for `formatChromeZones` / `setChrome`.
+ *
+ * Pure and store-agnostic — pass whatever the host already has; loose fields
+ * are ignored when absent.
+ */
+export function chromeFromSession(input: ChromeSessionInput): ChromeLiveState {
+  const goal = mapSessionGoal(input.goal)
+  const task = mapSessionTasks(input.tasks)
+  const agents = mapSessionAgents(input.agents)
+  const observe = input.observe ?? null
+
+  return {
+    ...(goal !== undefined ? { goal } : {}),
+    ...(task !== undefined ? { task } : {}),
+    ...(agents !== undefined ? { agents } : {}),
+    ...(observe !== null && observe !== undefined ? { observe } : {}),
+  }
+}
+
+function mapSessionGoal(
+  goal: ChromeSessionGoal | null | undefined,
+): ChromeGoalState | null | undefined {
+  if (goal === undefined) return undefined
+  if (goal === null) return null
+
+  const title = (
+    goal.title ??
+    goal.brief ??
+    goal.condition ??
+    ""
+  ).trim()
+  if (title.length === 0) return null
+
+  const progress = progressFromCriteria(goal.criteria)
+  return {
+    title,
+    ...(goal.status !== undefined ? { status: goal.status } : {}),
+    ...(goal.phase !== undefined ? { phase: goal.phase } : {}),
+    ...(progress !== undefined ? { progress } : {}),
+  }
+}
+
+function progressFromCriteria(
+  criteria: ChromeSessionGoal["criteria"],
+): { done: number; total: number } | undefined {
+  if (criteria === undefined || criteria.length === 0) return undefined
+  const countable = criteria.filter((c) => c.status !== "cancelled")
+  if (countable.length === 0) return undefined
+  const done = countable.filter((c) => c.status === "done").length
+  return { done, total: countable.length }
+}
+
+function mapSessionTasks(
+  tasks: readonly ChromeSessionTask[] | null | undefined,
+): ChromeTaskRow[] | null | undefined {
+  if (tasks === undefined) return undefined
+  if (tasks === null) return null
+  if (tasks.length === 0) return null
+  return tasks.map((t) => ({
+    title: t.title,
+    status: t.status,
+  }))
+}
+
+function mapSessionAgents(
+  agents: readonly ChromeSessionAgent[] | null | undefined,
+): ChromeAgentSession[] | null | undefined {
+  if (agents === undefined) return undefined
+  if (agents === null) return null
+  if (agents.length === 0) return null
+
+  return agents.map((a) => {
+    const agentId = (a.agentId ?? a.id ?? "").trim()
+    return {
+      agentId: agentId.length > 0 ? agentId : "agent",
+      description: a.description,
+      status: a.status,
+      ...(a.currentToolName !== undefined
+        ? { currentToolName: a.currentToolName }
+        : {}),
+    }
+  })
+}
+

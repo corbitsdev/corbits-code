@@ -1,0 +1,195 @@
+/**
+ * Pure gate-wire unit tests — no renderer.
+ */
+import { describe, expect, test } from "bun:test"
+import type { PermissionRequest } from "../permission/types.js"
+import {
+  approvalOutcomeFromSelection,
+  operatorCancelResult,
+  operatorChoicesFromOptions,
+  operatorCustomResult,
+  operatorResultFromSelection,
+  PERMISSION_DENY_ID,
+  PERMISSION_ONCE_ID,
+  permissionBodyFromRequest,
+  permissionChoicesFromRequest,
+} from "./gate-wire.js"
+
+const baseRequest = (
+  overrides: Partial<PermissionRequest> = {},
+): PermissionRequest => ({
+  tool: "run_shell",
+  action: "Run shell command",
+  subject: "bun test",
+  scopes: [],
+  ...overrides,
+})
+
+describe("permissionChoicesFromRequest", () => {
+  test("always includes reject + accept once", () => {
+    const choices = permissionChoicesFromRequest(baseRequest())
+    expect(choices.items).toEqual(["Reject", "Accept once"])
+    expect(choices.itemIds).toEqual([PERMISSION_DENY_ID, PERMISSION_ONCE_ID])
+    expect(choices.outcomes).toEqual([{ allow: false }, { allow: true }])
+  })
+
+  test("appends scopes with optional hint; persist only when pattern set", () => {
+    const scopeWithPattern = {
+      id: "session-git",
+      label: "Allow git *",
+      pattern: "git *",
+      hint: "family",
+      grant: "session" as const,
+    }
+    const onceScope = {
+      id: "once-extra",
+      label: "Allow this path",
+      pattern: null,
+    }
+    const choices = permissionChoicesFromRequest(
+      baseRequest({
+        scopes: [scopeWithPattern, onceScope],
+      }),
+    )
+    expect(choices.items).toEqual([
+      "Reject",
+      "Accept once",
+      "Allow git * (family)",
+      "Allow this path",
+    ])
+    expect(choices.itemIds).toEqual([
+      PERMISSION_DENY_ID,
+      PERMISSION_ONCE_ID,
+      "session-git",
+      "once-extra",
+    ])
+    expect(choices.outcomes[2]).toEqual({
+      allow: true,
+      persist: scopeWithPattern,
+    })
+    expect(choices.outcomes[3]).toEqual({ allow: true })
+  })
+})
+
+describe("approvalOutcomeFromSelection", () => {
+  test("index maps to parallel outcomes; OOB denies", () => {
+    const choices = permissionChoicesFromRequest(
+      baseRequest({
+        scopes: [
+          {
+            id: "proj",
+            label: "Allow always",
+            pattern: "bun test",
+            grant: "project",
+          },
+        ],
+      }),
+    )
+    expect(approvalOutcomeFromSelection(choices, { index: 0 })).toEqual({
+      allow: false,
+    })
+    expect(approvalOutcomeFromSelection(choices, { index: 1 })).toEqual({
+      allow: true,
+    })
+    expect(approvalOutcomeFromSelection(choices, { index: 2 }).allow).toBe(
+      true,
+    )
+    expect(
+      approvalOutcomeFromSelection(choices, { index: 2 }).persist?.id,
+    ).toBe("proj")
+    expect(approvalOutcomeFromSelection(choices, { index: 99 })).toEqual({
+      allow: false,
+    })
+  })
+
+  test("id preferred over index when present", () => {
+    const choices = permissionChoicesFromRequest(
+      baseRequest({
+        scopes: [
+          { id: "a", label: "A", pattern: "a*" },
+          { id: "b", label: "B", pattern: "b*" },
+        ],
+      }),
+    )
+    const byId = approvalOutcomeFromSelection(choices, {
+      index: 0,
+      id: "b",
+    })
+    expect(byId.allow).toBe(true)
+    expect(byId.persist?.id).toBe("b")
+  })
+
+  test("unknown id falls back to index", () => {
+    const choices = permissionChoicesFromRequest(baseRequest())
+    expect(
+      approvalOutcomeFromSelection(choices, {
+        index: 1,
+        id: "missing",
+      }),
+    ).toEqual({ allow: true })
+  })
+})
+
+describe("permissionBodyFromRequest", () => {
+  test("joins tool/action/subject and optional agent/notice", () => {
+    expect(permissionBodyFromRequest(baseRequest())).toBe(
+      "run_shell\nRun shell command\nbun test",
+    )
+    expect(
+      permissionBodyFromRequest(
+        baseRequest({
+          agentLabel: "explore",
+          notice: "mega-chain",
+        }),
+      ),
+    ).toBe(
+      "run_shell\nRun shell command\nbun test\nagent: explore\nmega-chain",
+    )
+  })
+})
+
+describe("operatorChoicesFromOptions / operatorResultFromSelection", () => {
+  test("choices mirror options with index string ids", () => {
+    const opts = ["Cancel", "Option A", "Option B"]
+    const choices = operatorChoicesFromOptions(opts)
+    expect(choices.items).toEqual(opts)
+    expect(choices.itemIds).toEqual(["0", "1", "2"])
+  })
+
+  test("selection index → option; OOB → cancel", () => {
+    const opts = ["A", "B"]
+    expect(operatorResultFromSelection(opts, { index: 0 })).toEqual({
+      kind: "option",
+      index: 0,
+    })
+    expect(operatorResultFromSelection(opts, { index: 1 })).toEqual({
+      kind: "option",
+      index: 1,
+    })
+    expect(operatorResultFromSelection(opts, { index: -1 })).toEqual({
+      kind: "cancel",
+    })
+    expect(operatorResultFromSelection(opts, { index: 9 })).toEqual({
+      kind: "cancel",
+    })
+  })
+
+  test("id string index preferred when valid", () => {
+    const opts = ["A", "B", "C"]
+    expect(
+      operatorResultFromSelection(opts, { index: 0, id: "2" }),
+    ).toEqual({ kind: "option", index: 2 })
+    // non-decimal / out of range id ignored → use index
+    expect(
+      operatorResultFromSelection(opts, { index: 1, id: "nope" }),
+    ).toEqual({ kind: "option", index: 1 })
+  })
+
+  test("cancel / custom constructors", () => {
+    expect(operatorCancelResult()).toEqual({ kind: "cancel" })
+    expect(operatorCustomResult("typed")).toEqual({
+      kind: "custom",
+      text: "typed",
+    })
+  })
+})

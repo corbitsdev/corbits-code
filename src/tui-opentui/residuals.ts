@@ -2,9 +2,46 @@
  * Wave 7 residual surface fixtures + observe session types (pure).
  * Shell openers inject host catalogs via OpenResidualListOpts; fixtures apply
  * only when the host omits `items`.
+ *
+ * Hosts can also build rows with {@link residualListFromCatalog} and resolve
+ * accept callbacks via {@link residualIdFromSelection}.
  */
 
 import type { StreamRow } from "./stream.js"
+
+/** Host-owned residual row: stable id + display label. */
+export type ResidualCatalogEntry = {
+  readonly id: string
+  readonly label: string
+}
+
+export type ResidualListPayload = {
+  readonly items: readonly string[]
+  readonly itemIds: readonly string[]
+}
+
+/** Map host catalog entries → openListOverlay items + itemIds. */
+export function residualListFromCatalog(
+  entries: readonly ResidualCatalogEntry[],
+): ResidualListPayload {
+  return {
+    items: entries.map((e) => e.label),
+    itemIds: entries.map((e) => e.id),
+  }
+}
+
+/**
+ * Resolve the stable id for an accepted residual selection.
+ * Prefers `selection.id`; falls back to itemIds[index] when provided.
+ */
+export function residualIdFromSelection(
+  selection: { readonly index: number; readonly id?: string },
+  itemIds?: readonly string[],
+): string | undefined {
+  if (selection.id !== undefined) return selection.id
+  if (itemIds === undefined) return undefined
+  return itemIds[selection.index]
+}
 
 export function makeSettingsItems(): readonly string[] {
   return [

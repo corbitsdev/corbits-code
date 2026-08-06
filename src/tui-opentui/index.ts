@@ -21,8 +21,23 @@ export * from "./live-session-port"
 export * from "./overlays"
 export * from "./long-log"
 export * from "./palette"
+export * from "./command-catalog"
+export * from "./model-catalog"
 export * from "./copy-path"
 export * from "./chrome-state"
 export * from "./residuals"
+export * from "./gate-wire"
 export * from "./shell"
 export * from "./harness"
+export {
+  mountProductHost,
+  operatorResultFromSelection,
+  permissionChoices,
+  rowFromHistoryBlock,
+  type ProductHost,
+  type ProductHostConfig,
+  type ProductHostDeliver,
+  type ProductHostInterrupt,
+  type ProductHostModelOption,
+  type ProductHostSend,
+} from "./product-host"

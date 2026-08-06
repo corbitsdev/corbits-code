@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  chromeFromSession,
   formatAgentsLine,
   formatChromeZones,
   formatGoalLine,
@@ -231,3 +232,89 @@ describe("formatAgentsLine", () => {
     ).toBeNull()
   })
 })
+
+describe("chromeFromSession", () => {
+  test("maps goal governor / tasks / agents loosely", () => {
+    const state = chromeFromSession({
+      goal: {
+        brief: "ship cutover",
+        status: "active",
+        phase: "implementing",
+        criteria: [
+          { status: "done" },
+          { status: "todo" },
+          { status: "cancelled" },
+        ],
+      },
+      tasks: [
+        { title: "wire catalogs", status: "doing" },
+        { title: "export index", status: "todo" },
+      ],
+      agents: [
+        {
+          agentId: "explore",
+          description: "map callers",
+          status: "running",
+          currentToolName: "grep",
+        },
+      ],
+    })
+
+    expect(state.goal).toEqual({
+      title: "ship cutover",
+      status: "active",
+      phase: "implementing",
+      progress: { done: 1, total: 2 },
+    })
+    expect(state.task).toEqual([
+      { title: "wire catalogs", status: "doing" },
+      { title: "export index", status: "todo" },
+    ])
+    expect(state.agents).toEqual([
+      {
+        agentId: "explore",
+        description: "map callers",
+        status: "running",
+        currentToolName: "grep",
+      },
+    ])
+
+    const zones = formatChromeZones(state)
+    expect(zones.goal).toBe("goal: impl · 1/2 · ship cutover")
+    expect(zones.task).toBe("task: wire catalogs (+1)")
+    expect(zones.agents).toContain("1 live")
+  })
+
+  test("falls back agent id and goal condition; empty bags hide", () => {
+    const state = chromeFromSession({
+      goal: { condition: "all tests green", status: "active" },
+      tasks: [],
+      agents: [
+        {
+          id: "sess-1",
+          description: "write tests",
+          status: "done",
+        },
+      ],
+    })
+    expect(state.goal?.title).toBe("all tests green")
+    expect(state.task).toBeNull()
+    expect(state.agents?.[0]?.agentId).toBe("sess-1")
+  })
+
+  test("null goal clears; observe passes through", () => {
+    const state = chromeFromSession({
+      goal: null,
+      observe: { agentId: "explore", description: "watch" },
+    })
+    expect(state.goal).toBeNull()
+    expect(state.observe).toEqual({
+      agentId: "explore",
+      description: "watch",
+    })
+    expect(formatChromeZones(state).agents).toBe(
+      "observe: explore — watch",
+    )
+  })
+})
+
