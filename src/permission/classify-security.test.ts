@@ -105,6 +105,16 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
   });
 
+  test("auto mode forces ask for unbounded recursive listing even inside workspace", () => {
+    expect(autoShellRuleForCall(shellCall("ls -R ."))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("ls -laR packages"))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree ."))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree packages"))?.name).toBe("unbounded-listing");
+    // Bounded forms stay free of the ask rule.
+    expect(autoShellRuleForCall(shellCall("ls packages"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("tree -L 2 packages"))).toBeUndefined();
+  });
+
   test("still denies content reads outside the workspace", () => {
     expect(isAutoAllowedShellCall(shellCall("cat /etc/passwd"), "/repo")).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("head ~/.aws/config"), "/repo")).toBe(false);
@@ -123,12 +133,14 @@ describe("pure directory listing — outside-workspace auto-shell policy", () =>
     expect(autoShellRuleForCall(shellCall("tree -L 1 /var"), isRestricted)).toBeUndefined();
   });
 
-  test("unbounded recursive listing outside still forces outside-workspace ask", () => {
+  test("unbounded recursive listing outside still forces ask", () => {
+    // Unbounded listing is the more specific OOM rule and wins over
+    // outside-workspace when both would apply.
     expect(autoShellRuleForCall(shellCall("ls -R /tmp"), isRestricted)?.name).toBe(
-      "outside-workspace",
+      "unbounded-listing",
     );
     expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)?.name).toBe(
-      "outside-workspace",
+      "unbounded-listing",
     );
   });
 
