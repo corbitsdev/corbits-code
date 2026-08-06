@@ -504,14 +504,20 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
     ? (diff.path ?? summarised?.summary ?? call?.summary)
     : (summarised?.summary ?? call?.summary)
   const stat = diff !== null ? `+${diff.added}/-${diff.removed}` : undefined
+  const detail = summarised?.detail
   return {
     role: "tool",
     text,
     meta,
     ...(diff !== null ? { diff } : {}),
     ...(call !== null ? { verb: call.display } : {}),
-    ...(summary !== undefined && summary.length > 0 ? { summary } : {}),
+    // A summarised call may deliberately have no subject — its verb already
+    // names the whole call — and that blank must survive, or the row falls
+    // back to painting the raw arguments.
+    ...(summary !== undefined && (summary.length > 0 || summarised !== null)
+      ? { summary }
+      : {}),
     ...(stat !== undefined ? { stat } : {}),
-    ...(summarised !== null ? { detail: summarised.detail } : {}),
+    ...(detail !== undefined && detail.length > 0 ? { detail } : {}),
   }
 }

@@ -161,6 +161,11 @@ export type Settings = {
   recentModels?: ModelRef[];
   // Operator-starred provider+model pairs for the models-first picker.
   favoriteModels?: ModelRef[];
+  // Show the running session cost next to the context percentage in the
+  // prompt border's bottom rule. Default false: `/cost` still gives the full
+  // breakdown on demand, so the border only needs to opt in to the running
+  // total.
+  showPromptCost?: boolean;
 };
 
 function modelRefKey(ref: ModelRef): string {
@@ -485,6 +490,7 @@ const SettingsSchema = type({
   }),
   "recentModels?": ModelRefSchema.array(),
   "favoriteModels?": ModelRefSchema.array(),
+  "showPromptCost?": "boolean",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -767,6 +773,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     otel: s.otel as Settings["otel"] | undefined,
     recentModels: s.recentModels as Settings["recentModels"] | undefined,
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
+    showPromptCost: s.showPromptCost !== undefined ? Boolean(s.showPromptCost) : undefined,
   };
   const settings: Settings = {
     providers: s.providers as Settings["providers"],

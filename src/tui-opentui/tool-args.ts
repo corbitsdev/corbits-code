@@ -11,16 +11,22 @@
  * here: this module only maps them onto the OpenTUI palette and row model.
  */
 
+import { isMcpToolName } from "../mcp/tool-name.js"
 import type { SemanticRole } from "../tui/theme.js"
 import { summarizeToolArgs } from "../tui/tool-formatter.js"
 import { validateView, viewToLines, type ViewNode } from "../tui/view/index.js"
 import type { StyledBodyLine } from "./stream.js"
 import { UI } from "./theme.js"
 
-/** A summarised call: the collapsed line, and the body the expand key reveals. */
+/**
+ * A summarised call: the collapsed line, and the body the expand key reveals.
+ * An empty summary means the row's verb already names the whole call and a
+ * subject would only repeat it; an absent detail means there is nothing behind
+ * the summary worth an arrow.
+ */
 export type ToolArgsView = {
   readonly summary: string
-  readonly detail: readonly StyledBodyLine[]
+  readonly detail?: readonly StyledBodyLine[]
 }
 
 /**
@@ -168,14 +174,37 @@ export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null
   if (args !== null) {
     const view = viewArgument(args)
     if (view !== null) {
-      return { summary: describeView(view), detail: viewDetail(view) }
+      return withDetail(describeView(view), viewDetail(view))
     }
+  }
+
+  // An MCP call's verb is already "Linear: list issues" — the whole sentence.
+  // Its arguments are a query, not a subject: nobody reads a transcript for
+  // the pagination cursor, so they belong behind the expand key or nowhere.
+  if (args !== null && isMcpToolName(name)) {
+    return withDetail("", scalarDetail(args) ?? jsonDetail(args))
   }
 
   if (args === null && raw.length <= INLINE_MAX && !raw.includes("\n")) return null
 
   const { summary } = summarizeToolArgs(name, raw)
   if (summary.length === 0) return null
-  if (args === null) return { summary, detail: jsonDetail(raw) }
-  return { summary, detail: scalarDetail(args) ?? jsonDetail(args) }
+  if (args === null) return withDetail(summary, jsonDetail(raw))
+  return withDetail(summary, scalarDetail(args) ?? jsonDetail(args))
+}
+
+/**
+ * Pair a summary with a body only when the body says something the summary does
+ * not. An expansion that restates its own collapsed line earns an arrow that
+ * leads nowhere, which is worse than showing nothing.
+ */
+function withDetail(
+  summary: string,
+  detail: readonly StyledBodyLine[],
+): ToolArgsView {
+  const plain = detail
+    .map((line) => line.map((segment) => segment.text).join("").trim())
+    .join("\n")
+    .trim()
+  return plain === summary.trim() ? { summary } : { summary, detail }
 }

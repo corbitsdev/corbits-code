@@ -87,6 +87,12 @@ export type RunnerHostDeps = {
    * without a timer of its own.
    */
   readonly readCostSummary?: () => CostSummary | undefined
+  /**
+   * Live read of the show-cost setting. Consulted on every cost push so the
+   * cost run is omitted at the source when off, rather than composed and
+   * then hidden. Defaults to false (off) when omitted.
+   */
+  readonly showPromptCost?: () => boolean
   readonly commands: readonly RegistryCommandSource[]
   readonly onCommand: (name: string) => void
   /** Live chrome snapshot source, read on mount and on every notify. */
@@ -122,6 +128,8 @@ export type RunnerHost = ProductHost & {
     recentModels: readonly ModelCatalogRef[],
     favoriteModels: readonly ModelCatalogRef[],
   ) => void
+  /** Re-reads `showPromptCost` and cost/context state, repainting the border immediately. */
+  readonly refreshCostContext: () => void
 }
 
 /** Map a subagent transcript entry to a stream row. */
@@ -217,9 +225,10 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const pushCostContext = (): void => {
     const summary = deps.readCostSummary?.()
     if (summary === undefined) return
+    const showCost = deps.showPromptCost?.() ?? false
     setPromptCostContext(host.shell, {
       contextPercentUsed: summary.contextPercentUsed,
-      costLabel: summary.costHiddenReason === null ? summary.formattedCost : null,
+      costLabel: showCost && summary.costHiddenReason === null ? summary.formattedCost : null,
     })
   }
   pushCostContext()
@@ -283,5 +292,6 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     dispose,
     openSurface: (kind) => openCommandSurface(host.shell, kind, surfaceDeps),
     refreshModels,
+    refreshCostContext: pushCostContext,
   }
 }

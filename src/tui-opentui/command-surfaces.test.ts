@@ -33,6 +33,7 @@ function baseSnapshot(): SettingsSnapshot {
     maxConcurrentSubAgents: 3,
     waitForApproval: true,
     telemetryEnabled: false,
+    showPromptCost: false,
   }
 }
 
@@ -98,6 +99,7 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
     subagents: number[]
     waitForApproval: boolean[]
     telemetry: boolean[]
+    showPromptCost: boolean[]
   }
 } {
   let state: SettingsSnapshot = { ...baseSnapshot(), ...overrides }
@@ -107,6 +109,7 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
     subagents: [] as number[],
     waitForApproval: [] as boolean[],
     telemetry: [] as boolean[],
+    showPromptCost: [] as boolean[],
   }
   const deps: CommandSurfaceDeps = {
     notify: () => {},
@@ -131,6 +134,10 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
       setTelemetryEnabled: (value) => {
         calls.telemetry.push(value)
         state = { ...state, telemetryEnabled: value }
+      },
+      setShowPromptCost: (value) => {
+        calls.showPromptCost.push(value)
+        state = { ...state, showPromptCost: value }
       },
     },
   }
@@ -194,6 +201,24 @@ describe("settings surface", () => {
       await Promise.resolve()
       await Promise.resolve()
       expect(calls.sessionMode).toEqual([{ mode: "orchestrator", scope: "local" }])
+    })
+  })
+
+  test("left/right cycles the show-cost row and persists, with a self-describing row", async () => {
+    await withShell(async (shell) => {
+      const { deps, calls } = settingsDeps()
+      openCommandSurface(shell, "settings", deps)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true)
+
+      moveOverlaySelection(shell, 6) // compaction, session mode, scope, subagents, approval wait, telemetry, show cost
+      cycleOverlaySelection(shell, 1)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(calls.showPromptCost).toEqual([true])
+      expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true)
     })
   })
 

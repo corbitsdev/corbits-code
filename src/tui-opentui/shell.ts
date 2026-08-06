@@ -165,12 +165,14 @@ import {
   isCollapsibleRow,
   isDetailRow,
   isMarkdownRow,
+  isSentenceRow,
   MAIN_AGENT,
   paintStreamRow,
   rowGroupGap,
   streamRowGutter,
   summaryHead,
   toolRowLines,
+  toolSentenceLines,
   transcriptSyntaxStyle,
   type PaintedStreamLine,
   type RowLayout,
@@ -1803,7 +1805,7 @@ function retextStreamRow(
   // A sentence-style tool row paints via styled lines (verb + coloured
   // subject, and a diff/detail tail once expanded) rather than a single-fg
   // TextRenderable, so it always rebuilds like diff/structured rows do.
-  if (row.role === "tool" && row.verb !== undefined) return false
+  if (isSentenceRow(row)) return false
   // Expanding swaps a text row for a styled-lines box: a different node shape
   // and a different height, so the caller must rebuild rather than re-text.
   if (isDetailRow(row)) return false
@@ -1969,7 +1971,14 @@ function buildRowNode(
   row: StreamRow,
   layout: RowLayout,
 ): TextRenderable | BoxRenderable {
-  if (row.role === "tool" && row.verb !== undefined) {
+  if (row.structured !== undefined && isSentenceRow(row)) {
+    // The table is what the sentence hides; collapsed, the sentence is the row.
+    return row.expanded === true
+      ? createStructuredRowRenderable(ctx, row, layout, row.structured, toolSentenceLines(row))
+      : createStyledLinesRowRenderable(ctx, row, layout, toolSentenceLines(row))
+  }
+
+  if (isSentenceRow(row)) {
     return createStyledLinesRowRenderable(ctx, row, layout, toolRowLines(row))
   }
 
@@ -2077,12 +2086,17 @@ function createStyledLinesRowRenderable(
   return wrapper
 }
 
-/** Gutter + native table body for a structured (MCP result) row. */
+/**
+ * Gutter + native table body for a structured (MCP result) row, under the head
+ * lines the row collapses to. The head and the table share one body column so
+ * the table stays inside the shell's gutter.
+ */
 function createStructuredRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
   layout: RowLayout,
   view: McpStructuredView,
+  head: readonly StyledBodyLine[] = [],
 ): BoxRenderable {
   const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
@@ -2090,7 +2104,13 @@ function createStructuredRowRenderable(
     width: "100%",
   })
   wrapper.add(gutterNode(ctx, gutter))
-  wrapper.add(
+  const body = new BoxRenderable(ctx, { flexDirection: "column", flexGrow: 1 })
+  for (const line of head) {
+    body.add(
+      new TextRenderable(ctx, { content: new StyledText(diffLineChunks(line)) }),
+    )
+  }
+  body.add(
     new TextTableRenderable(ctx, {
       content: viewToTableContent(view),
       columnWidthMode: "content",
@@ -2100,6 +2120,7 @@ function createStructuredRowRenderable(
       flexGrow: 1,
     }),
   )
+  wrapper.add(body)
   return wrapper
 }
 
@@ -3719,6 +3740,10 @@ export function createAppShell(
     contentOptions: { backgroundColor: UI.ground },
     viewportOptions: { backgroundColor: UI.ground },
   })
+  // The transcript scrolls with the keyboard, and the bar spent a column on
+  // every row to say so. Position is legible from the content itself.
+  transcript.verticalScrollBar.visible = false
+  transcript.horizontalScrollBar.visible = false
 
   // Leading filler that bottom-anchors a short transcript; see
   // `syncTranscriptSpacer`. Zero height until the first sync call.

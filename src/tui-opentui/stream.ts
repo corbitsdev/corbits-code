@@ -79,6 +79,12 @@ export type StreamRow = {
   readonly detail?: readonly StyledBodyLine[]
   /** Settled reasoning: what the row collapses to once thinking is done. */
   readonly thought?: Thought
+  /**
+   * Bounded-rate reveal position for a still-streaming reasoning row — how far
+   * into `text` the scroll line is allowed to show. Absent means show it all
+   * (a settled row, a hydrated transcript, a fixture with no clock driving it).
+   */
+  readonly revealChars?: number
   /** Whether a collapsible body is currently showing in full. */
   readonly expanded?: boolean
   /**
@@ -301,7 +307,7 @@ function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
   if (row.streaming === true) {
     const marker = `${THINKING_BAR} `
     const columns = Math.max(1, layout.width - stringWidth(lead) - stringWidth(marker))
-    return [`${lead}${marker}${thinkingScrollLine(row.text, columns)}`]
+    return [`${lead}${marker}${thinkingScrollLine(row.text, columns, row.revealChars)}`]
   }
   if (row.thought === undefined) return thinkingLines(row.text, layout)
   const expanded = row.expanded === true
@@ -363,9 +369,12 @@ export function toolSentenceLines(row: StreamRow): StyledBodyLine[] {
   const verb = row.verb ?? ""
   const subject = row.summary ?? row.text
   const segments = shellChainSegments(subject)
+  // A verb that already names the whole call ("Linear: list issues") has no
+  // subject to pair with, and a lone subject (a result sentence) has no verb.
+  const head = verb.length === 0 ? "" : subject.length === 0 ? verb : `${verb} `
   const lines: StyledBodyLine[] = segments.map((segment, i) => {
     const lead: StyledBodyLine =
-      i === 0 ? [{ text: `${verb} `, fg }] : [{ text: CHAIN_INDENT, fg }]
+      i === 0 ? [{ text: head, fg }] : [{ text: CHAIN_INDENT, fg }]
     const isLast = i === segments.length - 1
     const body: StyledBodyLine = [{ text: segment, fg: UI.inFlightBright }]
     const chain: StyledBodyLine = isLast ? [] : [{ text: " && \\", fg: UI.textDim }]
@@ -489,6 +498,16 @@ export function isStructuredRow(row: StreamRow): boolean {
   return row.structured !== undefined
 }
 
+/**
+ * Whether this row reads as a sentence — verb plus coloured subject, with an
+ * arrow when there is something behind it. Calls earn it from their verb;
+ * results earn it from the sentence their payload was summarised into.
+ */
+export function isSentenceRow(row: StreamRow): boolean {
+  if (row.role !== "tool") return false
+  return row.verb !== undefined || (row.result === true && row.summary !== undefined)
+}
+
 /** Whether this row paints a diff body instead of its text. */
 export function isDiffRow(row: StreamRow): boolean {
   return row.diff !== undefined
@@ -507,6 +526,7 @@ export function isDetailRow(row: StreamRow): boolean {
 export function isCollapsibleRow(row: StreamRow): boolean {
   if (row.skill !== undefined) return true
   if (row.summary !== undefined && row.detail !== undefined) return true
+  if (row.summary !== undefined && row.structured !== undefined) return true
   if (row.diff !== undefined) return true
   return isThinkingRow(row) && row.thought !== undefined && row.streaming !== true
 }

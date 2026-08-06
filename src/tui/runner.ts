@@ -1633,6 +1633,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // On during the hold and an opt-out before the first action suppresses
   // activation entirely.
   let liveTelemetryIntent = telemetryFirstRun || getTelemetry().enabled;
+  // Off by default: the prompt border's running cost is a distraction most
+  // sessions do not want. /cost stays available regardless.
+  let liveShowPromptCost = config.settings?.showPromptCost ?? false;
   if (telemetryFirstRun) {
     void markTelemetryNoticeShown(trueGlobalSettingsPath).catch(() => {
       // Best-effort: worst case the notice shows again next launch.
@@ -1881,6 +1884,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       ...(config.reasoningEffort !== undefined ? { effort: config.reasoningEffort } : {}),
     }),
     readCostSummary: () => commandContext.getCostSummary?.(),
+    showPromptCost: () => liveShowPromptCost,
     onModelSelect: (id) => {
       const sep = id.indexOf(":");
       if (sep <= 0) return;
@@ -2026,6 +2030,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           maxConcurrentSubAgents: liveMaxConcurrentSubAgents,
           waitForApproval: resolveWaitForApproval(liveToolWatchdog),
           telemetryEnabled: liveTelemetryIntent,
+          showPromptCost: liveShowPromptCost,
         }),
         setCompactionMode: (mode) => {
           liveCompactionMode = mode;
@@ -2068,6 +2073,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         setTelemetryEnabled: (enabled) => {
           liveTelemetryIntent = enabled;
           void onChangeTelemetryEnabled(enabled);
+        },
+        setShowPromptCost: (value) => {
+          liveShowPromptCost = value;
+          host.refreshCostContext();
+          void persistGlobalSettings("show prompt cost", (base) => ({
+            ...base,
+            showPromptCost: value,
+          }));
         },
         hooksSummary: () => {
           const statuses = hookManager.getStatuses();

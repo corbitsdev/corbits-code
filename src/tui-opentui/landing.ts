@@ -323,6 +323,10 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
     id: "shell-landing-hints",
     flexGrow: 1,
     flexDirection: "column",
+    // Centred against the mark's full height rather than sitting at its peak:
+    // top-aligned, the two lines float beside the summit with the whole slope
+    // empty beneath them, which reads as unfinished rather than composed.
+    justifyContent: "center",
     paddingLeft: LANDING_HERO_GAP,
     backgroundColor: UI.ground,
   })

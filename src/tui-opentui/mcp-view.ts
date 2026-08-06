@@ -8,11 +8,16 @@
  *
  * The grid is carried on the row and painted by `TextTableRenderable`, whose
  * native column measurement does the alignment. We do not reimplement layout.
+ *
+ * This module also owns what a tool result *says* when collapsed — one sentence
+ * derived from the shape of the payload ("Grabbed 10 Linear issues") rather
+ * than from the arguments that asked for it, since nobody reads a transcript
+ * for the pagination cursor.
  */
 
 import { fg as fgChunk, bold as boldChunk, type TextChunk } from "@opentui/core"
 
-import { isMcpToolName } from "../mcp/tool-name.js"
+import { isMcpToolName, parseMcpToolName } from "../mcp/tool-name.js"
 import { UI } from "./theme.js"
 import {
   extractMcpRecord,
@@ -20,7 +25,8 @@ import {
   recordScalar,
   type McpRecords,
 } from "../tui/mcp-result-format.js"
-import type { StreamRow } from "./stream.js"
+import { summarizeToolResult } from "../tui/tool-formatter.js"
+import type { StreamRow, StyledBodyLine } from "./stream.js"
 
 export type McpTone =
   | "plain"
@@ -259,6 +265,194 @@ export type ToolResultRowInput = {
   readonly isError?: boolean
 }
 
+/** Bodies at or under this many lines read faster than a sentence about them. */
+const COLLAPSE_MIN_LINES = 4
+
+/** A collapsed body is still a transcript row, not a pager. */
+const MAX_DETAIL_LINES = 60
+
+/** Longest a listed name/description may run before it is cut. */
+const DETAIL_TEXT_MAX = 72
+
+/** The tool a capability search arrives through; its result is a catalogue. */
+const TOOL_SEARCH_TOOL = "tool_search"
+
+function titleCase(word: string): string {
+  return word.length === 0 ? word : `${word[0]!.toUpperCase()}${word.slice(1)}`
+}
+
+function singular(noun: string): string {
+  return noun.endsWith("s") ? noun.slice(0, -1) : noun
+}
+
+function plural(noun: string): string {
+  return noun.endsWith("s") ? noun : `${noun}s`
+}
+
+function countNoun(count: number, noun: string): string {
+  return `${count} ${count === 1 ? singular(noun) : plural(noun)}`
+}
+
+const MCP_TOOL_VERB_PREFIXES = [
+  "list_",
+  "get_",
+  "search_",
+  "find_",
+  "read_",
+  "fetch_",
+  "query_",
+  "save_",
+  "create_",
+  "update_",
+  "delete_",
+]
+
+/**
+ * The thing an MCP tool is about, read off its name: `list_issues` -> "issues",
+ * `get_project` -> "project". Only used to name a count the payload could not
+ * name itself, so a tool whose name carries no noun yields nothing.
+ */
+function nounFromToolName(tool: string): string | undefined {
+  const prefix = MCP_TOOL_VERB_PREFIXES.find((candidate) =>
+    tool.startsWith(candidate),
+  )
+  const rest = (prefix === undefined ? tool : tool.slice(prefix.length)).replace(
+    /_/g,
+    " ",
+  )
+  return rest.length > 0 ? rest : undefined
+}
+
+function cut(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim()
+  return oneLine.length <= DETAIL_TEXT_MAX
+    ? oneLine
+    : `${oneLine.slice(0, DETAIL_TEXT_MAX - 1)}…`
+}
+
+function plainLine(text: string, fg: string = UI.text): StyledBodyLine {
+  return [{ text, fg }]
+}
+
+function bodyLines(content: string): readonly StyledBodyLine[] {
+  const lines = content.split("\n")
+  const shown = lines.slice(0, MAX_DETAIL_LINES).map((line) => plainLine(line))
+  return lines.length > MAX_DETAIL_LINES
+    ? [
+        ...shown,
+        plainLine(`… ${lines.length - MAX_DETAIL_LINES} more lines`, UI.textDim),
+      ]
+    : shown
+}
+
+function detailPlainText(detail: readonly StyledBodyLine[]): string {
+  return detail
+    .map((line) => line.map((segment) => segment.text).join("").trim())
+    .join("\n")
+    .trim()
+}
+
+/**
+ * A body worth an expand affordance: one that says something the summary does
+ * not. An expansion that restates its own summary is worse than no expansion,
+ * so it is dropped here rather than painted with an arrow behind it.
+ */
+function revealing(
+  summary: string,
+  detail: readonly StyledBodyLine[],
+): readonly StyledBodyLine[] | undefined {
+  if (detail.length === 0) return undefined
+  return detailPlainText(detail) === summary.trim() ? undefined : detail
+}
+
+type ResultSummary = {
+  readonly summary: string
+  readonly detail?: readonly StyledBodyLine[]
+}
+
+/** One catalogue entry: the tool's name and what it is for — never its schema. */
+const TOOL_CARD = /^- ([^\s:]+):?\s*(.*)$/
+
+/**
+ * A capability search answers with one card per tool, each carrying a full JSON
+ * input schema. The schema is for the model, never for the transcript, so the
+ * row counts the catalogue and the expansion lists names only.
+ */
+function toolCatalogueSummary(content: string): ResultSummary | null {
+  const cards = content
+    .split("\n")
+    .map((line) => TOOL_CARD.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+  if (cards.length === 0) return null
+
+  const servers = new Set(
+    cards
+      .map((card) => parseMcpToolName(card[1] ?? "")?.server)
+      .filter((server): server is string => server !== undefined),
+  )
+  const summary =
+    servers.size > 0
+      ? `Found ${countNoun(cards.length, "tool")} across ${countNoun(servers.size, "server")}`
+      : `Found ${countNoun(cards.length, "tool")}`
+  const detail = cards.slice(0, MAX_DETAIL_LINES).map((card): StyledBodyLine => {
+    const description = cut(card[2] ?? "")
+    return description.length > 0
+      ? [
+          { text: card[1] ?? "", fg: UI.inFlightBright },
+          { text: `  ${description}`, fg: UI.textDim },
+        ]
+      : [{ text: card[1] ?? "", fg: UI.inFlightBright }]
+  })
+  return { summary, detail }
+}
+
+/** `Grabbed 10 Linear issues` — the count and the noun, not the query. */
+function recordsSummary(toolName: string, records: McpRecords): string {
+  const parsed = parseMcpToolName(toolName)
+  const noun =
+    records.label !== "items"
+      ? records.label
+      : (parsed !== null ? nounFromToolName(parsed.tool) : undefined) ?? "items"
+  const owner = parsed === null ? "" : `${titleCase(parsed.server)} `
+  return `Grabbed ${records.items.length} ${owner}${records.items.length === 1 ? singular(noun) : plural(noun)}`
+}
+
+/** `Read Linear project Alpha` — the thing, named. */
+function recordSummary(
+  toolName: string,
+  record: Record<string, unknown>,
+): string {
+  const parsed = parseMcpToolName(toolName)
+  const noun =
+    parsed !== null ? singular(nounFromToolName(parsed.tool) ?? "record") : "record"
+  const owner = parsed === null ? "" : `${titleCase(parsed.server)} `
+  const title = firstScalar(record, TITLE_FIELDS)
+  return `Read ${owner}${noun}${title === undefined ? "" : ` ${cut(title)}`}`
+}
+
+/**
+ * The one-sentence summary a tool result collapses to, derived from the shape
+ * of what came back rather than from the call that asked for it. Null means the
+ * body is short enough (or literal enough) to read as itself.
+ */
+function resultSummary(input: ToolResultRowInput): ResultSummary | null {
+  const content = input.content
+  if (input.name === TOOL_SEARCH_TOOL) {
+    const catalogue = toolCatalogueSummary(content)
+    if (catalogue !== null) return catalogue
+  }
+  if (isMcpToolName(input.name)) {
+    const records = extractMcpRecords(content)
+    if (records !== null) return { summary: recordsSummary(input.name, records) }
+    const record = extractMcpRecord(content)
+    if (record !== null) return { summary: recordSummary(input.name, record) }
+  }
+  if (content.split("\n").length <= COLLAPSE_MIN_LINES) return null
+  const { preview } = summarizeToolResult(input.name, content)
+  if (preview.trim().length === 0) return null
+  return { summary: preview, detail: bodyLines(content) }
+}
+
 /** The tool a skill load arrives through; its result body is the whole skill. */
 const USE_SKILL_TOOL = "use_skill"
 
@@ -273,22 +467,37 @@ function loadedSkillName(name: string, content: string): string | undefined {
 }
 
 /**
- * Build the transcript row for a tool result, attaching a structured view when
- * the result is a renderable MCP payload. Errors stay literal text.
+ * Build the transcript row for a tool result: one sentence about what came
+ * back, with the body — an aligned MCP table, a catalogue, raw output — behind
+ * the expand key. Errors are neither summarised nor collapsed: a failure is
+ * exactly the thing nobody should have to press a key to read.
  */
 export function toolResultRow(input: ToolResultRowInput): StreamRow {
-  const structured =
-    input.isError === true ? null : mcpStructuredView(input.name, input.content)
-  const skill =
-    input.isError === true ? undefined : loadedSkillName(input.name, input.content)
-  return {
-    role: "tool",
+  const failed = input.isError === true
+  const base = {
+    role: "tool" as const,
     text: input.content,
     meta: input.name,
     result: true,
-    ...(input.isError === true ? { failed: true } : {}),
+  }
+  if (failed) return { ...base, failed: true }
+
+  const skill = loadedSkillName(input.name, input.content)
+  if (skill !== undefined) return { ...base, skill }
+
+  const summarised = resultSummary(input)
+  if (summarised === null) return base
+
+  const structured = mcpStructuredView(input.name, input.content)
+  const detail =
+    summarised.detail === undefined
+      ? undefined
+      : revealing(summarised.summary, summarised.detail)
+  return {
+    ...base,
+    summary: summarised.summary,
     ...(structured !== null ? { structured } : {}),
-    ...(skill !== undefined ? { skill } : {}),
+    ...(detail !== undefined ? { detail } : {}),
   }
 }
 

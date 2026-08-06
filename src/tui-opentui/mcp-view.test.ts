@@ -9,10 +9,16 @@ import {
   extractMcpRecord,
   extractMcpRecords,
 } from "../tui/mcp-result-format.js"
+import { toolCallRow } from "./diff"
 import { withTestRenderer, type Harness } from "./harness"
 import { mcpStructuredView, toolResultRow } from "./mcp-view"
 import { appendStreamRow, createAppShell } from "./shell"
-import { isMarkdownRow, isStructuredRow } from "./stream"
+import {
+  isCollapsibleRow,
+  isMarkdownRow,
+  isStructuredRow,
+  type StreamRow,
+} from "./stream"
 
 const WIDE = { width: 100, height: 24 } as const
 
@@ -113,13 +119,13 @@ describe("mcpStructuredView", () => {
 })
 
 describe("structured transcript rows", () => {
-  test("record list renders aligned columns", async () => {
+  test("record list renders aligned columns once expanded", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts)
-      appendStreamRow(
-        shell,
-        toolResultRow({ name: "mcp__linear__list_projects", content: LIST }),
-      )
+      appendStreamRow(shell, {
+        ...toolResultRow({ name: "mcp__linear__list_projects", content: LIST }),
+        expanded: true,
+      })
 
       const frame = await settle(h)
       expect(frame).toContain("Name")
@@ -131,13 +137,13 @@ describe("structured transcript rows", () => {
     }, WIDE)
   })
 
-  test("single record renders label/value rows", async () => {
+  test("single record renders label/value rows once expanded", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts)
-      appendStreamRow(
-        shell,
-        toolResultRow({ name: "mcp__linear__get_project", content: RECORD }),
-      )
+      appendStreamRow(shell, {
+        ...toolResultRow({ name: "mcp__linear__get_project", content: RECORD }),
+        expanded: true,
+      })
 
       const frame = await settle(h)
       expect(frame).toContain("Status")
@@ -148,5 +154,133 @@ describe("structured transcript rows", () => {
       expect(columnOf(frame, "Status")).toBe(columnOf(frame, "Target Date"))
       expect(columnOf(frame, "In Progress")).toBe(columnOf(frame, "2026-01-31"))
     }, WIDE)
+  })
+})
+
+const SCHEMA = JSON.stringify(
+  {
+    type: "object",
+    properties: { limit: { type: "number", description: "Max results" } },
+  },
+  null,
+  2,
+)
+    .split("\n")
+    .map((line) => `    ${line}`)
+    .join("\n")
+
+const CATALOGUE = [
+  "These tools are available — you can call them now:",
+  "",
+  ...["mcp__linear__list_issues", "mcp__linear__get_issue", "mcp__railway__deploy"].flatMap(
+    (name) => [`- ${name}: does a thing`, "  input schema:", SCHEMA, ""],
+  ),
+].join("\n")
+
+/** Plain text of whatever a row hides behind the expand key. */
+function detailText(row: StreamRow): string {
+  return (row.detail ?? [])
+    .map((line) => line.map((segment) => segment.text).join("").trim())
+    .join("\n")
+    .trim()
+}
+
+describe("collapsed tool results", () => {
+  test("a tool catalogue collapses to a count and never paints a schema", async () => {
+    const row = toolResultRow({ name: "tool_search", content: CATALOGUE })
+    expect(row.summary).toBe("Found 3 tools across 2 servers")
+    expect(isCollapsibleRow(row)).toBe(true)
+
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, row)
+
+      const frame = await settle(h)
+      expect(frame).toContain("Found 3 tools across 2 servers")
+      expect(frame).not.toContain("input schema")
+      expect(frame).not.toContain("properties")
+    }, WIDE)
+  })
+
+  test("an MCP list collapses to the count and the noun, not the query", () => {
+    const row = toolResultRow({ name: "mcp__linear__list_projects", content: LIST })
+    expect(row.summary).toBe("Grabbed 2 Linear projects")
+    expect(isCollapsibleRow(row)).toBe(true)
+    expect(row.structured).toBeDefined()
+  })
+
+  test("a single record collapses to the thing, named", () => {
+    const row = toolResultRow({ name: "mcp__linear__get_project", content: RECORD })
+    expect(row.summary).toBe("Read Linear project Alpha")
+  })
+
+  test("an error result is neither summarised nor collapsed", () => {
+    const row = toolResultRow({
+      name: "mcp__linear__list_projects",
+      content: "workspace unreachable",
+      isError: true,
+    })
+    expect(row.summary).toBeUndefined()
+    expect(row.failed).toBe(true)
+    expect(isCollapsibleRow(row)).toBe(false)
+    expect(row.text).toBe("workspace unreachable")
+  })
+
+  test("a short result stays literal rather than earning a sentence about itself", () => {
+    const row = toolResultRow({ name: "read_file", content: "30 lines" })
+    expect(row.summary).toBeUndefined()
+    expect(isCollapsibleRow(row)).toBe(false)
+  })
+
+  test("an expansion never restates its own summary", () => {
+    const rows = [
+      toolResultRow({ name: "tool_search", content: CATALOGUE }),
+      toolResultRow({
+        name: "run_shell",
+        content: ["one", "two", "three", "four", "five"].join("\n"),
+      }),
+      toolCallRow({
+        name: "tool_search",
+        arguments: JSON.stringify({ query: "Linear issues" }),
+      }),
+      toolCallRow({
+        name: "mcp__linear__list_issues",
+        arguments: JSON.stringify({ assignee: "me", limit: 30 }),
+      }),
+    ]
+    for (const row of rows) {
+      if (row.detail === undefined) continue
+      expect(detailText(row)).not.toBe((row.summary ?? "").trim())
+    }
+  })
+
+  test("a trivial call carries no expand affordance", async () => {
+    const row = toolCallRow({
+      name: "tool_search",
+      arguments: JSON.stringify({ query: "Linear issues" }),
+    })
+    expect(row.detail).toBeUndefined()
+    expect(isCollapsibleRow(row)).toBe(false)
+
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, row)
+
+      const frame = await settle(h)
+      expect(frame).toContain("Linear issues")
+      expect(frame).not.toContain("▸")
+      expect(frame).not.toContain("▾")
+    }, WIDE)
+  })
+
+  test("an MCP call's arguments live behind the expand key, not in its header", () => {
+    const row = toolCallRow({
+      name: "mcp__linear__list_issues",
+      arguments: JSON.stringify({ assignee: "me", limit: 30, orderBy: "updatedAt" }),
+    })
+    expect(row.verb).toBe("Linear: list issues")
+    expect(row.summary).toBe("")
+    expect(detailText(row)).toContain("limit: 30")
+    expect(isCollapsibleRow(row)).toBe(true)
   })
 })

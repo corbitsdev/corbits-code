@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { KeyEvent } from "@opentui/core"
 
+import type { CostSummary } from "../cost/cost-summary.js"
 import type { SubAgentSession } from "../subagent/session-store.js"
 import { createHarness } from "./harness.js"
 import { closeInsetOverlay, runOverlayAction } from "./shell.js"
@@ -11,6 +12,30 @@ import {
   observeSessionFromSubAgents,
   rowFromTranscriptEntry,
 } from "./runner-host.js"
+
+/** The bottom rule holds StyledText; join its chunks for assertions. */
+function ruleOf(rule: { content: unknown }): string {
+  const content = rule.content
+  if (typeof content === "string") return content
+  const { chunks } = content as { chunks?: readonly { text?: string }[] }
+  return (chunks ?? []).map((c) => c.text ?? "").join("")
+}
+
+function fakeCostSummary(): CostSummary {
+  return {
+    modelId: "opus",
+    pricingCache: null,
+    totalCost: 0.42,
+    formattedCost: "$0.42",
+    inputTokens: 100,
+    outputTokens: 50,
+    cacheReadTokens: 0,
+    contextTokens: 1000,
+    costHiddenReason: null,
+    contextWindow: 10000,
+    contextPercentUsed: 10,
+  }
+}
 
 function session(over: Partial<SubAgentSession>): SubAgentSession {
   return {
@@ -111,12 +136,14 @@ describe("mountRunnerHost command surfaces", () => {
             maxConcurrentSubAgents: 3,
             waitForApproval: true,
             telemetryEnabled: false,
+            showPromptCost: false,
           }),
           setCompactionMode: () => {},
           setSessionMode: () => {},
           setMaxConcurrentSubAgents: () => {},
           setWaitForApproval: () => {},
           setTelemetryEnabled: () => {},
+          setShowPromptCost: () => {},
         },
       },
     })
@@ -213,6 +240,65 @@ describe("mountRunnerHost model picker", () => {
       const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent
       expect(runOverlayAction(host.shell, fKey)).toBe(true)
       expect(toggled).toEqual(["xai:grok-4"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+})
+
+describe("bottom border cost run", () => {
+  test("omits the cost run when showPromptCost is unset (default off)", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => fakeCostSummary(),
+    })
+    try {
+      const bottom = ruleOf(host.shell.promptBottomRule)
+      expect(bottom).toContain("10%")
+      expect(bottom).not.toContain("$0.42")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("shows the cost run when showPromptCost reads true, and refreshCostContext repaints it live", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    let showCost = false
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => fakeCostSummary(),
+      showPromptCost: () => showCost,
+    })
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42")
+
+      showCost = true
+      host.refreshCostContext()
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42")
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%")
     } finally {
       host.dispose()
       harness.destroy()

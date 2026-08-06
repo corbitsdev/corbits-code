@@ -53,7 +53,7 @@ import {
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
-import type { Thought } from "./thinking.js"
+import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
 
 /** Transcript echo for a user message, annotated with its attachments. */
 function userRowText(
@@ -259,6 +259,13 @@ type OpenStreamRow = {
   /** Clock the row opened at, so settled reasoning can report how long it took. */
   readonly startedAt: number
   text: string
+  /**
+   * Bounded-rate reveal position for a "thinking" row's scroll line. Unused
+   * for "assistant" rows, which paint their full markdown body as it grows.
+   */
+  revealChars: number
+  /** Clock `revealChars` was last advanced from. */
+  revealAt: number
 }
 
 type BridgeBag = {
@@ -315,6 +322,7 @@ function openRowContent(
   text: string,
   streaming: boolean,
   thought?: Thought,
+  revealChars?: number,
 ): StreamRow {
   if (kind === "assistant") return { role: "assistant", text, streaming }
   return {
@@ -323,6 +331,7 @@ function openRowContent(
     meta: "thinking",
     streaming,
     ...(thought !== undefined ? { thought } : {}),
+    ...(revealChars !== undefined ? { revealChars } : {}),
   }
 }
 
@@ -353,13 +362,30 @@ function growOpenRow(
   const open = bag.openRow
   if (open !== null && open.kind === kind) {
     open.text += text
-    replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true))
+    if (kind === "thinking") advanceOpenReveal(shell, open, bag.now())
+    else replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true))
     return
   }
   closeOpenRow(shell, bag)
+  const now = bag.now()
   const index = streamRowCount(shell)
-  bag.openRow = { kind, index, text, startedAt: bag.now() }
-  appendStreamRow(shell, openRowContent(kind, text, true))
+  bag.openRow = { kind, index, text, startedAt: now, revealChars: 0, revealAt: now }
+  appendStreamRow(shell, openRowContent(kind, text, true, undefined, kind === "thinking" ? 0 : undefined))
+}
+
+/**
+ * Advance a "thinking" row's reveal position at the bounded rate and repaint
+ * if it moved. Called on every delta and on the animation tick, so the line
+ * both grows with new tokens and keeps crawling through buffered text during
+ * a pause in arrival — capped either way by what has actually arrived.
+ */
+function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number): void {
+  const available = flattenReasoningText(open.text).length
+  const revealed = advanceRevealChars(open.revealChars, available, nowMs - open.revealAt)
+  open.revealAt = nowMs
+  if (revealed === open.revealChars) return
+  open.revealChars = revealed
+  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, true, undefined, revealed))
 }
 
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
@@ -482,6 +508,12 @@ export function attachSessionBridge(
     // The landing mark rides this same re-entry: it animates through the
     // draw/fill loop while a turn is live and holds its filled frame otherwise.
     paintLanding(shell, now(), turn.isProcessing)
+    // The reveal position rides the same re-entry as the ramp and landing
+    // mark: it needs to keep crawling through already-arrived text even when
+    // no new delta has landed this tick.
+    if (bag.openRow !== null && bag.openRow.kind === "thinking") {
+      advanceOpenReveal(shell, bag.openRow, now())
+    }
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,

@@ -44,7 +44,7 @@ function fakeMonitor(): {
 }
 
 describe("turn ramp paint", () => {
-  test("a running turn paints a ramp, not a braille spinner", async () => {
+  test("a running turn names its phase, and never a braille spinner", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -58,12 +58,14 @@ describe("turn ramp paint", () => {
           bridge.handle({ type: "run", state: "busy" })
           await h.renderOnce()
 
+          // The border's bottom-left slot carries the running state as a
+          // word. The ramp that used to sit beside it was a second animation
+          // saying the same thing, and the context reading is a plain percent.
           expect(shell.turnPhase).not.toBeNull()
-          expect(shell.turnPhase).toMatch(DENSITY)
           expect(shell.turnPhase).toContain("working")
 
           const frame = h.captureCharFrame()
-          expect(frame).toMatch(DENSITY)
+          expect(frame).toContain("working")
           expect(frame).not.toMatch(BRAILLE)
         } finally {
           bridge.dispose()

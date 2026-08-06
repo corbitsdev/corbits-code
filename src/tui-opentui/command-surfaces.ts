@@ -76,6 +76,7 @@ export type SettingsSnapshot = {
   readonly maxConcurrentSubAgents: number
   readonly waitForApproval: boolean
   readonly telemetryEnabled: boolean
+  readonly showPromptCost: boolean
 }
 
 export type PermissionsSurfaceDeps = {
@@ -131,6 +132,7 @@ export type SettingsSurfaceDeps = {
   readonly setMaxConcurrentSubAgents: (limit: number) => void
   readonly setWaitForApproval: (value: boolean) => void
   readonly setTelemetryEnabled: (value: boolean) => void
+  readonly setShowPromptCost: (value: boolean) => void
   /** Live counts for the hooks row summary. Omitted while hooks discovery is unbuilt. */
   readonly hooksSummary?: () => HooksSurfaceSummary
   /** Opens the hooks surface. Omitted while it is unbuilt (row still shows, Enter no-ops). */
@@ -337,6 +339,15 @@ function settingsCycleRows(
         tone: "consequence",
       },
       cycle: () => settings.setTelemetryEnabled(!snapshot.telemetryEnabled),
+    },
+    {
+      id: "prompt-cost",
+      value: `${"show cost".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.showPromptCost ? "on" : "off")}`,
+      describe: {
+        what: "shows the session's spend in the prompt border, next to the context percentage.",
+        impact: "it's a running total that draws the eye every time it changes — off by default; /cost still gives the full breakdown on demand.",
+      },
+      cycle: () => settings.setShowPromptCost(!snapshot.showPromptCost),
     },
   ]
 }
