@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "bun:test"
 
+import { PROMPT_KEY_BINDINGS } from "./prompt-input"
 import { withTestRenderer, type Harness } from "./harness"
 import {
   PROMPT_BASE_ROWS,
@@ -177,6 +178,16 @@ describe("Enter is still the send key", () => {
       h.pressKey("Enter")
       expect(shell.prompt.value).toBe("")
     })
+  })
+
+  test("the newline binding is qualified ahead of the bare submit", () => {
+    // A first-match table would otherwise resolve Shift+Enter against the bare
+    // `return` submit entry. Whether the modifier ever arrives is the
+    // terminal's business — without the kitty keyboard protocol both Enter and
+    // Shift+Enter are a bare CR — so this asserts the table, not the chord.
+    const names = PROMPT_KEY_BINDINGS.map((b) => `${b.name}:${String("shift" in b)}`)
+    expect(names.indexOf("return:true")).toBeLessThan(names.indexOf("return:false"))
+    expect(names.indexOf("kpenter:true")).toBeLessThan(names.indexOf("kpenter:false"))
   })
 })
 

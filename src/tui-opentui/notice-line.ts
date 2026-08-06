@@ -9,34 +9,24 @@
  * is at its default the row composes to the empty string and the shell hides
  * it, giving the row back to the transcript.
  *
- * The live turn contributes its density ramp and nothing else: the animated
- * lockup in the border already says work is running, so the word would be a
- * second copy of the same signal.
+ * A live turn contributes nothing here. The prompt border already carries the
+ * running state — the bottom-left slot swaps the wordmark for the live phase,
+ * and the meter beside it moves — so a ramp on this row was a second animation
+ * saying the same thing, one row above the first.
  *
  * Pure: no renderer access, so the wording is testable without a frame.
  */
 
 const SEP = "    "
 
-/** Density glyphs the ramp is drawn from (see ./ramp.ts). */
-const RAMP_GLYPHS = /^[░▒▓█]+/u
-
 export type NoticeState = {
   readonly queue: number
   readonly interrupt: boolean
   /** Transcript scrolled off the tail (non-default follow state). */
   readonly pinned: boolean
-  /** Live turn line (`███▒░  working`) or null when idle. */
-  readonly phase: string | null
   /** Transient feedback (copy result, attach failure, exit arming). */
   readonly flash: string | null
   readonly attachments: number
-}
-
-/** The ramp glyphs at the head of a turn line, without the phase word. */
-export function rampPrefix(phase: string | null): string {
-  if (phase === null) return ""
-  return RAMP_GLYPHS.exec(phase.trim())?.[0] ?? ""
 }
 
 /**
@@ -45,8 +35,6 @@ export function rampPrefix(phase: string | null): string {
  */
 export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = []
-  const ramp = rampPrefix(state.phase)
-  if (ramp.length > 0) segments.push(ramp)
   if (state.queue > 0) segments.push(`queue ${state.queue}`)
   if (state.pinned) segments.push("pinned")
   if (state.interrupt) segments.push("interrupt")

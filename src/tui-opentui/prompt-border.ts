@@ -233,7 +233,6 @@ export type CostContextInput = {
 
 export type CostContextMeter = {
   /** Density-ramp glyphs, `RAMP_WIDTH` cells, fill proportional to `percent`. */
-  readonly ramp: string
   readonly percentLabel: string
   readonly costLabel: string | null
   /** True once `percent` has crossed `CONTEXT_PRESSURE_THRESHOLD`. */
@@ -250,16 +249,19 @@ export function composeCostContextMeter(input: CostContextInput): CostContextMet
   const percent = Math.max(0, Math.min(100, Math.round(input.contextPercentUsed)))
   const cost = input.costLabel?.trim() ?? ""
   return {
-    ramp: renderRamp(percent / 100),
     percentLabel: `${String(percent)}%`,
     costLabel: cost.length > 0 ? cost : null,
     pressured: percent / 100 >= CONTEXT_PRESSURE_THRESHOLD,
   }
 }
 
-/** `ramp percent%` or, with cost included, `ramp percent% · cost`. */
+/**
+ * `percent%`, or `percent% · cost` with cost included. A plain reading, not a
+ * ramp: the bottom-left slot is where this border moves, and a second animated
+ * run competing with it made the rule read as two indicators rather than one.
+ */
 export function costContextText(meter: CostContextMeter, includeCost: boolean): string {
-  const base = `${meter.ramp} ${meter.percentLabel}`
+  const base = meter.percentLabel
   return includeCost && meter.costLabel !== null ? `${base} · ${meter.costLabel}` : base
 }
 

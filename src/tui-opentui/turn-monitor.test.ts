@@ -231,9 +231,10 @@ describe("turn progress label", () => {
         t.advance(1_000)
         expect(t.shell.turnPhase).toBe(frozen)
 
-        // The word never reaches the row: only the frozen ramp does.
+        // The running state lives in the border, not the transient row: the
+        // row would be a second indicator one line above the first.
         expect(noticeText(t.shell)).not.toContain("blocked")
-        expect(noticeText(t.shell)).toMatch(/[░▒▓█]/u)
+        expect(noticeText(t.shell)).not.toMatch(/[░▒▓█]/u)
       } finally {
         t.bridge.dispose()
       }

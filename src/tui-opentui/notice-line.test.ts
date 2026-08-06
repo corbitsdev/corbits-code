@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { composeNoticeLine, rampPrefix, type NoticeState } from "./notice-line"
+import { composeNoticeLine, type NoticeState } from "./notice-line"
 
 const state = (over: Partial<NoticeState> = {}): NoticeState => ({
   queue: 0,
   interrupt: false,
   pinned: false,
-  phase: null,
   flash: null,
   attachments: 0,
   ...over,
@@ -17,11 +16,6 @@ describe("composeNoticeLine", () => {
     expect(composeNoticeLine(state())).toBe("")
   })
 
-  test("a live turn contributes its ramp and not the phase word", () => {
-    const line = composeNoticeLine(state({ phase: "███▓▒░  working" }))
-    expect(line).toBe("███▓▒░")
-    expect(line).not.toContain("working")
-  })
 
   test("default state segments stay off the row", () => {
     const line = composeNoticeLine(state({ queue: 0, pinned: false }))
@@ -47,7 +41,7 @@ describe("composeNoticeLine", () => {
 
   test("no keys strip survives anywhere in the composition", () => {
     const line = composeNoticeLine(
-      state({ queue: 1, interrupt: true, phase: "██  thinking" }),
+      state({ queue: 1, interrupt: true }),
     )
     expect(line).not.toContain("commands")
     expect(line).not.toContain("files")
@@ -55,10 +49,3 @@ describe("composeNoticeLine", () => {
   })
 })
 
-describe("rampPrefix", () => {
-  test("takes the density glyphs and stops at the label", () => {
-    expect(rampPrefix("███▓▒░  working · 14s")).toBe("███▓▒░")
-    expect(rampPrefix(null)).toBe("")
-    expect(rampPrefix("working")).toBe("")
-  })
-})

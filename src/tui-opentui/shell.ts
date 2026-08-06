@@ -701,7 +701,6 @@ export function noticeText(shell: AppShell): string {
     queue: shell.pendingQueue,
     interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
-    phase: shell.turnPhase,
     flash: shell.statusFlash,
     attachments: shell.pendingAttachments.length,
   })
@@ -1274,7 +1273,7 @@ export function setPromptCostContext(
 
 function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): boolean {
   if (a === null || b === null) return a === b
-  return a.ramp === b.ramp && a.percentLabel === b.percentLabel && a.costLabel === b.costLabel
+  return a.percentLabel === b.percentLabel && a.costLabel === b.costLabel
 }
 
 /**
@@ -2676,19 +2675,28 @@ export function closeInsetOverlay(shell: AppShell): void {
 export const OVERLAY_EXPAND_KEY = EXPAND_KEY
 
 /**
- * Expand or collapse the newest transcript row that hides a body behind a
- * summary: a loaded skill, a summarised tool call, settled reasoning. Same key
- * as the overlay's collapsed payloads, so the product has one expand idiom.
- * False when there is nothing to expand.
+ * Expand or collapse every transcript row that hides a body behind a summary:
+ * loaded skills, summarised tool calls, settled reasoning. Same key as the
+ * overlay's collapsed payloads, so the product has one expand idiom.
+ *
+ * All-or-nothing rather than one row at a time: with several collapsed rows on
+ * screen, expanding the newest and leaving the rest reads as the key having
+ * missed. Any row still collapsed means the whole set opens; only once nothing
+ * is left to open does the key close them again.
+ *
+ * False when no row on the log can expand at all.
  */
 export function toggleCollapsedRow(shell: AppShell): boolean {
-  for (let i = shell.streamLog.length - 1; i >= 0; i--) {
-    const row = shell.streamLog[i]
-    if (row === undefined || !isCollapsibleRow(row)) continue
-    replaceStreamRowAt(shell, i, { ...row, expanded: row.expanded !== true })
-    return true
+  const collapsible = shell.streamLog.flatMap((row, index) =>
+    row !== undefined && isCollapsibleRow(row) ? [{ row, index }] : [],
+  )
+  if (collapsible.length === 0) return false
+  const expand = collapsible.some(({ row }) => row.expanded !== true)
+  for (const { row, index } of collapsible) {
+    if ((row.expanded === true) === expand) continue
+    replaceStreamRowAt(shell, index, { ...row, expanded: expand })
   }
-  return false
+  return true
 }
 
 /** Replace the open overlay's body text in place (re-wrap + relayout). */

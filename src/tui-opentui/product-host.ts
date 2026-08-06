@@ -216,6 +216,11 @@ export async function mountProductHost(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
+        // Without the kitty keyboard protocol a terminal sends a bare CR for
+        // both Enter and Shift+Enter, so the newline chord is unreachable and
+        // Ctrl+J is the only way to open a line. Terminals that negotiate the
+        // protocol report the modifier; those that do not are unaffected.
+        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
       })
 
   const shell = createAppShell(renderer, {

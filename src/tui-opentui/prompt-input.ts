@@ -32,12 +32,14 @@ export type PromptInput = TextareaRenderable & { value: string }
  * Shift+Enter where the terminal reports the modifier, Ctrl+J (`linefeed`)
  * everywhere else.
  */
-const PROMPT_KEY_BINDINGS = [
-  { name: "return", action: "submit" },
-  { name: "kpenter", action: "submit" },
+// Modifier-qualified entries lead: a first-match table would otherwise resolve
+// Shift+Enter against the bare `return` submit binding and send the message.
+export const PROMPT_KEY_BINDINGS = [
   { name: "return", shift: true, action: "newline" },
   { name: "kpenter", shift: true, action: "newline" },
   { name: "linefeed", action: "newline" },
+  { name: "return", action: "submit" },
+  { name: "kpenter", action: "submit" },
 ] as const satisfies TextareaOptions["keyBindings"]
 
 export type PromptInputOptions = Omit<

@@ -158,15 +158,14 @@ describe("composeCostContextMeter", () => {
     expect(composeCostContextMeter({ contextPercentUsed: null })).toBeNull()
   })
 
-  test("carries the ramp, percent and cost", () => {
+  test("carries the percent and cost", () => {
     const meter = composeCostContextMeter({ contextPercentUsed: 68, costLabel: "$0.42" })
     expect(meter).not.toBeNull()
     expect(meter!.percentLabel).toBe("68%")
     expect(meter!.costLabel).toBe("$0.42")
-    expect(meter!.ramp.length).toBeGreaterThan(0)
   })
 
-  test("drops the cost suffix when told to, keeping the ramp and percent", () => {
+  test("drops the cost suffix when told to, keeping the percent", () => {
     const meter = composeCostContextMeter({ contextPercentUsed: 68, costLabel: "$0.42" })!
     expect(costContextText(meter, true)).toContain("$0.42")
     expect(costContextText(meter, false)).not.toContain("$0.42")
