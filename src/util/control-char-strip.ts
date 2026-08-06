@@ -4,7 +4,7 @@
 // cursor, rewrite the scrollback, or fire OSC 52 clipboard/OSC 8 hyperlink
 // side effects. Tool results are rendered as plain text, so none of this is
 // "intentionally-emitted styling" — that only happens in the app's own
-// renderer layer (see src/tui/osc8.ts, src/util/alt-screen.ts), which this
+// renderer layer (see src/tui/osc8.ts), which this
 // sanitizer never touches.
 
 // String-type sequences (OSC, DCS, PM, APC) run until the ST terminator
